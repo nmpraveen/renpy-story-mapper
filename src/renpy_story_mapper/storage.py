@@ -171,16 +171,48 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             str(row[0])
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
         }
+        strict_tables = {
+            str(row[1]): int(row[5])
+            for row in connection.execute("PRAGMA table_list")
+            if str(row[2]) == "table"
+        }
+        primary_keys = {
+            "project_metadata": ("key",),
+            "sources": ("path",),
+            "payloads": ("collection", "record_key"),
+            "payload_dependencies": ("collection", "record_key", "source_path"),
+            "schema_migrations": ("version",),
+        }
+        nullable = {("sources", "modified_ns")}
         for table, expected_columns in required.items():
             if table not in tables:
                 raise ProjectCorruptError(f"project is missing required table {table!r}")
-            columns = {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
+            column_rows = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
+            columns = {str(row[1]) for row in column_rows}
             missing = expected_columns - columns
             if missing:
                 names = ", ".join(sorted(missing))
                 raise ProjectCorruptError(
                     f"project table {table!r} is missing required columns: {names}"
                 )
+            if strict_tables.get(table) != 1:
+                raise ProjectCorruptError(f"project table {table!r} must be STRICT")
+            actual_key = tuple(
+                str(row[1])
+                for row in sorted(column_rows, key=lambda item: int(item[5]))
+                if int(row[5]) > 0
+            )
+            if actual_key != primary_keys[table]:
+                raise ProjectCorruptError(f"project table {table!r} has an invalid primary key")
+            for row in column_rows:
+                column = str(row[1])
+                if (
+                    column in expected_columns
+                    and (table, column) not in nullable
+                    and int(row[3]) != 1
+                    and int(row[5]) == 0
+                ):
+                    raise ProjectCorruptError(f"project column {table}.{column} must be NOT NULL")
         indexes = {
             str(row[0])
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'index'")
@@ -189,6 +221,30 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
         raise ProjectCorruptError("project schema could not be validated") from exc
     if "payload_dependencies_source_idx" not in indexes:
         raise ProjectCorruptError("project is missing its dependency lookup index")
+    index_columns = tuple(
+        str(row[2])
+        for row in connection.execute('PRAGMA index_info("payload_dependencies_source_idx")')
+    )
+    if index_columns != ("source_path",):
+        raise ProjectCorruptError("project dependency lookup index has invalid columns")
+    foreign_keys = {
+        (str(row[2]), str(row[3]), str(row[4]), str(row[6]).upper())
+        for row in connection.execute('PRAGMA foreign_key_list("payload_dependencies")')
+    }
+    expected_foreign_keys = {
+        ("payloads", "collection", "collection", "CASCADE"),
+        ("payloads", "record_key", "record_key", "CASCADE"),
+        ("sources", "source_path", "path", "CASCADE"),
+    }
+    if foreign_keys != expected_foreign_keys:
+        raise ProjectCorruptError("project dependency foreign keys are invalid")
+    source_sql_row = connection.execute(
+        "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'sources'"
+    ).fetchone()
+    source_sql = "" if source_sql_row is None else str(source_sql_row[0])
+    normalized_source_sql = " ".join(source_sql.lower().split())
+    if "check (size_bytes >= 0)" not in normalized_source_sql:
+        raise ProjectCorruptError("project sources table is missing its size constraint")
 
 
 @contextmanager

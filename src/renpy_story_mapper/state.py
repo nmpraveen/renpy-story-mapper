@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -516,6 +517,8 @@ def _literal_scalar(node: ast.expr) -> tuple[bool, JsonScalar]:
     try:
         value = ast.literal_eval(node)
     except (ValueError, TypeError, SyntaxError):
+        return False, None
+    if isinstance(value, float) and not math.isfinite(value):
         return False, None
     if value is None or isinstance(value, str | int | float | bool):
         return True, value

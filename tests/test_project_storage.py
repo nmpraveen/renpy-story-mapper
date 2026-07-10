@@ -158,6 +158,41 @@ def test_matching_header_with_missing_schema_fails_as_corrupt(tmp_path: Path) ->
         Project.open(malformed)
 
 
+def test_matching_names_without_required_constraints_fail_as_corrupt(tmp_path: Path) -> None:
+    malformed = tmp_path / "missing-constraints.rsmp"
+    connection = sqlite3.connect(malformed)
+    connection.executescript(
+        """
+        CREATE TABLE project_metadata (
+            key TEXT NOT NULL, value_json BLOB NOT NULL, updated_utc TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE sources (
+            path TEXT NOT NULL, content_hash TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+            modified_ns INTEGER, metadata_json BLOB NOT NULL, refreshed_utc TEXT NOT NULL,
+            fingerprint_kind TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE payloads (
+            collection TEXT NOT NULL, record_key TEXT NOT NULL, payload_json BLOB NOT NULL,
+            payload_hash TEXT NOT NULL, updated_utc TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE payload_dependencies (
+            collection TEXT NOT NULL, record_key TEXT NOT NULL, source_path TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE schema_migrations (
+            version INTEGER NOT NULL, applied_utc TEXT NOT NULL
+        ) STRICT;
+        CREATE INDEX payload_dependencies_source_idx
+            ON payload_dependencies(source_path);
+        """
+    )
+    connection.execute(f"PRAGMA application_id = {storage.APPLICATION_ID}")
+    connection.execute(f"PRAGMA user_version = {storage.SCHEMA_VERSION}")
+    connection.close()
+
+    with pytest.raises(storage.ProjectCorruptError, match="invalid primary key"):
+        Project.open(malformed)
+
+
 def test_backup_restore_delete_and_failed_create_temp_file_discipline(tmp_path: Path) -> None:
     path = tmp_path / "lifecycle.rsmp"
     backup = tmp_path / "backups" / "story.bak"

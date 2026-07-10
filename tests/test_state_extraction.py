@@ -195,6 +195,22 @@ def test_callable_names_are_not_registered_as_state_variables() -> None:
     assert {item.original_name for item in analysis.variables} == {"gate_name", "store"}
 
 
+def test_non_finite_numeric_literals_are_unresolved() -> None:
+    analysis = analyze(
+        [
+            "label start:\n",
+            "    $ love += 1e309\n",
+            "    $ money = -1e309\n",
+        ]
+    )
+
+    assert all(effect.status is FactStatus.UNRESOLVED for effect in analysis.effects)
+    assert [effect.reason for effect in analysis.effects] == [
+        "computed_or_non_numeric_delta",
+        "computed_assignment_value",
+    ]
+
+
 def test_output_is_json_ready_and_deterministic_across_module_order() -> None:
     first = parse_script("b.rpy", ["label b:\n", "    money = 5\n"])
     second = parse_script("a.rpy", ["label a:\n", "    love += 1\n"])
