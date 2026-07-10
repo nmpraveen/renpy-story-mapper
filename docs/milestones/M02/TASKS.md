@@ -10,8 +10,8 @@ Runtime authority: Windows with CPython 3.12
 
 | Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pending creation | M02 - Semantic model and grouping engine | Semantic schema, deterministic grouping, structural boundaries, provenance, conservative classification | Separate Codex worktree from milestone base | `src/renpy_story_mapper/semantic.py` and directly related new semantic-model modules only | Planned | - |
-| Pending creation | M02 - Fixtures and behavioral tests | Representative fixtures and behavioral contract tests | Separate Codex worktree from milestone base | `tests/fixtures/semantic/`, `tests/test_semantic.py` | Planned | - |
+| `019f4d88-982d-7881-bf5d-6ad79d43bffc` | M02 - Semantic model and grouping engine | Semantic schema, deterministic grouping, structural boundaries, provenance, conservative classification | `worker/m02-semantic-engine`; `C:\Users\prave\.codex\worktrees\ee57\Renpy` | `src/renpy_story_mapper/semantic.py` and directly related new semantic-model modules only | Active | - |
+| `019f4d88-982d-7881-bf5d-6af22b8f6c4e` | M02 - Fixtures and behavioral tests | Representative fixtures and behavioral contract tests | `worker/m02-semantic-tests`; `C:\Users\prave\.codex\worktrees\ce67\Renpy` | `tests/fixtures/semantic/`, `tests/test_semantic.py` | Active | - |
 | Pending integration | M02 - Independent correctness review | Review the integrated M02 diff for semantics, determinism, provenance, safety, and regressions | Separate Codex worktree from integrated milestone head | Review-only; no implementation files unless explicitly reassigned | Planned | - |
 
 The orchestrator owns CLI integration, any changes outside the assigned worker files, conflict
