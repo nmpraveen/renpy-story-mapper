@@ -1,2 +1,103 @@
-# renpy-story-mapper
-Safe, non-executing Ren'Py archive inspector and source-linked story graph analyzer
+# Ren'Py Story Mapper — Phase 1 Analyzer
+
+This repository contains the Phase 1 proof for a future local-first Windows story mapper. It
+inspects RPA 3.0 archives without extracting them, prefers available `.rpy` source over `.rpyc`,
+and emits a source-linked directed control-flow graph. It does **not** initialize Ren'Py, import a
+game, execute init/Python/creator code, evaluate script expressions, or decompile compiled scripts.
+
+## Safety model
+
+- The RPA index is decompressed with explicit compressed/decompressed limits.
+- Pickle globals and persistent IDs are rejected by a restrictive unpickler.
+- Archive paths, chunk types, offsets, lengths, entry/chunk counts, per-entry sizes, and aggregate
+  logical read work are validated.
+- Source is decoded and streamed directly from the read-only archive; nothing is extracted beside
+  the game.
+- A purpose-built inert lexer/parser recognizes static built-in control flow. Python, creator
+  statements, and unsupported blocks remain opaque and can produce unresolved graph nodes.
+- Dynamic `jump expression` / `call expression` targets are retained as text but never evaluated.
+
+The graph semantics follow Ren'Py's documented/official AST reachability model: ordinary
+fallthrough, menu reunion plus possible no-choice fallthrough, conditional merges, static jump
+transfer, call target plus an explicit return-site summary, and return edges from known callees.
+The implementation is original and does not import or vendor the Ren'Py runtime.
+
+References:
+
+- <https://www.renpy.org/doc/html/label.html>
+- <https://www.renpy.org/doc/html/menus.html>
+- <https://github.com/renpy/renpy/blob/master/renpy/ast.py>
+- <https://github.com/renpy/renpy/blob/master/renpy/parser.py>
+
+## Windows setup
+
+Requires CPython 3.12.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+If PowerShell activation is disabled, invoke `.\.venv\Scripts\python.exe` directly as shown below.
+
+## Analyze an archive
+
+Graph over all imported source labels, with reachability marked from `label start`:
+
+```powershell
+.\.venv\Scripts\python.exe -m renpy_story_mapper analyze `
+  "C:\path\to\scripts.rpa" `
+  --output-dir artifacts\sample `
+  --entry-label start
+```
+
+Restrict label definitions to selected source files while retaining explicit out-of-scope boundary
+nodes:
+
+```powershell
+.\.venv\Scripts\python.exe -m renpy_story_mapper analyze `
+  "C:\path\to\scripts.rpa" `
+  --output-dir artifacts\prologue-chapter-1 `
+  --entry-label start `
+  --scope-glob "*script.rpy" `
+  --scope-glob "*chapter1*.rpy"
+```
+
+The output directory contains deterministic `import-manifest.json` and `story-graph.json` files.
+The manifest includes every entry's path, uncompressed size, SHA-256, extension, source/compiled
+pairing, selection reason, and a before/after archive-integrity check. The graph contains stable
+node IDs, directed typed edges, exact source spans/text, diagnostics, unresolved reasons, and a
+`reachable_from_entry` flag. Scoped graphs retain every label CFG in scope even when interactive or
+dynamic behavior prevents proving a static path from `start`.
+
+Inventory only:
+
+```powershell
+.\.venv\Scripts\python.exe -m renpy_story_mapper inspect `
+  "C:\path\to\scripts.rpa" `
+  --output artifacts\import-manifest.json
+```
+
+## Tests and static checks
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m mypy src
+```
+
+## Phase 1 boundaries
+
+Supported graph authority: labels, fallthrough, string-literal menu choices, if/elif/else, jump,
+call, return, and explicit unresolved nodes. The parser is deliberately conservative. It does not
+attempt full Ren'Py language compatibility, `.rpyc` decompilation, expression truth evaluation,
+creator-defined statement parsing, Python control-flow inference, screen/ATL analysis, or game
+execution. Interactive `call screen` statements therefore retain sequential fallthrough plus an
+explicit unresolved-interaction edge. Those boundaries are security properties, not missing
+runtime dependencies.
+
+Phase 2 may add an import worker/API and local desktop visualization over these JSON contracts. It
+should continue treating the analyzer as a non-executing process and must not add AI summarization
+or creator-code execution implicitly.
