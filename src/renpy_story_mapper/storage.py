@@ -224,6 +224,12 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 raise ProjectCorruptError(
                     f"project table {table!r} is missing required columns: {names}"
                 )
+            unexpected = columns - expected_columns
+            if unexpected:
+                names = ", ".join(sorted(unexpected))
+                raise ProjectCorruptError(
+                    f"project table {table!r} has unexpected columns: {names}"
+                )
             if strict_tables.get(table) != 1:
                 raise ProjectCorruptError(f"project table {table!r} must be STRICT")
             actual_key = tuple(

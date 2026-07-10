@@ -214,6 +214,18 @@ def test_matching_schema_with_wrong_declared_type_fails_as_corrupt(tmp_path: Pat
         Project.open(malformed)
 
 
+def test_matching_schema_with_unexpected_column_fails_as_corrupt(tmp_path: Path) -> None:
+    malformed = tmp_path / "unexpected-column.rsmp"
+    with Project.create(malformed):
+        pass
+    connection = sqlite3.connect(malformed)
+    connection.execute("ALTER TABLE project_metadata ADD COLUMN surprise TEXT")
+    connection.close()
+
+    with pytest.raises(storage.ProjectCorruptError, match="unexpected columns: surprise"):
+        Project.open(malformed)
+
+
 def test_backup_restore_delete_and_failed_create_temp_file_discipline(tmp_path: Path) -> None:
     path = tmp_path / "lifecycle.rsmp"
     backup = tmp_path / "backups" / "story.bak"
