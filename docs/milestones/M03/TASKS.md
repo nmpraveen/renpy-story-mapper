@@ -10,9 +10,9 @@ Runtime authority: Windows with CPython 3.12
 
 | Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pending | M03 - SQLite project persistence | Versioned schema, migrations, durable records, project lifecycle, incremental refresh, cancellation and recovery | Codex worktree from milestone base | Project persistence source plus focused storage tests | Creating | Pending |
-| Pending | M03 - Deterministic state extraction | Requirements, explicit effects, literal-argument calls, state registry and evidence/status model | Codex worktree from milestone base | State-analysis source plus focused extraction tests | Creating | Pending |
-| Pending | M03 - Fixtures and contract tests | Independent behavior contracts for persistence, incremental invalidation, state facts, unsafe cases and corruption | Codex worktree from milestone base | M03 fixtures and black-box acceptance tests | Creating | Pending |
+| `019f4e18-a30e-71e1-984e-decff4c61faf` | M03 - SQLite project persistence | Versioned schema, migrations, durable records, project lifecycle, incremental refresh, cancellation and recovery | `C:\Users\prave\.codex\worktrees\931a\Renpy` from milestone base; worker branch assigned by Codex | Project persistence source plus `tests/test_project_storage.py` | Active | Pending |
+| `019f4e18-a276-7e73-84f5-8e9649eb85b8` | M03 - Deterministic state extraction | Requirements, explicit effects, literal-argument calls, state registry and evidence/status model | `C:\Users\prave\.codex\worktrees\8654\Renpy` from milestone base; worker branch assigned by Codex | State-analysis source plus `tests/test_state_extraction.py` | Active | Pending |
+| `019f4e18-a314-73e2-b8e5-14bf93425b48` | M03 - Fixtures and contract tests | Independent behavior contracts for persistence, incremental invalidation, state facts, unsafe cases and corruption | `C:\Users\prave\.codex\worktrees\dcf1\Renpy` from milestone base; worker branch assigned by Codex | `tests/fixtures/m03/` and `tests/test_m03_contract.py` | Active | Pending |
 | Pending | M03 - Independent correctness review | Review integrated M03 for persistence fidelity, invalidation, provenance, safety and regressions | Review worktree created after integration | Review-only unless explicitly reassigned | Not started | Pending |
 
 The orchestrator owns cross-module integration, CLI/diagnostic harness changes, conflicts, the
