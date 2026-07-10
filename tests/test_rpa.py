@@ -213,6 +213,35 @@ def test_archive_project_is_durable_incremental_and_read_only(tmp_path: Path) ->
     assert fingerprint_file(archive_path) == before
 
 
+def test_archive_refresh_updates_manifest_for_non_source_changes(tmp_path: Path) -> None:
+    source = b"label start:\n    return\n"
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {"game/script.rpy": source, "game/script.rpyc": b"compiled-one"},
+    )
+    project_path = tmp_path / "story.rsmproj"
+    project = create_archive_project(project_path, archive_path)
+    first_manifest = project.payload("import_manifest", "authoritative")
+    project.close()
+
+    make_archive(
+        archive_path,
+        {"game/script.rpy": source, "game/script.rpyc": b"compiled-two-longer"},
+    )
+    report = refresh_archive_project(project_path, archive_path)
+    assert report.parsed_sources == ()
+    assert report.reused_sources == ("game/script.rpy",)
+
+    reopened = open_project(project_path)
+    try:
+        second_manifest = reopened.payload("import_manifest", "authoritative")
+    finally:
+        reopened.close()
+    assert isinstance(first_manifest, dict)
+    assert isinstance(second_manifest, dict)
+    assert first_manifest["archive"] != second_manifest["archive"]
+
+
 def test_project_cli_create_show_refresh_and_delete(tmp_path: Path) -> None:
     archive_path = make_archive(
         tmp_path / "scripts.rpa",

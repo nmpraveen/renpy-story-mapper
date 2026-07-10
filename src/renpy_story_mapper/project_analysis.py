@@ -61,7 +61,10 @@ def create_folder_project(
     )
     try:
         _refresh_open_project(
-            project, _read_source_tree(root), entry_label="start", cancel_check=cancel_check
+            project,
+            _read_source_tree(root, cancel_check=cancel_check),
+            entry_label="start",
+            cancel_check=cancel_check,
         )
         return project
     except BaseException:
@@ -77,12 +80,14 @@ def refresh_folder_project(
 ) -> RefreshReport:
     root = _source_root(source_root)
     project_path = Path(database_path).resolve(strict=True)
-    content = _read_source_tree(root)
+    _check_cancelled(cancel_check)
+    content = _read_source_tree(root, cancel_check=cancel_check)
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     _check_cancelled(cancel_check)
     original = Project.open(project_path)
     try:
         if _content_matches(original, content):
+            _check_cancelled(cancel_check)
             return RefreshReport((), tuple(sorted(content)), ())
         original.backup(temporary)
     finally:
@@ -151,6 +156,19 @@ def refresh_rpa_project(
     original = Project.open(project_path)
     try:
         if _content_matches(original, content):
+            _check_cancelled(cancel_check)
+            if original.payload("import_manifest", "authoritative") != manifest:
+                original.write_payloads(
+                    [
+                        PayloadRecord(
+                            "import_manifest",
+                            "authoritative",
+                            manifest,
+                            tuple(sorted(content)),
+                        )
+                    ],
+                    cancelled=cancel_check,
+                )
             return RefreshReport((), tuple(sorted(content)), ())
         original.backup(temporary)
     finally:
@@ -426,9 +444,10 @@ def _payload_lists(project: Project, collection: str) -> list[object]:
     return result
 
 
-def _read_source_tree(root: Path) -> dict[str, bytes]:
+def _read_source_tree(root: Path, *, cancel_check: CancelCheck) -> dict[str, bytes]:
     result: dict[str, bytes] = {}
     for candidate in sorted(root.rglob("*.rpy"), key=lambda item: item.as_posix().casefold()):
+        _check_cancelled(cancel_check)
         if not candidate.is_file():
             continue
         resolved = candidate.resolve(strict=True)
@@ -437,6 +456,7 @@ def _read_source_tree(root: Path) -> dict[str, bytes]:
         except ValueError as exc:
             raise ValueError(f"source path escapes the selected root: {candidate}") from exc
         result[relative] = resolved.read_bytes()
+    _check_cancelled(cancel_check)
     if not result:
         raise ValueError(f"source folder contains no .rpy files: {root}")
     return result
@@ -445,9 +465,11 @@ def _read_source_tree(root: Path) -> dict[str, bytes]:
 def _read_archive_sources(
     archive_path: Path, *, cancel_check: CancelCheck
 ) -> tuple[dict[str, bytes], dict[str, object]]:
+    _check_cancelled(cancel_check)
     before = fingerprint_file(archive_path)
     archive = RpaArchive(archive_path)
     inventory = inventory_archive(archive, before)
+    _check_cancelled(cancel_check)
     content: dict[str, bytes] = {}
     for entry in inventory.selected_sources:
         _check_cancelled(cancel_check)

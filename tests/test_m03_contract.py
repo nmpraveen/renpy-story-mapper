@@ -376,6 +376,23 @@ def test_cancelled_refresh_preserves_last_committed_authoritative_data(
     _close(reopened)
 
 
+def test_already_cancelled_refresh_reads_no_source_files(
+    project_api: ModuleType,
+    source_tree: Path,
+    project_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = project_api.create_project(project_path, source_tree)
+    _close(project)
+
+    def reject_read(_path: Path) -> bytes:
+        raise AssertionError("source content was read after cancellation")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_read)
+    with pytest.raises(project_api.ProjectCancelledError):
+        project_api.refresh_project(project_path, source_tree, cancel_check=lambda: True)
+
+
 def test_corrupt_project_fails_safely_without_rewriting_input(
     project_api: ModuleType, project_path: Path
 ) -> None:
