@@ -12,7 +12,7 @@ Runtime authority: Windows with CPython 3.12
 | --- | --- | --- | --- | --- | --- | --- |
 | `019f4d88-982d-7881-bf5d-6ad79d43bffc` | M02 - Semantic model and grouping engine | Semantic schema, deterministic grouping, structural boundaries, provenance, conservative classification | `worker/m02-semantic-engine`; `C:\Users\prave\.codex\worktrees\ee57\Renpy` | `src/renpy_story_mapper/semantic.py` | Complete and integrated | Worker `22f8488`, correction `0337303`; integrated as `f02b5d5` and `6b5fea9` |
 | `019f4d88-982d-7881-bf5d-6af22b8f6c4e` | M02 - Fixtures and behavioral tests | Representative fixtures and behavioral contract tests | `worker/m02-semantic-tests`; `C:\Users\prave\.codex\worktrees\ce67\Renpy` | `tests/fixtures/semantic/`, `tests/test_semantic.py` | Complete and integrated | Worker `e4cef60`; integrated as `d2ffa71` |
-| Pending creation | M02 - Independent correctness review | Review the integrated M02 diff for semantics, determinism, provenance, safety, and regressions | Separate Codex worktree from integrated milestone head | Review-only; no implementation files unless explicitly reassigned | Planned | - |
+| `019f4d92-65df-7202-83b9-c5957d24c66c` | M02 - Independent correctness review | Review the integrated M02 diff for semantics, determinism, provenance, safety, and regressions | `review/m02-correctness`; `C:\Users\prave\.codex\worktrees\1793\Renpy` | Review-only; no implementation files unless explicitly reassigned | Active | None expected |
 
 The orchestrator owns CLI integration, any changes outside the assigned worker files, conflict
 resolution, full Windows acceptance, final documentation, the native infographic, and the M02 PR.
