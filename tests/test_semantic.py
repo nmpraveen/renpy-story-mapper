@@ -399,3 +399,12 @@ def test_unknown_graph_edge_kind_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="future_transfer"):
         semantic.build_semantic_story(graph)
+
+
+def test_unknown_graph_node_kind_is_rejected() -> None:
+    graph, _ = semantic_story("grouping.rpy")
+    nodes = records(graph, "nodes")
+    nodes[0]["kind"] = "future_structure"
+
+    with pytest.raises(ValueError, match="future_structure"):
+        semantic.build_semantic_story(graph)
