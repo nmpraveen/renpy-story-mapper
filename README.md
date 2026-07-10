@@ -65,7 +65,10 @@ nodes:
   --scope-glob "*chapter1*.rpy"
 ```
 
-The output directory contains deterministic `import-manifest.json` and `story-graph.json` files.
+The output directory contains deterministic `import-manifest.json`, `story-graph.json`, and
+`semantic-story.json` files. The semantic story groups source-linked dialogue and narration into
+readable beats and label-based scenes while retaining structural transitions, reachability, exact
+physical source ranges, and unresolved dynamic behavior.
 The manifest includes every entry's path, uncompressed size, SHA-256, extension, source/compiled
 pairing, selection reason, and a before/after archive-integrity check. The graph contains stable
 node IDs, directed typed edges, exact source spans/text, diagnostics, unresolved reasons, and a
@@ -87,6 +90,13 @@ Inventory only:
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m mypy src
 ```
+
+## Semantic story boundaries
+
+Semantic grouping is deterministic and local. It does not use AI, execute story code, evaluate
+conditions, or invent dynamic targets. Adjacent dialogue and narration are grouped only when the
+Phase 1 graph proves an unambiguous fallthrough. Choices, conditions, jumps, calls, returns,
+endings, unresolved behavior, and label boundaries remain explicit.
 
 ## Phase 1 boundaries
 

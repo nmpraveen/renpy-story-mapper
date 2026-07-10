@@ -156,6 +156,30 @@ def test_cli_refuses_to_overwrite_input_archive(tmp_path: Path) -> None:
     assert archive_path.read_bytes() == before
 
 
+def test_cli_analyze_writes_deterministic_semantic_story(tmp_path: Path) -> None:
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {
+            "game/script.rpy": (
+                b'label start:\n    "Opening."\n    jump ending\n\n'
+                b'label ending:\n    "Done."\n    return\n'
+            )
+        },
+    )
+    before = fingerprint_file(archive_path)
+    first_output = tmp_path / "first"
+    second_output = tmp_path / "second"
+
+    assert main(["analyze", str(archive_path), "--output-dir", str(first_output)]) == 0
+    assert main(["analyze", str(archive_path), "--output-dir", str(second_output)]) == 0
+
+    first = (first_output / "semantic-story.json").read_bytes()
+    second = (second_output / "semantic-story.json").read_bytes()
+    assert first == second
+    assert b'"schema_version": 1' in first
+    assert fingerprint_file(archive_path) == before
+
+
 def test_incremental_utf8_decoder_handles_split_characters() -> None:
     encoded = "label start:\n    \"café\"\n".encode()
     split = encoded.index(b"\xc3") + 1
