@@ -213,6 +213,22 @@ def test_archive_project_is_durable_incremental_and_read_only(tmp_path: Path) ->
     assert fingerprint_file(archive_path) == before
 
 
+def test_project_cli_create_show_refresh_and_delete(tmp_path: Path) -> None:
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {"game/script.rpy": b"label start:\n    $ love += 1\n    return\n"},
+    )
+    project_path = tmp_path / "story.rsmproj"
+    snapshot_path = tmp_path / "snapshot.json"
+
+    assert main(["project", "create", str(archive_path), str(project_path)]) == 0
+    assert main(["project", "show", str(project_path), "--output", str(snapshot_path)]) == 0
+    assert b'"original_expression": "love += 1"' in snapshot_path.read_bytes()
+    assert main(["project", "refresh", str(archive_path), str(project_path)]) == 0
+    assert main(["project", "delete", str(project_path)]) == 0
+    assert not project_path.exists()
+
+
 def test_incremental_utf8_decoder_handles_split_characters() -> None:
     encoded = 'label start:\n    "café"\n'.encode()
     split = encoded.index(b"\xc3") + 1

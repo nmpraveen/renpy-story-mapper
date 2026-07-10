@@ -12,8 +12,17 @@ from renpy_story_mapper.errors import StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive, iter_utf8_lines
 from renpy_story_mapper.parser import parse_script
+from renpy_story_mapper.project import (
+    Project,
+    create_archive_project,
+    create_project,
+    delete_project,
+    refresh_archive_project,
+    refresh_project,
+)
 from renpy_story_mapper.rpa import ArchiveFingerprint, RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
+from renpy_story_mapper.storage import ProjectStorageError
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -136,6 +145,86 @@ def _analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _project_create(args: argparse.Namespace) -> int:
+    source = Path(args.source).resolve(strict=True)
+    project_path = Path(args.project)
+    _reject_project_in_source(source, project_path)
+    project = (
+        create_project(project_path, source)
+        if source.is_dir()
+        else create_archive_project(project_path, source, entry_label=args.entry_label)
+    )
+    try:
+        snapshot = project.snapshot()
+        print(_project_summary(snapshot))
+        print(f"Project: {project.path}")
+    finally:
+        project.close()
+    return 0
+
+
+def _project_refresh(args: argparse.Namespace) -> int:
+    source = Path(args.source).resolve(strict=True)
+    project_path = Path(args.project)
+    _reject_project_in_source(source, project_path)
+    report = (
+        refresh_project(project_path, source)
+        if source.is_dir()
+        else refresh_archive_project(project_path, source)
+    )
+    print(
+        f"Parsed {len(report.parsed_sources)}; reused {len(report.reused_sources)}; "
+        f"invalidated {len(report.invalidated_sources)}; removed {len(report.removed_sources)}."
+    )
+    return 0
+
+
+def _project_show(args: argparse.Namespace) -> int:
+    with Project.open(args.project) as project:
+        snapshot = project.snapshot()
+        if args.output:
+            output = Path(args.output)
+            _write_json(output, snapshot)
+            print(f"Snapshot: {output.resolve()}")
+        print(_project_summary(snapshot))
+    return 0
+
+
+def _project_delete(args: argparse.Namespace) -> int:
+    project_path = Path(args.project).resolve(strict=True)
+    delete_project(project_path)
+    print(f"Deleted project: {project_path}")
+    return 0
+
+
+def _project_summary(snapshot: dict[str, object]) -> str:
+    def count(name: str) -> int:
+        value = snapshot.get(name)
+        return len(value) if isinstance(value, list) else 0
+
+    graph = snapshot.get("graph")
+    graph_counts = graph.get("counts", {}) if isinstance(graph, dict) else {}
+    nodes = graph_counts.get("nodes", 0) if isinstance(graph_counts, dict) else 0
+    edges = graph_counts.get("edges", 0) if isinstance(graph_counts, dict) else 0
+    return (
+        f"Project snapshot: {nodes} nodes, {edges} edges, "
+        f"{count('requirements')} requirements, {count('effects')} effects, "
+        f"{count('unresolved')} unresolved."
+    )
+
+
+def _reject_project_in_source(source: Path, project_path: Path) -> None:
+    destination = project_path.resolve(strict=False)
+    if destination == source:
+        raise StoryMapperError("project path cannot overwrite the selected source")
+    if source.is_dir():
+        try:
+            destination.relative_to(source)
+        except ValueError:
+            return
+        raise StoryMapperError("project path must be outside the selected game folder")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="renpy-story-mapper",
@@ -165,6 +254,33 @@ def _parser() -> argparse.ArgumentParser:
         help="include labels in matching archive source paths; repeatable",
     )
     analyze_parser.set_defaults(handler=_analyze)
+
+    project_parser = subparsers.add_parser(
+        "project", help="create, refresh, inspect, or delete a durable SQLite project"
+    )
+    project_commands = project_parser.add_subparsers(dest="project_command", required=True)
+
+    create_parser = project_commands.add_parser("create", help="analyze into a new project")
+    create_parser.add_argument("source", help="game source folder or scripts.rpa archive")
+    create_parser.add_argument("project", help="new .rsmproj path outside the game folder")
+    create_parser.add_argument("--entry-label", default="start", help="static entry label")
+    create_parser.set_defaults(handler=_project_create)
+
+    refresh_parser = project_commands.add_parser(
+        "refresh", help="incrementally refresh an existing project"
+    )
+    refresh_parser.add_argument("source", help="game source folder or scripts.rpa archive")
+    refresh_parser.add_argument("project", help="existing .rsmproj path")
+    refresh_parser.set_defaults(handler=_project_refresh)
+
+    show_parser = project_commands.add_parser("show", help="summarize a durable project")
+    show_parser.add_argument("project", help="existing .rsmproj path")
+    show_parser.add_argument("--output", help="optional deterministic JSON snapshot path")
+    show_parser.set_defaults(handler=_project_show)
+
+    delete_parser = project_commands.add_parser("delete", help="delete a durable project")
+    delete_parser.add_argument("project", help="existing .rsmproj path")
+    delete_parser.set_defaults(handler=_project_delete)
     return parser
 
 
@@ -174,6 +290,6 @@ def main(argv: list[str] | None = None) -> int:
     handler: Any = args.handler
     try:
         return int(handler(args))
-    except (StoryMapperError, OSError) as error:
+    except (ProjectStorageError, StoryMapperError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
