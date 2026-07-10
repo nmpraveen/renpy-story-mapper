@@ -386,6 +386,8 @@ def _build_transitions(
             traverse_source_beat=edge.kind
             in {"condition", "condition_false", "menu_choice", "menu_no_choice"},
         )
+        if normalized_kind == "fallthrough" and node_by_id[target_node_id].kind == "module_end":
+            normalized_kind = "ending"
         resolved = not _edge_is_unresolved(edge, node_by_id)
         if (
             source_beat is not None
@@ -418,6 +420,7 @@ def _build_transitions(
         elif normalized_kind == "condition":
             value["condition"] = edge.metadata.get("condition")
         elif normalized_kind == "call_continuation":
+            value["graph_edge"] = edge.provenance()
             value["metadata"] = {
                 "semantic": edge.metadata.get("semantic", "return_site_not_immediate_fallthrough"),
                 "summary": True,
@@ -431,6 +434,8 @@ def _build_transitions(
         beat_id = cast(str, beat["id"])
         graph_ids = cast(list[str], beat["graph_node_ids"])
         node = node_by_id[graph_ids[0]]
+        if node.kind == "module_end":
+            continue
         source_label = node_scene_labels[node.id]
         result.append(
             {
