@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from renpy_story_mapper import semantic
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.parser import parse_script
@@ -38,6 +40,14 @@ def scene_beats(story: dict[str, Any], label: str) -> list[dict[str, Any]]:
 
 def beat_of_kind(story: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     return [beat for beat in records(story, "beats") if beat["kind"] == kind]
+
+
+def narrative_beat_with(story: dict[str, Any], text: str) -> dict[str, Any]:
+    return next(
+        beat
+        for beat in beat_of_kind(story, "narrative")
+        if any(item["text"] == text for item in beat["content"])
+    )
 
 
 def assert_source(source: dict[str, Any], path: str, start: int, end: int) -> None:
@@ -228,3 +238,164 @@ def test_ids_and_canonical_json_are_byte_identical_across_builds() -> None:
     assert [edge["id"] for edge in records(first, "transitions")] == [
         edge["id"] for edge in records(second, "transitions")
     ]
+
+
+def test_nonempty_menu_and_condition_branches_rejoin_once_after_the_merge() -> None:
+    _, story = semantic_story("merge_and_branch_call.rpy")
+    transitions = records(story, "transitions")
+    choice = beat_of_kind(story, "choice")[0]
+    condition = beat_of_kind(story, "condition")[0]
+    after_menu = narrative_beat_with(story, "After menu.")
+    after_condition = narrative_beat_with(story, "After condition.")
+
+    for branch_text in ("Menu branch A.", "Menu branch B."):
+        branch = narrative_beat_with(story, branch_text)
+        assert [
+            edge
+            for edge in transitions
+            if edge["source_beat_id"] == branch["id"]
+            and edge["target_beat_id"] == after_menu["id"]
+            and edge["kind"] == "fallthrough"
+        ]
+        assert not any(
+            edge["source_beat_id"] == branch["id"]
+            and edge["target_beat_id"] == choice["id"]
+            for edge in transitions
+        )
+
+    for branch_text in ("Condition branch B.", "Condition fallback."):
+        branch = narrative_beat_with(story, branch_text)
+        assert [
+            edge
+            for edge in transitions
+            if edge["source_beat_id"] == branch["id"]
+            and edge["target_beat_id"] == after_condition["id"]
+            and edge["kind"] == "fallthrough"
+        ]
+        assert not any(
+            edge["source_beat_id"] == branch["id"]
+            and edge["target_beat_id"] == condition["id"]
+            for edge in transitions
+        )
+
+    route_keys = [
+        (
+            edge["kind"],
+            edge["source_beat_id"],
+            edge["target_beat_id"],
+            edge.get("caption"),
+            edge.get("condition"),
+        )
+        for edge in transitions
+    ]
+    assert len(route_keys) == len(set(route_keys))
+
+
+def test_call_and_return_inside_condition_reach_post_condition_continuation() -> None:
+    _, story = semantic_story("merge_and_branch_call.rpy")
+    transitions = records(story, "transitions")
+    call = beat_of_kind(story, "call")[0]
+    helper_return = next(
+        beat for beat in scene_beats(story, "helper") if beat["kind"] == "return"
+    )
+    continuation = narrative_beat_with(story, "After condition.")
+
+    assert any(
+        edge["kind"] == "call_continuation"
+        and edge["source_beat_id"] == call["id"]
+        and edge["target_beat_id"] == continuation["id"]
+        for edge in transitions
+    )
+    assert any(
+        edge["kind"] == "return"
+        and edge["source_beat_id"] == helper_return["id"]
+        and edge["target_beat_id"] == continuation["id"]
+        for edge in transitions
+    )
+
+
+def test_all_call_variants_retain_non_fallthrough_return_site_summaries() -> None:
+    modules = []
+    for name in ("call_variants.rpy", "external_call_target.rpy"):
+        fixture = FIXTURES / name
+        with fixture.open(encoding="utf-8") as stream:
+            modules.append(parse_script(f"semantic/{name}", stream))
+    graph = build_graph(modules, scope_paths={"semantic/call_variants.rpy"})
+    story = semantic.build_semantic_story(graph)
+    transitions = records(story, "transitions")
+
+    expectations = {
+        "call helper": "After static call.",
+        "call expression dynamic_destination": "After dynamic call.",
+        "call missing_helper": "After missing call.",
+        "call external_helper": "After out-of-scope call.",
+    }
+    calls = {beat["source_text"]: beat for beat in beat_of_kind(story, "call")}
+    for source_text, continuation_text in expectations.items():
+        continuation = narrative_beat_with(story, continuation_text)
+        summaries = [
+            edge
+            for edge in transitions
+            if edge["kind"] == "call_continuation"
+            and edge["source_beat_id"] == calls[source_text]["id"]
+        ]
+        assert len(summaries) == 1
+        summary = summaries[0]
+        assert summary["target_beat_id"] == continuation["id"]
+        assert summary["resolved"] is True
+        assert summary["graph_edge"]["kind"] == "call_continuation"
+        assert summary["graph_edge"]["metadata"] == {
+            "semantic": "return_site_not_immediate_fallthrough"
+        }
+
+
+def test_natural_module_end_has_explicit_targeted_ending() -> None:
+    _, story = semantic_story("module_end.rpy")
+    narrative = narrative_beat_with(story, "Natural ending.")
+    endings = beat_of_kind(story, "ending")
+
+    assert len(endings) == 1
+    ending = endings[0]
+    ending_edges = [
+        edge
+        for edge in records(story, "transitions")
+        if edge["kind"] == "ending" and edge["source_beat_id"] == narrative["id"]
+    ]
+    assert len(ending_edges) == 1
+    assert ending_edges[0]["target_scene_id"] == ending["scene_id"]
+    assert ending_edges[0]["target_beat_id"] == ending["id"]
+    assert ending_edges[0]["resolved"] is True
+
+
+def test_multiline_narration_and_dialogue_preserve_literal_text_and_spans() -> None:
+    _, story = semantic_story("multiline.rpy")
+    narrative = beat_of_kind(story, "narrative")
+
+    assert len(narrative) == 1
+    beat = narrative[0]
+    assert_source(beat["source"], "semantic/multiline.rpy", 2, 5)
+    assert [(item["kind"], item["speaker"], item["text"]) for item in beat["content"]] == [
+        ("narration", None, "First narration line.\nSecond narration line."),
+        ("dialogue", "eileen", "First dialogue line.\nSecond dialogue line."),
+    ]
+    assert_source(beat["content"][0]["source"], "semantic/multiline.rpy", 2, 3)
+    assert_source(beat["content"][1]["source"], "semantic/multiline.rpy", 4, 5)
+
+
+def test_unsupported_graph_schema_version_is_rejected() -> None:
+    graph, _ = semantic_story("grouping.rpy")
+    graph["schema_version"] = 2
+
+    with pytest.raises(ValueError, match="schema_version"):
+        semantic.build_semantic_story(graph)
+
+
+def test_unknown_graph_edge_kind_is_rejected() -> None:
+    graph, _ = semantic_story("grouping.rpy")
+    edges = records(graph, "edges")
+    future_edge = copy.deepcopy(edges[0])
+    future_edge["kind"] = "future_transfer"
+    edges.append(future_edge)
+
+    with pytest.raises(ValueError, match="future_transfer"):
+        semantic.build_semantic_story(graph)
