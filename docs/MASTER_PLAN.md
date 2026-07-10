@@ -284,8 +284,8 @@ commitments.
 
 ### M03 - Story state and durable projects
 
-Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; the milestone
-PR remains subject to explicit user merge approval.
+Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; PR #5 is open
+and remains subject to explicit user merge approval.
 
 Objective: preserve analyses in a reusable project and add deterministic requirements/effects so
 the later visual map can explain why routes open and what choices change.

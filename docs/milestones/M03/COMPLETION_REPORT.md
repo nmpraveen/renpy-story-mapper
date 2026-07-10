@@ -6,6 +6,8 @@ Milestone branch: `milestone/m03-story-state-projects`
 
 Accepted integrated head: `01944d023fe989d22e3640f77aa67f97f371ee84`
 
+Milestone PR: `#5` - `https://github.com/nmpraveen/renpy-story-mapper/pull/5` (open and unmerged)
+
 Runtime authority: Windows, CPython 3.12.10
 
 ## Outcome
