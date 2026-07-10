@@ -10,9 +10,9 @@ Runtime authority: Windows with CPython 3.12
 
 | Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| `019f4d88-982d-7881-bf5d-6ad79d43bffc` | M02 - Semantic model and grouping engine | Semantic schema, deterministic grouping, structural boundaries, provenance, conservative classification | `worker/m02-semantic-engine`; `C:\Users\prave\.codex\worktrees\ee57\Renpy` | `src/renpy_story_mapper/semantic.py` | Complete and integrated | Worker `22f8488`, correction `0337303`; integrated as `f02b5d5` and `6b5fea9` |
-| `019f4d88-982d-7881-bf5d-6af22b8f6c4e` | M02 - Fixtures and behavioral tests | Representative fixtures and behavioral contract tests | `worker/m02-semantic-tests`; `C:\Users\prave\.codex\worktrees\ce67\Renpy` | `tests/fixtures/semantic/`, `tests/test_semantic.py` | Complete and integrated | Worker `e4cef60`; integrated as `d2ffa71` |
-| `019f4d92-65df-7202-83b9-c5957d24c66c` | M02 - Independent correctness review | Review the integrated M02 diff for semantics, determinism, provenance, safety, and regressions | `review/m02-correctness`; `C:\Users\prave\.codex\worktrees\1793\Renpy` | Review-only; no implementation files unless explicitly reassigned | Active | None expected |
+| `019f4d88-982d-7881-bf5d-6ad79d43bffc` | M02 - Semantic model and grouping engine | Semantic schema, deterministic grouping, structural boundaries, provenance, conservative classification | `worker/m02-semantic-engine`; `C:\Users\prave\.codex\worktrees\ee57\Renpy` | `src/renpy_story_mapper/semantic.py` | Correction in progress after review | Worker `22f8488`, correction `0337303`; integrated as `f02b5d5` and `6b5fea9` |
+| `019f4d88-982d-7881-bf5d-6af22b8f6c4e` | M02 - Fixtures and behavioral tests | Representative fixtures and behavioral contract tests | `worker/m02-semantic-tests`; `C:\Users\prave\.codex\worktrees\ce67\Renpy` | `tests/fixtures/semantic/`, `tests/test_semantic.py` | Regression expansion in progress | Worker `e4cef60`; integrated as `d2ffa71` |
+| `019f4d92-65df-7202-83b9-c5957d24c66c` | M02 - Independent correctness review | Review the integrated M02 diff for semantics, determinism, provenance, safety, and regressions | `review/m02-correctness`; `C:\Users\prave\.codex\worktrees\1793\Renpy` | Review-only; no implementation files unless explicitly reassigned | Complete; re-review pending | No commit; initial result: fix then re-review |
 
 The orchestrator owns CLI integration, any changes outside the assigned worker files, conflict
 resolution, full Windows acceptance, final documentation, the native infographic, and the M02 PR.
@@ -30,3 +30,8 @@ instructions, and confirmation that it stayed within scope.
 - The orchestrator returned the mismatch to the engine worker without weakening the tests.
 - Correction `0337303` aligned the projection while retaining deterministic provenance and safety.
 - After orchestrator CLI integration, the integrated suite passed 42 tests on Windows.
+- Independent review at `0fe99e8` found three P1 defects and two P2 defects despite the green
+  suite: merge-route loops, dropped call-continuation summaries, missing natural endings,
+  multiline dialogue misclassification, and incomplete future-contract rejection.
+- The implementation and test tasks were reopened; the same reviewer will inspect the corrected
+  integrated head.
