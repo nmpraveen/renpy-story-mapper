@@ -256,12 +256,20 @@ def test_proven_possible_and_unresolved_are_disjoint_public_sets(
 
 
 def test_unchanged_refresh_reuses_every_source_without_reparse(
-    project_api: ModuleType, source_tree: Path, project_path: Path
+    project_api: ModuleType,
+    source_tree: Path,
+    project_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = project_api.create_project(project_path, source_tree)
     before = created.authoritative_bytes()
     source_count = len(_records(_snapshot(created), "sources"))
     _close(created)
+
+    def reject_backup(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unchanged refresh must not copy the project database")
+
+    monkeypatch.setattr(project_api.Project, "backup", reject_backup)
 
     report = project_api.refresh_project(project_path, source_tree)
     assert _source_paths(report.parsed_sources) == set()

@@ -77,10 +77,13 @@ def refresh_folder_project(
 ) -> RefreshReport:
     root = _source_root(source_root)
     project_path = Path(database_path).resolve(strict=True)
+    content = _read_source_tree(root)
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     _check_cancelled(cancel_check)
     original = Project.open(project_path)
     try:
+        if _content_matches(original, content):
+            return RefreshReport((), tuple(sorted(content)), ())
         original.backup(temporary)
     finally:
         original.close()
@@ -91,7 +94,7 @@ def refresh_folder_project(
             entry_label = str(metadata.get("entry_label", "start"))
             report = _refresh_open_project(
                 staged,
-                _read_source_tree(root),
+                content,
                 entry_label=entry_label,
                 cancel_check=cancel_check,
             )
@@ -147,6 +150,8 @@ def refresh_rpa_project(
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     original = Project.open(project_path)
     try:
+        if _content_matches(original, content):
+            return RefreshReport((), tuple(sorted(content)), ())
         original.backup(temporary)
     finally:
         original.close()
@@ -461,6 +466,14 @@ def _read_archive_sources(
         "after": after.to_dict(),
     }
     return content, manifest
+
+
+def _content_matches(project: Project, content_by_path: Mapping[str, bytes]) -> bool:
+    existing = {source.path: source.content_hash for source in project.sources()}
+    incoming = {
+        path: hashlib.sha256(content).hexdigest() for path, content in content_by_path.items()
+    }
+    return existing == incoming
 
 
 def _source_root(value: str | os.PathLike[str]) -> Path:
