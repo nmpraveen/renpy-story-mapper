@@ -193,6 +193,27 @@ def test_matching_names_without_required_constraints_fail_as_corrupt(tmp_path: P
         Project.open(malformed)
 
 
+def test_matching_schema_with_wrong_declared_type_fails_as_corrupt(tmp_path: Path) -> None:
+    malformed = tmp_path / "wrong-type.rsmp"
+    with Project.create(malformed):
+        pass
+    connection = sqlite3.connect(malformed)
+    connection.execute("PRAGMA writable_schema = ON")
+    connection.execute(
+        """
+        UPDATE sqlite_schema
+        SET sql = replace(sql, 'value_json BLOB', 'value_json TEXT')
+        WHERE type = 'table' AND name = 'project_metadata'
+        """
+    )
+    connection.commit()
+    connection.execute("PRAGMA writable_schema = OFF")
+    connection.close()
+
+    with pytest.raises(storage.ProjectCorruptError, match="must use type BLOB"):
+        Project.open(malformed)
+
+
 def test_backup_restore_delete_and_failed_create_temp_file_discipline(tmp_path: Path) -> None:
     path = tmp_path / "lifecycle.rsmp"
     backup = tmp_path / "backups" / "story.bak"

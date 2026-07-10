@@ -183,6 +183,35 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "payload_dependencies": ("collection", "record_key", "source_path"),
             "schema_migrations": ("version",),
         }
+        declared_types: dict[str, dict[str, str]] = {
+            "project_metadata": {
+                "key": "TEXT",
+                "value_json": "BLOB",
+                "updated_utc": "TEXT",
+            },
+            "sources": {
+                "path": "TEXT",
+                "content_hash": "TEXT",
+                "size_bytes": "INTEGER",
+                "modified_ns": "INTEGER",
+                "metadata_json": "BLOB",
+                "refreshed_utc": "TEXT",
+                "fingerprint_kind": "TEXT",
+            },
+            "payloads": {
+                "collection": "TEXT",
+                "record_key": "TEXT",
+                "payload_json": "BLOB",
+                "payload_hash": "TEXT",
+                "updated_utc": "TEXT",
+            },
+            "payload_dependencies": {
+                "collection": "TEXT",
+                "record_key": "TEXT",
+                "source_path": "TEXT",
+            },
+            "schema_migrations": {"version": "INTEGER", "applied_utc": "TEXT"},
+        }
         nullable = {("sources", "modified_ns")}
         for table, expected_columns in required.items():
             if table not in tables:
@@ -206,6 +235,11 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 raise ProjectCorruptError(f"project table {table!r} has an invalid primary key")
             for row in column_rows:
                 column = str(row[1])
+                expected_type = declared_types[table][column]
+                if str(row[2]).upper() != expected_type:
+                    raise ProjectCorruptError(
+                        f"project column {table}.{column} must use type {expected_type}"
+                    )
                 if (
                     column in expected_columns
                     and (table, column) not in nullable
