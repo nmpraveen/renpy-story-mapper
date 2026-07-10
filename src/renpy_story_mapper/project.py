@@ -451,6 +451,49 @@ class Project:
 
         return project_snapshot(self)
 
+    def update_state_variable(
+        self,
+        original_name: str,
+        *,
+        display_name: str | None = None,
+        category: str | None = None,
+    ) -> None:
+        """Persist user-editable state metadata independently of source refreshes."""
+
+        raw = self.payload("state_registry", "authoritative")
+        if not isinstance(raw, list):
+            raise KeyError(f"state variable does not exist: {original_name}")
+        variables: list[dict[str, object]] = []
+        found = False
+        for item in raw:
+            if not isinstance(item, dict):
+                raise storage.ProjectCorruptError("state registry contains a non-object record")
+            value = dict(item)
+            if value.get("original_name") == original_name:
+                found = True
+                if display_name is not None:
+                    if not display_name.strip():
+                        raise ValueError("display_name cannot be empty")
+                    value["display_name"] = display_name
+                if category is not None:
+                    if not category.strip():
+                        raise ValueError("category cannot be empty")
+                    value["category"] = category
+                value["user_override"] = True
+            variables.append(value)
+        if not found:
+            raise KeyError(f"state variable does not exist: {original_name}")
+        self.write_payloads(
+            [
+                PayloadRecord(
+                    "state_registry",
+                    "authoritative",
+                    variables,
+                    tuple(source.path for source in self.sources()),
+                )
+            ]
+        )
+
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""
 

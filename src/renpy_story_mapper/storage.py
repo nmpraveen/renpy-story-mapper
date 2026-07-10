@@ -136,10 +136,59 @@ def validate_database(connection: sqlite3.Connection) -> int:
         raise ProjectCorruptError("file is not a Ren'Py Story Mapper project")
     if version < 1:
         raise ProjectCorruptError("project has no recognized schema version")
+    _validate_schema_shape(connection, version)
     failures = [str(row[0]) for row in result if str(row[0]).lower() != "ok"]
     if failures:
         raise ProjectCorruptError(f"project failed SQLite integrity check: {'; '.join(failures)}")
     return version
+
+
+def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None:
+    required: dict[str, set[str]] = {
+        "project_metadata": {"key", "value_json", "updated_utc"},
+        "sources": {
+            "path",
+            "content_hash",
+            "size_bytes",
+            "modified_ns",
+            "metadata_json",
+            "refreshed_utc",
+        },
+        "payloads": {
+            "collection",
+            "record_key",
+            "payload_json",
+            "payload_hash",
+            "updated_utc",
+        },
+        "payload_dependencies": {"collection", "record_key", "source_path"},
+    }
+    if version >= 2:
+        required["sources"].add("fingerprint_kind")
+        required["schema_migrations"] = {"version", "applied_utc"}
+    try:
+        tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
+        }
+        for table, expected_columns in required.items():
+            if table not in tables:
+                raise ProjectCorruptError(f"project is missing required table {table!r}")
+            columns = {str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')}
+            missing = expected_columns - columns
+            if missing:
+                names = ", ".join(sorted(missing))
+                raise ProjectCorruptError(
+                    f"project table {table!r} is missing required columns: {names}"
+                )
+        indexes = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'index'")
+        }
+    except sqlite3.DatabaseError as exc:
+        raise ProjectCorruptError("project schema could not be validated") from exc
+    if "payload_dependencies_source_idx" not in indexes:
+        raise ProjectCorruptError("project is missing its dependency lookup index")
 
 
 @contextmanager

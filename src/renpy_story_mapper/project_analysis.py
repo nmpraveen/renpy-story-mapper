@@ -206,6 +206,7 @@ def _refresh_open_project(
     cancel_check: CancelCheck,
 ) -> RefreshReport:
     previous_dependencies = _stored_dependencies(project)
+    previous_registry = project.payload("state_registry", "authoritative")
     fingerprints = tuple(
         SourceFingerprint.from_bytes(path, content_by_path[path])
         for path in sorted(content_by_path)
@@ -245,6 +246,7 @@ def _refresh_open_project(
         semantic,
         state,
         parsed_paths,
+        previous_registry,
     )
     project.write_payloads(records, cancelled=cancel_check)
     reused = set(refresh.unchanged) - parsed_paths
@@ -263,6 +265,7 @@ def _analysis_records(
     semantic: dict[str, object],
     state: StateAnalysis,
     parsed_paths: set[str],
+    previous_registry: object,
 ) -> list[PayloadRecord]:
     all_paths = tuple(sorted(modules))
     records: list[PayloadRecord] = []
@@ -314,6 +317,7 @@ def _analysis_records(
             ordered = [unique[key] for key in sorted(unique)]
             records.append(PayloadRecord("unresolved", path, ordered, (path,)))
     variables = [_state_variable_value(item.to_dict()) for item in state.variables]
+    variables = _merge_state_variable_metadata(variables, previous_registry)
     records.append(PayloadRecord("state_registry", "authoritative", variables, all_paths))
     return records
 
@@ -336,8 +340,30 @@ def _state_variable_value(value: dict[str, object]) -> dict[str, object]:
     result = dict(value)
     raw_evidence = _required_list(result.get("evidence"), "state variable evidence")
     result["evidence"] = [_evidence_mapping_value(item) for item in raw_evidence]
-    result["id"] = _stable_record_id("state_variable", result)
+    result["id"] = _stable_record_id(
+        "state_variable", {"original_name": result.get("original_name")}
+    )
     return result
+
+
+def _merge_state_variable_metadata(
+    inferred: list[dict[str, object]], previous: object
+) -> list[dict[str, object]]:
+    if not isinstance(previous, list):
+        return inferred
+    by_name: dict[str, dict[str, object]] = {}
+    for item in previous:
+        if isinstance(item, dict) and isinstance(item.get("original_name"), str):
+            by_name[cast(str, item["original_name"])] = item
+    for value in inferred:
+        name = value.get("original_name")
+        old = by_name.get(name) if isinstance(name, str) else None
+        if old is None:
+            continue
+        for field in ("display_name", "category", "user_override"):
+            if field in old:
+                value[field] = old[field]
+    return inferred
 
 
 def _semantic_unresolved_by_path(

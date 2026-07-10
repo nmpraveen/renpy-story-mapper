@@ -263,7 +263,11 @@ def _walk_statements(
             effect = _extract_renpy_call(statement)
             if effect is not None:
                 effects.append(effect)
-        elif isinstance(statement, (Simple, Opaque)):
+        elif isinstance(statement, Opaque):
+            effect = _extract_statement_effect(statement.text, statement.span)
+            effects.append(effect if effect is not None else _unresolved_opaque(statement))
+            _walk_statements(statement.body, requirements, effects)
+        elif isinstance(statement, Simple):
             effect = _extract_statement_effect(statement.text, statement.span)
             if effect is not None:
                 effects.append(effect)
@@ -357,7 +361,6 @@ def _extract_statement_effect(text: str, span: SourceSpan) -> StateEffect | None
         )
     if isinstance(node, ast.AugAssign):
         assert isinstance(node.target, ast.Name)
-        operation = "increment" if isinstance(node.op, ast.Add) else "decrement"
         if not isinstance(node.op, ast.Add | ast.Sub):
             return StateEffect(
                 expression,
@@ -370,12 +373,14 @@ def _extract_statement_effect(text: str, span: SourceSpan) -> StateEffect | None
             )
         literal, value = _literal_scalar(node.value)
         if literal and isinstance(value, int | float) and not isinstance(value, bool):
+            delta = value if isinstance(node.op, ast.Add) else -value
+            operation = "increment" if delta >= 0 else "decrement"
             return StateEffect(
-                expression, operation, node.target.id, value, FactStatus.PROVEN, evidence
+                expression, operation, node.target.id, abs(delta), FactStatus.PROVEN, evidence
             )
         return StateEffect(
             expression,
-            operation,
+            "augmented_assignment",
             node.target.id,
             None,
             FactStatus.UNRESOLVED,
@@ -495,6 +500,18 @@ def _static_callable_name(node: ast.expr) -> str | None:
     return None
 
 
+def _unresolved_opaque(statement: Opaque) -> StateEffect:
+    return StateEffect(
+        statement.text,
+        "opaque_block",
+        None,
+        None,
+        FactStatus.UNRESOLVED,
+        StateEvidence.from_statement(statement.span, statement.text),
+        reason=statement.reason,
+    )
+
+
 def _literal_scalar(node: ast.expr) -> tuple[bool, JsonScalar]:
     try:
         value = ast.literal_eval(node)
@@ -506,7 +523,20 @@ def _literal_scalar(node: ast.expr) -> tuple[bool, JsonScalar]:
 
 
 def _names_in(node: ast.AST) -> set[str]:
-    return {item.id for item in ast.walk(node) if isinstance(item, ast.Name)}
+    names: set[str] = set()
+
+    class _NameCollector(ast.NodeVisitor):
+        def visit_Name(self, item: ast.Name) -> None:
+            names.add(item.id)
+
+        def visit_Call(self, item: ast.Call) -> None:
+            for argument in item.args:
+                self.visit(argument)
+            for keyword in item.keywords:
+                self.visit(keyword.value)
+
+    _NameCollector().visit(node)
+    return names
 
 
 def _record_key(evidence: StateEvidence, expression: str) -> tuple[object, ...]:

@@ -147,6 +147,17 @@ def test_corruption_foreign_sqlite_and_future_versions_fail_safely(tmp_path: Pat
         Project.open(future)
 
 
+def test_matching_header_with_missing_schema_fails_as_corrupt(tmp_path: Path) -> None:
+    malformed = tmp_path / "missing-schema.rsmp"
+    connection = sqlite3.connect(malformed)
+    connection.execute(f"PRAGMA application_id = {storage.APPLICATION_ID}")
+    connection.execute(f"PRAGMA user_version = {storage.SCHEMA_VERSION}")
+    connection.close()
+
+    with pytest.raises(storage.ProjectCorruptError, match="missing required table"):
+        Project.open(malformed)
+
+
 def test_backup_restore_delete_and_failed_create_temp_file_discipline(tmp_path: Path) -> None:
     path = tmp_path / "lifecycle.rsmp"
     backup = tmp_path / "backups" / "story.bak"

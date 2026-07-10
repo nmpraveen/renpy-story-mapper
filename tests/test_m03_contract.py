@@ -310,6 +310,25 @@ def test_two_fresh_projects_have_deterministic_authoritative_output(
     _close(second)
 
 
+def test_user_state_metadata_survives_unchanged_refresh(
+    project_api: ModuleType, source_tree: Path, project_path: Path
+) -> None:
+    project = project_api.create_project(project_path, source_tree)
+    project.update_state_variable(
+        "love", display_name="Custom Affection", category="custom_relationship"
+    )
+    _close(project)
+
+    report = project_api.refresh_project(project_path, source_tree)
+    assert _source_paths(report.parsed_sources) == set()
+    reopened = project_api.open_project(project_path)
+    love = _record_containing(_records(_snapshot(reopened), "state_variables"), "love")
+    assert love["display_name"] == "Custom Affection"
+    assert love["category"] == "custom_relationship"
+    assert love["user_override"] is True
+    _close(reopened)
+
+
 class _CancelOnCheck:
     def __init__(self) -> None:
         self.checks = 0

@@ -145,6 +145,56 @@ def test_computed_subscript_and_award_call_are_explicitly_unresolved() -> None:
     ]
 
 
+def test_opaque_blocks_are_explicitly_unresolved() -> None:
+    analysis = analyze(
+        [
+            "label start:\n",
+            "    python:\n",
+            "        love += 1\n",
+            "    while route_active:\n",
+            "        money -= 1\n",
+        ]
+    )
+
+    assert [effect.operation for effect in analysis.effects] == [
+        "opaque_block",
+        "opaque_block",
+    ]
+    assert all(effect.status is FactStatus.UNRESOLVED for effect in analysis.effects)
+    assert [effect.reason for effect in analysis.effects] == [
+        "embedded_python_not_executed",
+        "unsupported_control_flow",
+    ]
+
+
+def test_signed_deltas_are_normalized_to_direction_and_magnitude() -> None:
+    analysis = analyze(
+        [
+            "label start:\n",
+            "    $ love += -1\n",
+            "    $ money -= -2\n",
+        ]
+    )
+
+    assert [(effect.operation, effect.value) for effect in analysis.effects] == [
+        ("decrement", 1),
+        ("increment", 2),
+    ]
+
+
+def test_callable_names_are_not_registered_as_state_variables() -> None:
+    analysis = analyze(
+        [
+            "label start:\n",
+            "    if getattr(store, gate_name):\n",
+            '        "Dynamic."\n',
+        ]
+    )
+
+    assert analysis.requirements[0].variables == ("gate_name", "store")
+    assert {item.original_name for item in analysis.variables} == {"gate_name", "store"}
+
+
 def test_output_is_json_ready_and_deterministic_across_module_order() -> None:
     first = parse_script("b.rpy", ["label b:\n", "    money = 5\n"])
     second = parse_script("a.rpy", ["label a:\n", "    love += 1\n"])
