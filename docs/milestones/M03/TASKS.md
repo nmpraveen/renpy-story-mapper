@@ -13,7 +13,7 @@ Runtime authority: Windows with CPython 3.12
 | `019f4e18-a30e-71e1-984e-decff4c61faf` | M03 - SQLite project persistence | Versioned schema, migrations, durable records, project lifecycle, incremental refresh, cancellation and recovery | `codex/m03-project-persistence`; `C:\Users\prave\.codex\worktrees\931a\Renpy` | Project persistence source plus `tests/test_project_storage.py` | Delivered; task-system error after file delivery; recovered, verified, and integrated | Worker `28118f0`; integrated `5168e25` |
 | `019f4e18-a276-7e73-84f5-8e9649eb85b8` | M03 - Deterministic state extraction | Requirements, explicit effects, literal-argument calls, state registry and evidence/status model | `codex/m03-deterministic-state-extraction`; `C:\Users\prave\.codex\worktrees\8654\Renpy` | State-analysis source plus `tests/test_state_extraction.py` | Delivered; task-system error after file delivery; recovered, verified, and integrated | Worker `0a0ab6d`; integrated `2429405` |
 | `019f4e18-a314-73e2-b8e5-14bf93425b48` | M03 - Fixtures and contract tests | Independent behavior contracts for persistence, incremental invalidation, state facts, unsafe cases and corruption | `codex/m03-contract-tests`; `C:\Users\prave\.codex\worktrees\dcf1\Renpy` | `tests/fixtures/m03/` and `tests/test_m03_contract.py` | Delivered and integrated; task-system error after commit | Worker `095814f`; integrated `e34c549` |
-| `019f4e29-6b9b-7171-b5c5-23bf062358e3` | M03 - Independent correctness review | Review integrated M03 for persistence fidelity, invalidation, provenance, safety and regressions | `C:\Users\prave\.codex\worktrees\8fb0\Renpy` from integrated `9249857`; review branch assigned by Codex | Review-only unless explicitly reassigned | Active | Pending |
+| `019f4e29-6b9b-7171-b5c5-23bf062358e3` | M03 - Independent correctness review | Review integrated M03 for persistence fidelity, invalidation, provenance, safety and regressions | Detached review worktree `C:\Users\prave\.codex\worktrees\8fb0\Renpy` | Review-only | Complete; accepted `01944d0` with no P0-P3 findings | No commit; review-only |
 
 The orchestrator owns cross-module integration, CLI/diagnostic harness changes, conflicts, the
 complete Windows acceptance suite, canonical-sample verification, documentation, native
@@ -34,3 +34,8 @@ unresolved questions, integration instructions, and confirmation that it stayed 
   assigned files. The orchestrator inspected the intact worktrees, ran their focused checks,
   anchored each worker commit, and integrated the actual diffs rather than treating task status
   as completion proof.
+- Independent review initially found five correctness defects, then additional adversarial schema
+  and refresh edge cases. The orchestrator fixed and regression-tested every finding. The final
+  review accepted `01944d0` with 93 tests passing and no remaining P0-P3 findings.
+- Canonical acceptance then confirmed 0 parsed and 77 reused sources on an unchanged refresh while
+  preserving byte-identical project and archive hashes.

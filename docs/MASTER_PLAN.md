@@ -2,7 +2,7 @@
 
 Last revised: 2026-07-10
 
-Status: M01 and M02 are complete. M03 is the next proposed milestone and has not started.
+Status: M01, M02, and M03 are complete. M04 is the next proposed milestone and has not started.
 
 ## 1. Product goal
 
@@ -278,12 +278,14 @@ patching are outside the active plan.
 
 ## 7. Remaining milestones
 
-There are exactly three remaining active milestones. Do not create M06 or M07. Ideas beyond M05
-belong in a future backlog and are not commitments.
+The approved roadmap contains M03 through M05. M03 is complete, leaving exactly two planned
+milestones. Do not create M06 or M07. Ideas beyond M05 belong in a future backlog and are not
+commitments.
 
 ### M03 - Story state and durable projects
 
-Status: Proposed; not started. Requires explicit user approval.
+Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; the milestone
+PR remains subject to explicit user merge approval.
 
 Objective: preserve analyses in a reusable project and add deterministic requirements/effects so
 the later visual map can explain why routes open and what choices change.
@@ -327,9 +329,24 @@ Explicit exclusions:
 - No AI scene grouping.
 - No packaging or installer work.
 
+Completion evidence:
+
+- Versioned SQLite schema v2, migrations, structural validation, atomic lifecycle operations,
+  source fingerprints, parsed-module cache, dependency-scoped invalidation, and durable user state
+  metadata are implemented.
+- Deterministic requirements and state effects retain exact physical-line evidence and distinguish
+  proven, possible, and unresolved behavior without executing game code.
+- The full canonical archive produced a 715,141,120-byte project containing 405,449 graph nodes,
+  462,767 edges, 2,652 scenes, 252,061 beats, 38,977 requirements, and 55,356 proven/possible
+  effects. Initial creation completed in 334.183 seconds after the full-graph traversal fix.
+- An unchanged canonical refresh parsed 0 sources, reused all 77 selected `.rpy` sources in 0.655
+  seconds, and left both the project and archive byte-identical.
+- Windows CPython 3.12 acceptance passed 93 tests, Ruff, strict mypy, and `pip check`; independent
+  review found no remaining P0-P3 issues.
+
 ### M04 - Three-level Windows story map
 
-Status: Planned after M03; do not start before M03 completion and explicit approval.
+Status: Proposed after M03; do not start before explicit user approval.
 
 Objective: build the actual Windows application and prove that a complicated game can be explored
 without displaying hundreds of equal-weight nodes at once.
@@ -515,6 +532,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-The roadmap revision itself does not start M03. The next action is to review this source-of-truth
-change, commit it through the appropriate documentation or M03 milestone branch, and wait for the
-user's explicit approval before creating the M03 self-goal or implementing M03.
+Review and merge the M03 milestone PR only with explicit user approval. After M03 is merged, wait
+for explicit approval before creating the M04 self-goal or beginning any M04 implementation.
