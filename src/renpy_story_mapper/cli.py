@@ -13,6 +13,7 @@ from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive, iter_utf8_lines
 from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.rpa import ArchiveFingerprint, RpaArchive, fingerprint_file
+from renpy_story_mapper.semantic import build_semantic_story
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -72,7 +73,8 @@ def _analyze(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir)
     manifest_path = output_dir / "import-manifest.json"
     graph_path = output_dir / "story-graph.json"
-    _reject_archive_output(archive_path, [manifest_path, graph_path])
+    semantic_path = output_dir / "semantic-story.json"
+    _reject_archive_output(archive_path, [manifest_path, graph_path, semantic_path])
     before = fingerprint_file(archive_path)
     archive = RpaArchive(archive_path)
     inventory = inventory_archive(archive, before)
@@ -113,6 +115,7 @@ def _analyze(args: argparse.Namespace) -> int:
     counts = graph["counts"]
     assert isinstance(counts, dict)
     counts["diagnostics"] = len(diagnostics)
+    semantic_story = build_semantic_story(graph)
 
     after = fingerprint_file(archive_path)
     if before != after:
@@ -121,6 +124,7 @@ def _analyze(args: argparse.Namespace) -> int:
 
     _write_json(manifest_path, manifest)
     _write_json(graph_path, graph)
+    _write_json(semantic_path, semantic_story)
 
     print(
         f"Graph from label {args.entry_label!r}: {counts['nodes']} nodes, "
@@ -128,6 +132,7 @@ def _analyze(args: argparse.Namespace) -> int:
     )
     print(f"Manifest: {manifest_path.resolve()}")
     print(f"Graph: {graph_path.resolve()}")
+    print(f"Semantic story: {semantic_path.resolve()}")
     return 0
 
 

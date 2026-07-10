@@ -245,6 +245,9 @@ PR #1 was merged after explicit user approval.
 
 ### M02 - Semantic scenes and story beats
 
+Status: Complete on `milestone/m02-semantic-scenes`; pull request #3 is open and unmerged pending
+explicit user approval. Windows acceptance and independent re-review passed on 2026-07-10.
+
 Objective: convert the low-level statement graph into readable narrative units without using AI.
 
 Deliverables:
