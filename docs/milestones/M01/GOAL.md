@@ -25,10 +25,11 @@ pull request.
 - The sample's SHA-256, size, and `LastWriteTimeUtc` match before and after access.
 - Limitations and deferred work are explicit.
 - `GOAL.md`, `TASKS.md`, `COMPLETION_REPORT.md`, and `INFOGRAPHIC.png` exist.
-- PR #1 remains open and unmerged.
+- PR #1 is not merged by the orchestrator without explicit user approval.
 - No M02 goal or implementation begins before explicit user approval.
 
 ## Result
 
-Completed on 2026-07-10. Evidence and limitations are recorded in `COMPLETION_REPORT.md`.
-
+Completed on 2026-07-10. Evidence and limitations are recorded in `COMPLETION_REPORT.md`. After
+completion and explicit user approval, PR #1 was merged as commit
+`80d6734b5d5df81d9e2584d31845b1fdcdca39a3`.

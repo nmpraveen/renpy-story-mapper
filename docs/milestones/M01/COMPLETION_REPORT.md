@@ -1,8 +1,8 @@
 # M01 Completion Report - Phase 1 Analyzer Foundation
 
-Date: 2026-07-10  
-Platform authority: Windows  
-Runtime: CPython 3.12  
+Date: 2026-07-10
+Platform authority: Windows
+Runtime: CPython 3.12
 Repository: `nmpraveen/renpy-story-mapper`
 
 ## Objective and scope
@@ -22,10 +22,15 @@ artifacts. It does not repeat a standalone audit, merge PR #1, or begin M02.
 - PR head and base: `agent/phase-1-analyzer` into `main`
 - PR state at verification: open, non-draft, and mergeable
 - PR URL: <https://github.com/nmpraveen/renpy-story-mapper/pull/1>
-- Merge action: not performed; explicit user approval is required
+- Merge action during verification: not performed; explicit user approval was required
 
-The Phase 1 commit contains 21 files with 2,296 insertions and 2 deletions. The M01 documentation
-is intentionally left uncommitted for user review in the existing milestone branch.
+The Phase 1 commit contains 21 files with 2,296 insertions and 2 deletions.
+
+### Post-completion integration update
+
+After M01 completion and explicit user approval, PR #1 was merged on 2026-07-10 as commit
+`80d6734b5d5df81d9e2584d31845b1fdcdca39a3`. The M01 completion artifacts were then committed on
+`docs/m01-closeout` and submitted as documentation PR #2.
 
 ## Delivered behavior
 
@@ -131,7 +136,7 @@ infographic generation. See `TASKS.md`.
 - The underlying output is a low-level control-flow graph, not yet semantic scenes or story beats.
 - There is no project database, desktop UI, AI enrichment, advanced route explorer, packaging, or
   release artifact in M01.
-- PR #1 remains open and unmerged.
+- Phase 1 is merged, but no packaged release exists yet.
 
 ## Infographic
 
@@ -169,5 +174,5 @@ M02 acceptance criteria are:
 ## Completion decision
 
 M01 meets its documented acceptance criteria. Its factual record is this Markdown report; the
-infographic is a visual summary and may contain generated-text imperfections. M02 remains unstarted
-pending explicit approval.
+infographic is a visual summary and may contain generated-text imperfections. M02 was unstarted at
+the completion decision and remained gated on explicit approval.

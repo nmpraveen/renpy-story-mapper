@@ -225,9 +225,8 @@ Do not substitute SVG, Mermaid rendering, Python drawing, a manually assembled g
 
 ### M01 - Phase 1 analyzer foundation
 
-Status: Complete as the established baseline in open PR #1. Completion documentation and the
-native-image infographic were added on 2026-07-10; the PR remains unmerged pending explicit user
-approval.
+Status: Complete and merged through PR #1 on 2026-07-10. Completion documentation and the
+native-image infographic were added in the follow-up documentation PR #2.
 
 Delivered foundation:
 
@@ -242,7 +241,7 @@ Delivered foundation:
 
 Bootstrap action: completed from the established evidence, with Windows regression verification
 recorded in `docs/milestones/M01/COMPLETION_REPORT.md`. No duplicate standalone audit was performed.
-Do not merge PR #1 without explicit user approval.
+PR #1 was merged after explicit user approval.
 
 ### M02 - Semantic scenes and story beats
 
