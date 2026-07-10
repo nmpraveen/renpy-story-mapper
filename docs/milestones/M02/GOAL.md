@@ -36,4 +36,7 @@ narrative beats and scenes without AI and without executing Ren'Py or game Pytho
 
 ## State
 
-Active. Created after explicit user approval on 2026-07-10.
+Completed on 2026-07-10. The implementation is integrated on the milestone branch, Windows
+acceptance and canonical-sample immutability checks pass, independent re-review found no remaining
+findings, completion documentation and the native infographic exist, and PR #3 is open and
+unmerged pending explicit user approval. M03 has not begun.
