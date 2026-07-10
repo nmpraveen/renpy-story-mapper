@@ -245,6 +245,8 @@ PR #1 was merged after explicit user approval.
 
 ### M02 - Semantic scenes and story beats
 
+Status: Active on `milestone/m02-semantic-scenes` after explicit user approval on 2026-07-10.
+
 Objective: convert the low-level statement graph into readable narrative units without using AI.
 
 Deliverables:
