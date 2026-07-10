@@ -83,6 +83,39 @@ Inventory only:
   --output artifacts\import-manifest.json
 ```
 
+## Durable projects and story state
+
+M03 stores authoritative analysis in a versioned SQLite project. The selected game folder or RPA
+archive remains read-only, and the project path must be outside a selected game folder.
+
+```powershell
+.\.venv\Scripts\python.exe -m renpy_story_mapper project create `
+  "C:\path\to\scripts.rpa" `
+  "artifacts\projects\story.rsmproj"
+
+.\.venv\Scripts\python.exe -m renpy_story_mapper project show `
+  "artifacts\projects\story.rsmproj" `
+  --output "artifacts\projects\story-snapshot.json"
+
+.\.venv\Scripts\python.exe -m renpy_story_mapper project refresh `
+  "C:\path\to\scripts.rpa" `
+  "artifacts\projects\story.rsmproj"
+```
+
+Refresh compares SHA-256 source fingerprints, reuses cached parsed modules for unchanged files,
+and reparses only changed source files. The project retains the M01 graph, M02 semantic layer,
+diagnostics, unresolved records, deterministic requirements, explicit state effects, and the
+state-variable registry. Simple literal assignments and numeric `+=`/`-=` effects are proven;
+creator calls with visible literal arguments are possible effects; computed or dynamic behavior
+remains unresolved. Every gate and effect retains its exact source path and physical lines.
+
+Projects can be deleted explicitly after they are no longer needed:
+
+```powershell
+.\.venv\Scripts\python.exe -m renpy_story_mapper project delete `
+  "artifacts\projects\story.rsmproj"
+```
+
 ## Tests and static checks
 
 ```powershell

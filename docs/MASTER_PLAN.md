@@ -1,479 +1,536 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-## 1. Purpose
+Last revised: 2026-07-10
 
-Build a Windows-only application that reads Ren'Py scripts without executing game code, reconstructs the story as a source-linked branching graph, groups the graph into readable story beats, and optionally uses AI to summarize and explain the story.
+Status: M01, M02, and M03 are complete. M04 is the next proposed milestone and has not started.
 
-This document is the permanent source of truth for the project. One main Codex task acts as the orchestrator. It works on one milestone at a time and creates separate local Codex tasks for major implementation, testing, review, or documentation work.
+## 1. Product goal
 
-## 2. Established baseline
+Build a private Windows application that accepts a Ren'Py game folder or `scripts.rpa` archive and
+turns the story into a readable, interactive flowchart.
 
-- Repository: `nmpraveen/renpy-story-mapper`
-- Phase 1 PR: `#1`
-- Baseline commit: `0ef367e5085cabb3c9e1a0ea31e4bb2b31334dcc`
-- Platform and runtime authority: Windows only
-- Python: CPython 3.12
-- Canonical read-only sample:
-  `C:\Users\prave\University of Michigan Dropbox\Praveen Manivannan\Windows Mac portal\scripts.rpa`
+The application is for understanding complicated branching stories. It is not a chatbot, a game
+editor, or a public distribution project. The main experience is:
 
-Phase 1 established the read-only RPA inventory, safe Ren'Py parser, source precedence, control-flow graph, diagnostics, CLI, and automated tests. Treat this as the accepted foundation. Do not repeat a standalone Phase 1 audit unless later changes require regression testing.
+```text
+Select a Ren'Py game
+  -> analyze it without running game code
+  -> identify story paths, choices, requirements, and state changes
+  -> organize the result into human-sized story events
+  -> explore the story at three levels of detail
+```
 
-## 3. Product principles
+The final map must answer visually, without requiring the user to ask questions:
 
-1. The original game and archive are always read-only.
-2. Never execute embedded Ren'Py, screen, or game Python code.
-3. Deterministic analysis owns story structure. AI never invents graph edges.
-4. Prefer `.rpy` when matching `.rpy` and `.rpyc` files both exist.
-5. Every structural result retains its source file and physical line evidence.
-6. Unknown dynamic behavior is classified as unresolved rather than guessed.
-7. Local analysis works without an AI provider or internet connection.
-8. Story text is not sent to a cloud AI provider unless the user enables it.
-9. Windows is the only supported runtime and release platform for now.
-10. Work on exactly one approved milestone at a time.
+- What are the major story arcs and outcomes?
+- Which choices cause the story to branch?
+- What conditions or points are required to enter a path?
+- What changes after an event, such as love, lust, skill, money, job, or story flags?
+- Where do paths merge, loop, call shared material, or end?
+- What dialogue and source lines prove each result?
 
-## 4. Technical architecture
+This document is the permanent source of truth for all further project tasks. If another document,
+old infographic, task brief, or prior conversation conflicts with this plan, this plan wins.
+
+## 2. Current foundation and what we learned
+
+### M01 - Analyzer foundation
+
+Status: Complete and merged through PR #1. M01 documentation was merged through PR #2.
+
+M01 safely reads RPA archives, prefers `.rpy` over matching `.rpyc`, parses a conservative Ren'Py
+subset, and builds a source-linked control-flow graph containing labels, choices, conditions,
+jumps, calls, returns, fallthrough, and unresolved behavior.
+
+### M02 - Deterministic semantic projection
+
+Status: Complete and merged to `main` through corrective PR #4 on 2026-07-10. PR #3 was originally
+merged into the already-merged documentation branch, so PR #4 placed the M02 implementation onto
+`main`.
+
+M02 converts the low-level graph into label-based scenes, narrative beats, structural beats, and
+normalized transitions. It is a reliable intermediate representation, not the final human-facing
+story map.
+
+### Canonical-sample findings that drive the remaining plan
+
+The canonical scoped M02 run produced:
+
+- 11 label-based scenes
+- 422 beats
+- 532 transitions
+- 206 opaque or technical beats
+- 64 narrative beats
+- 28 condition beats
+- 2 choice beats containing 6 displayed choices
+- 24 unresolved semantic records
+
+The `new_prologue` label alone became one scene containing 196 beats: 62 narrative, 49 opaque,
+8 condition, and 2 choice beats. Rendering only labels would hide most of the story inside one
+giant node. Rendering all 422 beats would create an unreadable wall of technical nodes and edges.
+
+The sample also proves that state matters to story comprehension. Examples include:
+
+- choice gates such as `ian_wits > 0` and `ian_charisma > 0`
+- progression gates such as `chapter == 0`
+- stat-related calls such as `call xp_up('lust')`
+- numeric changes such as `ian_lena_mmf_points += 1`
+- relationship and route flags such as `ian_lena_dating`, `ian_cheating`, and
+  `ian_louise_love`
+- story progression assignments such as `chapter = 3`
+
+Therefore, labels cannot be treated as final scenes, technical statements cannot simply be drawn
+as equal-sized nodes, and choices cannot be understood without showing their requirements and
+effects.
+
+## 3. Non-negotiable product rules
+
+1. The game folder and original archive are always read-only.
+2. Never execute embedded Ren'Py, screen, creator-defined, or game Python code.
+3. Deterministic analysis owns source selection, labels, choices, conditions, jumps, calls,
+   returns, fallthrough, merges, loops, endings, and graph edges.
+4. Deterministic analysis also owns any stat requirement or state change that can be read safely
+   from explicit syntax. AI may explain it but may not invent it.
+5. Prefer `.rpy` when matching `.rpy` and `.rpyc` files both exist.
+6. Every structural fact, gate, effect, and detailed story item retains source-file and physical
+   line evidence.
+7. Dynamic or unsupported behavior is visibly marked unresolved rather than guessed.
+8. AI is used to organize and describe story meaning, not to decide factual connectivity.
+9. Story text is never sent to a cloud AI provider without explicit user enablement.
+10. The deterministic map remains available when AI is disabled or unavailable, although it may
+    be less polished.
+11. Windows with CPython 3.12 is the only runtime authority.
+12. Work on exactly one explicitly approved milestone at a time.
+
+## 4. The three-level story map
+
+The application must provide semantic zoom: zooming out simplifies the story, and zooming in
+reveals progressively more evidence. It must not merely make the same hundreds of boxes physically
+smaller or larger.
+
+### Level 1 - Story overview
+
+Purpose: understand the big picture at a glance.
+
+Show a small number of major arcs, turning points, relationships, roles, and outcomes. Examples:
+
+```text
+Person A meets Person B
+  -> relationship grows
+  -> Person A joins Company Z
+```
+
+Level 1 should emphasize:
+
+- chapters or major arcs
+- important relationship changes
+- major career, location, allegiance, or route changes
+- major branch points and endings
+- concise outcome summaries
+
+It should hide routine dialogue, image/audio commands, pauses, save setup, and most implementation
+details.
+
+### Level 2 - Story events and choices
+
+Purpose: understand how the story progresses and branches.
+
+Show human-sized events rather than one node per line or one node per label. Each event may show:
+
+- a readable event title and short summary
+- involved characters
+- player choices
+- incoming requirements or gates
+- outgoing effects and important state changes
+- branch merges, loops, shared calls, and endings
+- warnings when a connection or effect is unresolved
+
+Examples of visible annotations:
+
+```text
+[Requires: Ian Wits > 0]
+[Choice: Offer help]
+[Effect: Lust increases]
+[Effect: Ian/Lena relationship points +1]
+[Sets: Ian and Lena are dating]
+```
+
+### Level 3 - Exact evidence
+
+Purpose: verify every conclusion and inspect small details.
+
+Show the deterministic source-linked representation:
+
+- exact dialogue and narration
+- exact choice captions
+- original conditions
+- explicit assignments, increments, decrements, and relevant calls
+- labels, jumps, calls, returns, fallthrough, and merge points
+- file path and physical source lines
+- technical commands on demand
+- unresolved behavior with the reason it could not be resolved
+
+Level 3 is where accuracy is audited. Levels 1 and 2 are readable projections over this evidence.
+
+### Required interaction
+
+- Mouse-wheel zoom and pan.
+- Semantic transitions between Levels 1, 2, and 3.
+- Expand or collapse a single arc, event, choice, or branch without expanding everything.
+- Fit the current story, branch, or selection to the window.
+- Preserve the user's location and selection while changing detail levels.
+- Search by character, label, dialogue, choice text, variable, condition, or event title.
+- Toggle technical nodes and unresolved items.
+- Click any high-level claim to reveal the lower-level evidence supporting it.
+
+## 5. Story state, requirements, and effects
+
+Story state must be a first-class part of the graph rather than text hidden in a source inspector.
+
+### State categories
+
+The model must support, without assuming a game's exact naming convention:
+
+- affection, love, lust, friendship, and relationship points
+- skills and personality statistics
+- money, inventory, and resources
+- jobs, roles, locations, and memberships
+- route, dating, cheating, allegiance, and event flags
+- chapter, day, time, and other progression markers
+- creator-specific variables whose meaning is initially unknown
+
+### Deterministic state extraction
+
+Safely recognize simple explicit constructs without executing them, including:
+
+- requirements: comparisons and boolean conditions on choices or branches
+- effects: direct assignments, `+=`, `-=`, and safe literal changes
+- relevant calls whose target and literal arguments are visible
+- state changes inside each choice branch
+
+For every extracted item, retain the original expression and source evidence. A normalized human
+label such as "Lust +1" may be added, but the exact source remains authoritative.
+
+Complex Python, computed variable names, unknown functions, and effects that depend on runtime
+execution remain unresolved. The application must say "possible or unresolved effect" rather
+than present them as proven facts.
+
+### Map presentation
+
+- Requirements appear on the path entering an event or choice outcome.
+- Effects appear on the event or path that causes them.
+- Numeric deltas use compact badges such as `Love +1` or `Money -10`.
+- Boolean or categorical changes use badges such as `Dating = true` or `Job = Company Z`.
+- Important changes may be promoted to Levels 1 or 2; all extracted changes remain available at
+  Level 3.
+- The same underlying variable may have a user-editable display name and category.
+
+## 6. Technical architecture
 
 ```text
 Game folder or scripts.rpa
         |
-Read-only archive inventory
+Read-only inventory and .rpy precedence
         |
-Prefer .rpy over matching .rpyc
+Safe static parser
         |
-Safe static Ren'Py parser
+Authoritative source-linked control-flow graph (M01)
         |
-Source-linked control-flow graph
+Deterministic scenes, beats, and transitions (M02)
         |
-Semantic scenes and story beats
+Requirements, state effects, and durable project storage (M03)
         |
-Optional AI enrichment
+Three-level interactive Windows graph (M04)
         |
-Windows story explorer and exports
+AI-assisted event grouping, titles, summaries, and high-level meaning (M05)
 ```
 
-The underlying result is a graph, not always a tree. Story routes can split, merge, loop, call shared labels, and return. The application may show a tree-like route view, but it must preserve the accurate graph underneath.
+The underlying structure is a graph, not necessarily a tree. The interface may present a clean
+flowchart, but it must preserve splits, merges, loops, calls, returns, shared scenes, and endings.
 
-### Core data model
+### Core records
 
-The internal project format should use SQLite, with JSON export when useful. Principal records include:
-
-- Source file and physical line
-- Label
-- Dialogue and narration beat
-- Scene
-- Choice
-- Condition
-- Jump
-- Call and return
-- Natural fallthrough
-- Ending
-- Unresolved dynamic construct
+- Project and source-file fingerprint
+- Source file and physical span
+- Label, beat, and deterministic scene
+- Human-facing event and story arc
 - Character
+- Choice and choice outcome
+- Requirement or gate
+- State variable, category, and display name
+- Proven effect or unresolved possible effect
 - Typed graph edge
-- AI summary and its provenance
+- Ending and unresolved behavior
+- AI interpretation with provider, model, prompt version, input hash, confidence, and evidence IDs
+- User correction or override
 
-### Planned Windows stack
+### Planned local stack
 
-- Python 3.12
-- Existing analyzer package as the core engine
-- PySide6 for the Windows desktop application
-- Embedded Cytoscape.js with ELK layout for graph visualization
-- SQLite for analyzed projects and caches
-- PyInstaller for Windows distribution
-- Provider adapters for optional OpenAI, Anthropic, xAI, and local OpenAI-compatible models
+- Python 3.12 and the existing analyzer package
+- SQLite for projects, graph data, state facts, AI cache, and user corrections
+- PySide6 for the Windows desktop shell
+- Embedded Cytoscape.js with ELK layout, unless an M04 prototype proves a better Windows option
+- One minimal provider-neutral AI interface with only the provider adapter needed for the first
+  working version; multiple provider integrations are not a milestone requirement
 
-Electron, macOS support, game editing, and game patching are outside the current plan.
+PyInstaller packaging, an installer, public distribution, macOS support, game editing, and game
+patching are outside the active plan.
 
-## 5. Permanent orchestration model
+## 7. Remaining milestones
 
-Create one permanent local Codex task named `RenPy Story Mapper - Orchestrator`. It owns:
+The approved roadmap contains M03 through M05. M03 is complete, leaving exactly two planned
+milestones. Do not create M06 or M07. Ideas beyond M05 belong in a future backlog and are not
+commitments.
 
-- This master plan
-- The active milestone self-goal
-- Architecture and scope decisions
-- Local worker-task creation and tracking
-- Integration branches and conflict resolution
-- Windows verification
-- Completion reports
-- Milestone infographic generation
-- The approval gate before the next milestone
+### M03 - Story state and durable projects
 
-The orchestrator may make small integration fixes. Major independently reviewable work must be assigned to separate user-visible local Codex tasks, not merely simulated inside the orchestrator conversation.
+Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; PR #5 is open
+and remains subject to explicit user merge approval.
 
-### One self-goal per milestone
-
-At the start of an approved milestone, the orchestrator creates exactly one active self-goal with that milestone's objective, deliverables, and acceptance criteria.
-
-```text
-PLANNED
-  -> SELF-GOAL CREATED
-  -> WORK PACKAGES DEFINED
-  -> LOCAL TASKS CREATED
-  -> IMPLEMENTATION AND REVIEW
-  -> RESULTS GATHERED
-  -> INTEGRATED
-  -> WINDOWS VERIFICATION
-  -> REPORT AND INFOGRAPHIC CREATED
-  -> SELF-GOAL COMPLETED
-  -> WAIT FOR USER APPROVAL
-```
-
-The next milestone goal must not be created until the current goal is genuinely complete and the user explicitly approves proceeding.
-
-### Local worker-task rules
-
-Create local Codex tasks only for substantial work such as:
-
-- Core feature implementation
-- A separate parser or graph subsystem
-- Tests and representative fixtures
-- Independent security or correctness review
-- Desktop application components
-- Packaging or release engineering
-- Substantial documentation
-
-Parallel tasks are allowed only within the currently active milestone and only when their work is independent. Use separate Git branches and worktrees when edits could collide. Assign non-overlapping files or clearly separated responsibilities.
-
-Every worker brief must contain:
-
-```text
-Milestone:
-Work package:
-Repository and base commit:
-Assigned branch or worktree:
-Files or subsystem owned:
-Required deliverables:
-Required tests and evidence:
-Explicit exclusions:
-Read-only assets:
-Completion-report format:
-```
-
-Every worker must return:
-
-```text
-Status: complete | partial | blocked
-Branch and final commit:
-Files changed:
-Behavior implemented:
-Tests run with exact results:
-Known limitations:
-Risks or unresolved questions:
-Integration instructions:
-Scope confirmation:
-```
-
-Worker tasks must not merge their own work, modify another worker's assigned files, start a later milestone, use destructive Git commands, or weaken acceptance criteria without approval.
-
-### Orchestrator completion gate
-
-A milestone is complete only when:
-
-- Every required worker task has reported.
-- The orchestrator has inspected the actual diffs and commits.
-- Required work has been integrated on the milestone branch.
-- Acceptance criteria are mapped to concrete evidence.
-- Windows tests and checks pass.
-- No critical review findings remain.
-- The sample archive is proven unchanged if it was accessed.
-- Documentation matches actual behavior.
-- A detailed completion report exists.
-- A native-image infographic has been generated and saved.
-
-A worker saying "done" is not completion evidence by itself.
-
-## 6. Milestone artifact structure
-
-Use this structure in the project repository:
-
-```text
-docs/
-  MASTER_PLAN.md
-  milestones/
-    M01/
-      GOAL.md
-      TASKS.md
-      COMPLETION_REPORT.md
-      INFOGRAPHIC.png
-    M02/
-      GOAL.md
-      TASKS.md
-      COMPLETION_REPORT.md
-      INFOGRAPHIC.png
-```
-
-`TASKS.md` records task IDs, titles, ownership, branches, status, and final commits.
-
-`COMPLETION_REPORT.md` records:
-
-- Objective and scope
-- Delivered behavior
-- Architecture changes
-- Worker contributions
-- Commits integrated
-- Commands, exit codes, and test counts
-- End-to-end evidence
-- Archive immutability evidence when applicable
-- Known limitations and deferred work
-- Readiness for the next milestone
-
-After verification, the orchestrator must use Codex's native image-generation capability to produce `INFOGRAPHIC.png`. It must visually summarize the objective, components delivered, data flow, verified metrics, limitations, and what becomes possible next.
-
-Do not substitute SVG, Mermaid rendering, Python drawing, a manually assembled graphic, or an external image API. If native image generation is unavailable, report that limitation instead of silently substituting another method. The Markdown completion report remains the factual source of truth because generated image text can be imperfect.
-
-## 7. Milestones
-
-### M01 - Phase 1 analyzer foundation
-
-Status: Complete and merged through PR #1 on 2026-07-10. Completion documentation and the
-native-image infographic were added in the follow-up documentation PR #2.
-
-Delivered foundation:
-
-- Read-only RPA inspection
-- Exact source inventory and precedence
-- Safe static Ren'Py subset parser
-- Labels, menus, conditions, jumps, calls, returns, and fallthrough
-- Source-linked control-flow graph
-- Diagnostics and unresolved classifications
-- Deterministic CLI output
-- Automated tests and quality checks
-
-Bootstrap action: completed from the established evidence, with Windows regression verification
-recorded in `docs/milestones/M01/COMPLETION_REPORT.md`. No duplicate standalone audit was performed.
-PR #1 was merged after explicit user approval.
-
-### M02 - Semantic scenes and story beats
-
-Status: Complete on `milestone/m02-semantic-scenes`; pull request #3 is open and unmerged pending
-explicit user approval. Windows acceptance and independent re-review passed on 2026-07-10.
-
-Objective: convert the low-level statement graph into readable narrative units without using AI.
+Objective: preserve analyses in a reusable project and add deterministic requirements/effects so
+the later visual map can explain why routes open and what choices change.
 
 Deliverables:
 
-- Group adjacent dialogue and narration into story beats.
-- Split beats at choices, conditions, jumps, calls, returns, and endings.
-- Group beats into scenes using labels and structural boundaries.
-- Preserve characters, dialogue, narration, conditions, and source ranges.
-- Distinguish narrative labels from shared utility labels where possible.
-- Identify unreachable content and unresolved dynamic transitions.
-- Produce deterministic semantic JSON and CLI output.
-- Add representative fixtures and tests.
+- Versioned SQLite project schema and tested migrations.
+- Storage for sources, M01 graph, M02 semantic data, diagnostics, unresolved records, and metadata.
+- Project create, open, refresh, and delete operations.
+- Content-hash-based incremental reanalysis so unchanged sources are not reparsed.
+- Deterministic extraction of simple branch and choice requirements.
+- Deterministic extraction of simple assignments, increments, decrements, and literal-argument
+  state-related calls.
+- State-variable registry with inferred category, original name, editable display name, and source
+  evidence.
+- Explicit distinction between proven effects, possible effects, and unresolved effects.
+- Safe temporary-file, cancellation, corruption, and recovery behavior.
+- Representative fixtures for love/lust points, relationship flags, skills, money, jobs, chapter
+  gates, chained requirements, and dynamic unsupported cases.
 
 Acceptance criteria:
 
-- Identical input produces byte-identical semantic output.
-- Every beat maps back to exact source lines.
-- Choices and conditions retain their graph edges.
-- No AI or game-code execution is required.
-- Existing Phase 1 behavior remains compatible.
+- Closing and reopening a project preserves byte-equivalent authoritative graph, semantic, gate,
+  and effect data.
+- Refreshing an unchanged project does not reparse unchanged sources.
+- A changed source invalidates only its dependent data.
+- Simple examples such as `love += 1`, `dating = True`, `job = "Company Z"`, and
+  `wits > 0` are stored with exact source evidence and correct proven/unknown status.
+- The canonical sample visibly captures gates including `ian_wits > 0` and
+  `ian_charisma > 0`, plus representative point or flag changes such as
+  `ian_lena_mmf_points += 1`, without executing the game.
+- Dynamic or unsafe expressions remain unresolved and are never presented as proven effects.
+- The full canonical archive can be analyzed into a project without writing beside it; elapsed
+  time and peak-scale counts are recorded even if later UI work still needs progressive loading.
+- Database corruption and incompatible versions fail safely.
 - Pytest, Ruff, strict mypy, and `pip check` pass on Windows.
 
-### M03 - Project persistence and incremental analysis
+Explicit exclusions:
 
-Objective: create a durable analyzed-project format that avoids repeating unchanged work.
+- No desktop UI beyond a minimal test or diagnostic harness.
+- No AI scene grouping.
+- No packaging or installer work.
 
-Deliverables:
+Completion evidence:
 
-- SQLite project schema and migrations.
-- Source, graph, scene, diagnostic, and metadata storage.
-- Content-hash-based invalidation.
-- Incremental reanalysis of changed sources.
-- Project creation, reopen, refresh, and deletion commands.
-- Safe cache and temporary-file handling.
-- JSON import and export where appropriate.
+- Versioned SQLite schema v2, migrations, structural validation, atomic lifecycle operations,
+  source fingerprints, parsed-module cache, dependency-scoped invalidation, and durable user state
+  metadata are implemented.
+- Deterministic requirements and state effects retain exact physical-line evidence and distinguish
+  proven, possible, and unresolved behavior without executing game code.
+- The full canonical archive produced a 715,141,120-byte project containing 405,449 graph nodes,
+  462,767 edges, 2,652 scenes, 252,061 beats, 38,977 requirements, and 55,356 proven/possible
+  effects. Initial creation completed in 334.183 seconds after the full-graph traversal fix.
+- An unchanged canonical refresh parsed 0 sources, reused all 77 selected `.rpy` sources in 0.655
+  seconds, and left both the project and archive byte-identical.
+- Windows CPython 3.12 acceptance passed 93 tests, Ruff, strict mypy, and `pip check`; independent
+  review found no remaining P0-P3 issues.
 
-Acceptance criteria:
+### M04 - Three-level Windows story map
 
-- Closing and reopening preserves the same graph and scenes.
-- Unchanged sources are not reparsed.
-- Changed sources invalidate only dependent data.
-- Database migrations are tested.
-- Corrupt or incompatible projects fail safely.
+Status: Proposed after M03; do not start before explicit user approval.
 
-### M04 - Windows desktop shell and graph explorer
-
-Objective: provide a usable Windows application around the stable analyzer and project model.
-
-Deliverables:
-
-- PySide6 application shell.
-- Game folder or archive selection.
-- Read-only analysis workflow with progress and cancellation.
-- Project open/reopen experience.
-- Chapter and label overview.
-- Progressive graph expansion rather than rendering all nodes at once.
-- Source-evidence inspector.
-- Search and diagnostic panels.
-- Windows error reporting and logs.
-
-Acceptance criteria:
-
-- Application works on a clean supported Windows machine.
-- Analysis remains responsive and cancellable.
-- Large graphs open through aggregation and progressive expansion.
-- Selecting a graph item reveals its source evidence.
-- No writes occur in the game directory.
-
-### M05 - AI enrichment
-
-Objective: add optional provider-neutral story interpretation without allowing AI to control graph structure.
+Objective: build the actual Windows application and prove that a complicated game can be explored
+without displaying hundreds of equal-weight nodes at once.
 
 Deliverables:
 
-- Provider-neutral AI interface.
-- OpenAI, Anthropic, xAI, and local OpenAI-compatible adapters.
-- Structured scene-summary schema.
-- Summary, important events, characters, consequences, questions, tone, and confidence.
-- Content-hash, model, and prompt-version caching.
-- Cost and data-sharing confirmation before cloud requests.
-- Windows Credential Manager integration for secrets.
-- Retry, rate-limit, cancellation, and failure handling.
+- PySide6 desktop shell with game/archive selection and project create/open/refresh.
+- Responsive background analysis with progress, cancellation, and clear errors.
+- Interactive graph canvas with pan, zoom, fit, selection, and stable navigation.
+- Three semantic detail levels as defined in Section 4.
+- Deterministic hierarchy for the pre-AI map: labels or chapters -> structural event groups ->
+  exact beats and source evidence.
+- Progressive expansion and virtualization so only visible or requested details are rendered.
+- Distinct visual language for story events, choices, gates, effects, merges, loops, shared calls,
+  endings, technical material, and unresolved behavior.
+- Requirement and effect badges with filters by variable/category.
+- Search and source-evidence inspector.
+- User controls to rename variables, categorize state, rename nodes, hide technical noise, and
+  preserve those corrections.
+- Diagnostics/log panel suitable for troubleshooting without exposing the original game content
+  unnecessarily.
 
 Acceptance criteria:
 
-- The application remains fully usable without AI.
-- AI cannot create or modify structural graph edges.
-- Only explicitly approved text is sent to cloud providers.
-- Repeated unchanged requests use the cache.
-- Provider failure does not damage the analyzed project.
+- A user can select the canonical archive, create or reopen its project, and reach a usable map
+  without command-line work.
+- Opening the canonical project does not attempt to render all beats or edges simultaneously.
+- The M02 `new_prologue` result is presented as an expandable container, not one unreadable
+  196-beat card and not a 196-node default view.
+- Zooming changes the amount and meaning of displayed information, not only its physical size.
+- Choices visibly show their options, requirements, and known effects.
+- Selecting any overview or event item can reveal Level 3 source evidence.
+- Large branches can be expanded independently and collapsed without losing the user's place.
+- The UI remains responsive and cancellation leaves the saved project consistent.
+- No operation writes to the game directory or executes game code.
+- Windows UI tests plus pytest, Ruff, strict mypy, and `pip check` pass.
 
-### M06 - Advanced story exploration
+Explicit exclusions:
 
-Objective: make complex routes understandable and answer practical story questions.
+- Do not pretend deterministic labels are final human-quality story scenes.
+- No chatbot, natural-language question interface, ending finder, or route-question workflow.
+- No packaging or public release work.
+
+### M05 - AI-organized story map and final product validation
+
+Status: Planned after M04; do not start before M04 completion and explicit approval.
+
+Objective: turn the accurate but technical map into the readable story flowchart originally
+requested, while keeping every connection, requirement, and effect anchored to deterministic
+evidence.
 
 Deliverables:
 
-- Selected-route tree view backed by the full graph.
-- Choice comparison.
-- Ending finder.
-- Character timeline.
-- Path explanation: "How did I reach this scene?"
-- Consequence explanation: "What changes after this choice?"
-- Search by label, dialogue, character, condition, or summary.
-- Visible unresolved and dynamic behavior report.
-- Initial symbolic route constraints where safely possible.
+- Minimal provider-neutral AI boundary and one working provider adapter selected at milestone
+  start; additional providers are optional future work.
+- Explicit opt-in before sending story text to any cloud provider.
+- Structured AI output for event boundaries, event titles, concise summaries, involved characters,
+  major state changes, arc grouping, and Level 1 outcome descriptions.
+- Chunking strategy for long labels and branches, followed by evidence-aware reconciliation across
+  chunks.
+- Graph-constrained grouping: AI may group or describe existing beats and paths but cannot create,
+  delete, or redirect authoritative edges.
+- Requirement/effect-aware summaries so important gates and point changes are not lost during
+  compression.
+- Separate display for proven facts, AI interpretation, and unresolved behavior.
+- Hash/model/prompt-version cache, cancellation, retry, and safe provider-failure handling.
+- User review tools to rename, split, merge, recategorize, approve, or reject AI-created events and
+  arcs. User corrections override AI output and survive refreshes.
+- Final visual and usability refinement of all three map levels.
 
 Acceptance criteria:
 
-- Route views preserve merges, loops, calls, and returns accurately.
-- User-facing explanations link to graph and source evidence.
-- The application distinguishes proven facts from AI interpretation.
-- Unsolvable dynamic routing is reported rather than fabricated.
+- On the canonical sample, `new_prologue` is divided into a manageable set of coherent,
+  human-readable events instead of remaining one 196-beat scene.
+- Level 1 shows a concise story overview; Level 2 shows meaningful events, choices, gates, and
+  effects; Level 3 preserves the exact deterministic evidence.
+- Important conditions such as Wits or Charisma requirements remain visibly attached to the
+  correct choices after AI grouping.
+- Relevant changes such as love/lust/relationship points, flags, jobs, and chapter progression are
+  surfaced at the appropriate level and never silently discarded.
+- AI summaries do not alter the M01/M02/M03 authoritative edge, gate, or effect sets.
+- Every AI-created event and high-level claim links to its supporting beats and source evidence.
+- Unsupported causal claims are marked as interpretation or omitted, never stated as proven.
+- Provider failure, cancellation, or disabled AI falls back to the deterministic layered map
+  without damaging the project.
+- Reprocessing unchanged content uses cached results.
+- The user can correct bad grouping or naming without editing the game.
+- A final Windows walkthrough demonstrates importing the canonical archive, navigating all three
+  levels, following at least one branched choice with a requirement and effect, and returning to
+  its exact source evidence.
+- Pytest, Ruff, strict mypy, `pip check`, Windows UI checks, and milestone-specific end-to-end tests
+  pass.
 
-### M07 - Export, packaging, and Windows release
+Explicit exclusions:
 
-Objective: deliver a distributable Windows application and portable story reports.
+- No conversational Q&A or "ask the story" feature.
+- No separate advanced-exploration milestone.
+- No installer, packaging, distribution, release publishing, or portable-report milestone.
 
-Deliverables:
+## 8. Product completion definition
 
-- Interactive portable HTML report.
-- JSON graph and semantic export.
-- GraphML export.
-- Markdown story outline.
-- Optional printable route guide.
-- PyInstaller Windows build.
-- Portable and installer distribution options.
-- Version metadata, release notes, and upgrade handling.
-- Clear project and cache cleanup controls.
+After M05, the planned product is complete when the user can:
 
-Acceptance criteria:
+1. Select a complex Ren'Py game folder or archive on Windows.
+2. Wait for safe static analysis without the game being executed or modified.
+3. See a clean Level 1 overview rather than hundreds of technical nodes.
+4. Zoom into Level 2 events and follow choices, requirements, effects, merges, and endings.
+5. Zoom into Level 3 to inspect exact dialogue, code expressions, and source lines.
+6. Understand important relationship, love/lust, skill, money, job, flag, and progression changes.
+7. Correct AI grouping or names when necessary.
+8. Close and reopen the project without repeating unchanged work.
 
-- End users do not need to install Python.
-- Packaged analysis matches development output.
-- Exported reports open without the original game.
-- No credentials, source archive, caches, or temporary analysis files enter Git.
-- Release publishing requires explicit user approval.
+Packaging or sharing the application may be reconsidered later, but it is not required for product
+completion.
 
-## 8. Git and scope rules
+## 9. Permanent orchestration model
 
-- Use a dedicated branch and PR for each milestone.
-- Use isolated branches or worktrees for concurrent worker tasks.
-- The orchestrator integrates worker commits in a controlled order.
-- Do not merge PRs, publish releases, or force-push without user approval.
-- Never commit credentials, `.venv`, the sample archive, extracted game content, caches, or temporary outputs.
-- Preserve unrelated user changes.
-- Run relevant tests after worker integration, not merely inside isolated tasks.
-- Do not design or implement future milestones while the current milestone is active.
+The existing permanent orchestrator owns this plan, the active milestone goal, worker-task links,
+integration, Windows verification, completion reports, and milestone infographics.
 
-## 9. Ready-to-paste Windows orchestrator prompt
+### Milestone gate
 
-Copy everything inside the following block into one new permanent Codex task in the Windows `Renpy` project.
+- Work on exactly one milestone at a time.
+- Create exactly one self-goal only after the user explicitly approves that milestone.
+- Use user-visible local Codex tasks for major independent implementation, fixtures/tests, review,
+  or substantial documentation.
+- Give each worker a bounded brief, base commit, branch/worktree, owned files, deliverables, tests,
+  exclusions, and return contract.
+- Record every worker in `docs/milestones/<milestone-id>/TASKS.md`.
+- Inspect actual diffs and evidence; a worker saying "done" is not proof.
+- Integrate on one milestone branch and use one PR per milestone.
+- Never merge a PR without explicit user approval.
+- Do not begin the next milestone until the current milestone has passed Windows acceptance,
+  documentation, native infographic generation, and user review.
+
+### Required milestone artifacts
 
 ```text
-You are the permanent lead orchestrator for the Windows-only Ren'Py Story Mapper project. This task owns the master plan and coordinates all future milestone work.
-
-Read docs/MASTER_PLAN.md completely before acting and treat it as the project source of truth. If the file was placed at the repository root as MASTER_PLAN.md, move it into docs/MASTER_PLAN.md in the first milestone documentation work while preserving its contents.
-
-Baseline repository: nmpraveen/renpy-story-mapper
-Existing Phase 1 PR: #1
-Baseline commit: 0ef367e5085cabb3c9e1a0ea31e4bb2b31334dcc
-
-OPERATING MODEL
-
-1. Remain the single permanent orchestrator task. Keep the master plan, milestone status, decisions, local task links, integration results, and final reports here.
-2. Work on exactly one milestone at a time. Do not begin or implement the next milestone until I explicitly approve it.
-3. At the beginning of each approved milestone, create exactly one self-goal containing that milestone's objective, deliverables, and acceptance criteria. Mark it complete only after integration, Windows verification, documentation, and the infographic are finished.
-4. For major independent work, create user-visible local Codex tasks using the task/thread coordination tools. Use them for substantial implementation, tests and fixtures, independent review, packaging, or documentation. Do not substitute hidden or ephemeral subagents for the requested local tasks.
-5. Give every worker task a bounded brief, base commit, assigned branch or worktree, owned files or subsystem, deliverables, tests, exclusions, and return contract. Use separate branches and worktrees where concurrent edits could collide.
-6. Record every worker task's ID, title, responsibility, branch, and status in docs/milestones/<milestone-id>/TASKS.md. Monitor the tasks, answer questions, correct scope drift, and gather their final commits, diffs, tests, risks, and unresolved items.
-7. A worker saying done is not proof. You own integration: inspect every delivered diff, resolve conflicts, run the milestone's complete Windows acceptance suite, and return defective work to the responsible task when appropriate.
-8. After acceptance passes, update docs/MASTER_PLAN.md, write docs/milestones/<milestone-id>/COMPLETION_REPORT.md, and use Codex's native image-generation tool to create docs/milestones/<milestone-id>/INFOGRAPHIC.png. The infographic must summarize the objective, architecture or flow, major deliverables, verified metrics, limitations, and what becomes possible next.
-9. Do not create the infographic with SVG, Mermaid rendering, Python drawing, manually composed shapes, or an external image API. The Markdown completion report remains the factual source of truth because generated-image text can be imperfect. If native image generation is unavailable, report that limitation rather than silently substituting another method.
-10. Present the report and infographic, mark the milestone self-goal complete only when every required artifact exists, and stop. Wait for my explicit approval before creating the next milestone goal.
-
-NON-NEGOTIABLE PRODUCT RULES
-
-- Windows is the sole runtime and release authority. Use CPython 3.12 and Windows-native commands and paths. Do not spend time on macOS compatibility or use macOS results as proof.
-- The canonical sample is read-only: C:\Users\prave\University of Michigan Dropbox\Praveen Manivannan\Windows Mac portal\scripts.rpa
-- Never modify, replace, rename, unpack into, or write beside the sample. Put outputs in the repository worktree or a temporary directory. If a milestone reads it, record SHA-256, size, and LastWriteTimeUtc before and after.
-- Never execute embedded Ren'Py or game Python. Static analysis only. Unknown dynamic behavior must be classified as unresolved.
-- Deterministic code, not AI, owns labels, branches, conditions, jumps, calls, returns, fallthrough, source precedence, and source-linked graph edges.
-- AI is optional enrichment only. Local analysis must work without it. Do not send story text to a cloud provider without explicit user enablement.
-- Preserve .rpy precedence over matching .rpyc and retain source-file and physical-line evidence.
-- Keep all work inside the active milestone. Do not implement UI, AI, packaging, or another future phase unless the active milestone explicitly includes it.
-- Use one milestone branch and PR. Do not merge a PR or publish a release without explicit user approval.
-- Never commit credentials, the sample archive, extracted game content, virtual environments, caches, or temporary outputs.
-
-MILESTONE EXECUTION LOOP
-
-A. Read the master plan and current Git state. Identify the first incomplete approved milestone and restate its scope and acceptance criteria.
-B. Create that milestone's self-goal.
-C. Break only major independent deliverables into local Codex worker tasks and track them.
-D. Coordinate implementation and prevent scope expansion.
-E. Gather all worker results and inspect their actual changes.
-F. Integrate on the milestone branch.
-G. Run the full Windows acceptance suite appropriate to the milestone. Include pytest, Ruff, strict mypy, pip check, and milestone-specific end-to-end checks. Record commands, exit codes, test counts, and deterministic outputs.
-H. Recheck archive immutability if the sample was accessed.
-I. Update the plan and completion report with deliverables, commits, worker tasks, verification evidence, limitations, and deferred work.
-J. Generate the native-image infographic in the milestone folder.
-K. Mark the self-goal complete, give me a concise handoff with artifact links, and stop for approval.
-
-BOOTSTRAP NOW
-
-1. Confirm that this is the Windows Renpy project and locate the repository checkout.
-2. Confirm that docs/MASTER_PLAN.md or MASTER_PLAN.md is available. If neither exists, stop and ask me to place the file in the repository instead of inventing a replacement plan.
-3. Treat M01 and PR #1 as the established Phase 1 baseline. Do not repeat a standalone audit.
-4. Create the M01 completion documentation and native-image infographic from the established evidence only. Do not merge PR #1 without my approval.
-5. Report that M02 - Semantic scenes and story beats is the next proposed milestone, including its suggested local task split and acceptance criteria.
-6. Stop and wait for my explicit approval before creating the M02 self-goal or starting M02 implementation.
+docs/milestones/<milestone-id>/
+  GOAL.md
+  TASKS.md
+  COMPLETION_REPORT.md
+  INFOGRAPHIC.png
 ```
 
-## 10. Suggested M02 worker split
+The completion report is the factual authority and must record scope, delivered behavior, worker
+tasks, commits, exact verification commands/results, canonical-sample evidence, archive
+immutability, limitations, and deferred work.
 
-When the user approves M02, the orchestrator should consider these local tasks:
+Generate `INFOGRAPHIC.png` with Codex's native image-generation capability. Do not substitute SVG,
+Mermaid rendering, Python drawing, manually composed shapes, or an external image API. Generated
+image text may be imperfect, so the Markdown report remains authoritative.
 
-1. `M02 - Semantic model and grouping engine`
-   - Define the scene and beat schema.
-   - Implement deterministic grouping and boundaries.
+### Windows acceptance suite
 
-2. `M02 - Fixtures and behavioral tests`
-   - Create focused Ren'Py fixtures.
-   - Test dialogue grouping, menus, conditions, calls, returns, endings, and source ranges.
+Every milestone must run, as applicable:
 
-3. `M02 - Independent correctness review`
-   - Review grouping semantics, provenance, determinism, and regression risks.
-   - Make no implementation changes unless specifically reassigned.
+- pytest
+- Ruff
+- strict mypy
+- `pip check`
+- milestone-specific end-to-end checks
+- Windows UI checks for M04 and M05
+- canonical archive fingerprint before and after any access
 
-The orchestrator owns CLI integration, conflict resolution, final Windows verification, milestone documentation, infographic generation, and the user approval gate.
+Record commands, exit codes, test counts, deterministic output hashes where relevant, elapsed time,
+and unresolved items.
+
+## 10. Repository and safety rules
+
+- Repository: `nmpraveen/renpy-story-mapper`
+- Windows runtime: CPython 3.12
+- Canonical read-only sample:
+  `C:\Users\prave\University of Michigan Dropbox\Praveen Manivannan\Windows Mac portal\scripts.rpa`
+- Never modify, replace, rename, unpack into, or write beside the canonical archive.
+- Put outputs in the repository worktree or a Windows temporary directory.
+- Before and after archive access, record SHA-256, size, and `LastWriteTimeUtc`.
+- Never commit the sample archive, extracted game content, credentials, virtual environments,
+  caches, or temporary outputs.
+- Preserve unrelated user changes.
+- Do not weaken deterministic evidence or safety boundaries to make a cleaner picture.
+- Do not implement future-milestone features inside the active milestone.
+
+## 11. Current next action
+
+Review and merge the M03 milestone PR only with explicit user approval. After M03 is merged, wait
+for explicit approval before creating the M04 self-goal or beginning any M04 implementation.

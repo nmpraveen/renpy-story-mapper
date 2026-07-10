@@ -11,6 +11,11 @@ import pytest
 from renpy_story_mapper.cli import main
 from renpy_story_mapper.errors import ArchiveFormatError
 from renpy_story_mapper.importer import inventory_archive, iter_utf8_lines
+from renpy_story_mapper.project import (
+    create_archive_project,
+    open_project,
+    refresh_archive_project,
+)
 from renpy_story_mapper.rpa import RpaArchive, fingerprint_file
 
 KEY = 0x42424242
@@ -50,9 +55,7 @@ def test_safe_archive_streams_entries_and_inventory_prefers_source(tmp_path: Pat
     before = fingerprint_file(archive_path)
     archive = RpaArchive(archive_path)
     result = inventory_archive(archive, before)
-    assert b"".join(archive.iter_entry_bytes("game/script.rpy")) == (
-        b"label start:\n    return\n"
-    )
+    assert b"".join(archive.iter_entry_bytes("game/script.rpy")) == (b"label start:\n    return\n")
     assert result.manifest["counts"] == {
         "entries": 2,
         "by_extension": {".rpy": 1, ".rpyc": 1},
@@ -69,9 +72,7 @@ class _Dangerous:
 
 
 def test_restrictive_unpickler_rejects_globals(tmp_path: Path) -> None:
-    archive_path = make_archive(
-        tmp_path / "global.rpa", {}, index_override={"bad": _Dangerous()}
-    )
+    archive_path = make_archive(tmp_path / "global.rpa", {}, index_override={"bad": _Dangerous()})
     with pytest.raises(ArchiveFormatError, match="attempted to load global"):
         RpaArchive(archive_path)
 
@@ -180,10 +181,87 @@ def test_cli_analyze_writes_deterministic_semantic_story(tmp_path: Path) -> None
     assert fingerprint_file(archive_path) == before
 
 
+def test_archive_project_is_durable_incremental_and_read_only(tmp_path: Path) -> None:
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {
+            "game/script.rpy": (
+                b"label start:\n    if wits > 0:\n        $ love += 1\n    return\n"
+            ),
+            "game/script.rpyc": b"compiled",
+        },
+    )
+    project_path = tmp_path / "story.rsmproj"
+    before = fingerprint_file(archive_path)
+
+    project = create_archive_project(project_path, archive_path)
+    authoritative = project.authoritative_bytes()
+    snapshot = project.snapshot()
+    project.close()
+
+    assert snapshot["import_manifest"]["archive_integrity"]["verified_unchanged"] is True
+    assert snapshot["requirements"][0]["original_expression"] == "wits > 0"
+    assert snapshot["effects"][0]["original_expression"] == "love += 1"
+    report = refresh_archive_project(project_path, archive_path)
+    assert report.parsed_sources == ()
+    assert report.reused_sources == ("game/script.rpy",)
+    reopened = open_project(project_path)
+    try:
+        assert reopened.authoritative_bytes() == authoritative
+    finally:
+        reopened.close()
+    assert fingerprint_file(archive_path) == before
+
+
+def test_archive_refresh_updates_manifest_for_non_source_changes(tmp_path: Path) -> None:
+    source = b"label start:\n    return\n"
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {"game/script.rpy": source, "game/script.rpyc": b"compiled-one"},
+    )
+    project_path = tmp_path / "story.rsmproj"
+    project = create_archive_project(project_path, archive_path)
+    first_manifest = project.payload("import_manifest", "authoritative")
+    project.close()
+
+    make_archive(
+        archive_path,
+        {"game/script.rpy": source, "game/script.rpyc": b"compiled-two-longer"},
+    )
+    report = refresh_archive_project(project_path, archive_path)
+    assert report.parsed_sources == ()
+    assert report.reused_sources == ("game/script.rpy",)
+
+    reopened = open_project(project_path)
+    try:
+        second_manifest = reopened.payload("import_manifest", "authoritative")
+    finally:
+        reopened.close()
+    assert isinstance(first_manifest, dict)
+    assert isinstance(second_manifest, dict)
+    assert first_manifest["archive"] != second_manifest["archive"]
+
+
+def test_project_cli_create_show_refresh_and_delete(tmp_path: Path) -> None:
+    archive_path = make_archive(
+        tmp_path / "scripts.rpa",
+        {"game/script.rpy": b"label start:\n    $ love += 1\n    return\n"},
+    )
+    project_path = tmp_path / "story.rsmproj"
+    snapshot_path = tmp_path / "snapshot.json"
+
+    assert main(["project", "create", str(archive_path), str(project_path)]) == 0
+    assert main(["project", "show", str(project_path), "--output", str(snapshot_path)]) == 0
+    assert b'"original_expression": "love += 1"' in snapshot_path.read_bytes()
+    assert main(["project", "refresh", str(archive_path), str(project_path)]) == 0
+    assert main(["project", "delete", str(project_path)]) == 0
+    assert not project_path.exists()
+
+
 def test_incremental_utf8_decoder_handles_split_characters() -> None:
-    encoded = "label start:\n    \"café\"\n".encode()
+    encoded = 'label start:\n    "café"\n'.encode()
     split = encoded.index(b"\xc3") + 1
     assert list(iter_utf8_lines([encoded[:split], encoded[split:]], source="test.rpy")) == [
         "label start:\n",
-        "    \"café\"\n",
+        '    "café"\n',
     ]

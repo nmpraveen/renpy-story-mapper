@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from renpy_story_mapper.errors import ScriptParseError
@@ -422,11 +423,14 @@ class GraphBuilder:
         self.edges.add(GraphEdge(source, target, kind, items))
 
     def _reachable(self, entry: str) -> set[str]:
+        return self._reachable_from((entry,))
+
+    def _reachable_from(self, entries: Iterable[str]) -> set[str]:
         adjacency: dict[str, list[str]] = defaultdict(list)
         for edge in self.edges:
             adjacency[edge.source].append(edge.target)
         seen: set[str] = set()
-        pending = deque([entry])
+        pending = deque(sorted(entries))
         while pending:
             node = pending.popleft()
             if node in seen:
@@ -438,11 +442,9 @@ class GraphBuilder:
     def _included_nodes(self) -> set[str]:
         """All scoped label CFGs plus boundary/unresolved nodes directly attached to them."""
 
-        roots = [self.label_node_ids[name] for name in sorted(self.allowed)]
-        included: set[str] = set()
-        for root in roots:
-            included.update(self._reachable(root))
-        return included
+        roots = (self.label_node_ids[name] for name in sorted(self.allowed))
+        return self._reachable_from(roots)
+
 
 def build_graph(
     modules: list[ScriptModule],
