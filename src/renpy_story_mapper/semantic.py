@@ -18,12 +18,66 @@ SEMANTIC_SCHEMA_VERSION = 1
 
 _NARRATOR_NAMES = frozenset({"centered", "narrator"})
 _UNRESOLVED_MARKERS = ("dynamic_", "missing_", "out_of_scope", "unresolved")
+_PHASE_ONE_NODE_KINDS = frozenset(
+    {
+        "call",
+        "hide",
+        "if",
+        "if_branch",
+        "jump",
+        "label",
+        "menu",
+        "menu_choice",
+        "merge",
+        "module_end",
+        "opaque",
+        "pass",
+        "pause",
+        "play",
+        "queue",
+        "return",
+        "scene",
+        "scope_boundary",
+        "show",
+        "statement",
+        "stop",
+        "unresolved",
+        "voice",
+        "window",
+        "with",
+    }
+)
+_PHASE_ONE_EDGE_KINDS = frozenset(
+    {
+        "branch_body",
+        "call",
+        "call_continuation",
+        "call_out_of_scope",
+        "choice_body",
+        "condition",
+        "condition_false",
+        "dynamic_call",
+        "dynamic_jump",
+        "fallthrough",
+        "jump",
+        "jump_out_of_scope",
+        "label_entry",
+        "menu_choice",
+        "menu_no_choice",
+        "missing_call",
+        "missing_jump",
+        "return",
+        "unresolved_behavior",
+    }
+)
 _NARRATION_RE = re.compile(
-    r"^(?:[rRuU]{0,2})(?P<quote>\"\"\"|'''|\"|')(?P<text>.*)(?P=quote)(?:\s+.*)?$"
+    r"^(?:[rRuU]{0,2})(?P<quote>\"\"\"|'''|\"|')(?P<text>.*)(?P=quote)(?:\s+.*)?$",
+    re.DOTALL,
 )
 _DIALOGUE_RE = re.compile(
     r"^(?P<speaker>[A-Za-z_]\w*)(?:\s+[A-Za-z_]\w*)*\s+"
-    r"(?:[rRuU]{0,2})(?P<quote>\"\"\"|'''|\"|')(?P<text>.*)(?P=quote)(?:\s+.*)?$"
+    r"(?:[rRuU]{0,2})(?P<quote>\"\"\"|'''|\"|')(?P<text>.*)(?P=quote)(?:\s+.*)?$",
+    re.DOTALL,
 )
 
 
@@ -112,14 +166,23 @@ def build_semantic_story(graph: dict[str, object]) -> dict[str, object]:
         node.id: value for node in nodes if (value := _classify_narrative(node)) is not None
     }
     scene_ids = {name: _stable_id("scene", [node.id]) for name, node in labels.items()}
+    module_end_owners = _module_end_owners(nodes, labels, incoming, node_by_id)
+    node_scene_labels = {node.id: module_end_owners.get(node.id, node.label) for node in nodes}
 
     beats: list[dict[str, object]] = []
     node_to_beat: dict[str, str] = {}
     scene_to_beats: dict[str, list[str]] = defaultdict(list)
     for label in labels:
-        owned = sorted((node for node in nodes if node.label == label), key=_node_key)
+        owned = sorted(
+            (
+                node
+                for node in nodes
+                if node.label == label or module_end_owners.get(node.id) == label
+            ),
+            key=_node_key,
+        )
         scene_beats = _build_scene_beats(scene_ids[label], owned, narrative, incoming, outgoing)
-        scene_beats.sort(key=_beat_key)
+        scene_beats.sort(key=lambda beat: (_is_module_end_beat(beat), _beat_key(beat)))
         for beat in scene_beats:
             beat_id = cast(str, beat["id"])
             scene_to_beats[label].append(beat_id)
@@ -144,7 +207,15 @@ def build_semantic_story(graph: dict[str, object]) -> dict[str, object]:
         for label in labels
     ]
 
-    transitions = _build_transitions(edges, beats, node_by_id, node_to_beat, outgoing, scene_ids)
+    transitions = _build_transitions(
+        edges,
+        beats,
+        node_by_id,
+        node_to_beat,
+        node_scene_labels,
+        outgoing,
+        scene_ids,
+    )
     unresolved = _build_unresolved(nodes, incoming)
     entry_label = _required_string(graph.get("entry_label"), "graph entry_label")
     if entry_label not in scene_ids:
@@ -292,22 +363,24 @@ def _build_transitions(
     beats: list[dict[str, object]],
     node_by_id: dict[str, _Node],
     node_to_beat: dict[str, str],
+    node_scene_labels: dict[str, str],
     outgoing: dict[str, list[_Edge]],
     scene_ids: dict[str, str],
 ) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
-    skipped = {"branch_body", "call_continuation", "choice_body", "label_entry"}
+    skipped = {"branch_body", "choice_body", "label_entry"}
     for edge in edges:
-        if edge.kind in skipped:
-            continue
         source_node = node_by_id[edge.source]
+        if edge.kind in skipped or source_node.kind == "merge":
+            continue
         source_beat = node_to_beat.get(edge.source)
         normalized_kind = _transition_kind(edge.kind)
         if normalized_kind is None:
             continue
-        target_node_id, target_beat = _semantic_target(
+        target_node_id, target_beat, path_edges = _semantic_target(
             edge.target,
             source_beat,
+            node_by_id,
             node_to_beat,
             outgoing,
             traverse_source_beat=edge.kind
@@ -320,25 +393,23 @@ def _build_transitions(
             and normalized_kind == "fallthrough"
         ):
             continue
-        target_node = node_by_id[target_node_id]
         evidence_node = (
             node_by_id[edge.target] if normalized_kind in {"choice", "condition"} else source_node
         )
+        source_label = node_scene_labels[edge.source]
+        target_label = node_scene_labels[target_node_id]
         value: dict[str, object] = {
-            "id": _stable_id(
-                f"transition_{normalized_kind}",
-                [edge.source, edge.target, target_node_id],
-            ),
+            "id": "",
             "kind": normalized_kind,
             "resolved": resolved,
-            "source_label": source_node.label,
-            "target_label": target_node.label if resolved else None,
-            "source_scene_id": scene_ids.get(source_node.label),
-            "target_scene_id": scene_ids.get(target_node.label) if resolved else None,
+            "source_label": source_label,
+            "target_label": target_label if resolved else None,
+            "source_scene_id": scene_ids.get(source_label),
+            "target_scene_id": scene_ids.get(target_label) if resolved else None,
             "source_beat_id": source_beat,
             "target_beat_id": target_beat if resolved else None,
             "source": evidence_node.source,
-            "graph_edge": edge.provenance(),
+            "graph_edges": [item.provenance() for item in [edge, *path_edges]],
         }
         if normalized_kind == "choice":
             choice = node_by_id[edge.target]
@@ -346,6 +417,12 @@ def _build_transitions(
             value["condition"] = choice.metadata.get("condition")
         elif normalized_kind == "condition":
             value["condition"] = edge.metadata.get("condition")
+        elif normalized_kind == "call_continuation":
+            value["metadata"] = {
+                "semantic": edge.metadata.get("semantic", "return_site_not_immediate_fallthrough"),
+                "summary": True,
+                "immediate_fallthrough": False,
+            }
         result.append(value)
 
     for beat in beats:
@@ -354,23 +431,23 @@ def _build_transitions(
         beat_id = cast(str, beat["id"])
         graph_ids = cast(list[str], beat["graph_node_ids"])
         node = node_by_id[graph_ids[0]]
+        source_label = node_scene_labels[node.id]
         result.append(
             {
-                "id": _stable_id("transition_ending", [beat_id]),
+                "id": "",
                 "kind": "ending",
                 "resolved": True,
-                "source_label": node.label,
+                "source_label": source_label,
                 "target_label": None,
-                "source_scene_id": scene_ids.get(node.label),
+                "source_scene_id": scene_ids.get(source_label),
                 "target_scene_id": None,
                 "source_beat_id": beat_id,
                 "target_beat_id": None,
                 "source": cast(dict[str, object], beat["source"]),
-                "graph_edge": None,
+                "graph_edges": [],
             }
         )
-    result.sort(key=_transition_key)
-    return result
+    return _coalesce_transitions(result)
 
 
 def _build_unresolved(
@@ -398,6 +475,79 @@ def _build_unresolved(
             }
         )
     return result
+
+
+def _coalesce_transitions(
+    transitions: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Collapse parallel semantic routes while retaining all Phase 1 evidence."""
+
+    grouped: dict[tuple[str, ...], dict[str, object]] = {}
+    for transition in sorted(transitions, key=_transition_key):
+        key = _semantic_transition_key(transition)
+        existing = grouped.get(key)
+        if existing is None:
+            existing = dict(transition)
+            existing["graph_edges"] = list(
+                _required_list(transition.get("graph_edges"), "transition graph_edges")
+            )
+            grouped[key] = existing
+            continue
+        combined = [
+            *_required_list(existing.get("graph_edges"), "transition graph_edges"),
+            *_required_list(transition.get("graph_edges"), "transition graph_edges"),
+        ]
+        unique: dict[tuple[str, str, str, str], dict[str, object]] = {}
+        for index, item in enumerate(combined):
+            edge = _required_mapping(item, f"transition graph_edges[{index}]")
+            edge_key = (
+                _required_string(edge.get("source"), "graph edge source"),
+                _required_string(edge.get("target"), "graph edge target"),
+                _required_string(edge.get("kind"), "graph edge kind"),
+                repr(edge.get("metadata")),
+            )
+            unique[edge_key] = edge
+        existing["graph_edges"] = [unique[item] for item in sorted(unique)]
+
+    result = list(grouped.values())
+    for transition in result:
+        transition["id"] = _stable_id(
+            f"transition_{transition['kind']}", list(_semantic_transition_key(transition))
+        )
+        graph_edges = _required_list(transition.get("graph_edges"), "transition graph_edges")
+        graph_edges.sort(
+            key=lambda item: (
+                _required_string(
+                    _required_mapping(item, "transition graph edge").get("source"),
+                    "graph edge source",
+                ),
+                _required_string(
+                    _required_mapping(item, "transition graph edge").get("target"),
+                    "graph edge target",
+                ),
+                _required_string(
+                    _required_mapping(item, "transition graph edge").get("kind"),
+                    "graph edge kind",
+                ),
+                repr(_required_mapping(item, "transition graph edge").get("metadata")),
+            )
+        )
+    result.sort(key=_transition_key)
+    return result
+
+
+def _semantic_transition_key(transition: dict[str, object]) -> tuple[str, ...]:
+    return (
+        str(transition.get("kind")),
+        str(transition.get("resolved")),
+        str(transition.get("source_label")),
+        str(transition.get("target_label")),
+        str(transition.get("source_beat_id")),
+        str(transition.get("target_beat_id")),
+        repr(transition.get("caption")),
+        repr(transition.get("condition")),
+        repr(transition.get("metadata")),
+    )
 
 
 def _group_narrative(
@@ -483,12 +633,13 @@ def _classify_label(
 def _semantic_target(
     start: str,
     source_beat: str | None,
+    node_by_id: dict[str, _Node],
     node_to_beat: dict[str, str],
     outgoing: dict[str, list[_Edge]],
     *,
     traverse_source_beat: bool,
-) -> tuple[str, str | None]:
-    pending = deque([start])
+) -> tuple[str, str | None, list[_Edge]]:
+    pending: deque[tuple[str, list[_Edge]]] = deque([(start, [])])
     seen: set[str] = set()
     traversable = {
         "branch_body",
@@ -499,22 +650,26 @@ def _semantic_target(
         "menu_no_choice",
     }
     while pending:
-        node_id = pending.popleft()
+        node_id, path = pending.popleft()
         if node_id in seen:
             continue
         seen.add(node_id)
         beat_id = node_to_beat.get(node_id)
-        if beat_id is not None and beat_id != source_beat:
-            return node_id, beat_id
-        if beat_id is not None and not traverse_source_beat:
-            return node_id, beat_id
+        is_merge = node_by_id[node_id].kind == "merge"
+        if not is_merge:
+            if beat_id is not None and beat_id != source_beat:
+                return node_id, beat_id, path
+            if beat_id is not None and not traverse_source_beat:
+                return node_id, beat_id, path
         for edge in outgoing[node_id]:
             if edge.kind in traversable:
-                pending.append(edge.target)
-    return start, node_to_beat.get(start)
+                pending.append((edge.target, [*path, edge]))
+    return start, node_to_beat.get(start), []
 
 
 def _transition_kind(kind: str) -> str | None:
+    if kind == "call_continuation":
+        return "call_continuation"
     if kind == "menu_choice":
         return "choice"
     if kind in {"condition", "condition_false"}:
@@ -573,9 +728,12 @@ def _read_nodes(value: object) -> list[_Node]:
         if node_id in seen:
             raise ValueError(f"duplicate graph node ID {node_id!r}")
         seen.add(node_id)
+        kind = _required_string(raw.get("kind"), f"graph nodes[{index}].kind")
+        if kind not in _PHASE_ONE_NODE_KINDS:
+            raise ValueError(f"unsupported Phase 1 graph node kind {kind!r}")
         node = _Node(
             node_id,
-            _required_string(raw.get("kind"), f"graph nodes[{index}].kind"),
+            kind,
             _required_string(raw.get("label"), f"graph nodes[{index}].label"),
             dict(_required_mapping(raw.get("source"), f"graph nodes[{index}].source")),
             _required_string(raw.get("source_text"), f"graph nodes[{index}].source_text"),
@@ -601,11 +759,14 @@ def _read_edges(value: object, nodes: list[_Node]) -> list[_Edge]:
         target = _required_string(raw.get("target"), f"graph edges[{index}].target")
         if source not in node_ids or target not in node_ids:
             raise ValueError(f"graph edge {index} references a missing node")
+        kind = _required_string(raw.get("kind"), f"graph edges[{index}].kind")
+        if kind not in _PHASE_ONE_EDGE_KINDS:
+            raise ValueError(f"unsupported Phase 1 graph edge kind {kind!r}")
         edges.append(
             _Edge(
                 source,
                 target,
-                _required_string(raw.get("kind"), f"graph edges[{index}].kind"),
+                kind,
                 dict(_optional_mapping(raw.get("metadata"), f"graph edges[{index}].metadata")),
             )
         )
@@ -615,9 +776,47 @@ def _read_edges(value: object, nodes: list[_Node]) -> list[_Edge]:
 
 def _validate_graph_header(graph: dict[str, object]) -> None:
     schema_version = graph.get("schema_version")
-    if not isinstance(schema_version, int) or isinstance(schema_version, bool):
-        raise ValueError("graph schema_version must be an integer")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
+    ):
+        raise ValueError("graph schema_version must be exactly 1")
     _required_string(graph.get("entry_label"), "graph entry_label")
+
+
+def _module_end_owners(
+    nodes: list[_Node],
+    labels: dict[str, _Node],
+    incoming: dict[str, list[_Edge]],
+    node_by_id: dict[str, _Node],
+) -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for node in nodes:
+        if node.kind != "module_end":
+            continue
+        candidates = {
+            node_by_id[edge.source].label
+            for edge in incoming[node.id]
+            if node_by_id[edge.source].label in labels
+        }
+        if not candidates:
+            path = node.metadata.get("path", node.source.get("path"))
+            candidates = {
+                name for name, label in labels.items() if label.source.get("path") == path
+            }
+        if not candidates:
+            raise ValueError(f"module end {node.id!r} cannot be associated with a source scene")
+        owners[node.id] = max(candidates, key=lambda name: labels[name].source_key)
+    return owners
+
+
+def _is_module_end_beat(beat: dict[str, object]) -> bool:
+    provenance = _required_list(beat.get("provenance"), "beat provenance")
+    return any(
+        _required_mapping(item, "beat provenance item").get("kind") == "module_end"
+        for item in provenance
+    )
 
 
 def _unique_nodes(nodes: list[_Node]) -> list[_Node]:
