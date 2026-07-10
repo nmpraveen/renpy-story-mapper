@@ -17,7 +17,6 @@ below. Source paths in snapshots and refresh reports are normalized project-rela
 from __future__ import annotations
 
 import importlib
-import json
 import shutil
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
@@ -68,9 +67,22 @@ def _records(snapshot: Mapping[str, Any], name: str) -> Sequence[Mapping[str, An
 
 def _record_containing(records: Sequence[Mapping[str, Any]], text: str) -> Mapping[str, Any]:
     for record in records:
-        if text in json.dumps(record, sort_keys=True):
+        if _value_contains(record, text, exact=True):
+            return record
+    for record in records:
+        if _value_contains(record, text, exact=False):
             return record
     pytest.fail(f"No public record contains {text!r}")
+
+
+def _value_contains(value: Any, text: str, *, exact: bool) -> bool:
+    if isinstance(value, str):
+        return value == text if exact else text in value
+    if isinstance(value, Mapping):
+        return any(_value_contains(item, text, exact=exact) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_value_contains(item, text, exact=exact) for item in value)
+    return False
 
 
 def _source_paths(value: Any) -> set[str]:

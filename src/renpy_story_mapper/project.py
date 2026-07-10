@@ -15,6 +15,10 @@ from typing import Final
 from renpy_story_mapper import storage
 
 _SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
+PROJECT_SCHEMA_VERSION: Final = storage.SCHEMA_VERSION
+ProjectCancelledError = storage.ProjectOperationCancelled
+ProjectCorruptionError = storage.ProjectCorruptError
+IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,14 @@ class RefreshResult:
     @property
     def needs_analysis(self) -> tuple[str, ...]:
         return self.changed
+
+
+@dataclass(frozen=True)
+class RefreshReport:
+    parsed_sources: tuple[str, ...]
+    reused_sources: tuple[str, ...]
+    invalidated_sources: tuple[str, ...]
+    removed_sources: tuple[str, ...] = ()
 
 
 class Project:
@@ -349,10 +361,7 @@ class Project:
                         INSERT INTO payload_dependencies(collection, record_key, source_path)
                         VALUES (?, ?, ?)
                         """,
-                        (
-                            (record.collection, record.key, path)
-                            for path in record.source_paths
-                        ),
+                        ((record.collection, record.key, path) for path in record.source_paths),
                     )
                 except sqlite3.IntegrityError as exc:
                     raise ValueError(
@@ -362,13 +371,17 @@ class Project:
 
     def payload(self, collection: str, key: str) -> object | None:
         storage.check_collection(collection)
-        row = self._require_open().execute(
-            """
+        row = (
+            self._require_open()
+            .execute(
+                """
             SELECT payload_json, payload_hash FROM payloads
             WHERE collection = ? AND record_key = ?
             """,
-            (collection, key),
-        ).fetchone()
+                (collection, key),
+            )
+            .fetchone()
+        )
         if row is None:
             return None
         payload = bytes(row["payload_json"])
@@ -430,6 +443,18 @@ class Project:
             ],
         }
         return storage.canonical_json(document)
+
+    def snapshot(self) -> dict[str, object]:
+        """Return the deterministic, public authoritative project snapshot."""
+
+        from renpy_story_mapper.project_analysis import project_snapshot
+
+        return project_snapshot(self)
+
+    def authoritative_bytes(self) -> bytes:
+        """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""
+
+        return storage.canonical_json(self.snapshot())
 
     def backup(self, destination: str | os.PathLike[str]) -> Path:
         backup_path = Path(destination).resolve()
@@ -510,3 +535,62 @@ def _normalize_source_path(path: str) -> str:
 def _raise_if_cancelled(cancelled: Callable[[], bool] | None) -> None:
     if cancelled is not None and cancelled():
         raise storage.ProjectOperationCancelled("project operation was cancelled")
+
+
+def create_project(
+    database_path: str | os.PathLike[str],
+    source_root: str | os.PathLike[str],
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Project:
+    from renpy_story_mapper.project_analysis import create_folder_project
+
+    return create_folder_project(database_path, source_root, cancel_check=cancel_check)
+
+
+def open_project(database_path: str | os.PathLike[str]) -> Project:
+    return Project.open(database_path)
+
+
+def refresh_project(
+    database_path: str | os.PathLike[str],
+    source_root: str | os.PathLike[str],
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> RefreshReport:
+    from renpy_story_mapper.project_analysis import refresh_folder_project
+
+    return refresh_folder_project(database_path, source_root, cancel_check=cancel_check)
+
+
+def delete_project(database_path: str | os.PathLike[str]) -> None:
+    with Project.open(database_path) as project:
+        project.delete()
+
+
+def create_archive_project(
+    database_path: str | os.PathLike[str],
+    archive_path: str | os.PathLike[str],
+    *,
+    entry_label: str = "start",
+    cancel_check: Callable[[], bool] | None = None,
+) -> Project:
+    from renpy_story_mapper.project_analysis import create_rpa_project
+
+    return create_rpa_project(
+        database_path,
+        archive_path,
+        entry_label=entry_label,
+        cancel_check=cancel_check,
+    )
+
+
+def refresh_archive_project(
+    database_path: str | os.PathLike[str],
+    archive_path: str | os.PathLike[str],
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> RefreshReport:
+    from renpy_story_mapper.project_analysis import refresh_rpa_project
+
+    return refresh_rpa_project(database_path, archive_path, cancel_check=cancel_check)

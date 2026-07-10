@@ -27,6 +27,9 @@ PAYLOAD_COLLECTIONS: Final = frozenset(
         "unresolved",
         "gates",
         "effects",
+        "import_manifest",
+        "parsed_source",
+        "source_dependencies",
         "state_registry",
     }
 )
@@ -125,12 +128,12 @@ def validate_database(connection: sqlite3.Connection) -> int:
         result = connection.execute("PRAGMA quick_check").fetchall()
     except sqlite3.DatabaseError as exc:
         raise ProjectCorruptError("project is not a readable SQLite database") from exc
-    if application_id != APPLICATION_ID:
-        raise ProjectCorruptError("file is not a Ren'Py Story Mapper project")
     if version > SCHEMA_VERSION:
         raise IncompatibleProjectVersionError(
             f"project schema version {version} is newer than supported version {SCHEMA_VERSION}"
         )
+    if application_id != APPLICATION_ID:
+        raise ProjectCorruptError("file is not a Ren'Py Story Mapper project")
     if version < 1:
         raise ProjectCorruptError("project has no recognized schema version")
     failures = [str(row[0]) for row in result if str(row[0]).lower() != "ok"]
@@ -242,12 +245,14 @@ def _migrate_to_v1(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_to_v2(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        "ALTER TABLE sources ADD COLUMN fingerprint_kind TEXT NOT NULL DEFAULT 'sha256'"
-    )
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(sources)")}
+    if "fingerprint_kind" not in columns:
+        connection.execute(
+            "ALTER TABLE sources ADD COLUMN fingerprint_kind TEXT NOT NULL DEFAULT 'sha256'"
+        )
     connection.execute(
         """
-        CREATE TABLE schema_migrations (
+        CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY NOT NULL,
             applied_utc TEXT NOT NULL
         ) STRICT
@@ -255,7 +260,7 @@ def _migrate_to_v2(connection: sqlite3.Connection) -> None:
     )
     timestamp = utc_now()
     connection.executemany(
-        "INSERT INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
         ((1, timestamp), (2, timestamp)),
     )
 

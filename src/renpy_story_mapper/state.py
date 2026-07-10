@@ -29,6 +29,8 @@ class StateCategory(StrEnum):
     RELATIONSHIP = "relationship"
     SKILL = "skill"
     RESOURCE = "resource"
+    JOB = "job"
+    LOCATION = "location"
     ROLE = "role"
     FLAG = "flag"
     PROGRESSION = "progression"
@@ -136,7 +138,7 @@ class StateAnalysis:
 _CATEGORY_TERMS: tuple[tuple[StateCategory, tuple[str, ...]], ...] = (
     (
         StateCategory.RELATIONSHIP,
-        ("affection", "friend", "love", "lust", "relationship", "romance"),
+        ("affection", "dating", "friend", "love", "lust", "relationship", "romance"),
     ),
     (
         StateCategory.SKILL,
@@ -147,8 +149,16 @@ _CATEGORY_TERMS: tuple[tuple[StateCategory, tuple[str, ...]], ...] = (
         ("cash", "coin", "gold", "inventory", "item", "money", "resource"),
     ),
     (
+        StateCategory.JOB,
+        ("company", "job", "workplace"),
+    ),
+    (
+        StateCategory.LOCATION,
+        ("location",),
+    ),
+    (
         StateCategory.ROLE,
-        ("company", "job", "location", "member", "role", "workplace"),
+        ("member", "role"),
     ),
     (
         StateCategory.FLAG,
@@ -162,12 +172,15 @@ _CATEGORY_TERMS: tuple[tuple[StateCategory, tuple[str, ...]], ...] = (
 
 _STATE_CALL_TERMS = (
     "add",
+    "award",
     "change",
     "decrease",
     "gain",
     "increase",
     "lose",
+    "point",
     "remove",
+    "relationship",
     "set",
     "stat",
     "update",
@@ -332,7 +345,18 @@ def _extract_statement_effect(text: str, span: SourceSpan) -> StateEffect | None
             evidence,
             reason="computed_assignment_value",
         )
-    if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+    if isinstance(node, ast.AugAssign) and not isinstance(node.target, ast.Name):
+        return StateEffect(
+            expression,
+            "augmented_assignment",
+            None,
+            None,
+            FactStatus.UNRESOLVED,
+            evidence,
+            reason="dynamic_or_unsupported_assignment_target",
+        )
+    if isinstance(node, ast.AugAssign):
+        assert isinstance(node.target, ast.Name)
         operation = "increment" if isinstance(node.op, ast.Add) else "decrement"
         if not isinstance(node.op, ast.Add | ast.Sub):
             return StateEffect(
@@ -383,14 +407,10 @@ def _extract_renpy_call(statement: Call) -> StateEffect | None:
         )
     if not isinstance(parsed, ast.Call):
         return None
-    return _extract_call(
-        tail, parsed, StateEvidence.from_statement(statement.span, statement.text)
-    )
+    return _extract_call(tail, parsed, StateEvidence.from_statement(statement.span, statement.text))
 
 
-def _extract_call(
-    expression: str, node: ast.Call, evidence: StateEvidence
-) -> StateEffect | None:
+def _extract_call(expression: str, node: ast.Call, evidence: StateEvidence) -> StateEffect | None:
     target = _static_callable_name(node.func)
     if target is None:
         return StateEffect(
@@ -437,8 +457,7 @@ def _extract_call(
         (
             value
             for value in values
-            if isinstance(value, str)
-            and infer_state_category(value) != StateCategory.UNKNOWN
+            if isinstance(value, str) and infer_state_category(value) != StateCategory.UNKNOWN
         ),
         None,
     )

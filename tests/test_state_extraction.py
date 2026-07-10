@@ -41,8 +41,8 @@ def test_extracts_proven_literal_effects_and_state_registry() -> None:
     ]
     assert {item.original_name: item.category for item in analysis.variables} == {
         "chapter": StateCategory.PROGRESSION,
-        "dating": StateCategory.FLAG,
-        "job": StateCategory.ROLE,
+        "dating": StateCategory.RELATIONSHIP,
+        "job": StateCategory.JOB,
         "love": StateCategory.RELATIONSHIP,
         "lust": StateCategory.RELATIONSHIP,
         "money": StateCategory.RESOURCE,
@@ -122,6 +122,25 @@ def test_computed_and_dynamic_behavior_is_never_proven() -> None:
         "computed_assignment_value",
         "dynamic_or_unsupported_assignment_target",
         "computed_or_non_numeric_delta",
+        "computed_call_argument",
+    ]
+
+
+def test_computed_subscript_and_award_call_are_explicitly_unresolved() -> None:
+    analysis = analyze(
+        [
+            "label start:\n",
+            "    $ points[hero_name] += amount\n",
+            "    call award_points(stat_name, calculate_amount())\n",
+        ]
+    )
+
+    assert [effect.status for effect in analysis.effects] == [
+        FactStatus.UNRESOLVED,
+        FactStatus.UNRESOLVED,
+    ]
+    assert [effect.reason for effect in analysis.effects] == [
+        "dynamic_or_unsupported_assignment_target",
         "computed_call_argument",
     ]
 
