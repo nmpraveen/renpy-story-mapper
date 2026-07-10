@@ -1,0 +1,25 @@
+.venv/
+*.rpa
+scripts.rpa
+artifacts/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Local-only configuration and credentials.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+credentials/
+secrets/
+*.local
+*.local.*
