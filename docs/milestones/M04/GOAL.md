@@ -55,5 +55,9 @@ without displaying hundreds of equal-weight nodes at once.
 
 ## State
 
-Active from 2026-07-10 on `milestone/m04-three-level-windows-map`. Self-goal task ID:
-`019f4d73-853a-7df2-a43a-47733dbafb95`.
+Complete on 2026-07-10 on `milestone/m04-three-level-windows-map`. Self-goal task ID:
+`019f4d73-853a-7df2-a43a-47733dbafb95`. All implementation, worker integration, independent
+review, Windows verification, canonical acceptance, archive immutability checks, documentation,
+and native infographic requirements passed. PR
+[#6](https://github.com/nmpraveen/renpy-story-mapper/pull/6) is open and intentionally unmerged
+for user approval. M05 has not started.

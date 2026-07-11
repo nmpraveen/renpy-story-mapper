@@ -8,7 +8,8 @@ Base commit: `0bb53ef88db3428a7e2625724496fad0f3506afd`
 
 Runtime authority: Windows, CPython 3.12.10
 
-Milestone PR: pending creation; it will remain unmerged for user approval
+Milestone PR: [#6](https://github.com/nmpraveen/renpy-story-mapper/pull/6), open and intentionally
+unmerged for user approval
 
 ## Outcome
 

@@ -348,7 +348,7 @@ Completion evidence:
 
 Status: Complete on `milestone/m04-three-level-windows-map`; implementation and Windows
 acceptance finished on 2026-07-10. The milestone PR is intentionally left unmerged for user
-approval.
+approval as PR #6.
 
 Objective: build the actual Windows application and prove that a complicated game can be explored
 without displaying hundreds of equal-weight nodes at once.
