@@ -1,0 +1,591 @@
+# ruff: noqa: E501
+"""Bounded deterministic presentation queries over durable project data.
+
+The presentation index is a derived, row-oriented projection.  Query methods never load the
+monolithic M01 or M02 payloads and always enforce hard result limits.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+from typing import Final
+
+from renpy_story_mapper import storage
+from renpy_story_mapper.project import Project
+
+MAX_NODES: Final = 250
+MAX_EDGES: Final = 500
+MAX_RESULTS: Final = 100
+EVENT_GROUP_SIZE: Final = 4
+
+
+class PresentationLevel(IntEnum):
+    OVERVIEW = 1
+    EVENT = 2
+    EVIDENCE = 3
+
+
+@dataclass(frozen=True)
+class PresentationRequest:
+    level: PresentationLevel
+    parent_ids: tuple[str, ...] = ()
+    expanded_ids: tuple[str, ...] = ()
+    collapsed_ids: tuple[str, ...] = ()
+    after: str | None = None
+    edge_after: str | None = None
+    node_limit: int = 50
+    edge_limit: int = 100
+    include_technical: bool = False
+
+
+@dataclass(frozen=True)
+class Continuation:
+    returned: int
+    has_more: bool
+    next_after: str | None
+
+
+@dataclass(frozen=True)
+class PresentationNode:
+    id: str
+    level: PresentationLevel
+    parent_id: str | None
+    kind: str
+    name: str
+    source_path: str | None
+    start_line: int | None
+    end_line: int | None
+    technical: bool
+    expandable: bool
+    child_count: int
+    payload: object
+
+
+@dataclass(frozen=True)
+class PresentationEdge:
+    id: str
+    level: PresentationLevel
+    source_id: str
+    target_id: str
+    kind: str
+    payload: object
+
+
+@dataclass(frozen=True)
+class PresentationPage:
+    nodes: tuple[PresentationNode, ...]
+    edges: tuple[PresentationEdge, ...]
+    node_continuation: Continuation
+    edge_continuation: Continuation
+    selected_id: str | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceRecord:
+    id: str
+    node_id: str
+    kind: str
+    source_path: str
+    start_line: int
+    end_line: int
+    text: str
+    payload: object
+
+
+@dataclass(frozen=True)
+class SearchHit:
+    id: int
+    node_id: str
+    field: str
+    text: str
+
+
+@dataclass(frozen=True)
+class FactRecord:
+    id: str
+    node_id: str | None
+    kind: str
+    variable: str | None
+    category: str | None
+    status: str
+    expression: str
+    source_path: str
+    start_line: int
+    end_line: int
+    payload: object
+
+
+@dataclass(frozen=True)
+class ResultPage:
+    items: tuple[EvidenceRecord | SearchHit | FactRecord, ...]
+    continuation: Continuation
+
+
+class PresentationService:
+    """Small non-UI service suitable for a desktop adapter."""
+
+    def __init__(self, project: Project, *, owns_project: bool = False) -> None:
+        self._project = project
+        self._owns_project = owns_project
+        ensure_presentation_index(project)
+
+    @classmethod
+    def open(cls, path: str | Path) -> PresentationService:
+        return cls(Project.open(path), owns_project=True)
+
+    def close(self) -> None:
+        if self._owns_project:
+            self._project.close()
+            self._owns_project = False
+
+    def __enter__(self) -> PresentationService:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def view(self, request: PresentationRequest, *, selected_id: str | None = None) -> PresentationPage:
+        node_limit = _bounded_limit(request.node_limit, MAX_NODES)
+        edge_limit = _bounded_limit(request.edge_limit, MAX_EDGES)
+        parents = tuple(sorted(set(request.parent_ids or request.expanded_ids)))
+        collapsed = set(request.collapsed_ids)
+        if parents:
+            parents = tuple(item for item in parents if item not in collapsed)
+        connection = self._project._require_open()
+        clauses = ["n.level = ?", "COALESCE(o.hidden, 0) = 0"]
+        parameters: list[object] = [int(request.level)]
+        if not request.include_technical:
+            clauses.append("n.technical = 0")
+        if parents:
+            placeholders = ",".join("?" for _ in parents)
+            clauses.append(f"n.parent_id IN ({placeholders})")
+            parameters.extend(parents)
+        elif request.level is not PresentationLevel.OVERVIEW:
+            clauses.append("n.parent_id IS NULL")
+        if request.after is not None:
+            clauses.append("n.sort_key > ?")
+            parameters.append(request.after)
+        rows = connection.execute(
+            f"""
+            SELECT n.*, COALESCE(o.display_name, n.label) AS display_label,
+                   (SELECT COUNT(*) FROM presentation_nodes c WHERE c.parent_id = n.node_id)
+                       AS child_count
+            FROM presentation_nodes n
+            LEFT JOIN presentation_overrides o ON o.node_id = n.node_id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY n.sort_key, n.node_id LIMIT ?
+            """,
+            (*parameters, node_limit + 1),
+        ).fetchall()
+        has_more = len(rows) > node_limit
+        rows = rows[:node_limit]
+        nodes = tuple(_node_from_row(row) for row in rows)
+        node_ids = tuple(node.id for node in nodes)
+        edges = self._edges(request.level, node_ids, edge_limit, request.edge_after)
+        return PresentationPage(
+            nodes,
+            edges[0],
+            Continuation(len(nodes), has_more, str(rows[-1]["sort_key"]) if has_more else None),
+            edges[1],
+            selected_id,
+        )
+
+    def _edges(
+        self,
+        level: PresentationLevel,
+        node_ids: tuple[str, ...],
+        limit: int,
+        after: str | None,
+    ) -> tuple[tuple[PresentationEdge, ...], Continuation]:
+        if not node_ids:
+            return (), Continuation(0, False, None)
+        placeholders = ",".join("?" for _ in node_ids)
+        after_clause = " AND sort_key > ?" if after is not None else ""
+        after_parameters: tuple[object, ...] = () if after is None else (after,)
+        rows = self._project._require_open().execute(
+            f"""
+            SELECT * FROM presentation_edges
+            WHERE level = ? AND source_id IN ({placeholders}) AND target_id IN ({placeholders})
+              {after_clause}
+            ORDER BY sort_key, edge_id LIMIT ?
+            """,
+            (int(level), *node_ids, *node_ids, *after_parameters, limit + 1),
+        ).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        values = tuple(
+            PresentationEdge(
+                str(row["edge_id"]),
+                PresentationLevel(int(row["level"])),
+                str(row["source_id"]),
+                str(row["target_id"]),
+                str(row["kind"]),
+                storage.decode_json(row["payload_json"]),
+            )
+            for row in rows
+        )
+        return values, Continuation(
+            len(values), has_more, str(rows[-1]["sort_key"]) if has_more else None
+        )
+
+    def evidence(self, node_id: str, *, after: str | None = None, limit: int = 25) -> ResultPage:
+        bounded = _bounded_limit(limit, MAX_RESULTS)
+        clauses = ["(e.node_id = ? OR n.parent_id = ? OR p.parent_id = ?)"]
+        parameters: list[object] = [node_id, node_id, node_id]
+        if after is not None:
+            clauses.append("e.sort_key > ?")
+            parameters.append(after)
+        rows = self._project._require_open().execute(
+            f"""SELECT e.* FROM presentation_evidence e
+            JOIN presentation_nodes n ON n.node_id=e.node_id
+            LEFT JOIN presentation_nodes p ON p.node_id=n.parent_id
+            WHERE {' AND '.join(clauses)} ORDER BY e.sort_key, e.evidence_id LIMIT ?""",
+            (*parameters, bounded + 1),
+        ).fetchall()
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
+        items = tuple(_evidence_from_row(row) for row in rows)
+        return ResultPage(
+            items,
+            Continuation(len(items), has_more, str(rows[-1]["sort_key"]) if has_more else None),
+        )
+
+    def search(
+        self,
+        query: str,
+        *,
+        fields: Iterable[str] = (),
+        after: int | str | None = None,
+        limit: int = 25,
+    ) -> ResultPage:
+        term = query.strip().casefold()
+        if not term:
+            raise ValueError("search query cannot be empty")
+        bounded = _bounded_limit(limit, MAX_RESULTS)
+        clauses = ["normalized LIKE ? ESCAPE '\\'"]
+        parameters: list[object] = [f"%{_escape_like(term)}%"]
+        selected = tuple(sorted(set(fields)))
+        if selected:
+            placeholders = ",".join("?" for _ in selected)
+            clauses.append(f"field IN ({placeholders})")
+            parameters.extend(selected)
+        if after is not None:
+            clauses.append("search_id > ?")
+            parameters.append(int(after))
+        rows = self._project._require_open().execute(
+            f"""SELECT * FROM presentation_search WHERE {' AND '.join(clauses)}
+            ORDER BY search_id LIMIT ?""",
+            (*parameters, bounded + 1),
+        ).fetchall()
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
+        items = tuple(
+            SearchHit(int(row["search_id"]), str(row["node_id"]), str(row["field"]), str(row["text"]))
+            for row in rows
+        )
+        return ResultPage(
+            items,
+            Continuation(len(items), has_more, str(items[-1].id) if has_more else None),
+        )
+
+    def facts(
+        self,
+        *,
+        kind: str | None = None,
+        variable: str | None = None,
+        category: str | None = None,
+        node_id: str | None = None,
+        after: str | None = None,
+        limit: int = 25,
+    ) -> ResultPage:
+        bounded = _bounded_limit(limit, MAX_RESULTS)
+        clauses: list[str] = []
+        parameters: list[object] = []
+        for column, value in (("fact_kind", kind), ("variable", variable), ("category", category)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                parameters.append(value)
+        if node_id is not None:
+            clauses.append(
+                "(node_id = ? OR node_id IN (SELECT node_id FROM presentation_nodes "
+                "WHERE parent_id = ? OR parent_id IN (SELECT node_id FROM presentation_nodes "
+                "WHERE parent_id = ?)))"
+            )
+            parameters.extend((node_id, node_id, node_id))
+        if after is not None:
+            clauses.append("sort_key > ?")
+            parameters.append(after)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._project._require_open().execute(
+            f"""SELECT * FROM presentation_facts {where}
+            ORDER BY sort_key, fact_id LIMIT ?""",
+            (*parameters, bounded + 1),
+        ).fetchall()
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
+        items = tuple(_fact_from_row(row) for row in rows)
+        return ResultPage(
+            items,
+            Continuation(len(items), has_more, str(rows[-1]["sort_key"]) if has_more else None),
+        )
+
+    def rename_node(self, node_id: str, name: str | None) -> None:
+        if name is not None and not name.strip():
+            raise ValueError("presentation node name cannot be empty")
+        self._update_override(node_id, display_name=name)
+
+    def set_hidden(self, node_id: str, hidden: bool) -> None:
+        self._update_override(node_id, hidden=hidden)
+
+    def _update_override(
+        self, node_id: str, *, display_name: str | None | object = ..., hidden: bool | object = ...
+    ) -> None:
+        connection = self._project._require_open()
+        if connection.execute(
+            "SELECT 1 FROM presentation_nodes WHERE node_id = ?", (node_id,)
+        ).fetchone() is None:
+            raise KeyError(f"presentation node does not exist: {node_id}")
+        old = connection.execute(
+            "SELECT display_name, hidden FROM presentation_overrides WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        new_name = (None if old is None else old[0]) if display_name is ... else display_name
+        new_hidden = (False if old is None else bool(old[1])) if hidden is ... else bool(hidden)
+        with storage.transaction(connection):
+            connection.execute(
+                """INSERT INTO presentation_overrides(node_id, display_name, hidden, updated_utc)
+                VALUES (?, ?, ?, ?) ON CONFLICT(node_id) DO UPDATE SET
+                display_name=excluded.display_name, hidden=excluded.hidden,
+                updated_utc=excluded.updated_utc""",
+                (node_id, new_name, int(new_hidden), storage.utc_now()),
+            )
+
+
+def ensure_presentation_index(project: Project) -> None:
+    connection = project._require_open()
+    if connection.execute("SELECT 1 FROM presentation_index_state").fetchone() is None:
+        rebuild_presentation_index(project)
+
+
+def rebuild_presentation_index(
+    project: Project, *, cancelled: Callable[[], bool] | None = None
+) -> None:
+    """Build the complete derived index using SQLite JSON streaming in one transaction."""
+
+    connection = project._require_open()
+    _cancel(cancelled)
+    generation_row = connection.execute(
+        "SELECT payload_hash FROM payloads WHERE collection='m02_semantic' AND record_key='authoritative'"
+    ).fetchone()
+    if generation_row is None:
+        return
+    generation = str(generation_row[0])
+    statements = _index_statements()
+    with storage.transaction(connection):
+        for table in (
+            "presentation_search",
+            "presentation_evidence",
+            "presentation_facts",
+            "presentation_edges",
+            "presentation_nodes",
+            "presentation_index_state",
+        ):
+            connection.execute(f"DELETE FROM {table}")
+        for statement in statements:
+            _cancel(cancelled)
+            connection.execute(statement)
+        connection.execute(
+            "INSERT INTO presentation_index_state(singleton, generation) VALUES (1, ?)",
+            (generation,),
+        )
+        _cancel(cancelled)
+
+
+def _index_statements() -> tuple[str, ...]:
+    semantic = "(SELECT CAST(payload_json AS TEXT) FROM payloads WHERE collection='m02_semantic' AND record_key='authoritative')"
+    return (
+        f"""INSERT INTO presentation_nodes
+        SELECT json_extract(j.value,'$.id'), 1, NULL, printf('%012d', CAST(j.key AS INTEGER)),
+               'label', json_extract(j.value,'$.label'), json_extract(j.value,'$.source.path'),
+               json_extract(j.value,'$.source.start.line'), json_extract(j.value,'$.source.end.line'),
+               0, CAST(j.value AS BLOB)
+        FROM json_each({semantic}, '$.scenes') j""",
+        f"""INSERT INTO presentation_nodes
+        WITH beats AS (
+          SELECT j.value AS value, CAST(j.key AS INTEGER) AS ordinal,
+                 json_extract(j.value,'$.scene_id') AS scene_id,
+                 row_number() OVER (PARTITION BY json_extract(j.value,'$.scene_id')
+                                    ORDER BY CAST(j.key AS INTEGER)) - 1 AS scene_ordinal
+          FROM json_each({semantic}, '$.beats') j
+        ), groups AS (
+          SELECT scene_id, CAST(scene_ordinal / {EVENT_GROUP_SIZE} AS INTEGER) AS group_no,
+                 min(ordinal) AS first_ordinal, min(json_extract(value,'$.source.path')) AS path,
+                 min(json_extract(value,'$.source.start.line')) AS start_line,
+                 max(json_extract(value,'$.source.end.line')) AS end_line,
+                 max(CASE WHEN json_extract(value,'$.kind')='choice' THEN 1 ELSE 0 END) AS choice,
+                 max(CASE WHEN json_extract(value,'$.kind')='condition' THEN 1 ELSE 0 END) AS condition
+          FROM beats GROUP BY scene_id, CAST(scene_ordinal / {EVENT_GROUP_SIZE} AS INTEGER)
+        )
+        SELECT 'event:' || scene_id || ':' || printf('%08d',group_no), 2, scene_id,
+               printf('%012d',first_ordinal),
+               CASE WHEN choice=1 THEN 'choice_group' WHEN condition=1 THEN 'condition_group'
+                    ELSE 'structural_group' END,
+               CASE WHEN choice=1 THEN 'Choice group ' WHEN condition=1 THEN 'Condition group '
+                    ELSE 'Structural group ' END || (group_no + 1), path, start_line, end_line, 0,
+               CAST(json_object('deterministic',1,'group',group_no,'human_scene',0) AS BLOB)
+        FROM groups""",
+        f"""INSERT INTO presentation_nodes
+        WITH beats AS (
+          SELECT j.value AS value, CAST(j.key AS INTEGER) AS ordinal,
+                 json_extract(j.value,'$.scene_id') AS scene_id,
+                 row_number() OVER (PARTITION BY json_extract(j.value,'$.scene_id')
+                                    ORDER BY CAST(j.key AS INTEGER)) - 1 AS scene_ordinal
+          FROM json_each({semantic}, '$.beats') j
+        )
+        SELECT json_extract(value,'$.id'), 3,
+               'event:' || scene_id || ':' || printf('%08d',CAST(scene_ordinal / {EVENT_GROUP_SIZE} AS INTEGER)),
+               printf('%012d',ordinal), json_extract(value,'$.kind'),
+               COALESCE(json_extract(value,'$.choices[0].caption'),
+                        json_extract(value,'$.content[0].text'),
+                        json_extract(value,'$.source_text'), json_extract(value,'$.kind')),
+               json_extract(value,'$.source.path'), json_extract(value,'$.source.start.line'),
+               json_extract(value,'$.source.end.line'),
+               CASE WHEN json_extract(value,'$.kind') IN ('opaque','statement','module_end') THEN 1 ELSE 0 END,
+               CAST(value AS BLOB) FROM beats""",
+        f"""INSERT INTO presentation_edges
+        SELECT 'l1:' || json_extract(j.value,'$.id'), 1,
+               json_extract(j.value,'$.source_scene_id'), json_extract(j.value,'$.target_scene_id'),
+               printf('%012d',CAST(j.key AS INTEGER)), json_extract(j.value,'$.kind'), CAST(j.value AS BLOB)
+        FROM json_each({semantic}, '$.transitions') j
+        WHERE json_extract(j.value,'$.source_scene_id') IS NOT NULL
+          AND json_extract(j.value,'$.target_scene_id') IS NOT NULL
+        GROUP BY json_extract(j.value,'$.source_scene_id'), json_extract(j.value,'$.target_scene_id'),
+                 json_extract(j.value,'$.kind')""",
+        f"""INSERT INTO presentation_edges
+        SELECT 'l3:' || json_extract(j.value,'$.id'), 3,
+               json_extract(j.value,'$.source_beat_id'), json_extract(j.value,'$.target_beat_id'),
+               printf('%012d',CAST(j.key AS INTEGER)), json_extract(j.value,'$.kind'), CAST(j.value AS BLOB)
+        FROM json_each({semantic}, '$.transitions') j
+        WHERE json_extract(j.value,'$.source_beat_id') IS NOT NULL
+          AND json_extract(j.value,'$.target_beat_id') IS NOT NULL""",
+        """INSERT INTO presentation_edges
+        SELECT 'l2:' || e.edge_id, 2, s.parent_id, t.parent_id, e.sort_key, e.kind, e.payload_json
+        FROM presentation_edges e JOIN presentation_nodes s ON s.node_id=e.source_id
+        JOIN presentation_nodes t ON t.node_id=e.target_id
+        WHERE e.level=3 AND s.parent_id<>t.parent_id GROUP BY s.parent_id,t.parent_id,e.kind""",
+        """INSERT INTO presentation_evidence
+        SELECT 'beat:' || node_id, node_id, sort_key, kind, source_path, start_line, end_line,
+               label, payload_json FROM presentation_nodes WHERE level=3""",
+        _facts_insert_sql("gates", "gate"),
+        _facts_insert_sql("effects", "effect"),
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT node_id,'label',label,lower(label) FROM presentation_nodes WHERE level=1""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT n.node_id,'source_evidence',e.text,lower(e.text) FROM presentation_evidence e
+        JOIN presentation_nodes n ON n.node_id=e.node_id""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT node_id,CASE WHEN json_extract(c.value,'$.kind')='dialogue' THEN 'dialogue' ELSE 'narration' END,
+               json_extract(c.value,'$.text'),lower(json_extract(c.value,'$.text'))
+        FROM presentation_nodes n,json_each(CAST(n.payload_json AS TEXT),'$.content') c
+        WHERE n.level=3 AND json_extract(c.value,'$.text') IS NOT NULL""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT node_id,'choice',json_extract(c.value,'$.caption'),lower(json_extract(c.value,'$.caption'))
+        FROM presentation_nodes n,json_each(CAST(n.payload_json AS TEXT),'$.choices') c
+        WHERE n.level=3 AND json_extract(c.value,'$.caption') IS NOT NULL""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT node_id,'condition',json_extract(c.value,'$.condition'),lower(json_extract(c.value,'$.condition'))
+        FROM presentation_nodes n,json_each(CAST(n.payload_json AS TEXT),'$.choices') c
+        WHERE n.level=3 AND json_extract(c.value,'$.condition') IS NOT NULL""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT node_id,'condition',json_extract(c.value,'$.condition'),lower(json_extract(c.value,'$.condition'))
+        FROM presentation_nodes n,json_each(CAST(n.payload_json AS TEXT),'$.branches') c
+        WHERE n.level=3 AND json_extract(c.value,'$.condition') IS NOT NULL""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT COALESCE(node_id,fact_id),CASE WHEN variable IS NULL THEN 'source_evidence' ELSE 'variable' END,
+               COALESCE(variable,expression),lower(COALESCE(variable,expression)) FROM presentation_facts""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT COALESCE(node_id,fact_id),'source_evidence',expression,lower(expression)
+        FROM presentation_facts""",
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+        SELECT COALESCE(node_id,fact_id),'source_evidence',source_path,lower(source_path)
+        FROM presentation_facts""",
+    )
+
+
+def _facts_insert_sql(collection: str, kind: str) -> str:
+    return f"""INSERT INTO presentation_facts
+    SELECT json_extract(j.value,'$.id'),
+           (SELECT n.node_id FROM presentation_nodes n
+            WHERE n.level=3 AND n.source_path=json_extract(j.value,'$.evidence.source_path')
+              AND json_extract(j.value,'$.evidence.start_line') BETWEEN n.start_line AND n.end_line
+            ORDER BY (n.end_line-n.start_line),n.sort_key LIMIT 1),
+           '{kind}', COALESCE(json_extract(j.value,'$.variable'),json_extract(j.value,'$.variables[0]')),
+           (SELECT json_extract(v.value,'$.category') FROM payloads p2,
+                   json_each(CAST(p2.payload_json AS TEXT)) v
+            WHERE p2.collection='state_registry' AND p2.record_key='authoritative'
+              AND json_extract(v.value,'$.original_name')=
+                  COALESCE(json_extract(j.value,'$.variable'),json_extract(j.value,'$.variables[0]'))
+            LIMIT 1),
+           json_extract(j.value,'$.status'), json_extract(j.value,'$.original_expression'),
+           json_extract(j.value,'$.evidence.source_path'),json_extract(j.value,'$.evidence.start_line'),
+           json_extract(j.value,'$.evidence.end_line'),
+           json_extract(j.value,'$.evidence.source_path') || ':' ||
+             printf('%09d',json_extract(j.value,'$.evidence.start_line')) || ':' || json_extract(j.value,'$.id'),
+           CAST(j.value AS BLOB)
+    FROM payloads p,json_each(CAST(p.payload_json AS TEXT)) j WHERE p.collection='{collection}'"""
+
+
+def _node_from_row(row: sqlite3.Row) -> PresentationNode:
+    child_count = int(row["child_count"])
+    return PresentationNode(
+        str(row["node_id"]), PresentationLevel(int(row["level"])),
+        None if row["parent_id"] is None else str(row["parent_id"]), str(row["kind"]),
+        str(row["display_label"]), None if row["source_path"] is None else str(row["source_path"]),
+        None if row["start_line"] is None else int(row["start_line"]),
+        None if row["end_line"] is None else int(row["end_line"]), bool(row["technical"]),
+        child_count > 0, child_count, storage.decode_json(row["payload_json"]),
+    )
+
+
+def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
+    return EvidenceRecord(
+        str(row["evidence_id"]), str(row["node_id"]), str(row["kind"]),
+        str(row["source_path"]), int(row["start_line"]), int(row["end_line"]),
+        str(row["text"]), storage.decode_json(row["payload_json"]),
+    )
+
+
+def _fact_from_row(row: sqlite3.Row) -> FactRecord:
+    return FactRecord(
+        str(row["fact_id"]), None if row["node_id"] is None else str(row["node_id"]),
+        str(row["fact_kind"]), None if row["variable"] is None else str(row["variable"]),
+        None if row["category"] is None else str(row["category"]), str(row["status"]),
+        str(row["expression"]), str(row["source_path"]), int(row["start_line"]),
+        int(row["end_line"]), storage.decode_json(row["payload_json"]),
+    )
+
+
+def _bounded_limit(value: int, maximum: int) -> int:
+    if value <= 0:
+        raise ValueError("result limit must be positive")
+    return min(value, maximum)
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _cancel(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise storage.ProjectOperationCancelled("project operation was cancelled")
+
+
+def deterministic_id(prefix: str, values: Iterable[str]) -> str:
+    """Return a stable presentation ID for callers creating deterministic extensions."""
+
+    digest = hashlib.sha256("\0".join(values).encode()).hexdigest()[:20]
+    return f"{prefix}_{digest}"

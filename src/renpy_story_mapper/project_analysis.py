@@ -272,6 +272,9 @@ def _refresh_open_project(
         previous_registry,
     )
     project.write_payloads(records, cancelled=cancel_check)
+    from renpy_story_mapper.presentation import rebuild_presentation_index
+
+    rebuild_presentation_index(project, cancelled=cancel_check)
     reused = set(refresh.unchanged) - parsed_paths
     return RefreshReport(
         tuple(sorted(parsed_paths)),
