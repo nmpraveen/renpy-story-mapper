@@ -237,13 +237,13 @@ def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edge
                 [
                     (
                         f"synthetic-scope-{scope}", 1, None, f"8{scope:011d}", "label",
-                        f"Scope {scope}", "synthetic.rpy", 1, 700, 0,
+                        f"Scope {scope}", "synthetic.rpy", 1, 1200, 0,
                         storage.canonical_json({"synthetic": True}),
                     ),
                     (
                         f"event:synthetic-scope-{scope}:00000000", 2,
                         f"synthetic-scope-{scope}", f"8{scope + 3:011d}", "structural_group",
-                        f"Event {scope}", "synthetic.rpy", 1, 700, 0,
+                        f"Event {scope}", "synthetic.rpy", 1, 1200, 0,
                         storage.canonical_json({"synthetic": True}),
                     ),
                 ]
@@ -262,20 +262,31 @@ def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edge
                 0,
                 storage.canonical_json({"synthetic": True}),
             )
-            for index in range(700)
+            for index in range(1200)
         ]
         edges = [
             (
                 f"synthetic-edge-{index:04d}",
                 3,
-                f"synthetic-beat-{index % 700:04d}",
-                f"synthetic-beat-{(index * 17 + 1) % 700:04d}",
+                f"synthetic-beat-{index % 1200:04d}",
+                f"synthetic-beat-{(index * 17 + 1) % 1200:04d}",
                 f"9{index:011d}",
                 "flow",
                 storage.canonical_json({"synthetic": True}),
             )
-            for index in range(620)
+            for index in range(1100)
         ]
+        edges.append(
+            (
+                "synthetic-edge-cross-page",
+                3,
+                "synthetic-beat-0000",
+                "synthetic-beat-1199",
+                "999999999999",
+                "flow",
+                storage.canonical_json({"synthetic": True}),
+            )
+        )
         with storage.transaction(connection):
             connection.executemany(
                 "INSERT INTO presentation_nodes VALUES (?,?,?,?,?,?,?,?,?,?,?)", containers
@@ -289,13 +300,20 @@ def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edge
         result = service.organization_connectivity(selected)
         assert result.beat_ids == selected
         assert result.required_beat_ids == selected
-        assert len(result.edges) == 620
+        assert len(result.edges) == 1101
         assert any(
             int(edge.source_id.rsplit("-", 1)[1]) % 3
             != int(edge.target_id.rsplit("-", 1)[1]) % 3
             for edge in result.edges
         )
         assert [edge.id for edge in result.edges] == [edge[0] for edge in edges]
+        induced = service.edges_for_nodes(PresentationLevel.EVIDENCE, selected)
+        assert len(induced) == 1101
+        assert induced[-1].id == "synthetic-edge-cross-page"
+        assert (
+            service.edges_for_nodes(PresentationLevel.EVIDENCE, (*selected, *selected[:5]))
+            == induced
+        )
         plan = connection.execute(
             "EXPLAIN QUERY PLAN SELECT * FROM presentation_edges "
             "WHERE level=3 AND source_id IN (?,?)",
@@ -305,3 +323,5 @@ def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edge
 
         with pytest.raises(ValueError, match="unknown Level-3"):
             service.organization_connectivity((*selected, "unknown-beat"))
+        with pytest.raises(ValueError, match="unknown presentation node"):
+            service.edges_for_nodes(PresentationLevel.EVIDENCE, (*selected, "unknown-beat"))

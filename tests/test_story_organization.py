@@ -90,30 +90,47 @@ def _candidate(project: Project, *, suffix: str = "") -> dict[str, object]:
 def _scoped_candidate(
     project: Project, event_indexes: tuple[int, ...], *, suffix: str
 ) -> dict[str, object]:
-    candidate = _candidate(project, suffix=suffix)
-    events = candidate["events"]
-    assert isinstance(events, list)
-    selected_events = [events[index] for index in event_indexes]
-    selected_event_ids = {str(event["id"]) for event in selected_events}
-    arcs = candidate["arcs"]
-    assert isinstance(arcs, list)
+    connection = project._require_open()
+    containers = connection.execute(
+        "SELECT node_id FROM presentation_nodes WHERE level=2 ORDER BY sort_key,node_id"
+    ).fetchall()
+    selected_events: list[dict[str, object]] = []
     selected_arcs: list[dict[str, object]] = []
-    for arc in arcs:
-        assert isinstance(arc, dict) and isinstance(arc["event_ids"], list)
-        members = [value for value in arc["event_ids"] if value in selected_event_ids]
-        if members:
-            selected_arcs.append({**arc, "event_ids": members})
-    claims = candidate["claims"]
-    assert isinstance(claims, list)
+    selected_beats: list[str] = []
+    for index in event_indexes:
+        container_id = str(containers[index][0])
+        beats = [
+            str(row[0])
+            for row in connection.execute(
+                """SELECT node_id FROM presentation_nodes
+                   WHERE level=3 AND parent_id=? ORDER BY sort_key,node_id""",
+                (container_id,),
+            )
+        ]
+        letter = chr(ord("a") + index)
+        event_id = f"event-{letter}{suffix}"
+        selected_events.append(
+            {
+                "id": event_id,
+                "title": f"Scoped {letter.upper()}",
+                "summary": f"Exact container {letter.upper()} organization.",
+                "beat_ids": beats,
+            }
+        )
+        selected_arcs.append(
+            {
+                "id": f"arc-{letter}{suffix}",
+                "title": f"Scoped arc {letter.upper()}",
+                "summary": f"Exact container {letter.upper()} arc.",
+                "event_ids": [event_id],
+            }
+        )
+        selected_beats.extend(beats)
     return {
         "events": selected_events,
         "arcs": selected_arcs,
-        "claims": [claim for claim in claims if claim.get("event_id") in selected_event_ids],
-        "selected_beat_ids": [
-            beat
-            for event in selected_events
-            for beat in event["beat_ids"]  # type: ignore[union-attr]
-        ],
+        "claims": [],
+        "selected_beat_ids": selected_beats,
     }
 
 
@@ -152,10 +169,9 @@ def _run_and_draft(
         scope_ids = [
             str(row[0])
             for row in service._connection.execute(
-                f"""SELECT DISTINCT scene.node_id FROM presentation_nodes beat
+                f"""SELECT DISTINCT event.node_id FROM presentation_nodes beat
                 JOIN presentation_nodes event ON event.node_id=beat.parent_id
-                JOIN presentation_nodes scene ON scene.node_id=event.parent_id
-                WHERE beat.node_id IN ({placeholders}) ORDER BY scene.sort_key,scene.node_id""",
+                WHERE beat.node_id IN ({placeholders}) ORDER BY event.sort_key,event.node_id""",
                 selected,
             )
         ]
@@ -181,6 +197,21 @@ def test_v3_migrates_transactionally_and_failed_v4_migration_rolls_back(
     storage.initialize_database(connection, target_version=3)
     connection.close()
 
+    legacy_v4 = _create(tmp_path / "legacy-v4")
+    legacy_v4_path = legacy_v4.path
+    legacy_v4.close()
+    connection = storage.connect(legacy_v4_path)
+    connection.execute("DROP TABLE story_group_enrichment")
+    connection.close()
+    with pytest.raises(storage.IncompatibleProjectVersionError):
+        Project.open(legacy_v4_path, migrate=False)
+    with Project.open(legacy_v4_path) as upgraded:
+        assert not storage.needs_v4_enrichment_extension(upgraded._require_open())
+        assert storage.validate_database(upgraded._require_open()) == 4
+    assert legacy_v4_path.with_name(
+        f"{legacy_v4_path.name}.pre-migrate-v4.bak"
+    ).is_file()
+
     with Project.open(legacy) as project:
         assert project.schema_version == 4
         assert (
@@ -196,6 +227,11 @@ def test_v3_migrates_transactionally_and_failed_v4_migration_rolls_back(
         assert (
             project._require_open()
             .execute("SELECT 1 FROM sqlite_schema WHERE name='organization_draft_reviews'")
+            .fetchone()
+        )
+        assert (
+            project._require_open()
+            .execute("SELECT 1 FROM sqlite_schema WHERE name='story_group_enrichment'")
             .fetchone()
         )
         cache_index = tuple(
@@ -257,6 +293,57 @@ def test_v4_structural_corruption_is_rejected(tmp_path: Path) -> None:
     connection.close()
     with pytest.raises(storage.ProjectCorruptError, match="invalid constraints"):
         Project.open(constrained_path)
+
+
+def test_run_model_fingerprint_lifecycle_preserves_cache_chunks_and_reopens(tmp_path: Path) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        run = service.create_run(
+            provider_mode="local",
+            model_profile="balanced",
+            model_fingerprint=None,
+            prompt_version="p1",
+            output_schema_version="s1",
+            generation="g-model",
+        )
+        identity = service.cache_identity(
+            provider_mode="local",
+            model_profile="balanced",
+            model_fingerprint="model-before-metadata",
+            prompt_version="p1",
+            output_schema_version="s1",
+            input_hash=hashlib.sha256(b"input").hexdigest(),
+            ordered_ids=("beat-a",),
+        )
+        cache_key = service.store_cache_result(identity, {"groups": []})
+        chunk_id = service.record_chunk(
+            run_id=run,
+            scope_id="scope-a",
+            reconciliation_scope="scope-a",
+            ordinal=0,
+            identity=identity,
+            cache_state="stored",
+            status="validated",
+            result={"groups": []},
+        )
+        with pytest.raises(ValueError, match="effective model"):
+            service.set_run_model_fingerprint(run, "balanced")
+        service.set_run_model_fingerprint(run, "  local/model-3.2  ")
+        service.set_run_model_fingerprint(run, "local/model-3.2")
+        with pytest.raises(ValueError, match="different model"):
+            service.set_run_model_fingerprint(run, "local/model-4")
+        assert service.chunks(run)[0].id == chunk_id
+        assert service.chunks(run)[0].cache_key == cache_key
+        service.finish_run(run, "completed", elapsed_ms=1)
+        with pytest.raises(KeyError, match="running organization run"):
+            service.set_run_model_fingerprint(run, "local/model-3.2")
+
+    with Project.open(path) as reopened:
+        restored = reopened.organization_service()
+        assert restored.runs()[0].model_fingerprint == "local/model-3.2"
+        assert restored.chunks(run)[0].id == chunk_id
 
 
 def test_atomic_apply_discard_and_authoritative_data_is_immutable(
@@ -470,7 +557,9 @@ def test_partial_scope_apply_preserves_outside_groups_claims_edits_and_is_idempo
         replacement = _scoped_candidate(project, (1,), suffix="-scope-b")
         service.apply_draft(_run_and_draft(service, replacement))
         ids = {event.id for event in service.events(include_hidden=True)}
-        assert ids == {"event-a", "event-b-scope-b", "event-c"}
+        assert ids == {"event-a", "event-b", "event-b-scope-b", "event-c"}
+        boundary = next(event for event in service.events() if event.id == "event-b")
+        assert boundary.origin == "deterministic" and boundary.needs_review
         assert next(event for event in service.events() if event.id == "event-a") == preserved_event
         assert service.claims(event_id="event-a")[0] == preserved_claim
         assert service.edits("event-a")[0] == preserved_edit
@@ -489,12 +578,20 @@ def test_sequential_partial_scopes_retain_prior_scope_and_do_not_create_global_f
         scope_b = _scoped_candidate(project, (1,), suffix="-scope-b")
         service.apply_draft(_run_and_draft(service, scope_a))
         assert {event.id for event in service.events()} == {"event-a-scope-a"}
+        service.set_hidden("event", "event-a-scope-a", True)
+        service.set_approval("event", "event-a-scope-a", "rejected")
         service.apply_draft(_run_and_draft(service, scope_b))
-        assert {event.id for event in service.events()} == {
+        assert {event.id for event in service.events(include_hidden=True)} == {
             "event-a-scope-a",
             "event-b-scope-b",
         }
-        assert all(event.origin != "deterministic" for event in service.events())
+        service.apply_draft(_run_and_draft(service, scope_a))
+        events = service.events(include_hidden=True)
+        assert {event.id for event in events} == {"event-a-scope-a", "event-b-scope-b"}
+        reapplied = next(event for event in events if event.id == "event-a-scope-a")
+        assert reapplied.hidden and reapplied.approval_state == "rejected"
+        assert {edit.status for edit in service.edits(reapplied.id)} == {"applied"}
+        assert all(event.origin != "deterministic" for event in events)
 
 
 def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersection(
@@ -502,6 +599,55 @@ def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersect
 ) -> None:
     with _create(tmp_path) as project:
         service = project.organization_service()
+        bypass = _scoped_candidate(project, (0,), suffix="-global-bypass")
+        bypass_run = service.create_run(
+            provider_mode="local",
+            model_profile="balanced",
+            model_fingerprint=None,
+            prompt_version="p1",
+            output_schema_version="s1",
+            generation="g-bypass",
+        )
+        with pytest.raises(ValueError, match="managed exclusively"):
+            service.create_draft(bypass_run, "g-bypass", bypass)
+
+        exact = _scoped_candidate(project, (0,), suffix="-outside")
+        exact_covered = exact.pop("selected_beat_ids")
+        assert isinstance(exact_covered, list)
+        exact_events = exact["events"]
+        assert isinstance(exact_events, list) and isinstance(exact_events[0], dict)
+        assert isinstance(exact_events[0]["beat_ids"], list)
+        scope_id = str(
+            service._connection.execute(
+                "SELECT parent_id FROM presentation_nodes WHERE node_id=?",
+                (exact_covered[0],),
+            ).fetchone()[0]
+        )
+        outside_beat = str(
+            service._connection.execute(
+                """SELECT beat.node_id FROM presentation_nodes beat
+                   WHERE beat.level=3 AND beat.parent_id<>? ORDER BY beat.sort_key LIMIT 1""",
+                (scope_id,),
+            ).fetchone()[0]
+        )
+        exact_events[0]["beat_ids"].append(outside_beat)
+        with pytest.raises(ValueError, match="outside selected scope"):
+            service.create_scoped_draft(
+                bypass_run,
+                "g-bypass",
+                exact,
+                scope_ids=(scope_id,),
+                covered_beat_ids=exact_covered,
+            )
+        with pytest.raises(ValueError, match="outside the selected scopes"):
+            service.create_scoped_draft(
+                bypass_run,
+                "g-bypass",
+                {**exact, "events": []},
+                scope_ids=(scope_id,),
+                covered_beat_ids=(*exact_covered, outside_beat),
+            )
+
         incomplete = _scoped_candidate(project, (0,), suffix="-incomplete")
         selected = incomplete["selected_beat_ids"]
         events = incomplete["events"]
@@ -511,6 +657,18 @@ def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersect
         assert missing in selected
         with pytest.raises(ValueError, match="required story beats"):
             _run_and_draft(service, incomplete, review=False)
+
+        missing_scope = _scoped_candidate(project, (0,), suffix="-missing-scope")
+        missing_selected = missing_scope["selected_beat_ids"]
+        missing_events = missing_scope["events"]
+        assert isinstance(missing_selected, list) and isinstance(missing_events, list)
+        assert isinstance(missing_events[0], dict) and isinstance(
+            missing_events[0]["beat_ids"], list
+        )
+        omitted = missing_selected.pop()
+        missing_events[0]["beat_ids"].remove(omitted)
+        with pytest.raises(ValueError, match="omit a scoped Level-3 beat"):
+            _run_and_draft(service, missing_scope, review=False)
 
         service.apply_draft(_run_and_draft(service, _candidate(project)))
         service.set_pinned("event", "event-a", True)
@@ -522,21 +680,78 @@ def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersect
         assert set(overlap.beat_ids).isdisjoint(pinned.beat_ids)
 
 
+def test_scoped_exactness_excludes_durable_hidden_descendant(tmp_path: Path) -> None:
+    with _create(tmp_path) as project:
+        candidate = _scoped_candidate(project, (0,), suffix="-visible-only")
+        events = candidate["events"]
+        selected = candidate["selected_beat_ids"]
+        assert isinstance(events, list) and isinstance(events[0], dict)
+        assert isinstance(events[0]["beat_ids"], list) and isinstance(selected, list)
+        hidden = str(events[0]["beat_ids"].pop())
+        selected.remove(hidden)
+        project.presentation_service().set_hidden(hidden, True)
+        service = project.organization_service()
+        draft = _run_and_draft(service, candidate)
+        service.apply_draft(draft)
+        events_after = service.events(include_hidden=True)
+        assert len(events_after) == 1
+        assert hidden not in events_after[0].beat_ids
+        assert all(hidden not in event.beat_ids for event in events_after)
+
+
+def test_rejected_scoped_group_creates_only_selected_fallback(tmp_path: Path) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        candidate = _scoped_candidate(project, (0,), suffix="-rejected")
+        covered = candidate["selected_beat_ids"]
+        assert isinstance(covered, list)
+        draft = _run_and_draft(service, candidate, review=False)
+        service.review_draft_group(draft, "arc", "arc-a-rejected", "approved")
+        service.review_draft_group(draft, "event", "event-a-rejected", "rejected")
+        service.apply_draft(draft)
+        events = service.events(include_hidden=True)
+        assert len(events) == 1
+        assert events[0].origin == "deterministic"
+        assert set(events[0].beat_ids) == set(covered)
+        total_beats = int(
+            service._connection.execute(
+                "SELECT COUNT(*) FROM presentation_nodes WHERE level=3"
+            ).fetchone()[0]
+        )
+        assert len(events[0].beat_ids) < total_beats
+
+
 def test_partial_boundary_intersection_trims_unpinned_group_without_losing_outside_edits(
     tmp_path: Path,
 ) -> None:
     with _create(tmp_path) as project:
         service = project.organization_service()
         service.apply_draft(_run_and_draft(service, _candidate(project)))
-        original = next(event for event in service.events() if event.id == "event-a")
-        service.set_approval("event", original.id, "approved")
-        selected = original.beat_ids[1]
+        original = next(event for event in service.events() if event.id == "event-b")
+        service.rename("event", original.id, "Old selected interpretation")
+        service._connection.execute(
+            "UPDATE story_events SET pinned=0 WHERE event_id=?", (original.id,)
+        )
+        container = str(
+            service._connection.execute(
+                "SELECT parent_id FROM presentation_nodes WHERE node_id=?",
+                (original.beat_ids[0],),
+            ).fetchone()[0]
+        )
+        selected = [
+            str(row[0])
+            for row in service._connection.execute(
+                """SELECT node_id FROM presentation_nodes WHERE level=3 AND parent_id=?
+                   ORDER BY sort_key,node_id""",
+                (container,),
+            )
+        ]
         candidate = {
             "events": [{
                 "id": "event-middle",
                 "title": "Middle",
-                "summary": "The selected middle beat.",
-                "beat_ids": [selected],
+                "summary": "The selected exact container.",
+                "beat_ids": selected,
             }],
             "arcs": [{
                 "id": "arc-middle",
@@ -545,15 +760,83 @@ def test_partial_boundary_intersection_trims_unpinned_group_without_losing_outsi
                 "event_ids": ["event-middle"],
             }],
             "claims": [],
-            "selected_beat_ids": [selected],
+            "selected_beat_ids": selected,
         }
         service.apply_draft(_run_and_draft(service, candidate))
         trimmed = next(event for event in service.events() if event.id == original.id)
-        assert trimmed.beat_ids == (original.beat_ids[0], original.beat_ids[2])
-        assert service.edits(original.id)
-        assert next(event for event in service.events() if event.id == "event-middle").beat_ids == (
-            selected,
+        assert trimmed.beat_ids == original.beat_ids[1:]
+        assert trimmed.origin == "deterministic"
+        assert trimmed.needs_review
+        assert trimmed.title == "Technical boundary event"
+        assert {edit.status for edit in service.edits(original.id)} == {"needs_review"}
+        inserted = next(event for event in service.events() if event.id == "event-middle")
+        assert inserted.beat_ids == tuple(selected)
+
+
+def test_enrichment_survives_draft_review_scoped_apply_and_reopen(tmp_path: Path) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        connection = project._require_open()
+        candidate = _scoped_candidate(project, (0,), suffix="-enriched")
+        event = candidate["events"][0]  # type: ignore[index]
+        arc = candidate["arcs"][0]  # type: ignore[index]
+        assert isinstance(event, dict) and isinstance(arc, dict)
+        beats = event["beat_ids"]
+        assert isinstance(beats, list)
+        first = beats[0]
+        payload = storage.decode_json(
+            connection.execute(
+                "SELECT payload_json FROM presentation_nodes WHERE node_id=?", (first,)
+            ).fetchone()[0]
         )
+        assert isinstance(payload, dict)
+        payload["speaker"] = "Ava"
+        connection.execute(
+            "UPDATE presentation_nodes SET payload_json=? WHERE node_id=?",
+            (storage.canonical_json(payload), first),
+        )
+        fact_id = str(
+            connection.execute(
+                "SELECT fact_id FROM presentation_facts WHERE node_id IN ("
+                + ",".join("?" for _ in beats)
+                + ") ORDER BY fact_id LIMIT 1",
+                beats,
+            ).fetchone()[0]
+        )
+        enrichment = {
+            "characters": ["Ava"],
+            "importance": "turning point",
+            "outcomes": ["The route remains open."],
+            "promoted_fact_ids": [fact_id],
+            "warnings": ["Interpretation depends on the selected route."],
+        }
+        event.update(enrichment)
+        arc.update(enrichment)
+        service = project.organization_service()
+        draft = _run_and_draft(service, candidate, review=False)
+        assert {value.importance for value in service.draft_enrichments(draft)} == {
+            "turning point"
+        }
+        _review_all(service, draft, candidate)
+        service.apply_draft(draft)
+        accepted = service.enrichments()
+        assert len(accepted) == 2
+        assert all(value.characters == ("Ava",) for value in accepted)
+        assert all(value.promoted_fact_ids == (fact_id,) for value in accepted)
+        assert project.authoritative_bytes()
+
+        invented = _scoped_candidate(project, (0,), suffix="-invented-fact")
+        invented_event = invented["events"][0]  # type: ignore[index]
+        assert isinstance(invented_event, dict)
+        invented_event["promoted_fact_ids"] = ["invented-fact"]
+        with pytest.raises(ValueError, match="existing facts"):
+            _run_and_draft(service, invented, review=False)
+
+    with Project.open(path) as reopened:
+        values = reopened.organization_service().enrichments()
+        assert len(values) == 2
+        assert {value.importance for value in values} == {"turning point"}
 
 
 def test_partial_apply_failure_rolls_back_scope_replacement(

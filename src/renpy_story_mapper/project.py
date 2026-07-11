@@ -149,8 +149,9 @@ class Project:
         connection: sqlite3.Connection | None = None
         try:
             connection = storage.connect(project_path)
-            version = storage.validate_database(connection)
-            if version < storage.SCHEMA_VERSION:
+            version = storage.validate_database(connection, allow_legacy_v4=True)
+            needs_v4_extension = storage.needs_v4_enrichment_extension(connection)
+            if version < storage.SCHEMA_VERSION or needs_v4_extension:
                 if not migrate:
                     raise storage.IncompatibleProjectVersionError(
                         f"project schema version {version} requires migration to "
@@ -159,7 +160,9 @@ class Project:
                 connection.close()
                 connection = None
                 backup = project_path.with_name(f"{project_path.name}.pre-migrate-v{version}.bak")
-                storage.make_backup(project_path, backup)
+                storage.make_backup(
+                    project_path, backup, allow_legacy_v4=needs_v4_extension
+                )
                 connection = storage.connect(project_path)
                 storage.initialize_database(connection)
                 storage.validate_database(connection)

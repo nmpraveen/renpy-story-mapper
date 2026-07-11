@@ -121,9 +121,14 @@ def initialize_database(
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
         current = next_version
+    if current == 4 and needs_v4_enrichment_extension(connection):
+        with transaction(connection):
+            _migrate_v4_enrichment_extension(connection)
 
 
-def validate_database(connection: sqlite3.Connection) -> int:
+def validate_database(
+    connection: sqlite3.Connection, *, allow_legacy_v4: bool = False
+) -> int:
     """Validate project identity, supported version, and SQLite integrity."""
 
     try:
@@ -140,14 +145,16 @@ def validate_database(connection: sqlite3.Connection) -> int:
         raise ProjectCorruptError("file is not a Ren'Py Story Mapper project")
     if version < 1:
         raise ProjectCorruptError("project has no recognized schema version")
-    _validate_schema_shape(connection, version)
+    _validate_schema_shape(connection, version, allow_legacy_v4=allow_legacy_v4)
     failures = [str(row[0]) for row in result if str(row[0]).lower() != "ok"]
     if failures:
         raise ProjectCorruptError(f"project failed SQLite integrity check: {'; '.join(failures)}")
     return version
 
 
-def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None:
+def _validate_schema_shape(
+    connection: sqlite3.Connection, version: int, *, allow_legacy_v4: bool = False
+) -> None:
     required: dict[str, set[str]] = {
         "project_metadata": {"key", "value_json", "updated_utc"},
         "sources": {
@@ -342,6 +349,15 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                     "sort_order",
                 },
                 "story_claim_evidence": {"claim_id", "evidence_id"},
+                "story_group_enrichment": {
+                    "target_kind",
+                    "target_id",
+                    "characters_json",
+                    "importance",
+                    "outcomes_json",
+                    "promoted_fact_ids_json",
+                    "warnings_json",
+                },
                 "story_edits": {
                     "edit_id",
                     "operation",
@@ -353,6 +369,8 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 },
             }
         )
+        if allow_legacy_v4 and needs_v4_enrichment_extension(connection):
+            required.pop("story_group_enrichment")
     try:
         tables = {
             str(row[0])
@@ -388,6 +406,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "story_event_edges": ("edge_id",),
             "story_claims": ("claim_id",),
             "story_claim_evidence": ("claim_id", "evidence_id"),
+            "story_group_enrichment": ("target_kind", "target_id"),
             "story_edits": ("edit_id",),
         }
         declared_types: dict[str, dict[str, str]] = {
@@ -589,6 +608,15 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 "sort_order": "INTEGER",
             },
             "story_claim_evidence": {"claim_id": "TEXT", "evidence_id": "TEXT"},
+            "story_group_enrichment": {
+                "target_kind": "TEXT",
+                "target_id": "TEXT",
+                "characters_json": "BLOB",
+                "importance": "TEXT",
+                "outcomes_json": "BLOB",
+                "promoted_fact_ids_json": "BLOB",
+                "warnings_json": "BLOB",
+            },
             "story_edits": {
                 "edit_id": "TEXT",
                 "operation": "TEXT",
@@ -721,8 +749,11 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "story_event_edges_target_idx",
             "story_claims_event_idx",
             "story_claim_evidence_evidence_idx",
+            "story_group_enrichment_target_idx",
             "story_edits_target_idx",
         }
+        if allow_legacy_v4 and needs_v4_enrichment_extension(connection):
+            expected_indexes.remove("story_group_enrichment_target_idx")
         missing_indexes = expected_indexes - indexes
         if missing_indexes:
             names = ", ".join(sorted(missing_indexes))
@@ -743,7 +774,10 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "story_event_members_beat_idx": ("beat_id", "event_id"),
             "story_arc_members_order_idx": ("arc_id", "ordinal", "event_id"),
             "story_event_edges_source_idx": ("source_event_id", "kind", "target_event_id"),
+            "story_group_enrichment_target_idx": ("target_kind", "target_id"),
         }
+        if allow_legacy_v4 and needs_v4_enrichment_extension(connection):
+            index_shapes.pop("story_group_enrichment_target_idx")
         for name, expected in index_shapes.items():
             actual = tuple(
                 str(row[2]) for row in connection.execute(f'PRAGMA index_info("{name}")')
@@ -819,11 +853,18 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 "unique (event_id)",
             ),
             "story_event_edges": ("unique (source_event_id, target_event_id, kind)",),
+            "story_group_enrichment": (
+                "primary key (target_kind, target_id)",
+                "check (target_kind in ('arc','event'))",
+                "check (importance in ('supporting','major','turning point'))",
+            ),
             "story_edits": (
                 "check (operation in "
                 "('rename','split','merge','move','hide','pin','approve','reject'))",
             ),
         }
+        if allow_legacy_v4 and needs_v4_enrichment_extension(connection):
+            constraint_fragments.pop("story_group_enrichment")
         for table, fragments in constraint_fragments.items():
             row = connection.execute(
                 "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?", (table,)
@@ -863,7 +904,9 @@ def check_collection(collection: str) -> None:
         raise ValueError(f"unknown payload collection {collection!r}; expected one of: {allowed}")
 
 
-def make_backup(source: Path, destination: Path) -> None:
+def make_backup(
+    source: Path, destination: Path, *, allow_legacy_v4: bool = False
+) -> None:
     """Create a consistent SQLite backup and atomically publish it."""
 
     temporary = destination.with_name(f".{destination.name}.tmp")
@@ -873,14 +916,14 @@ def make_backup(source: Path, destination: Path) -> None:
     destination_connection: sqlite3.Connection | None = None
     try:
         source_connection = connect(source)
-        validate_database(source_connection)
+        validate_database(source_connection, allow_legacy_v4=allow_legacy_v4)
         destination_connection = connect(temporary)
         source_connection.backup(destination_connection)
         destination_connection.close()
         destination_connection = None
         backup_check = connect(temporary)
         try:
-            validate_database(backup_check)
+            validate_database(backup_check, allow_legacy_v4=allow_legacy_v4)
         finally:
             backup_check.close()
         temporary.replace(destination)
@@ -1069,6 +1112,45 @@ def _migrate_to_v3(connection: sqlite3.Connection) -> None:
     )
 
 
+def needs_v4_enrichment_extension(connection: sqlite3.Connection) -> bool:
+    """Return whether a pre-enrichment schema-v4 project needs the additive extension."""
+
+    if _pragma_int(connection, "user_version") != 4:
+        return False
+    names = {
+        str(row[0])
+        for row in connection.execute(
+            """SELECT name FROM sqlite_schema
+               WHERE name IN ('story_group_enrichment','story_group_enrichment_target_idx')"""
+        )
+    }
+    return names != {"story_group_enrichment", "story_group_enrichment_target_idx"}
+
+
+def _migrate_v4_enrichment_extension(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS story_group_enrichment (
+            target_kind TEXT NOT NULL CHECK (target_kind IN ('arc','event')),
+            target_id TEXT NOT NULL,
+            characters_json BLOB NOT NULL,
+            importance TEXT NOT NULL
+                CHECK (importance IN ('supporting','major','turning point')),
+            outcomes_json BLOB NOT NULL,
+            promoted_fact_ids_json BLOB NOT NULL,
+            warnings_json BLOB NOT NULL,
+            PRIMARY KEY (target_kind, target_id)
+        ) STRICT"""
+    )
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS story_group_enrichment_target_idx
+           ON story_group_enrichment(target_kind, target_id)"""
+    )
+    connection.execute(
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (4, ?)",
+        (utc_now(),),
+    )
+
+
 def _migrate_to_v4(connection: sqlite3.Connection) -> None:
     statements = (
         """CREATE TABLE IF NOT EXISTS organization_runs (
@@ -1182,6 +1264,17 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
             PRIMARY KEY (claim_id, evidence_id),
             FOREIGN KEY (claim_id) REFERENCES story_claims(claim_id) ON DELETE CASCADE
         ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_group_enrichment (
+            target_kind TEXT NOT NULL CHECK (target_kind IN ('arc','event')),
+            target_id TEXT NOT NULL,
+            characters_json BLOB NOT NULL,
+            importance TEXT NOT NULL
+                CHECK (importance IN ('supporting','major','turning point')),
+            outcomes_json BLOB NOT NULL,
+            promoted_fact_ids_json BLOB NOT NULL,
+            warnings_json BLOB NOT NULL,
+            PRIMARY KEY (target_kind, target_id)
+        ) STRICT""",
         """CREATE TABLE IF NOT EXISTS story_edits (
             edit_id TEXT PRIMARY KEY NOT NULL,
             operation TEXT NOT NULL
@@ -1221,6 +1314,8 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
         "ON story_claims(event_id, sort_order, claim_id)",
         "CREATE INDEX IF NOT EXISTS story_claim_evidence_evidence_idx "
         "ON story_claim_evidence(evidence_id, claim_id)",
+        "CREATE INDEX IF NOT EXISTS story_group_enrichment_target_idx "
+        "ON story_group_enrichment(target_kind, target_id)",
         "CREATE INDEX IF NOT EXISTS story_edits_target_idx "
         "ON story_edits(target_kind, target_id, created_utc)",
     )

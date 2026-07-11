@@ -167,6 +167,17 @@ class StoryClaim:
 
 
 @dataclass(frozen=True)
+class StoryEnrichment:
+    target_kind: str
+    target_id: str
+    characters: tuple[str, ...]
+    importance: str
+    outcomes: tuple[str, ...]
+    promoted_fact_ids: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class StoryEdit:
     id: str
     operation: str
@@ -253,6 +264,32 @@ class StoryOrganizationService:
             )
             if cursor.rowcount != 1:
                 raise KeyError(f"running organization run does not exist: {run_id}")
+
+    def set_run_model_fingerprint(self, run_id: str, model_identifier: str) -> None:
+        """Record the effective provider model on an existing running organization run."""
+
+        normalized = " ".join(model_identifier.replace("\x00", "").split())
+        if not normalized or len(normalized) > 200:
+            raise ValueError("model_identifier must contain 1-200 characters")
+        if normalized.casefold() == "balanced":
+            raise ValueError("model_identifier must identify an effective model, not a profile")
+        with storage.transaction(self._connection):
+            row = self._connection.execute(
+                "SELECT status,model_fingerprint FROM organization_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            if row is None or str(row["status"]) != "running":
+                raise KeyError(f"running organization run does not exist: {run_id}")
+            existing = _optional_text(row["model_fingerprint"])
+            if existing is not None and existing != normalized:
+                raise ValueError(
+                    "running organization run already has a different model identifier"
+                )
+            if existing is None:
+                self._connection.execute(
+                    "UPDATE organization_runs SET model_fingerprint=? WHERE run_id=?",
+                    (normalized, run_id),
+                )
 
     def runs(self) -> tuple[OrganizationRun, ...]:
         rows = self._connection.execute(
@@ -437,8 +474,8 @@ class StoryOrganizationService:
         return tuple(result)
 
     def create_draft(self, run_id: str, generation: str, candidate: Mapping[str, object]) -> str:
-        if "_scope" in candidate:
-            raise ValueError("scope metadata is managed by create_scoped_draft")
+        if {"_scope", "selected_beat_ids"}.intersection(candidate):
+            raise ValueError("scope fields are managed exclusively by create_scoped_draft")
         return self._store_draft(run_id, generation, candidate)
 
     def create_scoped_draft(
@@ -452,31 +489,25 @@ class StoryOrganizationService:
     ) -> str:
         """Create a draft for the exact Level-3 descendants of Level-1/2 scope containers.
 
-        Coverage deliberately includes technical and visible Level-3 nodes alike so collapsed
-        transitions cannot be lost at a selected-scope boundary.
+        Coverage includes technical Level-3 nodes, but excludes nodes hidden by durable
+        presentation overrides, matching ``PresentationService.view(include_technical=True)``.
         """
 
-        if "_scope" in candidate:
-            raise ValueError("scope metadata is managed by create_scoped_draft")
+        if {"_scope", "selected_beat_ids"}.intersection(candidate):
+            raise ValueError("scope fields are managed exclusively by create_scoped_draft")
         scopes = _unique_string_sequence(scope_ids, "scope_ids")
         covered = _unique_string_sequence(covered_beat_ids, "covered_beat_ids")
         if not scopes or not covered:
             raise ValueError("scoped drafts require non-empty scope and covered beat IDs")
-        declared = candidate.get("selected_beat_ids")
-        if declared is not None:
-            declared_ids = _unique_string_sequence(
-                _string_list(declared, "selected beat IDs"), "selected beat IDs"
-            )
-            if frozenset(declared_ids) != frozenset(covered):
-                raise ValueError("selected_beat_ids must exactly match covered_beat_ids")
         document = dict(candidate)
-        document["_scope"] = {
-            "scope_ids": list(scopes),
-            "covered_beat_ids": list(covered),
-        }
+        document["selected_beat_ids"] = list(covered)
         with storage.transaction(self._connection):
             self._validate_scope(scopes, covered)
-            self._validate_candidate(candidate, covered_beat_ids=frozenset(covered))
+            self._validate_candidate(document, covered_beat_ids=frozenset(covered))
+            document["_scope"] = {
+                "scope_ids": list(scopes),
+                "covered_beat_ids": list(covered),
+            }
             return self._store_draft(run_id, generation, document, transactional=False)
 
     def _store_draft(
@@ -777,6 +808,51 @@ class StoryOrganizationService:
             )
             for row in rows
         )
+
+    def enrichments(
+        self,
+        *,
+        target_kind: Literal["arc", "event"] | None = None,
+        target_id: str | None = None,
+    ) -> tuple[StoryEnrichment, ...]:
+        """Return accepted provider enrichment without promoting it to graph authority."""
+
+        clauses: list[str] = []
+        parameters: list[object] = []
+        if target_kind is not None:
+            clauses.append("target_kind=?")
+            parameters.append(target_kind)
+        if target_id is not None:
+            clauses.append("target_id=?")
+            parameters.append(target_id)
+        where = "" if not clauses else "WHERE " + " AND ".join(clauses)
+        rows = self._connection.execute(
+            f"SELECT * FROM story_group_enrichment {where} "
+            "ORDER BY target_kind,target_id",
+            tuple(parameters),
+        ).fetchall()
+        return tuple(_enrichment_from_row(row) for row in rows)
+
+    def draft_enrichments(self, draft_id: str) -> tuple[StoryEnrichment, ...]:
+        """Expose validated candidate enrichment for review comparison before or after apply."""
+
+        row = self._connection.execute(
+            "SELECT candidate_json,candidate_hash FROM organization_drafts WHERE draft_id=?",
+            (draft_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"organization draft does not exist: {draft_id}")
+        payload = bytes(row["candidate_json"])
+        if storage.payload_digest(payload) != str(row["candidate_hash"]):
+            raise storage.ProjectCorruptError("organization draft checksum does not match")
+        candidate, _scope = _candidate_body_and_scope(
+            _mapping(storage.decode_json(payload), "draft")
+        )
+        values: list[StoryEnrichment] = []
+        for kind, collection in (("arc", "arcs"), ("event", "events")):
+            for group in _object_list(candidate.get(collection), collection):
+                values.append(_enrichment_from_group(kind, group))
+        return tuple(sorted(values, key=lambda item: (item.target_kind, item.target_id)))
 
     def edits(self, target_id: str | None = None) -> tuple[StoryEdit, ...]:
         clause = "" if target_id is None else "WHERE target_id=?"
@@ -1089,6 +1165,21 @@ class StoryOrganizationService:
                     "origin": _candidate_origin(arc.get("origin"))
                     if arc_approved
                     else "deterministic",
+                    **(
+                        {
+                            key: arc[key]
+                            for key in (
+                                "characters",
+                                "importance",
+                                "outcomes",
+                                "promoted_fact_ids",
+                                "warnings",
+                            )
+                            if key in arc
+                        }
+                        if arc_approved
+                        else {}
+                    ),
                 }
             )
             if arc_approved:
@@ -1160,14 +1251,18 @@ class StoryOrganizationService:
             invalid_scope = connection.execute(
                 """SELECT s.id FROM scoped_scope_ids s
                    LEFT JOIN presentation_nodes n ON n.node_id=s.id AND n.level IN (1,2)
-                   WHERE n.node_id IS NULL ORDER BY s.id LIMIT 1"""
+                   LEFT JOIN presentation_overrides override ON override.node_id=s.id
+                   WHERE n.node_id IS NULL OR COALESCE(override.hidden,0)=1
+                   ORDER BY s.id LIMIT 1"""
             ).fetchone()
             if invalid_scope is not None:
                 raise ValueError(f"unknown or non-container scope ID: {invalid_scope[0]}")
             invalid_beat = connection.execute(
                 """SELECT c.id FROM scoped_covered_beats c
                    LEFT JOIN presentation_nodes n ON n.node_id=c.id AND n.level=3
-                   WHERE n.node_id IS NULL ORDER BY c.id LIMIT 1"""
+                   LEFT JOIN presentation_overrides override ON override.node_id=c.id
+                   WHERE n.node_id IS NULL OR COALESCE(override.hidden,0)=1
+                   ORDER BY c.id LIMIT 1"""
             ).fetchone()
             if invalid_beat is not None:
                 raise ValueError(f"unknown covered Level-3 beat ID: {invalid_beat[0]}")
@@ -1185,7 +1280,8 @@ class StoryOrganizationService:
             missing = connection.execute(
                 """SELECT beat.node_id FROM presentation_nodes beat
                    LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
-                   WHERE beat.level=3 AND EXISTS (
+                   LEFT JOIN presentation_overrides override ON override.node_id=beat.node_id
+                   WHERE beat.level=3 AND COALESCE(override.hidden,0)=0 AND EXISTS (
                        SELECT 1 FROM scoped_scope_ids s
                        WHERE s.id=parent.node_id OR s.id=parent.parent_id
                    ) AND NOT EXISTS (
@@ -1251,7 +1347,14 @@ class StoryOrganizationService:
         event_order: dict[str, int] = {}
         previous_event_end = -1
         for event_index, event in enumerate(events):
-            _require_keys(event, {"id", "title", "summary", "beat_ids", "origin"}, "event")
+            _require_keys(
+                event,
+                {
+                    "id", "title", "summary", "beat_ids", "origin", "characters",
+                    "importance", "outcomes", "promoted_fact_ids", "warnings",
+                },
+                "event",
+            )
             _validate_text(event, "title", 80)
             _validate_text(event, "summary", 320)
             _candidate_origin(event.get("origin"))
@@ -1279,10 +1382,18 @@ class StoryOrganizationService:
             previous_event_end = positions[-1]
             event_order[cast(str, event["id"])] = event_index
             used_beats.update(beat_ids)
+            self._validate_enrichment(event, beat_ids)
         used_events: set[str] = set()
         previous_arc_end = -1
         for arc in arcs:
-            _require_keys(arc, {"id", "title", "summary", "event_ids", "origin"}, "arc")
+            _require_keys(
+                arc,
+                {
+                    "id", "title", "summary", "event_ids", "origin", "characters",
+                    "importance", "outcomes", "promoted_fact_ids", "warnings",
+                },
+                "arc",
+            )
             _validate_text(arc, "title", 80)
             _validate_text(arc, "summary", 320)
             _candidate_origin(arc.get("origin"))
@@ -1301,6 +1412,14 @@ class StoryOrganizationService:
                 raise ValueError("candidate arcs must be chronological and non-crossing")
             previous_arc_end = positions[-1]
             used_events.update(members)
+            arc_beats = [
+                beat
+                for event_id in members
+                for event in events
+                if event.get("id") == event_id
+                for beat in _string_list(event.get("beat_ids"), "event beat_ids")
+            ]
+            self._validate_enrichment(arc, arc_beats)
         if used_events != event_ids:
             raise ValueError("every candidate event must belong to exactly one arc")
         ungrouped = _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs")
@@ -1354,6 +1473,54 @@ class StoryOrganizationService:
             if not evidence or not set(evidence).issubset(evidence_ids):
                 raise ValueError("interpretive claims require existing evidence IDs")
 
+    def _validate_enrichment(
+        self, group: Mapping[str, object], member_beat_ids: Sequence[str]
+    ) -> None:
+        characters = _optional_unique_strings(group, "characters", maximum=80)
+        outcomes = _optional_unique_strings(group, "outcomes", maximum=320)
+        warnings = _optional_unique_strings(group, "warnings", maximum=320)
+        del outcomes, warnings
+        importance = group.get("importance", "supporting")
+        if importance not in {"supporting", "major", "turning point"}:
+            raise ValueError("importance is not an allowed value")
+        promoted = _optional_unique_strings(group, "promoted_fact_ids", maximum=200)
+        beat_ids = set(member_beat_ids)
+        supported_characters: set[str] = set()
+        for row in self._connection.execute(
+            "SELECT node_id,payload_json FROM presentation_nodes WHERE level=3"
+        ):
+            if str(row["node_id"]) not in beat_ids:
+                continue
+            payload = storage.decode_json(row["payload_json"])
+            if isinstance(payload, dict):
+                if isinstance(payload.get("speaker"), str):
+                    supported_characters.add(str(payload["speaker"]))
+                content = payload.get("content")
+                if isinstance(content, list):
+                    supported_characters.update(
+                        str(item["speaker"])
+                        for item in content
+                        if isinstance(item, dict) and isinstance(item.get("speaker"), str)
+                    )
+        unsupported = set(characters) - supported_characters
+        if unsupported:
+            raise ValueError(f"characters lack existing beat evidence: {sorted(unsupported)!r}")
+        if promoted:
+            fact_rows = self._connection.execute(
+                "SELECT fact_id,node_id FROM presentation_facts"
+            ).fetchall()
+            supported_facts = {
+                str(row["fact_id"])
+                for row in fact_rows
+                if row["node_id"] is not None and str(row["node_id"]) in beat_ids
+            }
+            invented = set(promoted) - supported_facts
+            if invented:
+                raise ValueError(
+                    "promoted fact IDs must be existing facts attached to group beats: "
+                    f"{sorted(invented)!r}"
+                )
+
     def _apply_scoped_candidate(
         self, candidate: Mapping[str, object], generation: str, covered_beat_ids: Sequence[str]
     ) -> None:
@@ -1395,6 +1562,42 @@ class StoryOrganizationService:
                    WHERE beat_id IN (SELECT id FROM scoped_apply_beats)
                      AND event_id IN (SELECT id FROM scoped_affected_events)"""
             )
+            residual_events = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT affected.id FROM scoped_affected_events affected
+                       WHERE EXISTS (
+                           SELECT 1 FROM story_event_members members
+                           WHERE members.event_id=affected.id
+                       ) ORDER BY affected.id"""
+                )
+            )
+            for event_id in residual_events:
+                # Once a selected slice has been removed, the former interpretation no longer
+                # describes the remaining evidence. Keep the uncovered beats, but downgrade the
+                # residual to an explicit technical boundary fallback and retain stale history for
+                # review instead of silently presenting it as accepted AI organization.
+                self._replace_members(event_id, self._member_ids(event_id))
+                connection.execute(
+                    """UPDATE story_events SET
+                           title='Technical boundary event',
+                           summary='Deterministic organization retained outside selected scope.',
+                           origin='deterministic',needs_review=1,updated_utc=?
+                       WHERE event_id=?""",
+                    (storage.utc_now(), event_id),
+                )
+                connection.execute(
+                    "UPDATE story_claims SET status='needs_review' WHERE event_id=?", (event_id,)
+                )
+                connection.execute(
+                    """UPDATE story_edits SET status='needs_review'
+                       WHERE target_kind='event' AND target_id=?""",
+                    (event_id,),
+                )
+                connection.execute(
+                    "DELETE FROM story_group_enrichment WHERE target_kind='event' AND target_id=?",
+                    (event_id,),
+                )
             connection.execute(
                 """DELETE FROM story_events WHERE event_id IN (
                        SELECT id FROM scoped_affected_events
@@ -1473,7 +1676,10 @@ class StoryOrganizationService:
                     ),
                 )
                 self._replace_members(event_id, beats)
+                self._replace_enrichment("event", event_id, event)
                 event_id_map[original_id] = event_id
+                if event_id == original_id:
+                    self._reapply_simple_edits("event", event_id)
 
             arc_id_map: dict[str, str] = {}
             for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
@@ -1513,6 +1719,9 @@ class StoryOrganizationService:
                     "INSERT INTO story_arc_members VALUES (?,?,?)",
                     ((arc_id, event_id, ordinal) for ordinal, event_id in enumerate(member_ids)),
                 )
+                self._replace_enrichment("arc", arc_id, arc)
+                if arc_id == original_id:
+                    self._reapply_simple_edits("arc", arc_id)
 
             for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
                 original_event = claim.get("event_id")
@@ -1551,10 +1760,110 @@ class StoryOrganizationService:
                         for evidence_id in _string_list(claim["evidence_ids"], "evidence IDs")
                     ),
                 )
+            connection.execute(
+                """UPDATE story_edits SET status='needs_review'
+                   WHERE target_kind='event'
+                     AND target_id IN (SELECT id FROM scoped_affected_events)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM story_events event
+                         WHERE event.event_id=story_edits.target_id
+                     )"""
+            )
+            connection.execute(
+                """UPDATE story_edits SET status='needs_review'
+                   WHERE target_kind='arc'
+                     AND target_id IN (SELECT id FROM scoped_affected_arcs)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM story_arcs arc
+                         WHERE arc.arc_id=story_edits.target_id
+                    )"""
+            )
+            self._prune_enrichments()
         finally:
             connection.execute("DROP TABLE IF EXISTS scoped_affected_arcs")
             connection.execute("DROP TABLE IF EXISTS scoped_affected_events")
             connection.execute("DROP TABLE IF EXISTS scoped_apply_beats")
+
+    def _reapply_simple_edits(
+        self, target_kind: Literal["arc", "event"], target_id: str
+    ) -> None:
+        """Reapply durable scalar edits when a stable candidate target returns unchanged."""
+
+        table, key = _target_table(target_kind)
+        rows = self._connection.execute(
+            """SELECT edit_id,operation,payload_json FROM story_edits
+               WHERE target_kind=? AND target_id=? AND status='applied'
+               ORDER BY created_utc,edit_id""",
+            (target_kind, target_id),
+        ).fetchall()
+        now = storage.utc_now()
+        for row in rows:
+            operation = str(row["operation"])
+            payload = _mapping(storage.decode_json(row["payload_json"]), "edit payload")
+            if operation == "rename" and isinstance(payload.get("title"), str):
+                self._connection.execute(
+                    f"UPDATE {table} SET title=?,pinned=1,updated_utc=? WHERE {key}=?",
+                    (payload["title"], now, target_id),
+                )
+            elif operation in {"hide", "pin"} and isinstance(
+                payload.get("hidden" if operation == "hide" else "pinned"), bool
+            ):
+                column = "hidden" if operation == "hide" else "pinned"
+                self._connection.execute(
+                    f"UPDATE {table} SET {column}=?,updated_utc=? WHERE {key}=?",
+                    (int(cast(bool, payload[column])), now, target_id),
+                )
+            elif operation in {"approve", "reject"} and payload.get("state") in {
+                "pending",
+                "approved",
+                "rejected",
+            }:
+                self._connection.execute(
+                    f"UPDATE {table} SET approval_state=?,updated_utc=? WHERE {key}=?",
+                    (payload["state"], now, target_id),
+                )
+            elif operation in {"split", "merge", "move"}:
+                self._connection.execute(
+                    "UPDATE story_edits SET status='needs_review' WHERE edit_id=?",
+                    (str(row["edit_id"]),),
+                )
+
+    def _replace_enrichment(
+        self,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        group: Mapping[str, object],
+    ) -> None:
+        value = _enrichment_from_group(target_kind, {**group, "id": target_id})
+        self._connection.execute(
+            """INSERT INTO story_group_enrichment VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(target_kind,target_id) DO UPDATE SET
+                   characters_json=excluded.characters_json,
+                   importance=excluded.importance,
+                   outcomes_json=excluded.outcomes_json,
+                   promoted_fact_ids_json=excluded.promoted_fact_ids_json,
+                   warnings_json=excluded.warnings_json""",
+            (
+                value.target_kind,
+                value.target_id,
+                storage.canonical_json(list(value.characters)),
+                value.importance,
+                storage.canonical_json(list(value.outcomes)),
+                storage.canonical_json(list(value.promoted_fact_ids)),
+                storage.canonical_json(list(value.warnings)),
+            ),
+        )
+
+    def _prune_enrichments(self) -> None:
+        self._connection.execute(
+            """DELETE FROM story_group_enrichment
+               WHERE (target_kind='event' AND NOT EXISTS (
+                         SELECT 1 FROM story_events WHERE event_id=target_id
+                     ))
+                  OR (target_kind='arc' AND NOT EXISTS (
+                         SELECT 1 FROM story_arcs WHERE arc_id=target_id
+                     ))"""
+        )
 
     def _apply_candidate(self, candidate: Mapping[str, object], generation: str) -> None:
         explicitly_pinned_arcs = {
@@ -1668,6 +1977,7 @@ class StoryOrganizationService:
                 ),
             )
             self._replace_members(event_id, beats)
+            self._replace_enrichment("event", event_id, event)
             inserted_events.add(event_id)
         inserted_arcs: set[str] = set()
         for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
@@ -1713,6 +2023,7 @@ class StoryOrganizationService:
                     (arc_id, event_id, next_order),
                 )
                 next_order += 1
+            self._replace_enrichment("arc", arc_id, arc)
         for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
             claim_event_id = claim.get("event_id")
             claim_arc_id = claim.get("arc_id")
@@ -1754,6 +2065,7 @@ class StoryOrganizationService:
                     for evidence_id in _string_list(claim["evidence_ids"], "evidence_ids")
                 ),
             )
+        self._prune_enrichments()
 
     def _derive_event_edges(self) -> None:
         self._connection.execute("DELETE FROM story_event_edges")
@@ -1972,6 +2284,56 @@ def _candidate_origin(value: object) -> str:
         allowed = ", ".join(sorted(_SUPPORTED_ORIGINS))
         raise ValueError(f"origin must be one of: {allowed}")
     return origin
+
+
+def _optional_unique_strings(
+    value: Mapping[str, object], key: str, *, maximum: int
+) -> tuple[str, ...]:
+    raw = value.get(key, [])
+    strings = _string_list(raw, key)
+    if len(set(strings)) != len(strings):
+        raise ValueError(f"{key} cannot contain duplicates")
+    if any(len(item) > maximum or not item.strip() for item in strings):
+        raise ValueError(f"{key} entries must contain 1-{maximum} characters")
+    return tuple(strings)
+
+
+def _enrichment_from_group(target_kind: str, group: Mapping[str, object]) -> StoryEnrichment:
+    identifier = group.get("id")
+    if not isinstance(identifier, str):
+        raise ValueError("enrichment target requires an ID")
+    importance = group.get("importance", "supporting")
+    if not isinstance(importance, str):
+        raise ValueError("importance must be a string")
+    return StoryEnrichment(
+        target_kind,
+        identifier,
+        _optional_unique_strings(group, "characters", maximum=80),
+        importance,
+        _optional_unique_strings(group, "outcomes", maximum=320),
+        _optional_unique_strings(group, "promoted_fact_ids", maximum=200),
+        _optional_unique_strings(group, "warnings", maximum=320),
+    )
+
+
+def _enrichment_from_row(row: sqlite3.Row) -> StoryEnrichment:
+    def strings(column: str) -> tuple[str, ...]:
+        value = storage.decode_json(row[column])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise storage.ProjectCorruptError(
+                f"story enrichment {column} must be a JSON string array"
+            )
+        return tuple(value)
+
+    return StoryEnrichment(
+        str(row["target_kind"]),
+        str(row["target_id"]),
+        strings("characters_json"),
+        str(row["importance"]),
+        strings("outcomes_json"),
+        strings("promoted_fact_ids_json"),
+        strings("warnings_json"),
+    )
 
 
 def _require_keys(value: Mapping[str, object], allowed: set[str], name: str) -> None:
