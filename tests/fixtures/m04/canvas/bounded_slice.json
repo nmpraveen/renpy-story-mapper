@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    {"id": "arc", "kind": "container", "title": "Prologue", "levels": [1, 2, 3]},
+    {"id": "choice", "kind": "choice", "title": "Offer help", "levels": [2, 3]},
+    {"id": "gate", "kind": "gate", "title": "Wits check", "levels": [2, 3]},
+    {"id": "evidence", "kind": "story", "title": "Exact dialogue", "levels": [3]}
+  ],
+  "edges": [
+    {"source": "arc", "target": "choice", "kind": "flow"},
+    {"source": "choice", "target": "gate", "kind": "flow"},
+    {"source": "gate", "target": "evidence", "kind": "flow"}
+  ]
+}
