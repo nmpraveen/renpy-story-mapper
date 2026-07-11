@@ -34,6 +34,7 @@ class PresentationLevel(IntEnum):
 class PresentationRequest:
     level: PresentationLevel
     parent_ids: tuple[str, ...] = ()
+    focus_ids: tuple[str, ...] = ()
     expanded_ids: tuple[str, ...] = ()
     collapsed_ids: tuple[str, ...] = ()
     after: str | None = None
@@ -175,6 +176,7 @@ class PresentationService:
         node_limit = _bounded_limit(request.node_limit, MAX_NODES)
         edge_limit = _bounded_limit(request.edge_limit, MAX_EDGES)
         parents = tuple(sorted(set(request.parent_ids or request.expanded_ids)))
+        focuses = tuple(sorted(set(request.focus_ids)))
         collapsed = set(request.collapsed_ids)
         if parents:
             parents = tuple(item for item in parents if item not in collapsed)
@@ -183,7 +185,11 @@ class PresentationService:
         parameters: list[object] = [int(request.level)]
         if not request.include_technical:
             clauses.append("n.technical = 0")
-        if parents:
+        if focuses:
+            placeholders = ",".join("?" for _ in focuses)
+            clauses.append(f"n.node_id IN ({placeholders})")
+            parameters.extend(focuses)
+        elif parents:
             placeholders = ",".join("?" for _ in parents)
             clauses.append(f"n.parent_id IN ({placeholders})")
             parameters.extend(parents)

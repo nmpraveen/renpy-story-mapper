@@ -286,6 +286,7 @@ class StoryMapPresenter(QObject):
         request = PresentationRequest(
             PresentationLevel(int(level)),
             parent_ids=parent_ids,
+            focus_ids=(self._focus_after_render,) if self._focus_after_render is not None else (),
             node_limit=80,
             edge_limit=120,
             include_technical=self._include_technical,

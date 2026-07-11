@@ -485,3 +485,36 @@ def test_choice_outcome_walk_uses_source_edge_and_fact_point_lookups(
             "SEARCH f USING INDEX presentation_facts_node_idx (node_id=?)" in detail
             for detail in details
         ), details
+
+
+def test_search_focus_can_render_an_overview_result_beyond_the_first_page(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    source = tmp_path / "game"
+    source.mkdir()
+    source.joinpath("many_labels.rpy").write_text(
+        "\n".join(
+            ("label start:" if index == 0 else f"label label_{index:03}:")
+            + f'\n    "Story {index}"\n    return'
+            for index in range(100)
+        ),
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "many.rsmproj"
+    create_project(project_path, source).close()
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.controller.open_project(project_path)
+    _wait_for_map(qtbot, window)
+    assert "label_095" not in {node.title for node in _nodes(window)}
+
+    window.search_input.setText("label_095")
+    qtbot.keyClick(window.search_input, Qt.Key.Key_Return)
+    qtbot.waitUntil(
+        lambda: not window.map_presenter.is_busy
+        and {node.title for node in _nodes(window)} == {"label_095"},
+        timeout=5000,
+    )
+    focused = _nodes(window)[0]
+    assert window.graph_canvas.selected_node_id == focused.id
+    assert focused.expandable
