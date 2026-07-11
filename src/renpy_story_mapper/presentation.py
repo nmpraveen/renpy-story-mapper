@@ -499,6 +499,10 @@ def rebuild_presentation_index(
 
     connection = project._require_open()
     _cancel(cancelled)
+    connection.execute(
+        """CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx
+        ON presentation_nodes(level, source_path, start_line, end_line, sort_key)"""
+    )
     generation = _presentation_generation(connection)
     statements = _index_statements()
     with storage.transaction(connection):
@@ -636,26 +640,30 @@ def _index_statements() -> tuple[str, ...]:
 
 
 def _facts_insert_sql(collection: str, kind: str) -> str:
-    return f"""INSERT INTO presentation_facts
+    return f"""WITH registry(original_name, category) AS MATERIALIZED (
+      SELECT json_extract(v.value,'$.original_name'), json_extract(v.value,'$.category')
+      FROM payloads p2, json_each(CAST(p2.payload_json AS TEXT)) v
+      WHERE p2.collection='state_registry' AND p2.record_key='authoritative'
+    )
+    INSERT INTO presentation_facts
     SELECT json_extract(j.value,'$.id'),
            (SELECT n.node_id FROM presentation_nodes n
             WHERE n.level=3 AND n.source_path=json_extract(j.value,'$.evidence.source_path')
-              AND json_extract(j.value,'$.evidence.start_line') BETWEEN n.start_line AND n.end_line
-            ORDER BY (n.end_line-n.start_line),n.sort_key LIMIT 1),
+              AND n.start_line<=json_extract(j.value,'$.evidence.start_line')
+              AND n.end_line>=json_extract(j.value,'$.evidence.start_line')
+            ORDER BY n.start_line DESC,n.end_line,n.sort_key LIMIT 1),
            '{kind}', COALESCE(json_extract(j.value,'$.variable'),json_extract(j.value,'$.variables[0]')),
-           (SELECT json_extract(v.value,'$.category') FROM payloads p2,
-                   json_each(CAST(p2.payload_json AS TEXT)) v
-            WHERE p2.collection='state_registry' AND p2.record_key='authoritative'
-              AND json_extract(v.value,'$.original_name')=
-                  COALESCE(json_extract(j.value,'$.variable'),json_extract(j.value,'$.variables[0]'))
-            LIMIT 1),
+           r.category,
            json_extract(j.value,'$.status'), json_extract(j.value,'$.original_expression'),
            json_extract(j.value,'$.evidence.source_path'),json_extract(j.value,'$.evidence.start_line'),
            json_extract(j.value,'$.evidence.end_line'),
            json_extract(j.value,'$.evidence.source_path') || ':' ||
              printf('%09d',json_extract(j.value,'$.evidence.start_line')) || ':' || json_extract(j.value,'$.id'),
            CAST(j.value AS BLOB)
-    FROM payloads p,json_each(CAST(p.payload_json AS TEXT)) j WHERE p.collection='{collection}'"""
+    FROM payloads p,json_each(CAST(p.payload_json AS TEXT)) j
+    LEFT JOIN registry r ON r.original_name=
+      COALESCE(json_extract(j.value,'$.variable'),json_extract(j.value,'$.variables[0]'))
+    WHERE p.collection='{collection}'"""
 
 
 def _node_from_row(row: sqlite3.Row) -> PresentationNode:

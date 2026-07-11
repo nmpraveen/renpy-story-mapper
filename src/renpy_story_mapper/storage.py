@@ -650,6 +650,8 @@ def _migrate_to_v3(connection: sqlite3.Connection) -> None:
         """,
         "CREATE INDEX IF NOT EXISTS presentation_nodes_parent_idx "
         "ON presentation_nodes(level, parent_id, sort_key, node_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx "
+        "ON presentation_nodes(level, source_path, start_line, end_line, sort_key)",
         "CREATE INDEX IF NOT EXISTS presentation_edges_level_idx "
         "ON presentation_edges(level, sort_key, edge_id)",
         "CREATE INDEX IF NOT EXISTS presentation_evidence_node_idx "
