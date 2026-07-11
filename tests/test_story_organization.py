@@ -87,6 +87,36 @@ def _candidate(project: Project, *, suffix: str = "") -> dict[str, object]:
     }
 
 
+def _scoped_candidate(
+    project: Project, event_indexes: tuple[int, ...], *, suffix: str
+) -> dict[str, object]:
+    candidate = _candidate(project, suffix=suffix)
+    events = candidate["events"]
+    assert isinstance(events, list)
+    selected_events = [events[index] for index in event_indexes]
+    selected_event_ids = {str(event["id"]) for event in selected_events}
+    arcs = candidate["arcs"]
+    assert isinstance(arcs, list)
+    selected_arcs: list[dict[str, object]] = []
+    for arc in arcs:
+        assert isinstance(arc, dict) and isinstance(arc["event_ids"], list)
+        members = [value for value in arc["event_ids"] if value in selected_event_ids]
+        if members:
+            selected_arcs.append({**arc, "event_ids": members})
+    claims = candidate["claims"]
+    assert isinstance(claims, list)
+    return {
+        "events": selected_events,
+        "arcs": selected_arcs,
+        "claims": [claim for claim in claims if claim.get("event_id") in selected_event_ids],
+        "selected_beat_ids": [
+            beat
+            for event in selected_events
+            for beat in event["beat_ids"]  # type: ignore[union-attr]
+        ],
+    }
+
+
 def _review_all(
     service: StoryOrganizationService,
     draft_id: str,
@@ -115,7 +145,29 @@ def _run_and_draft(
         generation="generation-1",
     )
     service.finish_run(run_id, "completed", elapsed_ms=5, usage={"input": 10})
-    draft_id = service.create_draft(run_id, "generation-1", candidate)
+    selected = candidate.get("selected_beat_ids")
+    if isinstance(selected, list):
+        body = {key: value for key, value in candidate.items() if key != "selected_beat_ids"}
+        placeholders = ",".join("?" for _ in selected)
+        scope_ids = [
+            str(row[0])
+            for row in service._connection.execute(
+                f"""SELECT DISTINCT scene.node_id FROM presentation_nodes beat
+                JOIN presentation_nodes event ON event.node_id=beat.parent_id
+                JOIN presentation_nodes scene ON scene.node_id=event.parent_id
+                WHERE beat.node_id IN ({placeholders}) ORDER BY scene.sort_key,scene.node_id""",
+                selected,
+            )
+        ]
+        draft_id = service.create_scoped_draft(
+            run_id,
+            "generation-1",
+            body,
+            scope_ids=scope_ids,
+            covered_beat_ids=selected,
+        )
+    else:
+        draft_id = service.create_draft(run_id, "generation-1", candidate)
     if review:
         _review_all(service, draft_id, candidate)
     return draft_id
@@ -402,6 +454,129 @@ def test_candidate_requires_complete_non_crossing_chronological_coverage(
             event.beat_ids == (required_beat,) and event.origin == "deterministic"
             for event in service.events(include_hidden=True)
         )
+
+
+def test_partial_scope_apply_preserves_outside_groups_claims_edits_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_approval("event", "event-a", "approved")
+        preserved_event = next(event for event in service.events() if event.id == "event-a")
+        preserved_claim = service.claims(event_id="event-a")[0]
+        preserved_edit = service.edits("event-a")[0]
+
+        replacement = _scoped_candidate(project, (1,), suffix="-scope-b")
+        service.apply_draft(_run_and_draft(service, replacement))
+        ids = {event.id for event in service.events(include_hidden=True)}
+        assert ids == {"event-a", "event-b-scope-b", "event-c"}
+        assert next(event for event in service.events() if event.id == "event-a") == preserved_event
+        assert service.claims(event_id="event-a")[0] == preserved_claim
+        assert service.edits("event-a")[0] == preserved_edit
+
+        service.apply_draft(_run_and_draft(service, replacement))
+        assert {event.id for event in service.events(include_hidden=True)} == ids
+        assert len([event for event in service.events() if event.id == "event-b-scope-b"]) == 1
+
+
+def test_sequential_partial_scopes_retain_prior_scope_and_do_not_create_global_fallbacks(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        scope_a = _scoped_candidate(project, (0,), suffix="-scope-a")
+        scope_b = _scoped_candidate(project, (1,), suffix="-scope-b")
+        service.apply_draft(_run_and_draft(service, scope_a))
+        assert {event.id for event in service.events()} == {"event-a-scope-a"}
+        service.apply_draft(_run_and_draft(service, scope_b))
+        assert {event.id for event in service.events()} == {
+            "event-a-scope-a",
+            "event-b-scope-b",
+        }
+        assert all(event.origin != "deterministic" for event in service.events())
+
+
+def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersection(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        incomplete = _scoped_candidate(project, (0,), suffix="-incomplete")
+        selected = incomplete["selected_beat_ids"]
+        events = incomplete["events"]
+        assert isinstance(selected, list) and isinstance(events, list)
+        assert isinstance(events[0], dict) and isinstance(events[0]["beat_ids"], list)
+        missing = events[0]["beat_ids"].pop()
+        assert missing in selected
+        with pytest.raises(ValueError, match="required story beats"):
+            _run_and_draft(service, incomplete, review=False)
+
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("event", "event-a", True)
+        pinned = next(event for event in service.events() if event.id == "event-a")
+        scoped = _scoped_candidate(project, (0, 1), suffix="-overlap")
+        service.apply_draft(_run_and_draft(service, scoped))
+        assert next(event for event in service.events() if event.id == "event-a") == pinned
+        overlap = next(event for event in service.events() if event.id == "event-b-overlap")
+        assert set(overlap.beat_ids).isdisjoint(pinned.beat_ids)
+
+
+def test_partial_boundary_intersection_trims_unpinned_group_without_losing_outside_edits(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        original = next(event for event in service.events() if event.id == "event-a")
+        service.set_approval("event", original.id, "approved")
+        selected = original.beat_ids[1]
+        candidate = {
+            "events": [{
+                "id": "event-middle",
+                "title": "Middle",
+                "summary": "The selected middle beat.",
+                "beat_ids": [selected],
+            }],
+            "arcs": [{
+                "id": "arc-middle",
+                "title": "Middle",
+                "summary": "The selected middle arc.",
+                "event_ids": ["event-middle"],
+            }],
+            "claims": [],
+            "selected_beat_ids": [selected],
+        }
+        service.apply_draft(_run_and_draft(service, candidate))
+        trimmed = next(event for event in service.events() if event.id == original.id)
+        assert trimmed.beat_ids == (original.beat_ids[0], original.beat_ids[2])
+        assert service.edits(original.id)
+        assert next(event for event in service.events() if event.id == "event-middle").beat_ids == (
+            selected,
+        )
+
+
+def test_partial_apply_failure_rolls_back_scope_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        before_arcs = service.arcs(include_hidden=True)
+        before_events = service.events(include_hidden=True)
+        draft = _run_and_draft(
+            service, _scoped_candidate(project, (1,), suffix="-atomic-failure")
+        )
+
+        def fail_edges() -> None:
+            raise RuntimeError("scoped edge derivation failed")
+
+        monkeypatch.setattr(service, "_derive_event_edges", fail_edges)
+        with pytest.raises(RuntimeError, match="scoped edge derivation failed"):
+            service.apply_draft(draft)
+        assert service.arcs(include_hidden=True) == before_arcs
+        assert service.events(include_hidden=True) == before_events
+        assert service.drafts(status="pending")[-1].id == draft
 
 
 def test_quotient_edges_and_m03_facts_are_derived_locally(tmp_path: Path) -> None:

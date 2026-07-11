@@ -437,10 +437,63 @@ class StoryOrganizationService:
         return tuple(result)
 
     def create_draft(self, run_id: str, generation: str, candidate: Mapping[str, object]) -> str:
+        if "_scope" in candidate:
+            raise ValueError("scope metadata is managed by create_scoped_draft")
+        return self._store_draft(run_id, generation, candidate)
+
+    def create_scoped_draft(
+        self,
+        run_id: str,
+        generation: str,
+        candidate: Mapping[str, object],
+        *,
+        scope_ids: Sequence[str],
+        covered_beat_ids: Sequence[str],
+    ) -> str:
+        """Create a draft for the exact Level-3 descendants of Level-1/2 scope containers.
+
+        Coverage deliberately includes technical and visible Level-3 nodes alike so collapsed
+        transitions cannot be lost at a selected-scope boundary.
+        """
+
+        if "_scope" in candidate:
+            raise ValueError("scope metadata is managed by create_scoped_draft")
+        scopes = _unique_string_sequence(scope_ids, "scope_ids")
+        covered = _unique_string_sequence(covered_beat_ids, "covered_beat_ids")
+        if not scopes or not covered:
+            raise ValueError("scoped drafts require non-empty scope and covered beat IDs")
+        declared = candidate.get("selected_beat_ids")
+        if declared is not None:
+            declared_ids = _unique_string_sequence(
+                _string_list(declared, "selected beat IDs"), "selected beat IDs"
+            )
+            if frozenset(declared_ids) != frozenset(covered):
+                raise ValueError("selected_beat_ids must exactly match covered_beat_ids")
+        document = dict(candidate)
+        document["_scope"] = {
+            "scope_ids": list(scopes),
+            "covered_beat_ids": list(covered),
+        }
+        with storage.transaction(self._connection):
+            self._validate_scope(scopes, covered)
+            self._validate_candidate(candidate, covered_beat_ids=frozenset(covered))
+            return self._store_draft(run_id, generation, document, transactional=False)
+
+    def _store_draft(
+        self,
+        run_id: str,
+        generation: str,
+        candidate: Mapping[str, object],
+        *,
+        transactional: bool = True,
+    ) -> str:
         payload = storage.canonical_json(dict(candidate))
         identifier = _stable_id("draft", run_id, storage.payload_digest(payload))
-        with storage.transaction(self._connection):
-            self._validate_candidate(candidate)
+
+        def write() -> None:
+            body, _scope = _candidate_body_and_scope(candidate)
+            if _scope is None:
+                self._validate_candidate(body)
             self._connection.execute(
                 """INSERT INTO organization_drafts(
                     draft_id,run_id,generation,status,candidate_json,candidate_hash,created_utc
@@ -454,6 +507,11 @@ class StoryOrganizationService:
                     storage.utc_now(),
                 ),
             )
+        if transactional:
+            with storage.transaction(self._connection):
+                write()
+        else:
+            write()
         return identifier
 
     def discard_draft(self, draft_id: str) -> None:
@@ -549,8 +607,12 @@ class StoryOrganizationService:
             payload = bytes(row["candidate_json"])
             if storage.payload_digest(payload) != str(row["candidate_hash"]):
                 raise storage.ProjectCorruptError("organization draft checksum does not match")
-            candidate = _mapping(storage.decode_json(payload), "draft")
-            self._validate_candidate(candidate)
+            stored = _mapping(storage.decode_json(payload), "draft")
+            candidate, scope = _candidate_body_and_scope(stored)
+            covered = None if scope is None else frozenset(scope[1])
+            if scope is not None:
+                self._validate_scope(scope[0], scope[1])
+            self._validate_candidate(candidate, covered_beat_ids=covered)
             reviews = {
                 (str(review["target_kind"]), str(review["target_id"])): str(review["decision"])
                 for review in self._connection.execute(
@@ -560,7 +622,10 @@ class StoryOrganizationService:
                 )
             }
             reviewed = self._reviewed_candidate(candidate, reviews)
-            self._apply_candidate(reviewed, str(row["generation"]))
+            if scope is None:
+                self._apply_candidate(reviewed, str(row["generation"]))
+            else:
+                self._apply_scoped_candidate(reviewed, str(row["generation"]), scope[1])
             self._derive_event_edges()
             self._connection.execute(
                 "UPDATE organization_drafts SET status='applied',resolved_utc=? WHERE draft_id=?",
@@ -1066,10 +1131,94 @@ class StoryOrganizationService:
             "arcs": accepted_arcs,
             "claims": accepted_claims,
             "ungrouped_beat_ids": [],
+            **(
+                {"selected_beat_ids": candidate["selected_beat_ids"]}
+                if "selected_beat_ids" in candidate
+                else {}
+            ),
         }
 
-    def _validate_candidate(self, candidate: Mapping[str, object]) -> None:
-        _require_keys(candidate, {"arcs", "events", "claims", "ungrouped_beat_ids"}, "draft")
+    def _validate_scope(self, scope_ids: Sequence[str], covered_beat_ids: Sequence[str]) -> None:
+        connection = self._connection
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_scope_ids(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_covered_beats"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        try:
+            connection.execute("DELETE FROM scoped_scope_ids")
+            connection.execute("DELETE FROM scoped_covered_beats")
+            connection.executemany(
+                "INSERT INTO scoped_scope_ids(id) VALUES (?)", ((value,) for value in scope_ids)
+            )
+            connection.executemany(
+                "INSERT INTO scoped_covered_beats(id) VALUES (?)",
+                ((value,) for value in covered_beat_ids),
+            )
+            invalid_scope = connection.execute(
+                """SELECT s.id FROM scoped_scope_ids s
+                   LEFT JOIN presentation_nodes n ON n.node_id=s.id AND n.level IN (1,2)
+                   WHERE n.node_id IS NULL ORDER BY s.id LIMIT 1"""
+            ).fetchone()
+            if invalid_scope is not None:
+                raise ValueError(f"unknown or non-container scope ID: {invalid_scope[0]}")
+            invalid_beat = connection.execute(
+                """SELECT c.id FROM scoped_covered_beats c
+                   LEFT JOIN presentation_nodes n ON n.node_id=c.id AND n.level=3
+                   WHERE n.node_id IS NULL ORDER BY c.id LIMIT 1"""
+            ).fetchone()
+            if invalid_beat is not None:
+                raise ValueError(f"unknown covered Level-3 beat ID: {invalid_beat[0]}")
+            outside = connection.execute(
+                """SELECT c.id FROM scoped_covered_beats c
+                   JOIN presentation_nodes beat ON beat.node_id=c.id
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM scoped_scope_ids s
+                       WHERE s.id=beat.node_id OR s.id=parent.node_id OR s.id=parent.parent_id
+                   ) ORDER BY c.id LIMIT 1"""
+            ).fetchone()
+            if outside is not None:
+                raise ValueError(f"covered beat is outside the selected scopes: {outside[0]}")
+            missing = connection.execute(
+                """SELECT beat.node_id FROM presentation_nodes beat
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   WHERE beat.level=3 AND EXISTS (
+                       SELECT 1 FROM scoped_scope_ids s
+                       WHERE s.id=parent.node_id OR s.id=parent.parent_id
+                   ) AND NOT EXISTS (
+                       SELECT 1 FROM scoped_covered_beats c WHERE c.id=beat.node_id
+                   ) ORDER BY beat.sort_key,beat.node_id LIMIT 1"""
+            ).fetchone()
+            if missing is not None:
+                raise ValueError(f"covered_beat_ids omit a scoped Level-3 beat: {missing[0]}")
+            empty_scope = connection.execute(
+                """SELECT s.id FROM scoped_scope_ids s WHERE NOT EXISTS (
+                       SELECT 1 FROM scoped_covered_beats c
+                       JOIN presentation_nodes beat ON beat.node_id=c.id
+                       LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                       WHERE s.id=beat.node_id OR s.id=parent.node_id OR s.id=parent.parent_id
+                   ) ORDER BY s.id LIMIT 1"""
+            ).fetchone()
+            if empty_scope is not None:
+                raise ValueError(f"scope has no covered beats: {empty_scope[0]}")
+        finally:
+            connection.execute("DROP TABLE IF EXISTS scoped_covered_beats")
+            connection.execute("DROP TABLE IF EXISTS scoped_scope_ids")
+
+    def _validate_candidate(
+        self,
+        candidate: Mapping[str, object],
+        *,
+        covered_beat_ids: frozenset[str] | None = None,
+    ) -> None:
+        _require_keys(
+            candidate,
+            {"arcs", "events", "claims", "ungrouped_beat_ids", "selected_beat_ids"},
+            "draft",
+        )
         arcs = _object_list(candidate.get("arcs"), "arcs")
         events = _object_list(candidate.get("events"), "events")
         event_ids = _unique_ids(events, "events")
@@ -1079,9 +1228,25 @@ class StoryOrganizationService:
             "ORDER BY sort_key,node_id"
         ).fetchall()
         known_beats = {str(row["node_id"]): index for index, row in enumerate(beat_rows)}
-        required_beats = {
+        all_required_beats = {
             str(row["node_id"]) for row in beat_rows if str(row["kind"]) in _REQUIRED_STORY_KINDS
         }
+        declared_scope = candidate.get("selected_beat_ids")
+        if declared_scope is None:
+            selected_beats = set(known_beats)
+        else:
+            selected_values = _string_list(declared_scope, "selected beat IDs")
+            if len(set(selected_values)) != len(selected_values):
+                raise ValueError("selected beat IDs cannot contain duplicates")
+            selected_beats = set(selected_values)
+            unknown_selected = selected_beats - known_beats.keys()
+            if unknown_selected:
+                raise ValueError(
+                    f"selected scope references unknown beat IDs: {sorted(unknown_selected)!r}"
+                )
+            if not selected_beats:
+                raise ValueError("selected beat IDs cannot be empty")
+        required_beats = all_required_beats.intersection(selected_beats)
         used_beats: set[str] = set()
         event_order: dict[str, int] = {}
         previous_event_end = -1
@@ -1098,6 +1263,12 @@ class StoryOrganizationService:
             unknown = set(beat_ids) - known_beats.keys()
             if unknown:
                 raise ValueError(f"story event references unknown beat IDs: {sorted(unknown)!r}")
+            outside_scope = set(beat_ids) - selected_beats
+            if declared_scope is not None and outside_scope:
+                raise ValueError(
+                    "story event references beats outside selected scope: "
+                    f"{sorted(outside_scope)!r}"
+                )
             if used_beats.intersection(beat_ids):
                 raise ValueError("a deterministic beat cannot belong to multiple events")
             positions = [known_beats[item] for item in beat_ids]
@@ -1137,8 +1308,18 @@ class StoryOrganizationService:
             raise ValueError("ungrouped beat IDs cannot contain duplicates")
         if not set(ungrouped).issubset(known_beats):
             raise ValueError("ungrouped IDs must reference existing deterministic beats")
+        if declared_scope is not None and not set(ungrouped).issubset(selected_beats):
+            raise ValueError("ungrouped IDs must remain within the selected scope")
         if used_beats.intersection(ungrouped):
             raise ValueError("a beat cannot be both grouped and ungrouped")
+        if covered_beat_ids is not None:
+            outside = (used_beats | set(ungrouped)) - covered_beat_ids
+            if outside:
+                raise ValueError(
+                    "scoped candidate references beats outside covered_beat_ids: "
+                    f"{sorted(outside)!r}"
+                )
+            required_beats &= covered_beat_ids
         missing_required = required_beats - used_beats - set(ungrouped)
         if missing_required:
             raise ValueError(
@@ -1173,6 +1354,208 @@ class StoryOrganizationService:
             if not evidence or not set(evidence).issubset(evidence_ids):
                 raise ValueError("interpretive claims require existing evidence IDs")
 
+    def _apply_scoped_candidate(
+        self, candidate: Mapping[str, object], generation: str, covered_beat_ids: Sequence[str]
+    ) -> None:
+        connection = self._connection
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_apply_beats(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_affected_events"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_affected_arcs"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        try:
+            for table in ("scoped_apply_beats", "scoped_affected_events", "scoped_affected_arcs"):
+                connection.execute(f"DELETE FROM {table}")
+            connection.executemany(
+                "INSERT INTO scoped_apply_beats(id) VALUES (?)",
+                ((beat_id,) for beat_id in covered_beat_ids),
+            )
+            connection.execute(
+                """INSERT INTO scoped_affected_events(id)
+                   SELECT DISTINCT e.event_id FROM story_events e
+                   JOIN story_event_members members ON members.event_id=e.event_id
+                   JOIN scoped_apply_beats selected ON selected.id=members.beat_id
+                   LEFT JOIN story_arc_members membership ON membership.event_id=e.event_id
+                   LEFT JOIN story_arcs arc ON arc.arc_id=membership.arc_id
+                   WHERE e.pinned=0 AND COALESCE(arc.pinned,0)=0"""
+            )
+            connection.execute(
+                """INSERT OR IGNORE INTO scoped_affected_arcs(id)
+                   SELECT membership.arc_id FROM story_arc_members membership
+                   JOIN scoped_affected_events affected ON affected.id=membership.event_id"""
+            )
+            connection.execute(
+                """DELETE FROM story_event_members
+                   WHERE beat_id IN (SELECT id FROM scoped_apply_beats)
+                     AND event_id IN (SELECT id FROM scoped_affected_events)"""
+            )
+            connection.execute(
+                """DELETE FROM story_events WHERE event_id IN (
+                       SELECT id FROM scoped_affected_events
+                   ) AND NOT EXISTS (
+                       SELECT 1 FROM story_event_members members
+                       WHERE members.event_id=story_events.event_id
+                   )"""
+            )
+            connection.execute(
+                """DELETE FROM story_arcs WHERE pinned=0
+                   AND arc_id IN (SELECT id FROM scoped_affected_arcs)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM story_arc_members members
+                       WHERE members.arc_id=story_arcs.arc_id
+                   )"""
+            )
+
+            pinned_events = {
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT event_id FROM story_events WHERE pinned=1
+                       UNION SELECT event_id FROM story_arc_members
+                       WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)"""
+                )
+            }
+            pinned_arcs = {
+                str(row[0])
+                for row in connection.execute("SELECT arc_id FROM story_arcs WHERE pinned=1")
+            } | {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT arc_id FROM story_arc_members WHERE event_id IN "
+                    "(SELECT event_id FROM story_events WHERE pinned=1)"
+                )
+            }
+            pinned_beats = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT beat_id FROM story_event_members WHERE event_id IN "
+                    "(SELECT event_id FROM story_events WHERE pinned=1 UNION SELECT event_id "
+                    "FROM story_arc_members WHERE arc_id IN "
+                    "(SELECT arc_id FROM story_arcs WHERE pinned=1))"
+                )
+            }
+            covered = set(covered_beat_ids)
+            now = storage.utc_now()
+            event_id_map: dict[str, str] = {}
+            for order, event in enumerate(_object_list(candidate["events"], "events")):
+                original_id = cast(str, event["id"])
+                beats = [
+                    beat
+                    for beat in _string_list(event["beat_ids"], "event beat IDs")
+                    if beat in covered and beat not in pinned_beats
+                ]
+                if original_id in pinned_events or not beats:
+                    continue
+                event_id = original_id
+                if connection.execute(
+                    "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+                ).fetchone() is not None:
+                    event_id = _stable_id("scoped-event", original_id, *beats)
+                connection.execute(
+                    "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        event_id,
+                        event["title"],
+                        event["summary"],
+                        order,
+                        _candidate_origin(event.get("origin")),
+                        0,
+                        0,
+                        "approved",
+                        0,
+                        generation,
+                        now,
+                    ),
+                )
+                self._replace_members(event_id, beats)
+                event_id_map[original_id] = event_id
+
+            arc_id_map: dict[str, str] = {}
+            for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
+                original_id = cast(str, arc["id"])
+                if original_id in pinned_arcs:
+                    continue
+                member_ids = [
+                    event_id_map[event_id]
+                    for event_id in _string_list(arc["event_ids"], "arc event IDs")
+                    if event_id in event_id_map
+                ]
+                if not member_ids:
+                    continue
+                arc_id = original_id
+                if connection.execute(
+                    "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                ).fetchone() is not None:
+                    arc_id = _stable_id("scoped-arc", original_id, *member_ids)
+                connection.execute(
+                    "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        arc_id,
+                        arc["title"],
+                        arc["summary"],
+                        order,
+                        _candidate_origin(arc.get("origin")),
+                        0,
+                        0,
+                        "approved",
+                        0,
+                        generation,
+                        now,
+                    ),
+                )
+                arc_id_map[original_id] = arc_id
+                connection.executemany(
+                    "INSERT INTO story_arc_members VALUES (?,?,?)",
+                    ((arc_id, event_id, ordinal) for ordinal, event_id in enumerate(member_ids)),
+                )
+
+            for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
+                original_event = claim.get("event_id")
+                original_arc = claim.get("arc_id")
+                claim_event_id = (
+                    event_id_map.get(original_event) if isinstance(original_event, str) else None
+                )
+                claim_arc_id = (
+                    arc_id_map.get(original_arc) if isinstance(original_arc, str) else None
+                )
+                if claim_event_id is None and claim_arc_id is None:
+                    continue
+                claim_id = cast(str, claim["id"])
+                if connection.execute(
+                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+                ).fetchone() is not None:
+                    claim_id = _stable_id(
+                        "scoped-claim", claim_id, claim_event_id or claim_arc_id or ""
+                    )
+                connection.execute(
+                    "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
+                    (
+                        claim_id,
+                        claim_event_id,
+                        claim_arc_id,
+                        claim["text"],
+                        cast(str, claim.get("kind", "interpretation")),
+                        "approved",
+                        order,
+                    ),
+                )
+                connection.executemany(
+                    "INSERT INTO story_claim_evidence VALUES (?,?)",
+                    (
+                        (claim_id, evidence_id)
+                        for evidence_id in _string_list(claim["evidence_ids"], "evidence IDs")
+                    ),
+                )
+        finally:
+            connection.execute("DROP TABLE IF EXISTS scoped_affected_arcs")
+            connection.execute("DROP TABLE IF EXISTS scoped_affected_events")
+            connection.execute("DROP TABLE IF EXISTS scoped_apply_beats")
+
     def _apply_candidate(self, candidate: Mapping[str, object], generation: str) -> None:
         explicitly_pinned_arcs = {
             str(row[0])
@@ -1202,19 +1585,48 @@ class StoryOrganizationService:
                 "(SELECT arc_id FROM story_arcs WHERE pinned=1))"
             )
         }
-        self._connection.execute(
-            """DELETE FROM story_arcs WHERE pinned=0 AND arc_id NOT IN (
-                SELECT arc_id FROM story_arc_members WHERE event_id IN (
-                    SELECT event_id FROM story_events WHERE pinned=1
+        declared_scope = candidate.get("selected_beat_ids")
+        covered_beats = (
+            set(_string_list(declared_scope, "selected beat IDs"))
+            if declared_scope is not None
+            else {
+                str(row[0])
+                for row in self._connection.execute(
+                    "SELECT node_id FROM presentation_nodes WHERE level=3"
                 )
-            )"""
+            }
         )
-        self._connection.execute(
-            """DELETE FROM story_events WHERE pinned=0 AND event_id NOT IN (
-                SELECT event_id FROM story_arc_members
-                WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)
-            )"""
-        )
+        intersecting = self._connection.execute(
+            """SELECT DISTINCT m.event_id FROM story_event_members m
+               JOIN story_events e ON e.event_id=m.event_id
+               LEFT JOIN story_arc_members am ON am.event_id=e.event_id
+               LEFT JOIN story_arcs a ON a.arc_id=am.arc_id
+               WHERE e.pinned=0 AND COALESCE(a.pinned,0)=0
+               ORDER BY m.event_id"""
+        ).fetchall()
+        affected_arcs: set[str] = set()
+        for event_row in intersecting:
+            event_id = str(event_row["event_id"])
+            members = self._member_ids(event_id)
+            if not covered_beats.intersection(members):
+                continue
+            arc_row = self._connection.execute(
+                "SELECT arc_id FROM story_arc_members WHERE event_id=?", (event_id,)
+            ).fetchone()
+            if arc_row is not None:
+                affected_arcs.add(str(arc_row["arc_id"]))
+            remaining = tuple(beat for beat in members if beat not in covered_beats)
+            if remaining:
+                self._replace_members(event_id, remaining)
+            else:
+                self._connection.execute("DELETE FROM story_events WHERE event_id=?", (event_id,))
+        for arc_id in affected_arcs:
+            if not self._arc_member_ids(arc_id):
+                self._connection.execute(
+                    "DELETE FROM story_arcs WHERE arc_id=? AND pinned=0", (arc_id,)
+                )
+            else:
+                self._renumber_arc(arc_id)
         now = storage.utc_now()
         events = _object_list(candidate["events"], "events")
         events_in_preserved_arcs = {
@@ -1233,6 +1645,12 @@ class StoryOrganizationService:
             ]
             if event_id in pinned_events or event_id in events_in_preserved_arcs or not beats:
                 continue
+            if self._connection.execute(
+                "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+            ).fetchone() is not None:
+                raise ValueError(
+                    f"candidate event ID collides with preserved organization: {event_id}"
+                )
             self._connection.execute(
                 "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -1263,6 +1681,10 @@ class StoryOrganizationService:
             ]
             if not member_ids:
                 continue
+            if self._connection.execute(
+                "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+            ).fetchone() is not None:
+                raise ValueError(f"candidate arc ID collides with preserved organization: {arc_id}")
             self._connection.execute(
                 "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -1291,21 +1713,6 @@ class StoryOrganizationService:
                     (arc_id, event_id, next_order),
                 )
                 next_order += 1
-        self._connection.execute(
-            """DELETE FROM story_claims WHERE NOT (
-                (event_id IS NOT NULL AND event_id IN (
-                    SELECT event_id FROM story_events WHERE pinned=1
-                    UNION SELECT event_id FROM story_arc_members
-                    WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)
-                )) OR
-                (arc_id IS NOT NULL AND arc_id IN (
-                    SELECT arc_id FROM story_arcs WHERE pinned=1
-                    UNION SELECT arc_id FROM story_arc_members WHERE event_id IN (
-                        SELECT event_id FROM story_events WHERE pinned=1
-                    )
-                ))
-            )"""
-        )
         for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
             claim_event_id = claim.get("event_id")
             claim_arc_id = claim.get("arc_id")
@@ -1509,6 +1916,39 @@ def _string_list(value: object, name: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ValueError(f"{name} must be a list of non-empty strings")
     return cast(list[str], value)
+
+
+def _unique_string_sequence(values: Sequence[str], name: str) -> tuple[str, ...]:
+    if isinstance(values, str) or not all(isinstance(value, str) and value for value in values):
+        raise ValueError(f"{name} must contain non-empty strings")
+    result = tuple(values)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} cannot contain duplicates")
+    return result
+
+
+def _candidate_body_and_scope(
+    candidate: Mapping[str, object],
+) -> tuple[dict[str, object], tuple[tuple[str, ...], tuple[str, ...]] | None]:
+    body = dict(candidate)
+    raw_scope = body.pop("_scope", None)
+    if raw_scope is None:
+        return body, None
+    if not isinstance(raw_scope, Mapping) or set(raw_scope) != {"scope_ids", "covered_beat_ids"}:
+        raise storage.ProjectCorruptError("draft scope metadata is malformed")
+    try:
+        scopes = _unique_string_sequence(
+            _string_list(raw_scope.get("scope_ids"), "scope_ids"), "scope_ids"
+        )
+        covered = _unique_string_sequence(
+            _string_list(raw_scope.get("covered_beat_ids"), "covered_beat_ids"),
+            "covered_beat_ids",
+        )
+    except ValueError as exc:
+        raise storage.ProjectCorruptError("draft scope metadata is malformed") from exc
+    if not scopes or not covered:
+        raise storage.ProjectCorruptError("draft scope metadata cannot be empty")
+    return body, (scopes, covered)
 
 
 def _unique_ids(values: Sequence[Mapping[str, object]], name: str) -> set[str]:

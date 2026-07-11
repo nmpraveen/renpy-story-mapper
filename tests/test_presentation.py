@@ -4,6 +4,8 @@ import shutil
 from dataclasses import asdict
 from pathlib import Path
 
+import pytest
+
 from renpy_story_mapper import storage
 from renpy_story_mapper.presentation import (
     PresentationLevel,
@@ -221,3 +223,85 @@ def test_real_schema_v2_migration_is_queryable(tmp_path: Path) -> None:
         )
         assert len(page.nodes) == 1
     assert project_path.with_name(f"{project_path.name}.pre-migrate-v2.bak").is_file()
+
+
+def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edges(
+    tmp_path: Path,
+) -> None:
+    project_path, _ = _create(tmp_path)
+    with PresentationService.open(project_path) as service:
+        connection = service._project._require_open()
+        containers = []
+        for scope in range(3):
+            containers.extend(
+                [
+                    (
+                        f"synthetic-scope-{scope}", 1, None, f"8{scope:011d}", "label",
+                        f"Scope {scope}", "synthetic.rpy", 1, 700, 0,
+                        storage.canonical_json({"synthetic": True}),
+                    ),
+                    (
+                        f"event:synthetic-scope-{scope}:00000000", 2,
+                        f"synthetic-scope-{scope}", f"8{scope + 3:011d}", "structural_group",
+                        f"Event {scope}", "synthetic.rpy", 1, 700, 0,
+                        storage.canonical_json({"synthetic": True}),
+                    ),
+                ]
+            )
+        nodes = [
+            (
+                f"synthetic-beat-{index:04d}",
+                3,
+                f"event:synthetic-scope-{index % 3}:00000000",
+                f"9{index:011d}",
+                "dialogue",
+                f"Beat {index}",
+                "synthetic.rpy",
+                index + 1,
+                index + 1,
+                0,
+                storage.canonical_json({"synthetic": True}),
+            )
+            for index in range(700)
+        ]
+        edges = [
+            (
+                f"synthetic-edge-{index:04d}",
+                3,
+                f"synthetic-beat-{index % 700:04d}",
+                f"synthetic-beat-{(index * 17 + 1) % 700:04d}",
+                f"9{index:011d}",
+                "flow",
+                storage.canonical_json({"synthetic": True}),
+            )
+            for index in range(620)
+        ]
+        with storage.transaction(connection):
+            connection.executemany(
+                "INSERT INTO presentation_nodes VALUES (?,?,?,?,?,?,?,?,?,?,?)", containers
+            )
+            connection.executemany(
+                "INSERT INTO presentation_nodes VALUES (?,?,?,?,?,?,?,?,?,?,?)", nodes
+            )
+            connection.executemany("INSERT INTO presentation_edges VALUES (?,?,?,?,?,?,?)", edges)
+
+        selected = tuple(node[0] for node in nodes)
+        result = service.organization_connectivity(selected)
+        assert result.beat_ids == selected
+        assert result.required_beat_ids == selected
+        assert len(result.edges) == 620
+        assert any(
+            int(edge.source_id.rsplit("-", 1)[1]) % 3
+            != int(edge.target_id.rsplit("-", 1)[1]) % 3
+            for edge in result.edges
+        )
+        assert [edge.id for edge in result.edges] == [edge[0] for edge in edges]
+        plan = connection.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM presentation_edges "
+            "WHERE level=3 AND source_id IN (?,?)",
+            selected[:2],
+        ).fetchall()
+        assert any("presentation_edges_source_idx" in str(row[3]) for row in plan)
+
+        with pytest.raises(ValueError, match="unknown Level-3"):
+            service.organization_connectivity((*selected, "unknown-beat"))
