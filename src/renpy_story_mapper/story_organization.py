@@ -539,6 +539,7 @@ class StoryOrganizationService:
                     storage.utc_now(),
                 ),
             )
+
         if transactional:
             with storage.transaction(self._connection):
                 write()
@@ -828,8 +829,7 @@ class StoryOrganizationService:
             parameters.append(target_id)
         where = "" if not clauses else "WHERE " + " AND ".join(clauses)
         rows = self._connection.execute(
-            f"SELECT * FROM story_group_enrichment {where} "
-            "ORDER BY target_kind,target_id",
+            f"SELECT * FROM story_group_enrichment {where} ORDER BY target_kind,target_id",
             tuple(parameters),
         ).fetchall()
         return tuple(_enrichment_from_row(row) for row in rows)
@@ -1224,8 +1224,7 @@ class StoryOrganizationService:
             str(row["node_id"]): index
             for index, row in enumerate(
                 self._connection.execute(
-                    "SELECT node_id FROM presentation_nodes WHERE level=3 "
-                    "ORDER BY sort_key,node_id"
+                    "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
                 )
             )
         }
@@ -1234,9 +1233,7 @@ class StoryOrganizationService:
         def event_bounds(event_id: str) -> tuple[int, int]:
             positions = [
                 beat_order[beat_id]
-                for beat_id in _string_list(
-                    events_by_id[event_id]["beat_ids"], "event beat IDs"
-                )
+                for beat_id in _string_list(events_by_id[event_id]["beat_ids"], "event beat IDs")
             ]
             return min(positions), max(positions)
 
@@ -1472,8 +1469,16 @@ class StoryOrganizationService:
             _require_keys(
                 event,
                 {
-                    "id", "title", "summary", "beat_ids", "origin", "characters",
-                    "importance", "outcomes", "promoted_fact_ids", "warnings",
+                    "id",
+                    "title",
+                    "summary",
+                    "beat_ids",
+                    "origin",
+                    "characters",
+                    "importance",
+                    "outcomes",
+                    "promoted_fact_ids",
+                    "warnings",
                 },
                 "event",
             )
@@ -1512,8 +1517,16 @@ class StoryOrganizationService:
             _require_keys(
                 arc,
                 {
-                    "id", "title", "summary", "event_ids", "origin", "characters",
-                    "importance", "outcomes", "promoted_fact_ids", "warnings",
+                    "id",
+                    "title",
+                    "summary",
+                    "event_ids",
+                    "origin",
+                    "characters",
+                    "importance",
+                    "outcomes",
+                    "promoted_fact_ids",
+                    "warnings",
                 },
                 "arc",
             )
@@ -1552,9 +1565,7 @@ class StoryOrganizationService:
             raise ValueError("ungrouped IDs must reference existing deterministic beats")
         ungrouped_positions = [known_beats[beat_id] for beat_id in ungrouped]
         if any(
-            start < position < end
-            for position in ungrouped_positions
-            for start, end in event_spans
+            start < position < end for position in ungrouped_positions for start, end in event_spans
         ):
             raise ValueError("ungrouped beat IDs cannot interleave story event membership")
         if declared_scope is not None and not set(ungrouped).issubset(selected_beats):
@@ -1633,8 +1644,7 @@ class StoryOrganizationService:
                             supported_characters.update(
                                 str(item["speaker"])
                                 for item in content
-                                if isinstance(item, dict)
-                                and isinstance(item.get("speaker"), str)
+                                if isinstance(item, dict) and isinstance(item.get("speaker"), str)
                             )
         unsupported = set(characters) - supported_characters
         if unsupported:
@@ -1808,9 +1818,12 @@ class StoryOrganizationService:
                 if not beats:
                     continue
                 event_id = original_id
-                if connection.execute(
-                    "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+                    ).fetchone()
+                    is not None
+                ):
                     event_id = _stable_id("scoped-event", original_id, *beats)
                 connection.execute(
                     "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -1845,9 +1858,12 @@ class StoryOrganizationService:
                 if not member_ids:
                     continue
                 arc_id = original_id
-                if connection.execute(
-                    "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                    ).fetchone()
+                    is not None
+                ):
                     arc_id = _stable_id("scoped-arc", original_id, *member_ids)
                 connection.execute(
                     "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -1886,9 +1902,12 @@ class StoryOrganizationService:
                 if claim_event_id is None and claim_arc_id is None:
                     continue
                 claim_id = cast(str, claim["id"])
-                if connection.execute(
-                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+                    ).fetchone()
+                    is not None
+                ):
                     claim_id = _stable_id(
                         "scoped-claim", claim_id, claim_event_id or claim_arc_id or ""
                     )
@@ -1936,9 +1955,7 @@ class StoryOrganizationService:
             connection.execute("DROP TABLE IF EXISTS scoped_affected_events")
             connection.execute("DROP TABLE IF EXISTS scoped_apply_beats")
 
-    def _reapply_simple_edits(
-        self, target_kind: Literal["arc", "event"], target_id: str
-    ) -> None:
+    def _reapply_simple_edits(self, target_kind: Literal["arc", "event"], target_id: str) -> None:
         """Reapply durable scalar edits when a stable candidate target returns unchanged."""
 
         table, key = _target_table(target_kind)
@@ -1974,10 +1991,9 @@ class StoryOrganizationService:
                     (int(cast(bool, payload[column])), now, target_id),
                 )
                 replayed = cursor.rowcount == 1
-            elif (
-                operation == "approve"
-                and payload.get("state") in {"pending", "approved"}
-            ) or (operation == "reject" and payload.get("state") == "rejected"):
+            elif (operation == "approve" and payload.get("state") in {"pending", "approved"}) or (
+                operation == "reject" and payload.get("state") == "rejected"
+            ):
                 cursor = self._connection.execute(
                     f"UPDATE {table} SET approval_state=?,updated_utc=? WHERE {key}=?",
                     (payload["state"], now, target_id),
@@ -2066,18 +2082,9 @@ class StoryOrganizationService:
     ) -> dict[str, object]:
         """Remap every candidate collision before global replacement mutates stored state."""
 
-        existing_event_ids = {
-            str(row[0]) for row in self._connection.execute("SELECT event_id FROM story_events")
-        }
-        existing_arc_ids = {
-            str(row[0]) for row in self._connection.execute("SELECT arc_id FROM story_arcs")
-        }
-        existing_claim_ids = {
-            str(row[0]) for row in self._connection.execute("SELECT claim_id FROM story_claims")
-        }
         events = _object_list(candidate["events"], "events")
         event_ids = {cast(str, event["id"]) for event in events}
-        occupied_event_ids = existing_event_ids | event_ids
+        occupied_event_ids = preserved_event_ids | event_ids
         event_id_map: dict[str, str] = {}
         mapped_events: list[dict[str, object]] = []
         for event in events:
@@ -2095,7 +2102,7 @@ class StoryOrganizationService:
 
         arcs = _object_list(candidate["arcs"], "arcs")
         arc_ids = {cast(str, arc["id"]) for arc in arcs}
-        occupied_arc_ids = existing_arc_ids | arc_ids
+        occupied_arc_ids = preserved_arc_ids | arc_ids
         arc_id_map: dict[str, str] = {}
         mapped_arcs: list[dict[str, object]] = []
         for arc in arcs:
@@ -2117,7 +2124,7 @@ class StoryOrganizationService:
 
         claims = _object_list(candidate.get("claims", []), "claims")
         claim_ids = {cast(str, claim["id"]) for claim in claims}
-        occupied_claim_ids = existing_claim_ids | claim_ids
+        occupied_claim_ids = preserved_claim_ids | claim_ids
         mapped_claims: list[dict[str, object]] = []
         for claim in claims:
             original_id = cast(str, claim["id"])
@@ -2173,12 +2180,8 @@ class StoryOrganizationService:
         }
         preserved_claim_ids = {
             str(row["claim_id"])
-            for row in self._connection.execute(
-                "SELECT claim_id,event_id,arc_id FROM story_claims"
-            )
-            if (
-                row["event_id"] is not None and str(row["event_id"]) in preserved_event_ids
-            )
+            for row in self._connection.execute("SELECT claim_id,event_id,arc_id FROM story_claims")
+            if (row["event_id"] is not None and str(row["event_id"]) in preserved_event_ids)
             or (row["arc_id"] is not None and str(row["arc_id"]) in pinned_arcs)
         }
         candidate = self._prepare_global_candidate(
@@ -2231,12 +2234,13 @@ class StoryOrganizationService:
             if not beats:
                 continue
             event_id = original_id
-            if self._connection.execute(
-                "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
-            ).fetchone() is not None:
-                raise ValueError(
-                    f"candidate event ID collides after global preflight: {event_id}"
-                )
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+                ).fetchone()
+                is not None
+            ):
+                raise ValueError(f"candidate event ID collides after global preflight: {event_id}")
             self._connection.execute(
                 "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -2269,9 +2273,12 @@ class StoryOrganizationService:
             if not member_ids:
                 continue
             arc_id = original_id
-            if self._connection.execute(
-                "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
-            ).fetchone() is not None:
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                ).fetchone()
+                is not None
+            ):
                 raise ValueError(f"candidate arc ID collides after global preflight: {arc_id}")
             self._connection.execute(
                 "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -2308,9 +2315,7 @@ class StoryOrganizationService:
             original_event_id = claim.get("event_id")
             original_arc_id = claim.get("arc_id")
             claim_event_id = (
-                event_id_map.get(original_event_id)
-                if isinstance(original_event_id, str)
-                else None
+                event_id_map.get(original_event_id) if isinstance(original_event_id, str) else None
             )
             claim_arc_id = (
                 arc_id_map.get(original_arc_id) if isinstance(original_arc_id, str) else None
@@ -2318,9 +2323,12 @@ class StoryOrganizationService:
             if claim_event_id is None and claim_arc_id is None:
                 continue
             claim_id = cast(str, claim["id"])
-            if self._connection.execute(
-                "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
-            ).fetchone() is not None:
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+                ).fetchone()
+                is not None
+            ):
                 raise ValueError(f"candidate claim ID collides after global preflight: {claim_id}")
             self._connection.execute(
                 "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
