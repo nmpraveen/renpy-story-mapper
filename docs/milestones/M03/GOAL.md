@@ -57,6 +57,6 @@ change.
 ## State
 
 Completed on 2026-07-10. Implementation, integration, independent review, Windows acceptance,
-canonical archive immutability checks, completion documentation, and the native infographic are
-finished on `milestone/m03-story-state-projects`. PR #5 is open and unmerged pending explicit user
-approval. No M04 work has begun.
+canonical archive immutability checks, completion documentation, and the native infographic were
+finished on `milestone/m03-story-state-projects`. PR #5 was subsequently merged to `main` with
+explicit user approval.

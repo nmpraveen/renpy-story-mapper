@@ -39,5 +39,4 @@ unresolved questions, integration instructions, and confirmation that it stayed 
   review accepted `01944d0` with 93 tests passing and no remaining P0-P3 findings.
 - Canonical acceptance then confirmed 0 parsed and 77 reused sources on an unchanged refresh while
   preserving byte-identical project and archive hashes.
-- M03 PR #5 is open from `milestone/m03-story-state-projects` to `main` and is intentionally
-  unmerged pending explicit user approval.
+- M03 PR #5 was merged to `main` with explicit user approval on 2026-07-10.

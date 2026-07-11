@@ -2,7 +2,7 @@
 
 Last revised: 2026-07-10
 
-Status: M01, M02, and M03 are complete. M04 is the next proposed milestone and has not started.
+Status: M01, M02, and M03 are complete. M04 was explicitly approved and started on 2026-07-10.
 
 ## 1. Product goal
 
@@ -284,8 +284,7 @@ commitments.
 
 ### M03 - Story state and durable projects
 
-Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; PR #5 is open
-and remains subject to explicit user merge approval.
+Status: Complete and merged to `main` through PR #5 on 2026-07-10.
 
 Objective: preserve analyses in a reusable project and add deterministic requirements/effects so
 the later visual map can explain why routes open and what choices change.
@@ -346,7 +345,8 @@ Completion evidence:
 
 ### M04 - Three-level Windows story map
 
-Status: Proposed after M03; do not start before explicit user approval.
+Status: Active on `milestone/m04-three-level-windows-map` after explicit user approval on
+2026-07-10.
 
 Objective: build the actual Windows application and prove that a complicated game can be explored
 without displaying hundreds of equal-weight nodes at once.
@@ -532,5 +532,7 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review and merge the M03 milestone PR only with explicit user approval. After M03 is merged, wait
-for explicit approval before creating the M04 self-goal or beginning any M04 implementation.
+Execute M04 only on `milestone/m04-three-level-windows-map`, integrate its bounded worker tasks,
+run the full Windows and canonical acceptance suite, finish the required M04 artifacts, and open
+one M04 PR without merging it. Do not create an M05 goal or begin M05 implementation without
+explicit user approval after M04 completion.
