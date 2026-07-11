@@ -18,6 +18,7 @@ from renpy_story_mapper.ui.graph_canvas import (
     GraphNodeSpec,
     SemanticLevel,
     SourceEvidence,
+    elide_visible_text,
     semantic_level_for_scale,
     visual_style_for,
 )
@@ -77,6 +78,12 @@ def test_semantic_thresholds_and_true_projection_visibility(app: QApplication) -
     assert visible == {"arc", "choice", "gate", "evidence"}
 
 
+def test_elided_visible_text_is_ascii_and_contains_no_mojibake() -> None:
+    visible = elide_visible_text("A deliberately long story title", 12)
+    assert visible == "A deliber..."
+    assert visible.isascii()
+
+
 def test_hard_bound_stops_consuming_and_materializing(app: QApplication) -> None:
     consumed = 0
 
@@ -130,8 +137,24 @@ def test_selection_and_view_center_survive_semantic_transition_and_slice(app: QA
     after_level = canvas.mapToScene(canvas.viewport().rect().center())
     assert abs(after_level.x() - before.x()) < 2
     assert abs(after_level.y() - before.y()) < 2
+    selection_events: list[object] = []
+    canvas.selection_changed.connect(selection_events.append)
     canvas.set_slice(reversed(nodes), [], preserve_navigation=True)
     assert canvas.selected_node_id == "keep"
+    assert selection_events == []
+
+
+def test_genuine_scene_deselection_clears_logical_selection(app: QApplication) -> None:
+    canvas = GraphCanvas()
+    canvas.set_slice([_node("selected")], [])
+    assert canvas.focus_search_result("selected")
+    selection_events: list[object] = []
+    canvas.selection_changed.connect(selection_events.append)
+
+    canvas.scene().clearSelection()
+
+    assert canvas.selected_node_id is None
+    assert selection_events == [None]
 
 
 def test_deterministic_layout_for_identical_bounded_input(app: QApplication) -> None:

@@ -127,6 +127,15 @@ def semantic_level_for_scale(scale: float) -> SemanticLevel:
     return SemanticLevel.EVIDENCE
 
 
+def elide_visible_text(text: str, maximum: int) -> str:
+    """Return deterministic single-line display text using an ASCII ellipsis."""
+
+    if maximum < 4:
+        raise ValueError("maximum must allow at least one character and an ellipsis")
+    compact = " ".join(text.split())
+    return compact if len(compact) <= maximum else compact[: maximum - 3] + "..."
+
+
 class _NodeItem(QGraphicsObject):
     WIDTH = 260.0
     HEIGHT = 132.0
@@ -168,7 +177,9 @@ class _NodeItem(QGraphicsObject):
         title_font.setBold(True)
         title_font.setPointSize(10)
         painter.setFont(title_font)
-        painter.drawText(QRectF(15.0, 10.0, 230.0, 24.0), self._elide(self.spec.title, 36))
+        painter.drawText(
+            QRectF(15.0, 10.0, 230.0, 24.0), elide_visible_text(self.spec.title, 36)
+        )
 
         body_font = painter.font()
         body_font.setBold(False)
@@ -179,7 +190,7 @@ class _NodeItem(QGraphicsObject):
             painter.drawText(
                 QRectF(15.0, 38.0, 230.0, 36.0),
                 Qt.TextFlag.TextWordWrap,
-                self._elide(self.spec.summary, 82),
+                elide_visible_text(self.spec.summary, 82),
             )
             self._paint_badges(painter)
         if self.semantic_level == SemanticLevel.EVIDENCE:
@@ -189,7 +200,7 @@ class _NodeItem(QGraphicsObject):
                 first = self.spec.evidence[0]
                 evidence = f"{first.source_path}:{first.start_line}"
             painter.drawText(
-                QRectF(15.0, 102.0, 230.0, 22.0), self._elide(evidence, 48)
+                QRectF(15.0, 102.0, 230.0, 22.0), elide_visible_text(evidence, 48)
             )
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -199,11 +210,6 @@ class _NodeItem(QGraphicsObject):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
-
-    @staticmethod
-    def _elide(text: str, maximum: int) -> str:
-        compact = " ".join(text.split())
-        return compact if len(compact) <= maximum else compact[: maximum - 1] + "…"
 
     def _paint_badges(self, painter: QPainter) -> None:
         badges = tuple(f"Req: {value}" for value in self.spec.requirements[:1]) + tuple(
@@ -215,7 +221,10 @@ class _NodeItem(QGraphicsObject):
             painter.setPen(QColor("#59636E"))
             painter.setBrush(QColor("#FFFFFF"))
             painter.drawRoundedRect(QRectF(x, 79.0, width, 18.0), 5.0, 5.0)
-            painter.drawText(QRectF(x + 5.0, 81.0, width - 9.0, 14.0), self._elide(badge, 19))
+            painter.drawText(
+                QRectF(x + 5.0, 81.0, width - 9.0, 14.0),
+                elide_visible_text(badge, 19),
+            )
             x += width + 6.0
 
 
@@ -261,6 +270,7 @@ class GraphCanvas(QGraphicsView):
         self._category_filter: frozenset[str] = frozenset()
         self._hidden_kinds: frozenset[str] = frozenset()
         self._search_results: frozenset[str] = frozenset()
+        self._selection_updates_suspended = False
         self._panning = False
         self._pan_origin = QPoint()
 
@@ -298,7 +308,8 @@ class GraphCanvas(QGraphicsView):
         """Replace the scene from bounded prefixes while optionally preserving place/selection."""
 
         old_center = self.mapToScene(self.viewport().rect().center())
-        old_selected = self._selected_id if preserve_navigation else None
+        previous_selected = self._selected_id
+        old_selected = previous_selected if preserve_navigation else None
         node_prefix = list(islice(nodes, self.max_rendered_items + 1))
         truncated = len(node_prefix) > self.max_rendered_items
         accepted_nodes = sorted(node_prefix[: self.max_rendered_items], key=lambda node: node.id)
@@ -315,27 +326,34 @@ class GraphCanvas(QGraphicsView):
             key=lambda edge: (edge.source, edge.target, edge.kind),
         )
 
-        self._scene.clear()
-        self._node_items.clear()
-        self._edge_items.clear()
-        for node_spec in accepted_nodes:
-            item = _NodeItem(node_spec)
-            item.semantic_level = self._semantic_level
-            item.search_highlighted = node_spec.id in self._search_results
-            self._scene.addItem(item)
-            self._node_items[node_spec.id] = item
-        self._layout_nodes()
-        for edge_spec in accepted_edges:
-            edge_item = _EdgeItem(edge_spec)
-            self._scene.addItem(edge_item)
-            self._edge_items.append(edge_item)
-        self._update_edges()
-        self._apply_visibility()
-        self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-60, -60, 60, 60))
+        was_suspended = self._selection_updates_suspended
+        self._selection_updates_suspended = True
+        try:
+            self._scene.clear()
+            self._node_items.clear()
+            self._edge_items.clear()
+            for node_spec in accepted_nodes:
+                item = _NodeItem(node_spec)
+                item.semantic_level = self._semantic_level
+                item.search_highlighted = node_spec.id in self._search_results
+                self._scene.addItem(item)
+                self._node_items[node_spec.id] = item
+            self._layout_nodes()
+            for edge_spec in accepted_edges:
+                edge_item = _EdgeItem(edge_spec)
+                self._scene.addItem(edge_item)
+                self._edge_items.append(edge_item)
+            self._update_edges()
+            self._selected_id = old_selected if old_selected in self._node_items else None
+            self._apply_visibility()
+            self._scene.setSceneRect(
+                self._scene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
+            )
+        finally:
+            self._selection_updates_suspended = was_suspended
 
-        self._selected_id = old_selected
-        if old_selected in self._node_items and self._node_items[old_selected].isVisible():
-            self._node_items[old_selected].setSelected(True)
+        if previous_selected is not None and self._selected_id is None and not was_suspended:
+            self.selection_changed.emit(None)
         if preserve_navigation and not old_center.isNull():
             self.centerOn(old_center)
         if truncated:
@@ -502,26 +520,34 @@ class GraphCanvas(QGraphicsView):
             edge.setPath(path)
 
     def _apply_visibility(self) -> None:
-        for item in self._node_items.values():
-            spec = item.spec
-            variable_match = not self._variable_filter or bool(
-                spec.variables & self._variable_filter
-            )
-            category_match = not self._category_filter or bool(
-                spec.categories & self._category_filter
-            )
-            visible = (
-                self._semantic_level in spec.semantic_levels
-                and spec.kind not in self._hidden_kinds
-                and variable_match
-                and category_match
-            )
-            item.setVisible(visible)
-        for edge in self._edge_items:
-            edge.setVisible(
-                self._node_items[edge.spec.source].isVisible()
-                and self._node_items[edge.spec.target].isVisible()
-            )
+        was_suspended = self._selection_updates_suspended
+        self._selection_updates_suspended = True
+        try:
+            for item in self._node_items.values():
+                spec = item.spec
+                variable_match = not self._variable_filter or bool(
+                    spec.variables & self._variable_filter
+                )
+                category_match = not self._category_filter or bool(
+                    spec.categories & self._category_filter
+                )
+                visible = (
+                    self._semantic_level in spec.semantic_levels
+                    and spec.kind not in self._hidden_kinds
+                    and variable_match
+                    and category_match
+                )
+                item.setVisible(visible)
+            selected_item = self._node_items.get(self._selected_id or "")
+            if selected_item is not None and selected_item.isVisible():
+                selected_item.setSelected(True)
+            for edge in self._edge_items:
+                edge.setVisible(
+                    self._node_items[edge.spec.source].isVisible()
+                    and self._node_items[edge.spec.target].isVisible()
+                )
+        finally:
+            self._selection_updates_suspended = was_suspended
 
     def _filters_updated(self) -> None:
         self._apply_visibility()
@@ -531,18 +557,30 @@ class GraphCanvas(QGraphicsView):
         self.set_semantic_level(semantic_level_for_scale(self.transform().m11()))
 
     def _on_scene_selection_changed(self) -> None:
+        if self._selection_updates_suspended:
+            return
         selected = [item for item in self._scene.selectedItems() if isinstance(item, _NodeItem)]
         if selected:
             self._selected_id = selected[0].spec.id
             self.selection_changed.emit(self._selected_id)
             self.source_evidence_selected.emit(self._selected_id, selected[0].spec.evidence)
-        elif self._selected_id is None:
+        elif self._selected_id is not None:
+            self._selected_id = None
             self.selection_changed.emit(None)
 
     def _select_item(self, item: _NodeItem) -> None:
-        self._scene.clearSelection()
-        item.setSelected(True)
+        was_suspended = self._selection_updates_suspended
+        self._selection_updates_suspended = True
+        try:
+            self._scene.clearSelection()
+            item.setSelected(True)
+            self._selected_id = item.spec.id
+        finally:
+            self._selection_updates_suspended = was_suspended
         item.setFocus(Qt.FocusReason.OtherFocusReason)
+        if not was_suspended:
+            self.selection_changed.emit(item.spec.id)
+            self.source_evidence_selected.emit(item.spec.id, item.spec.evidence)
 
     def _navigate(self, key: int) -> None:
         visible = [item for item in self._node_items.values() if item.isVisible()]
@@ -587,6 +625,7 @@ __all__ = [
     "NodeVisualStyle",
     "SemanticLevel",
     "SourceEvidence",
+    "elide_visible_text",
     "semantic_level_for_scale",
     "visual_style_for",
 ]
