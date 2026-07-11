@@ -82,6 +82,7 @@ class StoryMapPresenter(QObject):
         self._include_technical = False
         self._focus_after_render: str | None = None
         self._continue_to_evidence = False
+        self._render_suppressed = False
 
         canvas.semantic_level_changed.connect(self.set_level)
         canvas.expansion_requested.connect(self._expansion_requested)
@@ -96,9 +97,19 @@ class StoryMapPresenter(QObject):
     def level(self) -> SemanticLevel:
         return self._level
 
+    @property
+    def selected_overview_scope_ids(self) -> tuple[str, ...]:
+        """Return the chosen Level-1 scope, or the currently loaded bounded Level-1 set."""
+
+        selected = self._selected_by_level.get(SemanticLevel.OVERVIEW)
+        if selected is not None:
+            return (selected,)
+        return self._last_nodes.get(SemanticLevel.OVERVIEW, ())
+
     def set_project(self, session: ProjectSession | None) -> None:
         self._generation += 1
         self.cancel(clear_pending=True)
+        self._render_suppressed = False
         self._project_path = None if session is None else session.project_path
         self._level = SemanticLevel.OVERVIEW
         self._selected_id = None
@@ -114,6 +125,13 @@ class StoryMapPresenter(QObject):
         if session is not None:
             self._load_map()
 
+    def set_render_suppressed(self, suppressed: bool) -> None:
+        """Keep deterministic scope loading available without replacing an accepted map."""
+
+        self._render_suppressed = suppressed
+        if not suppressed and self._project_path is not None and self._task is None:
+            self._load_map()
+
     def cancel(self, *, clear_pending: bool = True) -> None:
         if clear_pending:
             self._pending = None
@@ -123,6 +141,8 @@ class StoryMapPresenter(QObject):
 
     @Slot(int)
     def set_level(self, value: int) -> None:
+        if self._render_suppressed:
+            return
         level = SemanticLevel(value)
         if level == self._level:
             return
@@ -159,7 +179,8 @@ class StoryMapPresenter(QObject):
 
     def set_include_technical(self, include: bool) -> None:
         self._include_technical = include
-        self._load_map()
+        if not self._render_suppressed:
+            self._load_map()
 
     def search(self, query: str) -> None:
         term = query.strip()
@@ -244,6 +265,8 @@ class StoryMapPresenter(QObject):
 
     @Slot(str, bool)
     def _expansion_requested(self, node_id: str, expanded: bool) -> None:
+        if self._render_suppressed:
+            return
         if self._level is SemanticLevel.OVERVIEW:
             _set_membership(self._expanded_overview, node_id, expanded)
             if expanded:
@@ -261,6 +284,8 @@ class StoryMapPresenter(QObject):
 
     @Slot(object)
     def _selection_changed(self, value: object) -> None:
+        if self._render_suppressed:
+            return
         self._selected_id = value if isinstance(value, str) else None
         if self._selected_id is None:
             self.evidence_list.clear()
@@ -399,6 +424,8 @@ class StoryMapPresenter(QObject):
         if token != self._generation:
             return
         self._last_nodes[result.level] = tuple(node.id for node in result.nodes)
+        if self._render_suppressed:
+            return
         self.canvas.set_semantic_level(result.level)
         self.canvas.set_slice(result.nodes, result.edges, preserve_navigation=True)
         restored = self._selected_by_level.get(result.level)

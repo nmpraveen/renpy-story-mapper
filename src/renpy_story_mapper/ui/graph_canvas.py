@@ -188,14 +188,15 @@ class _NodeItem(QGraphicsObject):
         body_font.setBold(False)
         body_font.setPointSize(8)
         painter.setFont(body_font)
-        if self.semantic_level >= SemanticLevel.EVENTS:
+        if self.semantic_level >= SemanticLevel.OVERVIEW:
             painter.setPen(QColor("#35404C"))
             painter.drawText(
                 QRectF(15.0, 38.0, 230.0, 36.0),
                 Qt.TextFlag.TextWordWrap,
                 elide_visible_text(self.spec.summary, 82),
             )
-            self._paint_badges(painter)
+            if self.semantic_level >= SemanticLevel.EVENTS:
+                self._paint_badges(painter)
         if self.semantic_level == SemanticLevel.EVIDENCE:
             painter.setPen(QColor("#59636E"))
             evidence = self.spec.detail
@@ -281,6 +282,7 @@ class GraphCanvas(QGraphicsView):
         self._selection_updates_suspended = False
         self._panning = False
         self._pan_origin = QPoint()
+        self._layout_positions: dict[str, QPointF] = {}
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
@@ -340,6 +342,7 @@ class GraphCanvas(QGraphicsView):
             self._scene.clear()
             self._node_items.clear()
             self._edge_items.clear()
+            self._layout_positions.clear()
             for node_spec in accepted_nodes:
                 item = _NodeItem(node_spec)
                 item.semantic_level = self._semantic_level
@@ -366,6 +369,28 @@ class GraphCanvas(QGraphicsView):
             self.centerOn(old_center)
         if truncated:
             self.render_limit_reached.emit(self.rendered_item_count)
+
+    def set_layout_positions(self, positions: dict[str, tuple[float, float]]) -> None:
+        """Apply renderer-neutral deterministic layout positions to the current bounded slice."""
+
+        self._layout_positions = {
+            node_id: QPointF(float(point[0]), float(point[1]))
+            for node_id, point in positions.items()
+            if node_id in self._node_items
+        }
+        self._layout_nodes()
+        self._update_edges()
+        self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-60, -60, 60, 60))
+
+    def navigation_state(self) -> tuple[float, float, float]:
+        center = self.mapToScene(self.viewport().rect().center())
+        return self.transform().m11(), center.x(), center.y()
+
+    def restore_navigation_state(self, scale: float, center_x: float, center_y: float) -> None:
+        bounded = max(0.18, min(4.5, float(scale)))
+        self.resetTransform()
+        self.scale(bounded, bounded)
+        self.centerOn(QPointF(float(center_x), float(center_y)))
 
     def set_semantic_level(self, level: SemanticLevel | int) -> None:
         """Switch semantic projection without changing transform, center, or logical selection."""
@@ -522,6 +547,12 @@ class GraphCanvas(QGraphicsView):
     def _layout_nodes(self) -> None:
         """Lay out a bounded slice deterministically by stable identifier."""
 
+        if self._layout_positions:
+            for node_id, item in self._node_items.items():
+                position = self._layout_positions.get(node_id)
+                if position is not None:
+                    item.setPos(position)
+            return
         columns = 4
         x_spacing = _NodeItem.WIDTH + 90.0
         y_spacing = _NodeItem.HEIGHT + 70.0
