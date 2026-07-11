@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDockWidget,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -41,12 +42,15 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller or ProjectController(parent=self)
         self._presentation_service = presentation_service
+        self._presentation_busy = False
         self._close_when_idle = False
         self.setWindowTitle("Ren'Py Story Mapper")
         self.resize(1280, 800)
         self._build_toolbar()
         self._build_center()
         self._build_docks()
+        if presentation_service is None:
+            self._install_default_story_map()
         self._connect_controller()
         self._apply_state(LifecycleState.EMPTY.value)
 
@@ -96,7 +100,7 @@ class MainWindow(QMainWindow):
         self.open_button.clicked.connect(self._choose_existing_project)
         self.refresh_button.clicked.connect(self.controller.refresh_project)
         self.close_button.clicked.connect(self.controller.close_project)
-        self.cancel_button.clicked.connect(self.controller.cancel)
+        self.cancel_button.clicked.connect(self._cancel_operations)
 
     def _build_center(self) -> None:
         center = QWidget(self)
@@ -109,7 +113,15 @@ class MainWindow(QMainWindow):
         self.technical_filter.setObjectName("technicalFilter")
         self.unresolved_filter = QCheckBox("Unresolved", center)
         self.unresolved_filter.setObjectName("unresolvedFilter")
+        self.variable_filter_input = QLineEdit(center)
+        self.variable_filter_input.setObjectName("variableFilter")
+        self.variable_filter_input.setPlaceholderText("Variable filter")
+        self.category_filter_input = QLineEdit(center)
+        self.category_filter_input.setObjectName("categoryFilter")
+        self.category_filter_input.setPlaceholderText("Category filter")
         filters.addWidget(self.search_input, 1)
+        filters.addWidget(self.variable_filter_input)
+        filters.addWidget(self.category_filter_input)
         filters.addWidget(self.technical_filter)
         filters.addWidget(self.unresolved_filter)
         layout.addLayout(filters)
@@ -153,8 +165,105 @@ class MainWindow(QMainWindow):
         overrides.setObjectName("overridesDock")
         self.overrides_host = QWidget(overrides)
         self.overrides_host.setObjectName("userOverridesHost")
+        override_form = QFormLayout(self.overrides_host)
+        self.node_name_input = QLineEdit(self.overrides_host)
+        self.node_name_input.setObjectName("nodeNameOverride")
+        self.rename_node_button = QPushButton("Rename", self.overrides_host)
+        self.rename_node_button.setObjectName("renameNodeButton")
+        self.reset_node_name_button = QPushButton("Reset name", self.overrides_host)
+        self.reset_node_name_button.setObjectName("resetNodeNameButton")
+        self.hide_node_button = QPushButton("Hide selected", self.overrides_host)
+        self.hide_node_button.setObjectName("hideNodeButton")
+        self.state_variable_input = QLineEdit(self.overrides_host)
+        self.state_variable_input.setObjectName("stateVariableName")
+        self.state_display_input = QLineEdit(self.overrides_host)
+        self.state_display_input.setObjectName("stateVariableDisplayName")
+        self.state_category_input = QLineEdit(self.overrides_host)
+        self.state_category_input.setObjectName("stateVariableCategory")
+        self.update_state_button = QPushButton("Update variable", self.overrides_host)
+        self.update_state_button.setObjectName("updateStateVariableButton")
+        override_form.addRow("Node name", self.node_name_input)
+        override_form.addRow(self.rename_node_button)
+        override_form.addRow(self.reset_node_name_button)
+        override_form.addRow(self.hide_node_button)
+        override_form.addRow("Variable", self.state_variable_input)
+        override_form.addRow("Display", self.state_display_input)
+        override_form.addRow("Category", self.state_category_input)
+        override_form.addRow(self.update_state_button)
         overrides.setWidget(self.overrides_host)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, overrides)
+
+    def _install_default_story_map(self) -> None:
+        from renpy_story_mapper.ui.graph_canvas import GraphCanvas, SemanticLevel
+        from renpy_story_mapper.ui.presentation_adapter import StoryMapPresenter
+
+        self.graph_canvas = GraphCanvas(self.graph_host)
+        self.map_presenter = StoryMapPresenter(
+            self.graph_canvas, self.evidence_list, self.diagnostics_list, self
+        )
+        self.set_graph_widget(self.graph_canvas)
+        self.set_presentation_service(self.map_presenter)
+
+        toolbar = self.addToolBar("Map")
+        toolbar.setMovable(False)
+        self.back_button = QPushButton("Back", self)
+        self.back_button.setObjectName("mapBackButton")
+        self.level_one_button = QPushButton("Level 1", self)
+        self.level_two_button = QPushButton("Level 2", self)
+        self.level_three_button = QPushButton("Level 3", self)
+        self.fit_button = QPushButton("Fit", self)
+        for button in (
+            self.back_button,
+            self.level_one_button,
+            self.level_two_button,
+            self.level_three_button,
+            self.fit_button,
+        ):
+            toolbar.addWidget(button)
+        self.back_button.clicked.connect(self.map_presenter.go_up)
+        self.level_one_button.clicked.connect(
+            lambda: self.graph_canvas.set_semantic_level(SemanticLevel.OVERVIEW)
+        )
+        self.level_two_button.clicked.connect(
+            lambda: self.graph_canvas.set_semantic_level(SemanticLevel.EVENTS)
+        )
+        self.level_three_button.clicked.connect(
+            lambda: self.graph_canvas.set_semantic_level(SemanticLevel.EVIDENCE)
+        )
+        self.fit_button.clicked.connect(self.graph_canvas.fit_all)
+        self.search_input.returnPressed.connect(
+            lambda: self.map_presenter.search(self.search_input.text())
+        )
+        self.technical_filter.toggled.connect(self.map_presenter.set_include_technical)
+        self.unresolved_filter.toggled.connect(
+            lambda visible: self.graph_canvas.set_kind_visible("unresolved", visible)
+        )
+        self.graph_canvas.set_kind_visible("unresolved", False)
+        self.variable_filter_input.textChanged.connect(
+            lambda value: self.graph_canvas.set_variable_filter(
+                (value.strip(),) if value.strip() else ()
+            )
+        )
+        self.category_filter_input.textChanged.connect(
+            lambda value: self.graph_canvas.set_category_filter(
+                (value.strip(),) if value.strip() else ()
+            )
+        )
+        self.rename_node_button.clicked.connect(
+            lambda: self.map_presenter.rename_selected(self.node_name_input.text())
+        )
+        self.reset_node_name_button.clicked.connect(self.map_presenter.reset_selected_name)
+        self.hide_node_button.clicked.connect(self.map_presenter.hide_selected)
+        self.update_state_button.clicked.connect(
+            lambda: self.map_presenter.update_state_variable(
+                self.state_variable_input.text(),
+                self.state_display_input.text(),
+                self.state_category_input.text(),
+            )
+        )
+        self.map_presenter.status_changed.connect(self.status_label.setText)
+        self.map_presenter.error_occurred.connect(self.diagnostics_list.addItem)
+        self.map_presenter.busy_changed.connect(self._presentation_busy_changed)
 
     def _connect_controller(self) -> None:
         self.controller.state_changed.connect(self._apply_state)
@@ -197,7 +306,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _apply_state(self, state: str) -> None:
-        busy = state == LifecycleState.BUSY.value
+        busy = state == LifecycleState.BUSY.value or self._presentation_busy
         ready = state == LifecycleState.READY.value
         self.select_source_button.setEnabled(not busy)
         self.select_archive_button.setEnabled(not busy)
@@ -206,6 +315,23 @@ class MainWindow(QMainWindow):
         self.close_button.setEnabled(ready)
         self.cancel_button.setEnabled(busy)
         self.search_input.setEnabled(ready)
+        self.variable_filter_input.setEnabled(ready)
+        self.category_filter_input.setEnabled(ready)
+
+    @Slot(bool)
+    def _presentation_busy_changed(self, busy: bool) -> None:
+        self._presentation_busy = busy
+        self._apply_state(self.controller.state.value)
+        if self._close_when_idle and not busy and not self.controller.is_busy:
+            self._close_when_idle = False
+            QTimer.singleShot(0, self.close)
+
+    @Slot()
+    def _cancel_operations(self) -> None:
+        self.controller.cancel()
+        cancel = getattr(self._presentation_service, "cancel", None)
+        if callable(cancel):
+            cancel()
 
     @Slot(str)
     def _complete_pending_close(self, state: str) -> None:
@@ -230,9 +356,10 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Ren'Py Story Mapper", message)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.controller.is_busy:
+        presentation_busy = bool(getattr(self._presentation_service, "is_busy", False))
+        if self.controller.is_busy or presentation_busy:
             self._close_when_idle = True
-            self.controller.cancel()
+            self._cancel_operations()
             event.ignore()
             return
         super().closeEvent(event)

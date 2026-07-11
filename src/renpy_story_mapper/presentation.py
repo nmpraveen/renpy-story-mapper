@@ -121,22 +121,43 @@ class FactRecord:
 
 
 @dataclass(frozen=True)
+class StateVariableRecord:
+    original_name: str
+    display_name: str
+    category: str
+    user_override: bool
+
+
+@dataclass(frozen=True)
 class ResultPage:
-    items: tuple[EvidenceRecord | SearchHit | FactRecord, ...]
+    items: tuple[EvidenceRecord | SearchHit | FactRecord | StateVariableRecord, ...]
     continuation: Continuation
 
 
 class PresentationService:
     """Small non-UI service suitable for a desktop adapter."""
 
-    def __init__(self, project: Project, *, owns_project: bool = False) -> None:
+    def __init__(
+        self,
+        project: Project,
+        *,
+        owns_project: bool = False,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
         self._project = project
         self._owns_project = owns_project
-        ensure_presentation_index(project)
+        ensure_presentation_index(project, cancelled=cancelled)
 
     @classmethod
-    def open(cls, path: str | Path) -> PresentationService:
-        return cls(Project.open(path), owns_project=True)
+    def open(
+        cls, path: str | Path, *, cancelled: Callable[[], bool] | None = None
+    ) -> PresentationService:
+        project = Project.open(path)
+        try:
+            return cls(project, owns_project=True, cancelled=cancelled)
+        except BaseException:
+            project.close()
+            raise
 
     def close(self) -> None:
         if self._owns_project:
@@ -278,8 +299,11 @@ class PresentationService:
             clauses.append("search_id > ?")
             parameters.append(int(after))
         rows = self._project._require_open().execute(
-            f"""SELECT * FROM presentation_search WHERE {' AND '.join(clauses)}
-            ORDER BY search_id LIMIT ?""",
+            f"""SELECT s.* FROM presentation_search s
+            LEFT JOIN presentation_overrides o ON o.node_id=s.node_id
+            WHERE {' AND '.join('s.' + clause if clause.startswith(('normalized', 'field', 'search_id')) else clause for clause in clauses)}
+              AND COALESCE(o.hidden, 0)=0
+            ORDER BY s.search_id LIMIT ?""",
             (*parameters, bounded + 1),
         ).fetchall()
         has_more = len(rows) > bounded
@@ -334,6 +358,84 @@ class PresentationService:
             Continuation(len(items), has_more, str(rows[-1]["sort_key"]) if has_more else None),
         )
 
+    def lineage(self, node_id: str) -> tuple[PresentationNode, ...]:
+        """Return the bounded root-to-node lineage for search-driven navigation."""
+
+        connection = self._project._require_open()
+        lineage: list[PresentationNode] = []
+        current: str | None = node_id
+        while current is not None and len(lineage) < 3:
+            row = connection.execute(
+                """SELECT n.*, COALESCE(o.display_name, n.label) AS display_label,
+                          (SELECT COUNT(*) FROM presentation_nodes c WHERE c.parent_id=n.node_id)
+                              AS child_count
+                   FROM presentation_nodes n
+                   LEFT JOIN presentation_overrides o ON o.node_id=n.node_id
+                   WHERE n.node_id=? AND COALESCE(o.hidden, 0)=0""",
+                (current,),
+            ).fetchone()
+            if row is None:
+                break
+            node = _node_from_row(row)
+            lineage.append(node)
+            current = node.parent_id
+        return tuple(reversed(lineage))
+
+    def state_variables(
+        self, *, after: str | None = None, limit: int = 50
+    ) -> ResultPage:
+        """Return a bounded alphabetical slice of user-editable state metadata."""
+
+        bounded = _bounded_limit(limit, MAX_RESULTS)
+        clauses = [
+            "p.collection='state_registry'",
+            "p.record_key='authoritative'",
+        ]
+        parameters: list[object] = []
+        if after is not None:
+            clauses.append("json_extract(v.value,'$.original_name') > ?")
+            parameters.append(after)
+        rows = self._project._require_open().execute(
+            f"""SELECT json_extract(v.value,'$.original_name') AS original_name,
+                       COALESCE(json_extract(v.value,'$.display_name'),
+                                json_extract(v.value,'$.original_name')) AS display_name,
+                       COALESCE(json_extract(v.value,'$.category'),'uncategorized') AS category,
+                       COALESCE(json_extract(v.value,'$.user_override'),0) AS user_override
+                FROM payloads p, json_each(CAST(p.payload_json AS TEXT)) v
+                WHERE {' AND '.join(clauses)}
+                ORDER BY original_name LIMIT ?""",
+            (*parameters, bounded + 1),
+        ).fetchall()
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
+        items = tuple(
+            StateVariableRecord(
+                str(row["original_name"]),
+                str(row["display_name"]),
+                str(row["category"]),
+                bool(row["user_override"]),
+            )
+            for row in rows
+        )
+        return ResultPage(
+            items,
+            Continuation(
+                len(items), has_more, items[-1].original_name if has_more else None
+            ),
+        )
+
+    def update_state_variable(
+        self,
+        original_name: str,
+        *,
+        display_name: str | None = None,
+        category: str | None = None,
+    ) -> None:
+        self._project.update_state_variable(
+            original_name, display_name=display_name, category=category
+        )
+        ensure_presentation_index(self._project)
+
     def rename_node(self, node_id: str, name: str | None) -> None:
         if name is not None and not name.strip():
             raise ValueError("presentation node name cannot be empty")
@@ -378,14 +480,16 @@ class PresentationService:
                 )
 
 
-def ensure_presentation_index(project: Project) -> None:
+def ensure_presentation_index(
+    project: Project, *, cancelled: Callable[[], bool] | None = None
+) -> None:
     connection = project._require_open()
     row = connection.execute(
         "SELECT generation FROM presentation_index_state WHERE singleton = 1"
     ).fetchone()
     expected = _presentation_generation(connection)
     if row is None or str(row["generation"]) != expected:
-        rebuild_presentation_index(project)
+        rebuild_presentation_index(project, cancelled=cancelled)
 
 
 def rebuild_presentation_index(
