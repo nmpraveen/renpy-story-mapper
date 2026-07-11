@@ -12,7 +12,7 @@ Runtime authority: Windows with CPython 3.12
 | --- | --- | --- | --- | --- | --- | --- |
 | `019f5116-c600-71a3-b933-de9a2e0f92bd` | M05 - Story Organization Model | Schema v4, migrations, organization records, quotient event/arc graph, corrections, and caching | `codex/m05-story-model`; `C:\Users\prave\.codex\worktrees\m05-story-model\Renpy` | Storage/story-domain modules and tests; no provider or UI code | Delivered; first candidate returned for cache, coverage/order, review-before-apply, pinned-rerun, evidence, and corruption-safety gaps; corrected, independently verified, and integrated | Worker `f2ea8c4` + `9345924`; integrated `c3e34a4` + `9bd2f7c` |
 | `019f5117-6cfe-75f0-a934-887c14245b0a` | M05 - Secure Codex Organizer | Codex CLI discovery, ChatGPT/LM Studio modes, chunking, schemas, validation, cancellation, consent boundary, and sanitized errors | `codex/m05-codex-organizer`; `C:\Users\prave\.codex\worktrees\m05-codex-organizer\Renpy` | New provider/organization package and mocked process tests; no UI or storage migrations | Delivered; first candidate returned for lifecycle, privacy, ordering, cache-profile, input-minimization, and chunk-boundary gaps; corrected, independently verified, and integrated | Worker `c81f158` + `04d1e61`; integrated `c937a6b` + `ac6f38e` |
-| `019f5142-640e-7350-b2bc-69acb7f5fa2a` | M05 - Deterministic Layout and Fixtures | Layered layout, branch lanes, semantic styles, representative story and evaluation fixtures | `codex/m05-layout-and-fixtures`; `C:\Users\prave\.codex\worktrees\m05-layout-and-fixtures\Renpy` | Canvas/layout modules plus new fixtures/tests; no shell, provider, or storage edits | Active from accepted model/provider integration base `cc86cfa` | Pending |
+| `019f5142-640e-7350-b2bc-69acb7f5fa2a` | M05 - Deterministic Layout and Fixtures | Layered layout, branch lanes, semantic styles, representative story and evaluation fixtures | `codex/m05-layout-and-fixtures`; `C:\Users\prave\.codex\worktrees\m05-layout-and-fixtures\Renpy` | Canvas/layout modules plus new fixtures/tests; no shell, provider, or storage edits | Delivered, diff-inspected, independently verified, and integrated | Worker `c9c15b1`; integrated `9b1e98d` |
 | Pending | M05 - Arc-first Story Explorer UI | Welcome screen, three-pane workspace, review flow, inspector, corrections, adaptive theme, accessibility, screenshots, and UI tests | `codex/m05-story-explorer-ui`; worktree pending | UI package after shared contracts; no provider or storage implementation | Planned after model/provider/layout integration | Pending |
 | Pending | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; worktree pending | New review tests/fixtures and evidence only; production edits excluded | Planned after full integration | Pending |
 
@@ -59,3 +59,8 @@ inside scope.
   `pip check` on Windows CPython 3.12.
 - 2026-07-11: Started the deterministic-layout and evaluation-fixtures task from integrated commit
   `cc86cfa` in its own explicit branch and Git worktree.
+- 2026-07-11: Integrated the deterministic layout after inspecting its 838-line candidate diff and
+  independently verifying 9 focused and 196 full tests, Ruff, strict mypy across 32 source files,
+  `pip check`, and `git diff --check`. The representative layout hash is
+  `369cf3be135d2b7a0aa45c8b4baaee9bf0b789123ab8e87c187e25898896d256`; the worker measured the
+  240-item fixture at 1.617 ms median and 1.809 ms p95 across 200 runs.
