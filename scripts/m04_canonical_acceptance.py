@@ -39,8 +39,9 @@ def main() -> int:
     started = time.perf_counter()
     try:
         service = PresentationService.open(project_path)
-    finally:
+    except BaseException:
         Project.payload = original_payload
+        raise
     open_seconds = time.perf_counter() - started
 
     try:
@@ -88,6 +89,20 @@ def main() -> int:
         )
         assert 1 <= len(evidence.nodes) <= 4
 
+        search_started = time.perf_counter()
+        variable_hits = service.search("ian_wits", fields=("variable",), limit=25)
+        variable_search_seconds = time.perf_counter() - search_started
+        assert variable_hits.items
+        evidence_started = time.perf_counter()
+        overview_evidence = service.evidence(prologue.id, limit=50)
+        overview_evidence_seconds = time.perf_counter() - evidence_started
+        assert overview_evidence.items
+        choice = next(node for node in events.nodes if node.kind == "choice_group")
+        choice_started = time.perf_counter()
+        choice_facts = service.choice_outcome_facts(choice.id, limit=50)
+        choice_facts_seconds = time.perf_counter() - choice_started
+        assert choice_facts.items
+
         expected = (
             ("gate", "ian_wits", "script.rpy", 244),
             ("gate", "ian_charisma", "script.rpy", 246),
@@ -131,6 +146,7 @@ def main() -> int:
         ).encode("utf-8")
     finally:
         service.close()
+        Project.payload = original_payload
 
     _, peak_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -155,6 +171,12 @@ def main() -> int:
                 "presentation_search",
             )
         }
+        presentation_indexes = sorted(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type='index' AND name LIKE 'presentation_%'"
+            )
+        )
     finally:
         connection.close()
 
@@ -164,6 +186,9 @@ def main() -> int:
         "schema_version": schema_version,
         "first_open_and_index_seconds": round(open_seconds, 3),
         "overview_query_seconds": round(overview_seconds, 3),
+        "variable_search_seconds": round(variable_search_seconds, 3),
+        "overview_evidence_seconds": round(overview_evidence_seconds, 3),
+        "choice_outcome_facts_seconds": round(choice_facts_seconds, 3),
         "second_open_and_overview_seconds": round(second_open_seconds, 3),
         "python_tracemalloc_peak_bytes": peak_bytes,
         "overview_nodes_returned": len(overview.nodes),
@@ -172,7 +197,10 @@ def main() -> int:
         "new_prologue_child_count": prologue.child_count,
         "new_prologue_event_nodes": len(events.nodes),
         "first_event_evidence_nodes": len(evidence.nodes),
+        "overview_evidence_records": len(overview_evidence.items),
+        "choice_outcome_facts": len(choice_facts.items),
         "table_counts": table_counts,
+        "presentation_indexes": presentation_indexes,
         "verified_facts": verified_facts,
         "deterministic_output_sha256": hashlib.sha256(deterministic_bytes).hexdigest(),
     }
