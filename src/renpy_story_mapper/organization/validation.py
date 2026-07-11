@@ -55,6 +55,8 @@ def _strings(
 def _text(value: object, name: str, maximum: int | None = None) -> str:
     if not isinstance(value, str):
         raise _reject(f"{name} must be text")
+    if not value.strip():
+        raise _reject(f"{name} must not be empty")
     if maximum is not None and len(value) > maximum:
         raise _reject(f"{name} exceeds {maximum} characters")
     return value

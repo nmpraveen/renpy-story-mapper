@@ -68,6 +68,7 @@ class Process(Protocol):
 
 
 ProcessFactory = Callable[[], Process]
+ExecutableResolver = Callable[[str], str | None]
 
 
 def _qt_process() -> Process:
@@ -89,6 +90,7 @@ class CodexCliProvider:
         *,
         executable: str = "codex",
         process_factory: ProcessFactory | None = None,
+        executable_resolver: ExecutableResolver | None = None,
     ) -> None:
         self.mode = mode
         self.executable = executable
@@ -96,6 +98,7 @@ class CodexCliProvider:
         self._active: Process | None = None
         self._cancel_requested = threading.Event()
         self._using_default_factory = process_factory is None
+        self._executable_resolver = executable_resolver
         self._cached_status: ProviderStatus | None = None
         self._resolved_executable: str | None = None
         self._input_tokens: int | None = None
@@ -108,7 +111,11 @@ class CodexCliProvider:
         if self._using_default_factory:
             resolved, version = self._discover_native_executable()
         else:
-            resolved = shutil.which(self.executable)
+            resolved = (
+                self._executable_resolver(self.executable)
+                if self._executable_resolver is not None
+                else self.executable
+            )
             version = None
         if resolved is None:
             self._cached_status = ProviderStatus(
@@ -148,60 +155,70 @@ class CodexCliProvider:
         progress: ProgressCallback,
         cancelled: CancelledCallback,
     ) -> OrganizationChunkResult:
-        if self.mode is CodexMode.CODEX_CHATGPT and request.cloud_consent_run_id != request.run_id:
-            raise ConsentRequiredError(
-                "Confirm cloud story transmission for this organization run before continuing."
-            )
-        if self.status().state is ProviderState.MISSING:
-            raise ProviderUnavailableError(
-                "Codex CLI is unavailable. Install it or use deterministic organization."
-            )
-        self._cancel_requested.clear()
-        self._input_tokens = None
-        self._output_tokens = None
-        self._effective_model = request.model
-        progress(0, "Preparing isolated organizer")
-        started_at = time.monotonic()
-        last_error: InvalidProviderOutputError | None = None
-        for attempt in (1, 2):
-            try:
-                raw = self._execute(request, progress, cancelled, repair=attempt == 2)
-                result = validate_result(raw, request)
-                normalized = json.dumps(
-                    result.raw_normalized,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-                input_material = self._prompt(request, repair=False).encode("utf-8")
-                return OrganizationChunkResult(
-                    stage=result.stage,
-                    groups=result.groups,
-                    ungrouped_ids=result.ungrouped_ids,
-                    raw_normalized=result.raw_normalized,
-                    attempts=attempt,
-                    metadata=ProviderExecutionMetadata(
-                        provider_mode=self.mode,
-                        model_identifier=self._effective_model,
-                        cli_version=self.status().cli_version,
-                        elapsed_ms=round((time.monotonic() - started_at) * 1000),
-                        input_hash=hashlib.sha256(input_material).hexdigest(),
-                        output_hash=hashlib.sha256(normalized).hexdigest(),
-                        input_tokens=self._input_tokens,
-                        output_tokens=self._output_tokens,
-                    ),
+        try:
+            if cancelled() or self._cancel_requested.is_set():
+                raise OrganizationCancelledError(
+                    "Story organization was cancelled before transmission; "
+                    "the accepted map was not changed."
                 )
-            except InvalidProviderOutputError as exc:
-                last_error = exc
-                if attempt == 1:
-                    progress(75, "Repairing structured output")
-                    continue
-                raise InvalidProviderOutputError(
-                    "The organizer returned invalid structured output twice; "
-                    "using deterministic organization."
-                ) from None
-        assert last_error is not None
-        raise last_error
+            if (
+                self.mode is CodexMode.CODEX_CHATGPT
+                and request.cloud_consent_run_id != request.run_id
+            ):
+                raise ConsentRequiredError(
+                    "Confirm cloud story transmission for this organization run before continuing."
+                )
+            if self.status().state is ProviderState.MISSING:
+                raise ProviderUnavailableError(
+                    "Codex CLI is unavailable. Install it or use deterministic organization."
+                )
+            self._input_tokens = None
+            self._output_tokens = None
+            self._effective_model = request.model
+            progress(0, "Preparing isolated organizer")
+            started_at = time.monotonic()
+            last_error: InvalidProviderOutputError | None = None
+            for attempt in (1, 2):
+                try:
+                    raw = self._execute(request, progress, cancelled, repair=attempt == 2)
+                    result = validate_result(raw, request)
+                    normalized = json.dumps(
+                        result.raw_normalized,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    input_material = self._prompt(request, repair=False).encode("utf-8")
+                    return OrganizationChunkResult(
+                        stage=result.stage,
+                        groups=result.groups,
+                        ungrouped_ids=result.ungrouped_ids,
+                        raw_normalized=result.raw_normalized,
+                        attempts=attempt,
+                        metadata=ProviderExecutionMetadata(
+                            provider_mode=self.mode,
+                            model_identifier=self._effective_model,
+                            cli_version=self.status().cli_version,
+                            elapsed_ms=round((time.monotonic() - started_at) * 1000),
+                            input_hash=hashlib.sha256(input_material).hexdigest(),
+                            output_hash=hashlib.sha256(normalized).hexdigest(),
+                            input_tokens=self._input_tokens,
+                            output_tokens=self._output_tokens,
+                        ),
+                    )
+                except InvalidProviderOutputError as exc:
+                    last_error = exc
+                    if attempt == 1:
+                        progress(75, "Repairing structured output")
+                        continue
+                    raise InvalidProviderOutputError(
+                        "The organizer returned invalid structured output twice; "
+                        "using deterministic organization."
+                    ) from None
+            assert last_error is not None
+            raise last_error
+        finally:
+            self._cancel_requested.clear()
 
     def cancel(self) -> None:
         self._cancel_requested.set()
@@ -214,6 +231,11 @@ class CodexCliProvider:
         *,
         repair: bool,
     ) -> object:
+        if cancelled() or self._cancel_requested.is_set():
+            raise OrganizationCancelledError(
+                "Story organization was cancelled before transmission; "
+                "the accepted map was not changed."
+            )
         schema = files("renpy_story_mapper.organization.schemas").joinpath(
             f"{request.stage.value}.schema.json"
         )
@@ -222,24 +244,32 @@ class CodexCliProvider:
         ) as temp_path:
             process = self._process_factory()
             self._active = process
-            process.setWorkingDirectory(temp_path)
-            program, arguments = self.command(schema_path, request.model)
-            process.start(program, arguments)
-            if not process.waitForStarted(5_000):
-                self._active = None
-                raise ProviderUnavailableError(
-                    "Codex CLI could not start. Check the installation and provider availability."
-                )
-            prompt = self._prompt(request, repair=repair)
-            if process.write(prompt.encode("utf-8")) < 0:
-                self._stop_process(process)
-                raise ProviderUnavailableError("Codex CLI did not accept organization input.")
-            process.closeWriteChannel()
-            progress(20, "Organizing story structure")
-            deadline = time.monotonic() + request.timeout_seconds
-            buffer = b""
-            final_payload: object | None = None
             try:
+                if cancelled() or self._cancel_requested.is_set():
+                    raise OrganizationCancelledError(
+                        "Story organization was cancelled before transmission; "
+                        "the accepted map was not changed."
+                    )
+                process.setWorkingDirectory(temp_path)
+                program, arguments = self.command(schema_path, request.model)
+                process.start(program, arguments)
+                if not process.waitForStarted(5_000):
+                    raise ProviderUnavailableError(
+                        "Codex CLI could not start. Check the installation and provider "
+                        "availability."
+                    )
+                prompt = self._prompt(request, repair=repair).encode("utf-8")
+                written = process.write(prompt)
+                if written != len(prompt):
+                    self._stop_process(process)
+                    raise ProviderUnavailableError(
+                        "Codex CLI did not accept the complete organization input."
+                    )
+                process.closeWriteChannel()
+                progress(20, "Organizing story structure")
+                deadline = time.monotonic() + request.timeout_seconds
+                buffer = b""
+                final_payload: object | None = None
                 while not process.waitForFinished(_POLL_MS):
                     buffer += _as_bytes(process.readAllStandardOutput())
                     buffer, found = self._consume_lines(buffer, process)
@@ -270,7 +300,10 @@ class CodexCliProvider:
                 progress(100, "Organization chunk validated")
                 return final_payload
             finally:
-                self._active = None
+                if not process.waitForFinished(0):
+                    self._stop_process(process)
+                if self._active is process:
+                    self._active = None
 
     def _consume_lines(self, buffer: bytes, process: Process) -> tuple[bytes, object | None]:
         lines = buffer.split(b"\n")
@@ -293,6 +326,7 @@ class CodexCliProvider:
                     "The organizer attempted a forbidden tool, web, MCP, command, or file action."
                 )
             if isinstance(event, dict) and event.get("type") in {"error", "turn.failed"}:
+                self._stop_process(process)
                 self._raise_process_failure(marker_text.encode("utf-8"))
             self._capture_metadata(event)
             candidate = self._extract_result(event)

@@ -12,6 +12,7 @@ from renpy_story_mapper.organization.contracts import CodexMode, OrganizationReq
 @dataclass(frozen=True)
 class OrganizationCacheKey:
     provider_mode: CodexMode
+    model_profile: str
     model_fingerprint: str
     prompt_version: str
     schema_version: str
@@ -20,6 +21,7 @@ class OrganizationCacheKey:
     def digest(self) -> str:
         fields = {
             "provider_mode": self.provider_mode.value,
+            "model_profile": self.model_profile,
             "model_fingerprint": self.model_fingerprint,
             "prompt_version": self.prompt_version,
             "schema_version": self.schema_version,
@@ -34,6 +36,7 @@ def build_cache_key(
     request: OrganizationRequest,
     *,
     provider_mode: CodexMode,
+    model_profile: str,
     model_fingerprint: str,
     prompt_version: str,
     schema_version: str,
@@ -58,6 +61,7 @@ def build_cache_key(
     ).hexdigest()
     return OrganizationCacheKey(
         provider_mode=provider_mode,
+        model_profile=model_profile,
         model_fingerprint=model_fingerprint,
         prompt_version=prompt_version,
         schema_version=schema_version,

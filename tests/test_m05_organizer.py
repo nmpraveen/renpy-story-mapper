@@ -157,12 +157,100 @@ def test_chunking_splits_scenes_and_rejects_duplicate_or_oversized_beats() -> No
         )
 
 
+def test_chunking_preserves_supplied_chronology_across_reverse_lexical_scenes() -> None:
+    beats = [_beat(1, scene="z-last-lexically"), _beat(2, scene="a-first-lexically")]
+    chunks = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=beats,
+        facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
+    )
+    assert [chunk.payload["scene_id"] for chunk in chunks] == [
+        "z-last-lexically",
+        "a-first-lexically",
+    ]
+    assert [member for chunk in chunks for member in chunk.constraints.ordered_member_ids] == [
+        "beat-1",
+        "beat-2",
+    ]
+
+
+def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None:
+    near_limit = BeatRecord(
+        **{**_beat(3).__dict__, "text": "x" * 46_500, "fact_ids": ("fact-1",)}
+    )
+    chunks = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[_beat(1), _beat(2, kind="choice"), near_limit],
+        facts=[
+            FactRecord(
+                "fact-1",
+                "points += 1 " + "f" * 1_000,
+                "points +1",
+                "proven",
+                ("evidence-1",),
+            )
+        ],
+    )
+    assert [member for chunk in chunks for member in chunk.constraints.ordered_member_ids] == [
+        "beat-1",
+        "beat-2",
+        "beat-3",
+    ]
+    assert all(
+        len(json.dumps(chunk.payload, ensure_ascii=False, separators=(",", ":")))
+        <= MAX_CHARS
+        for chunk in chunks
+    )
+    final_chunk = next(
+        chunk
+        for chunk in chunks
+        if chunk.constraints.ordered_member_ids == ("beat-3",)
+    )
+    assert final_chunk.constraints.context_member_ids == frozenset()
+
+    large_a = BeatRecord(
+        **{**_beat(10).__dict__, "text": "a" * 22_000, "fact_ids": ("large-fact",)}
+    )
+    large_b = BeatRecord(
+        **{**_beat(11).__dict__, "text": "b" * 22_000, "fact_ids": ("large-fact",)}
+    )
+    fact_heavy = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[large_a, large_b],
+        facts=[
+            FactRecord(
+                "large-fact",
+                "expression " + "f" * 5_000,
+                "value",
+                "proven",
+                ("evidence-large",),
+            )
+        ],
+    )
+    assert len(fact_heavy) == 2
+    assert all(
+        len(json.dumps(chunk.payload, ensure_ascii=False, separators=(",", ":")))
+        <= MAX_CHARS
+        for chunk in fact_heavy
+    )
+
+
 def test_three_stage_requests_keep_full_dialogue_out_of_arc_stage() -> None:
     reconcile = build_reconciliation_request(
         run_id="run",
         chunk_id="reconcile",
         scope_id="scene",
-        events=[{"id": "event-1", "summary": "Summary"}],
+        events=[
+            {
+                "id": "event-1",
+                "title": "Event One",
+                "summary": "Summary",
+                "member_ids": ["beat-1"],
+            }
+        ],
         ordered_event_ids=("event-1",),
         evidence_ids=frozenset({"evidence-1"}),
         fact_ids=frozenset({"fact-1"}),
@@ -171,8 +259,29 @@ def test_three_stage_requests_keep_full_dialogue_out_of_arc_stage() -> None:
         run_id="run",
         chunk_id="arcs",
         scope_id="story",
-        event_summaries=[{"id": "event-1", "summary": "Summary", "facts": ["fact-1"]}],
-        ordered_event_ids=("event-1",),
+        event_summaries=[
+            {
+                "id": "event-1",
+                "title": "Event One",
+                "summary": "Summary",
+                "major_fact_ids": ["fact-1"],
+                "characters": ["Ava"],
+                "importance": "major",
+                "outcomes": ["Outcome"],
+                "evidence_ids": ["evidence-1"],
+            },
+            {
+                "id": "event-2",
+                "title": "Event Two",
+                "summary": "Next summary",
+                "major_fact_ids": [],
+                "characters": ["Ava"],
+                "importance": "supporting",
+                "outcomes": [],
+                "evidence_ids": ["evidence-1"],
+            },
+        ],
+        ordered_event_ids=("event-1", "event-2"),
         evidence_ids=frozenset({"evidence-1"}),
         fact_ids=frozenset({"fact-1"}),
         characters=frozenset({"Ava"}),
@@ -185,20 +294,62 @@ def test_three_stage_requests_keep_full_dialogue_out_of_arc_stage() -> None:
         {"source": "event-1", "target": "event-2"}
     ]
 
+    for forbidden_field in (
+        "dialogue",
+        "narration",
+        "source_text",
+        "source_location",
+        "condition",
+    ):
+        forbidden = dict(arc.payload["events"][0])
+        forbidden[forbidden_field] = "raw story text"
+        with pytest.raises(ValueError, match="allowlist"):
+            build_arc_request(
+                run_id="run",
+                chunk_id="arcs",
+                scope_id="story",
+                event_summaries=[forbidden],
+                ordered_event_ids=("event-1",),
+                evidence_ids=frozenset({"evidence-1"}),
+                fact_ids=frozenset({"fact-1"}),
+                characters=frozenset({"Ava"}),
+                local_connectivity=[],
+            )
+    with pytest.raises(ValueError, match="forbidden raw story"):
+        build_reconciliation_request(
+            run_id="run",
+            chunk_id="reconcile",
+            scope_id="scene",
+            events=[
+                {
+                    "id": "event-1",
+                    "title": "Event One",
+                    "summary": "Summary",
+                    "member_ids": ["beat-1"],
+                    "source_text": "forbidden",
+                }
+            ],
+            ordered_event_ids=("event-1",),
+            evidence_ids=frozenset({"evidence-1"}),
+            fact_ids=frozenset({"fact-1"}),
+        )
+
 
 def test_cache_key_covers_content_order_provider_model_prompt_and_schema() -> None:
     request = _request()
     baseline = build_cache_key(
         request,
         provider_mode=CodexMode.CODEX_CHATGPT,
-        model_fingerprint="balanced",
+        model_profile="balanced",
+        model_fingerprint="model-sha-a",
         prompt_version="p1",
         schema_version="s1",
     )
     duplicate = build_cache_key(
         request,
         provider_mode=CodexMode.CODEX_CHATGPT,
-        model_fingerprint="balanced",
+        model_profile="balanced",
+        model_fingerprint="model-sha-a",
         prompt_version="p1",
         schema_version="s1",
     )
@@ -207,15 +358,17 @@ def test_cache_key_covers_content_order_provider_model_prompt_and_schema() -> No
         build_cache_key(
             request,
             provider_mode=mode,
+            model_profile=profile,
             model_fingerprint=model,
             prompt_version=prompt,
             schema_version=schema,
         ).digest()
-        for mode, model, prompt, schema in [
-            (CodexMode.CODEX_LMSTUDIO, "balanced", "p1", "s1"),
-            (CodexMode.CODEX_CHATGPT, "different", "p1", "s1"),
-            (CodexMode.CODEX_CHATGPT, "balanced", "p2", "s1"),
-            (CodexMode.CODEX_CHATGPT, "balanced", "p1", "s2"),
+        for mode, profile, model, prompt, schema in [
+            (CodexMode.CODEX_LMSTUDIO, "balanced", "model-sha-a", "p1", "s1"),
+            (CodexMode.CODEX_CHATGPT, "quality", "model-sha-a", "p1", "s1"),
+            (CodexMode.CODEX_CHATGPT, "balanced", "model-sha-b", "p1", "s1"),
+            (CodexMode.CODEX_CHATGPT, "balanced", "model-sha-a", "p2", "s1"),
+            (CodexMode.CODEX_CHATGPT, "balanced", "model-sha-a", "p1", "s2"),
         ]
     ]
     assert baseline.digest() not in variants
@@ -235,8 +388,19 @@ def test_all_packaged_stage_schemas_are_strict_and_self_contained() -> None:
         assert schema["additionalProperties"] is False
         assert schema["properties"]["stage"]["const"] == stage.value
         assert "$defs" in schema
+        group_properties = schema["$defs"]["group"]["properties"]
+        assert group_properties["title"]["minLength"] == 1
+        assert group_properties["summary"]["minLength"] == 1
         serialized = json.dumps(schema)
         assert "events.schema.json" not in serialized
+
+
+@pytest.mark.parametrize("field", ["title", "summary"])
+def test_validator_rejects_empty_titles_and_summaries(field: str) -> None:
+    payload = _valid_payload()
+    payload["groups"][0][field] = "   "
+    with pytest.raises(InvalidProviderOutputError, match="must not be empty"):
+        validate_result(payload, _request())
 
 
 @pytest.mark.parametrize(
@@ -303,6 +467,7 @@ class FakeProcess:
         never_finishes: bool = False,
         ignore_terminate: bool = False,
         start_ok: bool = True,
+        write_result: int | None = None,
     ) -> None:
         self.output = output
         self.stderr = stderr
@@ -310,6 +475,7 @@ class FakeProcess:
         self.never_finishes = never_finishes
         self.ignore_terminate = ignore_terminate
         self.start_ok = start_ok
+        self.write_result = write_result
         self.started: tuple[str, list[str]] | None = None
         self.cwd = ""
         self.stdin = b""
@@ -328,8 +494,10 @@ class FakeProcess:
         return self.start_ok
 
     def write(self, data: bytes) -> int:
-        self.stdin += data
-        return len(data)
+        written = len(data) if self.write_result is None else self.write_result
+        if written > 0:
+            self.stdin += data[:written]
+        return written
 
     def closeWriteChannel(self) -> None:
         pass
@@ -439,6 +607,62 @@ def test_cloud_provider_requires_fresh_matching_consent_before_process_creation(
     assert not called
 
 
+def test_injected_provider_does_not_consult_machine_codex_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_which(_name: str) -> str:
+        raise AssertionError("machine PATH must not be consulted for an injected provider")
+
+    monkeypatch.setattr(
+        "renpy_story_mapper.organization.provider.shutil.which", forbidden_which
+    )
+    process = FakeProcess(_jsonl(_valid_payload()))
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    assert provider.status().state is ProviderState.READY
+    assert provider.organize(
+        _request(), lambda _p, _s: None, lambda: False
+    ).groups[0].id == "group-1"
+
+
+@pytest.mark.parametrize("use_cancel_method", [False, True])
+def test_pre_cancel_never_creates_process_or_writes_story_input(
+    use_cancel_method: bool,
+) -> None:
+    created: list[FakeProcess] = []
+
+    def factory() -> FakeProcess:
+        process = FakeProcess(b"")
+        created.append(process)
+        return process
+
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=factory)
+    if use_cancel_method:
+        provider.cancel()
+    with pytest.raises(OrganizationCancelledError, match="before transmission"):
+        provider.organize(
+            _request(),
+            lambda _p, _s: None,
+            (lambda: False) if use_cancel_method else (lambda: True),
+        )
+    assert created == []
+
+
+def test_direct_execute_pre_cancel_never_creates_process() -> None:
+    called = False
+
+    def factory() -> FakeProcess:
+        nonlocal called
+        called = True
+        return FakeProcess(b"")
+
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=factory)
+    with pytest.raises(OrganizationCancelledError, match="before transmission"):
+        provider._execute(
+            _request(), lambda _p, _s: None, lambda: True, repair=False
+        )
+    assert not called
+
+
 def test_provider_repairs_once_then_accepts_and_never_more_than_twice() -> None:
     processes = [FakeProcess(_jsonl({"bad": True})), FakeProcess(_jsonl(_valid_payload()))]
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: processes.pop(0))
@@ -465,11 +689,50 @@ def test_provider_terminates_and_rejects_policy_events(marker: str) -> None:
 def test_provider_cancellation_terminates_with_bounded_wait_and_cleans_temp() -> None:
     process = FakeProcess(b"", never_finishes=True, ignore_terminate=True)
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    checks = 0
+
+    def cancel_after_start() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 4
+
     with pytest.raises(OrganizationCancelledError):
-        provider.organize(_request(), lambda _p, _s: None, lambda: True)
+        provider.organize(_request(), lambda _p, _s: None, cancel_after_start)
     assert process.terminated
     assert process.killed
-    assert sum(process.wait_arguments[-2:]) == 1_950
+    assert 1_750 in process.wait_arguments
+    assert 200 in process.wait_arguments
+    assert not Path(process.cwd).exists()
+
+
+@pytest.mark.parametrize("write_result", [-1, 5])
+def test_failed_or_partial_stdin_write_stops_and_cleans_process(
+    write_result: int,
+) -> None:
+    process = FakeProcess(b"", never_finishes=True, write_result=write_result)
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    with pytest.raises(ProviderUnavailableError, match="complete organization input"):
+        provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    assert process.terminated
+    assert provider._active is None
+    assert not Path(process.cwd).exists()
+    assert len(process.stdin) == max(0, write_result)
+
+
+def test_running_error_event_stops_process_clears_active_and_cleans_temp() -> None:
+    event = {
+        "type": "turn.failed",
+        "error": {"message": "429 rate limit SECRET-STORY"},
+    }
+    process = FakeProcess(
+        (json.dumps(event) + "\n").encode(), never_finishes=True
+    )
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    with pytest.raises(ProviderRateLimitError) as exc_info:
+        provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    assert "SECRET-STORY" not in str(exc_info.value)
+    assert process.terminated
+    assert provider._active is None
     assert not Path(process.cwd).exists()
 
 
@@ -523,3 +786,5 @@ def test_provider_reports_process_start_failure_without_writing_input() -> None:
     with pytest.raises(ProviderUnavailableError, match="could not start"):
         provider.organize(_request(), lambda _p, _s: None, lambda: False)
     assert process.stdin == b""
+    assert provider._active is None
+    assert not Path(process.cwd).exists()
