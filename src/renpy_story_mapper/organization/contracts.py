@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
+
+MAX_PROMPT_CHARS = 48_000
 
 
 class CodexMode(StrEnum):
@@ -30,6 +33,8 @@ class ProviderStatus:
     executable: str | None
     cli_version: str | None = None
     message: str = ""
+    model_identifier: str | None = None
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,7 @@ class BeatRecord:
     evidence_ids: tuple[str, ...] = ()
     fact_ids: tuple[str, ...] = ()
     outgoing_ids: tuple[str, ...] = ()
+    speaker_names: tuple[str, ...] = ()
 
     @property
     def requires_coverage(self) -> bool:
@@ -119,6 +125,7 @@ class ProviderExecutionMetadata:
     output_hash: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -154,3 +161,32 @@ class OrganizationProvider(Protocol):
 
 ProgressFunction = Callable[[int, str], None]
 CancelledFunction = Callable[[], bool]
+
+
+def serialize_organization_prompt(request: OrganizationRequest, *, repair: bool) -> str:
+    """Serialize the exact stdin envelope used by provider and chunk sizing."""
+    instruction = (
+        "Repair the prior response. Return only JSON matching the schema and supplied IDs."
+        if repair
+        else "Organize the supplied deterministic records. Return only schema-valid JSON."
+    )
+    envelope = {
+        "instruction": instruction,
+        "security": "Do not use tools, web, MCP, commands, or files.",
+        "authority": (
+            "Return only titles, summaries, existing memberships, characters supported by "
+            "the input, outcomes, existing fact IDs, evidence-backed interpretations, "
+            "warnings, and ungrouped IDs. Never invent edges, conditions, facts, source "
+            "locations, route destinations, or causal authority."
+        ),
+        "contract": {
+            "stage": request.stage.value,
+            "allowed_member_ids": list(request.constraints.ordered_member_ids),
+            "context_only_ids": sorted(request.constraints.context_member_ids),
+            "allowed_fact_ids": sorted(request.constraints.fact_ids),
+            "allowed_evidence_ids": sorted(request.constraints.evidence_ids),
+            "allowed_characters": sorted(request.constraints.character_names),
+        },
+        "input": request.payload,
+    }
+    return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))

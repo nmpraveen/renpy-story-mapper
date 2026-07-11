@@ -9,13 +9,18 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from http.client import HTTPMessage
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import Protocol, cast
+from queue import Empty, Queue
+from typing import IO, Protocol, cast
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from PySide6.QtCore import QByteArray, QProcess
+from PySide6.QtCore import QByteArray, QProcess, QProcessEnvironment
 
 from renpy_story_mapper.organization.contracts import (
+    MAX_PROMPT_CHARS,
     CancelledCallback,
     CodexMode,
     OrganizationChunkResult,
@@ -24,6 +29,7 @@ from renpy_story_mapper.organization.contracts import (
     ProviderExecutionMetadata,
     ProviderState,
     ProviderStatus,
+    serialize_organization_prompt,
 )
 from renpy_story_mapper.organization.errors import (
     ConsentRequiredError,
@@ -37,9 +43,18 @@ from renpy_story_mapper.organization.errors import (
 )
 from renpy_story_mapper.organization.validation import validate_result
 
-_POLL_MS = 25
-_CANCEL_GRACE_MS = 1_750
-_KILL_CLEANUP_MS = 200
+_POLL_MS = 20
+_CANCEL_GRACE_MS = 500
+_KILL_CLEANUP_MS = 100
+_MODEL_DISCOVERY_TIMEOUT_SECONDS = 0.5
+_MAX_MODEL_DISCOVERY_BYTES = 64 * 1024
+_START_POLL_ATTEMPTS = 35
+_DISCOVERY_SOCKET_TIMEOUT_SECONDS = 0.1
+_DISCOVERY_DEADLINE_MARGIN_SECONDS = 0.01
+_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234"
+_LMSTUDIO_MODELS_URL = f"{_LMSTUDIO_BASE_URL}/api/v1/models"
+_LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1"
+_PROXY_VARIABLES = {"ALL_PROXY", "FTP_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
 _FORBIDDEN_MARKERS = {
     "command_execution",
     "shell_command",
@@ -53,6 +68,7 @@ _FORBIDDEN_MARKERS = {
 
 class Process(Protocol):
     def setWorkingDirectory(self, directory: str) -> None: ...
+    def setProcessEnvironment(self, environment: QProcessEnvironment) -> None: ...
     def start(self, program: str, arguments: list[str]) -> None: ...
     def waitForStarted(self, msecs: int = 30000) -> bool: ...
     def write(self, data: bytes) -> int: ...
@@ -62,13 +78,108 @@ class Process(Protocol):
     def readAllStandardOutput(self) -> object: ...
     def readAllStandardError(self) -> object: ...
     def exitCode(self) -> int: ...
-    def state(self) -> object: ...
+    def state(self) -> QProcess.ProcessState: ...
     def terminate(self) -> None: ...
     def kill(self) -> None: ...
 
 
 ProcessFactory = Callable[[], Process]
 ExecutableResolver = Callable[[str], str | None]
+ModelDiscovery = Callable[[str, float], object]
+EnvironmentFactory = Callable[[], QProcessEnvironment]
+
+
+def _validated_model_identifier(model_identifier: str | None) -> str | None:
+    if model_identifier is None or model_identifier == "":
+        return None
+    if (
+        model_identifier != model_identifier.strip()
+        or len(model_identifier) > 200
+        or not model_identifier.isprintable()
+    ):
+        raise ValueError(
+            "Model identifiers must be 1-200 printable characters without surrounding whitespace."
+        )
+    return model_identifier
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+def _discover_models(url: str, timeout_seconds: float) -> object:
+    if url != _LMSTUDIO_MODELS_URL:
+        raise ValueError("LM Studio model discovery URL is not the locked loopback endpoint.")
+    if timeout_seconds <= 0:
+        raise TimeoutError("LM Studio model discovery timed out.")
+    deadline = time.monotonic() + timeout_seconds
+
+    result: Queue[tuple[bool, object]] = Queue(maxsize=1)
+    stop_requested = threading.Event()
+
+    def fetch() -> None:
+        try:
+            opener = build_opener(ProxyHandler({}), _NoRedirect())
+            request = Request(url, headers={"Accept": "application/json"}, method="GET")
+            with opener.open(
+                request,
+                timeout=min(timeout_seconds, _DISCOVERY_SOCKET_TIMEOUT_SECONDS),
+            ) as response:
+                body = bytearray()
+                read_one = getattr(response, "read1", None)
+                reader = read_one if callable(read_one) else response.read
+                while not stop_requested.is_set():
+                    remaining = _MAX_MODEL_DISCOVERY_BYTES + 1 - len(body)
+                    if remaining <= 0:
+                        raise ValueError(
+                            "LM Studio model discovery response exceeded the size limit."
+                        )
+                    chunk = reader(min(4_096, remaining))
+                    if not isinstance(chunk, bytes):
+                        raise ValueError(
+                            "LM Studio model discovery returned an invalid response body."
+                        )
+                    if not chunk:
+                        break
+                    body.extend(chunk)
+                    if len(body) > _MAX_MODEL_DISCOVERY_BYTES:
+                        raise ValueError(
+                            "LM Studio model discovery response exceeded the size limit."
+                        )
+            if stop_requested.is_set():
+                return
+            result.put((True, cast(object, json.loads(body))))
+        except Exception as exc:
+            if not stop_requested.is_set():
+                result.put((False, exc))
+
+    worker = threading.Thread(
+        target=fetch,
+        name="lmstudio-model-preflight",
+        daemon=True,
+    )
+    worker.start()
+    wait_seconds = max(
+        0.0,
+        deadline - time.monotonic() - _DISCOVERY_DEADLINE_MARGIN_SECONDS,
+    )
+    try:
+        succeeded, value = result.get(timeout=wait_seconds)
+    except Empty:
+        stop_requested.set()
+        raise TimeoutError("LM Studio model discovery exceeded its total deadline.") from None
+    if not succeeded:
+        raise cast(BaseException, value)
+    return value
 
 
 def _qt_process() -> Process:
@@ -91,6 +202,10 @@ class CodexCliProvider:
         executable: str = "codex",
         process_factory: ProcessFactory | None = None,
         executable_resolver: ExecutableResolver | None = None,
+        model_override: str | None = None,
+        lmstudio_base_url: str = "http://127.0.0.1:1234",
+        model_discovery: ModelDiscovery | None = None,
+        environment_factory: EnvironmentFactory | None = None,
     ) -> None:
         self.mode = mode
         self.executable = executable
@@ -99,16 +214,27 @@ class CodexCliProvider:
         self._cancel_requested = threading.Event()
         self._using_default_factory = process_factory is None
         self._executable_resolver = executable_resolver
+        self._model_override = _validated_model_identifier(model_override)
+        self._lmstudio_base_url = lmstudio_base_url
+        self._model_discovery = model_discovery or _discover_models
+        self._environment_factory = environment_factory or QProcessEnvironment.systemEnvironment
         self._cached_status: ProviderStatus | None = None
         self._resolved_executable: str | None = None
+        self._resolved_cli_version: str | None = None
         self._input_tokens: int | None = None
         self._output_tokens: int | None = None
         self._effective_model: str | None = None
+        self._reported_model: str | None = None
 
     def status(self) -> ProviderStatus:
         if self._cached_status is not None:
             return self._cached_status
-        if self._using_default_factory:
+        resolved: str | None
+        version: str | None
+        if self._resolved_executable is not None:
+            resolved = self._resolved_executable
+            version = self._resolved_cli_version
+        elif self._using_default_factory:
             resolved, version = self._discover_native_executable()
         else:
             resolved = (
@@ -124,10 +250,170 @@ class CodexCliProvider:
                 message="Codex CLI was not found. Install it or select deterministic organization.",
             )
             return self._cached_status
-        if self._using_default_factory:
-            self._resolved_executable = resolved
-        self._cached_status = ProviderStatus(ProviderState.READY, resolved, cli_version=version)
+        self._resolved_executable = resolved
+        self._resolved_cli_version = version
+        model_identifier = self._model_override
+        if self.mode is CodexMode.CODEX_LMSTUDIO:
+            lmstudio_status = self._lmstudio_status(
+                resolved, version, requested_model=model_identifier
+            )
+            if lmstudio_status.state is ProviderState.READY:
+                self._cached_status = lmstudio_status
+            return lmstudio_status
+        self._cached_status = ProviderStatus(
+            ProviderState.READY,
+            resolved,
+            cli_version=version,
+            model_identifier=model_identifier,
+        )
         return self._cached_status
+
+    def set_model_override(self, model_identifier: str | None) -> None:
+        """Apply an advanced model choice before status/cache preflight."""
+        normalized = _validated_model_identifier(model_identifier)
+        if normalized == self._model_override:
+            return
+        self._model_override = normalized
+        self._cached_status = None
+
+    def _lmstudio_status(
+        self,
+        executable: str,
+        version: str | None,
+        *,
+        requested_model: str | None,
+    ) -> ProviderStatus:
+        discovery_url = self._lmstudio_discovery_url()
+        if discovery_url is None:
+            return ProviderStatus(
+                ProviderState.MISSING,
+                executable,
+                cli_version=version,
+                message="LM Studio discovery is restricted to a loopback HTTP endpoint.",
+            )
+        try:
+            payload = self._model_discovery(discovery_url, _MODEL_DISCOVERY_TIMEOUT_SECONDS)
+        except (OSError, ValueError):
+            return ProviderStatus(
+                ProviderState.MISSING,
+                executable,
+                cli_version=version,
+                message=(
+                    "LM Studio is unavailable. Start it on loopback port 1234 and load "
+                    "exactly one model."
+                ),
+            )
+        if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
+            return self._invalid_lmstudio_status(executable, version)
+        loaded_instances: list[tuple[str, int]] = []
+        for model in payload["models"]:
+            if not isinstance(model, dict):
+                return self._invalid_lmstudio_status(executable, version)
+            model_type = model.get("type")
+            instances = model.get("loaded_instances")
+            if not isinstance(model_type, str) or not isinstance(instances, list):
+                return self._invalid_lmstudio_status(executable, version)
+            for instance in instances:
+                if model_type != "llm":
+                    return ProviderStatus(
+                        ProviderState.MISSING,
+                        executable,
+                        cli_version=version,
+                        message=(
+                            "LM Studio has a loaded non-LLM instance. Leave exactly one "
+                            "loaded LLM instance and retry."
+                        ),
+                    )
+                if not isinstance(instance, dict):
+                    return self._invalid_lmstudio_status(executable, version)
+                identifier = instance.get("id")
+                config = instance.get("config")
+                if not isinstance(identifier, str) or not isinstance(config, dict):
+                    return self._invalid_lmstudio_status(executable, version)
+                context_length = config.get("context_length")
+                if (
+                    not isinstance(context_length, int)
+                    or isinstance(context_length, bool)
+                    or context_length <= 0
+                ):
+                    return ProviderStatus(
+                        ProviderState.MISSING,
+                        executable,
+                        cli_version=version,
+                        message=(
+                            "LM Studio does not report a valid loaded context capability. "
+                            "Reload exactly one LLM with a positive context length."
+                        ),
+                    )
+                try:
+                    validated_identifier = _validated_model_identifier(identifier)
+                except ValueError:
+                    return self._invalid_lmstudio_status(executable, version)
+                assert validated_identifier is not None
+                loaded_instances.append((validated_identifier, context_length))
+        selected_instances = loaded_instances
+        if requested_model is not None:
+            selected_instances = [item for item in loaded_instances if item[0] == requested_model]
+        if not selected_instances:
+            return ProviderStatus(
+                ProviderState.MISSING,
+                executable,
+                cli_version=version,
+                message=(
+                    "LM Studio has no matching loaded LLM instance. Load the selected model "
+                    "with a positive context length and retry."
+                ),
+            )
+        if len(selected_instances) != 1:
+            return ProviderStatus(
+                ProviderState.MISSING,
+                executable,
+                cli_version=version,
+                message=(
+                    "LM Studio reports multiple matching loaded LLM instances. Leave exactly "
+                    "one selected instance and retry."
+                ),
+            )
+        identifier, context_length = selected_instances[0]
+        return ProviderStatus(
+            ProviderState.READY,
+            executable,
+            cli_version=version,
+            model_identifier=identifier,
+            context_window_tokens=context_length,
+        )
+
+    @staticmethod
+    def _invalid_lmstudio_status(executable: str, version: str | None) -> ProviderStatus:
+        return ProviderStatus(
+            ProviderState.MISSING,
+            executable,
+            cli_version=version,
+            message=(
+                "LM Studio returned an invalid native model list. Restart it and load "
+                "exactly one LLM instance."
+            ),
+        )
+
+    def _lmstudio_discovery_url(self) -> str | None:
+        try:
+            parsed = urlsplit(self._lmstudio_base_url)
+            port = parsed.port
+        except ValueError:
+            return None
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "http"
+            or hostname != "127.0.0.1"
+            or port != 1234
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+        return _LMSTUDIO_MODELS_URL
 
     def command(self, schema_path: Path, model: str | None = None) -> tuple[str, list[str]]:
         args = [
@@ -168,13 +454,19 @@ class CodexCliProvider:
                 raise ConsentRequiredError(
                     "Confirm cloud story transmission for this organization run before continuing."
                 )
-            if self.status().state is ProviderState.MISSING:
+            self._validate_prompt_limits(request)
+            if request.model is not None and request.model != self._model_override:
+                self.set_model_override(request.model)
+            provider_status = self.status()
+            if provider_status.state is ProviderState.MISSING:
                 raise ProviderUnavailableError(
-                    "Codex CLI is unavailable. Install it or use deterministic organization."
+                    provider_status.message
+                    or "Codex CLI is unavailable. Install it or use deterministic organization."
                 )
             self._input_tokens = None
             self._output_tokens = None
-            self._effective_model = request.model
+            self._effective_model = request.model or provider_status.model_identifier
+            self._reported_model = None
             progress(0, "Preparing isolated organizer")
             started_at = time.monotonic()
             last_error: InvalidProviderOutputError | None = None
@@ -204,6 +496,7 @@ class CodexCliProvider:
                             output_hash=hashlib.sha256(normalized).hexdigest(),
                             input_tokens=self._input_tokens,
                             output_tokens=self._output_tokens,
+                            context_window_tokens=provider_status.context_window_tokens,
                         ),
                     )
                 except InvalidProviderOutputError as exc:
@@ -236,12 +529,14 @@ class CodexCliProvider:
                 "Story organization was cancelled before transmission; "
                 "the accepted map was not changed."
             )
+        self._validate_prompt_limits(request)
         schema = files("renpy_story_mapper.organization.schemas").joinpath(
             f"{request.stage.value}.schema.json"
         )
-        with as_file(schema) as schema_path, tempfile.TemporaryDirectory(
-            prefix="renpy-story-organizer-"
-        ) as temp_path:
+        with (
+            as_file(schema) as schema_path,
+            tempfile.TemporaryDirectory(prefix="renpy-story-organizer-") as temp_path,
+        ):
             process = self._process_factory()
             self._active = process
             try:
@@ -251,12 +546,37 @@ class CodexCliProvider:
                         "the accepted map was not changed."
                     )
                 process.setWorkingDirectory(temp_path)
-                program, arguments = self.command(schema_path, request.model)
+                if self.mode is CodexMode.CODEX_LMSTUDIO:
+                    process.setProcessEnvironment(self._lmstudio_process_environment())
+                program, arguments = self.command(
+                    schema_path,
+                    self._model_override or self._effective_model,
+                )
                 process.start(program, arguments)
-                if not process.waitForStarted(5_000):
-                    raise ProviderUnavailableError(
-                        "Codex CLI could not start. Check the installation and provider "
-                        "availability."
+                for _attempt in range(_START_POLL_ATTEMPTS):
+                    if cancelled() or self._cancel_requested.is_set():
+                        self._stop_process(process)
+                        raise OrganizationCancelledError(
+                            "Story organization was cancelled during provider startup; "
+                            "the accepted map was not changed."
+                        )
+                    if process.waitForStarted(_POLL_MS):
+                        break
+                    if cancelled() or self._cancel_requested.is_set():
+                        self._stop_process(process)
+                        raise OrganizationCancelledError(
+                            "Story organization was cancelled during provider startup; "
+                            "the accepted map was not changed."
+                        )
+                    if process.state() == QProcess.ProcessState.NotRunning:
+                        raise ProviderUnavailableError(
+                            "Codex CLI could not start. Check the installation and provider "
+                            "availability."
+                        )
+                else:
+                    self._stop_process(process)
+                    raise ProviderTimeoutError(
+                        "Codex CLI startup timed out. Check provider availability and retry."
                     )
                 prompt = self._prompt(request, repair=repair).encode("utf-8")
                 written = process.write(prompt)
@@ -364,37 +684,46 @@ class CodexCliProvider:
                 self._input_tokens = input_tokens
             if isinstance(output_tokens, int):
                 self._output_tokens = output_tokens
-        model = event.get("model")
-        if isinstance(model, str) and model:
-            self._effective_model = model
+        if "model" not in event:
+            return
+        model = event["model"]
+        if not isinstance(model, str):
+            raise ProviderUnavailableError("The organizer reported invalid model metadata.")
+        try:
+            validated_model = _validated_model_identifier(model)
+        except ValueError:
+            raise ProviderUnavailableError(
+                "The organizer reported invalid model metadata."
+            ) from None
+        if validated_model is None:
+            raise ProviderUnavailableError("The organizer reported invalid model metadata.")
+        if self._effective_model is not None and validated_model != self._effective_model:
+            raise ProviderUnavailableError(
+                "The organizer reported a different model than the preflight selection."
+            )
+        self._reported_model = validated_model
+        self._effective_model = validated_model
 
     @staticmethod
     def _prompt(request: OrganizationRequest, *, repair: bool) -> str:
-        instruction = (
-            "Repair the prior response. Return only JSON matching the schema and supplied IDs."
-            if repair
-            else "Organize the supplied deterministic records. Return only schema-valid JSON."
-        )
-        envelope = {
-            "instruction": instruction,
-            "security": "Do not use tools, web, MCP, commands, or files.",
-            "authority": (
-                "Return only titles, summaries, existing memberships, characters supported by "
-                "the input, outcomes, existing fact IDs, evidence-backed interpretations, "
-                "warnings, and ungrouped IDs. Never invent edges, conditions, facts, source "
-                "locations, route destinations, or causal authority."
-            ),
-            "contract": {
-                "stage": request.stage.value,
-                "allowed_member_ids": list(request.constraints.ordered_member_ids),
-                "context_only_ids": sorted(request.constraints.context_member_ids),
-                "allowed_fact_ids": sorted(request.constraints.fact_ids),
-                "allowed_evidence_ids": sorted(request.constraints.evidence_ids),
-                "allowed_characters": sorted(request.constraints.character_names),
-            },
-            "input": request.payload,
-        }
-        return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+        return serialize_organization_prompt(request, repair=repair)
+
+    @staticmethod
+    def _validate_prompt_limits(request: OrganizationRequest) -> None:
+        if any(
+            len(serialize_organization_prompt(request, repair=repair)) > MAX_PROMPT_CHARS
+            for repair in (False, True)
+        ):
+            raise ValueError("The complete organization prompt exceeds the 48,000-character limit.")
+
+    def _lmstudio_process_environment(self) -> QProcessEnvironment:
+        environment = self._environment_factory()
+        for name in environment.keys():  # noqa: SIM118 - Qt wrapper is not iterable
+            if name.upper() in _PROXY_VARIABLES:
+                environment.remove(name)
+        environment.insert("NO_PROXY", _LOOPBACK_NO_PROXY)
+        environment.insert("no_proxy", _LOOPBACK_NO_PROXY)
+        return environment
 
     @staticmethod
     def _stop_process(process: Process) -> None:
@@ -412,9 +741,9 @@ class CodexCliProvider:
             return None
         if process.exitCode() != 0:
             return None
-        version = bytes(process.readAllStandardOutput().data()).decode(
-            "utf-8", errors="ignore"
-        ).strip()
+        version = (
+            bytes(process.readAllStandardOutput().data()).decode("utf-8", errors="ignore").strip()
+        )
         return version or None
 
     def _discover_native_executable(self) -> tuple[str | None, str | None]:
@@ -426,11 +755,7 @@ class CodexCliProvider:
         if shim is not None:
             npm_package = Path(shim).parent / "node_modules" / "@openai" / "codex"
             candidates.extend(
-                sorted(
-                    npm_package.glob(
-                        "node_modules/@openai/codex-*/vendor/*/bin/codex.exe"
-                    )
-                )
+                sorted(npm_package.glob("node_modules/@openai/codex-*/vendor/*/bin/codex.exe"))
             )
         path_executable = shutil.which(f"{self.executable}.exe")
         if path_executable is not None:

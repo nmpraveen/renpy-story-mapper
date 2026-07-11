@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
 from renpy_story_mapper.organization.contracts import (
+    MAX_PROMPT_CHARS,
     BeatRecord,
     FactRecord,
     OrganizationConstraints,
     OrganizationRequest,
     OrganizationStage,
+    serialize_organization_prompt,
 )
 
-MAX_CHARS = 48_000
+MAX_CHARS = MAX_PROMPT_CHARS
 MAX_ASSIGNED_BEATS = 120
 MAX_CONTEXT_BEATS = 2
+MAX_SPEAKER_NAME_CHARS = 120
 _BOUNDARY_KINDS = {"choice", "jump", "return", "condition"}
 _OMITTED_TECHNICAL_KINDS = {"technical", "opaque", "command", "audio", "image", "pause"}
 
@@ -42,13 +46,38 @@ def _beat_payload(beat: BeatRecord, *, context: bool) -> dict[str, object]:
             "end_line": beat.end_line,
         },
     }
-    if beat.speaker:
+    speakers = _beat_speakers(beat)
+    if beat.speaker is not None:
         value["speaker"] = beat.speaker
+    if speakers:
+        value["speakers"] = speakers
     if beat.text and beat.kind not in _OMITTED_TECHNICAL_KINDS:
         value["text"] = beat.text
     if beat.condition:
         value["condition"] = beat.condition
     return value
+
+
+def _beat_speakers(beat: BeatRecord) -> list[str]:
+    if beat.speaker is not None and not isinstance(beat.speaker, str):
+        raise ValueError("speaker must be text or None.")
+    speaker_names: object = beat.speaker_names
+    if isinstance(speaker_names, (str, bytes)) or not isinstance(speaker_names, Sequence):
+        raise ValueError("speaker_names must be a sequence of text values.")
+    if any(not isinstance(name, str) for name in speaker_names):
+        raise ValueError("speaker_names members must be text values.")
+    ordered = ([beat.speaker] if beat.speaker is not None else []) + list(speaker_names)
+    speakers: list[str] = []
+    seen: set[str] = set()
+    for name in ordered:
+        if not name or not name.strip() or name != name.strip():
+            raise ValueError("Speaker names must be non-empty trimmed text.")
+        if len(name) > MAX_SPEAKER_NAME_CHARS:
+            raise ValueError(f"Speaker names may not exceed {MAX_SPEAKER_NAME_CHARS} characters.")
+        if name not in seen:
+            seen.add(name)
+            speakers.append(name)
+    return speakers
 
 
 def _size(beats: list[BeatRecord]) -> int:
@@ -68,8 +97,7 @@ def _partition(beats: list[BeatRecord]) -> list[_ChunkDraft]:
     for beat in beats:
         scene_changed = bool(current and beat.scene_id != current_scene)
         would_overflow = bool(
-            current
-            and (len(current) >= MAX_ASSIGNED_BEATS or _size([*current, beat]) > MAX_CHARS)
+            current and (len(current) >= MAX_ASSIGNED_BEATS or _size([*current, beat]) > MAX_CHARS)
         )
         if scene_changed or would_overflow:
             drafts.append(_ChunkDraft(current_scene, tuple(current)))
@@ -104,7 +132,7 @@ def build_event_chunks(
     if missing_fact_ids:
         raise ValueError("Every referenced fact ID must have an input fact record.")
     index_by_id = {beat.id: index for index, beat in enumerate(ordered)}
-    fitted: list[tuple[_ChunkDraft, list[BeatRecord], dict[str, object]]] = []
+    requests: list[OrganizationRequest] = []
     pending = _partition(ordered)
     while pending:
         draft = pending.pop(0)
@@ -127,72 +155,99 @@ def build_event_chunks(
             item[2] for item in sorted(candidates, key=lambda item: (item[0], item[1]))
         ][:MAX_CONTEXT_BEATS]
         context = list(context_priority)
-        payload = _event_payload(
+        request = _event_request(
+            run_id=run_id,
+            chunk_id=f"{scope_id}:events:{len(requests) + 1}",
             scope_id=scope_id,
             draft=draft,
             context=context,
             fact_by_id=fact_by_id,
             index_by_id=index_by_id,
         )
-        while context and _payload_size(payload) > MAX_CHARS:
+        while context and not _request_prompts_fit(request):
             context.pop()
-            payload = _event_payload(
+            request = _event_request(
+                run_id=run_id,
+                chunk_id=f"{scope_id}:events:{len(requests) + 1}",
                 scope_id=scope_id,
                 draft=draft,
                 context=context,
                 fact_by_id=fact_by_id,
                 index_by_id=index_by_id,
             )
-        if _payload_size(payload) > MAX_CHARS:
+        if not _request_prompts_fit(request):
             if len(draft.beats) == 1:
-                raise ValueError("A single organization chunk exceeds the 48,000-character limit.")
+                raise ValueError(
+                    "A single complete organization prompt exceeds the 48,000-character limit."
+                )
             midpoint = len(draft.beats) // 2
             pending[0:0] = [
                 _ChunkDraft(draft.scene_id, draft.beats[:midpoint]),
                 _ChunkDraft(draft.scene_id, draft.beats[midpoint:]),
             ]
             continue
-        fitted.append((draft, context, payload))
-
-    requests: list[OrganizationRequest] = []
-    for number, (draft, context, payload) in enumerate(fitted, start=1):
-        assigned_ids = tuple(beat.id for beat in draft.beats)
-        context_ids = frozenset(beat.id for beat in context)
-        used_fact_ids = frozenset(fid for beat in draft.beats for fid in beat.fact_ids)
-        used_evidence_ids = frozenset(
-            evidence_id for beat in (*draft.beats, *context) for evidence_id in beat.evidence_ids
-        ).union(
-            evidence_id
-            for fact_id in used_fact_ids
-            for evidence_id in fact_by_id[fact_id].evidence_ids
-        )
-        characters = frozenset(
-            beat.speaker for beat in (*draft.beats, *context) if beat.speaker is not None
-        )
-        requests.append(
-            OrganizationRequest(
-                run_id=run_id,
-                chunk_id=f"{scope_id}:events:{number}",
-                scope_id=scope_id,
-                stage=OrganizationStage.EVENTS,
-                payload=payload,
-                constraints=OrganizationConstraints(
-                    ordered_member_ids=assigned_ids,
-                    required_member_ids=frozenset(
-                        beat.id for beat in draft.beats if beat.requires_coverage
-                    ),
-                    context_member_ids=context_ids,
-                    fact_ids=used_fact_ids,
-                    evidence_ids=used_evidence_ids,
-                    character_names=characters,
-                ),
-            )
-        )
+        requests.append(request)
     return requests
 
 
-def _payload_size(payload: dict[str, object]) -> int:
-    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+def _event_request(
+    *,
+    run_id: str,
+    chunk_id: str,
+    scope_id: str,
+    draft: _ChunkDraft,
+    context: list[BeatRecord],
+    fact_by_id: dict[str, FactRecord],
+    index_by_id: dict[str, int],
+) -> OrganizationRequest:
+    payload = _event_payload(
+        scope_id=scope_id,
+        draft=draft,
+        context=context,
+        fact_by_id=fact_by_id,
+        index_by_id=index_by_id,
+    )
+    assigned_ids = tuple(beat.id for beat in draft.beats)
+    context_ids = frozenset(beat.id for beat in context)
+    used_fact_ids = frozenset(fid for beat in draft.beats for fid in beat.fact_ids)
+    used_evidence_ids = frozenset(
+        evidence_id for beat in (*draft.beats, *context) for evidence_id in beat.evidence_ids
+    ).union(
+        evidence_id for fact_id in used_fact_ids for evidence_id in fact_by_id[fact_id].evidence_ids
+    )
+    characters = frozenset(
+        speaker for beat in (*draft.beats, *context) for speaker in _beat_speakers(beat)
+    )
+    request = OrganizationRequest(
+        run_id=run_id,
+        chunk_id=chunk_id,
+        scope_id=scope_id,
+        stage=OrganizationStage.EVENTS,
+        payload=payload,
+        constraints=OrganizationConstraints(
+            ordered_member_ids=assigned_ids,
+            required_member_ids=frozenset(
+                beat.id for beat in draft.beats if beat.requires_coverage
+            ),
+            context_member_ids=context_ids,
+            fact_ids=used_fact_ids,
+            evidence_ids=used_evidence_ids,
+            character_names=characters,
+        ),
+    )
+    return request
+
+
+def _request_prompts_fit(request: OrganizationRequest) -> bool:
+    return all(
+        len(serialize_organization_prompt(request, repair=repair)) <= MAX_CHARS
+        for repair in (False, True)
+    )
+
+
+def _ensure_request_prompts_fit(request: OrganizationRequest) -> None:
+    if not _request_prompts_fit(request):
+        raise ValueError("The complete organization prompt exceeds the 48,000-character limit.")
 
 
 def _event_payload(
@@ -216,9 +271,7 @@ def _event_payload(
         ],
         "beats": [
             _beat_payload(beat, context=beat.id in context_ids)
-            for beat in sorted(
-                (*draft.beats, *context), key=lambda item: index_by_id[item.id]
-            )
+            for beat in sorted((*draft.beats, *context), key=lambda item: index_by_id[item.id])
         ],
         "facts": [
             {
@@ -241,9 +294,7 @@ def _string(value: object, field: str, *, maximum: int | None = None) -> str:
     return value
 
 
-def _string_list(
-    value: object, field: str, *, maximum: int | None = None
-) -> list[str]:
+def _string_list(value: object, field: str, *, maximum: int | None = None) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{field} must be a string list.")
     result = list(value)
@@ -300,9 +351,7 @@ def _normalize_reconciliation_event(event: dict[str, object]) -> dict[str, objec
                 normalized[field] = _importance(event[field], f"event.{field}")
             else:
                 maximum = 320 if field in {"outcomes", "warnings"} else None
-                normalized[field] = _string_list(
-                    event[field], f"event.{field}", maximum=maximum
-                )
+                normalized[field] = _string_list(event[field], f"event.{field}", maximum=maximum)
     return normalized
 
 
@@ -362,7 +411,7 @@ def build_reconciliation_request(
     normalized_ids = tuple(str(event["id"]) for event in normalized_events)
     if normalized_ids != ordered_event_ids:
         raise ValueError("Stage 2 event IDs must exactly match deterministic order.")
-    return OrganizationRequest(
+    request = OrganizationRequest(
         run_id=run_id,
         chunk_id=chunk_id,
         scope_id=scope_id,
@@ -375,6 +424,8 @@ def build_reconciliation_request(
             evidence_ids=evidence_ids,
         ),
     )
+    _ensure_request_prompts_fit(request)
+    return request
 
 
 def build_arc_request(
@@ -415,7 +466,7 @@ def build_arc_request(
         if "kind" in edge:
             normalized_edge["kind"] = _string(edge["kind"], "connectivity.kind")
         normalized_connectivity.append(normalized_edge)
-    return OrganizationRequest(
+    request = OrganizationRequest(
         run_id=run_id,
         chunk_id=chunk_id,
         scope_id=scope_id,
@@ -434,3 +485,5 @@ def build_arc_request(
             character_names=characters,
         ),
     )
+    _ensure_request_prompts_fit(request)
+    return request

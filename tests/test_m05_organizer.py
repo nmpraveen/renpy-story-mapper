@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QProcess, QProcessEnvironment
 
+import renpy_story_mapper.organization.provider as provider_module
 from renpy_story_mapper.organization.cache import build_cache_key
 from renpy_story_mapper.organization.chunking import (
     MAX_ASSIGNED_BEATS,
@@ -24,6 +29,7 @@ from renpy_story_mapper.organization.contracts import (
     OrganizationRequest,
     OrganizationStage,
     ProviderState,
+    serialize_organization_prompt,
 )
 from renpy_story_mapper.organization.errors import (
     ConsentRequiredError,
@@ -105,26 +111,20 @@ def test_chunking_honors_limits_boundaries_context_and_unique_membership() -> No
         beats=beats,
         facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
     )
-    assigned = [
-        member
-        for request in requests
-        for member in request.constraints.ordered_member_ids
-    ]
+    assigned = [member for request in requests for member in request.constraints.ordered_member_ids]
     assert assigned == [beat.id for beat in beats]
     assert len(assigned) == len(set(assigned))
     assert all(
-        len(request.constraints.ordered_member_ids) <= MAX_ASSIGNED_BEATS
-        for request in requests
+        len(request.constraints.ordered_member_ids) <= MAX_ASSIGNED_BEATS for request in requests
     )
     assert all(len(request.constraints.context_member_ids) <= 2 for request in requests)
     assert all(
-        len(json.dumps(request.payload, ensure_ascii=False)) <= MAX_CHARS
+        len(serialize_organization_prompt(request, repair=repair)) <= MAX_CHARS
         for request in requests
+        for repair in (False, True)
     )
     assert all(
-        request.constraints.context_member_ids.isdisjoint(
-            request.constraints.ordered_member_ids
-        )
+        request.constraints.context_member_ids.isdisjoint(request.constraints.ordered_member_ids)
         for request in requests
     )
 
@@ -149,11 +149,7 @@ def test_chunking_splits_scenes_and_rejects_duplicate_or_oversized_beats() -> No
             run_id="run",
             scope_id="scope",
             beats=[huge],
-            facts=[
-                FactRecord(
-                    "fact-1", "points += 1", "points +1", "proven", ("evidence-1",)
-                )
-            ],
+            facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
         )
 
 
@@ -175,10 +171,82 @@ def test_chunking_preserves_supplied_chronology_across_reverse_lexical_scenes() 
     ]
 
 
-def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None:
-    near_limit = BeatRecord(
-        **{**_beat(3).__dict__, "text": "x" * 46_500, "fact_ids": ("fact-1",)}
+def test_chunking_serializes_and_authorizes_all_evidenced_speakers() -> None:
+    beat = BeatRecord(
+        **{
+            **_beat(1).__dict__,
+            "speaker_names": ("Ben", "Ava", "Cara", "Ben"),
+        }
     )
+    chunks = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[beat],
+        facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
+    )
+    payload_beat = chunks[0].payload["beats"][0]
+    assert payload_beat["speaker"] == "Ava"
+    assert payload_beat["speakers"] == ["Ava", "Ben", "Cara"]
+    assert chunks[0].constraints.character_names == frozenset({"Ava", "Ben", "Cara"})
+
+
+@pytest.mark.parametrize("speaker_name", ["", " padded", "x" * 121])
+def test_chunking_rejects_invalid_evidenced_speaker_names(speaker_name: str) -> None:
+    beat = BeatRecord(
+        **{
+            **_beat(2).__dict__,
+            "speaker": None,
+            "speaker_names": (speaker_name,),
+        }
+    )
+    with pytest.raises(ValueError, match="Speaker names"):
+        build_event_chunks(run_id="run", scope_id="scope", beats=[beat])
+
+
+def test_multi_speaker_metadata_remains_inside_exact_chunk_size_limit() -> None:
+    speakers = tuple(f"Speaker-{index:02d}-{'x' * 80}" for index in range(40))
+    beat = BeatRecord(
+        **{
+            **_beat(2).__dict__,
+            "speaker": None,
+            "speaker_names": speakers,
+            "text": "n" * 39_000,
+        }
+    )
+    chunks = build_event_chunks(run_id="run", scope_id="scope", beats=[beat])
+    assert len(chunks) == 1
+    assert chunks[0].payload["beats"][0]["speakers"] == list(speakers)
+    assert all(
+        len(serialize_organization_prompt(chunks[0], repair=repair)) <= MAX_CHARS
+        for repair in (False, True)
+    )
+
+
+@pytest.mark.parametrize(
+    ("speaker", "speaker_names", "message"),
+    [
+        (None, "Ada", "sequence"),
+        (None, 42, "sequence"),
+        (None, ("Ada", 42), "members"),
+        (42, (), "speaker must be text"),
+    ],
+)
+def test_chunking_rejects_runtime_invalid_speaker_types(
+    speaker: object, speaker_names: object, message: str
+) -> None:
+    beat = BeatRecord(
+        **{
+            **_beat(2).__dict__,
+            "speaker": speaker,
+            "speaker_names": speaker_names,
+        }
+    )
+    with pytest.raises(ValueError, match=message):
+        build_event_chunks(run_id="run", scope_id="scope", beats=[beat])
+
+
+def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None:
+    near_limit = BeatRecord(**{**_beat(3).__dict__, "text": "x" * 45_500, "fact_ids": ("fact-1",)})
     chunks = build_event_chunks(
         run_id="run",
         scope_id="scope",
@@ -199,16 +267,15 @@ def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None
         "beat-3",
     ]
     assert all(
-        len(json.dumps(chunk.payload, ensure_ascii=False, separators=(",", ":")))
-        <= MAX_CHARS
+        len(serialize_organization_prompt(chunk, repair=repair)) <= MAX_CHARS
         for chunk in chunks
+        for repair in (False, True)
     )
     final_chunk = next(
-        chunk
-        for chunk in chunks
-        if chunk.constraints.ordered_member_ids == ("beat-3",)
+        chunk for chunk in chunks if chunk.constraints.ordered_member_ids == ("beat-3",)
     )
-    assert final_chunk.constraints.context_member_ids == frozenset()
+    assert "beat-2" not in final_chunk.constraints.context_member_ids
+    assert len(final_chunk.constraints.context_member_ids) < 2
 
     large_a = BeatRecord(
         **{**_beat(10).__dict__, "text": "a" * 22_000, "fact_ids": ("large-fact",)}
@@ -232,9 +299,9 @@ def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None
     )
     assert len(fact_heavy) == 2
     assert all(
-        len(json.dumps(chunk.payload, ensure_ascii=False, separators=(",", ":")))
-        <= MAX_CHARS
+        len(serialize_organization_prompt(chunk, repair=repair)) <= MAX_CHARS
         for chunk in fact_heavy
+        for repair in (False, True)
     )
 
 
@@ -290,9 +357,7 @@ def test_three_stage_requests_keep_full_dialogue_out_of_arc_stage() -> None:
     assert reconcile.stage is OrganizationStage.RECONCILE
     assert arc.stage is OrganizationStage.ARCS
     assert "dialogue" not in json.dumps(arc.payload).lower()
-    assert arc.payload["local_connectivity"] == [
-        {"source": "event-1", "target": "event-2"}
-    ]
+    assert arc.payload["local_connectivity"] == [{"source": "event-1", "target": "event-2"}]
 
     for forbidden_field in (
         "dialogue",
@@ -332,6 +397,54 @@ def test_three_stage_requests_keep_full_dialogue_out_of_arc_stage() -> None:
             ordered_event_ids=("event-1",),
             evidence_ids=frozenset({"evidence-1"}),
             fact_ids=frozenset({"fact-1"}),
+        )
+
+
+def test_reconcile_and_arc_builders_reject_oversized_complete_prompts() -> None:
+    oversized_member_ids = [f"beat-{index:04d}-{'x' * 50}" for index in range(1_000)]
+    with pytest.raises(ValueError, match="complete organization prompt"):
+        build_reconciliation_request(
+            run_id="run",
+            chunk_id="reconcile",
+            scope_id="scene",
+            events=[
+                {
+                    "id": "event-1",
+                    "title": "Event One",
+                    "summary": "Summary",
+                    "member_ids": oversized_member_ids,
+                }
+            ],
+            ordered_event_ids=("event-1",),
+            evidence_ids=frozenset(),
+            fact_ids=frozenset(),
+        )
+
+    event_ids = tuple(f"event-{index:03d}" for index in range(180))
+    arc_events = [
+        {
+            "id": event_id,
+            "title": f"Event {index}",
+            "summary": "s" * 320,
+            "major_fact_ids": [],
+            "characters": ["Ava"],
+            "importance": "supporting",
+            "outcomes": ["o" * 320],
+            "evidence_ids": [],
+        }
+        for index, event_id in enumerate(event_ids)
+    ]
+    with pytest.raises(ValueError, match="complete organization prompt"):
+        build_arc_request(
+            run_id="run",
+            chunk_id="arcs",
+            scope_id="story",
+            event_summaries=arc_events,
+            ordered_event_ids=event_ids,
+            evidence_ids=frozenset(),
+            fact_ids=frozenset(),
+            characters=frozenset({"Ava"}),
+            local_connectivity=[],
         )
 
 
@@ -468,6 +581,8 @@ class FakeProcess:
         ignore_terminate: bool = False,
         start_ok: bool = True,
         write_result: int | None = None,
+        remains_starting: bool = False,
+        startup_waits_in_real_time: bool = False,
     ) -> None:
         self.output = output
         self.stderr = stderr
@@ -476,6 +591,8 @@ class FakeProcess:
         self.ignore_terminate = ignore_terminate
         self.start_ok = start_ok
         self.write_result = write_result
+        self.remains_starting = remains_starting
+        self.startup_waits_in_real_time = startup_waits_in_real_time
         self.started: tuple[str, list[str]] | None = None
         self.cwd = ""
         self.stdin = b""
@@ -483,6 +600,10 @@ class FakeProcess:
         self.killed = False
         self.read = False
         self.wait_arguments: list[int] = []
+        self.environment: QProcessEnvironment | None = None
+
+    def setProcessEnvironment(self, environment: QProcessEnvironment) -> None:
+        self.environment = environment
 
     def setWorkingDirectory(self, directory: str) -> None:
         self.cwd = directory
@@ -491,6 +612,10 @@ class FakeProcess:
         self.started = (program, arguments)
 
     def waitForStarted(self, msecs: int = 30000) -> bool:
+        if self.startup_waits_in_real_time:
+            time.sleep(msecs / 1000)
+        if self.remains_starting:
+            return False
         return self.start_ok
 
     def write(self, data: bytes) -> int:
@@ -522,8 +647,12 @@ class FakeProcess:
     def exitCode(self) -> int:
         return self.exit_code
 
-    def state(self) -> object:
-        return object()
+    def state(self) -> QProcess.ProcessState:
+        if self.terminated or self.killed or not self.start_ok:
+            return QProcess.ProcessState.NotRunning
+        if self.remains_starting:
+            return QProcess.ProcessState.Starting
+        return QProcess.ProcessState.Running
 
     def terminate(self) -> None:
         self.terminated = True
@@ -540,6 +669,29 @@ def _jsonl(payload: object) -> bytes:
     return (json.dumps(event) + "\n").encode()
 
 
+def _lmstudio_payload(
+    *instance_ids: str,
+    context_length: object = 8_192,
+    model_type: str = "llm",
+) -> dict[str, object]:
+    return {
+        "models": [
+            {
+                "type": model_type,
+                "key": "synthetic-model-key",
+                "max_context_length": 32_768,
+                "loaded_instances": [
+                    {
+                        "id": instance_id,
+                        "config": {"context_length": context_length},
+                    }
+                    for instance_id in instance_ids
+                ],
+            }
+        ]
+    }
+
+
 def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
     usage = json.dumps(
         {
@@ -549,9 +701,7 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
         }
     ).encode()
     process = FakeProcess(usage + b"\n" + _jsonl(_valid_payload()))
-    provider = CodexCliProvider(
-        CodexMode.CODEX_CHATGPT, process_factory=lambda: process
-    )
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
     result = provider.organize(_request(), lambda _percent, _status: None, lambda: False)
     assert result.groups[0].id == "group-1"
     assert process.started is not None
@@ -565,11 +715,11 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
         "read-only",
         "--ignore-user-config",
         "--ignore-rules",
-            "--json",
-            "--output-schema",
-            args[9],
-            "-",
-        ]
+        "--json",
+        "--output-schema",
+        args[9],
+        "-",
+    ]
     assert Path(process.cwd).name.startswith("renpy-story-organizer-")
     assert not Path(process.cwd).exists()
     assert b"synthetic" in process.stdin
@@ -588,6 +738,462 @@ def test_lmstudio_command_adds_only_locked_local_flags() -> None:
     _program, args = provider.command(Path("schema.json"), model="local-model")
     assert args[-4:] == ["--oss", "--local-provider", "lmstudio", "-"]
     assert args[args.index("--model") + 1] == "local-model"
+
+
+def test_lmstudio_status_resolves_one_model_from_loopback_without_story_input() -> None:
+    calls: list[tuple[str, float]] = []
+
+    def discover(url: str, timeout: float) -> object:
+        calls.append((url, timeout))
+        return _lmstudio_payload("local/model-a", context_length=12_288)
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        lmstudio_base_url="http://127.0.0.1:1234",
+        model_discovery=discover,
+    )
+    status = provider.status()
+    assert status.state is ProviderState.READY
+    assert status.model_identifier == "local/model-a"
+    assert status.context_window_tokens == 12_288
+    assert calls == [("http://127.0.0.1:1234/api/v1/models", 0.5)]
+    assert "story" not in calls[0][0].lower()
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"models": []}, "no matching loaded llm"),
+        (_lmstudio_payload("model-a", "model-b"), "multiple matching"),
+        ({"unexpected": []}, "invalid native model list"),
+        ({"models": [{}]}, "invalid native model list"),
+        (_lmstudio_payload("embedding", model_type="embedding"), "non-llm"),
+        (_lmstudio_payload("bad-context", context_length=0), "context capability"),
+        (_lmstudio_payload("bad-context", context_length=True), "context capability"),
+        ("not-an-object", "invalid native model list"),
+    ],
+)
+def test_lmstudio_status_safely_rejects_missing_ambiguous_or_malformed_models(
+    payload: object, message: str
+) -> None:
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_discovery=lambda _url, _timeout: payload,
+    )
+    status = provider.status()
+    assert status.state is ProviderState.MISSING
+    assert status.model_identifier is None
+    assert message in status.message.lower()
+
+
+@pytest.mark.parametrize("failure", [TimeoutError(), ConnectionRefusedError()])
+def test_lmstudio_status_sanitizes_timeout_and_refusal(failure: OSError) -> None:
+    def unavailable(_url: str, _timeout: float) -> object:
+        raise failure
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_discovery=unavailable,
+    )
+    status = provider.status()
+    assert status.state is ProviderState.MISSING
+    assert status.model_identifier is None
+    assert status.message == (
+        "LM Studio is unavailable. Start it on loopback port 1234 and load exactly one model."
+    )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://localhost:1234",
+        "http://localhost:1234",
+        "http://[::1]:1234",
+        "http://example.com:1234",
+        "http://127.0.0.1:9999",
+        "http://127.0.0.1:1234/v1/models",
+        "http://user:secret@127.0.0.1:1234",
+        "http://127.0.0.1:1234?redirect=example.com",
+    ],
+)
+def test_lmstudio_status_never_discovers_outside_strict_loopback_base(
+    base_url: str,
+) -> None:
+    called = False
+
+    def discover(_url: str, _timeout: float) -> object:
+        nonlocal called
+        called = True
+        return _lmstudio_payload("should-not-run")
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        lmstudio_base_url=base_url,
+        model_discovery=discover,
+    )
+    status = provider.status()
+    assert status.state is ProviderState.MISSING
+    assert "restricted" in status.message.lower()
+    assert not called
+
+
+def test_explicit_lmstudio_model_override_selects_matching_loaded_instance() -> None:
+    called = False
+    process = FakeProcess(_jsonl(_valid_payload()))
+
+    def discover(_url: str, _timeout: float) -> object:
+        nonlocal called
+        called = True
+        return _lmstudio_payload("explicit-model", "other-model")
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: process,
+        model_discovery=discover,
+    )
+    provider.set_model_override("explicit-model")
+    status = provider.status()
+    assert status.model_identifier == "explicit-model"
+    assert status.context_window_tokens == 8_192
+    result = provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    assert called
+    assert process.started is not None
+    assert process.started[1][process.started[1].index("--model") + 1] == "explicit-model"
+    assert result.metadata is not None
+    assert result.metadata.model_identifier == "explicit-model"
+    assert result.metadata.context_window_tokens == 8_192
+
+
+def test_ambiguous_loaded_llms_require_an_exact_explicit_override() -> None:
+    payload = _lmstudio_payload("model-a", "model-b")
+    without_override = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_discovery=lambda _url, _timeout: payload,
+    ).status()
+    assert without_override.state is ProviderState.MISSING
+    assert "multiple matching" in without_override.message.lower()
+
+    with_override = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_override="model-b",
+        model_discovery=lambda _url, _timeout: payload,
+    ).status()
+    assert with_override.state is ProviderState.READY
+    assert with_override.model_identifier == "model-b"
+    assert with_override.context_window_tokens == 8_192
+
+
+def test_explicit_override_cannot_bypass_preflight_or_loaded_embedding() -> None:
+    mismatched = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_override="not-loaded",
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("loaded-model"),
+    ).status()
+    assert mismatched.state is ProviderState.MISSING
+    assert "no matching" in mismatched.message.lower()
+
+    llm_models = _lmstudio_payload("loaded-model")["models"]
+    embedding_models = _lmstudio_payload("embed-1", model_type="embedding")["models"]
+    assert isinstance(llm_models, list)
+    assert isinstance(embedding_models, list)
+    mixed_payload = {"models": [*llm_models, *embedding_models]}
+    embedding_loaded = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_override="loaded-model",
+        model_discovery=lambda _url, _timeout: mixed_payload,
+    ).status()
+    assert embedding_loaded.state is ProviderState.MISSING
+    assert "non-llm" in embedding_loaded.message.lower()
+
+
+@pytest.mark.parametrize(
+    "invalid_model",
+    [" padded-model", "model\nname", "model\x00name", "x" * 201, "   "],
+)
+def test_model_override_rejects_unbounded_or_control_content(
+    invalid_model: str,
+) -> None:
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_override="original-model",
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("original-model"),
+    )
+    with pytest.raises(ValueError, match="1-200 printable"):
+        provider.set_model_override(invalid_model)
+    assert provider.status().model_identifier == "original-model"
+
+
+def test_empty_model_override_clears_and_reenables_discovery() -> None:
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_override="original-model",
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("discovered-model"),
+    )
+    provider.set_model_override("")
+    assert provider.status().model_identifier == "discovered-model"
+
+
+def test_lmstudio_discovery_failure_is_refreshable_without_rediscovering_executable() -> None:
+    discovery_calls = 0
+    resolver_calls = 0
+
+    def discover(_url: str, _timeout: float) -> object:
+        nonlocal discovery_calls
+        discovery_calls += 1
+        if discovery_calls == 1:
+            raise ConnectionRefusedError
+        return _lmstudio_payload("newly-loaded-model")
+
+    def resolve(_executable: str) -> str:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        return "synthetic-codex.exe"
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        executable_resolver=resolve,
+        model_discovery=discover,
+    )
+    first = provider.status()
+    second = provider.status()
+    assert first.state is ProviderState.MISSING
+    assert second.state is ProviderState.READY
+    assert second.model_identifier == "newly-loaded-model"
+    assert discovery_calls == 2
+    assert resolver_calls == 1
+
+
+def test_lmstudio_default_discovery_caps_response_before_json_parsing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OversizedResponse:
+        requested_bytes = 0
+        total_bytes = 0
+
+        def __enter__(self) -> OversizedResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, amount: int) -> bytes:
+            self.requested_bytes = amount
+            self.total_bytes += amount
+            return b"x" * amount
+
+    class FakeOpener:
+        response = OversizedResponse()
+
+        def open(self, request: object, *, timeout: float) -> OversizedResponse:
+            assert timeout == 0.1
+            assert isinstance(request, provider_module.Request)
+            assert request.full_url == "http://127.0.0.1:1234/api/v1/models"
+            assert request.get_method() == "GET"
+            return self.response
+
+    opener = FakeOpener()
+    handlers: list[object] = []
+
+    def fake_build_opener(*supplied: object) -> FakeOpener:
+        handlers.extend(supplied)
+        return opener
+
+    monkeypatch.setattr(provider_module, "build_opener", fake_build_opener)
+    with pytest.raises(ValueError, match="size limit"):
+        provider_module._discover_models("http://127.0.0.1:1234/api/v1/models", 0.5)
+    assert opener.response.requested_bytes <= 4_096
+    assert opener.response.total_bytes == 65_537
+    proxy_handler = next(
+        handler for handler in handlers if isinstance(handler, provider_module.ProxyHandler)
+    )
+    assert proxy_handler.proxies == {}
+    assert any(isinstance(handler, provider_module._NoRedirect) for handler in handlers)
+
+
+def test_lmstudio_discovery_enforces_total_deadline_with_only_daemon_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SlowResponse:
+        body = json.dumps(_lmstudio_payload("slow-model")).encode()
+        offset = 0
+
+        def __enter__(self) -> SlowResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, _amount: int) -> bytes:
+            time.sleep(0.02)
+            if self.offset >= len(self.body):
+                return b""
+            value = self.body[self.offset : self.offset + 1]
+            self.offset += 1
+            return value
+
+    class SlowOpener:
+        def open(self, _request: object, *, timeout: float) -> SlowResponse:
+            assert timeout == 0.05
+            return SlowResponse()
+
+    monkeypatch.setattr(provider_module, "build_opener", lambda *_handlers: SlowOpener())
+    started = time.perf_counter()
+    with pytest.raises(TimeoutError, match="total deadline"):
+        provider_module._discover_models("http://127.0.0.1:1234/api/v1/models", 0.05)
+    elapsed = time.perf_counter() - started
+    workers = [
+        thread for thread in threading.enumerate() if thread.name == "lmstudio-model-preflight"
+    ]
+    assert elapsed < 0.3
+    assert workers
+    assert all(worker.daemon for worker in workers)
+
+
+def test_chatgpt_status_never_performs_cloud_model_discovery() -> None:
+    called = False
+
+    def discover(_url: str, _timeout: float) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("ChatGPT status must not perform model discovery")
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_CHATGPT,
+        process_factory=lambda: FakeProcess(b""),
+        model_discovery=discover,
+    )
+    status = provider.status()
+    assert status.state is ProviderState.READY
+    assert status.model_identifier is None
+    assert not called
+
+
+def test_resolved_lmstudio_model_supports_metadata_cache_hit_without_second_process() -> None:
+    process_count = 0
+    processes: list[FakeProcess] = []
+
+    def factory() -> FakeProcess:
+        nonlocal process_count
+        process_count += 1
+        process = FakeProcess(_jsonl(_valid_payload()))
+        processes.append(process)
+        return process
+
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=factory,
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("cache-model"),
+    )
+    status = provider.status()
+    assert status.model_identifier == "cache-model"
+    cache: dict[str, object] = {}
+    request = _request()
+    cache_key = build_cache_key(
+        request,
+        provider_mode=CodexMode.CODEX_LMSTUDIO,
+        model_profile="balanced",
+        model_fingerprint=status.model_identifier,
+        prompt_version="p1",
+        schema_version="s1",
+    ).digest()
+    result = provider.organize(request, lambda _p, _s: None, lambda: False)
+    cache[cache_key] = result
+    rerun_status = provider.status()
+    assert rerun_status.model_identifier == "cache-model"
+    rerun_key = build_cache_key(
+        request,
+        provider_mode=CodexMode.CODEX_LMSTUDIO,
+        model_profile="balanced",
+        model_fingerprint=rerun_status.model_identifier,
+        prompt_version="p1",
+        schema_version="s1",
+    ).digest()
+    rerun = cache.get(rerun_key)
+    assert rerun is result
+    assert result.metadata is not None
+    assert result.metadata.model_identifier == "cache-model"
+    assert result.metadata.context_window_tokens == 8_192
+    assert process_count == 1
+    assert processes[0].started is not None
+    arguments = processes[0].started[1]
+    assert arguments[arguments.index("--model") + 1] == "cache-model"
+
+
+def test_lmstudio_child_removes_proxies_and_sets_loopback_no_proxy() -> None:
+    process = FakeProcess(_jsonl(_valid_payload()))
+    inherited = QProcessEnvironment()
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "FTP_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "ftp_proxy",
+        "no_proxy",
+    ):
+        inherited.insert(name, "http://proxy.invalid:8080")
+    inherited.insert("KEEP_ME", "safe")
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: process,
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("local-model"),
+        environment_factory=lambda: inherited,
+    )
+    provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    assert process.environment is not None
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "FTP_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "ftp_proxy",
+    ):
+        assert not process.environment.contains(name)
+    assert process.environment.value("NO_PROXY") == "127.0.0.1,localhost,::1"
+    assert process.environment.value("no_proxy") == "127.0.0.1,localhost,::1"
+    assert process.environment.value("KEEP_ME") == "safe"
+
+
+def test_chatgpt_child_environment_is_not_replaced() -> None:
+    process = FakeProcess(_jsonl(_valid_payload()))
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    assert process.environment is None
+
+
+@pytest.mark.parametrize(("reported", "matches"), [("model-a", True), ("model-b", False)])
+def test_lmstudio_rejects_executed_model_mismatch(reported: str, matches: bool) -> None:
+    model_event = json.dumps({"type": "turn.started", "model": reported}).encode()
+    process = FakeProcess(model_event + b"\n" + _jsonl(_valid_payload()))
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: process,
+        model_discovery=lambda _url, _timeout: _lmstudio_payload("model-a"),
+    )
+    if matches:
+        result = provider.organize(_request(), lambda _p, _s: None, lambda: False)
+        assert result.metadata is not None
+        assert result.metadata.model_identifier == "model-a"
+    else:
+        with pytest.raises(ProviderUnavailableError, match="different model"):
+            provider.organize(_request(), lambda _p, _s: None, lambda: False)
 
 
 def test_cloud_provider_requires_fresh_matching_consent_before_process_creation() -> None:
@@ -613,15 +1219,13 @@ def test_injected_provider_does_not_consult_machine_codex_path(
     def forbidden_which(_name: str) -> str:
         raise AssertionError("machine PATH must not be consulted for an injected provider")
 
-    monkeypatch.setattr(
-        "renpy_story_mapper.organization.provider.shutil.which", forbidden_which
-    )
+    monkeypatch.setattr("renpy_story_mapper.organization.provider.shutil.which", forbidden_which)
     process = FakeProcess(_jsonl(_valid_payload()))
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
     assert provider.status().state is ProviderState.READY
-    assert provider.organize(
-        _request(), lambda _p, _s: None, lambda: False
-    ).groups[0].id == "group-1"
+    assert (
+        provider.organize(_request(), lambda _p, _s: None, lambda: False).groups[0].id == "group-1"
+    )
 
 
 @pytest.mark.parametrize("use_cancel_method", [False, True])
@@ -647,6 +1251,29 @@ def test_pre_cancel_never_creates_process_or_writes_story_input(
     assert created == []
 
 
+def test_provider_rejects_oversized_initial_and_repair_prompts_before_process() -> None:
+    created = False
+
+    def factory() -> FakeProcess:
+        nonlocal created
+        created = True
+        return FakeProcess(b"")
+
+    request = _request()
+    request = OrganizationRequest(**{**request.__dict__, "payload": {"story": "x" * MAX_CHARS}})
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=factory)
+    with pytest.raises(ValueError, match="complete organization prompt"):
+        provider.organize(request, lambda _p, _s: None, lambda: False)
+    with pytest.raises(ValueError, match="complete organization prompt"):
+        provider._execute(
+            request,
+            lambda _p, _s: None,
+            lambda: False,
+            repair=True,
+        )
+    assert not created
+
+
 def test_direct_execute_pre_cancel_never_creates_process() -> None:
     called = False
 
@@ -657,9 +1284,7 @@ def test_direct_execute_pre_cancel_never_creates_process() -> None:
 
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=factory)
     with pytest.raises(OrganizationCancelledError, match="before transmission"):
-        provider._execute(
-            _request(), lambda _p, _s: None, lambda: True, repair=False
-        )
+        provider._execute(_request(), lambda _p, _s: None, lambda: True, repair=False)
     assert not called
 
 
@@ -700,9 +1325,69 @@ def test_provider_cancellation_terminates_with_bounded_wait_and_cleans_temp() ->
         provider.organize(_request(), lambda _p, _s: None, cancel_after_start)
     assert process.terminated
     assert process.killed
-    assert 1_750 in process.wait_arguments
-    assert 200 in process.wait_arguments
+    assert 500 in process.wait_arguments
+    assert 100 in process.wait_arguments
+    assert sum(value for value in process.wait_arguments if value > 0) <= 620
     assert not Path(process.cwd).exists()
+
+
+def test_provider_startup_is_pollable_and_cancellable_with_margin() -> None:
+    process = FakeProcess(
+        b"",
+        never_finishes=True,
+        remains_starting=True,
+        startup_waits_in_real_time=True,
+    )
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    checks = 0
+
+    def cancel_during_startup() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 4
+
+    started = time.perf_counter()
+    with pytest.raises(OrganizationCancelledError, match="during provider startup"):
+        provider.organize(_request(), lambda _p, _s: None, cancel_during_startup)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 1.2
+    assert process.terminated
+    assert process.stdin == b""
+    assert provider._active is None
+    assert not Path(process.cwd).exists()
+
+
+def test_provider_startup_timeout_cleans_up_inside_two_seconds() -> None:
+    process = FakeProcess(
+        b"",
+        never_finishes=True,
+        ignore_terminate=True,
+        remains_starting=True,
+        startup_waits_in_real_time=True,
+    )
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+    started = time.perf_counter()
+    with pytest.raises(ProviderTimeoutError, match="startup timed out"):
+        provider.organize(_request(), lambda _p, _s: None, lambda: False)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 2.0
+    assert process.terminated
+    assert process.killed
+    assert process.stdin == b""
+    assert provider._active is None
+    assert not Path(process.cwd).exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows cancellation authority")
+def test_real_windows_helper_process_cancellation_returns_with_margin() -> None:
+    process = QProcess()
+    process.start(sys.executable, ["-c", "import time; time.sleep(30)"])
+    assert process.waitForStarted(2_000)
+    started = time.perf_counter()
+    CodexCliProvider._stop_process(process)
+    elapsed = time.perf_counter() - started
+    assert process.state() == QProcess.ProcessState.NotRunning
+    assert elapsed < 1.5
 
 
 @pytest.mark.parametrize("write_result", [-1, 5])
@@ -724,9 +1409,7 @@ def test_running_error_event_stops_process_clears_active_and_cleans_temp() -> No
         "type": "turn.failed",
         "error": {"message": "429 rate limit SECRET-STORY"},
     }
-    process = FakeProcess(
-        (json.dumps(event) + "\n").encode(), never_finishes=True
-    )
+    process = FakeProcess((json.dumps(event) + "\n").encode(), never_finishes=True)
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
     with pytest.raises(ProviderRateLimitError) as exc_info:
         provider.organize(_request(), lambda _p, _s: None, lambda: False)
