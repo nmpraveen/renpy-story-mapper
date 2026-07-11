@@ -374,21 +374,28 @@ class PresentationService:
 
         bounded = _bounded_limit(limit, MAX_RESULTS)
         rows = self._project._require_open().execute(
-            """WITH RECURSIVE walk(node_id, depth) AS (
-                 SELECT node_id, 0 FROM presentation_nodes
+            """WITH RECURSIVE context(scene_id) AS (
+                 SELECT parent_id FROM presentation_nodes
+                 WHERE node_id=? AND level=2 AND kind='choice_group'
+               ), walk(node_id) AS (
+                 SELECT node_id FROM presentation_nodes
                  WHERE parent_id=? AND level=3 AND kind='choice'
                  UNION
-                 SELECT e.target_id, w.depth + 1
+                 SELECT e.target_id
                  FROM walk w
                  JOIN presentation_nodes current ON current.node_id=w.node_id
-                 JOIN presentation_edges e ON e.level=3 AND e.source_id=w.node_id
-                 WHERE w.depth < 12
-                   AND current.kind NOT IN ('jump','return','module_end')
+                 CROSS JOIN presentation_edges e INDEXED BY presentation_edges_source_idx
+                   ON e.level=3 AND e.source_id=w.node_id
+                 JOIN presentation_nodes target ON target.node_id=e.target_id
+                 JOIN presentation_nodes target_event ON target_event.node_id=target.parent_id
+                 JOIN context c ON target_event.parent_id=c.scene_id
+                 WHERE current.kind NOT IN ('jump','return','module_end','ending')
+                 LIMIT 512
                )
                SELECT DISTINCT f.* FROM presentation_facts f
                JOIN walk w ON w.node_id=f.node_id
                ORDER BY f.sort_key,f.fact_id LIMIT ?""",
-            (node_id, bounded + 1),
+            (node_id, node_id, bounded + 1),
         ).fetchall()
         has_more = len(rows) > bounded
         rows = rows[:bounded]
@@ -785,6 +792,8 @@ def _ensure_query_indexes(connection: sqlite3.Connection) -> None:
         ON presentation_nodes(parent_id, node_id)""",
         """CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx
         ON presentation_nodes(level, source_path, start_line, end_line, sort_key)""",
+        """CREATE INDEX IF NOT EXISTS presentation_edges_source_idx
+        ON presentation_edges(level, source_id, target_id, edge_id)""",
         """CREATE INDEX IF NOT EXISTS presentation_facts_node_idx
         ON presentation_facts(node_id, sort_key, fact_id)""",
     ):

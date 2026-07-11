@@ -141,7 +141,7 @@ def elide_visible_text(text: str, maximum: int) -> str:
 
 class _NodeItem(QGraphicsObject):
     WIDTH = 260.0
-    HEIGHT = 132.0
+    HEIGHT = 158.0
 
     def __init__(self, spec: GraphNodeSpec) -> None:
         super().__init__()
@@ -203,7 +203,7 @@ class _NodeItem(QGraphicsObject):
                 first = self.spec.evidence[0]
                 evidence = f"{first.source_path}:{first.start_line}"
             painter.drawText(
-                QRectF(15.0, 102.0, 230.0, 22.0), elide_visible_text(evidence, 48)
+                QRectF(15.0, 130.0, 230.0, 20.0), elide_visible_text(evidence, 48)
             )
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -215,20 +215,24 @@ class _NodeItem(QGraphicsObject):
         super().mouseDoubleClickEvent(event)
 
     def _paint_badges(self, painter: QPainter) -> None:
-        badges = tuple(f"Req: {value}" for value in self.spec.requirements[:1]) + tuple(
-            f"Effect: {value}" for value in self.spec.effects[:1]
+        all_badges = tuple(f"Req: {value}" for value in self.spec.requirements[:2]) + tuple(
+            f"Effect: {value}" for value in self.spec.effects
         )
-        x = 15.0
-        for badge in badges:
+        badges = all_badges[:4]
+        if len(all_badges) > 4:
+            badges = (*badges[:3], f"+{len(all_badges) - 3} more")
+        for index, badge in enumerate(badges):
+            row, column = divmod(index, 2)
+            x = 15.0 + column * 116.0
+            y = 79.0 + row * 22.0
             width = min(108.0, 12.0 + len(badge) * 5.2)
             painter.setPen(QColor("#59636E"))
             painter.setBrush(QColor("#FFFFFF"))
-            painter.drawRoundedRect(QRectF(x, 79.0, width, 18.0), 5.0, 5.0)
+            painter.drawRoundedRect(QRectF(x, y, width, 18.0), 5.0, 5.0)
             painter.drawText(
-                QRectF(x + 5.0, 81.0, width - 9.0, 14.0),
+                QRectF(x + 5.0, y + 2.0, width - 9.0, 14.0),
                 elide_visible_text(badge, 19),
             )
-            x += width + 6.0
 
 
 class _EdgeItem(QGraphicsPathItem):

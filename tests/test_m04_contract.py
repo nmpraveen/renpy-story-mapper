@@ -331,6 +331,7 @@ def test_migration_has_required_indexes_and_visible_node_lookup_is_index_bounded
             "presentation_nodes_parent_idx",
             "presentation_nodes_parent_lookup_idx",
             "presentation_edges_level_idx",
+            "presentation_edges_source_idx",
             "presentation_evidence_node_idx",
             "presentation_search_normalized_idx",
             "presentation_facts_filter_idx",
