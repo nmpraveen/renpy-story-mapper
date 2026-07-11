@@ -371,3 +371,54 @@ def test_level_round_trip_restores_selection_for_the_previous_level(
     window.level_one_button.click()
     _wait_for_map(qtbot, window)
     assert window.graph_canvas.selected_node_id == prologue.id
+
+
+def test_descendant_queries_use_point_lookups_instead_of_full_index_scans(
+    tmp_path: Path,
+) -> None:
+    project_path, _ = _create_project(tmp_path)
+    with PresentationService.open(project_path) as service:
+        root = next(
+            node
+            for node in service.view(PresentationRequest(PresentationLevel.OVERVIEW)).nodes
+            if node.name == "new_prologue"
+        )
+        connection = service._project._require_open()
+        evidence_plan = connection.execute(
+            """EXPLAIN QUERY PLAN
+            WITH RECURSIVE descendants(node_id, depth) AS (
+              SELECT ?, 0
+              UNION ALL
+              SELECT n.node_id, d.depth + 1 FROM presentation_nodes n
+              JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
+            )
+            SELECT e.* FROM descendants d
+            CROSS JOIN presentation_evidence e INDEXED BY presentation_evidence_node_idx
+              ON e.node_id=d.node_id
+            ORDER BY e.sort_key,e.evidence_id LIMIT ?""",
+            (root.id, 26),
+        ).fetchall()
+        fact_plan = connection.execute(
+            """EXPLAIN QUERY PLAN
+            WITH RECURSIVE descendants(node_id, depth) AS (
+              SELECT ?, 0
+              UNION ALL
+              SELECT n.node_id, d.depth + 1 FROM presentation_nodes n
+              JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
+            )
+            SELECT f.* FROM descendants d
+            CROSS JOIN presentation_facts f INDEXED BY presentation_facts_node_idx
+              ON f.node_id=d.node_id
+            ORDER BY f.sort_key,f.fact_id LIMIT ?""",
+            (root.id, 26),
+        ).fetchall()
+        evidence_details = tuple(str(row[3]) for row in evidence_plan)
+        fact_details = tuple(str(row[3]) for row in fact_plan)
+        assert any(
+            "SEARCH e USING INDEX presentation_evidence_node_idx (node_id=?)" in detail
+            for detail in evidence_details
+        ), evidence_details
+        assert any(
+            "SEARCH f USING INDEX presentation_facts_node_idx (node_id=?)" in detail
+            for detail in fact_details
+        ), fact_details

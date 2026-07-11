@@ -271,7 +271,8 @@ class PresentationService:
               JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
             )
             SELECT e.* FROM descendants d
-            JOIN presentation_evidence e ON e.node_id=d.node_id
+            CROSS JOIN presentation_evidence e INDEXED BY presentation_evidence_node_idx
+              ON e.node_id=d.node_id
             {where} ORDER BY e.sort_key,e.evidence_id LIMIT ?""",
             (*parameters, bounded + 1),
         ).fetchall()
@@ -350,7 +351,10 @@ class PresentationService:
               SELECT n.node_id, d.depth + 1 FROM presentation_nodes n
               JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
             )"""
-            from_clause = "descendants d JOIN presentation_facts f ON f.node_id=d.node_id"
+            from_clause = (
+                "descendants d CROSS JOIN presentation_facts f "
+                "INDEXED BY presentation_facts_node_idx ON f.node_id=d.node_id"
+            )
             parameters.insert(0, node_id)
         if after is not None:
             clauses.append("f.sort_key > ?")
