@@ -8,8 +8,11 @@ Runtime authority: Windows with CPython 3.12
 
 ## Work packages
 
-Worker task IDs, actual Codex worktree paths, assigned branches, status, and final commits are
-recorded here immediately after dispatch.
+| Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
+| --- | --- | --- | --- | --- | --- | --- |
+| `019f4ec5-acb6-7043-ae45-a9026297c24b` | M04 - Bounded deterministic presentation model | Persistent bounded three-level queries, deterministic hierarchy, search/evidence, filters, overrides, migration and refresh consistency | `codex/m04-presentation-model`; `C:\Users\prave\.codex\worktrees\7d68\Renpy` | `presentation.py`; storage/project/project-analysis integration; presentation tests and fixtures | Active from base `85b907c` | Pending |
+| `019f4ec5-acbe-74f2-8115-f6ae0381aea9` | M04 - Windows project lifecycle shell | PySide6 application shell, project selection/lifecycle, background work, cancellation, errors, diagnostics and integration hooks | `codex/m04-windows-shell`; `C:\Users\prave\.codex\worktrees\71fd\Renpy` | `pyproject.toml`; `ui/app.py`, `ui/main_window.py`, `ui/workers.py`, controller; shell tests and fixtures | Active from base `85b907c` | Pending |
+| `019f4ec5-acb8-7830-89cf-ec6ad4a38856` | M04 - Virtualized semantic graph canvas | Local PySide6 graph canvas, bounded rendering, semantic zoom, navigation, selection, styling and evidence signals | `codex/m04-graph-canvas`; `C:\Users\prave\.codex\worktrees\0eb3\Renpy` | `ui/graph_canvas.py`; canvas tests and fixtures | Active from base `85b907c` | Pending |
 
 The orchestrator owns cross-package architecture, integration, conflicts, the complete Windows
 acceptance suite, canonical-sample verification, documentation, native infographic generation,
