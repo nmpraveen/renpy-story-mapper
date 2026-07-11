@@ -1989,48 +1989,27 @@ class StoryOrganizationService:
                 "(SELECT arc_id FROM story_arcs WHERE pinned=1))"
             )
         }
-        declared_scope = candidate.get("selected_beat_ids")
-        covered_beats = (
-            set(_string_list(declared_scope, "selected beat IDs"))
-            if declared_scope is not None
-            else {
-                str(row[0])
-                for row in self._connection.execute(
-                    "SELECT node_id FROM presentation_nodes WHERE level=3"
-                )
-            }
-        )
-        intersecting = self._connection.execute(
-            """SELECT DISTINCT m.event_id FROM story_event_members m
-               JOIN story_events e ON e.event_id=m.event_id
-               LEFT JOIN story_arc_members am ON am.event_id=e.event_id
-               LEFT JOIN story_arcs a ON a.arc_id=am.arc_id
-               WHERE e.pinned=0 AND COALESCE(a.pinned,0)=0
-               ORDER BY m.event_id"""
+        # The global API is always a full replacement. Membership evidence may be stale after a
+        # refresh, so deletion is based on pin preservation alone—not on intersection with the
+        # current presentation index. Scoped replacement uses _apply_scoped_candidate instead.
+        removable_events = self._connection.execute(
+            """SELECT event.event_id FROM story_events event
+               LEFT JOIN story_arc_members membership ON membership.event_id=event.event_id
+               LEFT JOIN story_arcs arc ON arc.arc_id=membership.arc_id
+               WHERE event.pinned=0 AND COALESCE(arc.pinned,0)=0
+               ORDER BY event.event_id"""
         ).fetchall()
-        affected_arcs: set[str] = set()
-        for event_row in intersecting:
+        for event_row in removable_events:
             event_id = str(event_row["event_id"])
-            members = self._member_ids(event_id)
-            if not covered_beats.intersection(members):
-                continue
-            arc_row = self._connection.execute(
-                "SELECT arc_id FROM story_arc_members WHERE event_id=?", (event_id,)
-            ).fetchone()
-            if arc_row is not None:
-                affected_arcs.add(str(arc_row["arc_id"]))
-            remaining = tuple(beat for beat in members if beat not in covered_beats)
-            if remaining:
-                self._replace_members(event_id, remaining)
-            else:
-                self._connection.execute("DELETE FROM story_events WHERE event_id=?", (event_id,))
-        for arc_id in affected_arcs:
-            if not self._arc_member_ids(arc_id):
-                self._connection.execute(
-                    "DELETE FROM story_arcs WHERE arc_id=? AND pinned=0", (arc_id,)
-                )
-            else:
+            self._connection.execute("DELETE FROM story_events WHERE event_id=?", (event_id,))
+        for row in self._connection.execute(
+            "SELECT arc_id FROM story_arcs WHERE pinned=0 ORDER BY arc_id"
+        ).fetchall():
+            arc_id = str(row["arc_id"])
+            if arc_id in pinned_arcs:
                 self._renumber_arc(arc_id)
+            else:
+                self._connection.execute("DELETE FROM story_arcs WHERE arc_id=?", (arc_id,))
         now = storage.utc_now()
         events = _object_list(candidate["events"], "events")
         events_in_preserved_arcs = {

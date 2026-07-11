@@ -419,6 +419,54 @@ def test_global_draft_rejects_scope_fields_and_fully_replaces_unpinned_state(
         )
 
 
+def test_global_apply_removes_stale_and_mixed_unpinned_groups_after_refresh(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("event", "event-c", True)
+        pinned_event = next(event for event in service.events() if event.id == "event-c")
+        pinned_arc = next(arc for arc in service.arcs() if arc.id == "arc-b")
+        connection = service._connection
+        event_a_members = service._member_ids("event-a")
+        event_b_members = service._member_ids("event-b")
+        with storage.transaction(connection):
+            for ordinal, beat_id in enumerate(event_a_members):
+                connection.execute(
+                    """UPDATE story_event_members SET beat_id=?
+                       WHERE event_id='event-a' AND beat_id=?""",
+                    (f"stale-only-{ordinal}", beat_id),
+                )
+            connection.execute(
+                """UPDATE story_event_members SET beat_id='stale-mixed'
+                   WHERE event_id='event-b' AND beat_id=?""",
+                (event_b_members[0],),
+            )
+        assert set(service.reconcile_after_refresh()) == {"event-a", "event-b"}
+
+        service.apply_draft(
+            _run_and_draft(service, _candidate(project, suffix="-after-refresh"))
+        )
+        event_ids = {event.id for event in service.events(include_hidden=True)}
+        arc_ids = {arc.id for arc in service.arcs(include_hidden=True)}
+        assert {"event-a", "event-b"}.isdisjoint(event_ids)
+        assert "arc-a" not in arc_ids
+        assert next(event for event in service.events() if event.id == "event-c") == pinned_event
+        assert next(arc for arc in service.arcs() if arc.id == "arc-b") == pinned_arc
+        assert connection.execute(
+            """SELECT 1 FROM story_event_members
+               WHERE event_id IN ('event-a','event-b') OR beat_id LIKE 'stale-%'"""
+        ).fetchone() is None
+        assert all(claim.id != "claim-a" for claim in service.claims())
+        stale_enrichment = connection.execute(
+            """SELECT 1 FROM story_group_enrichment
+               WHERE (target_kind='event' AND target_id IN ('event-a','event-b'))
+                  OR (target_kind='arc' AND target_id='arc-a')"""
+        ).fetchone()
+        assert stale_enrichment is None
+
+
 def test_draft_group_review_reject_fallback_apply_and_reopen(tmp_path: Path) -> None:
     path: Path
     with _create(tmp_path) as project:
