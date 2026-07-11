@@ -10,7 +10,11 @@ import pytest
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.project import Project, create_project, refresh_project
-from renpy_story_mapper.story_organization import StoryOrganizationService
+from renpy_story_mapper.story_organization import (
+    StoryArc,
+    StoryEvent,
+    StoryOrganizationService,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m05" / "organization"
 
@@ -403,6 +407,7 @@ def test_global_draft_rejects_scope_fields_and_fully_replaces_unpinned_state(
             service.create_draft(run, "g-global-bypass", partial)
         assert service.events(include_hidden=True) == before
 
+        service.set_hidden("event", "event-b", True)
         replacement = _candidate(project, suffix="-global-replacement")
         service.apply_draft(_run_and_draft(service, replacement))
         events = service.events(include_hidden=True)
@@ -417,6 +422,7 @@ def test_global_draft_rejects_scope_fields_and_fully_replaces_unpinned_state(
             ).fetchone()
             for event in events
         )
+        assert {edit.status for edit in service.edits("event-b")} == {"needs_review"}
 
 
 def test_global_apply_removes_stale_and_mixed_unpinned_groups_after_refresh(
@@ -465,6 +471,484 @@ def test_global_apply_removes_stale_and_mixed_unpinned_groups_after_refresh(
                   OR (target_kind='arc' AND target_id='arc-a')"""
         ).fetchone()
         assert stale_enrichment is None
+
+
+def test_global_rerun_replays_scalar_edits_for_stable_ids_and_reopens(tmp_path: Path) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        candidate = _candidate(project)
+        service.apply_draft(_run_and_draft(service, candidate))
+        service.rename("event", "event-a", "Remembered storm")
+        service.set_pinned("event", "event-a", False)
+        service.set_hidden("event", "event-a", True)
+        service.set_approval("event", "event-a", "approved")
+        service.set_approval("event", "event-a", "rejected")
+        service.set_hidden("arc", "arc-a", True)
+        service.set_approval("arc", "arc-a", "approved")
+        service.set_approval("arc", "arc-a", "rejected")
+
+        service.apply_draft(_run_and_draft(service, candidate))
+        event = next(
+            value for value in service.events(include_hidden=True) if value.id == "event-a"
+        )
+        arc = next(value for value in service.arcs(include_hidden=True) if value.id == "arc-a")
+        assert event.title == "Remembered storm"
+        assert event.hidden and not event.pinned and event.approval_state == "rejected"
+        assert arc.hidden and arc.approval_state == "rejected"
+        assert {edit.status for edit in service.edits("event-a")} == {"applied"}
+        assert {edit.status for edit in service.edits("arc-a")} == {"applied"}
+
+    with Project.open(path) as reopened:
+        restored = reopened.organization_service()
+        event = next(
+            value for value in restored.events(include_hidden=True) if value.id == "event-a"
+        )
+        arc = next(value for value in restored.arcs(include_hidden=True) if value.id == "arc-a")
+        assert event.title == "Remembered storm"
+        assert event.hidden and not event.pinned and event.approval_state == "rejected"
+        assert arc.hidden and arc.approval_state == "rejected"
+
+
+def test_global_pinned_id_collisions_remap_without_lost_beats_or_orphans(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path / "event-collision") as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("event", "event-a", True)
+        pinned = next(event for event in service.events() if event.id == "event-a")
+        pinned_claims = service.claims(event_id="event-a")
+        pinned_edits = service.edits("event-a")
+        pinned_beats = set(pinned.beat_ids)
+        candidate = _candidate(project, suffix="-event-collision")
+        events = candidate["events"]
+        arcs = candidate["arcs"]
+        claims = candidate["claims"]
+        assert isinstance(events, list) and isinstance(arcs, list) and isinstance(claims, list)
+        assert all(isinstance(value, dict) for value in (*events, *arcs, *claims))
+        events[0]["id"] = "pinned-shadow-event"
+        events[1]["id"] = "event-a"
+        arcs[0]["event_ids"] = ["pinned-shadow-event", "event-a"]
+        claims[0]["id"] = "claim-a"
+        claims[0]["event_id"] = "event-a"
+        service.apply_draft(_run_and_draft(service, candidate))
+        assert next(event for event in service.events() if event.id == "event-a") == pinned
+        assert service.claims(event_id="event-a") == pinned_claims
+        assert service.edits("event-a") == pinned_edits
+        current_beats = {
+            str(row[0])
+            for row in service._connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3"
+            )
+        }
+        expected_unpinned = current_beats - pinned_beats
+        memberships = [
+            str(row[0])
+                for row in service._connection.execute(
+                    """SELECT member.beat_id FROM story_event_members member
+                       JOIN story_events event ON event.event_id=member.event_id
+                       LEFT JOIN story_arc_members arc_member
+                         ON arc_member.event_id=event.event_id
+                       LEFT JOIN story_arcs arc ON arc.arc_id=arc_member.arc_id
+                       WHERE event.pinned=0 AND COALESCE(arc.pinned,0)=0"""
+                )
+        ]
+        assert set(memberships) == expected_unpinned
+        assert len(memberships) == len(expected_unpinned)
+        assert service._connection.execute(
+            """SELECT event.event_id FROM story_events event
+               LEFT JOIN story_arc_members member ON member.event_id=event.event_id
+               WHERE event.pinned=0 AND member.event_id IS NULL"""
+        ).fetchone() is None
+        remapped = next(
+            event
+            for event in service.events()
+            if event.id != "event-a" and set(event.beat_ids) == set(events[1]["beat_ids"])
+        )
+        remapped_claim = next(claim for claim in service.claims() if claim.event_id == remapped.id)
+        assert remapped_claim.id != "claim-a"
+
+    with _create(tmp_path / "arc-collision") as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("arc", "arc-a", True)
+        pinned = next(arc for arc in service.arcs() if arc.id == "arc-a")
+        pinned_events = service.events(arc_id="arc-a")
+        pinned_claims = tuple(
+            claim for event in pinned_events for claim in service.claims(event_id=event.id)
+        )
+        pinned_edits = service.edits("arc-a")
+        pinned_event_ids = set(pinned.event_ids)
+        pinned_beats = {
+            beat
+            for event in service.events(arc_id="arc-a")
+            for beat in event.beat_ids
+        }
+        candidate = _candidate(project, suffix="-arc-collision")
+        arcs = candidate["arcs"]
+        claims = candidate["claims"]
+        assert isinstance(arcs, list) and isinstance(claims, list)
+        assert isinstance(arcs[0], dict) and isinstance(arcs[1], dict)
+        assert isinstance(claims[0], dict)
+        arcs[0]["id"] = "pinned-shadow-arc"
+        arcs[1]["id"] = "arc-a"
+        claims[0]["id"] = "claim-a"
+        claims[0].pop("event_id")
+        claims[0]["arc_id"] = "arc-a"
+        service.apply_draft(_run_and_draft(service, candidate))
+        assert next(arc for arc in service.arcs() if arc.id == "arc-a") == pinned
+        assert service.events(arc_id="arc-a") == pinned_events
+        assert tuple(
+            claim for event in pinned_events for claim in service.claims(event_id=event.id)
+        ) == pinned_claims
+        assert service.edits("arc-a") == pinned_edits
+        restored_pinned = next(arc for arc in service.arcs() if arc.id == "arc-a")
+        assert set(restored_pinned.event_ids) == pinned_event_ids
+        current_beats = {
+            str(row[0])
+            for row in service._connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3"
+            )
+        }
+        expected_unpinned = current_beats - pinned_beats
+        memberships = [
+            str(row[0])
+                for row in service._connection.execute(
+                    """SELECT member.beat_id FROM story_event_members member
+                       JOIN story_events event ON event.event_id=member.event_id
+                       LEFT JOIN story_arc_members arc_member
+                         ON arc_member.event_id=event.event_id
+                       LEFT JOIN story_arcs arc ON arc.arc_id=arc_member.arc_id
+                       WHERE event.pinned=0 AND COALESCE(arc.pinned,0)=0"""
+                )
+        ]
+        assert set(memberships) == expected_unpinned
+        assert len(memberships) == len(expected_unpinned)
+        remapped_arc = next(
+            arc for arc in service.arcs() if arc.id != "arc-a" and arc.title == "Outcome"
+        )
+        assert remapped_arc.event_ids
+        assert all(
+            claim.id != "claim-a" for claim in service.claims() if claim.arc_id == remapped_arc.id
+        )
+
+
+def test_ungrouped_fallback_requires_authoritative_order_and_reopens(tmp_path: Path) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        beats = [
+            str(row[0])
+            for row in project._require_open().execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
+            )
+        ]
+        reversed_candidate: dict[str, object] = {
+            "events": [],
+            "arcs": [],
+            "claims": [],
+            "ungrouped_beat_ids": list(reversed(beats)),
+        }
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, reversed_candidate))
+        global_events = service.events(include_hidden=True)
+        global_arcs = service.arcs(include_hidden=True)
+        assert [event.beat_ids[0] for event in global_events] == beats
+        assert [event.order for event in global_events] == list(range(len(global_events)))
+        assert len(global_arcs) == 1 and global_arcs[0].order == 0
+        assert global_arcs[0].event_ids == tuple(event.id for event in global_events)
+
+        scoped = _scoped_candidate(project, (0,), suffix="-ungrouped-order")
+        scoped_beats = scoped["selected_beat_ids"]
+        assert isinstance(scoped_beats, list)
+        scoped["events"] = []
+        scoped["arcs"] = []
+        scoped["claims"] = []
+        scoped["ungrouped_beat_ids"] = list(reversed(scoped_beats))
+        service.apply_draft(_run_and_draft(service, scoped))
+        accepted = service.events(include_hidden=True)
+        accepted_arcs = service.arcs(include_hidden=True)
+        assert [event.beat_ids[0] for event in accepted] == beats
+        assert tuple(
+            event_id
+            for arc in accepted_arcs
+            for event_id in arc.event_ids
+        ) == tuple(event.id for event in accepted)
+
+    with Project.open(path) as reopened:
+        restored = reopened.organization_service()
+        assert restored.events(include_hidden=True) == accepted
+        assert restored.arcs(include_hidden=True) == accepted_arcs
+
+
+def test_global_stable_ids_replay_scalar_edits_and_reopen(tmp_path: Path) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.rename("event", "event-a", "Remembered storm")
+        service.set_pinned("event", "event-a", False)
+        service.set_hidden("event", "event-a", True)
+        service.set_approval("event", "event-b", "rejected")
+        service.set_approval("arc", "arc-a", "rejected")
+        service.set_approval("arc", "arc-a", "approved")
+
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+
+        replayed = next(
+            event
+            for event in service.events(include_hidden=True)
+            if event.id == "event-a"
+        )
+        assert replayed.title == "Remembered storm"
+        assert replayed.hidden and not replayed.pinned
+        event_b = next(event for event in service.events() if event.id == "event-b")
+        assert event_b.approval_state == "rejected"
+        assert next(arc for arc in service.arcs() if arc.id == "arc-a").approval_state == (
+            "approved"
+        )
+        assert {edit.status for edit in service.edits("event-a")} == {"applied"}
+        assert {edit.status for edit in service.edits("arc-a")} == {"applied"}
+
+    with Project.open(path) as reopened:
+        service = reopened.organization_service()
+        replayed = next(
+            event
+            for event in service.events(include_hidden=True)
+            if event.id == "event-a"
+        )
+        assert (replayed.title, replayed.hidden, replayed.pinned) == (
+            "Remembered storm",
+            True,
+            False,
+        )
+        event_b = next(event for event in service.events() if event.id == "event-b")
+        assert event_b.approval_state == "rejected"
+        assert next(arc for arc in service.arcs() if arc.id == "arc-a").approval_state == (
+            "approved"
+        )
+
+
+def test_global_changed_ids_mark_unreplayable_scalar_edits_for_review(tmp_path: Path) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_hidden("event", "event-a", True)
+
+        service.apply_draft(_run_and_draft(service, _candidate(project, suffix="-changed")))
+
+        assert {edit.status for edit in service.edits("event-a")} == {"needs_review"}
+        assert all(event.id != "event-a" for event in service.events(include_hidden=True))
+
+
+def test_global_pinned_event_id_and_claim_collisions_are_remapped(tmp_path: Path) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("event", "event-a", True)
+        pinned_event = next(event for event in service.events() if event.id == "event-a")
+        pinned_claims = service.claims(event_id="event-a")
+        pinned_edits = service.edits("event-a")
+
+        candidate = _candidate(project, suffix="-event-collision")
+        events = candidate["events"]
+        arcs = candidate["arcs"]
+        claims = candidate["claims"]
+        assert isinstance(events, list) and isinstance(arcs, list) and isinstance(claims, list)
+        assert isinstance(events[1], dict) and isinstance(arcs[0], dict)
+        assert isinstance(claims[0], dict)
+        replacement_beats = tuple(events[1]["beat_ids"])
+        events[1]["id"] = "event-a"
+        arcs[0]["event_ids"] = ["event-a-event-collision", "event-a"]
+        claims[0]["id"] = "claim-a"
+        claims[0]["event_id"] = "event-a"
+
+        service.apply_draft(_run_and_draft(service, candidate))
+
+        assert next(event for event in service.events() if event.id == "event-a") == pinned_event
+        assert service.claims(event_id="event-a") == pinned_claims
+        assert service.edits("event-a") == pinned_edits
+        replacement = next(
+            event
+            for event in service.events(include_hidden=True)
+            if event.id != "event-a" and event.beat_ids == replacement_beats
+        )
+        assert replacement.id != "event-a"
+        assert service._connection.execute(
+            "SELECT 1 FROM story_arc_members WHERE event_id=?", (replacement.id,)
+        ).fetchone()
+        remapped_claim = next(
+            claim for claim in service.claims(event_id=replacement.id) if claim.id != "claim-a"
+        )
+        assert remapped_claim.text == "The storm creates tension."
+        assert all(
+            service._connection.execute(
+                "SELECT 1 FROM story_arc_members WHERE event_id=?", (event.id,)
+            ).fetchone()
+            for event in service.events(include_hidden=True)
+        )
+
+
+def test_global_pinned_arc_id_and_claim_collisions_are_remapped(tmp_path: Path) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("arc", "arc-a", True)
+        pinned_arc = next(arc for arc in service.arcs() if arc.id == "arc-a")
+        pinned_events = service.events(arc_id="arc-a")
+        pinned_claims = tuple(
+            claim for event in pinned_events for claim in service.claims(event_id=event.id)
+        )
+        pinned_edits = service.edits("arc-a")
+
+        candidate = _candidate(project, suffix="-arc-collision")
+        arcs = candidate["arcs"]
+        claims = candidate["claims"]
+        assert isinstance(arcs, list) and isinstance(claims, list)
+        assert isinstance(arcs[1], dict) and isinstance(claims[0], dict)
+        arcs[1]["id"] = "arc-a"
+        claims[0].pop("event_id")
+        claims[0]["arc_id"] = "arc-a"
+        claims[0]["id"] = "claim-a"
+
+        service.apply_draft(_run_and_draft(service, candidate))
+
+        assert next(arc for arc in service.arcs() if arc.id == "arc-a") == pinned_arc
+        assert service.events(arc_id="arc-a") == pinned_events
+        assert tuple(
+            claim for event in pinned_events for claim in service.claims(event_id=event.id)
+        ) == pinned_claims
+        assert service.edits("arc-a") == pinned_edits
+        replacement_event = next(
+            event
+            for event in service.events(include_hidden=True)
+            if event.id == "event-c-arc-collision"
+        )
+        replacement_arc_id = str(
+            service._connection.execute(
+                "SELECT arc_id FROM story_arc_members WHERE event_id=?", (replacement_event.id,)
+            ).fetchone()[0]
+        )
+        assert replacement_arc_id != "arc-a"
+        remapped_claim = next(
+            claim for claim in service.claims() if claim.arc_id == replacement_arc_id
+        )
+        assert remapped_claim.id != "claim-a"
+        assert all(
+            service._connection.execute(
+                "SELECT 1 FROM story_arc_members WHERE event_id=?", (event.id,)
+            ).fetchone()
+            for event in service.events(include_hidden=True)
+        )
+
+
+def test_reversed_all_ungrouped_beats_normalize_authoritative_chronology_and_reopen(
+    tmp_path: Path,
+) -> None:
+    path: Path
+    expected: tuple[str, ...]
+    accepted_events: tuple[StoryEvent, ...]
+    accepted_arcs: tuple[StoryArc, ...]
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        expected = tuple(
+            str(row[0])
+            for row in service._connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
+            )
+        )
+        candidate: dict[str, object] = {
+            "events": [],
+            "arcs": [],
+            "claims": [],
+            "ungrouped_beat_ids": list(reversed(expected)),
+        }
+
+        service.apply_draft(_run_and_draft(service, candidate))
+
+        events = service.events(include_hidden=True)
+        arcs = service.arcs(include_hidden=True)
+        assert tuple(beat for event in events for beat in event.beat_ids) == expected
+        assert [event.order for event in events] == list(range(len(events)))
+        assert len(arcs) == 1 and arcs[0].order == 0
+        assert arcs[0].event_ids == tuple(event.id for event in events)
+        assert len(set(arcs[0].event_ids)) == len(events)
+        accepted_events = events
+        accepted_arcs = arcs
+
+    with Project.open(path) as reopened:
+        service = reopened.organization_service()
+        assert service.events(include_hidden=True) == accepted_events
+        assert service.arcs(include_hidden=True) == accepted_arcs
+        assert tuple(
+            beat for event in service.events(include_hidden=True) for beat in event.beat_ids
+        ) == expected
+
+
+def test_mixed_ungrouped_fallbacks_are_gap_safe_and_non_interleaving_after_reopen(
+    tmp_path: Path,
+) -> None:
+    path: Path
+    accepted_events: tuple[StoryEvent, ...]
+    accepted_arcs: tuple[StoryArc, ...]
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        candidate = _candidate(project)
+        events = candidate["events"]
+        assert isinstance(events, list) and isinstance(events[1], dict)
+        second_beats = events[1]["beat_ids"]
+        assert isinstance(second_beats, list) and len(second_beats) >= 2
+        ungrouped = second_beats.pop(0)
+        candidate["ungrouped_beat_ids"] = [ungrouped]
+
+        service.apply_draft(_run_and_draft(service, candidate))
+
+        positions = {
+            str(row["node_id"]): index
+            for index, row in enumerate(
+                service._connection.execute(
+                    "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
+                )
+            )
+        }
+        accepted_events = service.events(include_hidden=True)
+        accepted_arcs = service.arcs(include_hidden=True)
+        event_bounds = {
+            event.id: (
+                min(positions[beat] for beat in event.beat_ids),
+                max(positions[beat] for beat in event.beat_ids),
+            )
+            for event in accepted_events
+        }
+        assert [event_bounds[event.id][0] for event in accepted_events] == sorted(
+            event_bounds[event.id][0] for event in accepted_events
+        )
+        fallback = next(
+            event
+            for event in accepted_events
+            if event.beat_ids == (ungrouped,)
+        )
+        opening = next(arc for arc in accepted_arcs if arc.id == "arc-a")
+        assert fallback.id in opening.event_ids
+        assert [event_bounds[event_id][0] for event_id in opening.event_ids] == sorted(
+            event_bounds[event_id][0] for event_id in opening.event_ids
+        )
+        previous_end = -1
+        for arc in accepted_arcs:
+            start = min(event_bounds[event_id][0] for event_id in arc.event_ids)
+            end = max(event_bounds[event_id][1] for event_id in arc.event_ids)
+            assert start > previous_end
+            previous_end = end
+
+    with Project.open(path) as reopened:
+        service = reopened.organization_service()
+        assert service.events(include_hidden=True) == accepted_events
+        assert service.arcs(include_hidden=True) == accepted_arcs
 
 
 def test_draft_group_review_reject_fallback_apply_and_reopen(tmp_path: Path) -> None:

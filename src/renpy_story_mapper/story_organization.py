@@ -11,6 +11,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 from renpy_story_mapper import storage
@@ -1185,29 +1186,11 @@ class StoryOrganizationService:
             if arc_approved:
                 active_arc_ids.add(arc_id)
 
-        ungrouped_event_ids: list[str] = []
-        for beat_id in _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs"):
-            fallback_id = _stable_id("ungrouped-event", beat_id)
-            accepted_events.append(
-                {
-                    "id": fallback_id,
-                    "title": "Ungrouped technical event",
-                    "summary": "Deterministic beat retained as technical fallback.",
-                    "beat_ids": [beat_id],
-                    "origin": "deterministic",
-                }
-            )
-            ungrouped_event_ids.append(fallback_id)
-        if ungrouped_event_ids:
-            accepted_arcs.append(
-                {
-                    "id": _stable_id("ungrouped-arc", *ungrouped_event_ids),
-                    "title": "Ungrouped technical story",
-                    "summary": "Deterministic beats retained as technical fallback.",
-                    "event_ids": ungrouped_event_ids,
-                    "origin": "deterministic",
-                }
-            )
+        self._integrate_ungrouped_fallbacks(
+            accepted_events,
+            accepted_arcs,
+            _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs"),
+        )
 
         accepted_claims = [
             dict(claim)
@@ -1228,6 +1211,101 @@ class StoryOrganizationService:
                 else {}
             ),
         }
+
+    def _integrate_ungrouped_fallbacks(
+        self,
+        accepted_events: list[dict[str, object]],
+        accepted_arcs: list[dict[str, object]],
+        ungrouped_beat_ids: Sequence[str],
+    ) -> None:
+        """Place technical fallbacks without creating crossing story-arc intervals."""
+
+        beat_order = {
+            str(row["node_id"]): index
+            for index, row in enumerate(
+                self._connection.execute(
+                    "SELECT node_id FROM presentation_nodes WHERE level=3 "
+                    "ORDER BY sort_key,node_id"
+                )
+            )
+        }
+        events_by_id = {cast(str, event["id"]): event for event in accepted_events}
+
+        def event_bounds(event_id: str) -> tuple[int, int]:
+            positions = [
+                beat_order[beat_id]
+                for beat_id in _string_list(
+                    events_by_id[event_id]["beat_ids"], "event beat IDs"
+                )
+            ]
+            return min(positions), max(positions)
+
+        arc_ranges: list[tuple[int, int, dict[str, object]]] = []
+        for arc in accepted_arcs:
+            member_ids = _string_list(arc["event_ids"], "arc event IDs")
+            bounds = [event_bounds(event_id) for event_id in member_ids]
+            arc_ranges.append(
+                (min(item[0] for item in bounds), max(item[1] for item in bounds), arc)
+            )
+        arc_ranges.sort(key=lambda item: (item[0], item[1], cast(str, item[2]["id"])))
+        for previous, current in pairwise(arc_ranges):
+            if current[0] <= previous[1]:
+                raise ValueError("reviewed story arcs must remain chronological and non-crossing")
+
+        gap_event_ids: dict[int, list[str]] = {}
+        for beat_id in sorted(ungrouped_beat_ids, key=lambda value: (beat_order[value], value)):
+            fallback_id = _stable_id("ungrouped-event", beat_id)
+            fallback: dict[str, object] = {
+                "id": fallback_id,
+                "title": "Ungrouped technical event",
+                "summary": "Deterministic beat retained as technical fallback.",
+                "beat_ids": [beat_id],
+                "origin": "deterministic",
+            }
+            accepted_events.append(fallback)
+            events_by_id[fallback_id] = fallback
+            position = beat_order[beat_id]
+            containing = [item for item in arc_ranges if item[0] < position < item[1]]
+            if containing:
+                arc = containing[0][2]
+                members = _string_list(arc["event_ids"], "arc event IDs")
+                members.append(fallback_id)
+                arc["event_ids"] = members
+                continue
+            gap_index = sum(1 for _start, end, _arc in arc_ranges if end < position)
+            gap_event_ids.setdefault(gap_index, []).append(fallback_id)
+
+        for event_ids in gap_event_ids.values():
+            accepted_arcs.append(
+                {
+                    "id": _stable_id("ungrouped-arc", *event_ids),
+                    "title": "Ungrouped technical story",
+                    "summary": "Deterministic beats retained as technical fallback.",
+                    "event_ids": event_ids,
+                    "origin": "deterministic",
+                }
+            )
+
+        accepted_events.sort(
+            key=lambda event: (
+                event_bounds(cast(str, event["id"]))[0],
+                cast(str, event["id"]),
+            )
+        )
+        for arc in accepted_arcs:
+            arc["event_ids"] = sorted(
+                _string_list(arc["event_ids"], "arc event IDs"),
+                key=lambda event_id: (event_bounds(event_id)[0], event_id),
+            )
+        accepted_arcs.sort(
+            key=lambda arc: (
+                min(
+                    event_bounds(event_id)[0]
+                    for event_id in _string_list(arc["event_ids"], "arc event IDs")
+                ),
+                cast(str, arc["id"]),
+            )
+        )
 
     def _validate_scope(self, scope_ids: Sequence[str], covered_beat_ids: Sequence[str]) -> None:
         connection = self._connection
@@ -1388,6 +1466,7 @@ class StoryOrganizationService:
         required_beats = all_required_beats.intersection(selected_beats)
         used_beats: set[str] = set()
         event_order: dict[str, int] = {}
+        event_spans: list[tuple[int, int]] = []
         previous_event_end = -1
         for event_index, event in enumerate(events):
             _require_keys(
@@ -1423,6 +1502,7 @@ class StoryOrganizationService:
             if positions[0] <= previous_event_end:
                 raise ValueError("candidate events must be globally ordered and non-crossing")
             previous_event_end = positions[-1]
+            event_spans.append((positions[0], positions[-1]))
             event_order[cast(str, event["id"])] = event_index
             used_beats.update(beat_ids)
             self._validate_enrichment(event, beat_ids)
@@ -1470,6 +1550,13 @@ class StoryOrganizationService:
             raise ValueError("ungrouped beat IDs cannot contain duplicates")
         if not set(ungrouped).issubset(known_beats):
             raise ValueError("ungrouped IDs must reference existing deterministic beats")
+        ungrouped_positions = [known_beats[beat_id] for beat_id in ungrouped]
+        if any(
+            start < position < end
+            for position in ungrouped_positions
+            for start, end in event_spans
+        ):
+            raise ValueError("ungrouped beat IDs cannot interleave story event membership")
         if declared_scope is not None and not set(ungrouped).issubset(selected_beats):
             raise ValueError("ungrouped IDs must remain within the selected scope")
         if used_beats.intersection(ungrouped):
@@ -1865,29 +1952,38 @@ class StoryOrganizationService:
         for row in rows:
             operation = str(row["operation"])
             payload = _mapping(storage.decode_json(row["payload_json"]), "edit payload")
-            if operation == "rename" and isinstance(payload.get("title"), str):
-                self._connection.execute(
+            replayed = False
+            title = payload.get("title")
+            if (
+                operation == "rename"
+                and isinstance(title, str)
+                and title.strip()
+                and len(title) <= 80
+            ):
+                cursor = self._connection.execute(
                     f"UPDATE {table} SET title=?,pinned=1,updated_utc=? WHERE {key}=?",
-                    (payload["title"], now, target_id),
+                    (title, now, target_id),
                 )
+                replayed = cursor.rowcount == 1
             elif operation in {"hide", "pin"} and isinstance(
                 payload.get("hidden" if operation == "hide" else "pinned"), bool
             ):
                 column = "hidden" if operation == "hide" else "pinned"
-                self._connection.execute(
+                cursor = self._connection.execute(
                     f"UPDATE {table} SET {column}=?,updated_utc=? WHERE {key}=?",
                     (int(cast(bool, payload[column])), now, target_id),
                 )
-            elif operation in {"approve", "reject"} and payload.get("state") in {
-                "pending",
-                "approved",
-                "rejected",
-            }:
-                self._connection.execute(
+                replayed = cursor.rowcount == 1
+            elif (
+                operation == "approve"
+                and payload.get("state") in {"pending", "approved"}
+            ) or (operation == "reject" and payload.get("state") == "rejected"):
+                cursor = self._connection.execute(
                     f"UPDATE {table} SET approval_state=?,updated_utc=? WHERE {key}=?",
                     (payload["state"], now, target_id),
                 )
-            elif operation in {"split", "merge", "move"}:
+                replayed = cursor.rowcount == 1
+            if not replayed:
                 self._connection.execute(
                     "UPDATE story_edits SET status='needs_review' WHERE edit_id=?",
                     (str(row["edit_id"]),),
@@ -1960,18 +2056,105 @@ class StoryOrganizationService:
             )
             self._renumber_arc(arc_id)
 
+    def _prepare_global_candidate(
+        self,
+        candidate: Mapping[str, object],
+        *,
+        preserved_event_ids: set[str],
+        preserved_arc_ids: set[str],
+        preserved_claim_ids: set[str],
+    ) -> dict[str, object]:
+        """Remap every candidate collision before global replacement mutates stored state."""
+
+        existing_event_ids = {
+            str(row[0]) for row in self._connection.execute("SELECT event_id FROM story_events")
+        }
+        existing_arc_ids = {
+            str(row[0]) for row in self._connection.execute("SELECT arc_id FROM story_arcs")
+        }
+        existing_claim_ids = {
+            str(row[0]) for row in self._connection.execute("SELECT claim_id FROM story_claims")
+        }
+        events = _object_list(candidate["events"], "events")
+        event_ids = {cast(str, event["id"]) for event in events}
+        occupied_event_ids = existing_event_ids | event_ids
+        event_id_map: dict[str, str] = {}
+        mapped_events: list[dict[str, object]] = []
+        for event in events:
+            original_id = cast(str, event["id"])
+            mapped_id = original_id
+            if original_id in preserved_event_ids:
+                mapped_id = _available_stable_id(
+                    "global-event",
+                    (original_id, *_string_list(event["beat_ids"], "event beat IDs")),
+                    occupied_event_ids,
+                )
+                occupied_event_ids.add(mapped_id)
+            event_id_map[original_id] = mapped_id
+            mapped_events.append({**event, "id": mapped_id})
+
+        arcs = _object_list(candidate["arcs"], "arcs")
+        arc_ids = {cast(str, arc["id"]) for arc in arcs}
+        occupied_arc_ids = existing_arc_ids | arc_ids
+        arc_id_map: dict[str, str] = {}
+        mapped_arcs: list[dict[str, object]] = []
+        for arc in arcs:
+            original_id = cast(str, arc["id"])
+            mapped_members = [
+                event_id_map[event_id]
+                for event_id in _string_list(arc["event_ids"], "arc event IDs")
+            ]
+            mapped_id = original_id
+            if original_id in preserved_arc_ids:
+                mapped_id = _available_stable_id(
+                    "global-arc",
+                    (original_id, *mapped_members),
+                    occupied_arc_ids,
+                )
+                occupied_arc_ids.add(mapped_id)
+            arc_id_map[original_id] = mapped_id
+            mapped_arcs.append({**arc, "id": mapped_id, "event_ids": mapped_members})
+
+        claims = _object_list(candidate.get("claims", []), "claims")
+        claim_ids = {cast(str, claim["id"]) for claim in claims}
+        occupied_claim_ids = existing_claim_ids | claim_ids
+        mapped_claims: list[dict[str, object]] = []
+        for claim in claims:
+            original_id = cast(str, claim["id"])
+            mapped_claim = dict(claim)
+            target_seed: str
+            event_id = claim.get("event_id")
+            arc_id = claim.get("arc_id")
+            if isinstance(event_id, str):
+                mapped_event_id = event_id_map[event_id]
+                mapped_claim["event_id"] = mapped_event_id
+                target_seed = mapped_event_id
+            elif isinstance(arc_id, str):
+                mapped_arc_id = arc_id_map[arc_id]
+                mapped_claim["arc_id"] = mapped_arc_id
+                target_seed = mapped_arc_id
+            else:
+                raise ValueError("a claim must target exactly one event or arc")
+            mapped_id = original_id
+            if original_id in preserved_claim_ids:
+                mapped_id = _available_stable_id(
+                    "global-claim", (original_id, target_seed), occupied_claim_ids
+                )
+                occupied_claim_ids.add(mapped_id)
+            mapped_claim["id"] = mapped_id
+            mapped_claims.append(mapped_claim)
+
+        return {
+            **candidate,
+            "events": mapped_events,
+            "arcs": mapped_arcs,
+            "claims": mapped_claims,
+        }
+
     def _apply_candidate(self, candidate: Mapping[str, object], generation: str) -> None:
         explicitly_pinned_arcs = {
             str(row[0])
             for row in self._connection.execute("SELECT arc_id FROM story_arcs WHERE pinned=1")
-        }
-        pinned_events = {
-            str(row[0])
-            for row in self._connection.execute(
-                """SELECT event_id FROM story_events WHERE pinned=1
-                   UNION SELECT event_id FROM story_arc_members
-                   WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)"""
-            )
         }
         pinned_arcs = explicitly_pinned_arcs | {
             str(row[0])
@@ -1980,6 +2163,30 @@ class StoryOrganizationService:
                 "(SELECT event_id FROM story_events WHERE pinned=1)"
             )
         }
+        preserved_event_ids = {
+            str(row[0])
+            for row in self._connection.execute(
+                """SELECT event_id FROM story_events WHERE pinned=1
+                   UNION SELECT event_id FROM story_arc_members
+                   WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)"""
+            )
+        }
+        preserved_claim_ids = {
+            str(row["claim_id"])
+            for row in self._connection.execute(
+                "SELECT claim_id,event_id,arc_id FROM story_claims"
+            )
+            if (
+                row["event_id"] is not None and str(row["event_id"]) in preserved_event_ids
+            )
+            or (row["arc_id"] is not None and str(row["arc_id"]) in pinned_arcs)
+        }
+        candidate = self._prepare_global_candidate(
+            candidate,
+            preserved_event_ids=preserved_event_ids,
+            preserved_arc_ids=pinned_arcs,
+            preserved_claim_ids=preserved_claim_ids,
+        )
         pinned_beats = {
             str(row[0])
             for row in self._connection.execute(
@@ -1990,7 +2197,7 @@ class StoryOrganizationService:
             )
         }
         # The global API is always a full replacement. Membership evidence may be stale after a
-        # refresh, so deletion is based on pin preservation alone—not on intersection with the
+        # refresh, so deletion is based on pin preservation alone--not on intersection with the
         # current presentation index. Scoped replacement uses _apply_scoped_candidate instead.
         removable_events = self._connection.execute(
             """SELECT event.event_id FROM story_events event
@@ -1999,40 +2206,36 @@ class StoryOrganizationService:
                WHERE event.pinned=0 AND COALESCE(arc.pinned,0)=0
                ORDER BY event.event_id"""
         ).fetchall()
+        removed_event_ids = tuple(str(row["event_id"]) for row in removable_events)
         for event_row in removable_events:
             event_id = str(event_row["event_id"])
             self._connection.execute("DELETE FROM story_events WHERE event_id=?", (event_id,))
+        removed_arc_ids: list[str] = []
         for row in self._connection.execute(
             "SELECT arc_id FROM story_arcs WHERE pinned=0 ORDER BY arc_id"
         ).fetchall():
             arc_id = str(row["arc_id"])
-            if arc_id in pinned_arcs:
-                self._renumber_arc(arc_id)
-            else:
+            if arc_id not in pinned_arcs:
                 self._connection.execute("DELETE FROM story_arcs WHERE arc_id=?", (arc_id,))
+                removed_arc_ids.append(arc_id)
         now = storage.utc_now()
         events = _object_list(candidate["events"], "events")
-        events_in_preserved_arcs = {
-            event_id
-            for arc in _object_list(candidate["arcs"], "arcs")
-            if cast(str, arc["id"]) in pinned_arcs
-            for event_id in _string_list(arc["event_ids"], "event_ids")
-        }
-        inserted_events: set[str] = set()
+        event_id_map: dict[str, str] = {}
         for order, event in enumerate(events):
-            event_id = cast(str, event["id"])
+            original_id = cast(str, event["id"])
             beats = [
                 beat
                 for beat in _string_list(event["beat_ids"], "beat_ids")
                 if beat not in pinned_beats
             ]
-            if event_id in pinned_events or event_id in events_in_preserved_arcs or not beats:
+            if not beats:
                 continue
+            event_id = original_id
             if self._connection.execute(
                 "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
             ).fetchone() is not None:
                 raise ValueError(
-                    f"candidate event ID collides with preserved organization: {event_id}"
+                    f"candidate event ID collides after global preflight: {event_id}"
                 )
             self._connection.execute(
                 "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -2052,23 +2255,24 @@ class StoryOrganizationService:
             )
             self._replace_members(event_id, beats)
             self._replace_enrichment("event", event_id, event)
-            inserted_events.add(event_id)
-        inserted_arcs: set[str] = set()
+            event_id_map[original_id] = event_id
+            if event_id == original_id:
+                self._reapply_simple_edits("event", event_id)
+        arc_id_map: dict[str, str] = {}
         for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
-            arc_id = cast(str, arc["id"])
-            if arc_id in pinned_arcs:
-                continue
+            original_id = cast(str, arc["id"])
             member_ids = [
-                event_id
+                event_id_map[event_id]
                 for event_id in _string_list(arc["event_ids"], "event_ids")
-                if event_id in inserted_events
+                if event_id in event_id_map
             ]
             if not member_ids:
                 continue
+            arc_id = original_id
             if self._connection.execute(
                 "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
             ).fetchone() is not None:
-                raise ValueError(f"candidate arc ID collides with preserved organization: {arc_id}")
+                raise ValueError(f"candidate arc ID collides after global preflight: {arc_id}")
             self._connection.execute(
                 "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -2085,7 +2289,7 @@ class StoryOrganizationService:
                     now,
                 ),
             )
-            inserted_arcs.add(arc_id)
+            arc_id_map[original_id] = arc_id
             current = self._connection.execute(
                 "SELECT COALESCE(MAX(ordinal)+1,0) FROM story_arc_members WHERE arc_id=?", (arc_id,)
             ).fetchone()
@@ -2098,32 +2302,30 @@ class StoryOrganizationService:
                 )
                 next_order += 1
             self._replace_enrichment("arc", arc_id, arc)
+            if arc_id == original_id:
+                self._reapply_simple_edits("arc", arc_id)
         for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
-            claim_event_id = claim.get("event_id")
-            claim_arc_id = claim.get("arc_id")
-            if (
-                isinstance(claim_event_id, str)
-                and claim_event_id not in inserted_events
-                and claim_event_id not in pinned_events
-            ):
+            original_event_id = claim.get("event_id")
+            original_arc_id = claim.get("arc_id")
+            claim_event_id = (
+                event_id_map.get(original_event_id)
+                if isinstance(original_event_id, str)
+                else None
+            )
+            claim_arc_id = (
+                arc_id_map.get(original_arc_id) if isinstance(original_arc_id, str) else None
+            )
+            if claim_event_id is None and claim_arc_id is None:
                 continue
-            if (
-                isinstance(claim_arc_id, str)
-                and claim_arc_id not in inserted_arcs
-                and claim_arc_id not in pinned_arcs
-            ):
-                continue
-            if (
-                self._connection.execute(
-                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim["id"],)
-                ).fetchone()
-                is not None
-            ):
-                continue
+            claim_id = cast(str, claim["id"])
+            if self._connection.execute(
+                "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+            ).fetchone() is not None:
+                raise ValueError(f"candidate claim ID collides after global preflight: {claim_id}")
             self._connection.execute(
                 "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
                 (
-                    claim["id"],
+                    claim_id,
                     claim_event_id,
                     claim_arc_id,
                     claim["text"],
@@ -2135,9 +2337,31 @@ class StoryOrganizationService:
             self._connection.executemany(
                 "INSERT INTO story_claim_evidence VALUES (?,?)",
                 (
-                    (claim["id"], evidence_id)
+                    (claim_id, evidence_id)
                     for evidence_id in _string_list(claim["evidence_ids"], "evidence_ids")
                 ),
+            )
+        if removed_event_ids:
+            placeholders = ",".join("?" for _ in removed_event_ids)
+            self._connection.execute(
+                f"""UPDATE story_edits SET status='needs_review'
+                    WHERE target_kind='event' AND target_id IN ({placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM story_events event
+                          WHERE event.event_id=story_edits.target_id
+                      )""",
+                removed_event_ids,
+            )
+        if removed_arc_ids:
+            placeholders = ",".join("?" for _ in removed_arc_ids)
+            self._connection.execute(
+                f"""UPDATE story_edits SET status='needs_review'
+                    WHERE target_kind='arc' AND target_id IN ({placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM story_arcs arc
+                          WHERE arc.arc_id=story_edits.target_id
+                      )""",
+                tuple(removed_arc_ids),
             )
         self._prune_enrichments()
 
@@ -2269,6 +2493,17 @@ class StoryOrganizationService:
 def _stable_id(prefix: str, *values: str) -> str:
     digest = hashlib.sha256(storage.canonical_json(list(values))).hexdigest()[:24]
     return f"{prefix}:{digest}"
+
+
+def _available_stable_id(prefix: str, values: Sequence[str], occupied: set[str]) -> str:
+    """Choose a deterministic generated ID outside every currently reserved identifier."""
+
+    identifier = _stable_id(prefix, *values)
+    collision = 0
+    while identifier in occupied:
+        collision += 1
+        identifier = _stable_id(prefix, *values, str(collision))
+    return identifier
 
 
 def _require_digest(value: str, name: str) -> None:
