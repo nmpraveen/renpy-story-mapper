@@ -415,7 +415,6 @@ class GraphCanvas(QGraphicsView):
         for item in visible[1:]:
             bounds = bounds.united(item.sceneBoundingRect())
         self.fitInView(bounds.adjusted(-30, -30, 30, 30), Qt.AspectRatioMode.KeepAspectRatio)
-        self._sync_semantic_level_to_scale()
 
     def fit_selection(self) -> None:
         item = self._node_items.get(self._selected_id or "")
@@ -424,7 +423,6 @@ class GraphCanvas(QGraphicsView):
                 item.sceneBoundingRect().adjusted(-80, -80, 80, 80),
                 Qt.AspectRatioMode.KeepAspectRatio,
             )
-            self._sync_semantic_level_to_scale()
 
     def request_expansion(self, node_id: str, expanded: bool) -> None:
         item = self._node_items.get(node_id)

@@ -434,6 +434,7 @@ class StoryMapPresenter(QObject):
             )
         if not records:
             self.evidence_list.addItem("No exact source evidence for this item")
+        self.status_changed.emit(f"Source evidence - {len(records)} records")
 
     @Slot(object)
     def _accept_mutation(self, value: object) -> None:

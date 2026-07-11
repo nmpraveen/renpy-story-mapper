@@ -79,6 +79,7 @@ def test_default_window_opens_bounded_three_level_map_with_evidence(
     qtbot.waitUntil(lambda: not window.map_presenter.is_busy, timeout=5000)
     assert window.evidence_list.count() >= 1
     assert "story.rpy:" in window.evidence_list.item(0).text()
+    assert window.status_label.text().startswith("Source evidence -")
 
 
 def test_search_filters_and_durable_overrides_are_wired(

@@ -144,6 +144,19 @@ def test_selection_and_view_center_survive_semantic_transition_and_slice(app: QA
     assert selection_events == []
 
 
+def test_fit_operations_preserve_the_explicit_semantic_level(app: QApplication) -> None:
+    canvas = GraphCanvas()
+    canvas.resize(700, 500)
+    canvas.set_slice([_node(f"node-{index}") for index in range(8)], [])
+    canvas.set_semantic_level(SemanticLevel.EVENTS)
+    assert canvas.focus_search_result("node-0")
+
+    canvas.fit_all()
+    assert canvas.semantic_level is SemanticLevel.EVENTS
+    canvas.fit_selection()
+    assert canvas.semantic_level is SemanticLevel.EVENTS
+
+
 def test_genuine_scene_deselection_clears_logical_selection(app: QApplication) -> None:
     canvas = GraphCanvas()
     canvas.set_slice([_node("selected")], [])
