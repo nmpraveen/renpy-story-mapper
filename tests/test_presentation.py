@@ -10,7 +10,7 @@ from renpy_story_mapper.presentation import (
     PresentationRequest,
     PresentationService,
 )
-from renpy_story_mapper.project import Project, create_project, refresh_project
+from renpy_story_mapper.project import PayloadRecord, Project, create_project, refresh_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m04" / "presentation"
 
@@ -101,6 +101,100 @@ def test_search_facts_exact_evidence_and_overrides_survive_refresh(tmp_path: Pat
         reopened.set_hidden(prologue.id, False)
         renamed = reopened.view(PresentationRequest(PresentationLevel.OVERVIEW)).nodes
         assert next(node for node in renamed if node.id == prologue.id).name == "Custom Prologue"
+
+
+def test_generation_mismatch_rebuilds_stale_facts_and_search(tmp_path: Path) -> None:
+    project_path, _ = _create(tmp_path)
+    with Project.open(project_path) as project:
+        connection = project._require_open()
+        stale_generation = str(
+            connection.execute("SELECT generation FROM presentation_index_state").fetchone()[0]
+        )
+        raw = project.payload("effects", "story.rpy")
+        assert isinstance(raw, list)
+        changed = [
+            *raw,
+            {
+                "id": "effect_injected_generation_test",
+                "original_expression": "fresh_generation_flag = True",
+                "operation": "assignment",
+                "variable": "fresh_generation_flag",
+                "value": True,
+                "status": "proven",
+                "evidence": {
+                    "source_path": "story.rpy",
+                    "start_line": 12,
+                    "end_line": 12,
+                },
+            },
+        ]
+        project.write_payloads(
+            [PayloadRecord("effects", "story.rpy", changed, ("story.rpy",))]
+        )
+        assert (
+            str(connection.execute("SELECT generation FROM presentation_index_state").fetchone()[0])
+            == stale_generation
+        )
+
+    with PresentationService.open(project_path) as service:
+        facts = service.facts(variable="fresh_generation_flag").items
+        assert len(facts) == 1
+        assert facts[0].expression == "fresh_generation_flag = True"
+        hits = service.search("fresh_generation_flag", fields=("variable",)).items
+        assert hits and hits[0].node_id == facts[0].node_id
+        current_generation = str(
+            service._project._require_open()
+            .execute("SELECT generation FROM presentation_index_state")
+            .fetchone()[0]
+        )
+        assert current_generation != stale_generation
+
+
+def test_event_title_search_rename_reset_and_refresh_persistence(tmp_path: Path) -> None:
+    project_path, source = _create(tmp_path)
+    with PresentationService.open(project_path) as service:
+        prologue = next(
+            node
+            for node in service.view(PresentationRequest(PresentationLevel.OVERVIEW)).nodes
+            if node.name == "new_prologue"
+        )
+        event = service.view(
+            PresentationRequest(PresentationLevel.EVENT, expanded_ids=(prologue.id,))
+        ).nodes[0]
+        default_title = event.name
+        assert any(
+            hit.node_id == event.id
+            for hit in service.search(default_title, fields=("event_title",)).items
+        )
+
+        service.rename_node(event.id, "Opening Decision")
+        assert any(
+            hit.node_id == event.id
+            for hit in service.search("Opening Decision", fields=("event_title",)).items
+        )
+        assert all(
+            hit.node_id != event.id
+            for hit in service.search(default_title, fields=("event_title",)).items
+        )
+
+        service.rename_node(event.id, None)
+        assert any(
+            hit.node_id == event.id
+            for hit in service.search(default_title, fields=("event_title",)).items
+        )
+        assert not service.search("Opening Decision", fields=("event_title",)).items
+        service.rename_node(event.id, "Persistent Event Name")
+
+    refresh_project(project_path, source)
+    with PresentationService.open(project_path) as reopened:
+        assert any(
+            hit.node_id == event.id
+            for hit in reopened.search("Persistent Event Name", fields=("event_title",)).items
+        )
+        assert all(
+            hit.node_id != event.id
+            for hit in reopened.search(default_title, fields=("event_title",)).items
+        )
 
 
 def test_real_schema_v2_migration_is_queryable(tmp_path: Path) -> None:

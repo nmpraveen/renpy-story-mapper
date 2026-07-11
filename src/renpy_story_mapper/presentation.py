@@ -346,9 +346,10 @@ class PresentationService:
         self, node_id: str, *, display_name: str | None | object = ..., hidden: bool | object = ...
     ) -> None:
         connection = self._project._require_open()
-        if connection.execute(
-            "SELECT 1 FROM presentation_nodes WHERE node_id = ?", (node_id,)
-        ).fetchone() is None:
+        node = connection.execute(
+            "SELECT level, label FROM presentation_nodes WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        if node is None:
             raise KeyError(f"presentation node does not exist: {node_id}")
         old = connection.execute(
             "SELECT display_name, hidden FROM presentation_overrides WHERE node_id = ?", (node_id,)
@@ -363,11 +364,27 @@ class PresentationService:
                 updated_utc=excluded.updated_utc""",
                 (node_id, new_name, int(new_hidden), storage.utc_now()),
             )
+            if display_name is not ... and int(node["level"]) in {1, 2}:
+                field = "label" if int(node["level"]) == 1 else "event_title"
+                title = str(node["label"]) if new_name is None else str(new_name)
+                connection.execute(
+                    "DELETE FROM presentation_search WHERE node_id = ? AND field = ?",
+                    (node_id, field),
+                )
+                connection.execute(
+                    """INSERT INTO presentation_search(node_id, field, text, normalized)
+                    VALUES (?, ?, ?, ?)""",
+                    (node_id, field, title, title.casefold()),
+                )
 
 
 def ensure_presentation_index(project: Project) -> None:
     connection = project._require_open()
-    if connection.execute("SELECT 1 FROM presentation_index_state").fetchone() is None:
+    row = connection.execute(
+        "SELECT generation FROM presentation_index_state WHERE singleton = 1"
+    ).fetchone()
+    expected = _presentation_generation(connection)
+    if row is None or str(row["generation"]) != expected:
         rebuild_presentation_index(project)
 
 
@@ -378,12 +395,7 @@ def rebuild_presentation_index(
 
     connection = project._require_open()
     _cancel(cancelled)
-    generation_row = connection.execute(
-        "SELECT payload_hash FROM payloads WHERE collection='m02_semantic' AND record_key='authoritative'"
-    ).fetchone()
-    if generation_row is None:
-        return
-    generation = str(generation_row[0])
+    generation = _presentation_generation(connection)
     statements = _index_statements()
     with storage.transaction(connection):
         for table in (
@@ -483,7 +495,10 @@ def _index_statements() -> tuple[str, ...]:
         _facts_insert_sql("gates", "gate"),
         _facts_insert_sql("effects", "effect"),
         """INSERT INTO presentation_search(node_id,field,text,normalized)
-        SELECT node_id,'label',label,lower(label) FROM presentation_nodes WHERE level=1""",
+        SELECT n.node_id,CASE WHEN n.level=1 THEN 'label' ELSE 'event_title' END,
+               COALESCE(o.display_name,n.label),lower(COALESCE(o.display_name,n.label))
+        FROM presentation_nodes n LEFT JOIN presentation_overrides o ON o.node_id=n.node_id
+        WHERE n.level IN (1,2)""",
         """INSERT INTO presentation_search(node_id,field,text,normalized)
         SELECT n.node_id,'source_evidence',e.text,lower(e.text) FROM presentation_evidence e
         JOIN presentation_nodes n ON n.node_id=e.node_id""",
@@ -577,6 +592,22 @@ def _bounded_limit(value: int, maximum: int) -> int:
 
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _presentation_generation(connection: sqlite3.Connection) -> str:
+    """Hash every canonical payload row that contributes to the derived index."""
+
+    rows = connection.execute(
+        """SELECT collection, record_key, payload_hash FROM payloads
+        WHERE collection IN ('m02_semantic', 'gates', 'effects', 'state_registry')
+        ORDER BY collection, record_key"""
+    )
+    digest = hashlib.sha256()
+    for row in rows:
+        for value in (str(row["collection"]), str(row["record_key"]), str(row["payload_hash"])):
+            digest.update(value.encode("utf-8"))
+            digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _cancel(cancelled: Callable[[], bool] | None) -> None:
