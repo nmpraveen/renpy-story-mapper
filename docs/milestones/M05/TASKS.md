@@ -10,7 +10,7 @@ Runtime authority: Windows with CPython 3.12
 
 | Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| `019f5116-c600-71a3-b933-de9a2e0f92bd` | M05 - Story Organization Model | Schema v4, migrations, organization records, quotient event/arc graph, corrections, and caching | `codex/m05-story-model`; `C:\Users\prave\.codex\worktrees\m05-story-model\Renpy` | Storage/story-domain modules and tests; no provider or UI code | Active | Pending |
+| `019f5116-c600-71a3-b933-de9a2e0f92bd` | M05 - Story Organization Model | Schema v4, migrations, organization records, quotient event/arc graph, corrections, and caching | `codex/m05-story-model`; `C:\Users\prave\.codex\worktrees\m05-story-model\Renpy` | Storage/story-domain modules and tests; no provider or UI code | Delivered; first candidate returned for cache, coverage/order, review-before-apply, pinned-rerun, evidence, and corruption-safety gaps; corrected, independently verified, and integrated | Worker `f2ea8c4` + `9345924`; integrated `c3e34a4` + `9bd2f7c` |
 | `019f5117-6cfe-75f0-a934-887c14245b0a` | M05 - Secure Codex Organizer | Codex CLI discovery, ChatGPT/LM Studio modes, chunking, schemas, validation, cancellation, consent boundary, and sanitized errors | `codex/m05-codex-organizer`; `C:\Users\prave\.codex\worktrees\m05-codex-organizer\Renpy` | New provider/organization package and mocked process tests; no UI or storage migrations | Delivered; first candidate returned for lifecycle, privacy, ordering, cache-profile, input-minimization, and chunk-boundary gaps; corrected, independently verified, and integrated | Worker `c81f158` + `04d1e61`; integrated `c937a6b` + `ac6f38e` |
 | Pending | M05 - Deterministic layout and fixtures | Layered layout, branch lanes, semantic styles, representative story and evaluation fixtures | `codex/m05-layout-and-fixtures`; worktree pending | Canvas/layout modules plus new fixtures/tests; no shell, provider, or storage edits | Planned after shared contracts | Pending |
 | Pending | M05 - Arc-first Story Explorer UI | Welcome screen, three-pane workspace, review flow, inspector, corrections, adaptive theme, accessibility, screenshots, and UI tests | `codex/m05-story-explorer-ui`; worktree pending | UI package after shared contracts; no provider or storage implementation | Planned after model/provider/layout integration | Pending |
@@ -53,3 +53,7 @@ inside scope.
 - 2026-07-11: Returned the secure-organizer candidate for eight concrete review gaps. The corrected
   branch passed 43 focused and 176 full tests plus Ruff, strict mypy, and `pip check`; the
   orchestrator independently reran the same 43 focused tests before integration.
+- 2026-07-11: Returned the story-model candidate for ten concrete contract and safety gaps. The
+  corrected branch passed 11 focused and 144 full tests; after integration with the organizer,
+  the orchestrator verified 187 pytest tests, Ruff, strict mypy across 31 source files, and
+  `pip check` on Windows CPython 3.12.
