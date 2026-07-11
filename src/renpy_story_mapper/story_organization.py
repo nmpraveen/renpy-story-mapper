@@ -20,14 +20,20 @@ if TYPE_CHECKING:
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 ApprovalState = Literal["pending", "approved", "rejected"]
+DraftDecision = Literal["approved", "rejected"]
 EditOperation = Literal["rename", "split", "merge", "move", "hide", "pin", "approve", "reject"]
 
 _SHA256_LENGTH: Final = 64
+_SUPPORTED_ORIGINS: Final = frozenset({"ai", "deterministic", "user"})
+_REQUIRED_STORY_KINDS: Final = frozenset(
+    {"narrative", "dialogue", "narration", "choice", "condition"}
+)
 
 
 @dataclass(frozen=True)
 class CacheIdentity:
     provider_mode: str
+    model_profile: str
     model_fingerprint: str
     prompt_version: str
     output_schema_version: str
@@ -39,6 +45,7 @@ class CacheIdentity:
         return _stable_id(
             "cache",
             self.provider_mode,
+            self.model_profile,
             self.model_fingerprint,
             self.prompt_version,
             self.output_schema_version,
@@ -91,6 +98,15 @@ class OrganizationDraft:
 
 
 @dataclass(frozen=True)
+class DraftReview:
+    draft_id: str
+    target_kind: str
+    target_id: str
+    decision: str
+    reviewed_utc: str
+
+
+@dataclass(frozen=True)
 class StoryArc:
     id: str
     title: str
@@ -134,7 +150,9 @@ class AttachedFact:
     fact_kind: str
     expression: str
     status: str
-    evidence_id: str
+    source_path: str
+    start_line: int
+    end_line: int
 
 
 @dataclass(frozen=True)
@@ -263,6 +281,7 @@ class StoryOrganizationService:
         self,
         *,
         provider_mode: str,
+        model_profile: str,
         model_fingerprint: str,
         prompt_version: str,
         output_schema_version: str,
@@ -270,9 +289,12 @@ class StoryOrganizationService:
         ordered_ids: Sequence[str],
     ) -> CacheIdentity:
         _require_digest(input_hash, "input_hash")
+        if not model_profile.strip():
+            raise ValueError("model_profile cannot be empty")
         ordered_hash = hashlib.sha256(storage.canonical_json(list(ordered_ids))).hexdigest()
         return CacheIdentity(
             provider_mode,
+            model_profile,
             model_fingerprint,
             prompt_version,
             output_schema_version,
@@ -283,12 +305,13 @@ class StoryOrganizationService:
     def cache_result(self, identity: CacheIdentity) -> object | None:
         row = self._connection.execute(
             """SELECT result_json,result_hash FROM organization_cache
-               WHERE cache_key=? AND provider_mode=? AND model_fingerprint=?
+               WHERE cache_key=? AND provider_mode=? AND model_profile=? AND model_fingerprint=?
                  AND prompt_version=? AND output_schema_version=? AND input_hash=?
                  AND ordered_ids_hash=?""",
             (
                 identity.key,
                 identity.provider_mode,
+                identity.model_profile,
                 identity.model_fingerprint,
                 identity.prompt_version,
                 identity.output_schema_version,
@@ -317,14 +340,16 @@ class StoryOrganizationService:
         with storage.transaction(self._connection):
             self._connection.execute(
                 """INSERT INTO organization_cache(
-                    cache_key,provider_mode,model_fingerprint,prompt_version,output_schema_version,
+                    cache_key,provider_mode,model_profile,model_fingerprint,prompt_version,
+                    output_schema_version,
                     input_hash,ordered_ids_hash,result_json,result_hash,created_utc,last_used_utc,hit_count
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
                 ON CONFLICT(cache_key) DO UPDATE SET result_json=excluded.result_json,
                     result_hash=excluded.result_hash,last_used_utc=excluded.last_used_utc""",
                 (
                     identity.key,
                     identity.provider_mode,
+                    identity.model_profile,
                     identity.model_fingerprint,
                     identity.prompt_version,
                     identity.output_schema_version,
@@ -466,6 +491,50 @@ class StoryOrganizationService:
             )
         return tuple(result)
 
+    def review_draft_group(
+        self,
+        draft_id: str,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        decision: DraftDecision,
+    ) -> None:
+        """Persist an explicit pre-apply decision for one candidate arc or event."""
+
+        with storage.transaction(self._connection):
+            candidate = self._pending_draft_candidate(draft_id)
+            collection = "arcs" if target_kind == "arc" else "events"
+            identifiers = {
+                cast(str, item["id"])
+                for item in _object_list(candidate.get(collection), collection)
+            }
+            if target_id not in identifiers:
+                raise KeyError(f"candidate {target_kind} does not exist: {target_id}")
+            self._connection.execute(
+                """INSERT INTO organization_draft_reviews(
+                    draft_id,target_kind,target_id,decision,reviewed_utc
+                ) VALUES (?,?,?,?,?)
+                ON CONFLICT(draft_id,target_kind,target_id) DO UPDATE SET
+                    decision=excluded.decision,reviewed_utc=excluded.reviewed_utc""",
+                (draft_id, target_kind, target_id, decision, storage.utc_now()),
+            )
+
+    def draft_reviews(self, draft_id: str) -> tuple[DraftReview, ...]:
+        rows = self._connection.execute(
+            """SELECT * FROM organization_draft_reviews WHERE draft_id=?
+               ORDER BY target_kind,target_id""",
+            (draft_id,),
+        ).fetchall()
+        return tuple(
+            DraftReview(
+                str(row["draft_id"]),
+                str(row["target_kind"]),
+                str(row["target_id"]),
+                str(row["decision"]),
+                str(row["reviewed_utc"]),
+            )
+            for row in rows
+        )
+
     def apply_draft(self, draft_id: str) -> None:
         """Atomically replace unpinned accepted organization with a validated draft."""
 
@@ -482,7 +551,16 @@ class StoryOrganizationService:
                 raise storage.ProjectCorruptError("organization draft checksum does not match")
             candidate = _mapping(storage.decode_json(payload), "draft")
             self._validate_candidate(candidate)
-            self._apply_candidate(candidate, str(row["generation"]))
+            reviews = {
+                (str(review["target_kind"]), str(review["target_id"])): str(review["decision"])
+                for review in self._connection.execute(
+                    "SELECT target_kind,target_id,decision FROM organization_draft_reviews "
+                    "WHERE draft_id=?",
+                    (draft_id,),
+                )
+            }
+            reviewed = self._reviewed_candidate(candidate, reviews)
+            self._apply_candidate(reviewed, str(row["generation"]))
             self._derive_event_edges()
             self._connection.execute(
                 "UPDATE organization_drafts SET status='applied',resolved_utc=? WHERE draft_id=?",
@@ -588,7 +666,7 @@ class StoryOrganizationService:
         parameters: tuple[object, ...] = () if event_id is None else (event_id,)
         rows = self._connection.execute(
             f"""SELECT m.event_id,f.fact_id,f.fact_kind,f.expression,f.status,
-                       'fact:'||f.fact_id AS evidence_id
+                       f.source_path,f.start_line,f.end_line
                 FROM story_event_members m JOIN presentation_facts f ON f.node_id=m.beat_id
                 WHERE 1=1 {clause} ORDER BY m.event_id,m.ordinal,f.sort_key,f.fact_id""",
             parameters,
@@ -600,7 +678,9 @@ class StoryOrganizationService:
                 str(row["fact_kind"]),
                 str(row["expression"]),
                 str(row["status"]),
-                str(row["evidence_id"]),
+                str(row["source_path"]),
+                int(row["start_line"]),
+                int(row["end_line"]),
             )
             for row in rows
         )
@@ -842,6 +922,14 @@ class StoryOrganizationService:
                         AND target_id IN ({placeholders})""",
                     affected,
                 )
+                self._connection.execute(
+                    f"""UPDATE story_edits SET status='needs_review' WHERE target_kind='arc'
+                        AND target_id IN (
+                            SELECT arc_id FROM story_arc_members
+                            WHERE event_id IN ({placeholders})
+                        )""",
+                    affected,
+                )
             self._connection.execute(
                 """UPDATE story_claims SET status='needs_review' WHERE claim_id IN (
                     SELECT ce.claim_id FROM story_claim_evidence ce
@@ -860,23 +948,148 @@ class StoryOrganizationService:
         rows = self._connection.execute(f"EXPLAIN QUERY PLAN {sql}", parameters).fetchall()
         return tuple(str(row[3]) for row in rows)
 
+    def _pending_draft_candidate(self, draft_id: str) -> dict[str, object]:
+        row = self._connection.execute(
+            """SELECT candidate_json,candidate_hash FROM organization_drafts
+               WHERE draft_id=? AND status='pending'""",
+            (draft_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"pending organization draft does not exist: {draft_id}")
+        payload = bytes(row["candidate_json"])
+        if storage.payload_digest(payload) != str(row["candidate_hash"]):
+            raise storage.ProjectCorruptError("organization draft checksum does not match")
+        return _mapping(storage.decode_json(payload), "draft")
+
+    def _reviewed_candidate(
+        self,
+        candidate: Mapping[str, object],
+        reviews: Mapping[tuple[str, str], str],
+    ) -> dict[str, object]:
+        arcs = _object_list(candidate.get("arcs"), "arcs")
+        events = _object_list(candidate.get("events"), "events")
+        expected = {("arc", cast(str, arc["id"])) for arc in arcs} | {
+            ("event", cast(str, event["id"])) for event in events
+        }
+        missing = expected - set(reviews)
+        if missing:
+            labels = ", ".join(f"{kind}:{identifier}" for kind, identifier in sorted(missing))
+            raise ValueError(
+                f"all candidate arcs and events must be reviewed before apply: {labels}"
+            )
+
+        events_by_id = {cast(str, event["id"]): event for event in events}
+        accepted_events: list[dict[str, object]] = []
+        accepted_arcs: list[dict[str, object]] = []
+        active_event_ids: set[str] = set()
+        active_arc_ids: set[str] = set()
+        for arc in arcs:
+            arc_id = cast(str, arc["id"])
+            arc_approved = reviews[("arc", arc_id)] == "approved"
+            accepted_member_ids: list[str] = []
+            for event_id in _string_list(arc["event_ids"], "arc event_ids"):
+                event = events_by_id[event_id]
+                event_approved = arc_approved and reviews[("event", event_id)] == "approved"
+                if event_approved:
+                    accepted_event = dict(event)
+                    accepted_event["origin"] = _candidate_origin(event.get("origin"))
+                    accepted_events.append(accepted_event)
+                    accepted_member_ids.append(event_id)
+                    active_event_ids.add(event_id)
+                    continue
+                fallback_id = _stable_id(
+                    "fallback-event", event_id, *_string_list(event["beat_ids"], "event beat IDs")
+                )
+                accepted_events.append(
+                    {
+                        "id": fallback_id,
+                        "title": "Technical event",
+                        "summary": "Deterministic organization retained after review.",
+                        "beat_ids": list(_string_list(event["beat_ids"], "event beat IDs")),
+                        "origin": "deterministic",
+                    }
+                )
+                accepted_member_ids.append(fallback_id)
+            accepted_arc_id = arc_id if arc_approved else _stable_id("fallback-arc", arc_id)
+            accepted_arcs.append(
+                {
+                    "id": accepted_arc_id,
+                    "title": arc["title"] if arc_approved else "Technical story arc",
+                    "summary": (
+                        arc["summary"]
+                        if arc_approved
+                        else "Deterministic organization retained after review."
+                    ),
+                    "event_ids": accepted_member_ids,
+                    "origin": _candidate_origin(arc.get("origin"))
+                    if arc_approved
+                    else "deterministic",
+                }
+            )
+            if arc_approved:
+                active_arc_ids.add(arc_id)
+
+        ungrouped_event_ids: list[str] = []
+        for beat_id in _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs"):
+            fallback_id = _stable_id("ungrouped-event", beat_id)
+            accepted_events.append(
+                {
+                    "id": fallback_id,
+                    "title": "Ungrouped technical event",
+                    "summary": "Deterministic beat retained as technical fallback.",
+                    "beat_ids": [beat_id],
+                    "origin": "deterministic",
+                }
+            )
+            ungrouped_event_ids.append(fallback_id)
+        if ungrouped_event_ids:
+            accepted_arcs.append(
+                {
+                    "id": _stable_id("ungrouped-arc", *ungrouped_event_ids),
+                    "title": "Ungrouped technical story",
+                    "summary": "Deterministic beats retained as technical fallback.",
+                    "event_ids": ungrouped_event_ids,
+                    "origin": "deterministic",
+                }
+            )
+
+        accepted_claims = [
+            dict(claim)
+            for claim in _object_list(candidate.get("claims", []), "claims")
+            if (
+                isinstance(claim.get("event_id"), str) and claim.get("event_id") in active_event_ids
+            )
+            or (isinstance(claim.get("arc_id"), str) and claim.get("arc_id") in active_arc_ids)
+        ]
+        return {
+            "events": accepted_events,
+            "arcs": accepted_arcs,
+            "claims": accepted_claims,
+            "ungrouped_beat_ids": [],
+        }
+
     def _validate_candidate(self, candidate: Mapping[str, object]) -> None:
         _require_keys(candidate, {"arcs", "events", "claims", "ungrouped_beat_ids"}, "draft")
         arcs = _object_list(candidate.get("arcs"), "arcs")
         events = _object_list(candidate.get("events"), "events")
         event_ids = _unique_ids(events, "events")
         arc_ids = _unique_ids(arcs, "arcs")
-        known_beats = {
-            str(row[0]): str(row[1])
-            for row in self._connection.execute(
-                "SELECT node_id,sort_key FROM presentation_nodes WHERE level=3"
-            )
+        beat_rows = self._connection.execute(
+            "SELECT node_id,sort_key,kind FROM presentation_nodes WHERE level=3 "
+            "ORDER BY sort_key,node_id"
+        ).fetchall()
+        known_beats = {str(row["node_id"]): index for index, row in enumerate(beat_rows)}
+        required_beats = {
+            str(row["node_id"]) for row in beat_rows if str(row["kind"]) in _REQUIRED_STORY_KINDS
         }
         used_beats: set[str] = set()
-        for event in events:
+        event_order: dict[str, int] = {}
+        previous_event_end = -1
+        for event_index, event in enumerate(events):
             _require_keys(event, {"id", "title", "summary", "beat_ids", "origin"}, "event")
             _validate_text(event, "title", 80)
-            _validate_text(event, "summary", 320, allow_empty=True)
+            _validate_text(event, "summary", 320)
+            _candidate_origin(event.get("origin"))
             beat_ids = _string_list(event.get("beat_ids"), "event beat_ids")
             if not beat_ids:
                 raise ValueError("story events must contain at least one beat")
@@ -887,15 +1100,21 @@ class StoryOrganizationService:
                 raise ValueError(f"story event references unknown beat IDs: {sorted(unknown)!r}")
             if used_beats.intersection(beat_ids):
                 raise ValueError("a deterministic beat cannot belong to multiple events")
-            sort_keys = [known_beats[item] for item in beat_ids]
-            if sort_keys != sorted(sort_keys):
+            positions = [known_beats[item] for item in beat_ids]
+            if positions != sorted(positions):
                 raise ValueError("event membership must preserve deterministic beat order")
+            if positions[0] <= previous_event_end:
+                raise ValueError("candidate events must be globally ordered and non-crossing")
+            previous_event_end = positions[-1]
+            event_order[cast(str, event["id"])] = event_index
             used_beats.update(beat_ids)
         used_events: set[str] = set()
+        previous_arc_end = -1
         for arc in arcs:
             _require_keys(arc, {"id", "title", "summary", "event_ids", "origin"}, "arc")
             _validate_text(arc, "title", 80)
-            _validate_text(arc, "summary", 320, allow_empty=True)
+            _validate_text(arc, "summary", 320)
+            _candidate_origin(arc.get("origin"))
             members = _string_list(arc.get("event_ids"), "arc event_ids")
             if not members:
                 raise ValueError("story arcs must contain at least one event")
@@ -904,14 +1123,28 @@ class StoryOrganizationService:
                 raise ValueError(f"story arc references unknown event IDs: {sorted(unknown)!r}")
             if used_events.intersection(members):
                 raise ValueError("a story event cannot belong to multiple arcs")
+            positions = [event_order[event_id] for event_id in members]
+            if positions != sorted(positions):
+                raise ValueError("events within an arc must be chronological")
+            if positions[0] <= previous_arc_end:
+                raise ValueError("candidate arcs must be chronological and non-crossing")
+            previous_arc_end = positions[-1]
             used_events.update(members)
         if used_events != event_ids:
             raise ValueError("every candidate event must belong to exactly one arc")
         ungrouped = _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs")
+        if len(set(ungrouped)) != len(ungrouped):
+            raise ValueError("ungrouped beat IDs cannot contain duplicates")
         if not set(ungrouped).issubset(known_beats):
             raise ValueError("ungrouped IDs must reference existing deterministic beats")
         if used_beats.intersection(ungrouped):
             raise ValueError("a beat cannot be both grouped and ungrouped")
+        missing_required = required_beats - used_beats - set(ungrouped)
+        if missing_required:
+            raise ValueError(
+                "required story beats must be grouped exactly once or explicitly ungrouped: "
+                f"{sorted(missing_required)!r}"
+            )
         claims = _object_list(candidate.get("claims", []), "claims")
         evidence_ids = {
             str(row[0])
@@ -1007,10 +1240,10 @@ class StoryOrganizationService:
                     event["title"],
                     event["summary"],
                     order,
-                    str(event.get("origin", "ai")),
+                    _candidate_origin(event.get("origin")),
                     0,
                     0,
-                    "pending",
+                    "approved",
                     0,
                     generation,
                     now,
@@ -1018,9 +1251,17 @@ class StoryOrganizationService:
             )
             self._replace_members(event_id, beats)
             inserted_events.add(event_id)
+        inserted_arcs: set[str] = set()
         for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
             arc_id = cast(str, arc["id"])
             if arc_id in pinned_arcs:
+                continue
+            member_ids = [
+                event_id
+                for event_id in _string_list(arc["event_ids"], "event_ids")
+                if event_id in inserted_events
+            ]
+            if not member_ids:
                 continue
             self._connection.execute(
                 "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -1029,28 +1270,42 @@ class StoryOrganizationService:
                     arc["title"],
                     arc["summary"],
                     order,
-                    str(arc.get("origin", "ai")),
+                    _candidate_origin(arc.get("origin")),
                     0,
                     0,
-                    "pending",
+                    "approved",
                     0,
                     generation,
                     now,
                 ),
             )
+            inserted_arcs.add(arc_id)
             current = self._connection.execute(
                 "SELECT COALESCE(MAX(ordinal)+1,0) FROM story_arc_members WHERE arc_id=?", (arc_id,)
             ).fetchone()
             assert current is not None
             next_order = int(current[0])
-            for event_id in _string_list(arc["event_ids"], "event_ids"):
-                if event_id in inserted_events:
-                    self._connection.execute(
-                        "INSERT INTO story_arc_members VALUES (?,?,?)",
-                        (arc_id, event_id, next_order),
+            for event_id in member_ids:
+                self._connection.execute(
+                    "INSERT INTO story_arc_members VALUES (?,?,?)",
+                    (arc_id, event_id, next_order),
+                )
+                next_order += 1
+        self._connection.execute(
+            """DELETE FROM story_claims WHERE NOT (
+                (event_id IS NOT NULL AND event_id IN (
+                    SELECT event_id FROM story_events WHERE pinned=1
+                    UNION SELECT event_id FROM story_arc_members
+                    WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)
+                )) OR
+                (arc_id IS NOT NULL AND arc_id IN (
+                    SELECT arc_id FROM story_arcs WHERE pinned=1
+                    UNION SELECT arc_id FROM story_arc_members WHERE event_id IN (
+                        SELECT event_id FROM story_events WHERE pinned=1
                     )
-                    next_order += 1
-        self._connection.execute("DELETE FROM story_claims")
+                ))
+            )"""
+        )
         for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
             claim_event_id = claim.get("event_id")
             claim_arc_id = claim.get("arc_id")
@@ -1060,6 +1315,19 @@ class StoryOrganizationService:
                 and claim_event_id not in pinned_events
             ):
                 continue
+            if (
+                isinstance(claim_arc_id, str)
+                and claim_arc_id not in inserted_arcs
+                and claim_arc_id not in pinned_arcs
+            ):
+                continue
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim["id"],)
+                ).fetchone()
+                is not None
+            ):
+                continue
             self._connection.execute(
                 "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
                 (
@@ -1067,8 +1335,8 @@ class StoryOrganizationService:
                     claim_event_id,
                     claim_arc_id,
                     claim["text"],
-                    str(claim.get("kind", "interpretation")),
-                    "pending",
+                    cast(str, claim.get("kind", "interpretation")),
+                    "approved",
                     order,
                 ),
             )
@@ -1256,6 +1524,14 @@ def _validate_text(
     text = value.get(key)
     if not isinstance(text, str) or len(text) > maximum or (not allow_empty and not text.strip()):
         raise ValueError(f"{key} must contain {'0' if allow_empty else '1'}-{maximum} characters")
+
+
+def _candidate_origin(value: object) -> str:
+    origin = "ai" if value is None else value
+    if not isinstance(origin, str) or origin not in _SUPPORTED_ORIGINS:
+        allowed = ", ".join(sorted(_SUPPORTED_ORIGINS))
+        raise ValueError(f"origin must be one of: {allowed}")
+    return origin
 
 
 def _require_keys(value: Mapping[str, object], allowed: set[str], name: str) -> None:

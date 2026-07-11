@@ -253,6 +253,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 "organization_cache": {
                     "cache_key",
                     "provider_mode",
+                    "model_profile",
                     "model_fingerprint",
                     "prompt_version",
                     "output_schema_version",
@@ -287,6 +288,13 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                     "candidate_hash",
                     "created_utc",
                     "resolved_utc",
+                },
+                "organization_draft_reviews": {
+                    "draft_id",
+                    "target_kind",
+                    "target_id",
+                    "decision",
+                    "reviewed_utc",
                 },
                 "story_arcs": {
                     "arc_id",
@@ -372,6 +380,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "organization_cache": ("cache_key",),
             "organization_chunks": ("chunk_id",),
             "organization_drafts": ("draft_id",),
+            "organization_draft_reviews": ("draft_id", "target_kind", "target_id"),
             "story_arcs": ("arc_id",),
             "story_events": ("event_id",),
             "story_event_members": ("event_id", "beat_id"),
@@ -491,6 +500,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "organization_cache": {
                 "cache_key": "TEXT",
                 "provider_mode": "TEXT",
+                "model_profile": "TEXT",
                 "model_fingerprint": "TEXT",
                 "prompt_version": "TEXT",
                 "output_schema_version": "TEXT",
@@ -525,6 +535,13 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 "candidate_hash": "TEXT",
                 "created_utc": "TEXT",
                 "resolved_utc": "TEXT",
+            },
+            "organization_draft_reviews": {
+                "draft_id": "TEXT",
+                "target_kind": "TEXT",
+                "target_id": "TEXT",
+                "decision": "TEXT",
+                "reviewed_utc": "TEXT",
             },
             "story_arcs": {
                 "arc_id": "TEXT",
@@ -695,6 +712,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "organization_chunks_invalidation_idx",
             "organization_cache_lookup_idx",
             "organization_drafts_status_idx",
+            "organization_draft_reviews_decision_idx",
             "story_arcs_order_idx",
             "story_events_order_idx",
             "story_event_members_beat_idx",
@@ -715,6 +733,7 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "organization_chunks_invalidation_idx": ("reconciliation_scope", "input_hash"),
             "organization_cache_lookup_idx": (
                 "provider_mode",
+                "model_profile",
                 "model_fingerprint",
                 "prompt_version",
                 "output_schema_version",
@@ -741,6 +760,9 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "organization_drafts": {
                 ("organization_runs", "run_id", "run_id", "CASCADE"),
             },
+            "organization_draft_reviews": {
+                ("organization_drafts", "draft_id", "draft_id", "CASCADE"),
+            },
             "story_event_members": {("story_events", "event_id", "event_id", "CASCADE")},
             "story_arc_members": {
                 ("story_arcs", "arc_id", "arc_id", "CASCADE"),
@@ -766,6 +788,54 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             if actual_foreign_key_shape != expected_foreign_key_shape:
                 raise ProjectCorruptError(
                     f"project organization table {table!r} has invalid foreign keys"
+                )
+        constraint_fragments = {
+            "organization_cache": (
+                "model_profile text not null",
+                "check (length(trim(model_profile)) > 0)",
+                "check (hit_count >= 0)",
+            ),
+            "organization_draft_reviews": (
+                "primary key (draft_id, target_kind, target_id)",
+                "check (target_kind in ('arc','event'))",
+                "check (decision in ('approved','rejected'))",
+            ),
+            "story_arcs": (
+                "check (length(trim(title)) between 1 and 80)",
+                "check (length(trim(summary)) between 1 and 320)",
+                "check (origin in ('ai','deterministic','user'))",
+            ),
+            "story_events": (
+                "check (length(trim(title)) between 1 and 80)",
+                "check (length(trim(summary)) between 1 and 320)",
+                "check (origin in ('ai','deterministic','user'))",
+            ),
+            "story_event_members": (
+                "unique (event_id, ordinal)",
+                "unique (beat_id)",
+            ),
+            "story_arc_members": (
+                "unique (arc_id, ordinal)",
+                "unique (event_id)",
+            ),
+            "story_event_edges": ("unique (source_event_id, target_event_id, kind)",),
+            "story_edits": (
+                "check (operation in "
+                "('rename','split','merge','move','hide','pin','approve','reject'))",
+            ),
+        }
+        for table, fragments in constraint_fragments.items():
+            row = connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            normalized = "" if row is None else " ".join(str(row[0]).lower().split())
+            normalized = normalized.replace(", ", ",").replace("( ", "(").replace(" )", ")")
+            if any(
+                fragment.replace(", ", ",").replace("( ", "(").replace(" )", ")") not in normalized
+                for fragment in fragments
+            ):
+                raise ProjectCorruptError(
+                    f"project organization table {table!r} has invalid constraints"
                 )
 
 
@@ -1012,6 +1082,7 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
         ) STRICT""",
         """CREATE TABLE IF NOT EXISTS organization_cache (
             cache_key TEXT PRIMARY KEY NOT NULL, provider_mode TEXT NOT NULL,
+            model_profile TEXT NOT NULL CHECK (length(trim(model_profile)) > 0),
             model_fingerprint TEXT NOT NULL, prompt_version TEXT NOT NULL,
             output_schema_version TEXT NOT NULL, input_hash TEXT NOT NULL,
             ordered_ids_hash TEXT NOT NULL, result_json BLOB NOT NULL, result_hash TEXT NOT NULL,
@@ -1038,9 +1109,21 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
             resolved_utc TEXT,
             FOREIGN KEY (run_id) REFERENCES organization_runs(run_id) ON DELETE CASCADE
         ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS organization_draft_reviews (
+            draft_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL CHECK (target_kind IN ('arc','event')),
+            target_id TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK (decision IN ('approved','rejected')),
+            reviewed_utc TEXT NOT NULL,
+            PRIMARY KEY (draft_id, target_kind, target_id),
+            FOREIGN KEY (draft_id) REFERENCES organization_drafts(draft_id) ON DELETE CASCADE
+        ) STRICT""",
         """CREATE TABLE IF NOT EXISTS story_arcs (
-            arc_id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
-            sort_order INTEGER NOT NULL CHECK (sort_order >= 0), origin TEXT NOT NULL,
+            arc_id TEXT PRIMARY KEY NOT NULL,
+            title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 80),
+            summary TEXT NOT NULL CHECK (length(trim(summary)) BETWEEN 1 AND 320),
+            sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+            origin TEXT NOT NULL CHECK (origin IN ('ai','deterministic','user')),
             pinned INTEGER NOT NULL CHECK (pinned IN (0,1)),
             hidden INTEGER NOT NULL CHECK (hidden IN (0,1)),
             approval_state TEXT NOT NULL
@@ -1049,8 +1132,11 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
             generation TEXT NOT NULL, updated_utc TEXT NOT NULL
         ) STRICT""",
         """CREATE TABLE IF NOT EXISTS story_events (
-            event_id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
-            sort_order INTEGER NOT NULL CHECK (sort_order >= 0), origin TEXT NOT NULL,
+            event_id TEXT PRIMARY KEY NOT NULL,
+            title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 80),
+            summary TEXT NOT NULL CHECK (length(trim(summary)) BETWEEN 1 AND 320),
+            sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+            origin TEXT NOT NULL CHECK (origin IN ('ai','deterministic','user')),
             pinned INTEGER NOT NULL CHECK (pinned IN (0,1)),
             hidden INTEGER NOT NULL CHECK (hidden IN (0,1)),
             approval_state TEXT NOT NULL
@@ -1097,7 +1183,11 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (claim_id) REFERENCES story_claims(claim_id) ON DELETE CASCADE
         ) STRICT""",
         """CREATE TABLE IF NOT EXISTS story_edits (
-            edit_id TEXT PRIMARY KEY NOT NULL, operation TEXT NOT NULL,
+            edit_id TEXT PRIMARY KEY NOT NULL,
+            operation TEXT NOT NULL
+                CHECK (operation IN (
+                    'rename','split','merge','move','hide','pin','approve','reject'
+                )),
             target_kind TEXT NOT NULL CHECK (target_kind IN ('arc','event','claim')),
             target_id TEXT NOT NULL, payload_json BLOB NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('applied','needs_review')),
@@ -1110,12 +1200,13 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS organization_chunks_invalidation_idx "
         "ON organization_chunks(reconciliation_scope, input_hash)",
         "CREATE INDEX IF NOT EXISTS organization_cache_lookup_idx "
-        "ON organization_cache(provider_mode, model_fingerprint, prompt_version, "
+        "ON organization_cache(provider_mode, model_profile, model_fingerprint, prompt_version, "
         "output_schema_version, input_hash, ordered_ids_hash)",
         "CREATE INDEX IF NOT EXISTS organization_drafts_status_idx "
         "ON organization_drafts(status, created_utc)",
-        "CREATE INDEX IF NOT EXISTS story_arcs_order_idx "
-        "ON story_arcs(hidden, sort_order, arc_id)",
+        "CREATE INDEX IF NOT EXISTS organization_draft_reviews_decision_idx "
+        "ON organization_draft_reviews(draft_id, decision, target_kind, target_id)",
+        "CREATE INDEX IF NOT EXISTS story_arcs_order_idx ON story_arcs(hidden, sort_order, arc_id)",
         "CREATE INDEX IF NOT EXISTS story_events_order_idx "
         "ON story_events(hidden, sort_order, event_id)",
         "CREATE INDEX IF NOT EXISTS story_event_members_beat_idx "
