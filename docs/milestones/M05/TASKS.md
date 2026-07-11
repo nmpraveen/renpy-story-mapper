@@ -10,8 +10,8 @@ Runtime authority: Windows with CPython 3.12
 
 | Task ID | Title | Responsibility | Assigned branch/worktree | Owned files or subsystem | Status | Final commit |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pending | M05 - Story organization model | Schema v4, migrations, organization records, quotient event/arc graph, corrections, and caching | `codex/m05-story-model`; worktree pending | Storage/story-domain modules and tests; no provider or UI code | Planned first wave | Pending |
-| Pending | M05 - Secure Codex organizer | Codex CLI discovery, ChatGPT/LM Studio modes, chunking, schemas, validation, cancellation, consent boundary, and sanitized errors | `codex/m05-codex-organizer`; worktree pending | New provider/organization package and mocked process tests; no UI or storage migrations | Planned first wave | Pending |
+| `019f5116-c600-71a3-b933-de9a2e0f92bd` | M05 - Story Organization Model | Schema v4, migrations, organization records, quotient event/arc graph, corrections, and caching | `codex/m05-story-model`; `C:\Users\prave\.codex\worktrees\m05-story-model\Renpy` | Storage/story-domain modules and tests; no provider or UI code | Active | Pending |
+| `019f5117-6cfe-75f0-a934-887c14245b0a` | M05 - Secure Codex Organizer | Codex CLI discovery, ChatGPT/LM Studio modes, chunking, schemas, validation, cancellation, consent boundary, and sanitized errors | `codex/m05-codex-organizer`; `C:\Users\prave\.codex\worktrees\m05-codex-organizer\Renpy` | New provider/organization package and mocked process tests; no UI or storage migrations | Active | Pending |
 | Pending | M05 - Deterministic layout and fixtures | Layered layout, branch lanes, semantic styles, representative story and evaluation fixtures | `codex/m05-layout-and-fixtures`; worktree pending | Canvas/layout modules plus new fixtures/tests; no shell, provider, or storage edits | Planned after shared contracts | Pending |
 | Pending | M05 - Arc-first Story Explorer UI | Welcome screen, three-pane workspace, review flow, inspector, corrections, adaptive theme, accessibility, screenshots, and UI tests | `codex/m05-story-explorer-ui`; worktree pending | UI package after shared contracts; no provider or storage implementation | Planned after model/provider/layout integration | Pending |
 | Pending | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; worktree pending | New review tests/fixtures and evidence only; production edits excluded | Planned after full integration | Pending |
@@ -46,3 +46,5 @@ inside scope.
 - 2026-07-11: Recorded the approved detailed M05 specification in `docs/MASTER_PLAN.md`.
 - 2026-07-11: Verified the clean worker baseline on Windows CPython 3.12: 133 pytest tests passed;
   Ruff, strict mypy, and `pip check` passed.
+- 2026-07-11: Started the story-model and secure-organizer user-visible tasks in separate explicit
+  Git worktrees from documentation commit `44ecfca`.
