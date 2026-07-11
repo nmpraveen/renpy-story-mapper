@@ -422,3 +422,66 @@ def test_descendant_queries_use_point_lookups_instead_of_full_index_scans(
             "SEARCH f USING INDEX presentation_facts_node_idx (node_id=?)" in detail
             for detail in fact_details
         ), fact_details
+
+
+def test_choice_outcome_walk_uses_source_edge_and_fact_point_lookups(
+    tmp_path: Path,
+) -> None:
+    project_path, _ = _create_project(tmp_path)
+    with PresentationService.open(project_path) as service:
+        root = next(
+            node
+            for node in service.view(PresentationRequest(PresentationLevel.OVERVIEW)).nodes
+            if node.name == "new_prologue"
+        )
+        choice = next(
+            node
+            for node in service.view(
+                PresentationRequest(PresentationLevel.EVENT, parent_ids=(root.id,))
+            ).nodes
+            if node.kind == "choice_group"
+        )
+        records = cast(
+            tuple[FactRecord, ...], service.choice_outcome_facts(choice.id).items
+        )
+        assert {
+            "ian_charisma > 0",
+            "love += 1",
+            'route_flag = "helper"',
+            "money -= 10",
+        } <= {record.expression for record in records}
+
+        plan = service._project._require_open().execute(
+            """EXPLAIN QUERY PLAN
+            WITH RECURSIVE context(scene_id) AS (
+              SELECT parent_id FROM presentation_nodes
+              WHERE node_id=? AND level=2 AND kind='choice_group'
+            ), walk(node_id) AS (
+              SELECT node_id FROM presentation_nodes
+              WHERE parent_id=? AND level=3 AND kind='choice'
+              UNION
+              SELECT e.target_id FROM walk w
+              JOIN presentation_nodes current ON current.node_id=w.node_id
+              CROSS JOIN presentation_edges e INDEXED BY presentation_edges_source_idx
+                ON e.level=3 AND e.source_id=w.node_id
+              JOIN presentation_nodes target ON target.node_id=e.target_id
+              JOIN presentation_nodes target_event ON target_event.node_id=target.parent_id
+              JOIN context c ON target_event.parent_id=c.scene_id
+              WHERE current.kind NOT IN ('jump','return','module_end','ending')
+              LIMIT 512
+            )
+            SELECT DISTINCT f.* FROM presentation_facts f
+            JOIN walk w ON w.node_id=f.node_id
+            ORDER BY f.sort_key,f.fact_id LIMIT ?""",
+            (choice.id, choice.id, 51),
+        ).fetchall()
+        details = tuple(str(row[3]) for row in plan)
+        assert any(
+            "SEARCH e USING COVERING INDEX presentation_edges_source_idx "
+            "(level=? AND source_id=?)" in detail
+            for detail in details
+        ), details
+        assert any(
+            "SEARCH f USING INDEX presentation_facts_node_idx (node_id=?)" in detail
+            for detail in details
+        ), details
