@@ -157,6 +157,23 @@ def test_fit_operations_preserve_the_explicit_semantic_level(app: QApplication) 
     assert canvas.semantic_level is SemanticLevel.EVENTS
 
 
+def test_each_semantic_level_restores_its_prior_view_center(app: QApplication) -> None:
+    canvas = GraphCanvas()
+    canvas.resize(700, 500)
+    canvas.set_slice([_node("one"), _node("two")], [])
+    canvas.set_semantic_level(SemanticLevel.OVERVIEW)
+    canvas.centerOn(QPointF(123.0, 77.0))
+    overview_center = canvas.mapToScene(canvas.viewport().rect().center())
+
+    canvas.set_semantic_level(SemanticLevel.EVENTS)
+    canvas.centerOn(QPointF(420.0, 260.0))
+    canvas.set_semantic_level(SemanticLevel.OVERVIEW)
+    restored = canvas.mapToScene(canvas.viewport().rect().center())
+
+    assert abs(restored.x() - overview_center.x()) < 2
+    assert abs(restored.y() - overview_center.y()) < 2
+
+
 def test_genuine_scene_deselection_clears_logical_selection(app: QApplication) -> None:
     canvas = GraphCanvas()
     canvas.set_slice([_node("selected")], [])
@@ -190,7 +207,7 @@ def test_deterministic_layout_for_identical_bounded_input(app: QApplication) -> 
 def test_all_required_kinds_have_distinct_visual_treatment() -> None:
     kinds = (
         "story", "container", "event", "choice", "gate", "effect", "merge", "loop",
-        "shared_call", "ending", "technical", "unresolved",
+        "jump", "call", "return", "shared_call", "ending", "technical", "unresolved",
     )
     styles = [visual_style_for(kind) for kind in kinds]
     signatures = {(style.fill, style.border, style.accent, style.dashed) for style in styles}

@@ -146,6 +146,7 @@ class PresentationService:
     ) -> None:
         self._project = project
         self._owns_project = owns_project
+        _ensure_query_indexes(project._require_open())
         ensure_presentation_index(project, cancelled=cancelled)
 
     @classmethod
@@ -256,16 +257,22 @@ class PresentationService:
 
     def evidence(self, node_id: str, *, after: str | None = None, limit: int = 25) -> ResultPage:
         bounded = _bounded_limit(limit, MAX_RESULTS)
-        clauses = ["(e.node_id = ? OR n.parent_id = ? OR p.parent_id = ?)"]
-        parameters: list[object] = [node_id, node_id, node_id]
+        clauses: list[str] = []
+        parameters: list[object] = [node_id]
         if after is not None:
             clauses.append("e.sort_key > ?")
             parameters.append(after)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._project._require_open().execute(
-            f"""SELECT e.* FROM presentation_evidence e
-            JOIN presentation_nodes n ON n.node_id=e.node_id
-            LEFT JOIN presentation_nodes p ON p.node_id=n.parent_id
-            WHERE {' AND '.join(clauses)} ORDER BY e.sort_key, e.evidence_id LIMIT ?""",
+            f"""WITH RECURSIVE descendants(node_id, depth) AS (
+              SELECT ?, 0
+              UNION ALL
+              SELECT n.node_id, d.depth + 1 FROM presentation_nodes n
+              JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
+            )
+            SELECT e.* FROM descendants d
+            JOIN presentation_evidence e ON e.node_id=d.node_id
+            {where} ORDER BY e.sort_key,e.evidence_id LIMIT ?""",
             (*parameters, bounded + 1),
         ).fetchall()
         has_more = len(rows) > bounded
@@ -332,22 +339,26 @@ class PresentationService:
         parameters: list[object] = []
         for column, value in (("fact_kind", kind), ("variable", variable), ("category", category)):
             if value is not None:
-                clauses.append(f"{column} = ?")
+                clauses.append(f"f.{column} = ?")
                 parameters.append(value)
+        prefix = ""
+        from_clause = "presentation_facts f"
         if node_id is not None:
-            clauses.append(
-                "(node_id = ? OR node_id IN (SELECT node_id FROM presentation_nodes "
-                "WHERE parent_id = ? OR parent_id IN (SELECT node_id FROM presentation_nodes "
-                "WHERE parent_id = ?)))"
-            )
-            parameters.extend((node_id, node_id, node_id))
+            prefix = """WITH RECURSIVE descendants(node_id, depth) AS (
+              SELECT ?, 0
+              UNION ALL
+              SELECT n.node_id, d.depth + 1 FROM presentation_nodes n
+              JOIN descendants d ON n.parent_id=d.node_id WHERE d.depth < 2
+            )"""
+            from_clause = "descendants d JOIN presentation_facts f ON f.node_id=d.node_id"
+            parameters.insert(0, node_id)
         if after is not None:
-            clauses.append("sort_key > ?")
+            clauses.append("f.sort_key > ?")
             parameters.append(after)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._project._require_open().execute(
-            f"""SELECT * FROM presentation_facts {where}
-            ORDER BY sort_key, fact_id LIMIT ?""",
+            f"""{prefix} SELECT f.* FROM {from_clause} {where}
+            ORDER BY f.sort_key,f.fact_id LIMIT ?""",
             (*parameters, bounded + 1),
         ).fetchall()
         has_more = len(rows) > bounded
@@ -357,6 +368,55 @@ class PresentationService:
             items,
             Continuation(len(items), has_more, str(rows[-1]["sort_key"]) if has_more else None),
         )
+
+    def choice_outcome_facts(self, node_id: str, *, limit: int = 50) -> ResultPage:
+        """Return bounded facts reachable from a Level-2 choice until branch termination."""
+
+        bounded = _bounded_limit(limit, MAX_RESULTS)
+        rows = self._project._require_open().execute(
+            """WITH RECURSIVE walk(node_id, depth) AS (
+                 SELECT node_id, 0 FROM presentation_nodes
+                 WHERE parent_id=? AND level=3 AND kind='choice'
+                 UNION
+                 SELECT e.target_id, w.depth + 1
+                 FROM walk w
+                 JOIN presentation_nodes current ON current.node_id=w.node_id
+                 JOIN presentation_edges e ON e.level=3 AND e.source_id=w.node_id
+                 WHERE w.depth < 12
+                   AND current.kind NOT IN ('jump','return','module_end')
+               )
+               SELECT DISTINCT f.* FROM presentation_facts f
+               JOIN walk w ON w.node_id=f.node_id
+               ORDER BY f.sort_key,f.fact_id LIMIT ?""",
+            (node_id, bounded + 1),
+        ).fetchall()
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
+        items = tuple(_fact_from_row(row) for row in rows)
+        return ResultPage(
+            items,
+            Continuation(len(items), has_more, str(rows[-1]["sort_key"]) if has_more else None),
+        )
+
+    def variable_display_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Resolve a bounded set of original variable names to current display names."""
+
+        selected = tuple(sorted(set(names)))
+        if not selected:
+            return {}
+        if len(selected) > 1000:
+            raise ValueError("too many variable display names requested")
+        placeholders = ",".join("?" for _ in selected)
+        rows = self._project._require_open().execute(
+            f"""SELECT json_extract(v.value,'$.original_name') AS original_name,
+                       COALESCE(json_extract(v.value,'$.display_name'),
+                                json_extract(v.value,'$.original_name')) AS display_name
+                FROM payloads p,json_each(CAST(p.payload_json AS TEXT)) v
+                WHERE p.collection='state_registry' AND p.record_key='authoritative'
+                  AND json_extract(v.value,'$.original_name') IN ({placeholders})""",
+            selected,
+        ).fetchall()
+        return {str(row["original_name"]): str(row["display_name"]) for row in rows}
 
     def lineage(self, node_id: str) -> tuple[PresentationNode, ...]:
         """Return the bounded root-to-node lineage for search-driven navigation."""
@@ -499,10 +559,7 @@ def rebuild_presentation_index(
 
     connection = project._require_open()
     _cancel(cancelled)
-    connection.execute(
-        """CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx
-        ON presentation_nodes(level, source_path, start_line, end_line, sort_key)"""
-    )
+    _ensure_query_indexes(connection)
     generation = _presentation_generation(connection)
     statements = _index_statements()
     with storage.transaction(connection):
@@ -720,6 +777,18 @@ def _presentation_generation(connection: sqlite3.Connection) -> str:
             digest.update(value.encode("utf-8"))
             digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _ensure_query_indexes(connection: sqlite3.Connection) -> None:
+    for statement in (
+        """CREATE INDEX IF NOT EXISTS presentation_nodes_parent_lookup_idx
+        ON presentation_nodes(parent_id, node_id)""",
+        """CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx
+        ON presentation_nodes(level, source_path, start_line, end_line, sort_key)""",
+        """CREATE INDEX IF NOT EXISTS presentation_facts_node_idx
+        ON presentation_facts(node_id, sort_key, fact_id)""",
+    ):
+        connection.execute(statement)
 
 
 def _cancel(cancelled: Callable[[], bool] | None) -> None:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -294,13 +295,30 @@ class StoryMapPresenter(QObject):
             progress(5, "Opening map index")
             with PresentationService.open(project_path, cancelled=cancelled) as service:
                 page = service.view(request, selected_id=self._selected_id)
-                specs: list[GraphNodeSpec] = []
+                raw_nodes: list[
+                    tuple[PresentationNode, tuple[FactRecord, ...], tuple[EvidenceRecord, ...]]
+                ] = []
+                variable_names: set[str] = set()
                 for index, node in enumerate(page.nodes):
                     if cancelled():
                         raise ProjectOperationCancelled("map query cancelled")
-                    facts = tuple(
+                    base_facts = tuple(
                         cast(FactRecord, item)
                         for item in service.facts(node_id=node.id, limit=12).items
+                    )
+                    outcome_facts = (
+                        tuple(
+                            cast(FactRecord, item)
+                            for item in service.choice_outcome_facts(node.id, limit=50).items
+                        )
+                        if node.kind == "choice_group"
+                        else ()
+                    )
+                    facts = tuple(
+                        {fact.id: fact for fact in (*base_facts, *outcome_facts)}.values()
+                    )
+                    variable_names.update(
+                        fact.variable for fact in facts if fact.variable is not None
                     )
                     evidence = (
                         tuple(
@@ -310,20 +328,27 @@ class StoryMapPresenter(QObject):
                         if level is not SemanticLevel.OVERVIEW
                         else ()
                     )
-                    specs.append(
-                        _graph_node(
-                            node,
-                            facts,
-                            evidence,
-                            level,
-                            self._expanded_ids(level),
-                        )
+                    raw_nodes.append((node, facts, evidence))
+                    progress(10 + int((index + 1) * 70 / max(1, len(page.nodes))), "Loading map")
+                display_names = service.variable_display_names(variable_names)
+                specs = tuple(
+                    _graph_node(
+                        node,
+                        facts,
+                        evidence,
+                        display_names,
+                        level,
+                        self._expanded_ids(level),
                     )
-                    progress(10 + int((index + 1) * 80 / max(1, len(page.nodes))), "Loading map")
+                    for node, facts, evidence in raw_nodes
+                )
+                if cancelled():
+                    raise ProjectOperationCancelled("map query cancelled")
+                progress(90, "Laying out map")
                 edges = tuple(_graph_edge(edge) for edge in page.edges)
                 result = _MapResult(
                     level,
-                    tuple(specs),
+                    specs,
                     edges,
                     page.node_continuation.has_more or page.edge_continuation.has_more,
                 )
@@ -375,6 +400,9 @@ class StoryMapPresenter(QObject):
         self._last_nodes[result.level] = tuple(node.id for node in result.nodes)
         self.canvas.set_semantic_level(result.level)
         self.canvas.set_slice(result.nodes, result.edges, preserve_navigation=True)
+        restored = self._selected_by_level.get(result.level)
+        if restored is not None and self.canvas.restore_selection(restored):
+            self._selected_id = restored
         if self._continue_to_evidence and result.level is SemanticLevel.EVENTS:
             event = _first(tuple(node.id for node in result.nodes))
             self._continue_to_evidence = False
@@ -473,11 +501,16 @@ def _graph_node(
     node: PresentationNode,
     facts: tuple[FactRecord, ...],
     records: tuple[EvidenceRecord, ...],
+    display_names: Mapping[str, str],
     level: SemanticLevel,
     expanded_ids: frozenset[str],
 ) -> GraphNodeSpec:
-    requirements = tuple(fact.expression for fact in facts if fact.kind == "gate")
-    effects = tuple(fact.expression for fact in facts if fact.kind == "effect")
+    requirements = tuple(
+        _display_expression(fact, display_names) for fact in facts if fact.kind == "gate"
+    )
+    effects = tuple(
+        _display_expression(fact, display_names) for fact in facts if fact.kind == "effect"
+    )
     evidence = tuple(
         SourceEvidence(
             record.source_path,
@@ -519,6 +552,16 @@ def _graph_node(
 
 def _graph_edge(edge: PresentationEdge) -> GraphEdgeSpec:
     return GraphEdgeSpec(edge.source_id, edge.target_id, edge.kind)
+
+
+def _display_expression(fact: FactRecord, display_names: Mapping[str, str]) -> str:
+    variable = fact.variable
+    if variable is None:
+        return fact.expression
+    display_name = display_names.get(variable, variable)
+    if display_name == variable:
+        return fact.expression
+    return re.sub(rf"\b{re.escape(variable)}\b", display_name, fact.expression)
 
 
 def _visual_kind(node: PresentationNode) -> str:

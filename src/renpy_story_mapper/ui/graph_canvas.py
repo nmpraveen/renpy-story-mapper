@@ -103,6 +103,9 @@ _STYLES: dict[str, NodeVisualStyle] = {
     "effect": NodeVisualStyle("#E8FAF7", "#26766B", "#3DA99A"),
     "merge": NodeVisualStyle("#EAF0FB", "#445D8B", "#6686BF"),
     "loop": NodeVisualStyle("#FFF0E5", "#965425", "#D27B3D"),
+    "jump": NodeVisualStyle("#FFF8E7", "#80601C", "#C99A35"),
+    "call": NodeVisualStyle("#E9F4FF", "#2F628C", "#4D96C7", dashed=True),
+    "return": NodeVisualStyle("#F8ECF4", "#80466C", "#B36391"),
     "shared_call": NodeVisualStyle("#F1ECFF", "#5D4A91", "#8873BF"),
     "ending": NodeVisualStyle("#FCE8EC", "#8E3849", "#C4576D"),
     "technical": NodeVisualStyle("#ECEFF2", "#606A73", "#7C8790", dashed=True),
@@ -266,6 +269,7 @@ class GraphCanvas(QGraphicsView):
         self._edge_items: list[_EdgeItem] = []
         self._selected_id: str | None = None
         self._semantic_level = SemanticLevel.EVENTS
+        self._centers_by_level: dict[SemanticLevel, QPointF] = {}
         self._variable_filter: frozenset[str] = frozenset()
         self._category_filter: frozenset[str] = frozenset()
         self._hidden_kinds: frozenset[str] = frozenset()
@@ -366,12 +370,13 @@ class GraphCanvas(QGraphicsView):
         if semantic_level == self._semantic_level:
             return
         center = self.mapToScene(self.viewport().rect().center())
+        self._centers_by_level[self._semantic_level] = center
         self._semantic_level = semantic_level
         for item in self._node_items.values():
             item.semantic_level = semantic_level
             item.update()
         self._apply_visibility()
-        self.centerOn(center)
+        self.centerOn(self._centers_by_level.get(semantic_level, center))
         self.semantic_level_changed.emit(int(semantic_level))
 
     def set_variable_filter(self, variables: Iterable[str]) -> None:
@@ -406,6 +411,23 @@ class GraphCanvas(QGraphicsView):
             self.ensureVisible(item, 40, 40)
             return True
         return False
+
+    def restore_selection(self, node_id: str) -> bool:
+        """Restore a prior level's logical selection without emitting a new user action."""
+
+        item = self._node_items.get(node_id)
+        if item is None or not item.isVisible():
+            return False
+        was_suspended = self._selection_updates_suspended
+        self._selection_updates_suspended = True
+        try:
+            self._scene.clearSelection()
+            item.setSelected(True)
+            self._selected_id = node_id
+        finally:
+            self._selection_updates_suspended = was_suspended
+        item.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def fit_all(self) -> None:
         visible = [item for item in self._node_items.values() if item.isVisible()]
