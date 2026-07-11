@@ -1,8 +1,9 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-10
+Last revised: 2026-07-11
 
-Status: M01, M02, M03, and M04 are complete. M05 is planned but has not been approved or started.
+Status: M01, M02, M03, and M04 are complete. M05 is approved and active on
+`milestone/m05-ai-story-explorer` from synchronized `main` commit `0ae86f7`.
 
 ## 1. Product goal
 
@@ -346,9 +347,7 @@ Completion evidence:
 
 ### M04 - Three-level Windows story map
 
-Status: Complete on `milestone/m04-three-level-windows-map`; implementation and Windows
-acceptance finished on 2026-07-10. The milestone PR is intentionally left unmerged for user
-approval as PR #6.
+Status: Complete and merged to `main` through PR #6 on 2026-07-11.
 
 Objective: build the actual Windows application and prove that a complicated game can be explored
 without displaying hundreds of equal-weight nodes at once.
@@ -415,61 +414,302 @@ Completion evidence:
   `953fae213f32a9d0cae2432ef09924d2f9f83c960691f42a15b73cc747aade99`, 70,031,252 bytes,
   `2026-07-10T17:11:44.0000000Z` before and after.
 
-### M05 - AI-organized story map and final product validation
+### M05 - AI-Organized Story Explorer and Final Product Validation
 
-Status: Next proposed milestone; do not create its goal or begin work without explicit approval.
+Status: Approved and active from synchronized `main` commit `0ae86f7` on
+`milestone/m05-ai-story-explorer`. M05 is the final milestone in the currently approved roadmap.
 
-Objective: turn the accurate but technical map into the readable story flowchart originally
-requested, while keeping every connection, requirement, and effect anchored to deterministic
-evidence.
+Objective: convert the technically correct M04 graph into the finished story-reading experience.
+The default journey must become an arc-first Story Explorer while M01-M04 remain the immutable
+factual foundation for connectivity, requirements, effects, evidence, and source locations.
 
-Deliverables:
+#### Locked product decisions
 
-- Minimal provider-neutral AI boundary and one working provider adapter selected at milestone
-  start; additional providers are optional future work.
-- Explicit opt-in before sending story text to any cloud provider.
-- Structured AI output for event boundaries, event titles, concise summaries, involved characters,
-  major state changes, arc grouping, and Level 1 outcome descriptions.
-- Chunking strategy for long labels and branches, followed by evidence-aware reconciliation across
-  chunks.
-- Graph-constrained grouping: AI may group or describe existing beats and paths but cannot create,
-  delete, or redirect authoritative edges.
-- Requirement/effect-aware summaries so important gates and point changes are not lost during
-  compression.
-- Separate display for proven facts, AI interpretation, and unresolved behavior.
-- Hash/model/prompt-version cache, cancellation, retry, and safe provider-failure handling.
-- User review tools to rename, split, merge, recategorize, approve, or reject AI-created events and
-  arcs. User corrections override AI output and survive refreshes.
-- Final visual and usability refinement of all three map levels.
+- The default experience is an arc-first Story Explorer in a polished adaptive Windows light/dark
+  interface.
+- AI runs only after a manual **Organize Story** action.
+- One provider-neutral boundary has one `CodexCliProvider` with two modes: cloud organization
+  through the user's existing ChatGPT/Codex login, and local organization through Codex CLI
+  `--oss --local-provider lmstudio`.
+- Every cloud run requires a fresh explicit confirmation before rich story evidence is sent.
+- The balanced profile uses the authenticated Codex default or currently loaded LM Studio model
+  unless the user supplies an advanced override. Record the effective identifier when available.
+- A successful run creates a reviewable draft; it never silently replaces the accepted map.
+- Corrections include rename, split, merge, move, hide, pin, approve, and reject.
+- The canonical full-game organization and final acceptance run use LM Studio only. Cloud mode is
+  validated with synthetic fixtures unless separately authorized at action time.
+- Existing base-project compaction is deferred. M05 measures database growth but does not gate on
+  reducing the approximately 2.26 GB project.
 
-Acceptance criteria:
+#### Welcome and project opening
 
-- On the canonical sample, `new_prologue` is divided into a manageable set of coherent,
-  human-readable events instead of remaining one 196-beat scene.
-- Level 1 shows a concise story overview; Level 2 shows meaningful events, choices, gates, and
-  effects; Level 3 preserves the exact deterministic evidence.
-- Important conditions such as Wits or Charisma requirements remain visibly attached to the
-  correct choices after AI grouping.
-- Relevant changes such as love/lust/relationship points, flags, jobs, and chapter progression are
-  surfaced at the appropriate level and never silently discarded.
-- AI summaries do not alter the M01/M02/M03 authoritative edge, gate, or effect sets.
-- Every AI-created event and high-level claim links to its supporting beats and source evidence.
-- Unsupported causal claims are marked as interpretation or omitted, never stated as proven.
-- Provider failure, cancellation, or disabled AI falls back to the deterministic layered map
-  without damaging the project.
-- Reprocessing unchanged content uses cached results.
-- The user can correct bad grouping or naming without editing the game.
-- A final Windows walkthrough demonstrates importing the canonical archive, navigating all three
-  levels, following at least one branched choice with a requirement and effect, and returning to
-  its exact source evidence.
-- Pytest, Ruff, strict mypy, `pip check`, Windows UI checks, and milestone-specific end-to-end tests
-  pass.
+- Replace the empty canvas with a welcome screen containing recent projects, source type,
+  last-opened time, organization status, and deterministic/AI badges.
+- Provide primary actions for **Open Game Folder**, **Open Archive**, and **Open Project**, plus a
+  concise static-analysis safety statement.
+- Present progress as a clear task with stage, percentage, elapsed time, and Cancel.
+- Show errors contextually with a recovery action. Move raw diagnostics under
+  **Help -> Diagnostics**.
+- Opening an accepted organized project immediately shows its accepted story map without rerunning
+  deterministic analysis or AI.
 
-Explicit exclusions:
+#### Arc-first workspace
 
-- No conversational Q&A or "ask the story" feature.
-- No separate advanced-exploration milestone.
-- No installer, packaging, distribution, release publishing, or portable-report milestone.
+Use one consistent three-pane workspace:
+
+- Left, approximately 280 px: project navigator with Overview, major arcs, characters, outcomes,
+  and saved filters.
+- Center: focused semantic map using the remaining width.
+- Right, approximately 360 px: contextual inspector with Summary, Choices & State, Evidence, and
+  Details tabs.
+- Top command bar: project name, breadcrumb, search, filters, Organize Story, and compact project
+  actions.
+- Bottom status strip: current level, visible-item count, organization provenance, and background
+  status.
+
+Persistent override forms become contextual Edit actions; variable/category filters move into a
+filter popover; technical and unresolved toggles move into View options; diagnostics stay closed
+unless an error occurs; raw labels remain available as evidence metadata rather than default titles.
+
+#### Semantic levels, rendering, and layout
+
+- Level 1 - Arcs: show no more than 12 accepted arcs or turning points by default in chronological
+  order. Each card includes a title, one-sentence summary, involved characters, major
+  requirements/effects, outcomes, and evidence coverage.
+- Level 2 - Events: show the selected arc as a deterministic layered branch map with no more than
+  30 event cards in the default slice. Choices open route lanes; merges, calls, loops, and endings
+  retain distinct styles.
+- Level 3 - Evidence: show dialogue, narration, choices, expressions, facts, relative paths, and
+  physical lines as a readable evidence timeline rather than another equal-weight graph.
+- Mouse-wheel semantic zoom and explicit level controls remain synchronized.
+- The existing 240-rendered-item cap remains an absolute safety boundary.
+- With AI disabled or unavailable, the same workspace uses deterministic labels and structural
+  groups and visibly identifies them as **Technical organization**.
+- Layout remains deterministic: collapse strongly connected components, assign ranks from
+  authoritative edges, order nodes with stable crossing-reduction passes, and route branches into
+  lanes. AI never supplies coordinates or edges.
+
+#### Visual and accessibility system
+
+- Follow Windows light/dark palette changes at runtime.
+- Use Segoe UI or system typography with 12 px metadata, 14 px body, 18 px section titles, and
+  24 px project/arc titles.
+- Use restrained semantic colors: cyan for flow, violet for choices, amber for requirements, green
+  for effects, red for unresolved behavior, and neutral system colors elsewhere.
+- Use icons with labels and never communicate state through color alone.
+- Give every interactive control an accessible name and visible keyboard focus state.
+- Support keyboard traversal through arcs, event cards, inspector tabs, and evidence records.
+- Preserve usability under Windows display scaling and 200% application zoom.
+
+#### Provider interface and process boundary
+
+Introduce this provider-neutral protocol:
+
+```text
+OrganizationProvider.status() -> ProviderStatus
+OrganizationProvider.organize(request, progress, cancelled)
+    -> OrganizationChunkResult
+OrganizationProvider.cancel()
+```
+
+Implement `CodexCliProvider` with `CODEX_CHATGPT` and `CODEX_LMSTUDIO` modes. Cloud mode reuses
+`codex login` without reading or copying OAuth credentials. Every run launches `codex exec` through
+`QProcess` directly, never a shell, in a sterile temporary working directory with the equivalent of:
+
+```text
+codex exec
+  --ephemeral
+  --skip-git-repo-check
+  --sandbox read-only
+  --ignore-user-config
+  --ignore-rules
+  --json
+  --output-schema <packaged-schema>
+  -
+```
+
+LM Studio mode adds `--oss --local-provider lmstudio`.
+
+- Stream story input through standard input; do not write prompt files.
+- Do not enable web search.
+- Treat command execution, file modification, MCP calls, or web-search JSONL events as policy
+  violations: terminate and reject the run.
+- Cancellation terminates the process, waits up to two seconds, kills it if needed, removes
+  temporary material, and leaves accepted organization unchanged.
+- `--ephemeral` prevents Codex rollout persistence.
+- Store normalized structured output, hashes, timings, usage counts, CLI version, provider mode,
+  and model identifier when available, but never credentials or raw provider logs.
+- Missing Codex, signed-out cloud mode, unavailable LM Studio, invalid JSON, refusal, timeout, rate
+  limiting, policy violation, and cancellation return sanitized actionable errors.
+
+#### Deterministic input and chunking
+
+Construct input only from M01-M04 records: scope ID; ordered beat IDs; beat kinds and speakers;
+dialogue, narration, and choice captions; conditions and explicit source expressions; proven or
+possible fact IDs and normalized values; relative path and physical span; and authoritative local
+adjacency between included beats.
+
+- Partition first by deterministic scene/label, then at choices, jumps, returns, and strong
+  condition boundaries.
+- Target at most 48,000 characters and 120 beat records per request.
+- Include up to two neighboring narrative beats as context, but never assign an overlapping beat to
+  two accepted events.
+- Omit routine technical commands from provider text while retaining their collapsed deterministic
+  transitions.
+- Stage 1 groups beats into human events.
+- Stage 2 reconciles neighboring event candidates inside each deterministic scene.
+- Stage 3 receives event summaries, major facts, characters, and locally derived connectivity, not
+  full dialogue, and groups events into arcs.
+
+#### Structured output and validation
+
+The provider may return only event/arc titles and concise summaries; existing member beat/event
+IDs; evidence-supported character names; `supporting`, `major`, or `turning point` importance;
+outcome descriptions; existing fact IDs worth promoting; existing evidence IDs supporting each
+interpretation; warnings; and ungrouped IDs.
+
+It must not return new authoritative graph edges, conditions, state changes, source locations, or
+route destinations. Validate that:
+
+- every referenced ID exists in the exact request;
+- every narrative, choice, and condition beat is assigned exactly once or explicitly ungrouped;
+- technical beats may remain collapsed;
+- event membership preserves deterministic order;
+- titles contain at most 80 characters and summaries at most 320 characters;
+- promoted facts match existing M03 fact IDs;
+- every interpretive claim has evidence IDs; and
+- unknown IDs, invented facts, duplicate membership, illegal crossings, missing required coverage,
+  or malformed output reject the chunk.
+
+Allow one schema-repair retry. A second failure leaves the scope deterministic. Derive event and arc
+edges locally as quotient graphs over authoritative M01/M02 transitions, and attach requirements
+and effects locally from M03 facts rather than model prose.
+
+#### Schema v4, cache, and durable state
+
+Add normalized storage for:
+
+- `organization_runs`: mode, model/profile, prompt/schema versions, generation, status, timings,
+  usage, and sanitized failure;
+- `organization_chunks`: scope, input hash, cache state, and normalized result hash;
+- `organization_drafts`: validated candidate payloads awaiting review;
+- `story_arcs` and `story_events`: accepted titles, summaries, order, origin, and pinned state;
+- `story_event_members` and `story_arc_members`: authoritative membership mappings;
+- `story_event_edges`: locally derived connectivity with deterministic provenance;
+- `story_claims` and `story_claim_evidence`: interpretation/evidence distinction;
+- `story_edits`: durable rename, split, merge, move, hide, pin, approve, and reject operations; and
+- `organization_cache`: provider mode, model fingerprint, prompt version, schema version, and input
+  hash.
+
+Migrate transactionally and backward-safely; cancellation or failure preserves the schema-v3
+project. Reuse cached results only when content, ordered IDs, provider mode, model profile, prompt
+version, and schema version all match. Refresh invalidates only changed chunks and affected
+reconciliation scopes. Accepted user edits and pinned groupings override later AI results. If a
+refresh removes a referenced beat, retain the edit as **Needs review**. Do not duplicate raw dialogue
+in enrichment tables; reconstruct provider input from authoritative payloads. Record the M05
+database-size delta without making compaction an acceptance gate.
+
+#### Review and corrections
+
+A successful run creates a draft. The review workspace compares current accepted organization with
+proposed arcs/events and shows added, removed, renamed, split, merged, and ungrouped content;
+evidence coverage and rejected/fallback scopes; provider mode, model/profile, prompt version, cache
+reuse, elapsed time, and local/cloud status.
+
+- **Apply Draft** promotes the entire validated draft atomically.
+- **Discard Draft** removes it without changing the accepted map.
+- Rename arcs/events inline.
+- Split only at a deterministic beat boundary.
+- Merge only contiguous events in the same arc.
+- Move events between arcs without changing authoritative event edges.
+- Hide presentation noise and pin user-edited groups against later replacement.
+- Reject individual candidate groups and retain their deterministic fallback.
+
+#### Worker sequence and ownership
+
+Create user-visible Windows worktree tasks from the milestone base:
+
+1. `codex/m05-story-model`: schema v4, migrations, organization records, quotient graphs,
+   corrections, and caching; storage/story-domain modules and tests only; no provider or UI code.
+2. `codex/m05-codex-organizer`: Codex discovery, ChatGPT/LM Studio modes, chunking, schemas,
+   validation, cancellation, and sanitized errors; provider package and mocked process tests only;
+   no UI or storage migrations.
+3. `codex/m05-layout-and-fixtures`: deterministic layered layout, branch lanes, semantic styles,
+   and representative story/evaluation fixtures; canvas/layout and new fixtures only.
+4. `codex/m05-story-explorer-ui`: welcome screen, arc-first workspace, review flow, inspector,
+   corrections, adaptive theme, accessibility, screenshots, and UI tests; begin after shared model
+   and provider contracts are integrated; no provider or storage implementation.
+5. `codex/m05-independent-review`: final adversarial review and new review tests only; production
+   edits excluded.
+
+Integrate story-model and provider contracts first, then layout, then UI. Return defective work to
+its responsible task. Worker completion alone is not acceptance.
+
+#### Windows verification and acceptance
+
+Run with Windows CPython 3.12:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check src tests scripts
+.\.venv\Scripts\python.exe -m mypy src\renpy_story_mapper
+.\.venv\Scripts\python.exe -m pip check
+git diff --check
+```
+
+Milestone tests cover schema-v3-to-v4 migration, cancellation, corruption, rollback, quotient-graph
+derivation, output validation, invented IDs/facts, chunk boundaries and overlap, coverage,
+reconciliation, cache keys, mocked Codex success/refusal/malformed/rate-limit/policy-violation/
+timeout/cancellation/missing-executable behavior, both command modes, consent before every cloud
+run, absence of implicit cloud calls, atomic draft apply/discard, the full correction workflow,
+adaptive theme, keyboard/focus/accessibility/scaling/evidence traversal, deterministic fallback,
+accepted-project opening without provider calls, and cached reruns with zero provider subprocesses.
+
+Validate real Codex/ChatGPT mode only on a synthetic non-game fixture through the existing login and
+structured-output path. For LM Studio, preflight `localhost:1234`, record the exact loaded model and
+context capability, and run synthetic fixtures before the canonical game. If LM Studio is not
+running or has no model loaded, canonical acceptance pauses rather than falling back to cloud.
+
+Before and after every canonical access, record SHA-256, size, and `LastWriteTimeUtc`. Acceptance
+requires:
+
+- Level 1 shows no more than 12 coherent arcs or turning points.
+- `new_prologue` is reorganized from 196 beats into 8-20 coherent events.
+- A selected arc defaults to no more than 30 Level 2 event cards and never exceeds 240 rendered
+  items.
+- Canonical choices, Wits/Charisma gates, representative relationship-point changes, dating flag,
+  and chapter progression stay on the correct deterministic paths.
+- Deterministic graph, requirement, effect, and evidence hashes are identical before and after AI
+  organization.
+- Every accepted event and claim links to existing beat/evidence IDs; unsupported causal language
+  is labeled **Interpretation** or rejected.
+- A user reaches arc -> choice -> requirement/effect -> exact evidence in at most three primary
+  interactions.
+- Cancellation returns control within two seconds and does not change the accepted map.
+- An unchanged rerun uses cached chunks and makes no model calls.
+- Reopening restores accepted organization, corrections, filters, selection, and navigation.
+- The UI remains responsive during analysis and organization.
+- Independent review has no unresolved P0-P2 finding and no accepted P3 correctness/security
+  finding.
+- Pytest, Ruff, strict mypy, `pip check`, Windows UI checks, and milestone end-to-end checks pass.
+
+After acceptance, update this plan with actual provider/model evidence, commits, worker tasks,
+metrics, limitations, and deferred storage optimization; write the M05 completion report; include
+screenshots of the welcome, arc overview, event branch, AI review, and exact-evidence states; create
+the native M05 infographic; open one M05 PR and leave it unmerged; then complete the single M05
+self-goal and stop.
+
+Explicit exclusions and assumptions:
+
+- No conversational Q&A, ask-the-story workflow, automatic ending finder, installer, packaging,
+  public release, macOS support, game editing, or patching.
+- AI cannot create, delete, or redirect authoritative graph edges, requirements, effects, or
+  evidence.
+- Rich-evidence cloud permission exists only after the in-app per-run confirmation.
+- The canonical full-game run remains local through LM Studio.
+- The user will start LM Studio and load a suitable model before canonical AI acceptance; it was
+  not listening on port 1234 when the plan was approved.
+- M05 completes the approved roadmap; no M06 is implied.
 
 ## 8. Product completion definition
 
@@ -557,5 +797,7 @@ and unresolved items.
 
 ## 11. Current next action
 
-Present the completed M04 report, infographic, and unmerged milestone PR for user review. Wait for
-explicit approval before creating the M05 goal or beginning any M05 implementation.
+Execute only M05 under its single active self-goal. Integrate the story-model and provider
+contracts first, then deterministic layout, then the Story Explorer UI, and finally independent
+review and complete Windows/canonical acceptance. Produce one unmerged M05 PR and stop for explicit
+user approval. Do not create M06.
