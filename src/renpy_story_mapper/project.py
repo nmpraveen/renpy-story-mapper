@@ -22,6 +22,7 @@ IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
 
 if TYPE_CHECKING:
     from renpy_story_mapper.presentation import PresentationService
+    from renpy_story_mapper.story_organization import StoryOrganizationService
 
 
 @dataclass(frozen=True)
@@ -510,6 +511,13 @@ class Project:
         from renpy_story_mapper.presentation import PresentationService
 
         return PresentationService(self)
+
+    def organization_service(self) -> StoryOrganizationService:
+        """Return the toolkit-neutral schema-v4 story-organization service."""
+
+        from renpy_story_mapper.story_organization import StoryOrganizationService
+
+        return StoryOrganizationService(self)
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""

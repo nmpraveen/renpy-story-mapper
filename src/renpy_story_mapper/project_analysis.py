@@ -275,6 +275,7 @@ def _refresh_open_project(
     from renpy_story_mapper.presentation import rebuild_presentation_index
 
     rebuild_presentation_index(project, cancelled=cancel_check)
+    project.organization_service().reconcile_after_refresh()
     reused = set(refresh.unchanged) - parsed_paths
     return RefreshReport(
         tuple(sorted(parsed_paths)),

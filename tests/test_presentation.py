@@ -215,7 +215,7 @@ def test_real_schema_v2_migration_is_queryable(tmp_path: Path) -> None:
     connection.close()
 
     with Project.open(project_path) as project:
-        assert project.schema_version == 3
+        assert project.schema_version == storage.SCHEMA_VERSION
         page = project.presentation_service().view(
             PresentationRequest(PresentationLevel.OVERVIEW, node_limit=1)
         )
