@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Final
 
 APPLICATION_ID: Final = 0x52534D50  # "RSMP"
-SCHEMA_VERSION: Final = 2
+SCHEMA_VERSION: Final = 3
 
 PAYLOAD_COLLECTIONS: Final = frozenset(
     {
@@ -114,6 +114,8 @@ def initialize_database(
                 _migrate_to_v1(connection)
             elif next_version == 2:
                 _migrate_to_v2(connection)
+            elif next_version == 3:
+                _migrate_to_v3(connection)
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
         current = next_version
@@ -166,6 +168,68 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
     if version >= 2:
         required["sources"].add("fingerprint_kind")
         required["schema_migrations"] = {"version", "applied_utc"}
+    if version >= 3:
+        required["presentation_nodes"] = {
+            "node_id",
+            "level",
+            "parent_id",
+            "sort_key",
+            "kind",
+            "label",
+            "source_path",
+            "start_line",
+            "end_line",
+            "technical",
+            "payload_json",
+        }
+        required["presentation_edges"] = {
+            "edge_id",
+            "level",
+            "source_id",
+            "target_id",
+            "sort_key",
+            "kind",
+            "payload_json",
+        }
+        required["presentation_evidence"] = {
+            "evidence_id",
+            "node_id",
+            "sort_key",
+            "kind",
+            "source_path",
+            "start_line",
+            "end_line",
+            "text",
+            "payload_json",
+        }
+        required["presentation_search"] = {
+            "search_id",
+            "node_id",
+            "field",
+            "text",
+            "normalized",
+        }
+        required["presentation_facts"] = {
+            "fact_id",
+            "node_id",
+            "fact_kind",
+            "variable",
+            "category",
+            "status",
+            "expression",
+            "source_path",
+            "start_line",
+            "end_line",
+            "sort_key",
+            "payload_json",
+        }
+        required["presentation_index_state"] = {"singleton", "generation"}
+        required["presentation_overrides"] = {
+            "node_id",
+            "display_name",
+            "hidden",
+            "updated_utc",
+        }
     try:
         tables = {
             str(row[0])
@@ -182,6 +246,13 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
             "payloads": ("collection", "record_key"),
             "payload_dependencies": ("collection", "record_key", "source_path"),
             "schema_migrations": ("version",),
+            "presentation_nodes": ("node_id",),
+            "presentation_edges": ("edge_id",),
+            "presentation_evidence": ("evidence_id",),
+            "presentation_search": ("search_id",),
+            "presentation_facts": ("fact_id",),
+            "presentation_index_state": ("singleton",),
+            "presentation_overrides": ("node_id",),
         }
         declared_types: dict[str, dict[str, str]] = {
             "project_metadata": {
@@ -211,8 +282,82 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
                 "source_path": "TEXT",
             },
             "schema_migrations": {"version": "INTEGER", "applied_utc": "TEXT"},
+            "presentation_nodes": {
+                "node_id": "TEXT",
+                "level": "INTEGER",
+                "parent_id": "TEXT",
+                "sort_key": "TEXT",
+                "kind": "TEXT",
+                "label": "TEXT",
+                "source_path": "TEXT",
+                "start_line": "INTEGER",
+                "end_line": "INTEGER",
+                "technical": "INTEGER",
+                "payload_json": "BLOB",
+            },
+            "presentation_edges": {
+                "edge_id": "TEXT",
+                "level": "INTEGER",
+                "source_id": "TEXT",
+                "target_id": "TEXT",
+                "sort_key": "TEXT",
+                "kind": "TEXT",
+                "payload_json": "BLOB",
+            },
+            "presentation_evidence": {
+                "evidence_id": "TEXT",
+                "node_id": "TEXT",
+                "sort_key": "TEXT",
+                "kind": "TEXT",
+                "source_path": "TEXT",
+                "start_line": "INTEGER",
+                "end_line": "INTEGER",
+                "text": "TEXT",
+                "payload_json": "BLOB",
+            },
+            "presentation_search": {
+                "search_id": "INTEGER",
+                "node_id": "TEXT",
+                "field": "TEXT",
+                "text": "TEXT",
+                "normalized": "TEXT",
+            },
+            "presentation_overrides": {
+                "node_id": "TEXT",
+                "display_name": "TEXT",
+                "hidden": "INTEGER",
+                "updated_utc": "TEXT",
+            },
+            "presentation_facts": {
+                "fact_id": "TEXT",
+                "node_id": "TEXT",
+                "fact_kind": "TEXT",
+                "variable": "TEXT",
+                "category": "TEXT",
+                "status": "TEXT",
+                "expression": "TEXT",
+                "source_path": "TEXT",
+                "start_line": "INTEGER",
+                "end_line": "INTEGER",
+                "sort_key": "TEXT",
+                "payload_json": "BLOB",
+            },
+            "presentation_index_state": {
+                "singleton": "INTEGER",
+                "generation": "TEXT",
+            },
         }
-        nullable = {("sources", "modified_ns")}
+        nullable = {
+            ("sources", "modified_ns"),
+            ("presentation_nodes", "parent_id"),
+            ("presentation_nodes", "source_path"),
+            ("presentation_nodes", "start_line"),
+            ("presentation_nodes", "end_line"),
+            ("presentation_overrides", "display_name"),
+            ("presentation_facts", "node_id"),
+            ("presentation_facts", "variable"),
+            ("presentation_facts", "category"),
+        }
         for table, expected_columns in required.items():
             if table not in tables:
                 raise ProjectCorruptError(f"project is missing required table {table!r}")
@@ -286,6 +431,18 @@ def _validate_schema_shape(connection: sqlite3.Connection, version: int) -> None
     normalized_source_sql = " ".join(source_sql.lower().split())
     if "check (size_bytes >= 0)" not in normalized_source_sql:
         raise ProjectCorruptError("project sources table is missing its size constraint")
+    if version >= 3:
+        expected_indexes = {
+            "presentation_nodes_parent_idx",
+            "presentation_edges_level_idx",
+            "presentation_evidence_node_idx",
+            "presentation_search_normalized_idx",
+            "presentation_facts_filter_idx",
+        }
+        missing_indexes = expected_indexes - indexes
+        if missing_indexes:
+            names = ", ".join(sorted(missing_indexes))
+            raise ProjectCorruptError(f"project is missing presentation indexes: {names}")
 
 
 @contextmanager
@@ -408,6 +565,113 @@ def _migrate_to_v2(connection: sqlite3.Connection) -> None:
     connection.executemany(
         "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
         ((1, timestamp), (2, timestamp)),
+    )
+
+
+def _migrate_to_v3(connection: sqlite3.Connection) -> None:
+    statements = (
+        """
+        CREATE TABLE IF NOT EXISTS presentation_nodes (
+            node_id TEXT PRIMARY KEY NOT NULL,
+            level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 3),
+            parent_id TEXT,
+            sort_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            label TEXT NOT NULL,
+            source_path TEXT,
+            start_line INTEGER,
+            end_line INTEGER,
+            technical INTEGER NOT NULL CHECK (technical IN (0, 1)),
+            payload_json BLOB NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_edges (
+            edge_id TEXT PRIMARY KEY NOT NULL,
+            level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 3),
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            sort_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            payload_json BLOB NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_evidence (
+            evidence_id TEXT PRIMARY KEY NOT NULL,
+            node_id TEXT NOT NULL,
+            sort_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            start_line INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            payload_json BLOB NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_search (
+            search_id INTEGER PRIMARY KEY NOT NULL,
+            node_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            text TEXT NOT NULL,
+            normalized TEXT NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_overrides (
+            node_id TEXT PRIMARY KEY NOT NULL,
+            display_name TEXT,
+            hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
+            updated_utc TEXT NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_facts (
+            fact_id TEXT PRIMARY KEY NOT NULL,
+            node_id TEXT,
+            fact_kind TEXT NOT NULL CHECK (fact_kind IN ('gate', 'effect')),
+            variable TEXT,
+            category TEXT,
+            status TEXT NOT NULL,
+            expression TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            start_line INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            sort_key TEXT NOT NULL,
+            payload_json BLOB NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS presentation_index_state (
+            singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+            generation TEXT NOT NULL
+        ) STRICT
+        """,
+        "CREATE INDEX IF NOT EXISTS presentation_nodes_parent_idx "
+        "ON presentation_nodes(level, parent_id, sort_key, node_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_nodes_parent_lookup_idx "
+        "ON presentation_nodes(parent_id, node_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_nodes_source_idx "
+        "ON presentation_nodes(level, source_path, start_line, end_line, sort_key)",
+        "CREATE INDEX IF NOT EXISTS presentation_edges_level_idx "
+        "ON presentation_edges(level, sort_key, edge_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_edges_source_idx "
+        "ON presentation_edges(level, source_id, target_id, edge_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_evidence_node_idx "
+        "ON presentation_evidence(node_id, sort_key, evidence_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_search_normalized_idx "
+        "ON presentation_search(field, normalized, search_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_facts_filter_idx "
+        "ON presentation_facts(fact_kind, variable, category, sort_key, fact_id)",
+        "CREATE INDEX IF NOT EXISTS presentation_facts_node_idx "
+        "ON presentation_facts(node_id, sort_key, fact_id)",
+    )
+    for statement in statements:
+        connection.execute(statement)
+    connection.execute(
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
+        (3, utc_now()),
     )
 
 

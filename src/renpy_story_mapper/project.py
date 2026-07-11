@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from renpy_story_mapper import storage
 
@@ -19,6 +19,9 @@ PROJECT_SCHEMA_VERSION: Final = storage.SCHEMA_VERSION
 ProjectCancelledError = storage.ProjectOperationCancelled
 ProjectCorruptionError = storage.ProjectCorruptError
 IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
+
+if TYPE_CHECKING:
+    from renpy_story_mapper.presentation import PresentationService
 
 
 @dataclass(frozen=True)
@@ -493,6 +496,20 @@ class Project:
                 )
             ]
         )
+        connection = self._require_open()
+        with storage.transaction(connection):
+            if category is not None:
+                connection.execute(
+                    "UPDATE presentation_facts SET category = ? WHERE variable = ?",
+                    (category, original_name),
+                )
+
+    def presentation_service(self) -> PresentationService:
+        """Return the bounded, toolkit-neutral presentation query service."""
+
+        from renpy_story_mapper.presentation import PresentationService
+
+        return PresentationService(self)
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""

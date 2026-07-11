@@ -2,7 +2,7 @@
 
 Last revised: 2026-07-10
 
-Status: M01, M02, and M03 are complete. M04 is the next proposed milestone and has not started.
+Status: M01, M02, M03, and M04 are complete. M05 is planned but has not been approved or started.
 
 ## 1. Product goal
 
@@ -269,7 +269,8 @@ flowchart, but it must preserve splits, merges, loops, calls, returns, shared sc
 - Python 3.12 and the existing analyzer package
 - SQLite for projects, graph data, state facts, AI cache, and user corrections
 - PySide6 for the Windows desktop shell
-- Embedded Cytoscape.js with ELK layout, unless an M04 prototype proves a better Windows option
+- Native PySide6 `QGraphicsView` canvas, selected by M04 for offline Windows behavior, bounded
+  rendering, native accessibility, and deterministic headless testing
 - One minimal provider-neutral AI interface with only the provider adapter needed for the first
   working version; multiple provider integrations are not a milestone requirement
 
@@ -278,14 +279,13 @@ patching are outside the active plan.
 
 ## 7. Remaining milestones
 
-The approved roadmap contains M03 through M05. M03 is complete, leaving exactly two planned
-milestones. Do not create M06 or M07. Ideas beyond M05 belong in a future backlog and are not
-commitments.
+The approved roadmap contains M03 through M05. M03 and M04 are complete, leaving exactly one
+planned milestone. Do not create M06 or M07. Ideas beyond M05 belong in a future backlog and are
+not commitments.
 
 ### M03 - Story state and durable projects
 
-Status: Complete on 2026-07-10. Implemented on `milestone/m03-story-state-projects`; PR #5 is open
-and remains subject to explicit user merge approval.
+Status: Complete and merged to `main` through PR #5 on 2026-07-10.
 
 Objective: preserve analyses in a reusable project and add deterministic requirements/effects so
 the later visual map can explain why routes open and what choices change.
@@ -346,7 +346,9 @@ Completion evidence:
 
 ### M04 - Three-level Windows story map
 
-Status: Proposed after M03; do not start before explicit user approval.
+Status: Complete on `milestone/m04-three-level-windows-map`; implementation and Windows
+acceptance finished on 2026-07-10. The milestone PR is intentionally left unmerged for user
+approval as PR #6.
 
 Objective: build the actual Windows application and prove that a complicated game can be explored
 without displaying hundreds of equal-weight nodes at once.
@@ -390,9 +392,32 @@ Explicit exclusions:
 - No chatbot, natural-language question interface, ending finder, or route-question workflow.
 - No packaging or public release work.
 
+Completion evidence:
+
+- The PySide6 shell, cancellable background project lifecycle, native virtualized canvas, bounded
+  schema-v3 presentation index, three semantic levels, search, evidence inspector, filters, and
+  durable node/state overrides are integrated.
+- The copied canonical project built its first presentation index in 136.324 seconds and reopened
+  to a bounded overview in 2.457 seconds. Its row-oriented index contains 318,980 presentation
+  nodes, 432,438 presentation edges, 252,061 evidence rows, 94,333 gate/effect facts, and 789,446
+  search rows.
+- The canonical Windows Qt workflow reached an 80-node/120-edge overview (200 rendered items under
+  the 240-item hard cap), focused off-page `new_prologue`, rendered its 49 structural event groups,
+  displayed choice requirements/effects, and descended to a three-node exact-evidence slice.
+- Required facts remained exact and proven: `ian_wits > 0` at `scripts/script.rpy:244`,
+  `ian_charisma > 0` at line 246, `ian_lena_mmf_points += 1` at
+  `scripts/master_script.rpy:2256`, `ian_lena_dating = True` at
+  `scripts/gallery/gallery_scene_setups.rpy:1103`, and `chapter = 3` at
+  `scripts/master_script.rpy:1994`.
+- Windows CPython 3.12 acceptance passed 133 tests, 11 focused M04 contracts, Ruff, strict mypy,
+  and `pip check`; independent review found no remaining P0-P3 issues.
+- The canonical archive remained byte- and timestamp-identical: SHA-256
+  `953fae213f32a9d0cae2432ef09924d2f9f83c960691f42a15b73cc747aade99`, 70,031,252 bytes,
+  `2026-07-10T17:11:44.0000000Z` before and after.
+
 ### M05 - AI-organized story map and final product validation
 
-Status: Planned after M04; do not start before M04 completion and explicit approval.
+Status: Next proposed milestone; do not create its goal or begin work without explicit approval.
 
 Objective: turn the accurate but technical map into the readable story flowchart originally
 requested, while keeping every connection, requirement, and effect anchored to deterministic
@@ -532,5 +557,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review and merge the M03 milestone PR only with explicit user approval. After M03 is merged, wait
-for explicit approval before creating the M04 self-goal or beginning any M04 implementation.
+Present the completed M04 report, infographic, and unmerged milestone PR for user review. Wait for
+explicit approval before creating the M05 goal or beginning any M05 implementation.

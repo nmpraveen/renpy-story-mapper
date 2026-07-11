@@ -1,9 +1,11 @@
-# Ren'Py Story Mapper — Phase 1 Analyzer
+# Ren'Py Story Mapper - Windows Story Map
 
-This repository contains the Phase 1 proof for a future local-first Windows story mapper. It
-inspects RPA 3.0 archives without extracting them, prefers available `.rpy` source over `.rpyc`,
-and emits a source-linked directed control-flow graph. It does **not** initialize Ren'Py, import a
-game, execute init/Python/creator code, evaluate script expressions, or decompile compiled scripts.
+This repository contains a local-first Windows application and analyzer for exploring Ren'Py
+stories as a bounded, source-linked three-level graph. It safely reads folders or RPA 3.0
+archives, prefers available `.rpy` source over matching `.rpyc`, stores durable SQLite projects,
+and presents deterministic labels, structural event groups, choices, requirements, effects, and
+exact evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, evaluate
+script expressions, or decompile compiled scripts.
 
 ## Safety model
 
@@ -41,6 +43,34 @@ python -m pip install -e ".[dev]"
 ```
 
 If PowerShell activation is disabled, invoke `.\.venv\Scripts\python.exe` directly as shown below.
+
+## Windows desktop application
+
+Launch the application after setup:
+
+```powershell
+.\.venv\Scripts\renpy-story-mapper-gui.exe
+```
+
+Use **Folder** or **Archive** to select a read-only game source and save the `.rsmproj` project
+outside the game/archive folder. Use **Open** for an existing project and **Refresh** after source
+changes. Analysis, project opening, indexing, refresh, search, and evidence work run in background
+threads with progress and cancellation.
+
+The map has three semantic levels:
+
+- **Level 1:** bounded label/chapter containers and major structural connections.
+- **Level 2:** deterministic event groups with choices, requirements, effects, and branch types.
+- **Level 3:** exact beats, expressions, source paths, and physical lines.
+
+Mouse-wheel zoom changes semantic detail; middle-drag pans; **Fit** preserves the current level;
+double-click expands a container; **Back** returns to the previous level. Search can focus results
+beyond the current bounded page. Technical/unresolved toggles, variable/category filters, the
+evidence inspector, durable node renames/hiding, and variable display/category overrides are
+available in the main window.
+
+The deterministic Level 2 groups are structural pre-AI slices, not final human-quality scenes.
+The application remains fully usable without AI or cloud access.
 
 ## Analyze an archive
 
@@ -120,8 +150,9 @@ Projects can be deleted explicitly after they are no longer needed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m mypy src
+.\.venv\Scripts\python.exe -m ruff check src tests scripts
+.\.venv\Scripts\python.exe -m mypy src\renpy_story_mapper
+.\.venv\Scripts\python.exe -m pip check
 ```
 
 ## Semantic story boundaries
@@ -131,7 +162,7 @@ conditions, or invent dynamic targets. Adjacent dialogue and narration are group
 Phase 1 graph proves an unambiguous fallthrough. Choices, conditions, jumps, calls, returns,
 endings, unresolved behavior, and label boundaries remain explicit.
 
-## Phase 1 boundaries
+## Current boundaries
 
 Supported graph authority: labels, fallthrough, string-literal menu choices, if/elif/else, jump,
 call, return, and explicit unresolved nodes. The parser is deliberately conservative. It does not
@@ -141,6 +172,8 @@ execution. Interactive `call screen` statements therefore retain sequential fall
 explicit unresolved-interaction edge. Those boundaries are security properties, not missing
 runtime dependencies.
 
-Phase 2 may add an import worker/API and local desktop visualization over these JSON contracts. It
-should continue treating the analyzer as a non-executing process and must not add AI summarization
-or creator-code execution implicitly.
+M04 adds the deterministic Windows application and layered map while preserving these security
+boundaries. AI grouping, provider integration, chatbot/query workflows, packaging, installers,
+public releases, macOS support, game editing, and game patching are not part of M04. M05 may add
+explicitly enabled AI organization without changing deterministic graph edges, gates, effects, or
+source evidence.
