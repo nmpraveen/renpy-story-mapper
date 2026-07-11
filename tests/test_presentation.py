@@ -314,14 +314,45 @@ def test_organization_connectivity_is_unpaged_chunked_and_keeps_cross_scope_edge
             service.edges_for_nodes(PresentationLevel.EVIDENCE, (*selected, *selected[:5]))
             == induced
         )
+        connection.execute(
+            "CREATE TEMP TABLE edge_plan_nodes(node_id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.executemany(
+            "INSERT INTO edge_plan_nodes VALUES (?)", ((value,) for value in selected[:3])
+        )
         plan = connection.execute(
-            "EXPLAIN QUERY PLAN SELECT * FROM presentation_edges "
-            "WHERE level=3 AND source_id IN (?,?)",
-            selected[:2],
+            """EXPLAIN QUERY PLAN SELECT edge.* FROM edge_plan_nodes source
+               CROSS JOIN presentation_edges edge INDEXED BY presentation_edges_source_idx
+               JOIN edge_plan_nodes target ON target.node_id=edge.target_id
+               WHERE edge.source_id=source.node_id AND edge.level=3
+               ORDER BY edge.sort_key,edge.edge_id"""
         ).fetchall()
         assert any("presentation_edges_source_idx" in str(row[3]) for row in plan)
+        connection.execute("DROP TABLE edge_plan_nodes")
 
         with pytest.raises(ValueError, match="unknown Level-3"):
             service.organization_connectivity((*selected, "unknown-beat"))
         with pytest.raises(ValueError, match="unknown presentation node"):
             service.edges_for_nodes(PresentationLevel.EVIDENCE, (*selected, "unknown-beat"))
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_temp_schema WHERE name='selected_presentation_nodes'"
+        ).fetchone() is None
+        with pytest.raises(ValueError, match="non-empty strings"):
+            service.edges_for_nodes(
+                PresentationLevel.EVIDENCE,
+                (selected[0], 7),  # type: ignore[arg-type]
+            )
+        cancellation_checks = 0
+
+        def cancel_during_decode() -> bool:
+            nonlocal cancellation_checks
+            cancellation_checks += 1
+            return cancellation_checks >= 5
+
+        service._cancelled = cancel_during_decode
+        with pytest.raises(storage.ProjectOperationCancelled):
+            service.edges_for_nodes(PresentationLevel.EVIDENCE, selected)
+        service._cancelled = None
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_temp_schema WHERE name='selected_presentation_nodes'"
+        ).fetchone() is None

@@ -242,11 +242,11 @@ class PresentationService:
         indexed selection table avoids SQLite parameter limits without modifying project tables.
         """
 
+        if any(not isinstance(node_id, str) or not node_id for node_id in node_ids):
+            raise ValueError("node_ids must contain non-empty strings")
         selected = tuple(sorted(set(node_ids)))
         if not selected:
             return ()
-        if any(not isinstance(node_id, str) or not node_id for node_id in selected):
-            raise ValueError("node_ids must contain non-empty strings")
         connection = self._project._require_open()
         _cancel(self._cancelled)
         connection.execute(
@@ -274,24 +274,33 @@ class PresentationService:
                     f"unknown presentation node for level {int(level)}: {unknown['node_id']}"
                 )
             _cancel(self._cancelled)
-            rows = connection.execute(
-                """SELECT edge.* FROM presentation_edges edge
-                   JOIN selected_presentation_nodes source ON source.node_id=edge.source_id
+            cursor = connection.execute(
+                """SELECT edge.* FROM selected_presentation_nodes source
+                   CROSS JOIN presentation_edges edge
+                     INDEXED BY presentation_edges_source_idx
                    JOIN selected_presentation_nodes target ON target.node_id=edge.target_id
-                   WHERE edge.level=? ORDER BY edge.sort_key,edge.edge_id""",
+                   WHERE edge.source_id=source.node_id AND edge.level=?
+                   ORDER BY edge.sort_key,edge.edge_id""",
                 (int(level),),
-            ).fetchall()
-            return tuple(
-                PresentationEdge(
-                    str(row["edge_id"]),
-                    PresentationLevel(int(row["level"])),
-                    str(row["source_id"]),
-                    str(row["target_id"]),
-                    str(row["kind"]),
-                    storage.decode_json(row["payload_json"]),
-                )
-                for row in rows
             )
+            result: list[PresentationEdge] = []
+            try:
+                while rows := cursor.fetchmany(500):
+                    _cancel(self._cancelled)
+                    result.extend(
+                        PresentationEdge(
+                            str(row["edge_id"]),
+                            PresentationLevel(int(row["level"])),
+                            str(row["source_id"]),
+                            str(row["target_id"]),
+                            str(row["kind"]),
+                            storage.decode_json(row["payload_json"]),
+                        )
+                        for row in rows
+                    )
+            finally:
+                cursor.close()
+            return tuple(result)
         finally:
             connection.execute("DROP TABLE IF EXISTS selected_presentation_nodes")
 

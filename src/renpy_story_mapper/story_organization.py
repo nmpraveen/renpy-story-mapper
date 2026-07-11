@@ -1251,17 +1251,30 @@ class StoryOrganizationService:
             invalid_scope = connection.execute(
                 """SELECT s.id FROM scoped_scope_ids s
                    LEFT JOIN presentation_nodes n ON n.node_id=s.id AND n.level IN (1,2)
-                   LEFT JOIN presentation_overrides override ON override.node_id=s.id
-                   WHERE n.node_id IS NULL OR COALESCE(override.hidden,0)=1
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=n.parent_id
+                   LEFT JOIN presentation_overrides own_override ON own_override.node_id=s.id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE n.node_id IS NULL OR COALESCE(own_override.hidden,0)=1
+                      OR (n.level=2 AND COALESCE(ancestor_override.hidden,0)=1)
                    ORDER BY s.id LIMIT 1"""
             ).fetchone()
             if invalid_scope is not None:
                 raise ValueError(f"unknown or non-container scope ID: {invalid_scope[0]}")
             invalid_beat = connection.execute(
                 """SELECT c.id FROM scoped_covered_beats c
-                   LEFT JOIN presentation_nodes n ON n.node_id=c.id AND n.level=3
-                   LEFT JOIN presentation_overrides override ON override.node_id=c.id
-                   WHERE n.node_id IS NULL OR COALESCE(override.hidden,0)=1
+                   LEFT JOIN presentation_nodes beat ON beat.node_id=c.id AND beat.level=3
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE beat.node_id IS NULL OR COALESCE(beat_override.hidden,0)=1
+                      OR COALESCE(parent_override.hidden,0)=1
+                      OR COALESCE(ancestor_override.hidden,0)=1
                    ORDER BY c.id LIMIT 1"""
             ).fetchone()
             if invalid_beat is not None:
@@ -1270,7 +1283,16 @@ class StoryOrganizationService:
                 """SELECT c.id FROM scoped_covered_beats c
                    JOIN presentation_nodes beat ON beat.node_id=c.id
                    LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
-                   WHERE NOT EXISTS (
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE (COALESCE(beat_override.hidden,0)=1
+                      OR COALESCE(parent_override.hidden,0)=1
+                      OR COALESCE(ancestor_override.hidden,0)=1) OR NOT EXISTS (
                        SELECT 1 FROM scoped_scope_ids s
                        WHERE s.id=beat.node_id OR s.id=parent.node_id OR s.id=parent.parent_id
                    ) ORDER BY c.id LIMIT 1"""
@@ -1280,8 +1302,17 @@ class StoryOrganizationService:
             missing = connection.execute(
                 """SELECT beat.node_id FROM presentation_nodes beat
                    LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
-                   LEFT JOIN presentation_overrides override ON override.node_id=beat.node_id
-                   WHERE beat.level=3 AND COALESCE(override.hidden,0)=0 AND EXISTS (
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE beat.level=3
+                     AND COALESCE(beat_override.hidden,0)=0
+                     AND COALESCE(parent_override.hidden,0)=0
+                     AND COALESCE(ancestor_override.hidden,0)=0 AND EXISTS (
                        SELECT 1 FROM scoped_scope_ids s
                        WHERE s.id=parent.node_id OR s.id=parent.parent_id
                    ) AND NOT EXISTS (
@@ -1295,7 +1326,19 @@ class StoryOrganizationService:
                        SELECT 1 FROM scoped_covered_beats c
                        JOIN presentation_nodes beat ON beat.node_id=c.id
                        LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
-                       WHERE s.id=beat.node_id OR s.id=parent.node_id OR s.id=parent.parent_id
+                       LEFT JOIN presentation_nodes ancestor
+                         ON ancestor.node_id=parent.parent_id
+                       LEFT JOIN presentation_overrides beat_override
+                         ON beat_override.node_id=beat.node_id
+                       LEFT JOIN presentation_overrides parent_override
+                         ON parent_override.node_id=parent.node_id
+                       LEFT JOIN presentation_overrides ancestor_override
+                         ON ancestor_override.node_id=ancestor.node_id
+                       WHERE COALESCE(beat_override.hidden,0)=0
+                         AND COALESCE(parent_override.hidden,0)=0
+                         AND COALESCE(ancestor_override.hidden,0)=0
+                         AND (s.id=beat.node_id OR s.id=parent.node_id
+                              OR s.id=parent.parent_id)
                    ) ORDER BY s.id LIMIT 1"""
             ).fetchone()
             if empty_scope is not None:
@@ -1486,34 +1529,42 @@ class StoryOrganizationService:
         promoted = _optional_unique_strings(group, "promoted_fact_ids", maximum=200)
         beat_ids = set(member_beat_ids)
         supported_characters: set[str] = set()
-        for row in self._connection.execute(
-            "SELECT node_id,payload_json FROM presentation_nodes WHERE level=3"
-        ):
-            if str(row["node_id"]) not in beat_ids:
-                continue
-            payload = storage.decode_json(row["payload_json"])
-            if isinstance(payload, dict):
-                if isinstance(payload.get("speaker"), str):
-                    supported_characters.add(str(payload["speaker"]))
-                content = payload.get("content")
-                if isinstance(content, list):
-                    supported_characters.update(
-                        str(item["speaker"])
-                        for item in content
-                        if isinstance(item, dict) and isinstance(item.get("speaker"), str)
-                    )
+        if characters:
+            for batch in _chunked(tuple(sorted(beat_ids)), 500):
+                placeholders = ",".join("?" for _ in batch)
+                for row in self._connection.execute(
+                    f"""SELECT payload_json FROM presentation_nodes
+                        WHERE level=3 AND node_id IN ({placeholders})""",
+                    batch,
+                ):
+                    payload = storage.decode_json(row["payload_json"])
+                    if isinstance(payload, dict):
+                        if isinstance(payload.get("speaker"), str):
+                            supported_characters.add(str(payload["speaker"]))
+                        content = payload.get("content")
+                        if isinstance(content, list):
+                            supported_characters.update(
+                                str(item["speaker"])
+                                for item in content
+                                if isinstance(item, dict)
+                                and isinstance(item.get("speaker"), str)
+                            )
         unsupported = set(characters) - supported_characters
         if unsupported:
             raise ValueError(f"characters lack existing beat evidence: {sorted(unsupported)!r}")
         if promoted:
-            fact_rows = self._connection.execute(
-                "SELECT fact_id,node_id FROM presentation_facts"
-            ).fetchall()
-            supported_facts = {
-                str(row["fact_id"])
-                for row in fact_rows
-                if row["node_id"] is not None and str(row["node_id"]) in beat_ids
-            }
+            supported_facts: set[str] = set()
+            for batch in _chunked(tuple(sorted(beat_ids)), 500):
+                placeholders = ",".join("?" for _ in batch)
+                supported_facts.update(
+                    str(row["fact_id"])
+                    for row in self._connection.execute(
+                        f"""SELECT fact_id FROM presentation_facts
+                            INDEXED BY presentation_facts_node_idx
+                            WHERE node_id IN ({placeholders})""",
+                        batch,
+                    )
+                )
             invented = set(promoted) - supported_facts
             if invented:
                 raise ValueError(
@@ -1614,25 +1665,40 @@ class StoryOrganizationService:
                        WHERE members.arc_id=story_arcs.arc_id
                    )"""
             )
+            residual_arcs = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT affected.id FROM scoped_affected_arcs affected
+                       JOIN story_arcs arc ON arc.arc_id=affected.id
+                       WHERE arc.pinned=0 AND EXISTS (
+                           SELECT 1 FROM story_arc_members members
+                           WHERE members.arc_id=affected.id
+                       ) ORDER BY affected.id"""
+                )
+            )
+            for arc_id in residual_arcs:
+                self._renumber_arc(arc_id)
+                connection.execute(
+                    """UPDATE story_arcs SET
+                           title='Technical boundary arc',
+                           summary='Deterministic organization retained outside selected scope.',
+                           origin='deterministic',needs_review=1,updated_utc=?
+                       WHERE arc_id=?""",
+                    (storage.utc_now(), arc_id),
+                )
+                connection.execute(
+                    "UPDATE story_claims SET status='needs_review' WHERE arc_id=?", (arc_id,)
+                )
+                connection.execute(
+                    """UPDATE story_edits SET status='needs_review'
+                       WHERE target_kind='arc' AND target_id=?""",
+                    (arc_id,),
+                )
+                connection.execute(
+                    "DELETE FROM story_group_enrichment WHERE target_kind='arc' AND target_id=?",
+                    (arc_id,),
+                )
 
-            pinned_events = {
-                str(row[0])
-                for row in connection.execute(
-                    """SELECT event_id FROM story_events WHERE pinned=1
-                       UNION SELECT event_id FROM story_arc_members
-                       WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)"""
-                )
-            }
-            pinned_arcs = {
-                str(row[0])
-                for row in connection.execute("SELECT arc_id FROM story_arcs WHERE pinned=1")
-            } | {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT arc_id FROM story_arc_members WHERE event_id IN "
-                    "(SELECT event_id FROM story_events WHERE pinned=1)"
-                )
-            }
             pinned_beats = {
                 str(row[0])
                 for row in connection.execute(
@@ -1652,7 +1718,7 @@ class StoryOrganizationService:
                     for beat in _string_list(event["beat_ids"], "event beat IDs")
                     if beat in covered and beat not in pinned_beats
                 ]
-                if original_id in pinned_events or not beats:
+                if not beats:
                     continue
                 event_id = original_id
                 if connection.execute(
@@ -1684,8 +1750,6 @@ class StoryOrganizationService:
             arc_id_map: dict[str, str] = {}
             for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
                 original_id = cast(str, arc["id"])
-                if original_id in pinned_arcs:
-                    continue
                 member_ids = [
                     event_id_map[event_id]
                     for event_id in _string_list(arc["event_ids"], "arc event IDs")
@@ -1779,6 +1843,7 @@ class StoryOrganizationService:
                     )"""
             )
             self._prune_enrichments()
+            self._recompute_global_order()
         finally:
             connection.execute("DROP TABLE IF EXISTS scoped_affected_arcs")
             connection.execute("DROP TABLE IF EXISTS scoped_affected_events")
@@ -1864,6 +1929,36 @@ class StoryOrganizationService:
                          SELECT 1 FROM story_arcs WHERE arc_id=target_id
                      ))"""
         )
+
+    def _recompute_global_order(self) -> None:
+        """Order accepted groups by their earliest authoritative beat after partial replacement."""
+
+        event_rows = self._connection.execute(
+            """SELECT event.event_id,MIN(beat.sort_key) AS first_beat
+               FROM story_events event
+               JOIN story_event_members member ON member.event_id=event.event_id
+               JOIN presentation_nodes beat ON beat.node_id=member.beat_id
+               GROUP BY event.event_id ORDER BY first_beat,event.event_id"""
+        ).fetchall()
+        self._connection.executemany(
+            "UPDATE story_events SET sort_order=? WHERE event_id=?",
+            ((ordinal, str(row["event_id"])) for ordinal, row in enumerate(event_rows)),
+        )
+        arc_rows = self._connection.execute(
+            """SELECT arc.arc_id,MIN(beat.sort_key) AS first_beat
+               FROM story_arcs arc
+               JOIN story_arc_members arc_member ON arc_member.arc_id=arc.arc_id
+               JOIN story_event_members event_member
+                 ON event_member.event_id=arc_member.event_id
+               JOIN presentation_nodes beat ON beat.node_id=event_member.beat_id
+               GROUP BY arc.arc_id ORDER BY first_beat,arc.arc_id"""
+        ).fetchall()
+        for ordinal, row in enumerate(arc_rows):
+            arc_id = str(row["arc_id"])
+            self._connection.execute(
+                "UPDATE story_arcs SET sort_order=? WHERE arc_id=?", (ordinal, arc_id)
+            )
+            self._renumber_arc(arc_id)
 
     def _apply_candidate(self, candidate: Mapping[str, object], generation: str) -> None:
         explicitly_pinned_arcs = {
@@ -2237,6 +2332,11 @@ def _unique_string_sequence(values: Sequence[str], name: str) -> tuple[str, ...]
     if len(set(result)) != len(result):
         raise ValueError(f"{name} cannot contain duplicates")
     return result
+
+
+def _chunked(values: Sequence[str], size: int) -> Iterable[Sequence[str]]:
+    for offset in range(0, len(values), size):
+        yield values[offset : offset + size]
 
 
 def _candidate_body_and_scope(

@@ -383,6 +383,42 @@ def test_atomic_apply_discard_and_authoritative_data_is_immutable(
         assert service.arcs(include_hidden=True) == accepted
 
 
+def test_global_draft_rejects_scope_fields_and_fully_replaces_unpinned_state(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        before = service.events(include_hidden=True)
+        partial = _scoped_candidate(project, (0,), suffix="-global-bypass")
+        run = service.create_run(
+            provider_mode="local",
+            model_profile="balanced",
+            model_fingerprint=None,
+            prompt_version="p1",
+            output_schema_version="s1",
+            generation="g-global-bypass",
+        )
+        with pytest.raises(ValueError, match="managed exclusively"):
+            service.create_draft(run, "g-global-bypass", partial)
+        assert service.events(include_hidden=True) == before
+
+        replacement = _candidate(project, suffix="-global-replacement")
+        service.apply_draft(_run_and_draft(service, replacement))
+        events = service.events(include_hidden=True)
+        assert {event.id for event in events} == {
+            "event-a-global-replacement",
+            "event-b-global-replacement",
+            "event-c-global-replacement",
+        }
+        assert all(
+            service._connection.execute(
+                "SELECT 1 FROM story_arc_members WHERE event_id=?", (event.id,)
+            ).fetchone()
+            for event in events
+        )
+
+
 def test_draft_group_review_reject_fallback_apply_and_reopen(tmp_path: Path) -> None:
     path: Path
     with _create(tmp_path) as project:
@@ -579,6 +615,7 @@ def test_sequential_partial_scopes_retain_prior_scope_and_do_not_create_global_f
         service.apply_draft(_run_and_draft(service, scope_a))
         assert {event.id for event in service.events()} == {"event-a-scope-a"}
         service.set_hidden("event", "event-a-scope-a", True)
+        service.set_approval("event", "event-a-scope-a", "approved")
         service.set_approval("event", "event-a-scope-a", "rejected")
         service.apply_draft(_run_and_draft(service, scope_b))
         assert {event.id for event in service.events(include_hidden=True)} == {
@@ -592,6 +629,44 @@ def test_sequential_partial_scopes_retain_prior_scope_and_do_not_create_global_f
         assert reapplied.hidden and reapplied.approval_state == "rejected"
         assert {edit.status for edit in service.edits(reapplied.id)} == {"applied"}
         assert all(event.origin != "deterministic" for event in events)
+
+
+def test_scoped_apply_recomputes_global_chronology_after_reopen_and_rerun(
+    tmp_path: Path,
+) -> None:
+    path: Path
+    with _create(tmp_path) as project:
+        path = project.path
+        service = project.organization_service()
+        early = _scoped_candidate(project, (0,), suffix="-chronology")
+        late = _scoped_candidate(project, (1,), suffix="-chronology")
+
+        def rename(candidate: dict[str, object], event_id: str, arc_id: str) -> None:
+            events = candidate["events"]
+            arcs = candidate["arcs"]
+            assert isinstance(events, list) and isinstance(events[0], dict)
+            assert isinstance(arcs, list) and isinstance(arcs[0], dict)
+            events[0]["id"] = event_id
+            arcs[0]["id"] = arc_id
+            arcs[0]["event_ids"] = [event_id]
+
+        rename(early, "z-early-event", "z-early-arc")
+        rename(late, "a-late-event", "a-late-arc")
+        service.apply_draft(_run_and_draft(service, early))
+        service.apply_draft(_run_and_draft(service, late))
+        assert [event.id for event in service.events()] == ["z-early-event", "a-late-event"]
+        assert [arc.id for arc in service.arcs()] == ["z-early-arc", "a-late-arc"]
+        service.apply_draft(_run_and_draft(service, early))
+        assert [event.id for event in service.events()] == ["z-early-event", "a-late-event"]
+        assert [arc.id for arc in service.arcs()] == ["z-early-arc", "a-late-arc"]
+
+    with Project.open(path) as reopened:
+        restored = reopened.organization_service()
+        assert [event.id for event in restored.events()] == [
+            "z-early-event",
+            "a-late-event",
+        ]
+        assert [arc.id for arc in restored.arcs()] == ["z-early-arc", "a-late-arc"]
 
 
 def test_partial_scope_requires_declared_coverage_and_preserves_pinned_intersection(
@@ -698,6 +773,109 @@ def test_scoped_exactness_excludes_durable_hidden_descendant(tmp_path: Path) -> 
         assert hidden not in events_after[0].beat_ids
         assert all(hidden not in event.beat_ids for event in events_after)
 
+    with _create(tmp_path / "hidden-parent") as project:
+        connection = project._require_open()
+        parent_rows = connection.execute(
+            "SELECT node_id,parent_id FROM presentation_nodes WHERE level=2 "
+            "ORDER BY sort_key,node_id"
+        ).fetchall()
+        hidden_parent = str(parent_rows[0]["node_id"])
+        scene_id = str(parent_rows[0]["parent_id"])
+        visible_index = next(
+            index
+            for index, row in enumerate(parent_rows)
+            if str(row["parent_id"]) == scene_id and str(row["node_id"]) != hidden_parent
+        )
+        hidden_children = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE parent_id=?", (hidden_parent,)
+            )
+        }
+        project.presentation_service().set_hidden(hidden_parent, True)
+        candidate = _scoped_candidate(project, (visible_index,), suffix="-hidden-parent")
+        covered = candidate.pop("selected_beat_ids")
+        assert isinstance(covered, list)
+        service = project.organization_service()
+        run = service.create_run(
+            provider_mode="local",
+            model_profile="balanced",
+            model_fingerprint=None,
+            prompt_version="p1",
+            output_schema_version="s1",
+            generation="g-hidden-parent",
+        )
+        with pytest.raises(ValueError, match="unknown covered Level-3 beat"):
+            service.create_scoped_draft(
+                run,
+                "g-hidden-parent",
+                candidate,
+                scope_ids=(scene_id,),
+                covered_beat_ids=(*covered, next(iter(hidden_children))),
+            )
+        draft = service.create_scoped_draft(
+            run,
+            "g-hidden-parent",
+            candidate,
+            scope_ids=(scene_id,),
+            covered_beat_ids=covered,
+        )
+        _review_all(service, draft, candidate)
+        service.apply_draft(draft)
+        accepted = service.events(include_hidden=True)
+        assert len(accepted) == 1
+        assert hidden_children.isdisjoint(accepted[0].beat_ids)
+
+
+def test_scoped_candidate_id_collisions_preserve_pinned_groups_without_orphans(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path / "event-collision") as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("event", "event-a", True)
+        pinned = next(event for event in service.events() if event.id == "event-a")
+        candidate = _scoped_candidate(project, (1,), suffix="-event-collision")
+        covered = candidate["selected_beat_ids"]
+        events = candidate["events"]
+        arcs = candidate["arcs"]
+        assert isinstance(covered, list) and isinstance(events, list) and isinstance(arcs, list)
+        assert isinstance(events[0], dict) and isinstance(arcs[0], dict)
+        events[0]["id"] = "event-a"
+        arcs[0]["event_ids"] = ["event-a"]
+        service.apply_draft(_run_and_draft(service, candidate))
+        assert next(event for event in service.events() if event.id == "event-a") == pinned
+        replacement = next(
+            event
+            for event in service.events(include_hidden=True)
+            if event.id != "event-a" and set(event.beat_ids) == set(covered)
+        )
+        assert service._connection.execute(
+            "SELECT 1 FROM story_arc_members WHERE event_id=?", (replacement.id,)
+        ).fetchone()
+
+    with _create(tmp_path / "arc-collision") as project:
+        service = project.organization_service()
+        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        service.set_pinned("arc", "arc-a", True)
+        pinned = next(arc for arc in service.arcs() if arc.id == "arc-a")
+        candidate = _scoped_candidate(project, (2,), suffix="-arc-collision")
+        covered = candidate["selected_beat_ids"]
+        arcs = candidate["arcs"]
+        assert isinstance(covered, list) and isinstance(arcs, list) and isinstance(arcs[0], dict)
+        arcs[0]["id"] = "arc-a"
+        service.apply_draft(_run_and_draft(service, candidate))
+        assert next(arc for arc in service.arcs() if arc.id == "arc-a") == pinned
+        replacement = next(
+            event
+            for event in service.events(include_hidden=True)
+            if set(event.beat_ids) == set(covered)
+        )
+        attached = service._connection.execute(
+            "SELECT arc_id FROM story_arc_members WHERE event_id=?", (replacement.id,)
+        ).fetchone()
+        assert attached is not None and str(attached[0]) != "arc-a"
+
 
 def test_rejected_scoped_group_creates_only_selected_fallback(tmp_path: Path) -> None:
     with _create(tmp_path) as project:
@@ -726,7 +904,29 @@ def test_partial_boundary_intersection_trims_unpinned_group_without_losing_outsi
 ) -> None:
     with _create(tmp_path) as project:
         service = project.organization_service()
-        service.apply_draft(_run_and_draft(service, _candidate(project)))
+        initial = _candidate(project)
+        initial_arcs = initial["arcs"]
+        initial_claims = initial["claims"]
+        assert isinstance(initial_arcs, list) and isinstance(initial_arcs[0], dict)
+        assert isinstance(initial_claims, list) and isinstance(initial_claims[0], dict)
+        initial_arcs[0].update(
+            {
+                "importance": "major",
+                "outcomes": ["The old arc interpretation changes."],
+                "warnings": ["Old arc warning."],
+            }
+        )
+        initial_claims.append(
+            {
+                "id": "claim-arc-boundary",
+                "arc_id": "arc-a",
+                "text": "The original arc spans the selected boundary.",
+                "kind": "interpretation",
+                "evidence_ids": initial_claims[0]["evidence_ids"],
+            }
+        )
+        service.apply_draft(_run_and_draft(service, initial))
+        service.set_hidden("arc", "arc-a", False)
         original = next(event for event in service.events() if event.id == "event-b")
         service.rename("event", original.id, "Old selected interpretation")
         service._connection.execute(
@@ -771,6 +971,21 @@ def test_partial_boundary_intersection_trims_unpinned_group_without_losing_outsi
         assert {edit.status for edit in service.edits(original.id)} == {"needs_review"}
         inserted = next(event for event in service.events() if event.id == "event-middle")
         assert inserted.beat_ids == tuple(selected)
+        boundary_arc = next(arc for arc in service.arcs() if arc.id == "arc-a")
+        assert boundary_arc.origin == "deterministic"
+        assert boundary_arc.needs_review
+        assert boundary_arc.title == "Technical boundary arc"
+        assert {edit.status for edit in service.edits("arc-a")} == {"needs_review"}
+        arc_claim = next(claim for claim in service.claims() if claim.id == "claim-arc-boundary")
+        assert arc_claim.status == "needs_review"
+        assert service.enrichments(target_kind="arc", target_id="arc-a") == ()
+        ordinals = [
+            int(row[0])
+            for row in service._connection.execute(
+                "SELECT ordinal FROM story_arc_members WHERE arc_id='arc-a' ORDER BY ordinal"
+            )
+        ]
+        assert ordinals == list(range(len(ordinals)))
 
 
 def test_enrichment_survives_draft_review_scoped_apply_and_reopen(tmp_path: Path) -> None:
@@ -837,6 +1052,99 @@ def test_enrichment_survives_draft_review_scoped_apply_and_reopen(tmp_path: Path
         values = reopened.organization_service().enrichments()
         assert len(values) == 2
         assert {value.importance for value in values} == {"turning point"}
+
+
+def test_enrichment_validation_uses_member_indexes_with_ten_thousand_noise_rows(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        connection = project._require_open()
+        candidate = _scoped_candidate(project, (0,), suffix="-indexed-enrichment")
+        event = candidate["events"][0]  # type: ignore[index]
+        arc = candidate["arcs"][0]  # type: ignore[index]
+        assert isinstance(event, dict) and isinstance(arc, dict)
+        beats = event["beat_ids"]
+        assert isinstance(beats, list)
+        payload = storage.decode_json(
+            connection.execute(
+                "SELECT payload_json FROM presentation_nodes WHERE node_id=?", (beats[0],)
+            ).fetchone()[0]
+        )
+        assert isinstance(payload, dict)
+        payload["speaker"] = "Ava"
+        connection.execute(
+            "UPDATE presentation_nodes SET payload_json=? WHERE node_id=?",
+            (storage.canonical_json(payload), beats[0]),
+        )
+        fact_id = str(
+            connection.execute(
+                "SELECT fact_id FROM presentation_facts WHERE node_id IN ("
+                + ",".join("?" for _ in beats)
+                + ") ORDER BY fact_id LIMIT 1",
+                beats,
+            ).fetchone()[0]
+        )
+        enrichment = {
+            "characters": ["Ava"],
+            "importance": "major",
+            "outcomes": [],
+            "promoted_fact_ids": [fact_id],
+            "warnings": [],
+        }
+        event.update(enrichment)
+        arc.update(enrichment)
+        noise_count = 10_500
+        with storage.transaction(connection):
+            connection.executemany(
+                "INSERT INTO presentation_nodes VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    (
+                        f"noise-beat-{index:05d}",
+                        3,
+                        None,
+                        f"z{index:011d}",
+                        "dialogue",
+                        "Noise",
+                        "noise.rpy",
+                        index + 1,
+                        index + 1,
+                        0,
+                        b"not-json-and-must-not-be-decoded",
+                    )
+                    for index in range(noise_count)
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO presentation_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    (
+                        f"noise-fact-{index:05d}",
+                        f"noise-beat-{index:05d}",
+                        "gate",
+                        "noise",
+                        None,
+                        "resolved",
+                        "noise > 0",
+                        "noise.rpy",
+                        index + 1,
+                        index + 1,
+                        f"z{index:011d}",
+                        b"not-json-and-must-not-be-decoded",
+                    )
+                    for index in range(noise_count)
+                ),
+            )
+        started = time.perf_counter()
+        draft = _run_and_draft(project.organization_service(), candidate, review=False)
+        elapsed = time.perf_counter() - started
+        assert draft
+        assert elapsed < 2.0
+        plan = connection.execute(
+            """EXPLAIN QUERY PLAN SELECT fact_id FROM presentation_facts
+               INDEXED BY presentation_facts_node_idx WHERE node_id IN (?,?)""",
+            beats[:2],
+        ).fetchall()
+        assert any("presentation_facts_node_idx" in str(row[3]) for row in plan)
 
 
 def test_partial_apply_failure_rolls_back_scope_replacement(
