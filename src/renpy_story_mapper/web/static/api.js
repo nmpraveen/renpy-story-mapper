@@ -56,4 +56,5 @@ export class LocalApi {
   applyDraft(draftId) { return this.request(ENDPOINTS.organizationApply, { method: "POST", body: { draft_id: draftId } }); }
   discardDraft(draftId) { return this.request(ENDPOINTS.organizationDiscard, { method: "POST", body: { draft_id: draftId } }); }
   diagnostics() { return this.request(ENDPOINTS.diagnostics); }
+  shutdown() { return this.request(ENDPOINTS.shutdown, { method: "POST", body: {} }); }
 }

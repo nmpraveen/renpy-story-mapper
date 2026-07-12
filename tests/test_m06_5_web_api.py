@@ -119,6 +119,21 @@ def test_bootstrap_contract_security_headers_and_injected_tokens(
     assert 'content="csrf-secret"' in html
 
 
+def test_explicit_shutdown_route_responds_before_requesting_app_exit(
+    running_server: LocalWebServer,
+) -> None:
+    requested = threading.Event()
+    running_server.shutdown_callback = requested.set
+
+    status, body, _headers = request(
+        running_server, "POST", "/api/v1/shutdown", body={}
+    )
+
+    assert status == 200
+    assert body == {"state": "shutting_down"}
+    assert requested.wait(timeout=1)
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected_status", "code"),
     [

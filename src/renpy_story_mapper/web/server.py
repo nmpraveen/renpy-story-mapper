@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import threading
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,11 +45,13 @@ class LocalWebServer(ThreadingHTTPServer):
         *,
         static_root: Path | None = None,
         security: SessionSecurity | None = None,
+        shutdown_callback: Callable[[], None] | None = None,
     ) -> None:
         validate_bind_host(host)
         self.api = api
         self.security = security or SessionSecurity.create()
         self.static_root = (static_root or Path(__file__).with_name("static")).resolve()
+        self.shutdown_callback = shutdown_callback
         self._closed = False
         super().__init__((host, port), LocalRequestHandler, bind_and_activate=True)
 
@@ -144,6 +147,10 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
             )
             return
         self._write_json(HTTPStatus.OK, result)
+        if method == "POST" and path == "/api/v1/shutdown":
+            callback = self.server.shutdown_callback
+            if callback is not None:
+                threading.Timer(0.1, callback).start()
 
     def _read_json_body(self) -> dict[str, JsonValue]:
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()

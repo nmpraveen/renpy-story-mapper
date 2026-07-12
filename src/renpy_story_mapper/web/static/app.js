@@ -363,6 +363,19 @@ function bind() {
   $("#discardDraft").addEventListener("click", async () => { await api.discardDraft(state.draftId); $("#reviewDialog").close(); toast("Draft discarded"); });
   $("#diagnosticsButton").addEventListener("click", showDiagnostics);
   $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
+  $("#quitButton").addEventListener("click", async () => {
+    const button = $("#quitButton");
+    button.disabled = true;
+    button.textContent = "Closing…";
+    try {
+      await api.shutdown();
+      document.body.replaceChildren(element("main", "shutdown-message", "Story Mapper has closed. You can close this tab."));
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Quit";
+      toast(error.message);
+    }
+  });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; });
   $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; });
   $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });

@@ -59,6 +59,19 @@ class QtDialogAdapter(QObject):
         self._result = Path(path) if path else None
 
 
+class QtShutdownBridge(QObject):
+    """Move a loopback shutdown request safely onto the Qt application thread."""
+
+    requested = Signal()
+
+    def __init__(self, app: QApplication) -> None:
+        super().__init__()
+        self.requested.connect(app.quit, Qt.ConnectionType.QueuedConnection)
+
+    def request(self) -> None:
+        self.requested.emit()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch the private local Story Mapper interface.")
     parser.add_argument("--no-browser", action="store_true", help=argparse.SUPPRESS)
@@ -67,10 +80,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    app = QApplication.instance() or QApplication(sys.argv[:1])
+    instance = QApplication.instance()
+    app = instance if isinstance(instance, QApplication) else QApplication(sys.argv[:1])
     dialogs = QtDialogAdapter()
+    shutdown_bridge = QtShutdownBridge(app)
     api = ProjectApi(dialogs)
-    server = LocalWebServer("127.0.0.1", 0, api)
+    server = LocalWebServer(
+        "127.0.0.1", 0, api, shutdown_callback=shutdown_bridge.request
+    )
     thread = start_in_thread(server)
     url = f"http://127.0.0.1:{server.port}/"
     if not args.no_browser:

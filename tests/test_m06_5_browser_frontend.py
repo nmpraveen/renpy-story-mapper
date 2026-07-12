@@ -65,6 +65,9 @@ def test_routes_are_versioned_and_centralized() -> None:
     )
     for route in routes:
         assert route in contract
+    assert 'shutdown: "/api/v1/shutdown"' in contract
+    assert 'id="quitButton"' in _text("index.html")
+    assert "await api.shutdown()" in _text("app.js")
 
 
 def test_render_boundary_overflow_and_visible_lines_are_explicit() -> None:

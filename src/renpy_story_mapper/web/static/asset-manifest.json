@@ -2,13 +2,13 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "877e64caf48929c0bea3319515a866f319d45d93a3ac1da42aa2bed75a8b8657",
-    "api.js": "0320f488b346db511428bea3c9f44710b925559528ba917563e3af6d4f52707d",
-    "app.js": "0a8d53f44cb9106182906923d3396ecbd2d530ebadec26114203e138a73a1c29",
-    "contract.js": "911b98d7a672933737e4fee72381ed91db5b61b2193eca2136690dc38e23588e",
+    "API_CONTRACT.md": "65d4aee19100cb00d7afc76559634fa1e2dc4dc05a913cc84af21ee88cca08b2",
+    "api.js": "084d16b9889ecc2caa39e8bd3ab799a53e50d8201a6846bf0dfca51eded58596",
+    "app.js": "442ffb7127b86e9e75a1ec5cfa02ee2d20f7f215d8575273c4a587ec1cb13e09",
+    "contract.js": "01a22c5e31948433b5bb7ca8ee2b245492469d833fce8afa2255fc0158847fd2",
     "graph.js": "4b4850c4221b93f77c45c0aba4ad6a02352c24cb7fe3da0b774edaffea3564b5",
-    "index.html": "15bf0c12a1f77a30d9ac23845e908c50c61f1c546c2080e300c8dba93d69b257",
-    "mock-api.js": "4fbe76e0650195a5c0f76ee70529794034b84d74d1b9d96f2a68a4b2f8d5bb0d",
+    "index.html": "4681ae30abb1f984dbba77dd8d3699b7a77db95e18c1ffa88e0041c5a1188b4a",
+    "mock-api.js": "8400e6656526e29712d5a03a20698163f6030a3ea96794c05c150dfd82befbc3",
     "styles.css": "4493cb1025375184afd2f154170df2c2d8f50ee546c30833ee0652fc2d13044d"
   }
 }

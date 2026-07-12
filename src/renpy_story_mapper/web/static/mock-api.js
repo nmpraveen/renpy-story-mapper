@@ -79,4 +79,5 @@ export class MockApi {
   async applyDraft(draftId) { this.record("applyDraft", { draftId }); return { status: "accepted" }; }
   async discardDraft(draftId) { this.record("discardDraft", { draftId }); return { status: "discarded" }; }
   async diagnostics() { this.record("diagnostics"); return { version: "0.1.0", project_schema: 5, browser_api: "v1", provider_requests_on_open: this.calls.filter((call) => call.name === "organizationConsent").length, messages: ["Presentation index loaded", "Rendering limited to 240 items", "No remote requests observed"] }; }
+  async shutdown() { this.record("shutdown"); return { state: "shutting_down" }; }
 }

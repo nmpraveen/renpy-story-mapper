@@ -25,6 +25,7 @@ export const ENDPOINTS = Object.freeze({
   organizationApply: "/api/v1/organization/apply",
   organizationDiscard: "/api/v1/organization/discard",
   diagnostics: "/api/v1/diagnostics",
+  shutdown: "/api/v1/shutdown",
 });
 
 export const LEVEL_NUMBER = Object.freeze({ arcs: 1, events: 2, evidence: 3 });

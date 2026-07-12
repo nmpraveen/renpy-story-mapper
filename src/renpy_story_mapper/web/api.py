@@ -133,6 +133,7 @@ class ProjectApi:
                     "organization_apply": "/api/v1/organization/apply",
                     "organization_discard": "/api/v1/organization/discard",
                     "diagnostics": "/api/v1/diagnostics",
+                    "shutdown": "/api/v1/shutdown",
                 },
             }
         if method == "GET" and path == "/api/v1/recent":
@@ -199,6 +200,8 @@ class ProjectApi:
                 "provider_requests_on_open": 0,
                 "messages": ["Rendering is bounded", "No provider is invoked by project open"],
             }
+        if method == "POST" and path == "/api/v1/shutdown":
+            return {"state": "shutting_down"}
         raise ApiProblem(404, "not_found", "The requested API endpoint does not exist.")
 
     def _select(self, kind: str, path: Path | None) -> JsonValue:
