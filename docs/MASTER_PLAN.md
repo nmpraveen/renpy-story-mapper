@@ -2,9 +2,9 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M05 are complete. M06 implementation and Windows acceptance are complete on
-its unmerged milestone branch in PR #9. M07 is approved in principle
-but must not begin until M06 is merged with explicit approval and separately approved to start.
+Status: M01 through M06 are complete and merged. M06.5 is the active approved bridge milestone.
+M07 remains approved in principle but must not begin until M06.5 is complete, merged with explicit
+approval, and separately approved to start.
 
 ## 1. Product goal
 
@@ -229,9 +229,12 @@ flowchart, but it must preserve splits, merges, loops, calls, returns, shared sc
 
 - Python 3.12 and the existing analyzer package
 - SQLite for projects, graph data, state facts, AI cache, and user corrections
-- PySide6 for the Windows desktop shell
-- Native PySide6 `QGraphicsView` canvas, selected by M04 for offline Windows behavior, bounded
-  rendering, native accessibility, and deterministic headless testing
+- A loopback-only local Python web service and browser interface are the primary shell from M06.5.
+  Analysis, projects, source access, AI execution, and all sensitive data remain on the Windows
+  machine; the browser is a presentation client, not a hosted service.
+- PySide6 remains available temporarily for native Windows file/folder dialogs and as a legacy
+  fallback during the browser migration. The M04 `QGraphicsView` interface is no longer the
+  preferred product surface.
 - One minimal provider-neutral AI interface with only the provider adapter needed for the first
   working version; multiple provider integrations are not a milestone requirement
 
@@ -240,10 +243,10 @@ patching are outside the active plan.
 
 ## 7. Milestones
 
-M01 through M05 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
+M01 through M06 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
 compiled-only large-game trial exposed source-recovery, branch-classification, AI-scale, and graph
-readability limits. M06 is active. M07 is planned but remains gated behind M06 completion and a
-separate explicit start approval.
+readability limits. M06.5 is active as a browser-interface bridge. M07 is planned but remains gated
+behind M06.5 completion and a separate explicit start approval.
 
 ### M03 - Story state and durable projects
 
@@ -724,7 +727,7 @@ Explicit exclusions and assumptions:
 
 ### M06 - Safe Source Recovery and Correct Route Semantics
 
-Status: Complete on 2026-07-12 in PR #9; the PR remains unmerged until explicit user approval.
+Status: Complete and merged through PR #9 at `0021650` on 2026-07-12.
 
 Objective: accept common modern Ren'Py source forms without modifying or executing the game, and
 prove whether alternatives are temporary detours, persistent routes, loops, or terminals before
@@ -831,10 +834,67 @@ Completion evidence:
   source-form milestone. The suspended Job Object, minimal environment, bounded helper, audit
   policy, cache isolation, and no-game-write rules are implemented and tested.
 
+### M06.5 - Local Browser Interface Bridge
+
+Status: Active and approved on 2026-07-12.
+
+Objective: make a locally served browser interface the primary Windows UI without changing the
+local/offline product boundary or implementing the M07 two-level route redesign and parallel AI
+work early.
+
+Deliverables:
+
+- A Python launcher that binds only to `127.0.0.1` on an ephemeral port, creates an unguessable
+  session token, opens Chrome/default browser, and shuts down cleanly.
+- A typed local JSON API over the existing project, presentation, ingestion, organization, and
+  evidence services. The browser never receives arbitrary filesystem authority.
+- Native Windows source/project selection initiated from the browser through a narrowly scoped
+  local dialog boundary; game contents are not uploaded or copied through a remote service.
+- Browser equivalents for welcome/recent projects, create/open/refresh, progress/cancel, current
+  Story Explorer/map, selection, inspector/evidence, search, filters, zoom/fit, organization
+  consent/review/apply/discard, diagnostics, and durable settings where those capabilities already
+  exist.
+- A polished local-first visual system with keyboard focus, accessible names, responsive layout,
+  100%/200% zoom support, bounded rendering, and no unnecessary helper copy.
+- Strict loopback, Host/Origin/session/CSRF, CSP, cache, upload/body-size, path, and error-redaction
+  controls. Static assets are packaged locally; there are no remote scripts, fonts, analytics, or
+  implicit cloud calls.
+- Keep the old PySide6 interface as an explicitly labeled legacy fallback for this bridge; do not
+  maintain two independent analysis implementations.
+- Automated API, security, browser interaction, project lifecycle, cancellation, and regression
+  tests plus an independent review.
+
+Acceptance criteria:
+
+- Windows CPython 3.12 full pytest, Ruff, strict mypy, `pip check`, and `git diff --check` pass.
+- Chrome end-to-end checks pass at 100% and 200% zoom for welcome, project opening, bounded map,
+  search/filter, selection, direct evidence traversal, project reopen, progress/cancel, and an
+  organization review path using mocked/local deterministic data without an implicit provider run.
+- The server cannot bind non-loopback, rejects invalid Host/Origin/session/CSRF and oversized
+  bodies, emits a restrictive CSP, does not expose local paths in routine UI/error responses, and
+  leaves no background process after exit.
+- Existing deterministic graph, M06 route analysis, provenance, project hashes, AI consent, cache,
+  and correction semantics remain authoritative and are not duplicated in JavaScript.
+- Opening or rendering a project invokes no provider. No game code runs, no game/source file is
+  modified, and no story text is sent to any remote origin.
+- Browser rendering remains bounded by the existing presentation limits and a selected item can
+  reach exact source evidence.
+- Independent review has no unresolved P0-P2 or accepted P3 correctness/security finding.
+- Required M06.5 goal, task ledger, completion report, native infographic, and one unmerged PR are
+  complete. M07 remains unstarted.
+
+Explicit exclusions:
+
+- No hosted/cloud web deployment, remote access, multi-user service, account system, telemetry,
+  installer, or public release.
+- No M07 two-level route-map redesign, parallel Luna orchestration, full-game AI rerun, LM Studio,
+  or new AI behavior.
+- No duplication or rewrite of the deterministic analyzer in TypeScript/JavaScript.
+
 ### M07 - Two-Level Route Map and Resumable Parallel AI
 
 Status: Planned and approved in principle; do not create its goal, branch, tasks, or implementation
-until M06 is complete and the user explicitly approves M07 start.
+until M06.5 is complete and the user explicitly approves M07 start.
 
 Objective: replace the three-level card hierarchy with the two-level Route Map and Detail/Evidence
 experience in Section 4, then make optional story enrichment scope-based, resumable, measurable,
@@ -955,5 +1015,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Leave M06 PR #9 unmerged. Present the completion report and native infographic, then stop for
-explicit merge and M07-start approval.
+Execute M06.5 on one milestone branch and PR. Complete browser/API integration, Windows and Chrome
+verification, documentation, and the native infographic, then stop for explicit merge and M07-start
+approval.
