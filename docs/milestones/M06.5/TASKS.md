@@ -9,7 +9,7 @@ disabled. M06.5 performs no story AI analysis.
 
 | Task ID | Title | Responsibility | Branch/worktree | Status |
 |---|---|---|---|---|
-| `019f5758-498c-7c33-aeb6-1930b94f0a2f` | Local web service and API | Secure loopback launcher, session boundary, typed service adapters, lifecycle/cancellation and API tests | `codex/m06-5-web-api` in dedicated Codex worktree | Integrated (`205f1f3`, `85cc200`) |
-| `019f5758-4997-73d3-b141-35d6bdf0486d` | Browser Story Explorer | Packaged local HTML/CSS/JS, current UI parity, bounded graph, accessibility, responsive behavior and browser tests | `codex/m06-5-browser-ui` in dedicated Codex worktree | Integrated (`d2a00e3`, `8278ea6`) |
-| `019f5776-0862-73e1-baa2-e02cc2642ffb` | Independent security and UX review | Adversarial API/browser tests and review; production edits excluded | `codex/m06-5-independent-review` in dedicated Codex worktree | Active at `975fbec` |
+| `019f5758-498c-7c33-aeb6-1930b94f0a2f` | Local web service and API | Secure loopback launcher, session boundary, typed service adapters, lifecycle/cancellation and API tests | `codex/m06-5-web-api` in dedicated Codex worktree | Complete; integrated as `205f1f3`, `85cc200`, `9a4c6a6`, and `372fe6e` |
+| `019f5758-4997-73d3-b141-35d6bdf0486d` | Browser Story Explorer | Packaged local HTML/CSS/JS, current UI parity, bounded graph, accessibility, responsive behavior and browser tests | `codex/m06-5-browser-ui` in dedicated Codex worktree | Complete; integrated as `d2a00e3`, `8278ea6`, and `1d1cd98` |
+| `019f5776-0862-73e1-baa2-e02cc2642ffb` | Independent security and UX review | Adversarial API/browser tests and review; production edits excluded | `codex/m06-5-independent-review` in dedicated Codex worktree | Complete; final PASS/SHIP review integrated as `2316bbf` |
 | `019f5775-d43f-7aa0-849b-de26c49a651e` | Duplicate review setup | None; duplicate created during worktree setup | Discarded setup worktree | Stopped and archived before edits |

@@ -2,9 +2,9 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M06 are complete and merged. M06.5 is the active approved bridge milestone.
-M07 remains approved in principle but must not begin until M06.5 is complete, merged with explicit
-approval, and separately approved to start.
+Status: M01 through M06 are complete and merged. M06.5 implementation and verification are
+complete on its unmerged milestone PR. M07 remains approved in principle but must not begin until
+M06.5 is merged with explicit approval and M07 is separately approved to start.
 
 ## 1. Product goal
 
@@ -836,7 +836,8 @@ Completion evidence:
 
 ### M06.5 - Local Browser Interface Bridge
 
-Status: Active and approved on 2026-07-12.
+Status: Complete on 2026-07-12; milestone PR is published and remains unmerged pending explicit
+approval.
 
 Objective: make a locally served browser interface the primary Windows UI without changing the
 local/offline product boundary or implementing the M07 two-level route redesign and parallel AI
@@ -1015,6 +1016,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute M06.5 on one milestone branch and PR. Complete browser/API integration, Windows and Chrome
-verification, documentation, and the native infographic, then stop for explicit merge and M07-start
-approval.
+Review and explicitly approve the completed M06.5 milestone PR for merge. After it is merged and
+local `main` is synchronized, M07 may receive its own goal, branch, and worker tasks only after a
+separate explicit M07-start approval.

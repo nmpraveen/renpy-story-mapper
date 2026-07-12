@@ -1,6 +1,6 @@
 # M06.5 Goal — Local Browser Interface Bridge
 
-Status: Active
+Status: Complete on 2026-07-12; one milestone PR remains unmerged pending explicit approval.
 
 Base commit: `00216509e7b478a8e284b6fe18d399e088e2d6e6`
 
