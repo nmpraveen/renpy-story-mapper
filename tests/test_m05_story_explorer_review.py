@@ -111,12 +111,12 @@ def test_no_explicit_scope_means_full_game_and_selection_remains_exact(
         return True
 
     window.organization_controller.organize = organize  # type: ignore[method-assign]
-    window._organize(OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO))
+    window._organize(OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO, model=None))
     assert captured == [()]
     assert "full game" in window.status_label.text().lower()
 
     window.map_presenter._selected_by_level[SemanticLevel.OVERVIEW] = "selected-scope"
-    window._organize(OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO))
+    window._organize(OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO, model=None))
     assert captured[-1] == ("selected-scope",)
     assert "selected scope" in window.status_label.text().lower()
     window.map_presenter._selected_by_level[SemanticLevel.OVERVIEW] = "different-scope"

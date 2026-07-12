@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
         self.filter_button.setObjectName("filterMenuButton")
         self.view_button = QPushButton("View", self.workspace_page)
         self.view_button.setObjectName("viewMenuButton")
-        self.organize_button = QPushButton("Organize Story", self.workspace_page)
+        self.organize_button = QPushButton("Organize with ChatGPT", self.workspace_page)
         self.organize_button.setObjectName("organizeStoryButton")
         for widget in (
             self.project_name_label,
@@ -465,16 +465,7 @@ class MainWindow(QMainWindow):
         self.organization_controller.draft_ready.connect(self._draft_ready)
         self.organization_controller.organization_outcome.connect(self._reload_story)
 
-        organize_menu = QMenu(self.organize_button)
-        local_action = organize_menu.addAction("Local • LM Studio")
-        cloud_action = organize_menu.addAction("Cloud • ChatGPT")
-        local_action.triggered.connect(
-            lambda: self._organize(OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO))
-        )
-        cloud_action.triggered.connect(
-            lambda: self._organize(OrganizationOptions(mode=CodexMode.CODEX_CHATGPT))
-        )
-        self.organize_button.setMenu(organize_menu)
+        self.organize_button.clicked.connect(lambda: self._organize(OrganizationOptions()))
         self.rename_node_button.clicked.disconnect()
         self.rename_node_button.clicked.connect(self._rename_selected)
         self.reset_node_name_button.clicked.disconnect()
@@ -589,7 +580,8 @@ class MainWindow(QMainWindow):
             result = QMessageBox.question(
                 self,
                 "Send story evidence to ChatGPT?",
-                f"This run sends {scope_label} story evidence to the cloud organizer. Continue?",
+                f"This run sends {scope_label} story evidence to GPT-5.6 Luna using High "
+                "reasoning. Fast mode is disabled. Continue?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )

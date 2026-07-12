@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -881,6 +882,8 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
         'web_search="disabled"',
         "-c",
         "analytics.enabled=false",
+        "-c",
+        'model_reasoning_effort="high"',
     ]
     assert args[schema_index + 2 :] == ["-"]
     assert Path(process.cwd).name.startswith("renpy-story-organizer-")
@@ -894,6 +897,39 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
     assert result.metadata.output_tokens == 45
     assert len(result.metadata.input_hash) == 64
     assert len(result.metadata.output_hash) == 64
+
+
+def test_chatgpt_command_explicitly_selects_luna_high_without_fast_mode() -> None:
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT)
+    _program, args = provider.command(Path("schema.json"), model="gpt-5.6-luna")
+
+    assert args[args.index("--model") + 1] == "gpt-5.6-luna"
+    assert 'model_reasoning_effort="high"' in args
+    assert args[args.index("--disable") + 1] == "plugins"
+    assert [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--disable"].count(
+        "fast_mode"
+    ) == 1
+
+
+def test_explicit_cloud_model_requires_matching_reported_metadata() -> None:
+    request = replace(_request(), model="gpt-5.6-luna")
+    missing_metadata = FakeProcess(_jsonl(_valid_payload()))
+    with pytest.raises(ProviderUnavailableError, match="did not confirm"):
+        CodexCliProvider(
+            CodexMode.CODEX_CHATGPT,
+            process_factory=lambda: missing_metadata,
+        ).organize(request, lambda _percent, _status: None, lambda: False)
+
+    model_event = json.dumps(
+        {"type": "turn.completed", "model": "gpt-5.6-luna"}
+    ).encode("utf-8")
+    matching = FakeProcess(model_event + b"\n" + _jsonl(_valid_payload()))
+    result = CodexCliProvider(
+        CodexMode.CODEX_CHATGPT,
+        process_factory=lambda: matching,
+    ).organize(request, lambda _percent, _status: None, lambda: False)
+    assert result.metadata is not None
+    assert result.metadata.model_identifier == "gpt-5.6-luna"
 
 
 def test_lmstudio_command_adds_only_locked_local_flags() -> None:

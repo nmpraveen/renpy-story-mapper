@@ -523,6 +523,8 @@ class CodexCliProvider:
                 "analytics.enabled=false",
             ]
         )
+        if self.mode is CodexMode.CODEX_CHATGPT:
+            args.extend(["-c", 'model_reasoning_effort="high"'])
         args.extend(["--json", "--output-schema", str(schema_path)])
         if model:
             args.extend(["--model", model])
@@ -581,6 +583,10 @@ class CodexCliProvider:
                 usage_recorded = False
                 try:
                     raw = self._execute(request, progress, cancelled, repair=repair)
+                    if request.model is not None and self._reported_model != request.model:
+                        raise ProviderUnavailableError(
+                            "The organizer did not confirm the explicitly selected model."
+                        )
                     input_usage.append(self._input_tokens)
                     output_usage.append(self._output_tokens)
                     usage_recorded = True

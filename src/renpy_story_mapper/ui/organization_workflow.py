@@ -19,6 +19,8 @@ from typing import Any, Literal, Protocol, cast
 import renpy_story_mapper.organization.contracts as organization_contracts
 from renpy_story_mapper import storage
 from renpy_story_mapper.organization import (
+    M05_CLOUD_MODEL,
+    M05_REASONING_PROFILE,
     BeatRecord,
     CodexMode,
     FactRecord,
@@ -76,9 +78,9 @@ class ConsentCallback(Protocol):
 
 @dataclass(frozen=True)
 class OrganizationOptions:
-    mode: CodexMode = CodexMode.CODEX_LMSTUDIO
-    model_profile: str = "balanced"
-    model: str | None = None
+    mode: CodexMode = CodexMode.CODEX_CHATGPT
+    model_profile: str = M05_REASONING_PROFILE
+    model: str | None = M05_CLOUD_MODEL
     prompt_version: str = PROMPT_VERSION
     schema_version: str = SCHEMA_VERSION
 

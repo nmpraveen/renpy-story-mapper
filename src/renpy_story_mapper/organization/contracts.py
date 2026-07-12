@@ -9,6 +9,8 @@ from enum import StrEnum
 from typing import Protocol
 
 MAX_PROMPT_CHARS = 48_000
+M05_CLOUD_MODEL = "gpt-5.6-luna"
+M05_REASONING_PROFILE = "high"
 
 
 class CodexMode(StrEnum):

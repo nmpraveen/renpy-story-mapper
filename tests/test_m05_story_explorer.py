@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QListWidget, QStackedWidget
+from PySide6.QtWidgets import QListWidget, QMessageBox, QStackedWidget
 from pytestqt.qtbot import QtBot
 
 from renpy_story_mapper.organization import CodexMode
@@ -318,6 +318,7 @@ def test_explicit_model_override_is_applied_before_status_discovery() -> None:
             OrganizationOptions(model="explicit-model"),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
+            confirm_cloud=lambda _run_id: True,
         )
 
     assert provider.events == ["override:explicit-model", "status"]
@@ -347,9 +348,10 @@ def test_provider_missing_state_fails_before_project_or_cache_access() -> None:
             OrganizationOptions(),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
+            confirm_cloud=lambda _run_id: True,
         )
 
-    assert provider.events == ["status"]
+    assert provider.events == ["override:gpt-5.6-luna", "status"]
 
 
 def test_cloud_requires_fresh_consent_before_provider_creation() -> None:
@@ -520,7 +522,9 @@ def test_cache_rerun_uses_no_provider_and_persists_scene_scopes(tmp_path: Path) 
         first = _Provider()
         result = OrganizationWorkflow(project, lambda _mode: first).organize(
             (scope,),
-            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO),
+            OrganizationOptions(
+                mode=CodexMode.CODEX_LMSTUDIO, model_profile="balanced", model=None
+            ),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
         )
@@ -547,7 +551,9 @@ def test_cache_rerun_uses_no_provider_and_persists_scene_scopes(tmp_path: Path) 
         second = _Provider()
         cached = OrganizationWorkflow(project, lambda _mode: second).organize(
             (scope,),
-            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO),
+            OrganizationOptions(
+                mode=CodexMode.CODEX_LMSTUDIO, model_profile="balanced", model=None
+            ),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
         )
@@ -580,9 +586,10 @@ def test_inconsistent_effective_model_fails_run_without_draft(tmp_path: Path) ->
         with pytest.raises(OrganizationError, match="inconsistent model identifiers"):
             OrganizationWorkflow(project, lambda _mode: provider).organize(
                 (scope,),
-                OrganizationOptions(),
-                progress=lambda _percent, _status: None,
-                cancelled=lambda: False,
+                    OrganizationOptions(),
+                    progress=lambda _percent, _status: None,
+                    cancelled=lambda: False,
+                    confirm_cloud=lambda _run_id: True,
             )
 
         assert project.organization_service().drafts(status="pending") == ()
@@ -625,9 +632,10 @@ def test_late_cancellation_discards_pending_draft_and_marks_run_cancelled(
                 ProjectProxy(), lambda _mode: _Provider()
             ).organize(
                 (scope,),
-                OrganizationOptions(),
-                progress=lambda _percent, _status: None,
-                cancelled=lambda: cancelled[0],
+                    OrganizationOptions(),
+                    progress=lambda _percent, _status: None,
+                    cancelled=lambda: cancelled[0],
+                    confirm_cloud=lambda _run_id: True,
             )
 
         assert service.drafts(status="pending") == ()
@@ -669,9 +677,10 @@ def test_late_finish_failure_discards_pending_draft_and_marks_run_failed(
                 ProjectProxy(), lambda _mode: _Provider()
             ).organize(
                 (scope,),
-                OrganizationOptions(),
-                progress=lambda _percent, _status: None,
-                cancelled=lambda: False,
+                    OrganizationOptions(),
+                    progress=lambda _percent, _status: None,
+                    cancelled=lambda: False,
+                    confirm_cloud=lambda _run_id: True,
             )
 
         assert service.drafts(status="pending") == ()
@@ -694,21 +703,33 @@ def test_welcome_workspace_accessibility_and_application_zoom(qtbot: QtBot) -> N
 
 def test_organize_action_uses_full_game_when_no_scope_is_explicitly_selected(
     qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
     window.map_presenter._last_nodes[SemanticLevel.OVERVIEW] = ("overview-scope",)
-    captured: list[tuple[str, ...]] = []
+    captured: list[tuple[tuple[str, ...], OrganizationOptions, bool]] = []
 
     def organize(scopes: Any, _options: Any, *, cloud_confirmed: bool = False) -> bool:
-        del cloud_confirmed
-        captured.append(tuple(scopes))
+        captured.append((tuple(scopes), _options, cloud_confirmed))
         return True
 
     window.organization_controller.organize = organize  # type: ignore[method-assign]
-    local_action = window.organize_button.menu().actions()[0]
-    local_action.trigger()
-    assert captured == [()]
+    window.organize_button.setEnabled(True)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+    window.organize_button.click()
+    assert len(captured) == 1
+    scopes, options, confirmed = captured[0]
+    assert scopes == ()
+    assert options.mode is CodexMode.CODEX_CHATGPT
+    assert options.model == "gpt-5.6-luna"
+    assert options.model_profile == "high"
+    assert confirmed
+    assert window.organize_button.menu() is None
 
 
 def test_accepted_semantic_level_changes_reload_correct_slices(qtbot: QtBot) -> None:

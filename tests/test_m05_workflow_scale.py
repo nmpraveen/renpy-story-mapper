@@ -373,7 +373,7 @@ def test_workflow_empty_scope_runs_full_game_and_persists_only_covered_scopes(
 
         result = OrganizationWorkflow(project, lambda _mode: provider).organize(
             (),
-            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO),
+            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO, model=None),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
         )
@@ -416,7 +416,7 @@ def test_twice_invalid_provider_chunk_is_recorded_as_deterministic_fallback(
 
         result = OrganizationWorkflow(project, lambda _mode: provider).organize(
             (),
-            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO),
+            OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO, model=None),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
         )
@@ -466,7 +466,7 @@ def test_non_validation_provider_failure_still_aborts_without_draft(
         with pytest.raises(ProviderTimeoutError):
             OrganizationWorkflow(project, lambda _mode: TimeoutProvider()).organize(
                 (),
-                OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO),
+                OrganizationOptions(mode=CodexMode.CODEX_LMSTUDIO, model=None),
                 progress=lambda _percent, _status: None,
                 cancelled=lambda: False,
             )

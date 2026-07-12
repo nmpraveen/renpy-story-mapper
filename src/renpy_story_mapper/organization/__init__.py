@@ -3,6 +3,8 @@
 from renpy_story_mapper.organization.cache import OrganizationCacheKey, build_cache_key
 from renpy_story_mapper.organization.chunking import build_event_chunks
 from renpy_story_mapper.organization.contracts import (
+    M05_CLOUD_MODEL,
+    M05_REASONING_PROFILE,
     BeatRecord,
     CodexMode,
     FactRecord,
@@ -17,6 +19,8 @@ from renpy_story_mapper.organization.provider import CodexCliProvider
 from renpy_story_mapper.organization.validation import validate_result
 
 __all__ = [
+    "M05_CLOUD_MODEL",
+    "M05_REASONING_PROFILE",
     "BeatRecord",
     "CodexCliProvider",
     "CodexMode",
