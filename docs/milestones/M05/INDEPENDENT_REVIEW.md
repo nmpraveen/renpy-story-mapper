@@ -1,5 +1,13 @@
 # M05 Independent Adversarial Review
 
+## Orchestrator final disposition
+
+The re-review accepted all production fixes. Its remaining evidence-only P2 is now closed by the
+repository-backed complex-fixture metrics and screenshots in `LIVE_ACCEPTANCE.*`, the separately
+consented real-script fingerprint/run/cache/UI evidence in `SMALL_REAL_ACCEPTANCE.*`, the final
+Windows suite in `COMPLETION_REPORT.md`, and the native `INFOGRAPHIC.png`. No unresolved P0-P2 or
+accepted P3 correctness/security finding remains.
+
 - Task ID: `019f540f-eb55-7bd3-8293-02ac26f5f880`
 - Original review base: `9059acdb24aa17fd3259c2632f89e718a8186daf`
 - Blocker-fix re-review base: `fc239ce1df6216c20daf347f635e01926f1c3a59`

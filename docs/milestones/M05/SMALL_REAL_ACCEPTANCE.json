@@ -1,0 +1,71 @@
+{
+  "source": {
+    "display_name": "script small new.rpy",
+    "bytes": 9994,
+    "last_write_time_utc": "2026-03-27T22:21:22.0000000Z",
+    "sha256_before": "d3a4e0a305c6c8a8d84ff5bd99845a4035f0bde7ce953699af71d607806d7f71",
+    "sha256_after": "d3a4e0a305c6c8a8d84ff5bd99845a4035f0bde7ce953699af71d607806d7f71",
+    "unchanged": true,
+    "processing": "Read-only source copied to a Windows temporary directory before analysis."
+  },
+  "deterministic_before_ai": {
+    "project_bytes": 614400,
+    "authority_sha256": "55b48b9e3202e50186aab7f96b3c22f7cd10c262a26b769413e3cf50a7910374",
+    "graph_nodes": 49,
+    "graph_edges": 51,
+    "semantic_scenes": 3,
+    "semantic_beats": 30,
+    "semantic_transitions": 36,
+    "choice_beats": 2,
+    "choice_options": 5,
+    "effects": 9,
+    "state_variables": 7,
+    "unresolved": 2,
+    "presentation_nodes": 42,
+    "presentation_edges": 50,
+    "presentation_evidence": 30,
+    "presentation_facts": 9
+  },
+  "fresh_ai_run": {
+    "run_id": "f4a1c1659ea749cfb09577dcfb26f34a",
+    "draft_id": "draft:35bd8c0dc925e1622d5765a4",
+    "model": "gpt-5.6-luna",
+    "reasoning_profile": "high",
+    "fast_mode": false,
+    "elapsed_ms": 89302,
+    "provider_calls": 4,
+    "cache_hits": 0,
+    "input_tokens": 49398,
+    "output_tokens": 4154,
+    "candidate_arcs": 1,
+    "candidate_events": 4,
+    "candidate_claims": 14,
+    "authority_sha256_after": "55b48b9e3202e50186aab7f96b3c22f7cd10c262a26b769413e3cf50a7910374",
+    "authority_unchanged": true
+  },
+  "accepted_view": {
+    "arcs": 1,
+    "events": 10,
+    "ai_events": 4,
+    "deterministic_fallback_events": 6,
+    "claims": 14,
+    "event_edges": 9,
+    "rendered_items": 19,
+    "provider_invoked_on_open": false
+  },
+  "cached_rerun": {
+    "run_id": "98f91926eb2f4990a860cfe21ff95689",
+    "draft_id": "draft:41f7178c5f91d76cd59bbae5",
+    "elapsed_ms": 54,
+    "cache_hits": 4,
+    "provider_calls": 0
+  },
+  "visual_validation": {
+    "platform": "Windows Qt platform plugin",
+    "normal_windows_fonts_available": 340,
+    "provider_invoked_on_open": false,
+    "exact_evidence": "script small new.rpy:135",
+    "screenshots": 5,
+    "offscreen_note": "Qt offscreen reported zero fonts and produced missing-glyph boxes; normal Windows rendering was used as the release authority."
+  }
+}

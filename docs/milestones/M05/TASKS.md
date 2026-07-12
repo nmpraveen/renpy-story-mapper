@@ -127,3 +127,13 @@ inside scope.
   174 ms, and produced a pending 33-event, four-arc, 77-claim draft while preserving deterministic
   authority hash `337e5158a1d62d22b7ee76f68b2704b2077343f75e9a14e4781f61aad08ed618`.
   Sanitized metrics, storage growth, and seven native UI screenshots are retained in this folder.
+- 2026-07-11: After fresh user consent, the real `script small new.rpy` source was fingerprinted,
+  copied to temporary storage, and organized through four Luna/High calls in 89.302 seconds. The
+  proposed one arc, four events, and 14 claims passed validation; deterministic authority stayed
+  byte-logically identical.
+- 2026-07-11: The real-script review/apply retained six technical beats as explicit fallback events
+  and produced nine locally derived event edges. A rerun used four cache hits, zero provider calls,
+  and 54 ms. The original source SHA-256, size, and LastWriteTimeUtc were identical afterward.
+- 2026-07-11: The normal Windows Qt harness captured readable technical-before, accepted-after,
+  event, evidence, and AI-review views with no provider call on open. The headless offscreen plugin
+  reported zero fonts, so it was correctly rejected as release evidence.
