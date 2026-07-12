@@ -27,6 +27,11 @@ from renpy_story_mapper.organization.parallel import (
     SchedulerConfig,
     normalized_cache_identity,
 )
+from renpy_story_mapper.organization.persistence import (
+    PersistentCheckpointSink,
+    decode_organization_result,
+    encode_organization_result,
+)
 from renpy_story_mapper.organization.provider import CodexCliProvider
 from renpy_story_mapper.organization.validation import validate_result
 
@@ -47,6 +52,7 @@ __all__ = [
     "OrganizationRequest",
     "OrganizationStage",
     "ParallelOrganizationScheduler",
+    "PersistentCheckpointSink",
     "ProgressSnapshot",
     "ProviderAttemptUsage",
     "ProviderExecutionMetadata",
@@ -55,6 +61,8 @@ __all__ = [
     "SchedulerConfig",
     "build_cache_key",
     "build_event_chunks",
+    "decode_organization_result",
+    "encode_organization_result",
     "normalized_cache_identity",
     "validate_result",
 ]
