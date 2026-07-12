@@ -237,3 +237,187 @@ Return P1-1 and P1-2 to the UI/organization owner, P1-3 and P1-4 plus P2-1 to th
 owner, P1-5 to the storage owner, and P1-6 to the control-flow owner. M06 should not ship until the
 six review regressions pass without `xfail`, the pin metadata/patch declaration is corrected, and
 the full Windows acceptance suite is rerun.
+
+## Final resolution re-review — 2026-07-12
+
+Verification target: `C:\Users\prave\Documents\Codex\Renpy`
+
+Target branch: `codex/m06-safe-ingestion-route-semantics`
+
+Exact target commit: `ee87c31cf88ebb167ed28af973025af7d440307d`
+
+This final pass inspected the actual remediation commits `5b3837b`, `553c180`, `848b3c6`, and
+`ee87c31`, including the integrated review tests, without modifying the orchestrator checkout.
+The six original P1 findings and original P2 pin-metadata finding are resolved. One separate P2
+procedure-summary correctness finding remains, so the final recommendation is still **NO-SHIP**.
+
+### Original finding resolution mapping
+
+| Original finding | Resolution evidence | Final status |
+|---|---|---|
+| P1-1 incomplete recovery did not block cloud organization | `553c180` checks persisted coverage before provider construction; `ee87c31` retains compatibility with test project doubles | Resolved |
+| P1-2 desktop bypassed unified ingestion | `5b3837b` routes create/refresh through `create_ingested_project` and `refresh_ingested_project`, accepts `.rpy`, `.rpyc`, `.rpa`, and folders | Resolved |
+| P1-3 archive symlink escaped the selected game root | `553c180` resolves every discovered archive and requires containment under `source_root` | Resolved |
+| P1-4 helper inherited ambient environment and allowed outside writes | `553c180` supplies a minimal environment and restricts audit-hook reads/writes to explicit roots | Resolved, subject to the AppContainer limitation below |
+| P1-5 v3-to-v5 migration was only version-atomic | `553c180` wraps the complete migration and v4 extension in one transaction | Resolved |
+| P1-6 persistent-region analysis was quadratic | `848b3c6` adds one SCC-condensation reachability pass, bounded terminal samples, and direct-membership traversal that stops at nested region boundaries; `ee87c31` makes the review regression mandatory | Resolved |
+| P2-1 Unrpyc version metadata conflicted with the pinned commit | `553c180` records tag `v2.0.4` separately from upstream internal string `2.0.3` | Resolved |
+
+All six formerly expected-failure reproductions now pass as ordinary tests:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pytest `
+  tests/test_m06_security_review.py -q
+# 6 passed in 0.20s
+```
+
+### Remaining P2 — non-returning calls are persisted as procedure termination
+
+Owner: control-flow procedure summaries,
+`src/renpy_story_mapper/control_flow.py:575-609`, specifically the `goal == "terminate"` shortcut
+at lines 606-608.
+
+`_procedure_reaches(..., goal="terminate")` returns `True` whenever a call target has
+`may_return=False`. That conflates divergence/non-returning behavior with concrete termination.
+The integrated fixture proves the inconsistency:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+@'
+import runpy
+ns = runpy.run_path('tests/test_m06_control_flow.py')
+for entry in ('recursive', 'never_returns', 'calls_never_returns'):
+    _, analysis = ns['analyze_fixture']('calls_loops.rpy', entry=entry)
+    procedure = next(item for item in analysis.procedures if item.label == entry)
+    print(entry, procedure.may_return, procedure.may_terminate, procedure.recursive,
+          procedure.looping)
+'@ | & 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -
+```
+
+Observed:
+
+```text
+recursive may_return=False may_terminate=True recursive=True looping=True
+never_returns may_return=False may_terminate=False recursive=False looping=True
+calls_never_returns may_return=False may_terminate=True recursive=False looping=False
+```
+
+`recursive` and `calls_never_returns` cannot reach a `module_end`; they only enter non-returning
+recursion/a loop. Persisting `may_terminate=True` can incorrectly turn divergence into ending
+evidence for later route presentation. This is a P2 correctness issue because it affects an
+authoritative schema-v5 procedure fact, although no current M06 consumer uses the field to create
+an edge.
+
+No P0, P1, or P3 finding remains. The remaining count is one P2.
+
+### Call-summary and return-site invariant
+
+The call-summary abstraction is acceptable and is not the remaining finding. It deliberately
+avoids the M01 caller/return cross product:
+
+- a `CALL_SUMMARY` exists only when the callee may return;
+- every returning call owns one unique synthetic return site;
+- summary evidence is exactly the ordered `call`, `call_continuation` pair;
+- the synthetic return edge retains only its own `call_continuation` evidence; and
+- raw callee `return` evidence stays on the procedure return boundary and is never attributed to a
+  caller-specific summary.
+
+Measured fixture result: two summaries, two caller-specific return edges, unique call-site and
+return-site identities, and zero raw-return evidence in summaries. The focused call, recursion,
+non-returning-call, and performance checks passed: `4 passed in 0.70s`.
+
+### Final performance measurements
+
+The required Windows CPython 3.12 inline harness measured both graph shapes with `tracemalloc` and
+SHA-256 of canonical analysis output:
+
+| Harness | Nodes | Edges | Regions | Arm membership | Elapsed | Traced peak delta | Canonical SHA-256 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Linear 10k/15k | 10,000 | 14,998 | 0 | 0 | 1.373648 s | 26,526,210 bytes | `aabfd35edb3e49b5651117432d712ba26db0026e395d7a70f0f1af788c4d8bae` |
+| Persistent split chain | 2,000 | 1,999 | 999 | 1,998 | 0.484187 s | 5,102,593 bytes | `4a4a3bd38744a457e75eae9913b8c290680b4b2ede9213819c303f80cbd96d4f` |
+
+The formerly quadratic 2,000-node shape improved from 19.294 seconds/188.00 MiB to 0.484187
+seconds/4.87 MiB traced peak. Both target limits pass with substantial margin.
+
+### Environment, pin, wheel, and security verification
+
+The helper environment contains only:
+
+```text
+SYSTEMROOT, WINDIR, TEMP, TMP, PYTHONHASHSEED, PYTHONIOENCODING,
+PYTHONNOUSERSITE, PYTHONUTF8
+```
+
+`TEMP` and `TMP` point to the private helper work directory. `PATH`, `PYTHONPATH`, `USERPROFILE`,
+`HOME`, `OPENAI_API_KEY`, and `CODEX_HOME` are absent. The audit policy permits writes only below
+the private work root and reads only below the private work root, curated vendor root, or standard
+library root.
+
+The metadata verification command and result were:
+
+```powershell
+git ls-remote --tags https://github.com/CensoredUsername/unrpyc.git `
+  refs/tags/v2.0.3 refs/tags/v2.0.4
+# b6cfa8e9732e0565ae149fcab6ca851b60600c5a  refs/tags/v2.0.3
+# 3ae8334ed71a05535927dcc559663d3aca51215b  refs/tags/v2.0.4
+```
+
+At pinned commit `3ae8334`, upstream `unrpyc.py` still contains internal
+`__version__ = 'v2.0.3'`; the shipped metadata now truthfully distinguishes that internal string
+from the `v2.0.4` tag. The two focused pin/environment tests passed in `0.06s`.
+
+The wheel was built and inspected with:
+
+```powershell
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pip wheel . `
+  --no-deps --wheel-dir <temporary-directory>
+```
+
+Result: `renpy_story_mapper-0.1.0-py3-none-any.whl`, 249,237 bytes, 59 members, wheel SHA-256
+`a422d571a06cd04db4601850507d1f668f6502600c020db8e29a672c6612090c`. Recomputed curated
+bundle SHA-256 exactly matched
+`fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775`. License, `PIN.json`, six
+curated runtime modules, and `THIRD_PARTY_NOTICES.md` were present. No UnRPA, injector,
+`unrpyc.py`, deobfuscator, translation helper, testcase decompiler, AST dumper, testcases, or
+`un.rpyc` artifact was present.
+
+The helper remains a Job Object plus Python audit-policy isolation boundary, not a Windows
+AppContainer or restricted-token sandbox. This is the remaining documented security limitation,
+not a new P0-P3 finding: the child is suspended before Job assignment, process/memory/time/output
+bounds remain enforced, the environment is sanitized, and filesystem policy is now explicit.
+
+### Final verification matrix
+
+All commands below ran in the clean orchestrator checkout at exact commit `ee87c31` using Windows
+CPython 3.12.10:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pytest
+# 374 passed in 19.57s
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m ruff check src tests scripts
+# All checks passed!
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m mypy src\renpy_story_mapper
+# Success: no issues found in 42 source files
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pip check
+# No broken requirements found.
+
+git diff --check
+git diff --check f64c8ef..ee87c31
+# Both passed with no output; the orchestrator worktree remained clean.
+```
+
+No canonical or MsDenvers archive was accessed, and no cloud AI was run.
+
+### Final recommendation
+
+**NO-SHIP at `ee87c31`.** All original review findings are resolved and the security/performance
+remediations pass, but M06 acceptance requires no remaining P0-P3 correctness/security finding.
+Correct the `may_terminate` treatment of non-returning/diverging calls, add a regression that
+distinguishes termination from divergence, and rerun the Windows matrix. No other P0-P3 issue was
+found in this final re-review.
