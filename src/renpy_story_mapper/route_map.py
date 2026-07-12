@@ -305,7 +305,15 @@ def project_route_map(
         selected = sorted(prioritized[:initial_node_limit], key=lambda item: order_key[item])
     selected_set = set(selected)
 
-    arm_by_entry = {_text(arm, "entry_node_id"): arm for arm in arms}
+    arms_by_node: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for arm in arms:
+        owned = {
+            _text(arm, "entry_node_id"),
+            *_strings(arm.get("node_ids")),
+            *_strings(arm.get("terminal_node_ids")),
+        }
+        for node_id in owned:
+            arms_by_node[node_id].append(arm)
     route_nodes: list[RouteNode] = []
     control_to_route: dict[str, str] = {}
     for ordinal, control_id in enumerate(selected):
@@ -314,7 +322,7 @@ def project_route_map(
             regions_by_node.get(control_id, []), key=lambda item: _text(item, "id")
         )
         kind = _node_kind(control_id, raw, owned_regions, terminal_by_node, loop_nodes)
-        lane_id, lane_kind = _lane(control_id, regions, arm_by_entry)
+        lane_id, lane_kind = _lane(control_id, regions, arms_by_node)
         evidence_ids = tuple(
             sorted({_text(beat, "id") for beat in beat_by_control.get(control_id, [])})
         )
@@ -474,13 +482,23 @@ def _node_kind(
 def _lane(
     control_id: str,
     regions: Sequence[Mapping[str, object]],
-    arm_by_entry: Mapping[str, Mapping[str, object]],
+    arms_by_node: Mapping[str, Sequence[Mapping[str, object]]],
 ) -> tuple[str, RouteLaneKind]:
-    arm = arm_by_entry.get(control_id)
-    if arm is not None:
+    region_by_id = {_text(region, "id"): region for region in regions}
+    owned_arms = arms_by_node.get(control_id, ())
+    if owned_arms:
+        # A nested local detour inside a persistent route stays in its persistent parent lane.
+        arm = min(
+            owned_arms,
+            key=lambda item: (
+                _text(region_by_id[_text(item, "region_id")], "classification")
+                not in {"persistent_route", "terminal_split"},
+                len(_strings(item.get("node_ids"))),
+                _text(item, "id"),
+            ),
+        )
         region_id = _text(arm, "region_id")
-        region = next((item for item in regions if _text(item, "id") == region_id), None)
-        classification = "" if region is None else _text(region, "classification")
+        classification = _text(region_by_id[region_id], "classification")
         kind = (
             RouteLaneKind.PERSISTENT
             if classification in {"persistent_route", "terminal_split"}
