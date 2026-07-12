@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import http.client
+import json
 import threading
 import time
 from dataclasses import dataclass
@@ -21,9 +23,11 @@ from renpy_story_mapper.organization.contracts import (
 )
 from renpy_story_mapper.organization.errors import OrganizationCancelledError
 from renpy_story_mapper.organization.parallel import BudgetPolicy, RouteScope
-from renpy_story_mapper.project import Project, create_ingested_project
+from renpy_story_mapper.project import PayloadRecord, Project, create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.contracts import M07_API_ROUTES
+from renpy_story_mapper.web.security import SessionSecurity
+from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
 
 
 @dataclass
@@ -152,13 +156,16 @@ def test_route_paging_detail_evidence_and_path_redaction(m07_project: Path) -> N
         assert route["level"] == "route_map"
         assert len(route["nodes"]) <= 30
         assert len(route["initial_node_ids"]) <= 30
-        assert route["totals"]["nodes"] >= len(route["nodes"])
-        assert route["lines"]
+        assert route["total_nodes"] == route["totals"]["nodes"]
+        assert route["total_nodes"] >= len(route["nodes"])
+        assert route["edges"]
+        assert len(route["edges"]) <= 180
+        assert len(route["nodes"]) + len(route["edges"]) <= 240
         assert route["lanes"]
         serialized = str(route)
         assert str(m07_project.parent) not in serialized
 
-        edge = next(item for item in route["lines"] if item["evidence_ids"])
+        edge = next(item for item in route["edges"] if item["evidence_ids"])
         detail = api.dispatch("POST", M07_API_ROUTES["detail"], {"element_id": edge["id"]})
         assert isinstance(detail, dict)
         assert detail["level"] == "detail_evidence"
@@ -167,6 +174,71 @@ def test_route_paging_detail_evidence_and_path_redaction(m07_project: Path) -> N
         assert "gates" in detail and "effects" in detail
         assert detail["evidence"]
         assert str(m07_project.parent) not in str(detail)
+    finally:
+        api.close()
+
+
+def test_route_page_stably_caps_high_fanout_edges(m07_project: Path) -> None:
+    nodes = [
+        {
+            "id": f"node-{index:02d}",
+            "title": f"Node {index}",
+            "lane_id": "spine",
+            "lane_kind": "spine",
+            "evidence_ids": [],
+        }
+        for index in range(30)
+    ]
+    edges = [
+        {
+            "id": f"edge-{index:03d}",
+            "source_id": "node-00",
+            "target_id": f"node-{(index % 29) + 1:02d}",
+            "evidence_ids": [],
+            "gate_ids": [],
+            "effect_ids": [],
+            "source_file": str(m07_project.parent / "private" / "story.rpy"),
+        }
+        for index in range(300)
+    ]
+    with Project.open(m07_project) as project:
+        sources = tuple(item.path for item in project.sources())
+        project.write_payloads(
+            [
+                PayloadRecord(
+                    "m07_route_map",
+                    "authoritative",
+                    {
+                        "schema_version": 1,
+                        "nodes": nodes,
+                        "edges": edges,
+                        "scopes": [],
+                        "coverage": {
+                            "control_nodes": 30,
+                            "visible_nodes": 30,
+                            "technical_nodes": 0,
+                            "unresolved_nodes": 0,
+                            "corridor_count": 0,
+                        },
+                        "initial_node_ids": [item["id"] for item in nodes],
+                        "evidence": [],
+                    },
+                    sources,
+                )
+            ]
+        )
+    api = _api(m07_project, [])
+    try:
+        first = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        second = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        assert first == second
+        assert first["total_nodes"] == 30
+        assert first["total_edges"] == 300
+        assert len(first["nodes"]) == 30
+        assert len(first["edges"]) == 180
+        assert len(first["nodes"]) + len(first["edges"]) == 210
+        assert first["edges_truncated"] is True
+        assert str(m07_project.parent) not in str(first)
     finally:
         api.close()
 
@@ -185,6 +257,9 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
             "reasoning": "high",
             "fast_mode": False,
         }
+        assert prepared["scopes"] > 0
+        assert prepared["cached"] == 0
+        assert "hard_tokens" in prepared["budgets"]
         assert len(prepared["run_id"]) > 32
         assert constructed == []
 
@@ -223,6 +298,8 @@ def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: 
             {"run_id": prepared["run_id"], "confirm_cloud": True},
         )
         assert isinstance(started, dict)
+        assert started["status"] == "running"
+        assert "scopes" in started and "coverage" in started and "tokens" in started
         terminal = _wait(api)
         assert terminal["state"] == "completed"
         assert calls and all(thread_id != threading.get_ident() for thread_id, _ in calls)
@@ -230,17 +307,24 @@ def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: 
         status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
         assert isinstance(status, dict)
         assert status["calls"] == 1
+        assert status["tokens"]["used"] == 25
         assert status["tokens"]["total"] == 25
+        assert status["coverage"] == {
+            "ai": status["ai_coverage"],
+            "technical": status["technical_coverage"],
+        }
         assert 0 <= status["ai_coverage"] <= status["technical_coverage"] <= 1
         assert status["partial"] is True
         assert status["assemblies"]
         assembly = status["assemblies"][0]
+        assert status["assembly_id"] == assembly["assembly_id"]
         applied = api.dispatch(
             "POST",
             M07_API_ROUTES["assembly_apply"],
             {"assembly_id": assembly["assembly_id"]},
         )
         assert applied["status"] == "applied"
+        assert applied["assembly_id"] == assembly["assembly_id"]
         after = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
         assert after["authority_hash"] == before["authority_hash"]
         assert after["applied_assembly"]["assembly_id"] == assembly["assembly_id"]
@@ -308,7 +392,9 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
             {"run_id": prepared["run_id"], "confirm_cloud": True},
         )
         assert blocking.wait(timeout=3)
-        api.dispatch("POST", M07_API_ROUTES["cancel"], {})
+        cancelling = api.dispatch("POST", M07_API_ROUTES["cancel"], {})
+        assert cancelling["status"] == "cancelling"
+        assert "scopes" in cancelling and "coverage" in cancelling
         assert _wait(api)["state"] == "cancelled"
         cancelled = api.dispatch("GET", M07_API_ROUTES["organization"], {})
         assert cancelled["scope_counts"]["cancelled"] > 0
@@ -380,3 +466,127 @@ def test_durable_status_reopens_without_constructing_provider(m07_project: Path)
 def test_budget_object_is_bounded_by_scheduler_contract() -> None:
     budget = BudgetPolicy(hard_calls=1, hard_tokens=1)
     assert budget.hard_calls == 1
+
+
+def _http_request(
+    server: LocalWebServer,
+    method: str,
+    path: str,
+    body: object | None = None,
+) -> tuple[int, dict[str, Any]]:
+    connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
+    headers = {
+        "Host": f"127.0.0.1:{server.port}",
+        "Accept": "application/json",
+        "X-RSM-Session": "m07-session",
+    }
+    payload = None
+    if method != "GET":
+        headers.update(
+            {
+                "Content-Type": "application/json",
+                "Origin": f"http://127.0.0.1:{server.port}",
+                "X-RSM-CSRF": "m07-csrf",
+            }
+        )
+        payload = json.dumps({} if body is None else body).encode()
+    connection.request(method, path, body=payload, headers=headers)
+    response = connection.getresponse()
+    result = json.loads(response.read())
+    connection.close()
+    return response.status, result
+
+
+def _assert_browser_organization(value: dict[str, Any]) -> None:
+    assert isinstance(value["status"], str)
+    assert set(value["scopes"]) >= {"total", "pending", "validated", "fallback"}
+    assert set(value["coverage"]) == {"ai", "technical"}
+    assert set(value["tokens"]) >= {"used", "budget", "input", "output"}
+    assert "calls" in value and "eta" in value and "partial" in value
+    assert "assembly_id" in value
+
+
+def test_local_server_emits_packaged_route_and_organization_shapes(
+    m07_project: Path,
+) -> None:
+    calls: list[tuple[int, str]] = []
+    api = _api(m07_project, calls)
+    static_root = Path(__file__).parents[1] / "src" / "renpy_story_mapper" / "web" / "static"
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        api,
+        static_root=static_root,
+        security=SessionSecurity("m07-session", "m07-csrf"),
+    )
+    thread = start_in_thread(server)
+    try:
+        status, route = _http_request(server, "POST", M07_API_ROUTES["route_map"], {})
+        assert status == 200
+        assert route["total_nodes"] >= len(route["nodes"])
+        assert "edges" in route and "lines" not in route
+        assert len(route["nodes"]) <= 30
+        assert len(route["edges"]) <= 180
+        assert len(route["nodes"]) + len(route["edges"]) <= 240
+
+        status, organization = _http_request(server, "GET", M07_API_ROUTES["organization"])
+        assert status == 200
+        _assert_browser_organization(organization)
+        assert organization["status"] == "idle"
+        assert calls == []
+
+        status, prepared = _http_request(server, "POST", M07_API_ROUTES["prepare"], {})
+        assert status == 200
+        assert prepared["scopes"] > 0
+        assert prepared["cached"] == 0
+        assert set(prepared["budgets"]) == {
+            "soft_seconds",
+            "hard_seconds",
+            "soft_tokens",
+            "hard_tokens",
+            "hard_calls",
+        }
+        assert calls == []
+
+        status, running = _http_request(
+            server,
+            "POST",
+            M07_API_ROUTES["start"],
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
+        )
+        assert status == 200
+        _assert_browser_organization(running)
+        assert running["status"] == "running"
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            _status, task = _http_request(server, "GET", "/api/v1/analysis/progress")
+            if task.get("state") in {"completed", "failed", "cancelled"}:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("integrated organization did not finish")
+        status, review = _http_request(server, "GET", M07_API_ROUTES["organization"])
+        assert status == 200
+        _assert_browser_organization(review)
+        assert review["status"] in {"review", "partial"}
+        assert review["assembly_id"]
+
+        status, applied = _http_request(
+            server,
+            "POST",
+            M07_API_ROUTES["assembly_apply"],
+            {"assembly_id": review["assembly_id"]},
+        )
+        assert status == 200
+        _assert_browser_organization(applied)
+        assert applied["status"] == "applied"
+        assert applied["assembly_id"] == review["assembly_id"]
+    finally:
+        server.close_service()
+        thread.join(timeout=5)
+        assert not thread.is_alive()

@@ -204,7 +204,19 @@ class ProjectApi:
             with self._lock:
                 task = self._task
             stage = task.stage if task is not None and task.kind == "m07_organization" else "idle"
-            return json_value(self._m07_workflow().status(stage=stage))
+            status_override = (
+                task.state
+                if task is not None
+                and task.kind == "m07_organization"
+                and task.state in {"running", "cancelled", "failed"}
+                else None
+            )
+            return json_value(
+                self._m07_workflow().status(
+                    stage=stage,
+                    status_override=status_override,
+                )
+            )
         if method == "POST" and path == M07_API_ROUTES["prepare"]:
             budget = BudgetPolicy(
                 soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
@@ -238,20 +250,35 @@ class ProjectApi:
                     progress=self._m07_progress,
                 )
 
-            return self._start(
+            started = self._start(
                 "m07_organization",
                 run_m07,
             )
+            response = workflow.status(stage="starting", status_override="running")
+            response["run_id"] = prepared.run_id
+            response["task"] = started.get("analysis") if isinstance(started, dict) else None
+            return json_value(response)
         if method == "POST" and path == M07_API_ROUTES["cancel"]:
             self.cancel()
-            return {"state": "cancelling"}
+            return json_value(
+                self._m07_workflow().status(
+                    stage="cancelling",
+                    status_override="cancelling",
+                )
+            )
         if method == "POST" and path == M07_API_ROUTES["assembly_apply"]:
             try:
-                return json_value(self._m07_workflow().apply(require_string(body, "assembly_id")))
+                workflow = self._m07_workflow()
+                assembly_id = require_string(body, "assembly_id")
+                assembly = workflow.apply(assembly_id)
             except KeyError as exc:
                 raise ApiProblem(
                     404, "m07_assembly_not_found", "The assembly is unavailable."
                 ) from exc
+            response = workflow.status(stage="applied", status_override="applied")
+            response["assembly_id"] = assembly_id
+            response["assembly"] = assembly
+            return json_value(response)
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)
         if method == "POST" and path == "/api/v1/story/search":

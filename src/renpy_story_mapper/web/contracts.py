@@ -31,7 +31,7 @@ M07_PREPARE_REQUEST_FIELDS: Final = (
     "hard_tokens",
     "hard_calls",
 )
-M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud")
+M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud", "budgets")
 M07_ASSEMBLY_APPLY_REQUEST_FIELDS: Final = ("assembly_id",)
 
 

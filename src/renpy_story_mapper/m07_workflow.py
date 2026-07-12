@@ -48,6 +48,8 @@ from renpy_story_mapper.route_map import RouteScope as DeterministicRouteScope
 
 ProviderFactory = Callable[[RouteScope], OrganizationProvider]
 ProgressCallback = Callable[[ProgressSnapshot], None]
+MAX_ROUTE_PAGE_EDGES = 180
+MAX_ROUTE_PAGE_ITEMS = 240
 
 
 class PreparedRunError(ValueError):
@@ -137,6 +139,7 @@ class M07WorkflowService:
         self._lock = threading.RLock()
         self._prepared: PreparedRun | None = None
         self._last_progress: ProgressSnapshot | None = None
+        self._last_budget: BudgetPolicy | None = None
 
     def route_map(self, *, offset: int = 0, limit: int = 30) -> dict[str, object]:
         if offset < 0 or not 1 <= limit <= 30:
@@ -149,11 +152,13 @@ class M07WorkflowService:
         edges = _records(route.get("edges"), "edges")
         page_nodes = nodes[offset : offset + limit]
         page_ids = {_string(item.get("id"), "node id") for item in page_nodes}
-        page_edges = [
+        matching_edges = [
             item
             for item in edges
             if item.get("source_id") in page_ids or item.get("target_id") in page_ids
         ]
+        edge_limit = min(MAX_ROUTE_PAGE_EDGES, MAX_ROUTE_PAGE_ITEMS - len(page_nodes))
+        page_edges = matching_edges[:edge_limit]
         total = len(nodes)
         lanes = sorted(
             {
@@ -168,6 +173,8 @@ class M07WorkflowService:
             "offset": offset,
             "limit": limit,
             "next_offset": offset + len(page_nodes) if offset + len(page_nodes) < total else None,
+            "total_nodes": total,
+            "total_edges": len(edges),
             "totals": {
                 "nodes": total,
                 "edges": len(edges),
@@ -179,7 +186,8 @@ class M07WorkflowService:
             "technical_coverage": _technical_ratio(coverage),
             "initial_node_ids": list(_strings(route.get("initial_node_ids")))[:30],
             "nodes": page_nodes,
-            "lines": page_edges,
+            "edges": page_edges,
+            "edges_truncated": len(page_edges) < len(matching_edges),
             "lanes": [{"id": lane_id, "kind": lane_kind} for lane_id, lane_kind in lanes],
             "applied_assembly": applied,
         }
@@ -258,6 +266,7 @@ class M07WorkflowService:
         # This method intentionally does not touch the provider factory.
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
+            checkpoints = project.m07_model_service().checkpoints()
         deterministic = _deterministic_scopes(route)
         available = {item.id for item in deterministic}
         selected = tuple(scope_ids) if scope_ids else tuple(item.id for item in deterministic)
@@ -268,15 +277,22 @@ class M07WorkflowService:
         prepared = PreparedRun(run_id, _authority_hash(route), selected, config)
         with self._lock:
             self._prepared = prepared
+            self._last_budget = budget
+        cached = sum(
+            item.status in {CheckpointStatus.CACHED, CheckpointStatus.VALIDATED}
+            for item in checkpoints
+        )
         return {
             "run_id": run_id,
-            "scope": {"count": len(selected), "scope_ids": list(selected)},
+            "scopes": len(selected),
+            "scope_ids": list(selected),
+            "cached": cached,
             "model": {
                 "id": M05_CLOUD_MODEL,
                 "reasoning": M05_REASONING_PROFILE,
                 "fast_mode": False,
             },
-            "budget": _budget_dict(budget),
+            "budgets": _budget_dict(budget),
             "requires_confirm_cloud": True,
         }
 
@@ -352,7 +368,12 @@ class M07WorkflowService:
                 "assembly": None if assembly is None else assembly.to_dict(),
             }
 
-    def status(self, *, stage: str = "idle") -> dict[str, object]:
+    def status(
+        self,
+        *,
+        stage: str = "idle",
+        status_override: str | None = None,
+    ) -> dict[str, object]:
         with Project.open(self._project_path) as project:
             model = project.m07_model_service()
             checkpoints = model.checkpoints()
@@ -365,11 +386,35 @@ class M07WorkflowService:
             )
         with self._lock:
             progress = self._last_progress
+            budget = self._last_budget
         pending = _count(coverage["pending"]) + _count(coverage["cached_or_in_flight"])
         average = 0.0 if attempt_row is None else float(attempt_row["average_ms"]) / 1000
         derived_eta = None if not average or not pending else average * pending / 8
+        ai_coverage = _ratio(coverage, "validated")
+        technical_coverage = _technical_ratio(coverage)
+        token_used = _count(coverage["input_tokens"]) + _count(coverage["output_tokens"])
+        partial = (
+            bool(progress.partial)
+            if progress is not None
+            else _count(coverage["completed"]) < _count(coverage["total"])
+            or _count(coverage["fallback"]) > 0
+        )
+        reviewable = next(
+            (item for item in assemblies if item.get("status") == "draft"),
+            None,
+        )
+        organization_status = status_override or _organization_status(coverage, assemblies, partial)
         return {
+            "status": organization_status,
             "stage": stage,
+            "scopes": {
+                "total": coverage["total"],
+                "pending": pending,
+                "validated": coverage["validated"],
+                "fallback": coverage["fallback"],
+                "failed": coverage["failed"],
+                "cancelled": coverage["cancelled"],
+            },
             "scope_counts": coverage,
             "scope_statuses": [
                 {"scope_id": item.scope_id, "status": item.status.value, "error": item.error_code}
@@ -377,25 +422,24 @@ class M07WorkflowService:
             ],
             "calls": coverage["calls"],
             "tokens": {
+                "used": token_used,
+                "budget": _token_budget(budget),
                 "input": coverage["input_tokens"],
                 "output": coverage["output_tokens"],
-                "total": _count(coverage["input_tokens"]) + _count(coverage["output_tokens"]),
+                "total": token_used,
             },
-            "ai_coverage": _ratio(coverage, "validated"),
-            "technical_coverage": _technical_ratio(coverage),
+            "coverage": {"ai": ai_coverage, "technical": technical_coverage},
+            "ai_coverage": ai_coverage,
+            "technical_coverage": technical_coverage,
             "eta": {
                 "low_seconds": progress.eta_low_seconds if progress is not None else derived_eta,
                 "high_seconds": progress.eta_high_seconds
                 if progress is not None
                 else (None if derived_eta is None else derived_eta * 1.5),
             },
-            "partial": (
-                bool(progress.partial)
-                if progress is not None
-                else _count(coverage["completed"]) < _count(coverage["total"])
-                or _count(coverage["fallback"]) > 0
-            ),
+            "partial": partial,
             "worker_peak": 0 if progress is None else progress.peak_workers,
+            "assembly_id": None if reviewable is None else reviewable["assembly_id"],
             "assemblies": assemblies,
         }
 
@@ -624,6 +668,34 @@ def _budget_dict(budget: BudgetPolicy) -> dict[str, object]:
         "hard_tokens": budget.hard_tokens,
         "hard_calls": budget.hard_calls,
     }
+
+
+def _token_budget(budget: BudgetPolicy | None) -> int:
+    if budget is None:
+        return 0
+    if budget.hard_tokens is not None:
+        return budget.hard_tokens
+    return 0 if budget.soft_tokens is None else budget.soft_tokens
+
+
+def _organization_status(
+    coverage: Mapping[str, object],
+    assemblies: Sequence[Mapping[str, object]],
+    partial: bool,
+) -> str:
+    if any(item.get("status") == "draft" for item in assemblies):
+        return "partial" if partial else "review"
+    if any(item.get("status") == "applied" for item in assemblies):
+        return "applied"
+    if _count(coverage.get("cancelled", 0)):
+        return "cancelled"
+    if _count(coverage.get("failed", 0)):
+        return "failed"
+    if _count(coverage.get("pending", 0)) or _count(coverage.get("cached_or_in_flight", 0)):
+        return "idle"
+    if _count(coverage.get("validated", 0)) or _count(coverage.get("fallback", 0)):
+        return "complete"
+    return "idle"
 
 
 def _progress_dict(value: ProgressSnapshot) -> dict[str, object]:
