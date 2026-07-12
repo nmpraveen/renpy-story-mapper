@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import struct
 import sys
 import zlib
@@ -14,6 +15,10 @@ from typing import NoReturn
 
 class HelperFailure(Exception):
     pass
+
+
+_AUDIT_WORK_ROOT: Path | None = None
+_AUDIT_READ_ROOTS: tuple[Path, ...] = ()
 
 
 class _BoundedLog(list[str]):
@@ -51,7 +56,7 @@ class _BoundedTextWriter(io.TextIOBase):
         return "".join(self._parts)
 
 
-def _audit(event: str, _args: tuple[object, ...]) -> None:
+def _audit(event: str, args: tuple[object, ...]) -> None:
     forbidden = (
         "socket.",
         "subprocess.",
@@ -62,6 +67,42 @@ def _audit(event: str, _args: tuple[object, ...]) -> None:
     )
     if event.startswith(forbidden):
         raise PermissionError(f"helper operation is disabled: {event}")
+    if event == "open" and args and not isinstance(args[0], int):
+        raw_path = args[0]
+        if not isinstance(raw_path, str | bytes | os.PathLike):
+            raise PermissionError(f"helper filesystem operation is disabled: {event}")
+        path = Path(os.fsdecode(raw_path)).resolve()
+        mode = args[1] if len(args) > 1 else None
+        flags = args[2] if len(args) > 2 else 0
+        writing = (
+            isinstance(mode, str)
+            and any(marker in mode for marker in ("w", "a", "x", "+"))
+        ) or (
+            isinstance(flags, int)
+            and bool(
+                flags
+                & (
+                    os.O_WRONLY
+                    | os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_TRUNC
+                    | os.O_APPEND
+                )
+            )
+        )
+        allowed = (
+            (_AUDIT_WORK_ROOT,) if writing else (*_AUDIT_READ_ROOTS, _AUDIT_WORK_ROOT)
+        )
+        if not any(root is not None and _is_within(path, root) for root in allowed):
+            raise PermissionError(f"helper filesystem operation is disabled: {event}")
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _bounded_decompress(blob: bytes, limit: int) -> bytes:
@@ -180,9 +221,14 @@ def _fail(work_root: Path, message: str) -> NoReturn:
 
 
 def main() -> int:
+    global _AUDIT_READ_ROOTS, _AUDIT_WORK_ROOT
     if len(sys.argv) != 2:
         return 64
     work_root = Path(sys.argv[1]).resolve(strict=True)
+    _AUDIT_WORK_ROOT = work_root
+    vendor_root = Path(__file__).resolve().parent / "_vendor" / "unrpyc"
+    stdlib_root = Path(os.__file__).resolve().parent
+    _AUDIT_READ_ROOTS = (vendor_root, stdlib_root)
     sys.addaudithook(_audit)
     try:
         result = _run(work_root)

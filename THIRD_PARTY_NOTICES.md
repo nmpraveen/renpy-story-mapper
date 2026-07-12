@@ -6,7 +6,8 @@ Ren'Py Story Mapper includes only the Unrpyc `decompiler/` runtime modules neede
 modern `RENPY RPC2` source in the isolated recovery helper.
 
 - Upstream: https://github.com/CensoredUsername/unrpyc
-- Version: 2.0.3
+- Upstream tag: `v2.0.4`
+- Upstream internal version string: `2.0.3`
 - Commit: `3ae8334ed71a05535927dcc559663d3aca51215b`
 - Reviewed runtime bundle SHA-256:
   `fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775`

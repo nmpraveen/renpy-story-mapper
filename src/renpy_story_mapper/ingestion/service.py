@@ -68,10 +68,19 @@ def inspect_input(
         source_root = _resolve_game_root(resolved)
         kind = InputKind.GAME_FOLDER
         candidates.extend(_loose_candidates(source_root, configured, cancel_check))
-        archives = sorted(
-            (item for item in source_root.rglob("*.rpa") if item.is_file()),
-            key=lambda item: item.as_posix().casefold(),
-        )
+        archives: list[Path] = []
+        for item in source_root.rglob("*.rpa"):
+            if not item.is_file():
+                continue
+            archive = item.resolve(strict=True)
+            try:
+                archive.relative_to(source_root)
+            except ValueError as exc:
+                raise IngestionError(
+                    f"archive path escapes selected game folder: {item}"
+                ) from exc
+            archives.append(archive)
+        archives.sort(key=lambda item: item.as_posix().casefold())
         for archive in archives:
             candidates.extend(_archive_candidates(archive, configured, cancel_check))
     elif resolved.is_file():

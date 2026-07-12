@@ -25,6 +25,7 @@ from renpy_story_mapper.ingestion.export import export_recovered_sources
 from renpy_story_mapper.ingestion.runtime import (
     UNRPYC_BUNDLE_FILES,
     UNRPYC_BUNDLE_SHA256,
+    _sanitized_helper_environment,
     verify_runtime_bundle,
 )
 from renpy_story_mapper.project import Project
@@ -225,6 +226,24 @@ def test_runtime_pin_covers_every_shipped_vendor_file_except_pin(tmp_path: Path)
     pin = json.loads((root / "PIN.json").read_text(encoding="utf-8"))
     assert pin["bundle_files"] == list(UNRPYC_BUNDLE_FILES)
     assert pin["bundle_sha256"] == UNRPYC_BUNDLE_SHA256
+    assert pin["tag"] == "v2.0.4"
+    assert pin["upstream_internal_version"] == "2.0.3"
     assert not {"translate.py", "testcasedecompiler.py", "astdump.py"} & {
         Path(item).name for item in shipped
     }
+
+
+def test_recovery_helper_environment_is_minimal_and_non_secret(tmp_path: Path) -> None:
+    environment = _sanitized_helper_environment(tmp_path)
+
+    assert environment["TEMP"] == str(tmp_path)
+    assert environment["TMP"] == str(tmp_path)
+    assert environment["PYTHONNOUSERSITE"] == "1"
+    assert not {
+        "PATH",
+        "PYTHONPATH",
+        "USERPROFILE",
+        "HOME",
+        "OPENAI_API_KEY",
+        "CODEX_HOME",
+    } & environment.keys()

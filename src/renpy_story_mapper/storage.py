@@ -108,9 +108,9 @@ def initialize_database(
     if application_id not in {0, APPLICATION_ID}:
         raise ProjectCorruptError("SQLite file belongs to another application")
 
-    while current < target_version:
-        next_version = current + 1
-        with transaction(connection):
+    with transaction(connection):
+        while current < target_version:
+            next_version = current + 1
             if next_version == 1:
                 _migrate_to_v1(connection)
             elif next_version == 2:
@@ -123,9 +123,8 @@ def initialize_database(
                 _migrate_to_v5(connection)
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
-        current = next_version
-    if current >= 4 and needs_v4_enrichment_extension(connection):
-        with transaction(connection):
+            current = next_version
+        if current >= 4 and needs_v4_enrichment_extension(connection):
             _migrate_v4_enrichment_extension(connection)
 
 

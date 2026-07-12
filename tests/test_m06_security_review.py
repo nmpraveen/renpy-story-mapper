@@ -18,24 +18,18 @@ from renpy_story_mapper.ui.organization_workflow import (
 from renpy_story_mapper.ui.project_controller import validate_create_paths
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="M06 unified ingestion is not wired into the desktop project lifecycle",
-)
 def test_desktop_project_creation_accepts_direct_compiled_source(tmp_path: Path) -> None:
     compiled = tmp_path / "story.rpyc"
     compiled.write_bytes(b"RENPY RPC2")
+    projects = tmp_path / "projects"
+    projects.mkdir()
 
-    source, destination = validate_create_paths(compiled, tmp_path / "story.rsmproj")
+    source, destination = validate_create_paths(compiled, projects / "story.rsmproj")
 
     assert source == compiled
-    assert destination == tmp_path / "story.rsmproj"
+    assert destination == projects / "story.rsmproj"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the cloud organization boundary does not enforce incomplete-source coverage",
-)
 def test_incomplete_source_coverage_blocks_provider_construction(tmp_path: Path) -> None:
     project_path = tmp_path / "partial.rsmproj"
     with Project.create(project_path) as project:
@@ -68,10 +62,6 @@ def test_incomplete_source_coverage_blocks_provider_construction(tmp_path: Path)
             )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="multi-version initialization commits v4 before a failing v5 migration",
-)
 def test_v3_to_v5_migration_rolls_back_as_one_atomic_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -91,10 +81,6 @@ def test_v3_to_v5_migration_rolls_back_as_one_atomic_unit(
     assert version == 3
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="archive discovery follows a file symlink outside the selected game root",
-)
 def test_folder_discovery_rejects_symlinked_archive_escape(tmp_path: Path) -> None:
     game = tmp_path / "release" / "game"
     game.mkdir(parents=True)
@@ -112,10 +98,6 @@ def test_folder_discovery_rejects_symlinked_archive_escape(tmp_path: Path) -> No
         inspect_input(game, IngestionOptions(cache_root=tmp_path / "cache"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the helper audit policy does not contain filesystem writes to its work directory",
-)
 def test_recovery_helper_audit_denies_arbitrary_file_write(tmp_path: Path) -> None:
     outside = tmp_path / "outside-game" / "modified.rpy"
 

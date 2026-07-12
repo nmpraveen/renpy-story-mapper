@@ -29,7 +29,7 @@ from renpy_story_mapper.ingestion.errors import (
     RecoveryTimeoutError,
 )
 
-UNRPYC_VERSION: Final = "2.0.3"
+UNRPYC_VERSION: Final = "v2.0.4 tag (internal version 2.0.3)"
 UNRPYC_COMMIT: Final = "3ae8334ed71a05535927dcc559663d3aca51215b"
 UNRPYC_BUNDLE_SHA256: Final = "fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775"
 UNRPYC_BUNDLE_FILES: Final = (
@@ -190,7 +190,7 @@ class _SuspendedProcess(AbstractContextManager["_SuspendedProcess"]):
             None,
             False,
             flags,
-            None,
+            _sanitized_helper_environment(cwd),
             str(cwd),
             startup,
         )
@@ -231,6 +231,22 @@ class _SuspendedProcess(AbstractContextManager["_SuspendedProcess"]):
         traceback: TracebackType | None,
     ) -> None:
         self.close()
+
+
+def _sanitized_helper_environment(work_root: Path) -> dict[str, str]:
+    """Return the minimal non-secret environment inherited by the recovery helper."""
+
+    system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\Windows"
+    return {
+        "SYSTEMROOT": system_root,
+        "WINDIR": system_root,
+        "TEMP": str(work_root),
+        "TMP": str(work_root),
+        "PYTHONHASHSEED": "0",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONUTF8": "1",
+    }
 
 
 def recover_compiled(
