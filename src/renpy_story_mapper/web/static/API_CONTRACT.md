@@ -22,21 +22,19 @@ CSRF, Host/Origin checks, request bounds, path redaction, and authoritative stor
 
 ## Routes
 
-`GET /api/v1/state`, `GET /api/v1/tasks/current`, `POST /api/v1/dialog/source`,
-`POST /api/v1/dialog/project/open`, `POST /api/v1/dialog/project/save`,
+`GET /api/v1/bootstrap`, `GET /api/v1/recent`, `POST /api/v1/native-picker`,
 `POST /api/v1/projects/open`, `POST /api/v1/projects/create`,
-`POST /api/v1/projects/refresh`, `POST /api/v1/tasks/cancel`,
-`POST /api/v1/presentation/view`, `POST /api/v1/presentation/search`,
-`POST /api/v1/presentation/evidence`, `POST /api/v1/presentation/facts`,
-`GET /api/v1/organization`, `POST /api/v1/organization/start`,
-`POST /api/v1/organization/drafts/apply`, and
-`POST /api/v1/organization/drafts/discard`.
+`POST /api/v1/projects/refresh`, `GET /api/v1/analysis/progress`,
+`POST /api/v1/analysis/cancel`, `POST /api/v1/story/view`,
+`POST /api/v1/story/search`, `POST /api/v1/story/evidence`,
+`POST /api/v1/story/facts`, `GET /api/v1/organization/draft`,
+`POST /api/v1/organization/consent`, `POST /api/v1/organization/apply`, and
+`POST /api/v1/organization/discard`.
 
-The optional state extensions used by the frontend are `recent_projects` and `settings`. The
-optional local-only endpoints are `PUT /api/v1/settings` and `GET /api/v1/diagnostics`. If absent,
-the UI retains in-browser view preferences and reports diagnostics as unavailable without exposing
-paths. The integration owner should either implement these extensions or remove the optional
-controls from the packaged shell.
+The bootstrap response includes `recent_projects`, `settings`, and the server's route manifest.
+`PUT /api/v1/settings` and `GET /api/v1/diagnostics` complete the local view-state and troubleshooting
+flows. Session and CSRF values are injected into the empty packaged meta elements when the index is
+served; they are never stored in the asset bundle.
 
 ## Mock contract
 

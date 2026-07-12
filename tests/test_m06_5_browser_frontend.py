@@ -13,6 +13,11 @@ def _text(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
+def _canonical_text_hash(data: bytes) -> str:
+    content = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
 def test_assets_are_local_and_csp_compatible() -> None:
     html = _text("index.html")
     names = (
@@ -51,12 +56,12 @@ def test_routes_are_versioned_and_centralized() -> None:
     for name in ("app.js", "api.js", "graph.js", "mock-api.js"):
         assert '"/api/v1/' not in _text(name)
     routes = (
-        "presentation/view",
-        "presentation/search",
-        "presentation/evidence",
-        "presentation/facts",
-        "organization/drafts/apply",
-        "organization/drafts/discard",
+        "story/view",
+        "story/search",
+        "story/evidence",
+        "story/facts",
+        "organization/apply",
+        "organization/discard",
     )
     for route in routes:
         assert route in contract
@@ -93,7 +98,7 @@ def test_organization_is_never_implicit() -> None:
     assert "api.consent(" not in start_body
     assert "api.consent(" in app
     assert app.index("api.consent(") > app.index('$("#confirmOrganization").addEventListener')
-    assert "organizationStart" in _text("contract.js")
+    assert "organizationConsent" in _text("contract.js")
 
 
 def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
@@ -109,6 +114,12 @@ def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
 
 def test_asset_manifest_hashes_are_deterministic() -> None:
     manifest = json.loads(_text("asset-manifest.json"))
-    assert manifest["format"] == 1
+    assert manifest["format"] == 2
+    assert manifest["hash_basis"] == "sha256-utf8-lf"
     for name, expected in manifest["assets"].items():
-        assert hashlib.sha256((STATIC / name).read_bytes()).hexdigest() == expected
+        raw = (STATIC / name).read_bytes()
+        assert _canonical_text_hash(raw) == expected
+        simulated_windows = raw.decode("utf-8").replace("\r\n", "\n").replace(
+            "\n", "\r\n"
+        )
+        assert _canonical_text_hash(simulated_windows.encode()) == expected

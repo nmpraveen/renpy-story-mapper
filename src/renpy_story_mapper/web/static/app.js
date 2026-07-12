@@ -77,9 +77,9 @@ function renderRecent(projects) {
     card.dataset.projectId = project.id;
     card.append(element("span", "eyebrow", `${String(index + 1).padStart(2, "0")} · ${project.source_type}`), element("strong", "", project.name));
     const meta = element("span", "recent-meta");
-    meta.append(element("span", "", project.last_opened), element("span", "", project.organization));
+    meta.append(element("span", "", project.last_opened || "Saved locally"), element("span", "", project.organization));
     card.append(meta);
-    card.addEventListener("click", () => openSelection({ id: project.id, display_name: project.name }, true));
+    card.addEventListener("click", () => openSelection({ id: project.id || project.selection_id, display_name: project.name }, true));
     host.append(card);
   }
   if (!projects.length) host.append(element("p", "inspector-empty", "No recent projects."));
@@ -99,7 +99,7 @@ async function createFromSource(sourceSelection) {
   const sourceId = sourceSelection.id || sourceSelection.selection_id;
   if (api.create && api.chooseSave) {
     const save = await api.chooseSave();
-    const target = save?.selection;
+    const target = save?.selection || save;
     if (!target) return;
     await api.create(sourceId, target.id);
     state.project = { id: sourceId, name: sourceSelection.display_name || "New story", organization: "Technical organization" };
@@ -124,17 +124,25 @@ async function openSelection(selection, existing) {
 
 async function pollProgress() {
   showView("progress");
-  let result = await api.progress();
-  result = result.task || result;
-  updateProgress(result);
-  if (result.state === "running") {
-    await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 400));
+  let result;
+  do {
     result = await api.progress();
     result = result.task || result;
     updateProgress(result);
+    if (result.state !== "running") break;
+    await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 400));
+  } while (result.state === "running");
+  if (result.state === "completed" || result.state === "complete") {
+    const bootstrap = await api.bootstrap();
+    if (bootstrap.project?.name) {
+      state.project = { ...state.project, ...bootstrap.project };
+      $("#projectName").textContent = bootstrap.project.name;
+    }
+    showView("workspace");
+    await loadView();
   }
-  if (result.state === "completed" || result.state === "complete") { showView("workspace"); await loadView(); }
   if (result.state === "cancelled") { showView("welcome"); toast("Analysis cancelled safely"); }
+  if (result.state === "failed") { showView("workspace"); toast(result.error?.message || "The operation failed safely"); }
 }
 
 function updateProgress(progress) {
@@ -343,7 +351,8 @@ function bind() {
     event.preventDefault();
     $("#consentDialog").close();
     try {
-      await api.consent(state.parentIds);
+      const started = await api.consent(state.parentIds);
+      if (started.analysis?.state === "running" || started.task?.state === "running") await pollProgress();
       await showReview();
     } catch (error) {
       toast(error.message);
