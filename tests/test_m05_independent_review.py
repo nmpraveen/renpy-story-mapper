@@ -1,9 +1,9 @@
 """Executable evidence for the independent M05 adversarial review."""
 
-import hashlib
-import json
 import shutil
 from pathlib import Path
+
+import pytest
 
 from renpy_story_mapper.organization.cache import build_cache_key
 from renpy_story_mapper.organization.contracts import (
@@ -14,37 +14,43 @@ from renpy_story_mapper.organization.contracts import (
 )
 from renpy_story_mapper.organization.provider import CodexCliProvider
 from renpy_story_mapper.project import Project, create_project
-from renpy_story_mapper.ui.organization_workflow import OrganizationOptions
+from renpy_story_mapper.ui.organization_workflow import (
+    OrganizationOptions,
+    OrganizationWorkflow,
+)
 
 
-def test_reproduction_cloud_provider_command_is_not_intrinsically_luna_locked() -> None:
-    """The provider boundary permits a cloud command without the required model flag."""
+def test_cloud_provider_command_is_intrinsically_luna_locked() -> None:
+    """The provider boundary always emits the required cloud model flag."""
 
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT)
 
     _program, arguments = provider.command(Path("schema.json"))
 
-    assert "--model" not in arguments
+    assert arguments[arguments.index("--model") + 1] == "gpt-5.6-luna"
     assert 'model_reasoning_effort="high"' in arguments
     assert _disabled_features(arguments).issuperset({"fast_mode", "shell_tool"})
 
 
-def test_reproduction_workflow_options_accept_mislabeled_execution_profile() -> None:
-    """Workflow options accept cache/run identity that disagrees with the fixed CLI profile."""
+def test_workflow_rejects_mislabeled_execution_profile() -> None:
+    """Workflow metadata cannot disagree with the locked CLI profile."""
 
     options = OrganizationOptions(model=None, model_profile="balanced")
-    provider = CodexCliProvider(options.mode)
+    workflow = OrganizationWorkflow(  # type: ignore[arg-type]
+        object(), lambda _mode: (_ for _ in ()).throw(AssertionError("provider created"))
+    )
+    with pytest.raises(ValueError, match=r"GPT-5\.6 Luna"):
+        workflow.organize(
+            (),
+            options,
+            progress=lambda _percent, _status: None,
+            cancelled=lambda: False,
+            confirm_cloud=lambda _run_id: True,
+        )
 
-    _program, arguments = provider.command(Path("schema.json"), model=options.model)
 
-    assert options.model_profile == "balanced"
-    assert options.model is None
-    assert 'model_reasoning_effort="high"' in arguments
-    assert "--model" not in arguments
-
-
-def test_reproduction_claim_can_cite_evidence_outside_its_target_event(tmp_path: Path) -> None:
-    """Existing-ID validation does not require claim evidence to belong to its target."""
+def test_claim_cannot_cite_evidence_outside_its_target_event(tmp_path: Path) -> None:
+    """Existing-ID validation also binds evidence to the exact claim target."""
 
     source = tmp_path / "game"
     fixture = Path(__file__).parent / "fixtures" / "m05" / "organization"
@@ -111,13 +117,12 @@ def test_reproduction_claim_can_cite_evidence_outside_its_target_event(tmp_path:
             ],
         }
 
-        draft_id = service.create_draft(run_id, "review", candidate)
+        with pytest.raises(ValueError, match="attached to their target"):
+            service.create_draft(run_id, "review", candidate)
 
-        assert next(draft for draft in service.drafts() if draft.id == draft_id).status == "pending"
 
-
-def test_reproduction_workflow_cache_hash_omits_prompt_constraints() -> None:
-    """The workflow hash can collide even though the serialized provider prompt changes."""
+def test_cache_hash_includes_prompt_constraints() -> None:
+    """Prompt-affecting constraints produce distinct integrated cache input hashes."""
 
     baseline = OrganizationRequest(
         run_id="run",
@@ -142,13 +147,6 @@ def test_reproduction_workflow_cache_hash_omits_prompt_constraints() -> None:
         }
     )
 
-    def workflow_input_hash(request: OrganizationRequest) -> str:
-        payload = json.dumps(
-            request.payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-        ).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
-
-    assert workflow_input_hash(baseline) == workflow_input_hash(changed)
     assert build_cache_key(
         baseline,
         provider_mode=CodexMode.CODEX_CHATGPT,

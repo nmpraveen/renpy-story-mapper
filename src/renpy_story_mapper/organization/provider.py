@@ -20,6 +20,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from PySide6.QtCore import QByteArray, QProcess, QProcessEnvironment
 
 from renpy_story_mapper.organization.contracts import (
+    M05_CLOUD_MODEL,
     MAX_PROMPT_CHARS,
     CancelledCallback,
     CodexMode,
@@ -300,7 +301,12 @@ class CodexCliProvider:
         self._cancel_requested = threading.Event()
         self._using_default_factory = process_factory is None
         self._executable_resolver = executable_resolver
-        self._model_override = _validated_model_identifier(model_override)
+        normalized_model = _validated_model_identifier(model_override)
+        if mode is CodexMode.CODEX_CHATGPT:
+            if normalized_model not in {None, M05_CLOUD_MODEL}:
+                raise ValueError(f"ChatGPT organization is locked to {M05_CLOUD_MODEL}.")
+            normalized_model = M05_CLOUD_MODEL
+        self._model_override = normalized_model
         self._lmstudio_base_url = lmstudio_base_url
         self._model_discovery = model_discovery or _discover_models
         self._environment_factory = environment_factory or QProcessEnvironment.systemEnvironment
@@ -357,6 +363,10 @@ class CodexCliProvider:
     def set_model_override(self, model_identifier: str | None) -> None:
         """Apply an advanced model choice before status/cache preflight."""
         normalized = _validated_model_identifier(model_identifier)
+        if self.mode is CodexMode.CODEX_CHATGPT:
+            if normalized not in {None, M05_CLOUD_MODEL}:
+                raise ValueError(f"ChatGPT organization is locked to {M05_CLOUD_MODEL}.")
+            normalized = M05_CLOUD_MODEL
         if normalized == self._model_override:
             return
         self._model_override = normalized
@@ -503,6 +513,11 @@ class CodexCliProvider:
         return _LMSTUDIO_MODELS_URL
 
     def command(self, schema_path: Path, model: str | None = None) -> tuple[str, list[str]]:
+        selected_model = model
+        if self.mode is CodexMode.CODEX_CHATGPT:
+            if selected_model not in {None, M05_CLOUD_MODEL}:
+                raise ValueError(f"ChatGPT organization is locked to {M05_CLOUD_MODEL}.")
+            selected_model = M05_CLOUD_MODEL
         args = [
             "exec",
             "--ephemeral",
@@ -526,8 +541,8 @@ class CodexCliProvider:
         if self.mode is CodexMode.CODEX_CHATGPT:
             args.extend(["-c", 'model_reasoning_effort="high"'])
         args.extend(["--json", "--output-schema", str(schema_path)])
-        if model:
-            args.extend(["--model", model])
+        if selected_model:
+            args.extend(["--model", selected_model])
         if self.mode is CodexMode.CODEX_LMSTUDIO:
             args.extend(["--oss", "--local-provider", "lmstudio"])
         args.append("-")

@@ -563,6 +563,15 @@ def test_global_pinned_id_collisions_remap_without_lost_beats_or_orphans(
         arcs[0]["event_ids"] = ["pinned-shadow-event", "event-a"]
         claims[0]["id"] = "claim-a"
         claims[0]["event_id"] = "event-a"
+        replacement_beat = events[1]["beat_ids"][0]
+        assert isinstance(replacement_beat, str)
+        replacement_evidence = str(
+            service._connection.execute(
+                "SELECT evidence_id FROM presentation_evidence WHERE node_id=?",
+                (replacement_beat,),
+            ).fetchone()[0]
+        )
+        claims[0]["evidence_ids"] = [replacement_evidence]
         service.apply_draft(_run_and_draft(service, candidate))
         assert next(event for event in service.events() if event.id == "event-a") == pinned
         assert service.claims(event_id="event-a") == pinned_claims
@@ -694,11 +703,22 @@ def test_global_pinned_id_collisions_remap_without_lost_beats_or_orphans(
         assert isinstance(arcs, list) and isinstance(claims, list)
         assert isinstance(arcs[0], dict) and isinstance(arcs[1], dict)
         assert isinstance(claims[0], dict)
+        events = candidate["events"]
+        assert isinstance(events, list) and isinstance(events[2], dict)
+        target_beat_ids = events[2]["beat_ids"]
+        assert isinstance(target_beat_ids, list)
+        target_evidence = str(
+            service._connection.execute(
+                "SELECT evidence_id FROM presentation_evidence WHERE node_id=?",
+                (target_beat_ids[0],),
+            ).fetchone()[0]
+        )
         arcs[0]["id"] = "pinned-shadow-arc"
         arcs[1]["id"] = "arc-a"
         claims[0]["id"] = "claim-a"
         claims[0].pop("event_id")
         claims[0]["arc_id"] = "arc-a"
+        claims[0]["evidence_ids"] = [target_evidence]
         service.apply_draft(_run_and_draft(service, candidate))
         assert next(arc for arc in service.arcs() if arc.id == "arc-a") == pinned
         assert service.events(arc_id="arc-a") == pinned_events
@@ -1056,6 +1076,7 @@ def test_candidate_requires_complete_non_crossing_chronological_coverage(
         explicit_fallback = _candidate(project, suffix="-ungrouped")
         remove_required(explicit_fallback)
         explicit_fallback["ungrouped_beat_ids"] = [required_beat]
+        explicit_fallback["claims"] = []
         draft = _run_and_draft(service, explicit_fallback)
         service.apply_draft(draft)
         assert any(

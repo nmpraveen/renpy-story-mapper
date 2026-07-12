@@ -368,7 +368,7 @@ def _create_project(tmp_path: Path) -> Path:
     return path
 
 
-def test_explicit_model_override_is_applied_before_status_discovery() -> None:
+def test_locked_luna_model_is_applied_before_status_discovery() -> None:
     provider = _PreflightProvider()
     workflow = OrganizationWorkflow(  # type: ignore[arg-type]
         _StopAfterPreflightProject(),
@@ -378,13 +378,13 @@ def test_explicit_model_override_is_applied_before_status_discovery() -> None:
     with pytest.raises(RuntimeError, match="preflight complete"):
         workflow.organize(
             ("scope",),
-            OrganizationOptions(model="explicit-model"),
+            OrganizationOptions(),
             progress=lambda _percent, _status: None,
             cancelled=lambda: False,
             confirm_cloud=lambda _run_id: True,
         )
 
-    assert provider.events == ["override:explicit-model", "status"]
+    assert provider.events == ["override:gpt-5.6-luna", "status"]
 
 
 def test_provider_missing_state_fails_before_project_or_cache_access() -> None:

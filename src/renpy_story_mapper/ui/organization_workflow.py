@@ -30,6 +30,7 @@ from renpy_story_mapper.organization import (
     build_event_chunks,
     validate_result,
 )
+from renpy_story_mapper.organization.cache import build_cache_key
 from renpy_story_mapper.organization.chunking import (
     build_arc_request,
     build_reconciliation_request,
@@ -145,6 +146,13 @@ class OrganizationWorkflow:
         requested_model = options.model.strip() if options.model is not None else None
         if options.model is not None and not requested_model:
             raise ValueError("Explicit model identifier cannot be empty.")
+        if options.mode is CodexMode.CODEX_CHATGPT and (
+            requested_model != M05_CLOUD_MODEL
+            or options.model_profile != M05_REASONING_PROFILE
+        ):
+            raise ValueError(
+                "ChatGPT organization requires GPT-5.6 Luna with High reasoning."
+            )
         run_id = uuid.uuid4().hex
         if options.mode is CodexMode.CODEX_CHATGPT:
             if confirm_cloud is None or not confirm_cloud(run_id):
@@ -231,16 +239,20 @@ class OrganizationWorkflow:
                 cloud_consent_run_id=cloud_consent_run_id,
                 model=requested_model,
             )
-            payload_bytes = json.dumps(
-                request.payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-            ).encode("utf-8")
-            input_hash = hashlib.sha256(payload_bytes).hexdigest()
             # An unresolved provider default is deliberately run-local. Reusing a cache entry
             # without knowing that the effective model still matches would violate the M05
             # cache identity contract.
             cache_model_key = effective_model_identifier or (
                 f"<provider-default-unresolved:{run_id}>"
             )
+            input_hash = build_cache_key(
+                request,
+                provider_mode=options.mode,
+                model_profile=options.model_profile,
+                model_fingerprint=cache_model_key,
+                prompt_version=options.prompt_version,
+                schema_version=options.schema_version,
+            ).input_hash
             identity = service.cache_identity(
                 provider_mode=options.mode.value,
                 model_profile=options.model_profile,
@@ -965,6 +977,24 @@ def _request_member_characters(
     return tuple(sorted(characters))
 
 
+def _request_member_values(
+    request: OrganizationRequest, member_ids: Sequence[str], field: str
+) -> tuple[str, ...]:
+    """Return exact list-valued permissions attached to grouped deterministic beats."""
+    selected = set(member_ids)
+    values: set[str] = set()
+    raw_beats = request.payload.get("beats", [])
+    if not isinstance(raw_beats, list):
+        return ()
+    for value in raw_beats:
+        if not isinstance(value, dict) or value.get("id") not in selected:
+            continue
+        items = value.get(field, [])
+        if isinstance(items, list):
+            values.update(item for item in items if isinstance(item, str))
+    return tuple(sorted(values))
+
+
 def _reconcile_events(
     run_id: str,
     stage_one: Sequence[tuple[OrganizationRequest, OrganizationChunkResult]],
@@ -988,8 +1018,12 @@ def _reconcile_events(
             by_scene[scene].append(
                 replace(
                     _group_event(group, id_prefix=request.chunk_id),
-                    allowed_evidence_ids=tuple(sorted(request.constraints.evidence_ids)),
-                    allowed_fact_ids=tuple(sorted(request.constraints.fact_ids)),
+                    allowed_evidence_ids=_request_member_values(
+                        request, group.member_ids, "evidence_ids"
+                    ),
+                    allowed_fact_ids=_request_member_values(
+                        request, group.member_ids, "fact_ids"
+                    ),
                     allowed_character_names=_request_member_characters(
                         request, group.member_ids
                     ),
@@ -1590,6 +1624,8 @@ def _candidate_payload(
     claims: list[dict[str, object]] = []
     for event in active_events:
         for index, (text, evidence_ids) in enumerate(event.claims):
+            if not set(evidence_ids).issubset(event.allowed_evidence_ids):
+                continue
             claims.append(
                 {
                     "id": _stable_id("event-claim", event.id, str(index), text),
@@ -1601,7 +1637,14 @@ def _candidate_payload(
                 }
             )
     for arc in arcs.groups:
+        arc_allowed_evidence = {
+            evidence
+            for event_id in arc.member_ids
+            for evidence in events_by_id[event_id].allowed_evidence_ids
+        }
         for index, claim in enumerate(arc.claims):
+            if not set(claim.evidence_ids).issubset(arc_allowed_evidence):
+                continue
             claims.append(
                 {
                     "id": _stable_id("arc-claim", arc.id, str(index), claim.text),
@@ -1627,7 +1670,9 @@ def _candidate_payload(
                 ],
                 "importance": event.importance,
                 "outcomes": list(event.outcomes),
-                "promoted_fact_ids": list(event.fact_ids),
+                "promoted_fact_ids": [
+                    fact for fact in event.fact_ids if fact in event.allowed_fact_ids
+                ],
                 "warnings": list(event.warnings),
             }
             for event in active_events
@@ -1651,7 +1696,16 @@ def _candidate_payload(
                 ],
                 "importance": arc.importance,
                 "outcomes": list(arc.outcomes),
-                "promoted_fact_ids": list(arc.promoted_fact_ids),
+                "promoted_fact_ids": [
+                    fact
+                    for fact in arc.promoted_fact_ids
+                    if fact
+                    in {
+                        supported
+                        for event_id in arc.member_ids
+                        for supported in events_by_id[event_id].allowed_fact_ids
+                    }
+                ],
                 "warnings": list(arc.warnings),
             }
             for arc in arcs.groups

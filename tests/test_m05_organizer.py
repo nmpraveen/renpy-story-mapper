@@ -833,7 +833,7 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
     usage = json.dumps(
         {
             "type": "turn.completed",
-            "model": "synthetic-model",
+            "model": "gpt-5.6-luna",
             "usage": {"input_tokens": 123, "output_tokens": 45},
         }
     ).encode()
@@ -886,14 +886,14 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
         "-c",
         'model_reasoning_effort="high"',
     ]
-    assert args[schema_index + 2 :] == ["-"]
+    assert args[schema_index + 2 :] == ["--model", "gpt-5.6-luna", "-"]
     assert Path(process.cwd).name.startswith("renpy-story-organizer-")
     assert not Path(process.cwd).exists()
     assert b"synthetic" in process.stdin
     assert "--output-last-message" not in args
     assert "--enable" not in args
     assert result.metadata is not None
-    assert result.metadata.model_identifier == "synthetic-model"
+    assert result.metadata.model_identifier == "gpt-5.6-luna"
     assert result.metadata.input_tokens == 123
     assert result.metadata.output_tokens == 45
     assert len(result.metadata.input_hash) == 64
@@ -1299,7 +1299,7 @@ def test_chatgpt_status_never_performs_cloud_model_discovery() -> None:
     )
     status = provider.status()
     assert status.state is ProviderState.READY
-    assert status.model_identifier is None
+    assert status.model_identifier == "gpt-5.6-luna"
     assert not called
 
 

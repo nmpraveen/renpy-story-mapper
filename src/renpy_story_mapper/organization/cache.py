@@ -47,9 +47,11 @@ def build_cache_key(
         "scope_id": request.scope_id,
         "payload": request.payload,
         "ordered_member_ids": request.constraints.ordered_member_ids,
+        "required_member_ids": sorted(request.constraints.required_member_ids),
         "context_member_ids": sorted(request.constraints.context_member_ids),
         "fact_ids": sorted(request.constraints.fact_ids),
         "evidence_ids": sorted(request.constraints.evidence_ids),
+        "character_names": sorted(request.constraints.character_names),
     }
     input_hash = hashlib.sha256(
         json.dumps(

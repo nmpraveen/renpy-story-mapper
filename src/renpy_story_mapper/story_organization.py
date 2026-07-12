@@ -1474,6 +1474,7 @@ class StoryOrganizationService:
         required_beats = all_required_beats.intersection(selected_beats)
         used_beats: set[str] = set()
         event_order: dict[str, int] = {}
+        event_beats_by_id: dict[str, tuple[str, ...]] = {}
         event_spans: list[tuple[int, int]] = []
         previous_event_end = -1
         for event_index, event in enumerate(events):
@@ -1520,9 +1521,11 @@ class StoryOrganizationService:
             previous_event_end = positions[-1]
             event_spans.append((positions[0], positions[-1]))
             event_order[cast(str, event["id"])] = event_index
+            event_beats_by_id[cast(str, event["id"])] = tuple(beat_ids)
             used_beats.update(beat_ids)
             self._validate_enrichment(event, beat_ids)
         used_events: set[str] = set()
+        arc_beats_by_id: dict[str, tuple[str, ...]] = {}
         previous_arc_end = -1
         for arc in arcs:
             _require_keys(
@@ -1566,6 +1569,7 @@ class StoryOrganizationService:
                 if event.get("id") == event_id
                 for beat in _string_list(event.get("beat_ids"), "event beat_ids")
             ]
+            arc_beats_by_id[cast(str, arc["id"])] = tuple(arc_beats)
             self._validate_enrichment(arc, arc_beats)
         if used_events != event_ids:
             raise ValueError("every candidate event must belong to exactly one arc")
@@ -1598,9 +1602,32 @@ class StoryOrganizationService:
                 f"{sorted(missing_required)!r}"
             )
         claims = _object_list(candidate.get("claims", []), "claims")
-        evidence_ids = {
-            str(row[0])
-            for row in self._connection.execute("SELECT evidence_id FROM presentation_evidence")
+        evidence_by_beat: dict[str, set[str]] = {}
+        for batch in _chunked(tuple(sorted(used_beats)), 500):
+            placeholders = ",".join("?" for _ in batch)
+            for row in self._connection.execute(
+                f"""SELECT node_id,evidence_id FROM presentation_evidence
+                    WHERE node_id IN ({placeholders})""",
+                batch,
+            ):
+                evidence_by_beat.setdefault(str(row["node_id"]), set()).add(
+                    str(row["evidence_id"])
+                )
+        event_evidence = {
+            event_id: {
+                evidence
+                for beat_id in beat_ids
+                for evidence in evidence_by_beat.get(beat_id, set())
+            }
+            for event_id, beat_ids in event_beats_by_id.items()
+        }
+        arc_evidence = {
+            arc_id: {
+                evidence
+                for beat_id in beat_ids
+                for evidence in evidence_by_beat.get(beat_id, set())
+            }
+            for arc_id, beat_ids in arc_beats_by_id.items()
         }
         claim_ids = _unique_ids(claims, "claims")
         del claim_ids
@@ -1622,8 +1649,15 @@ class StoryOrganizationService:
             if claim.get("kind", "interpretation") not in {"interpretation", "outcome", "warning"}:
                 raise ValueError("claim kind is not supported")
             evidence = _string_list(claim.get("evidence_ids"), "claim evidence_ids")
-            if not evidence or not set(evidence).issubset(evidence_ids):
-                raise ValueError("interpretive claims require existing evidence IDs")
+            target_evidence = (
+                event_evidence[target_event]
+                if isinstance(target_event, str)
+                else arc_evidence[cast(str, target_arc)]
+            )
+            if not evidence or not set(evidence).issubset(target_evidence):
+                raise ValueError(
+                    "interpretive claims require evidence attached to their target"
+                )
 
     def _validate_enrichment(
         self, group: Mapping[str, object], member_beat_ids: Sequence[str]
