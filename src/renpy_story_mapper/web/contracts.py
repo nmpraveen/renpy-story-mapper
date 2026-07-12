@@ -4,10 +4,35 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
-from typing import TypeGuard
+from typing import Final, TypeGuard
 
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+
+# M07 browser-worker integration contract.  These paths and payload field names are
+# deliberately centralized here so the static UI can integrate without duplicating
+# backend routing knowledge.
+M07_API_ROUTES: Final[dict[str, str]] = {
+    "route_map": "/api/v1/m07/route-map",
+    "detail": "/api/v1/m07/detail",
+    "organization": "/api/v1/m07/organization",
+    "prepare": "/api/v1/m07/organization/prepare",
+    "start": "/api/v1/m07/organization/start",
+    "cancel": "/api/v1/m07/organization/cancel",
+    "assembly_apply": "/api/v1/m07/assembly/apply",
+}
+M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit")
+M07_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
+M07_PREPARE_REQUEST_FIELDS: Final = (
+    "scope_ids",
+    "soft_seconds",
+    "hard_seconds",
+    "soft_tokens",
+    "hard_tokens",
+    "hard_calls",
+)
+M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud")
+M07_ASSEMBLY_APPLY_REQUEST_FIELDS: Final = ("assembly_id",)
 
 
 @dataclass(frozen=True)
@@ -85,6 +110,17 @@ def bounded_int(
     body: dict[str, JsonValue], name: str, *, default: int, minimum: int, maximum: int
 ) -> int:
     value = body.get(name, default)
+    if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+        raise ValueError(f"{name} is outside the allowed range")
+    return value
+
+
+def optional_bounded_int(
+    body: dict[str, JsonValue], name: str, *, minimum: int, maximum: int
+) -> int | None:
+    value = body.get(name)
+    if value is None:
+        return None
     if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
         raise ValueError(f"{name} is outside the allowed range")
     return value

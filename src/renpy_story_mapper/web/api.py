@@ -10,6 +10,9 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Literal, Protocol
 
+from renpy_story_mapper.m07_workflow import M07WorkflowService, ProviderFactory
+from renpy_story_mapper.organization.contracts import OrganizationProvider
+from renpy_story_mapper.organization.parallel import BudgetPolicy, ProgressSnapshot, RouteScope
 from renpy_story_mapper.presentation import (
     MAX_RESULTS,
     PresentationLevel,
@@ -26,6 +29,7 @@ from renpy_story_mapper.project import (
 )
 from renpy_story_mapper.story_organization import StoryOrganizationService
 from renpy_story_mapper.web.contracts import (
+    M07_API_ROUTES,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -33,6 +37,7 @@ from renpy_story_mapper.web.contracts import (
     boolean,
     bounded_int,
     json_value,
+    optional_bounded_int,
     optional_string,
     require_string,
     string_tuple,
@@ -81,7 +86,11 @@ class ProjectApi:
     """One-session project facade with serialized cancellable lifecycle work."""
 
     def __init__(
-        self, dialogs: DialogAdapter, *, state_store: UserStateStore | None = None
+        self,
+        dialogs: DialogAdapter,
+        *,
+        state_store: UserStateStore | None = None,
+        m07_provider_factory: ProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -95,6 +104,9 @@ class ProjectApi:
         self._classification_lock = threading.Lock()
         self._unresolved_cache: tuple[Path, str, frozenset[str], frozenset[str]] | None = None
         self._state_store = state_store or UserStateStore()
+        self._m07_provider_factory = m07_provider_factory or _default_m07_provider_factory
+        self._m07_service: M07WorkflowService | None = None
+        self._m07_service_path: Path | None = None
 
     def close(self) -> None:
         self.cancel()
@@ -138,6 +150,7 @@ class ProjectApi:
                     "organization_discard": "/api/v1/organization/discard",
                     "diagnostics": "/api/v1/diagnostics",
                     "shutdown": "/api/v1/shutdown",
+                    "m07": dict(M07_API_ROUTES),
                 },
             }
         if method == "GET" and path == "/api/v1/recent":
@@ -173,6 +186,72 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if method == "POST" and path == M07_API_ROUTES["route_map"]:
+            return json_value(
+                self._m07_workflow().route_map(
+                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
+                    limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                )
+            )
+        if method == "POST" and path == M07_API_ROUTES["detail"]:
+            try:
+                return json_value(self._m07_workflow().detail(require_string(body, "element_id")))
+            except KeyError as exc:
+                raise ApiProblem(
+                    404, "m07_element_not_found", "The route-map element is unavailable."
+                ) from exc
+        if method == "GET" and path == M07_API_ROUTES["organization"]:
+            with self._lock:
+                task = self._task
+            stage = task.stage if task is not None and task.kind == "m07_organization" else "idle"
+            return json_value(self._m07_workflow().status(stage=stage))
+        if method == "POST" and path == M07_API_ROUTES["prepare"]:
+            budget = BudgetPolicy(
+                soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
+                hard_seconds=optional_bounded_int(body, "hard_seconds", minimum=1, maximum=7_200),
+                soft_tokens=optional_bounded_int(
+                    body, "soft_tokens", minimum=1, maximum=20_000_000
+                ),
+                hard_tokens=optional_bounded_int(
+                    body, "hard_tokens", minimum=1, maximum=40_000_000
+                ),
+                hard_calls=optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000),
+            )
+            _validate_budget_order(budget)
+            return json_value(
+                self._m07_workflow().prepare(
+                    scope_ids=string_tuple(body, "scope_ids", maximum_items=10_000),
+                    budget=budget,
+                )
+            )
+        if method == "POST" and path == M07_API_ROUTES["start"]:
+            workflow = self._m07_workflow()
+            prepared = workflow.authorize_start(
+                require_string(body, "run_id"),
+                confirm_cloud=boolean(body, "confirm_cloud"),
+            )
+
+            def run_m07(cancelled: threading.Event) -> None:
+                workflow.run_prepared(
+                    prepared,
+                    cancelled=cancelled.is_set,
+                    progress=self._m07_progress,
+                )
+
+            return self._start(
+                "m07_organization",
+                run_m07,
+            )
+        if method == "POST" and path == M07_API_ROUTES["cancel"]:
+            self.cancel()
+            return {"state": "cancelling"}
+        if method == "POST" and path == M07_API_ROUTES["assembly_apply"]:
+            try:
+                return json_value(self._m07_workflow().apply(require_string(body, "assembly_id")))
+            except KeyError as exc:
+                raise ApiProblem(
+                    404, "m07_assembly_not_found", "The assembly is unavailable."
+                ) from exc
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)
         if method == "POST" and path == "/api/v1/story/search":
@@ -322,6 +401,8 @@ class ProjectApi:
         with self._lock:
             self._project_path = path
             self._source_path = source
+            self._m07_service = None
+            self._m07_service_path = None
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -330,6 +411,8 @@ class ProjectApi:
         with self._lock:
             self._project_path = path
             self._source_path = source
+            self._m07_service = None
+            self._m07_service_path = None
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -345,6 +428,14 @@ class ProjectApi:
         if path is None:
             raise ApiProblem(409, "no_project", "Open a project first.")
         return path
+
+    def _m07_workflow(self) -> M07WorkflowService:
+        path = self._project()
+        with self._lock:
+            if self._m07_service is None or self._m07_service_path != path:
+                self._m07_service = M07WorkflowService(path, self._m07_provider_factory)
+                self._m07_service_path = path
+            return self._m07_service
 
     def _presentation_view(self, body: dict[str, JsonValue]) -> JsonValue:
         raw_level = body.get("level", "arcs")
@@ -590,6 +681,16 @@ class ProjectApi:
         if task is not None and task.kind == "organization":
             self._progress(task.id, task.kind, stage[:120], max(0, min(99, percent)))
 
+    def _m07_progress(self, progress: ProgressSnapshot) -> None:
+        with self._lock:
+            task = self._task
+        if task is not None and task.kind == "m07_organization":
+            completed = (
+                progress.validated + progress.fallback + progress.failed + progress.cancelled
+            )
+            percent = 0 if progress.total == 0 else round(completed * 100 / progress.total)
+            self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
+
 
 def _story_view_node(
     node: PresentationNode,
@@ -619,3 +720,26 @@ def _story_view_node(
         "evidence_count": node.child_count,
         "payload": json_value(node.payload),
     }
+
+
+def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
+    """Import and construct the cloud provider only from a confirmed scheduler worker."""
+
+    from renpy_story_mapper.organization import CodexCliProvider, CodexMode
+
+    return CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+
+def _validate_budget_order(budget: BudgetPolicy) -> None:
+    if (
+        budget.soft_seconds is not None
+        and budget.hard_seconds is not None
+        and budget.soft_seconds > budget.hard_seconds
+    ):
+        raise ValueError("soft_seconds cannot exceed hard_seconds")
+    if (
+        budget.soft_tokens is not None
+        and budget.hard_tokens is not None
+        and budget.soft_tokens > budget.hard_tokens
+    ):
+        raise ValueError("soft_tokens cannot exceed hard_tokens")
