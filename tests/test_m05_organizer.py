@@ -636,6 +636,7 @@ def test_all_packaged_stage_schemas_are_strict_and_self_contained() -> None:
             schema = json.loads(path.read_text(encoding="utf-8"))
         assert schema["additionalProperties"] is False
         assert schema["properties"]["stage"]["const"] == stage.value
+        assert "uniqueItems" not in json.dumps(schema)
         assert "$defs" in schema
         group_properties = schema["$defs"]["group"]["properties"]
         assert group_properties["title"]["minLength"] == 1
@@ -911,14 +912,15 @@ def test_chatgpt_command_explicitly_selects_luna_high_without_fast_mode() -> Non
     ) == 1
 
 
-def test_explicit_cloud_model_requires_matching_reported_metadata() -> None:
+def test_explicit_cloud_model_records_selection_and_rejects_conflicting_metadata() -> None:
     request = replace(_request(), model="gpt-5.6-luna")
     missing_metadata = FakeProcess(_jsonl(_valid_payload()))
-    with pytest.raises(ProviderUnavailableError, match="did not confirm"):
-        CodexCliProvider(
-            CodexMode.CODEX_CHATGPT,
-            process_factory=lambda: missing_metadata,
-        ).organize(request, lambda _percent, _status: None, lambda: False)
+    selected = CodexCliProvider(
+        CodexMode.CODEX_CHATGPT,
+        process_factory=lambda: missing_metadata,
+    ).organize(request, lambda _percent, _status: None, lambda: False)
+    assert selected.metadata is not None
+    assert selected.metadata.model_identifier == "gpt-5.6-luna"
 
     model_event = json.dumps(
         {"type": "turn.completed", "model": "gpt-5.6-luna"}
@@ -930,6 +932,16 @@ def test_explicit_cloud_model_requires_matching_reported_metadata() -> None:
     ).organize(request, lambda _percent, _status: None, lambda: False)
     assert result.metadata is not None
     assert result.metadata.model_identifier == "gpt-5.6-luna"
+
+    conflicting_event = json.dumps(
+        {"type": "turn.completed", "model": "different-model"}
+    ).encode("utf-8")
+    conflicting = FakeProcess(conflicting_event + b"\n" + _jsonl(_valid_payload()))
+    with pytest.raises(ProviderUnavailableError, match="different model"):
+        CodexCliProvider(
+            CodexMode.CODEX_CHATGPT,
+            process_factory=lambda: conflicting,
+        ).organize(request, lambda _percent, _status: None, lambda: False)
 
 
 def test_lmstudio_command_adds_only_locked_local_flags() -> None:

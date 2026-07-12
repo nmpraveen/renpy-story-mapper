@@ -583,10 +583,6 @@ class CodexCliProvider:
                 usage_recorded = False
                 try:
                     raw = self._execute(request, progress, cancelled, repair=repair)
-                    if request.model is not None and self._reported_model != request.model:
-                        raise ProviderUnavailableError(
-                            "The organizer did not confirm the explicitly selected model."
-                        )
                     input_usage.append(self._input_tokens)
                     output_usage.append(self._output_tokens)
                     usage_recorded = True

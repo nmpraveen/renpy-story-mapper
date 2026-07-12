@@ -53,8 +53,9 @@ traceable to, the immutable deterministic M01-M04 foundation.
 - Reopening restores accepted organization, corrections, filters, selection, and navigation without
   analysis or provider calls.
 - Cloud transmission remains blocked until fresh confirmation for that run. Every live acceptance
-  call explicitly uses GPT-5.6 Luna with High reasoning and fast mode disabled; model mismatch or
-  unavailability fails closed without changing the accepted map.
+  call explicitly uses GPT-5.6 Luna with High reasoning and fast mode disabled; unavailability or
+  conflicting reported model metadata fails closed without changing the accepted map. When Codex
+  omits redundant model metadata, the locked CLI model argument remains authoritative.
 - The complex branching fixture is the primary AI acceptance source, and the small readable `.rpy`
   script is the secondary real-script smoke source. LM Studio and full canonical-game AI
   organization are recorded as deferred limitations rather than accepted behavior.

@@ -434,8 +434,9 @@ factual foundation for connectivity, requirements, effects, evidence, and source
 - Every cloud run requires a fresh explicit confirmation before rich story evidence is sent.
 - Every M05 cloud organization request explicitly selects GPT-5.6 Luna (`gpt-5.6-luna`) with High
   reasoning and fast mode disabled. There is no automatic model fallback or user override in the
-  accepted M05 path. Preflight or runtime model mismatch fails closed and is shown as an actionable
-  provider error. Record the requested and reported model identifier and reasoning profile.
+  accepted M05 path. The locked CLI model argument is recorded as authoritative; if the CLI emits
+  model metadata it must match, while an unavailable selection fails at process execution. Record
+  the requested model, any reported identifier, and the reasoning profile.
 - A successful run creates a reviewable draft; it never silently replaces the accepted map.
 - Corrections include rename, split, merge, move, hide, pin, approve, and reject.
 - The generated complex branching fixture is the primary M05 AI acceptance source. The small real
@@ -537,9 +538,11 @@ codex exec
   -
 ```
 
-The provider must verify that structured run metadata reports `gpt-5.6-luna`. A missing model,
-unsupported High-reasoning profile, or different reported model rejects the run without changing
-the accepted organization. It must never fall back to the authenticated default model. LM Studio's
+The provider must invoke `--model gpt-5.6-luna`; any model identifier emitted by structured run
+metadata must match. An unavailable model, unsupported High-reasoning profile, or conflicting
+reported model rejects the run without changing the accepted organization. Codex CLI 0.144 may
+omit redundant model metadata on success, so the locked command argument remains the recorded
+authority. It must never fall back to the authenticated default model. LM Studio's
 `--oss --local-provider lmstudio` path is deferred and unavailable from the M05 interface.
 
 - Stream story input through standard input; do not write prompt files.
@@ -682,7 +685,8 @@ accepted-project opening without provider calls, and cached reruns with zero pro
 
 Validate the real Codex/ChatGPT path first on the generated complex branching fixture through the
 existing login and structured-output path. The command must explicitly select `gpt-5.6-luna`, High
-reasoning, and disabled fast mode; requested and reported metadata must match. After a separate
+reasoning, and disabled fast mode; the command selection and any reported metadata must match.
+After a separate
 fresh confirmation, use `script small new.rpy` as a secondary read-only real-script smoke run.
 Do not use the compiled-only `script smaller version.rpyc`, because M05 does not add decompilation.
 LM Studio and full canonical-game AI organization are deferred rather than silently substituted.
