@@ -1,6 +1,6 @@
 # M07 Goal — Two-Level Route Map and Resumable Parallel AI
 
-Status: Active
+Status: Complete
 
 Baseline: `e24509c` (M06.5 merged through PR #10)
 
@@ -49,4 +49,3 @@ resumable, measurable, and safely partial without weakening deterministic author
 No full MsDenvers cloud rerun without separately confirmed scope/budget, LM Studio product work,
 hosted service, accounts, telemetry, installer, public release, macOS support, game editing, or
 automatic cloud calls.
-

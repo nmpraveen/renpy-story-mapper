@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M06.5 are complete and merged. M07 is the active approved milestone as of
-2026-07-12.
+Status: M01 through M06.5 are complete and merged. M07 is complete on its milestone branch and
+awaiting review of its unmerged pull request as of 2026-07-12.
 
 ## 1. Product goal
 
@@ -891,7 +891,8 @@ Explicit exclusions:
 
 ### M07 - Two-Level Route Map and Resumable Parallel AI
 
-Status: Active and explicitly approved on 2026-07-12.
+Status: Complete on `codex/m07-two-level-route-map` as of 2026-07-12; the milestone pull request
+remains unmerged pending explicit user approval.
 
 Objective: replace the three-level card hierarchy with the two-level Route Map and Detail/Evidence
 experience in Section 4, then make optional story enrichment scope-based, resumable, measurable,
@@ -1012,7 +1013,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute M07 on one milestone branch and PR. Integrate the deterministic two-level Route Map first,
-then the checkpointed parallel AI contracts, then the browser workflow. Complete Windows and
-Chrome verification, independent review, documentation, and the native infographic; publish one
-unmerged PR and stop for explicit approval.
+Review the completed M07 report, native infographic, browser evidence, and unmerged pull request.
+Do not begin another milestone until the user explicitly approves it.
