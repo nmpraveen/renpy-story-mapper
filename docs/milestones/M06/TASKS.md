@@ -13,6 +13,7 @@ analysis.
 | `019f56ee-f096-70a2-8153-4b5bc768eb46` | M06 control-region semantics | Calls/returns, loops, post-dominators, regions, edge roles, persistence contract, fixtures | `codex/m06-control-regions` | In progress |
 | Pending | M06 security, fixtures, and review | Malicious/compatibility fixtures, migration/performance harness, independent review and new tests | `codex/m06-security-review` | Blocked until implementation contracts are available |
 | `019f56ef-a42f-7c92-a30f-e2b4c2b1e73a` | Duplicate control-region task | Accidental duplicate created by delayed worktree setup; no deliverables accepted | Unassigned | Cancelled and archived before integration |
+| `019f56ef-ff5e-7153-99b8-7935a4f0077b` | Duplicate control-region task | Second delayed duplicate from the same worktree-registration race; no deliverables accepted | Unassigned | Cancelled and archived before integration |
 
 ## Coordination rules
 
