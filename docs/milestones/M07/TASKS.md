@@ -12,4 +12,6 @@ Worker rows are added immediately after each user-visible Codex task is created.
 
 | Task ID | Title | Responsibility | Branch/worktree | Status |
 |---|---|---|---|---|
-
+| `019f57a5-dd89-7200-82fc-14afbe602dda` | Deterministic Route Map and durable model | Route projection, pre-AI scopes, checkpoint/coverage contracts, migrations, deterministic assembly, focused tests | `codex/m07-route-model` in dedicated Codex worktree | Active from `76f7a36` |
+| `019f57a5-dd89-7200-82fc-14cb9fa622cc` | Resumable parallel AI orchestration | Eight-to-twelve-worker scheduler, throttling, repair bound, cache, budgets, per-attempt usage, cancellation/resume, mocked tests | `codex/m07-parallel-ai` in dedicated Codex worktree | Active from `76f7a36` |
+| `019f57a5-dd9a-7c42-a842-0aaabd5bd962` | M07 fixtures and acceptance contracts | Route-semantics fixtures, mocked provider timelines, two-level Chrome acceptance harness, new tests only | `codex/m07-fixtures-acceptance` in dedicated Codex worktree | Active from `76f7a36` |
