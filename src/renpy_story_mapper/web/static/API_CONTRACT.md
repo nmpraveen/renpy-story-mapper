@@ -7,7 +7,8 @@ CSRF, Host/Origin checks, request bounds, path redaction, and authoritative stor
 ## Core rules
 
 - Reads include `X-RSM-Session`; mutations also include `X-RSM-CSRF`.
-- Native dialogs return `{selection: {id, kind, display_name}}`. `id` is an opaque, launch-scoped
+- Native dialogs return `{selection_id, kind, display_name}`. `selection_id` is an opaque,
+  launch-scoped
   capability. No browser request or response needs an absolute filesystem path.
 - Presentation responses own node IDs, parentage, order, kinds, edges, facts, and evidence. The
   frontend only lays out the returned bounded page.
@@ -28,8 +29,9 @@ CSRF, Host/Origin checks, request bounds, path redaction, and authoritative stor
 `POST /api/v1/analysis/cancel`, `POST /api/v1/story/view`,
 `POST /api/v1/story/search`, `POST /api/v1/story/evidence`,
 `POST /api/v1/story/facts`, `GET /api/v1/organization/draft`,
-`POST /api/v1/organization/consent`, `POST /api/v1/organization/apply`,
-`POST /api/v1/organization/discard`, and `POST /api/v1/shutdown`.
+`POST /api/v1/organization/consent`, `POST /api/v1/organization/review`,
+`POST /api/v1/organization/apply`, `POST /api/v1/organization/discard`, and
+`POST /api/v1/shutdown`.
 
 The bootstrap response includes `recent_projects`, `settings`, and the server's route manifest.
 `PUT /api/v1/settings` and `GET /api/v1/diagnostics` complete the local view-state and troubleshooting
@@ -37,6 +39,15 @@ flows. Session and CSRF values are injected into the empty packaged meta element
 served; they are never stored in the asset bundle.
 The shutdown mutation is acknowledged before the launcher exits, so Quit does not leave the local
 server running in the background.
+
+Every story-view node includes the backend-owned `unresolved` boolean. The frontend unresolved
+toggle filters only this field and never infers classification from kind text or opaque payloads.
+
+The draft envelope contains pending `drafts`, each draft's raw candidate at `draft.candidate.arcs`
+and `draft.candidate.events`, and persisted decisions at `reviews[draft_id]`. Review mutations send
+exactly `{draft_id, target_kind, target_id, decision}`. Arc member counts use `event_ids`; event
+member counts use `beat_ids`. Candidate rows are paged 40 at a time and Apply remains disabled
+until every candidate across all pages has an explicit persisted approved/rejected decision.
 
 ## Mock contract
 

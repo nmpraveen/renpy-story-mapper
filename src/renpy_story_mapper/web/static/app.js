@@ -8,6 +8,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const params = new URLSearchParams(location.search);
 const mockMode = params.get("mock") === "1";
 const api = mockMode ? new MockApi() : new LocalApi();
+const REVIEW_PAGE_SIZE = 40;
 
 const state = {
   project: null,
@@ -16,6 +17,8 @@ const state = {
   parentIds: [],
   view: null,
   draftId: null,
+  reviewCandidates: [],
+  reviewPage: 0,
   settings: { theme: "system", zoom: 1, include_technical: false, include_unresolved: true, show_requirements: true, show_effects: true },
 };
 
@@ -35,7 +38,7 @@ function normalizeNode(node) {
     evidence_count: node.evidence_count ?? payload.evidence_count ?? 0,
     source: node.source || (node.source_path ? { path: node.source_path, start_line: node.start_line, end_line: node.end_line, basis: payload.line_basis || "physical" } : null),
     facts: Array.isArray(node.facts) ? node.facts : [],
-    unresolved: Boolean(node.unresolved || payload.unresolved),
+    unresolved: node.unresolved === true,
   };
 }
 
@@ -57,6 +60,7 @@ function showView(name) {
   $("#progressView").hidden = name !== "progress";
   $("#workspaceView").hidden = name !== "workspace";
   $("#projectIdentity").hidden = name === "welcome";
+  $("#refreshProject").hidden = name !== "workspace" || !state.project;
 }
 
 function toast(message) {
@@ -101,7 +105,9 @@ async function createFromSource(sourceSelection) {
     const save = await api.chooseSave();
     const target = save?.selection || save;
     if (!target) return;
-    await api.create(sourceId, target.id);
+    const targetId = target.id || target.selection_id;
+    if (!targetId) throw new Error("The project destination is unavailable");
+    await api.create(sourceId, targetId);
     state.project = { id: sourceId, name: sourceSelection.display_name || "New story", organization: "Technical organization" };
     showView("progress");
     await pollProgress();
@@ -120,6 +126,18 @@ async function openSelection(selection, existing) {
   if (result.analysis?.state === "running" || result.task?.state === "running") await pollProgress();
   else await loadView();
   if (existing && mockMode) toast("Project opened locally");
+}
+
+async function refreshProject() {
+  if (!state.project) return;
+  try {
+    const started = await api.refresh();
+    if (started.analysis?.state === "running" || started.task?.state === "running") await pollProgress();
+    else await loadView();
+    toast("Project refreshed locally");
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function pollProgress() {
@@ -317,15 +335,83 @@ function saveSettings() {
 
 async function showReview() {
   try {
-    const draft = await api.draft();
-    const candidate = draft.id ? draft : (draft.drafts || [])[0];
-    if (!candidate) { toast("No organization draft is ready"); return; }
-    state.draftId = candidate.id;
-    $("#reviewMeta").textContent = `${candidate.provider || "Configured provider"} · ${candidate.elapsed || "—"} · ${candidate.cache_hits || 0} cache hits · ${candidate.provider_calls || 0} provider calls`;
-    const host = $("#reviewComparison"); host.replaceChildren();
-    for (const change of candidate.changes || []) { const row = element("div", "review-change"); row.append(element("strong", "", change.type), element("span", "", change.before), element("span", "", "→"), element("span", "", change.after)); host.append(row); }
+    const envelope = await api.draft();
+    const drafts = Array.isArray(envelope.drafts) ? envelope.drafts : [];
+    const draft = drafts.find((item) => item.id === envelope.id) || drafts.find((item) => item.status === "pending") || drafts[0];
+    if (!draft) { toast("No organization draft is ready"); return; }
+    state.draftId = draft.id;
+    state.reviewPage = 0;
+    const persisted = Array.isArray(envelope.reviews?.[draft.id]) ? envelope.reviews[draft.id] : [];
+    const decisions = new Map(persisted.map((review) => [`${review.target_kind}:${review.target_id}`, review.decision]));
+    const arcs = Array.isArray(draft.candidate?.arcs) ? draft.candidate.arcs : [];
+    const events = Array.isArray(draft.candidate?.events) ? draft.candidate.events : [];
+    state.reviewCandidates = [
+      ...arcs.map((group) => ({ ...group, kind: "arc", memberCount: Array.isArray(group.event_ids) ? group.event_ids.length : 0 })),
+      ...events.map((group) => ({ ...group, kind: "event", memberCount: Array.isArray(group.beat_ids) ? group.beat_ids.length : 0 })),
+    ].map((group) => ({
+      id: group.id,
+      kind: group.kind,
+      title: group.title || "Untitled candidate",
+      summary: group.summary || "",
+      memberCount: group.memberCount,
+      decision: ["approved", "rejected"].includes(decisions.get(`${group.kind}:${group.id}`)) ? decisions.get(`${group.kind}:${group.id}`) : null,
+    })).filter((group) => group.id);
+    $("#reviewMeta").textContent = `${draft.provider || "Configured provider"} · ${draft.elapsed || "—"} · ${draft.cache_hits || 0} cache hits · ${draft.provider_calls || 0} provider calls`;
+    renderReviewCandidates();
     $("#reviewDialog").showModal();
   } catch (error) { toast(error.message); }
+}
+
+function renderReviewCandidates() {
+  const candidates = state.reviewCandidates;
+  const decided = candidates.filter((candidate) => candidate.decision === "approved" || candidate.decision === "rejected").length;
+  const pages = Math.max(1, Math.ceil(candidates.length / REVIEW_PAGE_SIZE));
+  state.reviewPage = Math.min(state.reviewPage, pages - 1);
+  const start = state.reviewPage * REVIEW_PAGE_SIZE;
+  const visible = candidates.slice(start, start + REVIEW_PAGE_SIZE);
+  $("#reviewProgress").textContent = `${decided} decided · ${candidates.length - decided} remaining · ${candidates.length} candidates`;
+  $("#reviewPage").textContent = `Page ${state.reviewPage + 1} of ${pages}`;
+  $("#reviewPrevious").disabled = state.reviewPage === 0;
+  $("#reviewNext").disabled = state.reviewPage >= pages - 1;
+  $("#applyDraft").disabled = candidates.length === 0 || decided !== candidates.length;
+  const host = $("#reviewComparison");
+  host.replaceChildren();
+  for (const candidate of visible) {
+    const row = element("article", "review-change");
+    row.dataset.candidateId = candidate.id;
+    row.append(element("strong", "", candidate.kind));
+    const copy = element("div", "review-copy");
+    copy.append(element("h3", "", candidate.title), element("p", "", candidate.summary), element("span", "", `${candidate.memberCount} members`));
+    const actions = element("div", "review-decisions");
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", `Decision for ${candidate.title}`);
+    for (const [decision, label] of [["approved", "Approve"], ["rejected", "Reject"]]) {
+      const button = element("button", "secondary-button", label);
+      button.type = "button";
+      button.dataset.decision = decision;
+      button.setAttribute("aria-pressed", String(candidate.decision === decision));
+      button.addEventListener("click", () => reviewCandidate(candidate.id, candidate.kind, decision));
+      actions.append(button);
+    }
+    row.append(copy, actions);
+    host.append(row);
+  }
+  if (!visible.length) host.append(element("p", "inspector-empty", "No candidate groups are available."));
+}
+
+async function reviewCandidate(targetId, targetKind, decision) {
+  const candidate = state.reviewCandidates.find((item) => item.id === targetId && item.kind === targetKind);
+  if (!candidate || !state.draftId) return;
+  if (candidate.decision === decision) return;
+  try {
+    const response = await api.reviewDraftGroup(state.draftId, targetKind, targetId, decision);
+    if (response.decision !== "approved" && response.decision !== "rejected") throw new Error("The review decision was not persisted");
+    candidate.decision = response.decision;
+    renderReviewCandidates();
+    $("#reviewComparison").querySelector(`[data-candidate-id="${CSS.escape(targetId)}"] [data-decision="${CSS.escape(response.decision)}"]`)?.focus();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function showDiagnostics() {
@@ -340,6 +426,7 @@ async function showDiagnostics() {
 function bind() {
   $$('[data-open-kind]').forEach((button) => button.addEventListener("click", () => choose(button.dataset.openKind)));
   $("#homeButton").addEventListener("click", () => showView("welcome"));
+  $("#refreshProject").addEventListener("click", refreshProject);
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancel(); await pollProgress(); });
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   const toggles = [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"], ["requirementsToggle", "show_requirements"], ["effectsToggle", "show_effects"]];
@@ -359,7 +446,14 @@ function bind() {
     }
   });
   $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
-  $("#applyDraft").addEventListener("click", async () => { await api.applyDraft(state.draftId); $("#reviewDialog").close(); toast("Draft applied atomically"); });
+  $("#reviewPrevious").addEventListener("click", () => { state.reviewPage -= 1; renderReviewCandidates(); });
+  $("#reviewNext").addEventListener("click", () => { state.reviewPage += 1; renderReviewCandidates(); });
+  $("#applyDraft").addEventListener("click", async () => {
+    if (!state.reviewCandidates.length || state.reviewCandidates.some((candidate) => candidate.decision !== "approved" && candidate.decision !== "rejected")) return;
+    await api.applyDraft(state.draftId);
+    $("#reviewDialog").close();
+    toast("Draft applied atomically");
+  });
   $("#discardDraft").addEventListener("click", async () => { await api.discardDraft(state.draftId); $("#reviewDialog").close(); toast("Draft discarded"); });
   $("#diagnosticsButton").addEventListener("click", showDiagnostics);
   $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
@@ -391,8 +485,11 @@ function bind() {
 async function acceptanceScenario() {
   const scenario = params.get("state");
   if (!mockMode || !scenario || scenario === "welcome") return;
-  await openSelection({ id: "opaque-project", display_name: "The Lantern House" }, true);
-  if (scenario === "events" || scenario === "evidence" || scenario === "review") await openNode(state.view.nodes[0]);
+  if (scenario === "review-pages") api.largeReview = true;
+  if (scenario === "create") await choose("folder");
+  else await openSelection({ id: "opaque-project", display_name: "The Lantern House" }, true);
+  if (scenario === "refresh") await refreshProject();
+  if (["events", "evidence", "review", "review-pages"].includes(scenario)) await openNode(state.view.nodes[0]);
   if (scenario === "events") {
     $("#mapViewport").focus();
     $("#mapViewport").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -402,13 +499,33 @@ async function acceptanceScenario() {
     await selectNode(state.view.nodes[0], true);
     activateTab("evidence");
   }
-  if (scenario === "review") await showReview();
+  if (scenario === "review" || scenario === "review-pages") {
+    await showReview();
+    document.body.dataset.applyInitiallyDisabled = String($("#applyDraft").disabled);
+    for (const [index, candidate] of state.reviewCandidates.entries()) {
+      if (!candidate.decision) await reviewCandidate(candidate.id, candidate.kind, index % 2 ? "rejected" : "approved");
+    }
+    if (scenario === "review-pages") {
+      state.reviewPage = Math.ceil(state.reviewCandidates.length / REVIEW_PAGE_SIZE) - 1;
+      renderReviewCandidates();
+    }
+    document.body.dataset.applyEnabled = String(!$("#applyDraft").disabled);
+  }
   if (scenario === "progress") { showView("progress"); updateProgress({ stage: "Indexing story evidence", percent: 47, elapsed_seconds: 12 }); }
   if (params.get("zoom") === "200") document.documentElement.dataset.zoom = "200";
   document.body.dataset.keyboardSelected = graph.selectedId || "";
   document.body.dataset.visibleItems = String((state.view?.nodes.length || 0) + (state.view?.edges.length || 0));
   document.body.dataset.exactEvidence = $("#panel-evidence [data-evidence-id]")?.dataset.evidenceId || "";
   document.body.dataset.organizationStarts = String(api.calls?.filter((call) => call.name === "organizationConsent").length || 0);
+  const createCall = api.calls?.find((call) => call.name === "create");
+  document.body.dataset.createProjectSelection = createCall?.payload.projectSelectionId || "";
+  document.body.dataset.refreshCalls = String(api.calls?.filter((call) => call.name === "refresh").length || 0);
+  const reviewCalls = api.calls?.filter((call) => call.name === "reviewDraftGroup") || [];
+  document.body.dataset.reviewCalls = String(reviewCalls.length);
+  document.body.dataset.reviewRequestKeys = reviewCalls[0] ? Object.keys(reviewCalls[0].payload).sort().join(",") : "";
+  document.body.dataset.reviewRows = String($("#reviewComparison").children.length);
+  document.body.dataset.reviewCandidates = String(state.reviewCandidates.length);
+  document.body.dataset.refreshVisible = String(!$("#refreshProject").hidden);
   document.body.dataset.acceptanceReady = "true";
 }
 

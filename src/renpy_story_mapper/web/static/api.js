@@ -41,6 +41,7 @@ export class LocalApi {
   chooseSave() { return this.request(ENDPOINTS.nativePicker, { method: "POST", body: { kind: "project_save" } }); }
   open(selectionId) { return this.request(ENDPOINTS.projectsOpen, { method: "POST", body: { selection_id: selectionId } }); }
   create(sourceSelectionId, projectSelectionId) { return this.request(ENDPOINTS.projectsCreate, { method: "POST", body: { source_selection_id: sourceSelectionId, project_selection_id: projectSelectionId } }); }
+  refresh() { return this.request(ENDPOINTS.projectsRefresh, { method: "POST", body: {} }); }
   progress() { return this.request(ENDPOINTS.analysisProgress); }
   cancel() { return this.request(ENDPOINTS.analysisCancel, { method: "POST", body: {} }); }
   async view(request) {
@@ -53,6 +54,7 @@ export class LocalApi {
   saveSettings(settings) { return this.request(ENDPOINTS.settings, { method: "PUT", body: settings }); }
   consent(scopeIds) { return this.request(ENDPOINTS.organizationConsent, { method: "POST", body: { scope_ids: scopeIds, consent: true } }); }
   draft() { return this.request(ENDPOINTS.organizationDraft); }
+  reviewDraftGroup(draftId, targetKind, targetId, decision) { return this.request(ENDPOINTS.organizationReview, { method: "POST", body: { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision } }); }
   applyDraft(draftId) { return this.request(ENDPOINTS.organizationApply, { method: "POST", body: { draft_id: draftId } }); }
   discardDraft(draftId) { return this.request(ENDPOINTS.organizationDiscard, { method: "POST", body: { draft_id: draftId } }); }
   diagnostics() { return this.request(ENDPOINTS.diagnostics); }

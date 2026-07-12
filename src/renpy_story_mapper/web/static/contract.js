@@ -22,6 +22,7 @@ export const ENDPOINTS = Object.freeze({
   settings: "/api/v1/settings",
   organizationConsent: "/api/v1/organization/consent",
   organizationDraft: "/api/v1/organization/draft",
+  organizationReview: "/api/v1/organization/review",
   organizationApply: "/api/v1/organization/apply",
   organizationDiscard: "/api/v1/organization/discard",
   diagnostics: "/api/v1/diagnostics",

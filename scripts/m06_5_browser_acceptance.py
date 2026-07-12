@@ -30,9 +30,12 @@ CHROME_CANDIDATES: Final = (
 )
 STATES: Final = (
     ("welcome", 100),
+    ("create", 100),
+    ("refresh", 100),
     ("events", 100),
     ("evidence", 100),
     ("review", 100),
+    ("review-pages", 100),
     ("progress", 100),
     ("events", 200),
 )
@@ -141,6 +144,26 @@ def run(output: Path, *, browser: Path | None = None) -> dict[str, object]:
                     raise AssertionError("Exact evidence traversal did not complete")
                 if markers.get("organization-starts", "0") != "0":
                     raise AssertionError(f"Implicit organization request observed for {name}")
+                create_selection = markers.get("create-project-selection")
+                if state == "create" and create_selection != "opaque-project-save":
+                    raise AssertionError("Production-shaped save selection was not sent to create")
+                if state == "refresh" and markers.get("refresh-calls") != "1":
+                    raise AssertionError("Refresh did not invoke the typed API exactly once")
+                if state in {"create", "refresh"} and markers.get("refresh-visible") != "true":
+                    raise AssertionError("Refresh was not reachable for the open project")
+                if state in {"review", "review-pages"}:
+                    apply_gated = markers.get("apply-initially-disabled") == "true"
+                    apply_enabled = markers.get("apply-enabled") == "true"
+                    if not apply_gated or not apply_enabled:
+                        raise AssertionError("Draft apply gating did not track explicit decisions")
+                    expected_keys = "decision,draft_id,target_id,target_kind"
+                    if markers.get("review-request-keys") != expected_keys:
+                        raise AssertionError("Draft review request did not match production shape")
+                if state == "review-pages":
+                    if int(markers.get("review-candidates", "0")) != 85:
+                        raise AssertionError("Multipage review did not retain every candidate")
+                    if int(markers.get("review-rows", "0")) > 40:
+                        raise AssertionError("Multipage review exceeded the DOM row bound")
                 if not screenshot.is_file() or screenshot.stat().st_size < 10_000:
                     raise AssertionError(f"Browser screenshot was not produced for {name}")
                 captures[name] = {
@@ -152,6 +175,11 @@ def run(output: Path, *, browser: Path | None = None) -> dict[str, object]:
                     "keyboard_selected": markers.get("keyboard-selected", ""),
                     "exact_evidence": markers.get("exact-evidence", ""),
                     "organization_starts": int(markers.get("organization-starts", "0")),
+                    "create_project_selection": markers.get("create-project-selection", ""),
+                    "refresh_calls": int(markers.get("refresh-calls", "0")),
+                    "review_calls": int(markers.get("review-calls", "0")),
+                    "review_rows": int(markers.get("review-rows", "0")),
+                    "review_candidates": int(markers.get("review-candidates", "0")),
                 }
     finally:
         server.shutdown()

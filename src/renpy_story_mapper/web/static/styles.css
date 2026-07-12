@@ -172,8 +172,16 @@ dialog::backdrop { background: rgb(10 18 17 / 58%); backdrop-filter: blur(3px); 
 .consent-facts span { color: var(--muted); }
 .review-card { width: min(50rem, calc(100vw - 2rem)); }
 .review-meta { margin: 1rem 0; color: var(--muted); font: .72rem Consolas, monospace; }
-.review-change { display: grid; grid-template-columns: 7rem 1fr 1.3rem 1fr; gap: .75rem; align-items: center; border-top: 1px solid var(--line); padding: .8rem 0; }
+.review-progress { margin-bottom: .65rem; color: var(--muted); font: .72rem Consolas, monospace; }
+.review-change { display: grid; grid-template-columns: 6rem minmax(0, 1fr) auto; gap: .75rem; align-items: center; border-top: 1px solid var(--line); padding: .8rem 0; }
 .review-change strong { color: var(--flow); font-size: .72rem; text-transform: uppercase; }
+.review-copy h3 { margin: 0 0 .25rem; font: 700 1rem Cambria, Georgia, serif; }
+.review-copy p { margin: 0; color: var(--muted); font-size: .78rem; }
+.review-copy span { display: block; margin-top: .35rem; font: .68rem Consolas, monospace; color: var(--muted); }
+.review-decisions { display: flex; gap: .35rem; }
+.review-decisions button[aria-pressed="true"] { border-color: var(--flow); background: var(--flow); color: #fff; }
+.review-pager { display: flex; align-items: center; justify-content: center; gap: .75rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+.review-pager span { font: .72rem Consolas, monospace; }
 .diagnostics-card { width: min(42rem, calc(100vw - 2rem)); }
 .diagnostic-row { display: grid; grid-template-columns: 10rem 1fr; border-top: 1px solid var(--line); padding: .65rem 0; font-family: Consolas, monospace; font-size: .75rem; }
 .toast { position: fixed; z-index: 120; left: 50%; bottom: 1.5rem; translate: -50% 0; background: var(--ink); color: var(--paper-raised); box-shadow: var(--shadow); padding: .7rem 1rem; }

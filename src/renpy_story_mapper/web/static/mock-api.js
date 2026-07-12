@@ -51,9 +51,10 @@ export class MockApi {
       settings: { theme: "system", zoom: 1, include_technical: false, include_unresolved: true, show_requirements: true, show_effects: true },
     };
   }
-  async pick(kind) { this.record("pick", { kind }); return { selection_id: `opaque-${kind}`, display_name: kind === "folder" ? "The Lantern House" : "Selected story" }; }
-  async chooseSave() { this.record("chooseSave"); return { selection: { id: "opaque-project-save", kind: "project_save", display_name: "The Lantern House.rsmproj" } }; }
+  async pick(kind) { this.record("pick", { kind }); return { selection_id: `opaque-${kind}`, display_name: kind === "folder" ? "The Lantern House" : "Selected story", kind }; }
+  async chooseSave() { this.record("chooseSave"); return { selection_id: "opaque-project-save", kind: "project_save", display_name: "The Lantern House.rsmproj" }; }
   async create(sourceSelectionId, projectSelectionId) { this.record("create", { sourceSelectionId, projectSelectionId }); return { task: { id: "analysis-demo", state: "running" } }; }
+  async refresh() { this.record("refresh"); return { analysis: { id: "refresh-demo", state: "running" } }; }
   async open(selectionId) { this.record("open", { selectionId }); return { project: { id: "project-demo", name: "The Lantern House", organization: "Technical organization", level: "arcs" }, analysis: { id: "analysis-demo", state: "running" } }; }
   async progress() { this.record("progress"); return { state: this.cancelled ? "cancelled" : "complete", stage: this.cancelled ? "Cancelled safely" : "Presentation index ready", percent: this.cancelled ? 47 : 100, elapsed_seconds: 8 }; }
   async cancel() { this.record("cancel"); this.cancelled = true; return { state: "cancelled" }; }
@@ -61,7 +62,7 @@ export class MockApi {
     this.record("view", request); this.level = request.level;
     let nodes = nodesFor(request.level);
     if (!request.include_technical) nodes = nodes.filter((node) => !node.technical);
-    if (!request.include_unresolved) nodes = nodes.filter((node) => !node.unresolved);
+    if (request.include_unresolved === false) nodes = nodes.filter((node) => !node.unresolved);
     const query = String(request.query || "").toLocaleLowerCase();
     if (query) nodes = nodes.filter((node) => `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query));
     return assertBoundedView({ level: request.level, nodes, edges: edgesFor(nodes), overflow: request.level === "events" ? { nodes_total: 318, edges_total: 442, message: "Showing a bounded slice: 14 of 318 nodes" } : null, selected_id: request.selected_id || null });
@@ -75,7 +76,13 @@ export class MockApi {
   async saveSettings(settings) { this.record("saveSettings", settings); return { settings }; }
   async consent(scopeIds) { this.record("organizationConsent", { scopeIds }); return { draft_id: "draft-demo", status: "review_ready" }; }
   async organization() { this.record("organization"); return this.draft(); }
-  async draft() { this.record("draft"); return { id: "draft-demo", provider: "Codex · GPT-5.6 Luna · High", elapsed: "01:42", cache_hits: 12, provider_calls: 0, changes: [{ type: "Renamed", before: "Label start", after: "The Arrival" }, { type: "Grouped", before: "7 technical events", after: "Night Crossing" }, { type: "Unchanged", before: "4 authoritative endings", after: "4 authoritative endings" }] }; }
+  async draft() {
+    this.record("draft");
+    const arcs = this.largeReview ? Array.from({ length: 8 }, (_, index) => ({ id: `arc-${index + 1}`, title: `Arc ${index + 1}`, summary: "Evidence-backed arc candidate.", event_ids: [`event-${index + 1}`] })) : [{ id: "arc-arrival", title: "The Arrival", summary: "The investigation begins and opens the first route.", event_ids: ["event-crossing", "event-ending"] }];
+    const events = this.largeReview ? Array.from({ length: 77 }, (_, index) => ({ id: `event-${index + 1}`, title: `Event ${index + 1}`, summary: "Evidence-backed event candidate.", beat_ids: [`beat-${index + 1}`] })) : [{ id: "event-crossing", title: "Night Crossing", summary: "Seven technical beats form one evidence-backed event.", beat_ids: ["b1", "b2", "b3", "b4", "b5", "b6", "b7"] }, { id: "event-ending", title: "Four Endings", summary: "The authoritative terminal outcomes remain distinct.", beat_ids: ["ending-1", "ending-2", "ending-3", "ending-4"] }];
+    return { id: "draft-demo", drafts: [{ id: "draft-demo", provider: "Codex / GPT-5.6 Luna / High", elapsed: "01:42", cache_hits: 12, provider_calls: 0, candidate: { arcs, events } }], reviews: { "draft-demo": this.largeReview ? [] : [{ target_kind: "event", target_id: "event-crossing", decision: "approved" }] } };
+  }
+  async reviewDraftGroup(draftId, targetKind, targetId, decision) { this.record("reviewDraftGroup", { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision }); return { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision }; }
   async applyDraft(draftId) { this.record("applyDraft", { draftId }); return { status: "accepted" }; }
   async discardDraft(draftId) { this.record("discardDraft", { draftId }); return { status: "discarded" }; }
   async diagnostics() { this.record("diagnostics"); return { version: "0.1.0", project_schema: 5, browser_api: "v1", provider_requests_on_open: this.calls.filter((call) => call.name === "organizationConsent").length, messages: ["Presentation index loaded", "Rendering limited to 240 items", "No remote requests observed"] }; }

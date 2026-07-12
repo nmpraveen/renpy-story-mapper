@@ -73,6 +73,7 @@
             <input id="searchInput" type="search" autocomplete="off" placeholder="Search story  /" aria-keyshortcuts="/">
           </label>
           <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">Filter</button>
+          <button id="refreshProject" class="quiet-button" type="button" hidden>Refresh</button>
           <button id="organizeButton" class="accent-button" type="button">Organize Story</button>
           <div id="filterPanel" class="popover" hidden>
             <label><input id="technicalToggle" type="checkbox"> Technical items</label>
@@ -147,8 +148,10 @@
       <div class="dialog-card review-card">
         <header><div><p class="eyebrow">Organization draft</p><h2 id="reviewTitle">Review proposed structure</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header>
         <div id="reviewMeta" class="review-meta"></div>
+        <div id="reviewProgress" class="review-progress" role="status" aria-live="polite"></div>
         <div id="reviewComparison" class="review-comparison"></div>
-        <footer class="dialog-actions"><button id="discardDraft" class="secondary-button" type="button">Discard Draft</button><button id="applyDraft" class="accent-button" type="button">Apply Draft</button></footer>
+        <nav id="reviewPager" class="review-pager" aria-label="Draft candidate pages"><button id="reviewPrevious" class="secondary-button" type="button">Previous</button><span id="reviewPage"></span><button id="reviewNext" class="secondary-button" type="button">Next</button></nav>
+        <footer class="dialog-actions"><button id="discardDraft" class="secondary-button" type="button">Discard Draft</button><button id="applyDraft" class="accent-button" type="button" disabled>Apply Draft</button></footer>
       </div>
     </dialog>
 

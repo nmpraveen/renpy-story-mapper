@@ -2,13 +2,13 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "65d4aee19100cb00d7afc76559634fa1e2dc4dc05a913cc84af21ee88cca08b2",
-    "api.js": "084d16b9889ecc2caa39e8bd3ab799a53e50d8201a6846bf0dfca51eded58596",
-    "app.js": "442ffb7127b86e9e75a1ec5cfa02ee2d20f7f215d8575273c4a587ec1cb13e09",
-    "contract.js": "01a22c5e31948433b5bb7ca8ee2b245492469d833fce8afa2255fc0158847fd2",
+    "API_CONTRACT.md": "c4bdb091e57b3242d47d84bd9816961afcd7f8b03f3382553e32096a2a5bcb40",
+    "api.js": "447ee54bd778302320e8f2f28e4a3def751d710a389bfb2d7a1c1113161f8957",
+    "app.js": "a7341c3757fa358d013b3948d03412bc2e89406834dcb3c38a3cdd3850e3c486",
+    "contract.js": "af3152237b7eb31016dfb6cfc0a94411486f795a9936ddf415f6f233963494d3",
     "graph.js": "4b4850c4221b93f77c45c0aba4ad6a02352c24cb7fe3da0b774edaffea3564b5",
-    "index.html": "4681ae30abb1f984dbba77dd8d3699b7a77db95e18c1ffa88e0041c5a1188b4a",
-    "mock-api.js": "8400e6656526e29712d5a03a20698163f6030a3ea96794c05c150dfd82befbc3",
-    "styles.css": "4493cb1025375184afd2f154170df2c2d8f50ee546c30833ee0652fc2d13044d"
+    "index.html": "3a8c3e63b498e6789eb50489610d2bee6ce983cc4a8b24d337d0e2444efa7eef",
+    "mock-api.js": "f9e71dee9aa8f838f7276d381433768a09eb37f998e01e02b9b3c4c9577ce93e",
+    "styles.css": "c87c9583598f7c918b0c47c4c52b07927d566389e513e6d4203c426e33c5a199"
   }
 }

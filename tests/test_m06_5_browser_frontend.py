@@ -62,6 +62,7 @@ def test_routes_are_versioned_and_centralized() -> None:
         "story/facts",
         "organization/apply",
         "organization/discard",
+        "organization/review",
     )
     for route in routes:
         assert route in contract
@@ -102,6 +103,45 @@ def test_organization_is_never_implicit() -> None:
     assert "api.consent(" in app
     assert app.index("api.consent(") > app.index('$("#confirmOrganization").addEventListener')
     assert "organizationConsent" in _text("contract.js")
+
+
+def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
+    app = _text("app.js")
+    api = _text("api.js")
+    mock = _text("mock-api.js")
+    html = _text("index.html")
+    assert "target.id || target.selection_id" in app
+    assert 'selection_id: "opaque-project-save"' in mock
+    assert "refresh()" in api and "ENDPOINTS.projectsRefresh" in api
+    assert 'id="refreshProject"' in html and ">Refresh</button>" in html
+    assert '$("#refreshProject").addEventListener("click", refreshProject)' in app
+    assert "await pollProgress()" in app
+
+
+def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
+    app = _text("app.js")
+    mock = _text("mock-api.js")
+    assert "unresolved: node.unresolved === true" in app
+    assert "payload.unresolved" not in app
+    assert "if (!state.settings.include_unresolved)" in app
+    assert "unresolved: index % 11 === 7" in mock
+
+
+def test_production_review_shape_decisions_and_pagination_are_explicit() -> None:
+    app = _text("app.js")
+    api = _text("api.js")
+    mock = _text("mock-api.js")
+    html = _text("index.html")
+    assert "draft.candidate?.arcs" in app and "draft.candidate?.events" in app
+    assert "envelope.reviews?.[draft.id]" in app
+    assert "group.event_ids" in app and "group.beat_ids" in app
+    assert "target_kind: targetKind" in api and "target_id: targetId" in api
+    assert "draft_id: draftId" in api and "decision" in api
+    assert "REVIEW_PAGE_SIZE = 40" in app
+    assert ".slice(start, start + REVIEW_PAGE_SIZE)" in app
+    assert 'id="applyDraft"' in html and "disabled>Apply Draft" in html
+    assert "candidate.decision" in app and "api.reviewDraftGroup" in app
+    assert "candidate: { arcs, events }" in mock and 'reviews: { "draft-demo"' in mock
 
 
 def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
