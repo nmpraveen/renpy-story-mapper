@@ -8,12 +8,15 @@ for every call.  No creator expression is evaluated and no target is guessed.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
+
+from renpy_story_mapper.state import FactStatus, Requirement, StateEffect
 
 CONTROL_FLOW_SCHEMA_VERSION = 1
 VIRTUAL_EXIT_ID = "__control_virtual_super_exit__"
@@ -153,6 +156,37 @@ class LoopSummary:
 
 
 @dataclass(frozen=True, order=True)
+class StateRead:
+    variable: str
+    expression: str
+    node_id: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "variable": self.variable,
+            "expression": self.expression,
+            "node_id": self.node_id,
+        }
+
+
+@dataclass(frozen=True, order=True)
+class StateWrite:
+    variable: str
+    value_key: str
+    expression: str
+    node_id: str
+    value: object
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "variable": self.variable,
+            "value": self.value,
+            "expression": self.expression,
+            "node_id": self.node_id,
+        }
+
+
+@dataclass(frozen=True, order=True)
 class ControlArm:
     id: str
     region_id: str
@@ -162,6 +196,8 @@ class ControlArm:
     node_ids: tuple[str, ...]
     terminal_node_ids: tuple[str, ...]
     unresolved: bool
+    state_reads: tuple[StateRead, ...] = ()
+    state_writes: tuple[StateWrite, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -173,6 +209,8 @@ class ControlArm:
             "node_ids": list(self.node_ids),
             "terminal_node_ids": list(self.terminal_node_ids),
             "unresolved": self.unresolved,
+            "state_reads": [item.to_dict() for item in self.state_reads],
+            "state_writes": [item.to_dict() for item in self.state_writes],
         }
 
 
@@ -294,7 +332,6 @@ def analyze_control_flow(
 ) -> ControlFlowAnalysis:
     """Build deterministic call, loop, post-dominator, and control-region facts."""
 
-    del gates, effects  # Facts never override concrete control-flow reconvergence.
     raw_nodes = _read_records(graph.get("nodes"), "graph.nodes")
     raw_edges = _read_records(graph.get("edges"), "graph.edges")
     _validate_semantic_story(semantic_story)
@@ -315,10 +352,30 @@ def analyze_control_flow(
     loops, edges = _loops(nodes, edges, adjacency)
     adjacency = _adjacency(nodes, edges)
     ipdom, postdom_diagnostics = _post_dominators(nodes, adjacency, {item[0] for item in terminals})
-    arms, regions = _regions(nodes, edges, adjacency, terminals, loops, ipdom)
+    state_reads, state_writes = _state_lineage_facts(gates, effects, nodes)
+    arms, regions = _regions(
+        nodes,
+        edges,
+        adjacency,
+        terminals,
+        loops,
+        ipdom,
+        state_reads,
+        state_writes,
+    )
     regions = _region_parents(regions)
     ownership = _ownership(arms, regions)
     diagnostics = [*postdom_diagnostics]
+    for loop in loops:
+        if loop.irreducible:
+            diagnostics.append(
+                ControlDiagnostic(
+                    _stable_id("diag", "irreducible_loop", loop.id),
+                    "irreducible_loop",
+                    loop.node_ids,
+                    "Multi-entry SCC is unstructured; no natural back-edge is asserted.",
+                )
+            )
     for procedure in procedures:
         if procedure.unresolved:
             diagnostics.append(
@@ -863,7 +920,9 @@ def _loops(
             exits[component].append(edge.id)
     back_ids: set[str] = set()
     for component in components:
-        back_ids.update(_component_back_edges(component, adjacency, edges))
+        entries = tuple(sorted(incoming_outside[component]))
+        if len(entries) == 1:
+            back_ids.update(_natural_back_edges(component, entries[0], adjacency, edges))
     rewritten: list[ControlEdge] = []
     for edge in edges:
         source_component = component_by_node.get(edge.source)
@@ -902,41 +961,64 @@ def _loops(
     return summaries, rewritten
 
 
-def _component_back_edges(
+def _natural_back_edges(
     component: tuple[str, ...],
+    entry: str,
     adjacency: Mapping[str, Sequence[str]],
     edges: Sequence[ControlEdge],
 ) -> set[str]:
-    """Return DFS ancestor edges using a deterministic iterative traversal."""
+    """Return internal edges whose target dominates their source."""
 
     members = set(component)
-    edge_lookup = {
-        (edge.source, edge.target): edge.id
-        for edge in edges
-        if edge.source in members and edge.target in members
+    local_adjacency = {
+        node: tuple(target for target in adjacency[node] if target in members) for node in component
     }
-    colour: dict[str, int] = {}
-    result: set[str] = set()
-    for root in component:
-        if colour.get(root, 0) != 0:
-            continue
-        colour[root] = 1
-        stack: list[tuple[str, int]] = [(root, 0)]
-        while stack:
-            node, offset = stack[-1]
-            targets = [target for target in adjacency[node] if target in members]
-            if offset >= len(targets):
-                colour[node] = 2
-                stack.pop()
+    idom = _immediate_dominators(entry, local_adjacency)
+    return {
+        edge.id
+        for edge in edges
+        if edge.source in members
+        and edge.target in members
+        and _dominates(edge.target, edge.source, idom)
+    }
+
+
+def _immediate_dominators(entry: str, adjacency: Mapping[str, Sequence[str]]) -> dict[str, str]:
+    order = _reverse_postorder(entry, adjacency)
+    position = {node: index for index, node in enumerate(order)}
+    predecessors: dict[str, list[str]] = defaultdict(list)
+    for source, targets in adjacency.items():
+        for target in targets:
+            predecessors[target].append(source)
+    idom = {entry: entry}
+    changed = True
+    while changed:
+        changed = False
+        for node in order[1:]:
+            known = [parent for parent in predecessors[node] if parent in idom]
+            if not known:
                 continue
-            target = targets[offset]
-            stack[-1] = (node, offset + 1)
-            if colour.get(target, 0) == 0:
-                colour[target] = 1
-                stack.append((target, 0))
-            elif colour[target] == 1:
-                result.add(edge_lookup[(node, target)])
-    return result
+            parent = known[0]
+            for candidate in known[1:]:
+                parent = _intersect_idom(parent, candidate, idom, position)
+            if idom.get(node) != parent:
+                idom[node] = parent
+                changed = True
+    return idom
+
+
+def _dominates(target: str, source: str, idom: Mapping[str, str]) -> bool:
+    node = source
+    seen: set[str] = set()
+    while node not in seen:
+        if node == target:
+            return True
+        seen.add(node)
+        parent = idom.get(node)
+        if parent is None or parent == node:
+            return False
+        node = parent
+    return False
 
 
 def _post_dominators(
@@ -1027,6 +1109,64 @@ def _intersect_idom(
     return left
 
 
+def _state_lineage_facts(
+    gates: object,
+    effects: object,
+    nodes: Sequence[ControlNode],
+) -> tuple[dict[str, tuple[StateRead, ...]], dict[str, tuple[StateWrite, ...]]]:
+    source_nodes: dict[tuple[str, int], list[str]] = defaultdict(list)
+    for node in nodes:
+        if node.synthetic or node.source is None:
+            continue
+        path = node.source.get("path")
+        start = node.source.get("start")
+        if not isinstance(path, str) or not isinstance(start, Mapping):
+            continue
+        line = start.get("line")
+        if isinstance(line, int):
+            source_nodes[(path, line)].append(node.id)
+    reads: dict[str, list[StateRead]] = defaultdict(list)
+    if isinstance(gates, Sequence):
+        for gate in gates:
+            if not isinstance(gate, Requirement) or gate.status != FactStatus.PROVEN:
+                continue
+            key = (gate.evidence.span.path, gate.evidence.span.start_line)
+            for node_id in sorted(source_nodes.get(key, ())):
+                for variable in gate.variables:
+                    reads[node_id].append(StateRead(variable, gate.original_expression, node_id))
+    writes: dict[str, list[StateWrite]] = defaultdict(list)
+    if isinstance(effects, Sequence):
+        for effect in effects:
+            if (
+                not isinstance(effect, StateEffect)
+                or effect.status != FactStatus.PROVEN
+                or effect.operation != "assignment"
+                or effect.variable is None
+                or not _is_json_scalar(effect.value)
+            ):
+                continue
+            key = (effect.evidence.span.path, effect.evidence.span.start_line)
+            value_key = _canonical(effect.value).decode()
+            for node_id in sorted(source_nodes.get(key, ())):
+                writes[node_id].append(
+                    StateWrite(
+                        effect.variable,
+                        value_key,
+                        effect.original_expression,
+                        node_id,
+                        effect.value,
+                    )
+                )
+    return (
+        {node: tuple(sorted(values)) for node, values in reads.items()},
+        {node: tuple(sorted(values)) for node, values in writes.items()},
+    )
+
+
+def _is_json_scalar(value: object) -> bool:
+    return value is None or isinstance(value, str | int | float | bool)
+
+
 def _regions(
     nodes: Sequence[ControlNode],
     edges: Sequence[ControlEdge],
@@ -1034,6 +1174,8 @@ def _regions(
     terminals: Sequence[tuple[str, str]],
     loops: Sequence[LoopSummary],
     ipdom: Mapping[str, str | None],
+    state_reads: Mapping[str, tuple[StateRead, ...]],
+    state_writes: Mapping[str, tuple[StateWrite, ...]],
 ) -> tuple[list[ControlArm], list[ControlRegion]]:
     node_by_id = {node.id: node for node in nodes}
     edge_by_source: dict[str, list[ControlEdge]] = defaultdict(list)
@@ -1073,11 +1215,26 @@ def _regions(
                 tuple(sorted(members)),
                 arm_terminals,
                 unresolved,
+                tuple(sorted(read for node in members for read in state_reads.get(node, ()))),
+                tuple(sorted(write for node in members for write in state_writes.get(node, ()))),
             )
             region_arms.append(arm)
         classification, reasons = _classify_region(
             split, merge, region_arms, node_by_id, loop_nodes
         )
+        if merge is None:
+            dispatch_variables = _state_dispatch_variables(
+                split.id,
+                region_arms,
+                adjacency,
+                state_writes,
+            )
+            if dispatch_variables:
+                reasons = (
+                    *reasons,
+                    "state_dispatch",
+                    *(f"state_dispatch_variable:{name}" for name in dispatch_variables),
+                )
         members = {split.id, *(node for arm in region_arms for node in arm.node_ids)}
         if merge is not None:
             members.add(merge)
@@ -1111,6 +1268,75 @@ def _regions(
         )
         arms.extend(region_arms)
     return arms, regions
+
+
+def _state_dispatch_variables(
+    split_node_id: str,
+    arms: Sequence[ControlArm],
+    adjacency: Mapping[str, Sequence[str]],
+    writes_by_node: Mapping[str, tuple[StateWrite, ...]],
+) -> tuple[str, ...]:
+    gate_variables = {read.variable for arm in arms for read in arm.state_reads}
+    if not gate_variables:
+        return ()
+    predecessors: dict[str, list[str]] = defaultdict(list)
+    for source, targets in adjacency.items():
+        for target in targets:
+            predecessors[target].append(source)
+    ancestors: set[str] = set()
+    pending = [split_node_id]
+    while pending:
+        node = pending.pop()
+        if node in ancestors:
+            continue
+        ancestors.add(node)
+        pending.extend(predecessors[node])
+    upstream_writes = [
+        write
+        for node in ancestors
+        for write in writes_by_node.get(node, ())
+        if node != split_node_id
+    ]
+    proven: list[str] = []
+    for variable in sorted(gate_variables):
+        arm_values: list[set[str]] = []
+        valid = True
+        for arm in arms:
+            values = {
+                value_key
+                for read in arm.state_reads
+                if read.variable == variable
+                for value_key in [_literal_gate_value(read.expression, variable)]
+                if value_key is not None
+            }
+            unrelated = any(read.variable != variable for read in arm.state_reads)
+            if unrelated or len(values) > 1:
+                valid = False
+                break
+            arm_values.append(values)
+        literal_values = {value for values in arm_values for value in values}
+        has_else = any(not values for values in arm_values)
+        if not valid or not literal_values or (len(literal_values) < 2 and not has_else):
+            continue
+        write_values = {write.value_key for write in upstream_writes if write.variable == variable}
+        if len(write_values) >= 2 and literal_values <= write_values:
+            proven.append(variable)
+    return tuple(proven)
+
+
+def _literal_gate_value(expression: str, variable: str) -> str | None:
+    try:
+        node = ast.parse(expression, mode="eval").body
+    except SyntaxError:
+        return None
+    if not isinstance(node, ast.Compare) or len(node.ops) != 1 or len(node.comparators) != 1:
+        return None
+    if not isinstance(node.ops[0], ast.Eq) or not isinstance(node.left, ast.Name):
+        return None
+    if node.left.id != variable or not isinstance(node.comparators[0], ast.Constant):
+        return None
+    value = node.comparators[0].value
+    return _canonical(value).decode() if _is_json_scalar(value) else None
 
 
 def _has_unconditional_choice(edges: Sequence[ControlEdge]) -> bool:

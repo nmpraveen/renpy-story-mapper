@@ -172,7 +172,7 @@ def test_quotient_preserves_multiple_roles_and_ordered_evidence() -> None:
     assert all(edge.control_edge_ids == tuple(sorted(edge.control_edge_ids)) for edge in quotient)
 
 
-def test_state_changes_do_not_override_concrete_reconvergence() -> None:
+def test_proven_state_lineage_preserves_detours_and_marks_dispatch() -> None:
     with (FIXTURES / "state_dispatch.rpy").open(encoding="utf-8") as stream:
         module = parse_script("m06/state_dispatch.rpy", stream)
     graph = build_graph([module])
@@ -183,11 +183,30 @@ def test_state_changes_do_not_override_concrete_reconvergence() -> None:
         state.requirements,
         state.effects,
     )
-    assert len(analysis.regions) == 2
-    assert all(region.merge_node_id is not None for region in analysis.regions)
-    assert all(
-        region.classification == RouteClassification.LOCAL_DETOUR for region in analysis.regions
+    node_kind = {node.id: node.kind for node in analysis.nodes}
+    menu_regions = [
+        region for region in analysis.regions if node_kind[region.split_node_id] == "menu"
+    ]
+    dispatcher = next(
+        region for region in analysis.regions if node_kind[region.split_node_id] == "if"
     )
+    assert len(menu_regions) == 2
+    assert all(
+        region.merge_node_id is not None
+        and region.classification == RouteClassification.LOCAL_DETOUR
+        for region in menu_regions
+    )
+    menu_arms = [
+        arm for arm in analysis.arms if arm.region_id in {item.id for item in menu_regions}
+    ]
+    assert not any(write.variable == "love" for arm in menu_arms for write in arm.state_writes)
+    assert {write.value for arm in menu_arms for write in arm.state_writes} == {"red", "blue"}
+    dispatch_arms = [arm for arm in analysis.arms if arm.region_id == dispatcher.id]
+    assert any(read.variable == "route" for arm in dispatch_arms for read in arm.state_reads)
+    assert dispatcher.merge_node_id is None
+    assert dispatcher.classification == RouteClassification.TERMINAL_SPLIT
+    assert "state_dispatch" in dispatcher.persistence_reasons
+    assert "state_dispatch_variable:route" in dispatcher.persistence_reasons
 
 
 def test_scc_records_self_loops_back_edges_exits_and_irreducibility() -> None:
@@ -219,6 +238,7 @@ def test_scc_records_self_loops_back_edges_exits_and_irreducibility() -> None:
         {"source": "entry", "target": "split", "kind": "label_entry"},
         {"source": "split", "target": "a", "kind": "condition"},
         {"source": "split", "target": "b", "kind": "condition"},
+        {"source": "split", "target": "self", "kind": "condition"},
         {"source": "a", "target": "b", "kind": "fallthrough"},
         {"source": "b", "target": "a", "kind": "jump"},
         {"source": "a", "target": "end", "kind": "fallthrough"},
@@ -226,10 +246,15 @@ def test_scc_records_self_loops_back_edges_exits_and_irreducibility() -> None:
     ]
     graph = {"schema_version": 1, "entry_label": "start", "nodes": nodes, "edges": edges}
     analysis = analyze_control_flow(graph, {"schema_version": 1, "transitions": []})
+    irreducible = next(loop for loop in analysis.loops if loop.irreducible)
+    assert irreducible.exit_edge_ids
+    assert not irreducible.back_edge_ids
     assert any(
-        loop.irreducible and loop.back_edge_ids and loop.exit_edge_ids for loop in analysis.loops
+        diagnostic.kind == "irreducible_loop" and diagnostic.node_ids == irreducible.node_ids
+        for diagnostic in analysis.diagnostics
     )
-    assert any(loop.self_loop for loop in analysis.loops)
+    self_loop = next(loop for loop in analysis.loops if loop.self_loop)
+    assert self_loop.back_edge_ids
 
 
 def test_scale_harness_approximately_10k_nodes_15k_edges() -> None:

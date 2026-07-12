@@ -1,13 +1,24 @@
 label start:
     menu:
+        "Gain one point":
+            $ love += 1
+        "Gain two points":
+            $ love += 2
+    "The point detour reconverges."
+    menu:
         "Choose red":
             $ route = "red"
-            $ love += 1
         "Choose blue":
             $ route = "blue"
-            $ love += 2
     if route == "red":
-        "Red follow-up."
+        jump red_route
     else:
-        "Blue follow-up."
+        jump blue_route
+
+label red_route:
+    "Red follow-up."
+    return
+
+label blue_route:
+    "Blue follow-up."
     return
