@@ -160,6 +160,111 @@ def test_loops_recursion_nonreturning_calls_and_dynamic_targets() -> None:
     )
 
 
+def _analyze_source(lines: list[str]) -> Any:
+    graph = build_graph([parse_script("procedure-summary.rpy", lines)])
+    return analyze_control_flow(graph, build_semantic_story(graph))
+
+
+def test_procedure_termination_fixed_point_distinguishes_divergence() -> None:
+    infinite = _analyze_source(
+        [
+            "label start:\n",
+            "    call infinite\n",
+            "    return\n",
+            "label infinite:\n",
+            "    jump infinite\n",
+        ]
+    )
+    infinite_by_label = {item.label: item for item in infinite.procedures}
+    assert not infinite_by_label["infinite"].may_return
+    assert not infinite_by_label["infinite"].may_terminate
+    assert not infinite_by_label["start"].may_return
+    assert not infinite_by_label["start"].may_terminate
+
+    terminating = _analyze_source(
+        [
+            "label start:\n",
+            "    call terminator\n",
+            "    return\n",
+            "label terminator:\n",
+            '    "Concrete ending."\n',
+        ]
+    )
+    terminating_by_label = {item.label: item for item in terminating.procedures}
+    assert terminating_by_label["terminator"].may_terminate
+    assert not terminating_by_label["terminator"].may_return
+    assert terminating_by_label["start"].may_terminate
+    assert not terminating_by_label["start"].may_return
+
+    terminating_tail_jump = _analyze_source(
+        [
+            "label start:\n",
+            "    jump terminator\n",
+            "label terminator:\n",
+            '    "Tail ending."\n',
+        ]
+    )
+    terminating_tail_by_label = {item.label: item for item in terminating_tail_jump.procedures}
+    assert terminating_tail_by_label["start"].may_terminate
+    assert not terminating_tail_by_label["start"].may_return
+
+    returning_tail_jump = _analyze_source(
+        [
+            "label start:\n",
+            "    jump helper\n",
+            "label helper:\n",
+            "    return\n",
+        ]
+    )
+    returning_tail_by_label = {item.label: item for item in returning_tail_jump.procedures}
+    assert returning_tail_by_label["start"].may_return
+    assert not returning_tail_by_label["start"].may_terminate
+
+    returning_then_terminal = _analyze_source(
+        [
+            "label helper:\n",
+            "    return\n",
+            "label start:\n",
+            "    call helper\n",
+            '    "Caller ending."\n',
+        ]
+    )
+    returning_by_label = {item.label: item for item in returning_then_terminal.procedures}
+    assert returning_by_label["helper"].may_return
+    assert not returning_by_label["helper"].may_terminate
+    assert returning_by_label["start"].may_terminate
+
+    recursive = _analyze_source(
+        [
+            "label start:\n",
+            "    call recurse\n",
+            "    return\n",
+            "label recurse:\n",
+            "    call recurse\n",
+            "    return\n",
+        ]
+    )
+    recursive_by_label = {item.label: item for item in recursive.procedures}
+    assert recursive_by_label["recurse"].recursive
+    assert not recursive_by_label["recurse"].may_return
+    assert not recursive_by_label["recurse"].may_terminate
+    assert not recursive_by_label["start"].may_terminate
+
+
+def test_unresolved_call_does_not_become_concrete_termination() -> None:
+    analysis = _analyze_source(
+        [
+            "label start:\n",
+            "    call expression destination\n",
+            '    "Possible continuation."\n',
+        ]
+    )
+    summary = next(item for item in analysis.procedures if item.label == "start")
+    assert summary.unresolved
+    assert not summary.may_return
+    assert not summary.may_terminate
+
+
 def test_nested_regions_have_stable_innermost_ownership_and_permutation_output() -> None:
     source = [
         "label start:\n",

@@ -544,13 +544,35 @@ def _procedure_summaries(
         for label, entry in sorted(labels.items()):
             if may_return[label]:
                 continue
-            if _procedure_reaches(entry, label, nodes, outgoing, may_return, "return"):
+            if _procedure_reaches(
+                entry,
+                label,
+                nodes,
+                outgoing,
+                may_return,
+                {},
+                "return",
+            ):
                 may_return[label] = True
                 changed = True
-    may_terminate = {
-        label: _procedure_reaches(entry, label, nodes, outgoing, may_return, "terminate")
-        for label, entry in labels.items()
-    }
+    may_terminate = dict.fromkeys(labels, False)
+    changed = True
+    while changed:
+        changed = False
+        for label, entry in sorted(labels.items()):
+            if may_terminate[label]:
+                continue
+            if _procedure_reaches(
+                entry,
+                label,
+                nodes,
+                outgoing,
+                may_return,
+                may_terminate,
+                "terminate",
+            ):
+                may_terminate[label] = True
+                changed = True
     looping = {
         label: label in recursive or _procedure_has_local_cycle(entry, label, nodes, outgoing)
         for label, entry in labels.items()
@@ -578,6 +600,7 @@ def _procedure_reaches(
     nodes: Mapping[str, Mapping[str, object]],
     outgoing: Mapping[str, Sequence[Mapping[str, object]]],
     may_return: Mapping[str, bool],
+    may_terminate: Mapping[str, bool],
     goal: str,
 ) -> bool:
     pending, seen = [entry], set()
@@ -601,15 +624,21 @@ def _procedure_reaches(
                 call = next(
                     (item for item in outgoing[node_id] if _string(item, "kind") == "call"), None
                 )
-                if call is not None:
-                    called = str(nodes[_string(call, "target")].get("label", ""))
-                    if not may_return.get(called, True):
-                        if goal == "terminate":
-                            return True
-                        continue
+                if call is None:
+                    continue
+                called = str(nodes[_string(call, "target")].get("label", ""))
+                if goal == "terminate" and may_terminate.get(called, False):
+                    return True
+                if not may_return.get(called, False):
+                    continue
             target_label = str(nodes[target].get("label", ""))
             if kind == "jump" and target_label != label:
-                if goal == "return" and may_return.get(target_label, False):
+                target_summary = (
+                    may_return.get(target_label, False)
+                    if goal == "return"
+                    else may_terminate.get(target_label, False)
+                )
+                if target_summary:
                     return True
                 continue
             if target_label == label or nodes[target].get("kind") in {
