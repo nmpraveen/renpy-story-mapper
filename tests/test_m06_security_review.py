@@ -105,10 +105,6 @@ def test_recovery_helper_audit_denies_arbitrary_file_write(tmp_path: Path) -> No
         _audit("open", (str(outside), "w", 0o666))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="persistent split arm discovery retains quadratic whole-graph traversals",
-)
 def test_persistent_region_analysis_has_bounded_total_arm_membership() -> None:
     split_count = 200
     nodes: list[dict[str, object]] = []
