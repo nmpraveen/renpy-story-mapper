@@ -1,13 +1,161 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
   <meta name="rsm-session" content="">
   <meta name="rsm-csrf" content="">
   <title>Ren'Py Story Mapper</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <main><h1>Ren'Py Story Mapper</h1><p>The local interface is loading.</p></main>
+  <a class="skip-link" href="#main">Skip to story</a>
+  <div id="app" class="app-shell">
+    <header class="masthead">
+      <button id="homeButton" class="wordmark" type="button" aria-label="Return to welcome">
+        <span class="wordmark-mark" aria-hidden="true">R</span>
+        <span>Story Mapper</span>
+      </button>
+      <div id="projectIdentity" class="project-identity" hidden>
+        <span id="projectName" class="project-name"></span>
+        <span id="projectBadge" class="badge">Technical organization</span>
+      </div>
+      <div class="masthead-actions">
+        <button id="diagnosticsButton" class="quiet-button" type="button" aria-haspopup="dialog">Diagnostics</button>
+        <button id="themeButton" class="icon-button" type="button" aria-label="Change color theme" title="Change color theme">◐</button>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="welcomeView" class="welcome" aria-labelledby="welcomeTitle">
+        <div class="welcome-copy">
+          <p class="eyebrow">Private story analysis</p>
+          <h1 id="welcomeTitle">Trace every choice.<br>Keep every source private.</h1>
+          <p class="dek">Build an evidence-linked map without running game code.</p>
+          <div class="welcome-actions" aria-label="Open a story source">
+            <button class="primary-button" type="button" data-open-kind="folder">Open Folder</button>
+            <button class="secondary-button" type="button" data-open-kind="archive">Open Archive</button>
+            <button class="secondary-button" type="button" data-open-kind="file">Open File</button>
+            <button class="secondary-button" type="button" data-open-kind="project">Open Project</button>
+          </div>
+        </div>
+        <div class="welcome-rule" aria-hidden="true"><span>01</span><i></i><span>local only</span></div>
+        <section class="recent-section" aria-labelledby="recentTitle">
+          <div class="section-heading">
+            <h2 id="recentTitle">Recent projects</h2>
+            <span id="recentCount" class="count"></span>
+          </div>
+          <div id="recentProjects" class="recent-grid"></div>
+        </section>
+      </section>
+
+      <section id="progressView" class="progress-view" hidden aria-labelledby="progressTitle">
+        <div class="progress-card">
+          <p class="eyebrow">Static analysis</p>
+          <h1 id="progressTitle">Reading story structure</h1>
+          <p id="progressStage" class="progress-stage" aria-live="polite"></p>
+          <div class="progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div>
+          <div class="progress-meta"><span id="progressPercent">0%</span><span id="progressElapsed">0:00</span></div>
+          <button id="cancelAnalysis" class="secondary-button" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <section id="workspaceView" class="workspace" hidden aria-label="Story Explorer">
+        <nav class="commandbar" aria-label="Story commands">
+          <div id="breadcrumbs" class="breadcrumbs" aria-label="Story level"></div>
+          <label class="search-control">
+            <span class="sr-only">Search story</span>
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Search story  /" aria-keyshortcuts="/">
+          </label>
+          <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">Filter</button>
+          <button id="organizeButton" class="accent-button" type="button">Organize Story</button>
+          <div id="filterPanel" class="popover" hidden>
+            <label><input id="technicalToggle" type="checkbox"> Technical items</label>
+            <label><input id="unresolvedToggle" type="checkbox" checked> Unresolved items</label>
+            <label><input id="requirementsToggle" type="checkbox" checked> Requirements</label>
+            <label><input id="effectsToggle" type="checkbox" checked> Effects</label>
+          </div>
+        </nav>
+
+        <div class="workspace-grid">
+          <aside class="navigator" aria-labelledby="navigatorTitle">
+            <div class="panel-heading"><h2 id="navigatorTitle">Story index</h2></div>
+            <nav id="storyNavigator" class="story-nav" aria-label="Story arcs"></nav>
+            <div class="navigator-footer">
+              <span class="status-dot"></span><span id="organizationStatus">Technical organization</span>
+            </div>
+          </aside>
+
+          <section class="map-panel" aria-labelledby="mapTitle">
+            <header class="map-heading">
+              <div>
+                <p id="levelLabel" class="eyebrow">Level 1 · Arcs</p>
+                <h1 id="mapTitle">Story overview</h1>
+              </div>
+              <div class="map-tools" aria-label="Map view">
+                <button id="zoomOut" class="icon-button" type="button" aria-label="Zoom out">−</button>
+                <output id="zoomValue" aria-live="polite">100%</output>
+                <button id="zoomIn" class="icon-button" type="button" aria-label="Zoom in">+</button>
+                <button id="fitMap" class="quiet-button" type="button">Fit</button>
+              </div>
+            </header>
+            <div id="mapViewport" class="map-viewport" tabindex="0" aria-label="Interactive story graph. Use arrow keys to move between items, Enter to open, plus and minus to zoom.">
+              <canvas id="edgeCanvas" aria-hidden="true"></canvas>
+              <div id="mapWorld" class="map-world" role="listbox" aria-label="Story map"></div>
+              <div class="map-compass" aria-hidden="true"><span>N</span><i></i></div>
+            </div>
+            <footer class="map-status">
+              <span id="visibleStatus">0 items</span>
+              <span id="overflowStatus"></span>
+              <span>Pan · Zoom · Select</span>
+            </footer>
+          </section>
+
+          <aside class="inspector" aria-labelledby="inspectorTitle">
+            <div class="panel-heading"><h2 id="inspectorTitle">Inspector</h2><span id="selectionKind" class="badge"></span></div>
+            <div id="inspectorTabs" class="tabs" role="tablist" aria-label="Inspector sections">
+              <button id="tab-summary" role="tab" aria-selected="true" aria-controls="panel-summary" tabindex="0">Summary</button>
+              <button id="tab-state" role="tab" aria-selected="false" aria-controls="panel-state" tabindex="-1">Choices &amp; State</button>
+              <button id="tab-evidence" role="tab" aria-selected="false" aria-controls="panel-evidence" tabindex="-1">Evidence</button>
+              <button id="tab-details" role="tab" aria-selected="false" aria-controls="panel-details" tabindex="-1">Details</button>
+            </div>
+            <div id="panel-summary" class="tab-panel" role="tabpanel" aria-labelledby="tab-summary"></div>
+            <div id="panel-state" class="tab-panel" role="tabpanel" aria-labelledby="tab-state" hidden></div>
+            <div id="panel-evidence" class="tab-panel" role="tabpanel" aria-labelledby="tab-evidence" hidden></div>
+            <div id="panel-details" class="tab-panel" role="tabpanel" aria-labelledby="tab-details" hidden></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="consentDialog" aria-labelledby="consentTitle">
+      <form method="dialog" class="dialog-card">
+        <p class="eyebrow">Explicit consent required</p>
+        <h2 id="consentTitle">Organize this story?</h2>
+        <p>Selected story evidence will be sent to the configured provider only after you continue. The deterministic map stays authoritative.</p>
+        <div class="consent-facts"><span>Scope</span><strong id="consentScope">Current project</strong><span>Mode</span><strong>Cloud · GPT-5.6 Luna</strong></div>
+        <div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Continue to review</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="reviewDialog" aria-labelledby="reviewTitle">
+      <div class="dialog-card review-card">
+        <header><div><p class="eyebrow">Organization draft</p><h2 id="reviewTitle">Review proposed structure</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header>
+        <div id="reviewMeta" class="review-meta"></div>
+        <div id="reviewComparison" class="review-comparison"></div>
+        <footer class="dialog-actions"><button id="discardDraft" class="secondary-button" type="button">Discard Draft</button><button id="applyDraft" class="accent-button" type="button">Apply Draft</button></footer>
+      </div>
+    </dialog>
+
+    <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle">
+      <div class="dialog-card diagnostics-card"><header><div><p class="eyebrow">Local diagnostics</p><h2 id="diagnosticsTitle">Diagnostics</h2></div><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </div>
 </body>
 </html>

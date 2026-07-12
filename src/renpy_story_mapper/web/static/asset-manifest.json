@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "assets": {
+    "API_CONTRACT.md": "983efa814a8593fb9619fa610f7b2c828471668cda5825d8adffbf8dbd85409e",
+    "api.js": "546b6e08da1c521628d6ed036d0649c2a3cc8176e08380446c2a516fe6665ef9",
+    "app.js": "2794264272a9327929c39b5057c2532e7c9eb2c4595c0c7d3b0b98ae95e466da",
+    "contract.js": "1c6cd7dd30b59ceda522865d2849d64a1c3feb20c449f8fbe27127ca9ddf1de9",
+    "graph.js": "4b4850c4221b93f77c45c0aba4ad6a02352c24cb7fe3da0b774edaffea3564b5",
+    "index.html": "15bf0c12a1f77a30d9ac23845e908c50c61f1c546c2080e300c8dba93d69b257",
+    "mock-api.js": "4fbe76e0650195a5c0f76ee70529794034b84d74d1b9d96f2a68a4b2f8d5bb0d",
+    "styles.css": "4493cb1025375184afd2f154170df2c2d8f50ee546c30833ee0652fc2d13044d"
+  }
+}
