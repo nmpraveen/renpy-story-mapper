@@ -26,6 +26,7 @@ dev = [
 [project.scripts]
 renpy-story-mapper = "renpy_story_mapper.cli:main"
 renpy-story-mapper-gui = "renpy_story_mapper.ui.app:main"
+renpy-story-mapper-web = "renpy_story_mapper.web.launcher:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/renpy_story_mapper"]
