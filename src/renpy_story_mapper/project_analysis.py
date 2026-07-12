@@ -47,6 +47,95 @@ from renpy_story_mapper.storage import ProjectOperationCancelled, canonical_json
 CancelCheck = Callable[[], bool] | None
 
 
+def create_input_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    entry_label: str = "start",
+    options: object | None = None,
+    cancel_check: CancelCheck = None,
+) -> Project:
+    """Create a project through the unified schema-v5 ingestion boundary."""
+
+    from renpy_story_mapper.ingestion import IngestionOptions, ingest_input
+
+    configured = options if isinstance(options, IngestionOptions) else IngestionOptions()
+    result = ingest_input(input_path, configured, cancel_check)
+    if result.plan.existing_project is not None:
+        return Project.open(result.plan.existing_project)
+    project = Project.create(
+        database_path,
+        metadata={
+            "source_kind": result.plan.input_kind.value,
+            "source_path": str(result.plan.resolved_input),
+            "entry_label": entry_label,
+            "source_coverage_complete": result.complete,
+        },
+    )
+    try:
+        metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+        _refresh_open_project(
+            project,
+            result.content_by_path,
+            entry_label=entry_label,
+            cancel_check=cancel_check,
+            source_metadata=metadata,
+        )
+        project.replace_ingestion_provenance(result)
+        return project
+    except BaseException:
+        project.delete()
+        raise
+
+
+def refresh_input_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    options: object | None = None,
+    cancel_check: CancelCheck = None,
+) -> RefreshReport:
+    """Refresh an existing project through unified ingestion using atomic staging."""
+
+    from renpy_story_mapper.ingestion import IngestionOptions, ingest_input
+
+    configured = options if isinstance(options, IngestionOptions) else IngestionOptions()
+    result = ingest_input(input_path, configured, cancel_check)
+    if result.plan.existing_project is not None:
+        raise ValueError(
+            "an existing project input is already current and cannot refresh another project"
+        )
+    project_path = Path(database_path).resolve(strict=True)
+    temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
+    original = Project.open(project_path)
+    try:
+        original.backup(temporary)
+    finally:
+        original.close()
+    try:
+        staged = Project.open(temporary)
+        try:
+            entry_label = str(staged.metadata().get("entry_label", "start"))
+            metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+            report = _refresh_open_project(
+                staged,
+                result.content_by_path,
+                entry_label=entry_label,
+                cancel_check=cancel_check,
+                source_metadata=metadata,
+            )
+            staged.replace_ingestion_provenance(result)
+            staged.set_metadata({"source_coverage_complete": result.complete})
+        finally:
+            staged.close()
+        _check_cancelled(cancel_check)
+        os.replace(temporary, project_path)
+        return report
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def create_folder_project(
     database_path: str | os.PathLike[str],
     source_root: str | os.PathLike[str],
@@ -213,6 +302,9 @@ def project_snapshot(project: Project) -> dict[str, object]:
         "graph": project.payload("m01_graph", "authoritative") or {},
         "semantic": project.payload("m02_semantic", "authoritative") or {},
         "import_manifest": project.payload("import_manifest", "authoritative") or {},
+        "source_derivations": list(project.source_derivations()),
+        "recovery_results": list(project.recovery_results()),
+        "source_coverage": project.source_coverage(),
         "requirements": _payload_lists(project, "gates"),
         "effects": _payload_lists(project, "effects"),
         "state_variables": _payload_lists(project, "state_registry"),
@@ -227,11 +319,20 @@ def _refresh_open_project(
     *,
     entry_label: str,
     cancel_check: CancelCheck,
+    source_metadata: Mapping[str, object] | None = None,
 ) -> RefreshReport:
     previous_dependencies = _stored_dependencies(project)
     previous_registry = project.payload("state_registry", "authoritative")
     fingerprints = tuple(
-        SourceFingerprint.from_bytes(path, content_by_path[path])
+        SourceFingerprint.from_bytes(
+            path,
+            content_by_path[path],
+            metadata=(
+                cast(Mapping[str, object], source_metadata[path])
+                if source_metadata is not None
+                else None
+            ),
+        )
         for path in sorted(content_by_path)
     )
     refresh = project.refresh_sources(fingerprints, cancelled=cancel_check)

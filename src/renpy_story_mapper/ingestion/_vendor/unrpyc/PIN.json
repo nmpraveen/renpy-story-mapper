@@ -1,0 +1,25 @@
+{
+  "bundle_files": [
+    "decompiler/__init__.py",
+    "decompiler/atldecompiler.py",
+    "decompiler/magic.py",
+    "decompiler/renpycompat.py",
+    "decompiler/sl2decompiler.py",
+    "decompiler/util.py",
+    "LICENSE.txt"
+  ],
+  "bundle_hash_algorithm": "sha256(concat(utf8(relative_path + newline), file_bytes with CRLF canonicalized to LF) in listed order); PIN.json excluded",
+  "bundle_sha256": "fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775",
+  "commit": "3ae8334ed71a05535927dcc559663d3aca51215b",
+  "excluded_upstream_files": [
+    "deobfuscate.py",
+    "unrpyc.py",
+    "un.rpyc/",
+    "testcases/",
+    "decompiler/astdump.py",
+    "decompiler/testcasedecompiler.py",
+    "decompiler/translate.py"
+  ],
+  "source": "https://github.com/CensoredUsername/unrpyc",
+  "version": "2.0.3"
+}

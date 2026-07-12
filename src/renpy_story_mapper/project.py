@@ -21,6 +21,7 @@ ProjectCorruptionError = storage.ProjectCorruptError
 IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
 
 if TYPE_CHECKING:
+    from renpy_story_mapper.ingestion.contracts import IngestionResult
     from renpy_story_mapper.presentation import PresentationService
     from renpy_story_mapper.story_organization import StoryOrganizationService
 
@@ -160,9 +161,7 @@ class Project:
                 connection.close()
                 connection = None
                 backup = project_path.with_name(f"{project_path.name}.pre-migrate-v{version}.bak")
-                storage.make_backup(
-                    project_path, backup, allow_legacy_v4=needs_v4_extension
-                )
+                storage.make_backup(project_path, backup, allow_legacy_v4=needs_v4_extension)
                 connection = storage.connect(project_path)
                 storage.initialize_database(connection)
                 storage.validate_database(connection)
@@ -228,6 +227,214 @@ class Project:
                 )
             )
         return tuple(result)
+
+    def replace_ingestion_provenance(self, result: IngestionResult) -> None:
+        """Atomically persist schema-v5 derivations, recovery results, and coverage."""
+
+        connection = self._require_open()
+        known = {source.path for source in self.sources()}
+        incoming = {source.path for source in result.sources}
+        if incoming != known:
+            raise ValueError("ingestion provenance must exactly cover current project sources")
+        now = storage.utc_now()
+        with storage.transaction(connection):
+            connection.execute("DELETE FROM source_derivations")
+            connection.execute("DELETE FROM recovery_results")
+            for source in result.sources:
+                provenance = source.provenance
+                identity = storage.canonical_json(
+                    {"source_path": source.path, **provenance.to_dict()}
+                )
+                derivation_id = f"derivation_{hashlib.sha256(identity).hexdigest()[:24]}"
+                connection.execute(
+                    """
+                    INSERT INTO source_derivations(
+                        derivation_id, source_path, source_kind, tier, locator,
+                        input_sha256, output_sha256, line_basis, tool_name, tool_version,
+                        tool_commit, tool_bundle_sha256, options_json, complete,
+                        warnings_json, created_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        derivation_id,
+                        source.path,
+                        provenance.source_kind,
+                        provenance.tier.value,
+                        provenance.locator,
+                        provenance.input_sha256,
+                        provenance.output_sha256,
+                        provenance.line_basis,
+                        provenance.tool_name,
+                        provenance.tool_version,
+                        provenance.tool_commit,
+                        provenance.tool_bundle_sha256,
+                        storage.canonical_json(dict(provenance.options)),
+                        int(provenance.complete),
+                        storage.canonical_json(list(provenance.warnings)),
+                        now,
+                    ),
+                )
+                if provenance.source_kind == "reconstructed":
+                    recovery_id = f"recovery_{hashlib.sha256(identity).hexdigest()[:24]}"
+                    connection.execute(
+                        """
+                        INSERT INTO recovery_results(
+                            recovery_id, source_path, locator, input_sha256, output_sha256,
+                            tool_bundle_sha256, cache_hit, complete, status,
+                            sanitized_error, created_utc
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                        """,
+                        (
+                            recovery_id,
+                            source.path,
+                            provenance.locator,
+                            provenance.input_sha256,
+                            provenance.output_sha256,
+                            provenance.tool_bundle_sha256,
+                            int(provenance.cache_hit),
+                            int(provenance.complete),
+                            "recovered" if provenance.complete else "partial",
+                            now,
+                        ),
+                    )
+            for failure in result.recovery_failures:
+                identity = storage.canonical_json(
+                    {
+                        "logical_path": failure.logical_path,
+                        "locator": failure.locator,
+                        "input_sha256": failure.input_sha256,
+                        "error_kind": failure.error_kind,
+                    }
+                )
+                recovery_id = f"recovery_{hashlib.sha256(identity).hexdigest()[:24]}"
+                connection.execute(
+                    """
+                    INSERT INTO recovery_results(
+                        recovery_id, source_path, locator, input_sha256, output_sha256,
+                        tool_bundle_sha256, cache_hit, complete, status,
+                        sanitized_error, created_utc
+                    ) VALUES (?, NULL, ?, ?, NULL, ?, 0, 0, 'failed', ?, ?)
+                    """,
+                    (
+                        recovery_id,
+                        failure.locator,
+                        failure.input_sha256,
+                        _recovery_bundle_sha256(),
+                        failure.sanitized_error,
+                        now,
+                    ),
+                )
+            warning = " ".join(result.warnings) if result.warnings else None
+            connection.execute(
+                """
+                INSERT INTO source_coverage(
+                    singleton, complete, partial_allowed, ai_transmission_blocked,
+                    acknowledged, warning, updated_utc
+                ) VALUES (1, ?, ?, ?, 0, ?, ?)
+                ON CONFLICT(singleton) DO UPDATE SET
+                    complete=excluded.complete,
+                    partial_allowed=excluded.partial_allowed,
+                    ai_transmission_blocked=excluded.ai_transmission_blocked,
+                    acknowledged=0,
+                    warning=excluded.warning,
+                    updated_utc=excluded.updated_utc
+                """,
+                (
+                    int(result.complete),
+                    int(not result.complete),
+                    int(result.ai_transmission_blocked),
+                    warning,
+                    now,
+                ),
+            )
+
+    def source_derivations(self) -> tuple[dict[str, object], ...]:
+        rows = self._require_open().execute(
+            """
+            SELECT source_path, source_kind, tier, locator, input_sha256, output_sha256,
+                   line_basis, tool_name, tool_version, tool_commit, tool_bundle_sha256,
+                   options_json, complete, warnings_json
+            FROM source_derivations ORDER BY source_path
+            """
+        )
+        return tuple(
+            {
+                "source_path": str(row["source_path"]),
+                "source_kind": str(row["source_kind"]),
+                "tier": str(row["tier"]),
+                "locator": str(row["locator"]),
+                "input_sha256": str(row["input_sha256"]),
+                "output_sha256": str(row["output_sha256"]),
+                "line_basis": str(row["line_basis"]),
+                "tool_name": row["tool_name"],
+                "tool_version": row["tool_version"],
+                "tool_commit": row["tool_commit"],
+                "tool_bundle_sha256": row["tool_bundle_sha256"],
+                "options": storage.decode_json(row["options_json"]),
+                "complete": bool(row["complete"]),
+                "warnings": storage.decode_json(row["warnings_json"]),
+            }
+            for row in rows
+        )
+
+    def source_coverage(self) -> dict[str, object]:
+        row = (
+            self._require_open()
+            .execute(
+                """SELECT complete, partial_allowed, ai_transmission_blocked, acknowledged, warning
+               FROM source_coverage WHERE singleton=1"""
+            )
+            .fetchone()
+        )
+        if row is None:
+            return {}
+        return {
+            "complete": bool(row["complete"]),
+            "partial_allowed": bool(row["partial_allowed"]),
+            "ai_transmission_blocked": bool(row["ai_transmission_blocked"]),
+            "acknowledged": bool(row["acknowledged"]),
+            "warning": row["warning"],
+        }
+
+    def recovery_results(self) -> tuple[dict[str, object], ...]:
+        rows = self._require_open().execute(
+            """
+            SELECT source_path, locator, input_sha256, output_sha256, tool_bundle_sha256,
+                   cache_hit, complete, status, sanitized_error
+            FROM recovery_results ORDER BY recovery_id
+            """
+        )
+        return tuple(
+            {
+                "source_path": row["source_path"],
+                "locator": str(row["locator"]),
+                "input_sha256": str(row["input_sha256"]),
+                "output_sha256": row["output_sha256"],
+                "tool_bundle_sha256": str(row["tool_bundle_sha256"]),
+                "cache_hit": bool(row["cache_hit"]),
+                "complete": bool(row["complete"]),
+                "status": str(row["status"]),
+                "sanitized_error": row["sanitized_error"],
+            }
+            for row in rows
+        )
+
+    def acknowledge_incomplete_source_coverage(self) -> None:
+        """Record acknowledgement without silently clearing the persistent warning."""
+
+        connection = self._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT complete FROM source_coverage WHERE singleton=1"
+            ).fetchone()
+            if row is None or bool(row["complete"]):
+                raise ValueError("project does not have incomplete source coverage")
+            connection.execute(
+                """UPDATE source_coverage
+                   SET acknowledged=1, ai_transmission_blocked=0, updated_utc=?
+                   WHERE singleton=1""",
+                (storage.utc_now(),),
+            )
 
     def refresh_sources(
         self,
@@ -603,6 +810,12 @@ def _normalize_source_path(path: str) -> str:
     return pure.as_posix()
 
 
+def _recovery_bundle_sha256() -> str:
+    from renpy_story_mapper.ingestion.runtime import UNRPYC_BUNDLE_SHA256
+
+    return UNRPYC_BUNDLE_SHA256
+
+
 def _raise_if_cancelled(cancelled: Callable[[], bool] | None) -> None:
     if cancelled is not None and cancelled():
         raise storage.ProjectOperationCancelled("project operation was cancelled")
@@ -623,6 +836,27 @@ def open_project(database_path: str | os.PathLike[str]) -> Project:
     return Project.open(database_path)
 
 
+def create_ingested_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    entry_label: str = "start",
+    options: object | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Project:
+    """Create through the unified M06 input boundary."""
+
+    from renpy_story_mapper.project_analysis import create_input_project
+
+    return create_input_project(
+        database_path,
+        input_path,
+        entry_label=entry_label,
+        options=options,
+        cancel_check=cancel_check,
+    )
+
+
 def refresh_project(
     database_path: str | os.PathLike[str],
     source_root: str | os.PathLike[str],
@@ -632,6 +866,25 @@ def refresh_project(
     from renpy_story_mapper.project_analysis import refresh_folder_project
 
     return refresh_folder_project(database_path, source_root, cancel_check=cancel_check)
+
+
+def refresh_ingested_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    options: object | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> RefreshReport:
+    """Refresh through the unified M06 input boundary."""
+
+    from renpy_story_mapper.project_analysis import refresh_input_project
+
+    return refresh_input_project(
+        database_path,
+        input_path,
+        options=options,
+        cancel_check=cancel_check,
+    )
 
 
 def delete_project(database_path: str | os.PathLike[str]) -> None:

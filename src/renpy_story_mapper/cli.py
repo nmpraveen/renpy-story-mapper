@@ -11,14 +11,14 @@ from renpy_story_mapper import __version__
 from renpy_story_mapper.errors import StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive, iter_utf8_lines
+from renpy_story_mapper.ingestion import IngestionOptions, ingest_input, inspect_input
+from renpy_story_mapper.ingestion.export import export_recovered_sources
 from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.project import (
     Project,
-    create_archive_project,
-    create_project,
+    create_ingested_project,
     delete_project,
-    refresh_archive_project,
-    refresh_project,
+    refresh_ingested_project,
 )
 from renpy_story_mapper.rpa import ArchiveFingerprint, RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
@@ -56,25 +56,49 @@ def _manifest_with_integrity(
 
 
 def _inspect(args: argparse.Namespace) -> int:
-    archive_path = Path(args.archive)
+    input_path = Path(args.input)
     output = Path(args.output)
-    _reject_archive_output(archive_path, [output])
-    before = fingerprint_file(archive_path)
-    archive = RpaArchive(archive_path)
-    result = inventory_archive(archive, before)
-    after = fingerprint_file(archive_path)
-    if before != after:
-        raise StoryMapperError("archive hash, size, or modification time changed during inspection")
-    manifest = _manifest_with_integrity(result.manifest, before=before, after=after)
+    if input_path.is_file():
+        _reject_archive_output(input_path, [output])
+    plan = inspect_input(input_path, _ingestion_options(args))
+    manifest = {
+        "schema_version": 2,
+        "requested_path": str(plan.requested_path),
+        "resolved_input": str(plan.resolved_input),
+        "input_kind": plan.input_kind.value,
+        "source_root": None if plan.source_root is None else str(plan.source_root),
+        "existing_project": (None if plan.existing_project is None else str(plan.existing_project)),
+        "warnings": list(plan.warnings),
+        "candidates": [_candidate_value(item) for item in plan.candidates],
+        "selected": [_candidate_value(item) for item in plan.selected],
+    }
     _write_json(output, manifest)
-    counts = manifest["counts"]
-    assert isinstance(counts, dict)
-    print(
-        f"Inspected {counts['entries']} entries; selected "
-        f"{counts['selected_source_files']} source files."
-    )
+    print(f"Inspected {len(plan.candidates)} candidates; selected {len(plan.selected)} sources.")
     print(f"Manifest: {output.resolve()}")
     return 0
+
+
+def _candidate_value(value: object) -> dict[str, object]:
+    from renpy_story_mapper.ingestion.contracts import SourceCandidate
+
+    if not isinstance(value, SourceCandidate):
+        raise TypeError("ingestion candidate has an unexpected type")
+    return {
+        "logical_path": value.logical_path,
+        "tier": value.tier.value,
+        "locator": value.locator,
+        "input_sha256": value.input_hash,
+        "size_bytes": value.size_bytes,
+        "archive_entry": value.archive_entry,
+    }
+
+
+def _ingestion_options(args: argparse.Namespace) -> IngestionOptions:
+    raw_cache = getattr(args, "cache_root", None)
+    return IngestionOptions(
+        allow_partial_recovery=bool(getattr(args, "allow_partial_recovery", False)),
+        cache_root=None if raw_cache is None else Path(raw_cache),
+    )
 
 
 def _analyze(args: argparse.Namespace) -> int:
@@ -149,10 +173,11 @@ def _project_create(args: argparse.Namespace) -> int:
     source = Path(args.source).resolve(strict=True)
     project_path = Path(args.project)
     _reject_project_in_source(source, project_path)
-    project = (
-        create_project(project_path, source)
-        if source.is_dir()
-        else create_archive_project(project_path, source, entry_label=args.entry_label)
+    project = create_ingested_project(
+        project_path,
+        source,
+        entry_label=args.entry_label,
+        options=_ingestion_options(args),
     )
     try:
         snapshot = project.snapshot()
@@ -167,10 +192,10 @@ def _project_refresh(args: argparse.Namespace) -> int:
     source = Path(args.source).resolve(strict=True)
     project_path = Path(args.project)
     _reject_project_in_source(source, project_path)
-    report = (
-        refresh_project(project_path, source)
-        if source.is_dir()
-        else refresh_archive_project(project_path, source)
+    report = refresh_ingested_project(
+        project_path,
+        source,
+        options=_ingestion_options(args),
     )
     print(
         f"Parsed {len(report.parsed_sources)}; reused {len(report.reused_sources)}; "
@@ -194,6 +219,13 @@ def _project_delete(args: argparse.Namespace) -> int:
     project_path = Path(args.project).resolve(strict=True)
     delete_project(project_path)
     print(f"Deleted project: {project_path}")
+    return 0
+
+
+def _recover_export(args: argparse.Namespace) -> int:
+    result = ingest_input(args.input, _ingestion_options(args))
+    destination = export_recovered_sources(result, args.destination)
+    print(f"Recovered-source export: {destination}")
     return 0
 
 
@@ -233,11 +265,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    inspect_parser = subparsers.add_parser("inspect", help="write a deterministic import manifest")
-    inspect_parser.add_argument("archive", help="path to an RPA 3.0 archive")
+    inspect_parser = subparsers.add_parser("inspect", help="write a deterministic input manifest")
+    inspect_parser.add_argument("input", help="game folder, source, archive, or project")
     inspect_parser.add_argument(
         "--output", default="artifacts/import-manifest.json", help="manifest JSON path"
     )
+    inspect_parser.add_argument("--cache-root")
     inspect_parser.set_defaults(handler=_inspect)
 
     analyze_parser = subparsers.add_parser(
@@ -264,6 +297,8 @@ def _parser() -> argparse.ArgumentParser:
     create_parser.add_argument("source", help="game source folder or scripts.rpa archive")
     create_parser.add_argument("project", help="new .rsmproj path outside the game folder")
     create_parser.add_argument("--entry-label", default="start", help="static entry label")
+    create_parser.add_argument("--allow-partial-recovery", action="store_true")
+    create_parser.add_argument("--cache-root")
     create_parser.set_defaults(handler=_project_create)
 
     refresh_parser = project_commands.add_parser(
@@ -271,6 +306,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     refresh_parser.add_argument("source", help="game source folder or scripts.rpa archive")
     refresh_parser.add_argument("project", help="existing .rsmproj path")
+    refresh_parser.add_argument("--allow-partial-recovery", action="store_true")
+    refresh_parser.add_argument("--cache-root")
     refresh_parser.set_defaults(handler=_project_refresh)
 
     show_parser = project_commands.add_parser("show", help="summarize a durable project")
@@ -281,6 +318,15 @@ def _parser() -> argparse.ArgumentParser:
     delete_parser = project_commands.add_parser("delete", help="delete a durable project")
     delete_parser.add_argument("project", help="existing .rsmproj path")
     delete_parser.set_defaults(handler=_project_delete)
+
+    export_parser = subparsers.add_parser(
+        "recover-export", help="explicitly export reconstructed source with provenance"
+    )
+    export_parser.add_argument("input", help="compiled source, archive, or game folder")
+    export_parser.add_argument("destination", help="new destination outside the source/game")
+    export_parser.add_argument("--allow-partial-recovery", action="store_true")
+    export_parser.add_argument("--cache-root")
+    export_parser.set_defaults(handler=_recover_export)
     return parser
 
 
