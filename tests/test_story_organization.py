@@ -219,11 +219,13 @@ def test_v3_migrates_transactionally_and_failed_v4_migration_rolls_back(
         Project.open(legacy_v4_path, migrate=False)
     with Project.open(legacy_v4_path) as upgraded:
         assert not storage.needs_v4_enrichment_extension(upgraded._require_open())
-        assert storage.validate_database(upgraded._require_open()) == 4
-    assert legacy_v4_path.with_name(f"{legacy_v4_path.name}.pre-migrate-v4.bak").is_file()
+        assert storage.validate_database(upgraded._require_open()) == storage.SCHEMA_VERSION
+    assert legacy_v4_path.with_name(
+        f"{legacy_v4_path.name}.pre-migrate-v{storage.SCHEMA_VERSION}.bak"
+    ).is_file()
 
     with Project.open(legacy) as project:
-        assert project.schema_version == 4
+        assert project.schema_version == storage.SCHEMA_VERSION
         assert (
             project._require_open()
             .execute("SELECT 1 FROM sqlite_schema WHERE name='story_events'")

@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive
@@ -301,6 +302,7 @@ def project_snapshot(project: Project) -> dict[str, object]:
         ],
         "graph": project.payload("m01_graph", "authoritative") or {},
         "semantic": project.payload("m02_semantic", "authoritative") or {},
+        "control_flow": project.payload("m06_control_flow", "authoritative") or {},
         "import_manifest": project.payload("import_manifest", "authoritative") or {},
         "source_derivations": list(project.source_derivations()),
         "recovery_results": list(project.recovery_results()),
@@ -362,12 +364,19 @@ def _refresh_open_project(
     counts["diagnostics"] = len(diagnostics)
     semantic = build_semantic_story(graph)
     state = extract_state(module_values)
+    control_flow = analyze_control_flow(
+        graph,
+        semantic,
+        state.requirements,
+        state.effects,
+    ).to_dict()
 
     records = _analysis_records(
         modules,
         dependencies,
         graph,
         semantic,
+        control_flow,
         state,
         parsed_paths,
         previous_registry,
@@ -391,6 +400,7 @@ def _analysis_records(
     dependencies: Mapping[str, set[str]],
     graph: dict[str, object],
     semantic: dict[str, object],
+    control_flow: dict[str, object],
     state: StateAnalysis,
     parsed_paths: set[str],
     previous_registry: object,
@@ -411,6 +421,7 @@ def _analysis_records(
         (
             PayloadRecord("m01_graph", "authoritative", graph, all_paths),
             PayloadRecord("m02_semantic", "authoritative", semantic, all_paths),
+            PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths),
         )
     )
 

@@ -14,6 +14,7 @@ from renpy_story_mapper.control_flow import (
 )
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.parser import parse_script
+from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
 
@@ -24,6 +25,22 @@ def analyze_fixture(name: str, *, entry: str = "start") -> tuple[dict[str, Any],
     with (FIXTURES / name).open(encoding="utf-8") as stream:
         graph = build_graph([parse_script(f"m06/{name}", stream)], entry_label=entry)
     return graph, analyze_control_flow(graph, build_semantic_story(graph))
+
+
+def test_control_flow_is_persisted_and_reopens_canonically(tmp_path: Path) -> None:
+    source_root = tmp_path / "game"
+    source_root.mkdir()
+    (source_root / "story.rpy").write_bytes((FIXTURES / "control_regions.rpy").read_bytes())
+    project_path = tmp_path / "story.rsmproj"
+
+    with create_ingested_project(project_path, source_root) as project:
+        first = project.payload("m06_control_flow", "authoritative")
+        assert isinstance(first, dict)
+        assert first["schema_version"] == 1
+        assert first["regions"]
+
+    with Project.open(project_path) as reopened:
+        assert reopened.payload("m06_control_flow", "authoritative") == first
 
 
 def test_diamonds_bypass_long_routes_and_terminals_classify_exactly() -> None:
