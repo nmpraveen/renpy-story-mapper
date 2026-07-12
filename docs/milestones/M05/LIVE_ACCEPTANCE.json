@@ -1,0 +1,53 @@
+{
+  "fixture": "tests/fixtures/m05/complex_branching/complex_story.rpy",
+  "fixture_logical_sha256": "383cdc77af981acf27f80c54d018060c126e6824f7bf29c2d6ec9a9a73fae650",
+  "provider_mode": "codex_chatgpt",
+  "model": "gpt-5.6-luna",
+  "reasoning_profile": "high",
+  "fast_mode": false,
+  "fresh_run": {
+    "run_id": "97e54026593141e4873a88af8b8c147e",
+    "status": "failed_safely_before_draft",
+    "elapsed_ms": 572591,
+    "cache_hits": 0,
+    "provider_calls": 12,
+    "input_tokens": 187896,
+    "output_tokens": 30200,
+    "finding": "Duplicate AI outcome values reached final deterministic validation."
+  },
+  "corrected_cached_run": {
+    "run_id": "75477a078c7e4b6d8a14e00d70803ae3",
+    "draft_id": "draft:2ddf780022c677a97eeefa88",
+    "status": "completed",
+    "elapsed_ms": 174,
+    "cache_hits": 12,
+    "provider_calls": 0,
+    "events": 33,
+    "arcs": 4,
+    "claims": 77,
+    "deterministic_authority_unchanged": true,
+    "deterministic_authority_sha256": "337e5158a1d62d22b7ee76f68b2704b2077343f75e9a14e4781f61aad08ed618"
+  },
+  "ui_harness": {
+    "provider_invoked_on_open": false,
+    "rendered_items": 55,
+    "semantic_level": 3,
+    "exact_evidence_exposed": true,
+    "isolated_ini_settings": true,
+    "screenshots": 7
+  },
+  "storage": {
+    "fresh_deterministic_project_bytes": 2416640,
+    "live_project_bytes_after_repeated_acceptance": 3608576,
+    "growth_bytes": 1191936,
+    "growth_ratio": 1.493,
+    "organization_cache_rows": 25,
+    "organization_run_rows": 9,
+    "organization_chunk_rows": 107,
+    "organization_draft_rows": 4,
+    "accepted_arc_rows": 2,
+    "accepted_event_rows": 24,
+    "accepted_claim_rows": 71,
+    "accepted_claim_evidence_rows": 129
+  }
+}

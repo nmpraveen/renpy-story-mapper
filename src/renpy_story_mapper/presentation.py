@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -87,6 +87,15 @@ class PresentationPage:
 
 
 @dataclass(frozen=True)
+class OrganizationConnectivity:
+    """Authoritative deterministic facts for one complete organization scope."""
+
+    beat_ids: tuple[str, ...]
+    required_beat_ids: tuple[str, ...]
+    edges: tuple[PresentationEdge, ...]
+
+
+@dataclass(frozen=True)
 class EvidenceRecord:
     id: str
     node_id: str
@@ -147,6 +156,7 @@ class PresentationService:
     ) -> None:
         self._project = project
         self._owns_project = owns_project
+        self._cancelled = cancelled
         _ensure_query_indexes(project._require_open())
         ensure_presentation_index(project, cancelled=cancelled)
 
@@ -223,6 +233,207 @@ class PresentationService:
             selected_id,
         )
 
+    def edges_for_nodes(
+        self,
+        level: PresentationLevel,
+        node_ids: Sequence[str],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> tuple[PresentationEdge, ...]:
+        """Return all authoritative edges induced by a complete caller-supplied node set.
+
+        Unknown IDs at the requested level are rejected rather than silently ignored. A temporary
+        indexed selection table avoids SQLite parameter limits without modifying project tables.
+        """
+
+        if any(not isinstance(node_id, str) or not node_id for node_id in node_ids):
+            raise ValueError("node_ids must contain non-empty strings")
+        selected = tuple(sorted(set(node_ids)))
+        if not selected:
+            return ()
+        connection = self._project._require_open()
+        interrupted = False
+
+        def cancel_sqlite_work() -> int:
+            nonlocal interrupted
+            if _query_cancel_requested(self._cancelled, cancelled):
+                interrupted = True
+                return 1
+            return 0
+
+        connection.set_progress_handler(cancel_sqlite_work, 10_000)
+        try:
+            _query_cancel(self._cancelled, cancelled)
+            connection.execute(
+                """CREATE TEMP TABLE IF NOT EXISTS selected_presentation_nodes(
+                    node_id TEXT PRIMARY KEY
+                ) WITHOUT ROWID"""
+            )
+            connection.execute("DELETE FROM selected_presentation_nodes")
+            for offset in range(0, len(selected), 1000):
+                _query_cancel(self._cancelled, cancelled)
+                connection.executemany(
+                    "INSERT INTO selected_presentation_nodes(node_id) VALUES (?)",
+                    ((node_id,) for node_id in selected[offset : offset + 1000]),
+                )
+            unknown = connection.execute(
+                """SELECT selected.node_id FROM selected_presentation_nodes selected
+                   LEFT JOIN presentation_nodes node
+                     ON node.node_id=selected.node_id AND node.level=?
+                   WHERE node.node_id IS NULL ORDER BY selected.node_id LIMIT 1""",
+                (int(level),),
+            ).fetchone()
+            if unknown is not None:
+                raise ValueError(
+                    f"unknown presentation node for level {int(level)}: {unknown['node_id']}"
+                )
+            _query_cancel(self._cancelled, cancelled)
+            cursor = connection.execute(
+                """SELECT edge.* FROM selected_presentation_nodes source
+                   CROSS JOIN presentation_edges edge
+                     INDEXED BY presentation_edges_source_idx
+                   JOIN selected_presentation_nodes target ON target.node_id=edge.target_id
+                   WHERE edge.source_id=source.node_id AND edge.level=?
+                   ORDER BY edge.sort_key,edge.edge_id""",
+                (int(level),),
+            )
+            result: list[PresentationEdge] = []
+            try:
+                while rows := cursor.fetchmany(500):
+                    _query_cancel(self._cancelled, cancelled)
+                    result.extend(
+                        PresentationEdge(
+                            str(row["edge_id"]),
+                            PresentationLevel(int(row["level"])),
+                            str(row["source_id"]),
+                            str(row["target_id"]),
+                            str(row["kind"]),
+                            storage.decode_json(row["payload_json"]),
+                        )
+                        for row in rows
+                    )
+            finally:
+                cursor.close()
+            return tuple(result)
+        except sqlite3.OperationalError as exc:
+            if interrupted:
+                raise storage.ProjectOperationCancelled(
+                    "project operation was cancelled"
+                ) from exc
+            raise
+        finally:
+            connection.set_progress_handler(None, 0)
+            connection.execute("DROP TABLE IF EXISTS selected_presentation_nodes")
+
+    def evidence_for_nodes(
+        self,
+        node_ids: Sequence[str],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> tuple[EvidenceRecord, ...]:
+        """Return evidence attached directly to an exact Level-3 node selection.
+
+        This bulk path intentionally does not expand descendants. The indexed temporary
+        selection keeps canonical-scale requests below SQLite's parameter limit and makes
+        cancellation observable while rows are streamed.
+        """
+
+        selected = _validated_selected_node_ids(node_ids)
+        if not selected:
+            return ()
+        connection = self._project._require_open()
+        _query_cancel(self._cancelled, cancelled)
+        connection.execute(
+            """CREATE TEMP TABLE IF NOT EXISTS selected_presentation_evidence_nodes(
+                node_id TEXT PRIMARY KEY
+            ) WITHOUT ROWID"""
+        )
+        try:
+            connection.execute("DELETE FROM selected_presentation_evidence_nodes")
+            for offset in range(0, len(selected), 1000):
+                _query_cancel(self._cancelled, cancelled)
+                connection.executemany(
+                    "INSERT INTO selected_presentation_evidence_nodes(node_id) VALUES (?)",
+                    ((node_id,) for node_id in selected[offset : offset + 1000]),
+                )
+            _reject_unknown_level_three_nodes(
+                connection,
+                "selected_presentation_evidence_nodes",
+                self._cancelled,
+                cancelled,
+            )
+            cursor = connection.execute(
+                """SELECT evidence.*
+                   FROM selected_presentation_evidence_nodes selected
+                   CROSS JOIN presentation_evidence evidence
+                     INDEXED BY presentation_evidence_node_idx
+                     ON evidence.node_id=selected.node_id
+                   ORDER BY evidence.sort_key,evidence.evidence_id"""
+            )
+            records: list[EvidenceRecord] = []
+            try:
+                while rows := cursor.fetchmany(500):
+                    _query_cancel(self._cancelled, cancelled)
+                    records.extend(_evidence_from_row(row) for row in rows)
+            finally:
+                cursor.close()
+            return tuple(records)
+        finally:
+            connection.execute(
+                "DROP TABLE IF EXISTS selected_presentation_evidence_nodes"
+            )
+
+    def facts_for_nodes(
+        self,
+        node_ids: Sequence[str],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> tuple[FactRecord, ...]:
+        """Return facts attached directly to an exact Level-3 node selection."""
+
+        selected = _validated_selected_node_ids(node_ids)
+        if not selected:
+            return ()
+        connection = self._project._require_open()
+        _query_cancel(self._cancelled, cancelled)
+        connection.execute(
+            """CREATE TEMP TABLE IF NOT EXISTS selected_presentation_fact_nodes(
+                node_id TEXT PRIMARY KEY
+            ) WITHOUT ROWID"""
+        )
+        try:
+            connection.execute("DELETE FROM selected_presentation_fact_nodes")
+            for offset in range(0, len(selected), 1000):
+                _query_cancel(self._cancelled, cancelled)
+                connection.executemany(
+                    "INSERT INTO selected_presentation_fact_nodes(node_id) VALUES (?)",
+                    ((node_id,) for node_id in selected[offset : offset + 1000]),
+                )
+            _reject_unknown_level_three_nodes(
+                connection,
+                "selected_presentation_fact_nodes",
+                self._cancelled,
+                cancelled,
+            )
+            cursor = connection.execute(
+                """SELECT fact.*
+                   FROM selected_presentation_fact_nodes selected
+                   CROSS JOIN presentation_facts fact
+                     INDEXED BY presentation_facts_node_idx
+                     ON fact.node_id=selected.node_id
+                   ORDER BY fact.sort_key,fact.fact_id"""
+            )
+            records: list[FactRecord] = []
+            try:
+                while rows := cursor.fetchmany(500):
+                    _query_cancel(self._cancelled, cancelled)
+                    records.extend(_fact_from_row(row) for row in rows)
+            finally:
+                cursor.close()
+            return tuple(records)
+        finally:
+            connection.execute("DROP TABLE IF EXISTS selected_presentation_fact_nodes")
+
     def _edges(
         self,
         level: PresentationLevel,
@@ -260,6 +471,67 @@ class PresentationService:
         return values, Continuation(
             len(values), has_more, str(rows[-1]["sort_key"]) if has_more else None
         )
+
+    def organization_connectivity(self, beat_ids: Iterable[str]) -> OrganizationConnectivity:
+        """Return every selected Level-3 beat and internal deterministic transition.
+
+        This is intentionally independent of presentation pagination. Queries are chunked below
+        SQLite's common variable limit and use the Level-3 node and source-edge indexes; target
+        membership is checked in memory so a cross-page or cross-Level-1 edge is never lost.
+        """
+
+        selected = set(beat_ids)
+        if not selected:
+            return OrganizationConnectivity((), (), ())
+        connection = self._project._require_open()
+        node_rows: list[sqlite3.Row] = []
+        for chunk in _chunks(tuple(sorted(selected)), 400):
+            placeholders = ",".join("?" for _ in chunk)
+            node_rows.extend(
+                connection.execute(
+                    f"""SELECT node_id,sort_key,kind FROM presentation_nodes
+                    WHERE level=3 AND node_id IN ({placeholders})
+                    ORDER BY sort_key,node_id""",
+                    chunk,
+                ).fetchall()
+            )
+        found = {str(row["node_id"]) for row in node_rows}
+        unknown = selected - found
+        if unknown:
+            raise ValueError(f"selected scope references unknown Level-3 beat IDs: {sorted(unknown)!r}")
+        node_rows.sort(key=lambda row: (str(row["sort_key"]), str(row["node_id"])))
+        ordered = tuple(str(row["node_id"]) for row in node_rows)
+        required = tuple(
+            str(row["node_id"])
+            for row in node_rows
+            if str(row["kind"]) in {"narrative", "dialogue", "narration", "choice", "condition"}
+        )
+
+        edge_rows: list[sqlite3.Row] = []
+        for chunk in _chunks(ordered, 400):
+            placeholders = ",".join("?" for _ in chunk)
+            edge_rows.extend(
+                connection.execute(
+                    f"""SELECT * FROM presentation_edges INDEXED BY presentation_edges_source_idx
+                    WHERE level=3 AND source_id IN ({placeholders})
+                    ORDER BY sort_key,edge_id""",
+                    chunk,
+                ).fetchall()
+            )
+        edge_rows = [row for row in edge_rows if str(row["target_id"]) in selected]
+        edge_rows.sort(key=lambda row: (str(row["sort_key"]), str(row["edge_id"])))
+        edges = tuple(
+            PresentationEdge(
+                str(row["edge_id"]),
+                PresentationLevel.EVIDENCE,
+                str(row["source_id"]),
+                str(row["target_id"]),
+                str(row["kind"]),
+                storage.decode_json(row["payload_json"]),
+            )
+            for row in edge_rows
+        )
+        return OrganizationConnectivity(ordered, required, edges)
 
     def evidence(self, node_id: str, *, after: str | None = None, limit: int = 25) -> ResultPage:
         bounded = _bounded_limit(limit, MAX_RESULTS)
@@ -815,8 +1087,67 @@ def _cancel(cancelled: Callable[[], bool] | None) -> None:
         raise storage.ProjectOperationCancelled("project operation was cancelled")
 
 
+def _query_cancel(
+    service_cancelled: Callable[[], bool] | None,
+    call_cancelled: Callable[[], bool] | None,
+) -> None:
+    if _query_cancel_requested(service_cancelled, call_cancelled):
+        raise storage.ProjectOperationCancelled("project operation was cancelled")
+
+
+def _query_cancel_requested(
+    service_cancelled: Callable[[], bool] | None,
+    call_cancelled: Callable[[], bool] | None,
+) -> bool:
+    if service_cancelled is not None and service_cancelled():
+        return True
+    return (
+        call_cancelled is not None
+        and call_cancelled is not service_cancelled
+        and call_cancelled()
+    )
+
+
+def _validated_selected_node_ids(node_ids: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(node_ids, (str, bytes)) or any(
+        not isinstance(node_id, str) or not node_id for node_id in node_ids
+    ):
+        raise ValueError("node_ids must contain non-empty strings")
+    return tuple(sorted(set(node_ids)))
+
+
+def _reject_unknown_level_three_nodes(
+    connection: sqlite3.Connection,
+    selection_table: str,
+    service_cancelled: Callable[[], bool] | None,
+    call_cancelled: Callable[[], bool] | None,
+) -> None:
+    if selection_table not in {
+        "selected_presentation_evidence_nodes",
+        "selected_presentation_fact_nodes",
+    }:
+        raise AssertionError("unexpected temporary node-selection table")
+    _query_cancel(service_cancelled, call_cancelled)
+    unknown = connection.execute(
+        f"""SELECT selected.node_id FROM {selection_table} selected
+            LEFT JOIN presentation_nodes node
+              ON node.node_id=selected.node_id AND node.level=3
+            WHERE node.node_id IS NULL ORDER BY selected.node_id LIMIT 1"""
+    ).fetchone()
+    if unknown is not None:
+        raise ValueError(
+            f"unknown Level-3 presentation node: {unknown['node_id']}"
+        )
+    _query_cancel(service_cancelled, call_cancelled)
+
+
 def deterministic_id(prefix: str, values: Iterable[str]) -> str:
     """Return a stable presentation ID for callers creating deterministic extensions."""
 
     digest = hashlib.sha256("\0".join(values).encode()).hexdigest()[:20]
     return f"{prefix}_{digest}"
+
+
+def _chunks(values: tuple[str, ...], size: int) -> Iterable[tuple[str, ...]]:
+    for offset in range(0, len(values), size):
+        yield values[offset : offset + size]

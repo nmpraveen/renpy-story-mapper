@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stage", "groups", "ungrouped_ids"],
+  "properties": {
+    "stage": {"type": "string", "const": "events"},
+    "groups": {"type": "array", "items": {"$ref": "#/$defs/group"}},
+    "ungrouped_ids": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "summary", "member_ids", "characters", "importance", "outcomes", "promoted_fact_ids", "claims", "warnings"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 80},
+        "title": {"type": "string", "minLength": 1, "maxLength": 80},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 320},
+        "member_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "characters": {"type": "array", "items": {"type": "string"}},
+        "importance": {"enum": ["supporting", "major", "turning point"]},
+        "outcomes": {"type": "array", "items": {"type": "string", "maxLength": 320}},
+        "promoted_fact_ids": {"type": "array", "items": {"type": "string"}},
+        "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+        "warnings": {"type": "array", "items": {"type": "string", "maxLength": 320}}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "evidence_ids"],
+      "properties": {
+        "text": {"type": "string", "maxLength": 320},
+        "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    }
+  }
+}

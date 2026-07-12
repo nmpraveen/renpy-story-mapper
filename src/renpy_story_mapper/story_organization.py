@@ -1,0 +1,2795 @@
+"""Transactional story-organization domain model over deterministic project facts.
+
+This module stores organization, interpretation, and user-edit metadata only. Authoritative
+connectivity, facts, evidence, and dialogue remain owned by the M01-M04 tables and payloads.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+import uuid
+from collections import deque
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from itertools import pairwise
+from typing import TYPE_CHECKING, Final, Literal, cast
+
+from renpy_story_mapper import storage
+
+if TYPE_CHECKING:
+    from renpy_story_mapper.project import Project
+
+RunStatus = Literal["running", "completed", "failed", "cancelled"]
+ApprovalState = Literal["pending", "approved", "rejected"]
+DraftDecision = Literal["approved", "rejected"]
+EditOperation = Literal["rename", "split", "merge", "move", "hide", "pin", "approve", "reject"]
+
+_SHA256_LENGTH: Final = 64
+_SUPPORTED_ORIGINS: Final = frozenset({"ai", "deterministic", "user"})
+_REQUIRED_STORY_KINDS: Final = frozenset(
+    {"narrative", "dialogue", "narration", "choice", "condition"}
+)
+_QUOTIENT_KIND_PRIORITY: Final = {
+    "fallthrough": 0,
+    "call_continuation": 1,
+    "return": 2,
+    "call": 3,
+    "jump": 4,
+    "condition": 5,
+    "choice": 6,
+    "ending": 7,
+}
+
+
+@dataclass(frozen=True)
+class CacheIdentity:
+    provider_mode: str
+    model_profile: str
+    model_fingerprint: str
+    prompt_version: str
+    output_schema_version: str
+    input_hash: str
+    ordered_ids_hash: str
+
+    @property
+    def key(self) -> str:
+        return _stable_id(
+            "cache",
+            self.provider_mode,
+            self.model_profile,
+            self.model_fingerprint,
+            self.prompt_version,
+            self.output_schema_version,
+            self.input_hash,
+            self.ordered_ids_hash,
+        )
+
+
+@dataclass(frozen=True)
+class OrganizationRun:
+    id: str
+    provider_mode: str
+    model_profile: str
+    model_fingerprint: str | None
+    prompt_version: str
+    output_schema_version: str
+    generation: str
+    status: str
+    started_utc: str
+    completed_utc: str | None
+    elapsed_ms: int | None
+    usage: object
+    sanitized_failure: str | None
+
+
+@dataclass(frozen=True)
+class OrganizationChunk:
+    id: str
+    run_id: str
+    scope_id: str
+    reconciliation_scope: str
+    ordinal: int
+    input_hash: str
+    ordered_ids_hash: str
+    cache_key: str | None
+    cache_state: str
+    status: str
+    result: object | None
+
+
+@dataclass(frozen=True)
+class OrganizationDraft:
+    id: str
+    run_id: str
+    generation: str
+    status: str
+    candidate: object
+    created_utc: str
+    resolved_utc: str | None
+
+
+@dataclass(frozen=True)
+class DraftReview:
+    draft_id: str
+    target_kind: str
+    target_id: str
+    decision: str
+    reviewed_utc: str
+
+
+@dataclass(frozen=True)
+class StoryArc:
+    id: str
+    title: str
+    summary: str
+    order: int
+    origin: str
+    pinned: bool
+    hidden: bool
+    approval_state: str
+    needs_review: bool
+    event_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StoryEvent:
+    id: str
+    title: str
+    summary: str
+    order: int
+    origin: str
+    pinned: bool
+    hidden: bool
+    approval_state: str
+    needs_review: bool
+    beat_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StoryEdge:
+    id: str
+    source_id: str
+    target_id: str
+    kind: str
+    transition_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AttachedFact:
+    event_id: str
+    fact_id: str
+    fact_kind: str
+    expression: str
+    status: str
+    source_path: str
+    start_line: int
+    end_line: int
+
+
+@dataclass(frozen=True)
+class StoryClaim:
+    id: str
+    event_id: str | None
+    arc_id: str | None
+    text: str
+    kind: str
+    status: str
+    evidence_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StoryEnrichment:
+    target_kind: str
+    target_id: str
+    characters: tuple[str, ...]
+    importance: str
+    outcomes: tuple[str, ...]
+    promoted_fact_ids: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StoryEdit:
+    id: str
+    operation: str
+    target_kind: str
+    target_id: str
+    payload: object
+    status: str
+    created_utc: str
+
+
+class StoryOrganizationService:
+    """Normalized query and mutation API for schema-v4 organization data."""
+
+    def __init__(self, project: Project) -> None:
+        self._project = project
+
+    @property
+    def _connection(self) -> sqlite3.Connection:
+        return self._project._require_open()
+
+    def create_run(
+        self,
+        *,
+        provider_mode: str,
+        model_profile: str,
+        model_fingerprint: str | None,
+        prompt_version: str,
+        output_schema_version: str,
+        generation: str,
+        run_id: str | None = None,
+    ) -> str:
+        values = (provider_mode, model_profile, prompt_version, output_schema_version, generation)
+        if any(not value.strip() for value in values):
+            raise ValueError("run identity values cannot be empty")
+        identifier = run_id or uuid.uuid4().hex
+        with storage.transaction(self._connection):
+            self._connection.execute(
+                """INSERT INTO organization_runs(
+                    run_id,provider_mode,model_profile,model_fingerprint,prompt_version,
+                    output_schema_version,generation,status,started_utc,usage_json
+                ) VALUES (?,?,?,?,?,?,?,'running',?,?)""",
+                (
+                    identifier,
+                    provider_mode,
+                    model_profile,
+                    model_fingerprint,
+                    prompt_version,
+                    output_schema_version,
+                    generation,
+                    storage.utc_now(),
+                    storage.canonical_json({}),
+                ),
+            )
+        return identifier
+
+    def finish_run(
+        self,
+        run_id: str,
+        status: RunStatus,
+        *,
+        elapsed_ms: int,
+        usage: object | None = None,
+        sanitized_failure: str | None = None,
+    ) -> None:
+        if status == "running":
+            raise ValueError("finish_run requires a terminal status")
+        if elapsed_ms < 0:
+            raise ValueError("elapsed_ms cannot be negative")
+        failure = _sanitize_failure(sanitized_failure)
+        if status in {"failed", "cancelled"} and failure is None:
+            failure = "Organization did not complete."
+        with storage.transaction(self._connection):
+            cursor = self._connection.execute(
+                """UPDATE organization_runs SET status=?,completed_utc=?,elapsed_ms=?,
+                    usage_json=?,sanitized_failure=? WHERE run_id=? AND status='running'""",
+                (
+                    status,
+                    storage.utc_now(),
+                    elapsed_ms,
+                    storage.canonical_json({} if usage is None else usage),
+                    failure,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"running organization run does not exist: {run_id}")
+
+    def set_run_model_fingerprint(self, run_id: str, model_identifier: str) -> None:
+        """Record the effective provider model on an existing running organization run."""
+
+        normalized = " ".join(model_identifier.replace("\x00", "").split())
+        if not normalized or len(normalized) > 200:
+            raise ValueError("model_identifier must contain 1-200 characters")
+        if normalized.casefold() == "balanced":
+            raise ValueError("model_identifier must identify an effective model, not a profile")
+        with storage.transaction(self._connection):
+            row = self._connection.execute(
+                "SELECT status,model_fingerprint FROM organization_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            if row is None or str(row["status"]) != "running":
+                raise KeyError(f"running organization run does not exist: {run_id}")
+            existing = _optional_text(row["model_fingerprint"])
+            if existing is not None and existing != normalized:
+                raise ValueError(
+                    "running organization run already has a different model identifier"
+                )
+            if existing is None:
+                self._connection.execute(
+                    "UPDATE organization_runs SET model_fingerprint=? WHERE run_id=?",
+                    (normalized, run_id),
+                )
+
+    def runs(self) -> tuple[OrganizationRun, ...]:
+        rows = self._connection.execute(
+            "SELECT * FROM organization_runs ORDER BY started_utc,run_id"
+        ).fetchall()
+        return tuple(
+            OrganizationRun(
+                id=str(row["run_id"]),
+                provider_mode=str(row["provider_mode"]),
+                model_profile=str(row["model_profile"]),
+                model_fingerprint=_optional_text(row["model_fingerprint"]),
+                prompt_version=str(row["prompt_version"]),
+                output_schema_version=str(row["output_schema_version"]),
+                generation=str(row["generation"]),
+                status=str(row["status"]),
+                started_utc=str(row["started_utc"]),
+                completed_utc=_optional_text(row["completed_utc"]),
+                elapsed_ms=None if row["elapsed_ms"] is None else int(row["elapsed_ms"]),
+                usage=storage.decode_json(row["usage_json"]),
+                sanitized_failure=_optional_text(row["sanitized_failure"]),
+            )
+            for row in rows
+        )
+
+    def cache_identity(
+        self,
+        *,
+        provider_mode: str,
+        model_profile: str,
+        model_fingerprint: str,
+        prompt_version: str,
+        output_schema_version: str,
+        input_hash: str,
+        ordered_ids: Sequence[str],
+    ) -> CacheIdentity:
+        _require_digest(input_hash, "input_hash")
+        if not model_profile.strip():
+            raise ValueError("model_profile cannot be empty")
+        ordered_hash = hashlib.sha256(storage.canonical_json(list(ordered_ids))).hexdigest()
+        return CacheIdentity(
+            provider_mode,
+            model_profile,
+            model_fingerprint,
+            prompt_version,
+            output_schema_version,
+            input_hash,
+            ordered_hash,
+        )
+
+    def cache_result(self, identity: CacheIdentity) -> object | None:
+        row = self._connection.execute(
+            """SELECT result_json,result_hash FROM organization_cache
+               WHERE cache_key=? AND provider_mode=? AND model_profile=? AND model_fingerprint=?
+                 AND prompt_version=? AND output_schema_version=? AND input_hash=?
+                 AND ordered_ids_hash=?""",
+            (
+                identity.key,
+                identity.provider_mode,
+                identity.model_profile,
+                identity.model_fingerprint,
+                identity.prompt_version,
+                identity.output_schema_version,
+                identity.input_hash,
+                identity.ordered_ids_hash,
+            ),
+        ).fetchone()
+        if row is None:
+            return None
+        payload = bytes(row["result_json"])
+        if storage.payload_digest(payload) != str(row["result_hash"]):
+            raise storage.ProjectCorruptError("organization cache checksum does not match")
+        with storage.transaction(self._connection):
+            self._connection.execute(
+                "UPDATE organization_cache SET hit_count=hit_count+1,last_used_utc=? "
+                "WHERE cache_key=?",
+                (storage.utc_now(), identity.key),
+            )
+        return storage.decode_json(payload)
+
+    def store_cache_result(self, identity: CacheIdentity, result: object) -> str:
+        _reject_authority_fields(result)
+        payload = storage.canonical_json(result)
+        digest = storage.payload_digest(payload)
+        now = storage.utc_now()
+        with storage.transaction(self._connection):
+            self._connection.execute(
+                """INSERT INTO organization_cache(
+                    cache_key,provider_mode,model_profile,model_fingerprint,prompt_version,
+                    output_schema_version,
+                    input_hash,ordered_ids_hash,result_json,result_hash,created_utc,last_used_utc,hit_count
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
+                ON CONFLICT(cache_key) DO UPDATE SET result_json=excluded.result_json,
+                    result_hash=excluded.result_hash,last_used_utc=excluded.last_used_utc""",
+                (
+                    identity.key,
+                    identity.provider_mode,
+                    identity.model_profile,
+                    identity.model_fingerprint,
+                    identity.prompt_version,
+                    identity.output_schema_version,
+                    identity.input_hash,
+                    identity.ordered_ids_hash,
+                    payload,
+                    digest,
+                    now,
+                    now,
+                ),
+            )
+        return identity.key
+
+    def record_chunk(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        reconciliation_scope: str,
+        ordinal: int,
+        identity: CacheIdentity,
+        cache_state: Literal["miss", "hit", "stored", "bypassed"],
+        status: Literal["pending", "validated", "rejected", "failed", "cancelled"],
+        result: object | None = None,
+        chunk_id: str | None = None,
+    ) -> str:
+        if ordinal < 0:
+            raise ValueError("chunk ordinal cannot be negative")
+        if result is not None:
+            _reject_authority_fields(result)
+        payload = None if result is None else storage.canonical_json(result)
+        digest = None if payload is None else storage.payload_digest(payload)
+        identifier = chunk_id or _stable_id("chunk", run_id, str(ordinal), identity.input_hash)
+        cache_key = identity.key if self._cache_exists(identity.key) else None
+        with storage.transaction(self._connection):
+            self._connection.execute(
+                """INSERT INTO organization_chunks(
+                    chunk_id,run_id,scope_id,reconciliation_scope,ordinal,input_hash,
+                    ordered_ids_hash,cache_key,cache_state,status,result_json,result_hash
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    identifier,
+                    run_id,
+                    scope_id,
+                    reconciliation_scope,
+                    ordinal,
+                    identity.input_hash,
+                    identity.ordered_ids_hash,
+                    cache_key,
+                    cache_state,
+                    status,
+                    payload,
+                    digest,
+                ),
+            )
+        return identifier
+
+    def chunks(self, run_id: str | None = None) -> tuple[OrganizationChunk, ...]:
+        clause = "" if run_id is None else "WHERE run_id=?"
+        parameters: tuple[object, ...] = () if run_id is None else (run_id,)
+        rows = self._connection.execute(
+            f"SELECT * FROM organization_chunks {clause} ORDER BY run_id,ordinal,chunk_id",
+            parameters,
+        ).fetchall()
+        result: list[OrganizationChunk] = []
+        for row in rows:
+            payload = None if row["result_json"] is None else bytes(row["result_json"])
+            if payload is not None and storage.payload_digest(payload) != str(row["result_hash"]):
+                raise storage.ProjectCorruptError("organization chunk checksum does not match")
+            result.append(
+                OrganizationChunk(
+                    str(row["chunk_id"]),
+                    str(row["run_id"]),
+                    str(row["scope_id"]),
+                    str(row["reconciliation_scope"]),
+                    int(row["ordinal"]),
+                    str(row["input_hash"]),
+                    str(row["ordered_ids_hash"]),
+                    _optional_text(row["cache_key"]),
+                    str(row["cache_state"]),
+                    str(row["status"]),
+                    None if payload is None else storage.decode_json(payload),
+                )
+            )
+        return tuple(result)
+
+    def create_draft(self, run_id: str, generation: str, candidate: Mapping[str, object]) -> str:
+        if {"_scope", "selected_beat_ids"}.intersection(candidate):
+            raise ValueError("scope fields are managed exclusively by create_scoped_draft")
+        return self._store_draft(run_id, generation, candidate)
+
+    def create_scoped_draft(
+        self,
+        run_id: str,
+        generation: str,
+        candidate: Mapping[str, object],
+        *,
+        scope_ids: Sequence[str],
+        covered_beat_ids: Sequence[str],
+    ) -> str:
+        """Create a draft for the exact Level-3 descendants of Level-1/2 scope containers.
+
+        Coverage includes technical Level-3 nodes, but excludes nodes hidden by durable
+        presentation overrides, matching ``PresentationService.view(include_technical=True)``.
+        """
+
+        if {"_scope", "selected_beat_ids"}.intersection(candidate):
+            raise ValueError("scope fields are managed exclusively by create_scoped_draft")
+        scopes = _unique_string_sequence(scope_ids, "scope_ids")
+        covered = _unique_string_sequence(covered_beat_ids, "covered_beat_ids")
+        if not scopes or not covered:
+            raise ValueError("scoped drafts require non-empty scope and covered beat IDs")
+        document = dict(candidate)
+        document["selected_beat_ids"] = list(covered)
+        with storage.transaction(self._connection):
+            self._validate_scope(scopes, covered)
+            self._validate_candidate(document, covered_beat_ids=frozenset(covered))
+            document["_scope"] = {
+                "scope_ids": list(scopes),
+                "covered_beat_ids": list(covered),
+            }
+            return self._store_draft(run_id, generation, document, transactional=False)
+
+    def _store_draft(
+        self,
+        run_id: str,
+        generation: str,
+        candidate: Mapping[str, object],
+        *,
+        transactional: bool = True,
+    ) -> str:
+        payload = storage.canonical_json(dict(candidate))
+        identifier = _stable_id("draft", run_id, storage.payload_digest(payload))
+
+        def write() -> None:
+            body, _scope = _candidate_body_and_scope(candidate)
+            if _scope is None:
+                self._validate_candidate(body)
+            self._connection.execute(
+                """INSERT INTO organization_drafts(
+                    draft_id,run_id,generation,status,candidate_json,candidate_hash,created_utc
+                ) VALUES (?,?,?,'pending',?,?,?)""",
+                (
+                    identifier,
+                    run_id,
+                    generation,
+                    payload,
+                    storage.payload_digest(payload),
+                    storage.utc_now(),
+                ),
+            )
+
+        if transactional:
+            with storage.transaction(self._connection):
+                write()
+        else:
+            write()
+        return identifier
+
+    def discard_draft(self, draft_id: str) -> None:
+        with storage.transaction(self._connection):
+            cursor = self._connection.execute(
+                """UPDATE organization_drafts SET status='discarded',resolved_utc=?
+                   WHERE draft_id=? AND status='pending'""",
+                (storage.utc_now(), draft_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"pending organization draft does not exist: {draft_id}")
+
+    def drafts(self, *, status: str | None = None) -> tuple[OrganizationDraft, ...]:
+        clause = "" if status is None else "WHERE status=?"
+        parameters: tuple[object, ...] = () if status is None else (status,)
+        rows = self._connection.execute(
+            f"SELECT * FROM organization_drafts {clause} ORDER BY created_utc,draft_id",
+            parameters,
+        ).fetchall()
+        result: list[OrganizationDraft] = []
+        for row in rows:
+            payload = bytes(row["candidate_json"])
+            if storage.payload_digest(payload) != str(row["candidate_hash"]):
+                raise storage.ProjectCorruptError("organization draft checksum does not match")
+            result.append(
+                OrganizationDraft(
+                    str(row["draft_id"]),
+                    str(row["run_id"]),
+                    str(row["generation"]),
+                    str(row["status"]),
+                    storage.decode_json(payload),
+                    str(row["created_utc"]),
+                    _optional_text(row["resolved_utc"]),
+                )
+            )
+        return tuple(result)
+
+    def review_draft_group(
+        self,
+        draft_id: str,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        decision: DraftDecision,
+    ) -> None:
+        """Persist an explicit pre-apply decision for one candidate arc or event."""
+
+        with storage.transaction(self._connection):
+            candidate = self._pending_draft_candidate(draft_id)
+            collection = "arcs" if target_kind == "arc" else "events"
+            identifiers = {
+                cast(str, item["id"])
+                for item in _object_list(candidate.get(collection), collection)
+            }
+            if target_id not in identifiers:
+                raise KeyError(f"candidate {target_kind} does not exist: {target_id}")
+            self._connection.execute(
+                """INSERT INTO organization_draft_reviews(
+                    draft_id,target_kind,target_id,decision,reviewed_utc
+                ) VALUES (?,?,?,?,?)
+                ON CONFLICT(draft_id,target_kind,target_id) DO UPDATE SET
+                    decision=excluded.decision,reviewed_utc=excluded.reviewed_utc""",
+                (draft_id, target_kind, target_id, decision, storage.utc_now()),
+            )
+
+    def draft_reviews(self, draft_id: str) -> tuple[DraftReview, ...]:
+        rows = self._connection.execute(
+            """SELECT * FROM organization_draft_reviews WHERE draft_id=?
+               ORDER BY target_kind,target_id""",
+            (draft_id,),
+        ).fetchall()
+        return tuple(
+            DraftReview(
+                str(row["draft_id"]),
+                str(row["target_kind"]),
+                str(row["target_id"]),
+                str(row["decision"]),
+                str(row["reviewed_utc"]),
+            )
+            for row in rows
+        )
+
+    def apply_draft(self, draft_id: str) -> None:
+        """Atomically replace unpinned accepted organization with a validated draft."""
+
+        with storage.transaction(self._connection):
+            row = self._connection.execute(
+                """SELECT generation,candidate_json,candidate_hash FROM organization_drafts
+                   WHERE draft_id=? AND status='pending'""",
+                (draft_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"pending organization draft does not exist: {draft_id}")
+            payload = bytes(row["candidate_json"])
+            if storage.payload_digest(payload) != str(row["candidate_hash"]):
+                raise storage.ProjectCorruptError("organization draft checksum does not match")
+            stored = _mapping(storage.decode_json(payload), "draft")
+            candidate, scope = _candidate_body_and_scope(stored)
+            covered = None if scope is None else frozenset(scope[1])
+            if scope is not None:
+                self._validate_scope(scope[0], scope[1])
+            self._validate_candidate(candidate, covered_beat_ids=covered)
+            reviews = {
+                (str(review["target_kind"]), str(review["target_id"])): str(review["decision"])
+                for review in self._connection.execute(
+                    "SELECT target_kind,target_id,decision FROM organization_draft_reviews "
+                    "WHERE draft_id=?",
+                    (draft_id,),
+                )
+            }
+            reviewed = self._reviewed_candidate(candidate, reviews)
+            if scope is None:
+                self._apply_candidate(reviewed, str(row["generation"]))
+            else:
+                self._apply_scoped_candidate(reviewed, str(row["generation"]), scope[1])
+            self._derive_event_edges()
+            self._connection.execute(
+                "UPDATE organization_drafts SET status='applied',resolved_utc=? WHERE draft_id=?",
+                (storage.utc_now(), draft_id),
+            )
+
+    def arcs(self, *, include_hidden: bool = False) -> tuple[StoryArc, ...]:
+        clause = "" if include_hidden else "WHERE a.hidden=0"
+        rows = self._connection.execute(
+            f"SELECT a.* FROM story_arcs a {clause} ORDER BY a.sort_order,a.arc_id"
+        ).fetchall()
+        return tuple(
+            StoryArc(
+                str(row["arc_id"]),
+                str(row["title"]),
+                str(row["summary"]),
+                int(row["sort_order"]),
+                str(row["origin"]),
+                bool(row["pinned"]),
+                bool(row["hidden"]),
+                str(row["approval_state"]),
+                bool(row["needs_review"]),
+                self._arc_member_ids(str(row["arc_id"])),
+            )
+            for row in rows
+        )
+
+    def events(
+        self, *, arc_id: str | None = None, include_hidden: bool = False
+    ) -> tuple[StoryEvent, ...]:
+        clauses: list[str] = []
+        parameters: list[object] = []
+        join = ""
+        if arc_id is not None:
+            join = "JOIN story_arc_members am ON am.event_id=e.event_id"
+            clauses.append("am.arc_id=?")
+            parameters.append(arc_id)
+        if not include_hidden:
+            clauses.append("e.hidden=0")
+        where = "" if not clauses else "WHERE " + " AND ".join(clauses)
+        order_by = "am.ordinal,e.event_id" if arc_id is not None else "e.sort_order,e.event_id"
+        rows = self._connection.execute(
+            f"""SELECT e.* FROM story_events e {join}
+                {where} ORDER BY {order_by}""",
+            parameters,
+        ).fetchall()
+        return tuple(
+            StoryEvent(
+                str(row["event_id"]),
+                str(row["title"]),
+                str(row["summary"]),
+                int(row["sort_order"]),
+                str(row["origin"]),
+                bool(row["pinned"]),
+                bool(row["hidden"]),
+                str(row["approval_state"]),
+                bool(row["needs_review"]),
+                self._member_ids(str(row["event_id"])),
+            )
+            for row in rows
+        )
+
+    def event_edges(self) -> tuple[StoryEdge, ...]:
+        rows = self._connection.execute(
+            "SELECT * FROM story_event_edges ORDER BY source_event_id,target_event_id,kind"
+        ).fetchall()
+        return tuple(
+            StoryEdge(
+                str(row["edge_id"]),
+                str(row["source_event_id"]),
+                str(row["target_event_id"]),
+                str(row["kind"]),
+                tuple(cast(list[str], storage.decode_json(row["transition_ids_json"]))),
+            )
+            for row in rows
+        )
+
+    def arc_edges(self) -> tuple[StoryEdge, ...]:
+        rows = self._connection.execute(
+            """SELECT sm.arc_id AS source_id,tm.arc_id AS target_id,e.kind,
+                      json_group_array(e.edge_id) AS edge_ids
+               FROM story_event_edges e
+               JOIN story_arc_members sm ON sm.event_id=e.source_event_id
+               JOIN story_arc_members tm ON tm.event_id=e.target_event_id
+               WHERE sm.arc_id<>tm.arc_id GROUP BY sm.arc_id,tm.arc_id,e.kind
+               ORDER BY sm.arc_id,tm.arc_id,e.kind"""
+        ).fetchall()
+        return tuple(
+            StoryEdge(
+                _stable_id(
+                    "arc-edge", str(row["source_id"]), str(row["target_id"]), str(row["kind"])
+                ),
+                str(row["source_id"]),
+                str(row["target_id"]),
+                str(row["kind"]),
+                tuple(cast(list[str], storage.decode_json(str(row["edge_ids"])))),
+            )
+            for row in rows
+        )
+
+    def attached_facts(self, event_id: str | None = None) -> tuple[AttachedFact, ...]:
+        clause = "" if event_id is None else "AND m.event_id=?"
+        parameters: tuple[object, ...] = () if event_id is None else (event_id,)
+        rows = self._connection.execute(
+            f"""SELECT m.event_id,f.fact_id,f.fact_kind,f.expression,f.status,
+                       f.source_path,f.start_line,f.end_line
+                FROM story_event_members m JOIN presentation_facts f ON f.node_id=m.beat_id
+                WHERE 1=1 {clause} ORDER BY m.event_id,m.ordinal,f.sort_key,f.fact_id""",
+            parameters,
+        ).fetchall()
+        return tuple(
+            AttachedFact(
+                str(row["event_id"]),
+                str(row["fact_id"]),
+                str(row["fact_kind"]),
+                str(row["expression"]),
+                str(row["status"]),
+                str(row["source_path"]),
+                int(row["start_line"]),
+                int(row["end_line"]),
+            )
+            for row in rows
+        )
+
+    def claims(self, *, event_id: str | None = None) -> tuple[StoryClaim, ...]:
+        clause = "" if event_id is None else "WHERE c.event_id=?"
+        parameters: tuple[object, ...] = () if event_id is None else (event_id,)
+        rows = self._connection.execute(
+            f"""SELECT c.* FROM story_claims c {clause}
+                ORDER BY c.sort_order,c.claim_id""",
+            parameters,
+        ).fetchall()
+        return tuple(
+            StoryClaim(
+                str(row["claim_id"]),
+                _optional_text(row["event_id"]),
+                _optional_text(row["arc_id"]),
+                str(row["text"]),
+                str(row["claim_kind"]),
+                str(row["status"]),
+                tuple(
+                    str(item[0])
+                    for item in self._connection.execute(
+                        "SELECT evidence_id FROM story_claim_evidence "
+                        "WHERE claim_id=? ORDER BY evidence_id",
+                        (str(row["claim_id"]),),
+                    )
+                ),
+            )
+            for row in rows
+        )
+
+    def enrichments(
+        self,
+        *,
+        target_kind: Literal["arc", "event"] | None = None,
+        target_id: str | None = None,
+    ) -> tuple[StoryEnrichment, ...]:
+        """Return accepted provider enrichment without promoting it to graph authority."""
+
+        clauses: list[str] = []
+        parameters: list[object] = []
+        if target_kind is not None:
+            clauses.append("target_kind=?")
+            parameters.append(target_kind)
+        if target_id is not None:
+            clauses.append("target_id=?")
+            parameters.append(target_id)
+        where = "" if not clauses else "WHERE " + " AND ".join(clauses)
+        rows = self._connection.execute(
+            f"SELECT * FROM story_group_enrichment {where} ORDER BY target_kind,target_id",
+            tuple(parameters),
+        ).fetchall()
+        return tuple(_enrichment_from_row(row) for row in rows)
+
+    def draft_enrichments(self, draft_id: str) -> tuple[StoryEnrichment, ...]:
+        """Expose validated candidate enrichment for review comparison before or after apply."""
+
+        row = self._connection.execute(
+            "SELECT candidate_json,candidate_hash FROM organization_drafts WHERE draft_id=?",
+            (draft_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"organization draft does not exist: {draft_id}")
+        payload = bytes(row["candidate_json"])
+        if storage.payload_digest(payload) != str(row["candidate_hash"]):
+            raise storage.ProjectCorruptError("organization draft checksum does not match")
+        candidate, _scope = _candidate_body_and_scope(
+            _mapping(storage.decode_json(payload), "draft")
+        )
+        values: list[StoryEnrichment] = []
+        for kind, collection in (("arc", "arcs"), ("event", "events")):
+            for group in _object_list(candidate.get(collection), collection):
+                values.append(_enrichment_from_group(kind, group))
+        return tuple(sorted(values, key=lambda item: (item.target_kind, item.target_id)))
+
+    def edits(self, target_id: str | None = None) -> tuple[StoryEdit, ...]:
+        clause = "" if target_id is None else "WHERE target_id=?"
+        parameters: tuple[object, ...] = () if target_id is None else (target_id,)
+        rows = self._connection.execute(
+            f"SELECT * FROM story_edits {clause} ORDER BY created_utc,edit_id", parameters
+        ).fetchall()
+        return tuple(
+            StoryEdit(
+                str(row["edit_id"]),
+                str(row["operation"]),
+                str(row["target_kind"]),
+                str(row["target_id"]),
+                storage.decode_json(row["payload_json"]),
+                str(row["status"]),
+                str(row["created_utc"]),
+            )
+            for row in rows
+        )
+
+    def cache_entry_count(self) -> int:
+        row = self._connection.execute("SELECT COUNT(*) FROM organization_cache").fetchone()
+        assert row is not None
+        return int(row[0])
+
+    def rename(self, target_kind: Literal["arc", "event"], target_id: str, title: str) -> None:
+        if not title.strip() or len(title) > 80:
+            raise ValueError("title must contain 1-80 characters")
+        table, key = _target_table(target_kind)
+        with storage.transaction(self._connection):
+            cursor = self._connection.execute(
+                f"UPDATE {table} SET title=?,pinned=1,updated_utc=? WHERE {key}=?",
+                (title, storage.utc_now(), target_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"{target_kind} does not exist: {target_id}")
+            self._insert_edit("rename", target_kind, target_id, {"title": title})
+
+    def set_hidden(
+        self, target_kind: Literal["arc", "event"], target_id: str, hidden: bool
+    ) -> None:
+        self._update_flag("hide", target_kind, target_id, "hidden", hidden)
+
+    def set_pinned(
+        self, target_kind: Literal["arc", "event"], target_id: str, pinned: bool
+    ) -> None:
+        self._update_flag("pin", target_kind, target_id, "pinned", pinned)
+
+    def set_approval(
+        self, target_kind: Literal["arc", "event"], target_id: str, state: ApprovalState
+    ) -> None:
+        operation: EditOperation = "reject" if state == "rejected" else "approve"
+        table, key = _target_table(target_kind)
+        with storage.transaction(self._connection):
+            cursor = self._connection.execute(
+                f"UPDATE {table} SET approval_state=?,updated_utc=? WHERE {key}=?",
+                (state, storage.utc_now(), target_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"{target_kind} does not exist: {target_id}")
+            self._insert_edit(operation, target_kind, target_id, {"state": state})
+
+    def split_event(self, event_id: str, boundary_beat_id: str, *, new_title: str) -> str:
+        """Split immediately before an existing deterministic beat boundary."""
+
+        if not new_title.strip() or len(new_title) > 80:
+            raise ValueError("new title must contain 1-80 characters")
+        with storage.transaction(self._connection):
+            event = self._connection.execute(
+                "SELECT * FROM story_events WHERE event_id=?", (event_id,)
+            ).fetchone()
+            if event is None:
+                raise KeyError(f"event does not exist: {event_id}")
+            members = self._member_ids(event_id)
+            if boundary_beat_id not in members[1:]:
+                raise ValueError("split must use an internal deterministic beat boundary")
+            split_at = members.index(boundary_beat_id)
+            left, right = members[:split_at], members[split_at:]
+            new_id = _stable_id("user-event", event_id, boundary_beat_id)
+            now = storage.utc_now()
+            self._connection.execute(
+                """INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    new_id,
+                    new_title,
+                    str(event["summary"]),
+                    int(event["sort_order"]) + 1,
+                    "user",
+                    1,
+                    0,
+                    "approved",
+                    0,
+                    str(event["generation"]),
+                    now,
+                ),
+            )
+            self._replace_members(event_id, left)
+            self._replace_members(new_id, right)
+            arc = self._connection.execute(
+                "SELECT arc_id,ordinal FROM story_arc_members WHERE event_id=?", (event_id,)
+            ).fetchone()
+            if arc is not None:
+                self._shift_arc_members(str(arc["arc_id"]), int(arc["ordinal"]) + 1)
+                self._connection.execute(
+                    "INSERT INTO story_arc_members VALUES (?,?,?)",
+                    (str(arc["arc_id"]), new_id, int(arc["ordinal"]) + 1),
+                )
+            self._connection.execute(
+                "UPDATE story_events SET pinned=1,updated_utc=? WHERE event_id=?", (now, event_id)
+            )
+            self._insert_edit(
+                "split", "event", event_id, {"boundary": boundary_beat_id, "new_id": new_id}
+            )
+            self._derive_event_edges()
+        return new_id
+
+    def merge_events(self, first_event_id: str, second_event_id: str, *, title: str) -> str:
+        if first_event_id == second_event_id:
+            raise ValueError("cannot merge an event with itself")
+        if not title.strip() or len(title) > 80:
+            raise ValueError("title must contain 1-80 characters")
+        with storage.transaction(self._connection):
+            rows = self._connection.execute(
+                """SELECT arc_id,event_id,ordinal FROM story_arc_members
+                   WHERE event_id IN (?,?) ORDER BY ordinal""",
+                (first_event_id, second_event_id),
+            ).fetchall()
+            if len(rows) != 2 or str(rows[0]["arc_id"]) != str(rows[1]["arc_id"]):
+                raise ValueError("events must belong to the same arc")
+            if int(rows[1]["ordinal"]) != int(rows[0]["ordinal"]) + 1:
+                raise ValueError("only contiguous events can be merged")
+            keep = str(rows[0]["event_id"])
+            remove = str(rows[1]["event_id"])
+            members = (*self._member_ids(keep), *self._member_ids(remove))
+            self._connection.execute("DELETE FROM story_arc_members WHERE event_id=?", (remove,))
+            self._connection.execute("DELETE FROM story_events WHERE event_id=?", (remove,))
+            self._replace_members(keep, members)
+            self._connection.execute(
+                "UPDATE story_events SET title=?,origin='user',pinned=1,updated_utc=? "
+                "WHERE event_id=?",
+                (title, storage.utc_now(), keep),
+            )
+            self._renumber_arc(str(rows[0]["arc_id"]))
+            self._insert_edit("merge", "event", keep, {"removed_id": remove, "title": title})
+            self._derive_event_edges()
+        return keep
+
+    def move_event(self, event_id: str, arc_id: str, ordinal: int) -> None:
+        if ordinal < 0:
+            raise ValueError("ordinal cannot be negative")
+        with storage.transaction(self._connection):
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                ).fetchone()
+                is None
+            ):
+                raise KeyError(f"arc does not exist: {arc_id}")
+            old = self._connection.execute(
+                "SELECT arc_id FROM story_arc_members WHERE event_id=?", (event_id,)
+            ).fetchone()
+            if old is None:
+                raise KeyError(f"event does not belong to an arc: {event_id}")
+            old_arc = str(old["arc_id"])
+            self._connection.execute("DELETE FROM story_arc_members WHERE event_id=?", (event_id,))
+            self._renumber_arc(old_arc)
+            count_row = self._connection.execute(
+                "SELECT COUNT(*) FROM story_arc_members WHERE arc_id=?", (arc_id,)
+            ).fetchone()
+            assert count_row is not None
+            target = min(ordinal, int(count_row[0]))
+            self._shift_arc_members(arc_id, target)
+            self._connection.execute(
+                "INSERT INTO story_arc_members VALUES (?,?,?)", (arc_id, event_id, target)
+            )
+            self._connection.execute(
+                "UPDATE story_events SET pinned=1,updated_utc=? WHERE event_id=?",
+                (storage.utc_now(), event_id),
+            )
+            self._insert_edit(
+                "move", "event", event_id, {"from": old_arc, "to": arc_id, "ordinal": target}
+            )
+
+    def reconcile_after_refresh(self) -> tuple[str, ...]:
+        """Retain broken edits and memberships while marking them for explicit review."""
+
+        with storage.transaction(self._connection):
+            rows = self._connection.execute(
+                """SELECT DISTINCT m.event_id FROM story_event_members m
+                   LEFT JOIN presentation_nodes n ON n.node_id=m.beat_id AND n.level=3
+                   WHERE n.node_id IS NULL ORDER BY m.event_id"""
+            ).fetchall()
+            affected = tuple(str(row[0]) for row in rows)
+            if affected:
+                placeholders = ",".join("?" for _ in affected)
+                self._connection.execute(
+                    f"UPDATE story_events SET needs_review=1 WHERE event_id IN ({placeholders})",
+                    affected,
+                )
+                self._connection.execute(
+                    f"""UPDATE story_arcs SET needs_review=1 WHERE arc_id IN (
+                        SELECT arc_id FROM story_arc_members WHERE event_id IN ({placeholders})
+                    )""",
+                    affected,
+                )
+                self._connection.execute(
+                    f"""UPDATE story_edits SET status='needs_review' WHERE target_kind='event'
+                        AND target_id IN ({placeholders})""",
+                    affected,
+                )
+                self._connection.execute(
+                    f"""UPDATE story_edits SET status='needs_review' WHERE target_kind='arc'
+                        AND target_id IN (
+                            SELECT arc_id FROM story_arc_members
+                            WHERE event_id IN ({placeholders})
+                        )""",
+                    affected,
+                )
+            self._connection.execute(
+                """UPDATE story_claims SET status='needs_review' WHERE claim_id IN (
+                    SELECT ce.claim_id FROM story_claim_evidence ce
+                    LEFT JOIN presentation_evidence e ON e.evidence_id=ce.evidence_id
+                    WHERE e.evidence_id IS NULL
+                )"""
+            )
+            self._derive_event_edges()
+        return affected
+
+    def query_plan(self, sql: str, parameters: Sequence[object] = ()) -> tuple[str, ...]:
+        """Expose deterministic SQLite query-plan evidence for synthetic performance tests."""
+
+        if not sql.lstrip().upper().startswith("SELECT"):
+            raise ValueError("query plan is available only for SELECT statements")
+        rows = self._connection.execute(f"EXPLAIN QUERY PLAN {sql}", parameters).fetchall()
+        return tuple(str(row[3]) for row in rows)
+
+    def _pending_draft_candidate(self, draft_id: str) -> dict[str, object]:
+        row = self._connection.execute(
+            """SELECT candidate_json,candidate_hash FROM organization_drafts
+               WHERE draft_id=? AND status='pending'""",
+            (draft_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"pending organization draft does not exist: {draft_id}")
+        payload = bytes(row["candidate_json"])
+        if storage.payload_digest(payload) != str(row["candidate_hash"]):
+            raise storage.ProjectCorruptError("organization draft checksum does not match")
+        return _mapping(storage.decode_json(payload), "draft")
+
+    def _reviewed_candidate(
+        self,
+        candidate: Mapping[str, object],
+        reviews: Mapping[tuple[str, str], str],
+    ) -> dict[str, object]:
+        arcs = _object_list(candidate.get("arcs"), "arcs")
+        events = _object_list(candidate.get("events"), "events")
+        expected = {("arc", cast(str, arc["id"])) for arc in arcs} | {
+            ("event", cast(str, event["id"])) for event in events
+        }
+        missing = expected - set(reviews)
+        if missing:
+            labels = ", ".join(f"{kind}:{identifier}" for kind, identifier in sorted(missing))
+            raise ValueError(
+                f"all candidate arcs and events must be reviewed before apply: {labels}"
+            )
+
+        events_by_id = {cast(str, event["id"]): event for event in events}
+        accepted_events: list[dict[str, object]] = []
+        accepted_arcs: list[dict[str, object]] = []
+        active_event_ids: set[str] = set()
+        active_arc_ids: set[str] = set()
+        for arc in arcs:
+            arc_id = cast(str, arc["id"])
+            arc_approved = reviews[("arc", arc_id)] == "approved"
+            accepted_member_ids: list[str] = []
+            for event_id in _string_list(arc["event_ids"], "arc event_ids"):
+                event = events_by_id[event_id]
+                event_approved = arc_approved and reviews[("event", event_id)] == "approved"
+                if event_approved:
+                    accepted_event = dict(event)
+                    accepted_event["origin"] = _candidate_origin(event.get("origin"))
+                    accepted_events.append(accepted_event)
+                    accepted_member_ids.append(event_id)
+                    active_event_ids.add(event_id)
+                    continue
+                fallback_id = _stable_id(
+                    "fallback-event", event_id, *_string_list(event["beat_ids"], "event beat IDs")
+                )
+                accepted_events.append(
+                    {
+                        "id": fallback_id,
+                        "title": "Technical event",
+                        "summary": "Deterministic organization retained after review.",
+                        "beat_ids": list(_string_list(event["beat_ids"], "event beat IDs")),
+                        "origin": "deterministic",
+                    }
+                )
+                accepted_member_ids.append(fallback_id)
+            accepted_arc_id = arc_id if arc_approved else _stable_id("fallback-arc", arc_id)
+            accepted_arcs.append(
+                {
+                    "id": accepted_arc_id,
+                    "title": arc["title"] if arc_approved else "Technical story arc",
+                    "summary": (
+                        arc["summary"]
+                        if arc_approved
+                        else "Deterministic organization retained after review."
+                    ),
+                    "event_ids": accepted_member_ids,
+                    "origin": _candidate_origin(arc.get("origin"))
+                    if arc_approved
+                    else "deterministic",
+                    **(
+                        {
+                            key: arc[key]
+                            for key in (
+                                "characters",
+                                "importance",
+                                "outcomes",
+                                "promoted_fact_ids",
+                                "warnings",
+                            )
+                            if key in arc
+                        }
+                        if arc_approved
+                        else {}
+                    ),
+                }
+            )
+            if arc_approved:
+                active_arc_ids.add(arc_id)
+
+        self._integrate_ungrouped_fallbacks(
+            accepted_events,
+            accepted_arcs,
+            _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs"),
+        )
+
+        accepted_claims = [
+            dict(claim)
+            for claim in _object_list(candidate.get("claims", []), "claims")
+            if (
+                isinstance(claim.get("event_id"), str) and claim.get("event_id") in active_event_ids
+            )
+            or (isinstance(claim.get("arc_id"), str) and claim.get("arc_id") in active_arc_ids)
+        ]
+        return {
+            "events": accepted_events,
+            "arcs": accepted_arcs,
+            "claims": accepted_claims,
+            "ungrouped_beat_ids": [],
+            **(
+                {"selected_beat_ids": candidate["selected_beat_ids"]}
+                if "selected_beat_ids" in candidate
+                else {}
+            ),
+        }
+
+    def _integrate_ungrouped_fallbacks(
+        self,
+        accepted_events: list[dict[str, object]],
+        accepted_arcs: list[dict[str, object]],
+        ungrouped_beat_ids: Sequence[str],
+    ) -> None:
+        """Place technical fallbacks without creating crossing story-arc intervals."""
+
+        beat_order = {
+            str(row["node_id"]): index
+            for index, row in enumerate(
+                self._connection.execute(
+                    "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
+                )
+            )
+        }
+        events_by_id = {cast(str, event["id"]): event for event in accepted_events}
+
+        def event_bounds(event_id: str) -> tuple[int, int]:
+            positions = [
+                beat_order[beat_id]
+                for beat_id in _string_list(events_by_id[event_id]["beat_ids"], "event beat IDs")
+            ]
+            return min(positions), max(positions)
+
+        arc_ranges: list[tuple[int, int, dict[str, object]]] = []
+        for arc in accepted_arcs:
+            member_ids = _string_list(arc["event_ids"], "arc event IDs")
+            bounds = [event_bounds(event_id) for event_id in member_ids]
+            arc_ranges.append(
+                (min(item[0] for item in bounds), max(item[1] for item in bounds), arc)
+            )
+        arc_ranges.sort(key=lambda item: (item[0], item[1], cast(str, item[2]["id"])))
+        for previous, current in pairwise(arc_ranges):
+            if current[0] <= previous[1]:
+                raise ValueError("reviewed story arcs must remain chronological and non-crossing")
+
+        gap_event_ids: dict[int, list[str]] = {}
+        for beat_id in sorted(ungrouped_beat_ids, key=lambda value: (beat_order[value], value)):
+            fallback_id = _stable_id("ungrouped-event", beat_id)
+            fallback: dict[str, object] = {
+                "id": fallback_id,
+                "title": "Ungrouped technical event",
+                "summary": "Deterministic beat retained as technical fallback.",
+                "beat_ids": [beat_id],
+                "origin": "deterministic",
+            }
+            accepted_events.append(fallback)
+            events_by_id[fallback_id] = fallback
+            position = beat_order[beat_id]
+            containing = [item for item in arc_ranges if item[0] < position < item[1]]
+            if containing:
+                arc = containing[0][2]
+                members = _string_list(arc["event_ids"], "arc event IDs")
+                members.append(fallback_id)
+                arc["event_ids"] = members
+                continue
+            gap_index = sum(1 for _start, end, _arc in arc_ranges if end < position)
+            gap_event_ids.setdefault(gap_index, []).append(fallback_id)
+
+        for event_ids in gap_event_ids.values():
+            accepted_arcs.append(
+                {
+                    "id": _stable_id("ungrouped-arc", *event_ids),
+                    "title": "Ungrouped technical story",
+                    "summary": "Deterministic beats retained as technical fallback.",
+                    "event_ids": event_ids,
+                    "origin": "deterministic",
+                }
+            )
+
+        accepted_events.sort(
+            key=lambda event: (
+                event_bounds(cast(str, event["id"]))[0],
+                cast(str, event["id"]),
+            )
+        )
+        for arc in accepted_arcs:
+            arc["event_ids"] = sorted(
+                _string_list(arc["event_ids"], "arc event IDs"),
+                key=lambda event_id: (event_bounds(event_id)[0], event_id),
+            )
+        accepted_arcs.sort(
+            key=lambda arc: (
+                min(
+                    event_bounds(event_id)[0]
+                    for event_id in _string_list(arc["event_ids"], "arc event IDs")
+                ),
+                cast(str, arc["id"]),
+            )
+        )
+
+    def _validate_scope(self, scope_ids: Sequence[str], covered_beat_ids: Sequence[str]) -> None:
+        connection = self._connection
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_scope_ids(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_covered_beats"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        try:
+            connection.execute("DELETE FROM scoped_scope_ids")
+            connection.execute("DELETE FROM scoped_covered_beats")
+            connection.executemany(
+                "INSERT INTO scoped_scope_ids(id) VALUES (?)", ((value,) for value in scope_ids)
+            )
+            connection.executemany(
+                "INSERT INTO scoped_covered_beats(id) VALUES (?)",
+                ((value,) for value in covered_beat_ids),
+            )
+            invalid_scope = connection.execute(
+                """SELECT s.id FROM scoped_scope_ids s
+                   LEFT JOIN presentation_nodes n ON n.node_id=s.id AND n.level IN (1,2)
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=n.parent_id
+                   LEFT JOIN presentation_overrides own_override ON own_override.node_id=s.id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE n.node_id IS NULL OR COALESCE(own_override.hidden,0)=1
+                      OR (n.level=2 AND COALESCE(ancestor_override.hidden,0)=1)
+                   ORDER BY s.id LIMIT 1"""
+            ).fetchone()
+            if invalid_scope is not None:
+                raise ValueError(f"unknown or non-container scope ID: {invalid_scope[0]}")
+            invalid_beat = connection.execute(
+                """SELECT c.id FROM scoped_covered_beats c
+                   LEFT JOIN presentation_nodes beat ON beat.node_id=c.id AND beat.level=3
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE beat.node_id IS NULL OR COALESCE(beat_override.hidden,0)=1
+                      OR COALESCE(parent_override.hidden,0)=1
+                      OR COALESCE(ancestor_override.hidden,0)=1
+                   ORDER BY c.id LIMIT 1"""
+            ).fetchone()
+            if invalid_beat is not None:
+                raise ValueError(f"unknown covered Level-3 beat ID: {invalid_beat[0]}")
+            outside = connection.execute(
+                """SELECT c.id FROM scoped_covered_beats c
+                   JOIN presentation_nodes beat ON beat.node_id=c.id
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE (COALESCE(beat_override.hidden,0)=1
+                      OR COALESCE(parent_override.hidden,0)=1
+                      OR COALESCE(ancestor_override.hidden,0)=1) OR NOT EXISTS (
+                       SELECT 1 FROM scoped_scope_ids s
+                       WHERE s.id=beat.node_id OR s.id=parent.node_id OR s.id=parent.parent_id
+                   ) ORDER BY c.id LIMIT 1"""
+            ).fetchone()
+            if outside is not None:
+                raise ValueError(f"covered beat is outside the selected scopes: {outside[0]}")
+            missing = connection.execute(
+                """SELECT beat.node_id FROM presentation_nodes beat
+                   LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                   LEFT JOIN presentation_nodes ancestor ON ancestor.node_id=parent.parent_id
+                   LEFT JOIN presentation_overrides beat_override
+                     ON beat_override.node_id=beat.node_id
+                   LEFT JOIN presentation_overrides parent_override
+                     ON parent_override.node_id=parent.node_id
+                   LEFT JOIN presentation_overrides ancestor_override
+                     ON ancestor_override.node_id=ancestor.node_id
+                   WHERE beat.level=3
+                     AND COALESCE(beat_override.hidden,0)=0
+                     AND COALESCE(parent_override.hidden,0)=0
+                     AND COALESCE(ancestor_override.hidden,0)=0 AND EXISTS (
+                       SELECT 1 FROM scoped_scope_ids s
+                       WHERE s.id=parent.node_id OR s.id=parent.parent_id
+                   ) AND NOT EXISTS (
+                       SELECT 1 FROM scoped_covered_beats c WHERE c.id=beat.node_id
+                   ) ORDER BY beat.sort_key,beat.node_id LIMIT 1"""
+            ).fetchone()
+            if missing is not None:
+                raise ValueError(f"covered_beat_ids omit a scoped Level-3 beat: {missing[0]}")
+            empty_scope = connection.execute(
+                """SELECT s.id FROM scoped_scope_ids s WHERE NOT EXISTS (
+                       SELECT 1 FROM scoped_covered_beats c
+                       JOIN presentation_nodes beat ON beat.node_id=c.id
+                       LEFT JOIN presentation_nodes parent ON parent.node_id=beat.parent_id
+                       LEFT JOIN presentation_nodes ancestor
+                         ON ancestor.node_id=parent.parent_id
+                       LEFT JOIN presentation_overrides beat_override
+                         ON beat_override.node_id=beat.node_id
+                       LEFT JOIN presentation_overrides parent_override
+                         ON parent_override.node_id=parent.node_id
+                       LEFT JOIN presentation_overrides ancestor_override
+                         ON ancestor_override.node_id=ancestor.node_id
+                       WHERE COALESCE(beat_override.hidden,0)=0
+                         AND COALESCE(parent_override.hidden,0)=0
+                         AND COALESCE(ancestor_override.hidden,0)=0
+                         AND (s.id=beat.node_id OR s.id=parent.node_id
+                              OR s.id=parent.parent_id)
+                   ) ORDER BY s.id LIMIT 1"""
+            ).fetchone()
+            if empty_scope is not None:
+                raise ValueError(f"scope has no covered beats: {empty_scope[0]}")
+        finally:
+            connection.execute("DROP TABLE IF EXISTS scoped_covered_beats")
+            connection.execute("DROP TABLE IF EXISTS scoped_scope_ids")
+
+    def _validate_candidate(
+        self,
+        candidate: Mapping[str, object],
+        *,
+        covered_beat_ids: frozenset[str] | None = None,
+    ) -> None:
+        _require_keys(
+            candidate,
+            {"arcs", "events", "claims", "ungrouped_beat_ids", "selected_beat_ids"},
+            "draft",
+        )
+        arcs = _object_list(candidate.get("arcs"), "arcs")
+        events = _object_list(candidate.get("events"), "events")
+        event_ids = _unique_ids(events, "events")
+        arc_ids = _unique_ids(arcs, "arcs")
+        beat_rows = self._connection.execute(
+            "SELECT node_id,sort_key,kind FROM presentation_nodes WHERE level=3 "
+            "ORDER BY sort_key,node_id"
+        ).fetchall()
+        known_beats = {str(row["node_id"]): index for index, row in enumerate(beat_rows)}
+        all_required_beats = {
+            str(row["node_id"]) for row in beat_rows if str(row["kind"]) in _REQUIRED_STORY_KINDS
+        }
+        declared_scope = candidate.get("selected_beat_ids")
+        if declared_scope is None:
+            selected_beats = set(known_beats)
+        else:
+            selected_values = _string_list(declared_scope, "selected beat IDs")
+            if len(set(selected_values)) != len(selected_values):
+                raise ValueError("selected beat IDs cannot contain duplicates")
+            selected_beats = set(selected_values)
+            unknown_selected = selected_beats - known_beats.keys()
+            if unknown_selected:
+                raise ValueError(
+                    f"selected scope references unknown beat IDs: {sorted(unknown_selected)!r}"
+                )
+            if not selected_beats:
+                raise ValueError("selected beat IDs cannot be empty")
+        required_beats = all_required_beats.intersection(selected_beats)
+        used_beats: set[str] = set()
+        event_order: dict[str, int] = {}
+        event_beats_by_id: dict[str, tuple[str, ...]] = {}
+        event_spans: list[tuple[int, int]] = []
+        previous_event_end = -1
+        for event_index, event in enumerate(events):
+            _require_keys(
+                event,
+                {
+                    "id",
+                    "title",
+                    "summary",
+                    "beat_ids",
+                    "origin",
+                    "characters",
+                    "importance",
+                    "outcomes",
+                    "promoted_fact_ids",
+                    "warnings",
+                },
+                "event",
+            )
+            _validate_text(event, "title", 80)
+            _validate_text(event, "summary", 320)
+            _candidate_origin(event.get("origin"))
+            beat_ids = _string_list(event.get("beat_ids"), "event beat_ids")
+            if not beat_ids:
+                raise ValueError("story events must contain at least one beat")
+            if len(set(beat_ids)) != len(beat_ids):
+                raise ValueError("an event cannot contain duplicate beat IDs")
+            unknown = set(beat_ids) - known_beats.keys()
+            if unknown:
+                raise ValueError(f"story event references unknown beat IDs: {sorted(unknown)!r}")
+            outside_scope = set(beat_ids) - selected_beats
+            if declared_scope is not None and outside_scope:
+                raise ValueError(
+                    "story event references beats outside selected scope: "
+                    f"{sorted(outside_scope)!r}"
+                )
+            if used_beats.intersection(beat_ids):
+                raise ValueError("a deterministic beat cannot belong to multiple events")
+            positions = [known_beats[item] for item in beat_ids]
+            if positions != sorted(positions):
+                raise ValueError("event membership must preserve deterministic beat order")
+            if positions[0] <= previous_event_end:
+                raise ValueError("candidate events must be globally ordered and non-crossing")
+            previous_event_end = positions[-1]
+            event_spans.append((positions[0], positions[-1]))
+            event_order[cast(str, event["id"])] = event_index
+            event_beats_by_id[cast(str, event["id"])] = tuple(beat_ids)
+            used_beats.update(beat_ids)
+            self._validate_enrichment(event, beat_ids)
+        used_events: set[str] = set()
+        arc_beats_by_id: dict[str, tuple[str, ...]] = {}
+        previous_arc_end = -1
+        for arc in arcs:
+            _require_keys(
+                arc,
+                {
+                    "id",
+                    "title",
+                    "summary",
+                    "event_ids",
+                    "origin",
+                    "characters",
+                    "importance",
+                    "outcomes",
+                    "promoted_fact_ids",
+                    "warnings",
+                },
+                "arc",
+            )
+            _validate_text(arc, "title", 80)
+            _validate_text(arc, "summary", 320)
+            _candidate_origin(arc.get("origin"))
+            members = _string_list(arc.get("event_ids"), "arc event_ids")
+            if not members:
+                raise ValueError("story arcs must contain at least one event")
+            unknown = set(members) - event_ids
+            if unknown:
+                raise ValueError(f"story arc references unknown event IDs: {sorted(unknown)!r}")
+            if used_events.intersection(members):
+                raise ValueError("a story event cannot belong to multiple arcs")
+            positions = [event_order[event_id] for event_id in members]
+            if positions != sorted(positions):
+                raise ValueError("events within an arc must be chronological")
+            if positions[0] <= previous_arc_end:
+                raise ValueError("candidate arcs must be chronological and non-crossing")
+            previous_arc_end = positions[-1]
+            used_events.update(members)
+            arc_beats = [
+                beat
+                for event_id in members
+                for event in events
+                if event.get("id") == event_id
+                for beat in _string_list(event.get("beat_ids"), "event beat_ids")
+            ]
+            arc_beats_by_id[cast(str, arc["id"])] = tuple(arc_beats)
+            self._validate_enrichment(arc, arc_beats)
+        if used_events != event_ids:
+            raise ValueError("every candidate event must belong to exactly one arc")
+        ungrouped = _string_list(candidate.get("ungrouped_beat_ids", []), "ungrouped beat IDs")
+        if len(set(ungrouped)) != len(ungrouped):
+            raise ValueError("ungrouped beat IDs cannot contain duplicates")
+        if not set(ungrouped).issubset(known_beats):
+            raise ValueError("ungrouped IDs must reference existing deterministic beats")
+        ungrouped_positions = [known_beats[beat_id] for beat_id in ungrouped]
+        if any(
+            start < position < end for position in ungrouped_positions for start, end in event_spans
+        ):
+            raise ValueError("ungrouped beat IDs cannot interleave story event membership")
+        if declared_scope is not None and not set(ungrouped).issubset(selected_beats):
+            raise ValueError("ungrouped IDs must remain within the selected scope")
+        if used_beats.intersection(ungrouped):
+            raise ValueError("a beat cannot be both grouped and ungrouped")
+        if covered_beat_ids is not None:
+            outside = (used_beats | set(ungrouped)) - covered_beat_ids
+            if outside:
+                raise ValueError(
+                    "scoped candidate references beats outside covered_beat_ids: "
+                    f"{sorted(outside)!r}"
+                )
+            required_beats &= covered_beat_ids
+        missing_required = required_beats - used_beats - set(ungrouped)
+        if missing_required:
+            raise ValueError(
+                "required story beats must be grouped exactly once or explicitly ungrouped: "
+                f"{sorted(missing_required)!r}"
+            )
+        claims = _object_list(candidate.get("claims", []), "claims")
+        evidence_by_beat: dict[str, set[str]] = {}
+        for batch in _chunked(tuple(sorted(used_beats)), 500):
+            placeholders = ",".join("?" for _ in batch)
+            for row in self._connection.execute(
+                f"""SELECT node_id,evidence_id FROM presentation_evidence
+                    WHERE node_id IN ({placeholders})""",
+                batch,
+            ):
+                evidence_by_beat.setdefault(str(row["node_id"]), set()).add(
+                    str(row["evidence_id"])
+                )
+        event_evidence = {
+            event_id: {
+                evidence
+                for beat_id in beat_ids
+                for evidence in evidence_by_beat.get(beat_id, set())
+            }
+            for event_id, beat_ids in event_beats_by_id.items()
+        }
+        arc_evidence = {
+            arc_id: {
+                evidence
+                for beat_id in beat_ids
+                for evidence in evidence_by_beat.get(beat_id, set())
+            }
+            for arc_id, beat_ids in arc_beats_by_id.items()
+        }
+        claim_ids = _unique_ids(claims, "claims")
+        del claim_ids
+        for claim in claims:
+            _require_keys(
+                claim,
+                {"id", "event_id", "arc_id", "text", "kind", "evidence_ids"},
+                "claim",
+            )
+            _validate_text(claim, "text", 320)
+            target_event = claim.get("event_id")
+            target_arc = claim.get("arc_id")
+            if (isinstance(target_event, str)) == (isinstance(target_arc, str)):
+                raise ValueError("a claim must target exactly one event or arc")
+            if isinstance(target_event, str) and target_event not in event_ids:
+                raise ValueError("claim references an unknown event")
+            if isinstance(target_arc, str) and target_arc not in arc_ids:
+                raise ValueError("claim references an unknown arc")
+            if claim.get("kind", "interpretation") not in {"interpretation", "outcome", "warning"}:
+                raise ValueError("claim kind is not supported")
+            evidence = _string_list(claim.get("evidence_ids"), "claim evidence_ids")
+            target_evidence = (
+                event_evidence[target_event]
+                if isinstance(target_event, str)
+                else arc_evidence[cast(str, target_arc)]
+            )
+            if not evidence or not set(evidence).issubset(target_evidence):
+                raise ValueError(
+                    "interpretive claims require evidence attached to their target"
+                )
+
+    def _validate_enrichment(
+        self, group: Mapping[str, object], member_beat_ids: Sequence[str]
+    ) -> None:
+        characters = _optional_unique_strings(group, "characters", maximum=80)
+        outcomes = _optional_unique_strings(group, "outcomes", maximum=320)
+        warnings = _optional_unique_strings(group, "warnings", maximum=320)
+        del outcomes, warnings
+        importance = group.get("importance", "supporting")
+        if importance not in {"supporting", "major", "turning point"}:
+            raise ValueError("importance is not an allowed value")
+        promoted = _optional_unique_strings(group, "promoted_fact_ids", maximum=200)
+        beat_ids = set(member_beat_ids)
+        supported_characters: set[str] = set()
+        if characters:
+            for batch in _chunked(tuple(sorted(beat_ids)), 500):
+                placeholders = ",".join("?" for _ in batch)
+                for row in self._connection.execute(
+                    f"""SELECT payload_json FROM presentation_nodes
+                        WHERE level=3 AND node_id IN ({placeholders})""",
+                    batch,
+                ):
+                    payload = storage.decode_json(row["payload_json"])
+                    if isinstance(payload, dict):
+                        if isinstance(payload.get("speaker"), str):
+                            supported_characters.add(str(payload["speaker"]))
+                        content = payload.get("content")
+                        if isinstance(content, list):
+                            supported_characters.update(
+                                str(item["speaker"])
+                                for item in content
+                                if isinstance(item, dict) and isinstance(item.get("speaker"), str)
+                            )
+        unsupported = set(characters) - supported_characters
+        if unsupported:
+            raise ValueError(f"characters lack existing beat evidence: {sorted(unsupported)!r}")
+        if promoted:
+            supported_facts: set[str] = set()
+            for batch in _chunked(tuple(sorted(beat_ids)), 500):
+                placeholders = ",".join("?" for _ in batch)
+                supported_facts.update(
+                    str(row["fact_id"])
+                    for row in self._connection.execute(
+                        f"""SELECT fact_id FROM presentation_facts
+                            INDEXED BY presentation_facts_node_idx
+                            WHERE node_id IN ({placeholders})""",
+                        batch,
+                    )
+                )
+            invented = set(promoted) - supported_facts
+            if invented:
+                raise ValueError(
+                    "promoted fact IDs must be existing facts attached to group beats: "
+                    f"{sorted(invented)!r}"
+                )
+
+    def _apply_scoped_candidate(
+        self, candidate: Mapping[str, object], generation: str, covered_beat_ids: Sequence[str]
+    ) -> None:
+        connection = self._connection
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_apply_beats(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_affected_events"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        connection.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS scoped_affected_arcs"
+            "(id TEXT PRIMARY KEY) WITHOUT ROWID"
+        )
+        try:
+            for table in ("scoped_apply_beats", "scoped_affected_events", "scoped_affected_arcs"):
+                connection.execute(f"DELETE FROM {table}")
+            connection.executemany(
+                "INSERT INTO scoped_apply_beats(id) VALUES (?)",
+                ((beat_id,) for beat_id in covered_beat_ids),
+            )
+            connection.execute(
+                """INSERT INTO scoped_affected_events(id)
+                   SELECT DISTINCT e.event_id FROM story_events e
+                   JOIN story_event_members members ON members.event_id=e.event_id
+                   JOIN scoped_apply_beats selected ON selected.id=members.beat_id
+                   LEFT JOIN story_arc_members membership ON membership.event_id=e.event_id
+                   LEFT JOIN story_arcs arc ON arc.arc_id=membership.arc_id
+                   WHERE e.pinned=0 AND COALESCE(arc.pinned,0)=0"""
+            )
+            connection.execute(
+                """INSERT OR IGNORE INTO scoped_affected_arcs(id)
+                   SELECT membership.arc_id FROM story_arc_members membership
+                   JOIN scoped_affected_events affected ON affected.id=membership.event_id"""
+            )
+            connection.execute(
+                """DELETE FROM story_event_members
+                   WHERE beat_id IN (SELECT id FROM scoped_apply_beats)
+                     AND event_id IN (SELECT id FROM scoped_affected_events)"""
+            )
+            residual_events = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT affected.id FROM scoped_affected_events affected
+                       WHERE EXISTS (
+                           SELECT 1 FROM story_event_members members
+                           WHERE members.event_id=affected.id
+                       ) ORDER BY affected.id"""
+                )
+            )
+            for event_id in residual_events:
+                # Once a selected slice has been removed, the former interpretation no longer
+                # describes the remaining evidence. Keep the uncovered beats, but downgrade the
+                # residual to an explicit technical boundary fallback and retain stale history for
+                # review instead of silently presenting it as accepted AI organization.
+                self._replace_members(event_id, self._member_ids(event_id))
+                connection.execute(
+                    """UPDATE story_events SET
+                           title='Technical boundary event',
+                           summary='Deterministic organization retained outside selected scope.',
+                           origin='deterministic',needs_review=1,updated_utc=?
+                       WHERE event_id=?""",
+                    (storage.utc_now(), event_id),
+                )
+                connection.execute(
+                    "UPDATE story_claims SET status='needs_review' WHERE event_id=?", (event_id,)
+                )
+                connection.execute(
+                    """UPDATE story_edits SET status='needs_review'
+                       WHERE target_kind='event' AND target_id=?""",
+                    (event_id,),
+                )
+                connection.execute(
+                    "DELETE FROM story_group_enrichment WHERE target_kind='event' AND target_id=?",
+                    (event_id,),
+                )
+            connection.execute(
+                """DELETE FROM story_events WHERE event_id IN (
+                       SELECT id FROM scoped_affected_events
+                   ) AND NOT EXISTS (
+                       SELECT 1 FROM story_event_members members
+                       WHERE members.event_id=story_events.event_id
+                   )"""
+            )
+            connection.execute(
+                """DELETE FROM story_arcs WHERE pinned=0
+                   AND arc_id IN (SELECT id FROM scoped_affected_arcs)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM story_arc_members members
+                       WHERE members.arc_id=story_arcs.arc_id
+                   )"""
+            )
+            residual_arcs = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT affected.id FROM scoped_affected_arcs affected
+                       JOIN story_arcs arc ON arc.arc_id=affected.id
+                       WHERE arc.pinned=0 AND EXISTS (
+                           SELECT 1 FROM story_arc_members members
+                           WHERE members.arc_id=affected.id
+                       ) ORDER BY affected.id"""
+                )
+            )
+            for arc_id in residual_arcs:
+                self._renumber_arc(arc_id)
+                connection.execute(
+                    """UPDATE story_arcs SET
+                           title='Technical boundary arc',
+                           summary='Deterministic organization retained outside selected scope.',
+                           origin='deterministic',needs_review=1,updated_utc=?
+                       WHERE arc_id=?""",
+                    (storage.utc_now(), arc_id),
+                )
+                connection.execute(
+                    "UPDATE story_claims SET status='needs_review' WHERE arc_id=?", (arc_id,)
+                )
+                connection.execute(
+                    """UPDATE story_edits SET status='needs_review'
+                       WHERE target_kind='arc' AND target_id=?""",
+                    (arc_id,),
+                )
+                connection.execute(
+                    "DELETE FROM story_group_enrichment WHERE target_kind='arc' AND target_id=?",
+                    (arc_id,),
+                )
+
+            pinned_beats = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT beat_id FROM story_event_members WHERE event_id IN "
+                    "(SELECT event_id FROM story_events WHERE pinned=1 UNION SELECT event_id "
+                    "FROM story_arc_members WHERE arc_id IN "
+                    "(SELECT arc_id FROM story_arcs WHERE pinned=1))"
+                )
+            }
+            covered = set(covered_beat_ids)
+            now = storage.utc_now()
+            event_id_map: dict[str, str] = {}
+            for order, event in enumerate(_object_list(candidate["events"], "events")):
+                original_id = cast(str, event["id"])
+                beats = [
+                    beat
+                    for beat in _string_list(event["beat_ids"], "event beat IDs")
+                    if beat in covered and beat not in pinned_beats
+                ]
+                if not beats:
+                    continue
+                event_id = original_id
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+                    ).fetchone()
+                    is not None
+                ):
+                    event_id = _stable_id("scoped-event", original_id, *beats)
+                connection.execute(
+                    "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        event_id,
+                        event["title"],
+                        event["summary"],
+                        order,
+                        _candidate_origin(event.get("origin")),
+                        0,
+                        0,
+                        "approved",
+                        0,
+                        generation,
+                        now,
+                    ),
+                )
+                self._replace_members(event_id, beats)
+                self._replace_enrichment("event", event_id, event)
+                event_id_map[original_id] = event_id
+                if event_id == original_id:
+                    self._reapply_simple_edits("event", event_id)
+
+            arc_id_map: dict[str, str] = {}
+            for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
+                original_id = cast(str, arc["id"])
+                member_ids = [
+                    event_id_map[event_id]
+                    for event_id in _string_list(arc["event_ids"], "arc event IDs")
+                    if event_id in event_id_map
+                ]
+                if not member_ids:
+                    continue
+                arc_id = original_id
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                    ).fetchone()
+                    is not None
+                ):
+                    arc_id = _stable_id("scoped-arc", original_id, *member_ids)
+                connection.execute(
+                    "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        arc_id,
+                        arc["title"],
+                        arc["summary"],
+                        order,
+                        _candidate_origin(arc.get("origin")),
+                        0,
+                        0,
+                        "approved",
+                        0,
+                        generation,
+                        now,
+                    ),
+                )
+                arc_id_map[original_id] = arc_id
+                connection.executemany(
+                    "INSERT INTO story_arc_members VALUES (?,?,?)",
+                    ((arc_id, event_id, ordinal) for ordinal, event_id in enumerate(member_ids)),
+                )
+                self._replace_enrichment("arc", arc_id, arc)
+                if arc_id == original_id:
+                    self._reapply_simple_edits("arc", arc_id)
+
+            for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
+                original_event = claim.get("event_id")
+                original_arc = claim.get("arc_id")
+                claim_event_id = (
+                    event_id_map.get(original_event) if isinstance(original_event, str) else None
+                )
+                claim_arc_id = (
+                    arc_id_map.get(original_arc) if isinstance(original_arc, str) else None
+                )
+                if claim_event_id is None and claim_arc_id is None:
+                    continue
+                claim_id = cast(str, claim["id"])
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+                    ).fetchone()
+                    is not None
+                ):
+                    claim_id = _stable_id(
+                        "scoped-claim", claim_id, claim_event_id or claim_arc_id or ""
+                    )
+                connection.execute(
+                    "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
+                    (
+                        claim_id,
+                        claim_event_id,
+                        claim_arc_id,
+                        claim["text"],
+                        cast(str, claim.get("kind", "interpretation")),
+                        "approved",
+                        order,
+                    ),
+                )
+                connection.executemany(
+                    "INSERT INTO story_claim_evidence VALUES (?,?)",
+                    (
+                        (claim_id, evidence_id)
+                        for evidence_id in _string_list(claim["evidence_ids"], "evidence IDs")
+                    ),
+                )
+            connection.execute(
+                """UPDATE story_edits SET status='needs_review'
+                   WHERE target_kind='event'
+                     AND target_id IN (SELECT id FROM scoped_affected_events)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM story_events event
+                         WHERE event.event_id=story_edits.target_id
+                     )"""
+            )
+            connection.execute(
+                """UPDATE story_edits SET status='needs_review'
+                   WHERE target_kind='arc'
+                     AND target_id IN (SELECT id FROM scoped_affected_arcs)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM story_arcs arc
+                         WHERE arc.arc_id=story_edits.target_id
+                    )"""
+            )
+            self._prune_enrichments()
+            self._recompute_global_order()
+        finally:
+            connection.execute("DROP TABLE IF EXISTS scoped_affected_arcs")
+            connection.execute("DROP TABLE IF EXISTS scoped_affected_events")
+            connection.execute("DROP TABLE IF EXISTS scoped_apply_beats")
+
+    def _reapply_simple_edits(self, target_kind: Literal["arc", "event"], target_id: str) -> None:
+        """Reapply durable scalar edits when a stable candidate target returns unchanged."""
+
+        table, key = _target_table(target_kind)
+        rows = self._connection.execute(
+            """SELECT edit_id,operation,payload_json FROM story_edits
+               WHERE target_kind=? AND target_id=? AND status='applied'
+               ORDER BY created_utc,edit_id""",
+            (target_kind, target_id),
+        ).fetchall()
+        now = storage.utc_now()
+        for row in rows:
+            operation = str(row["operation"])
+            payload = _mapping(storage.decode_json(row["payload_json"]), "edit payload")
+            replayed = False
+            title = payload.get("title")
+            if (
+                operation == "rename"
+                and isinstance(title, str)
+                and title.strip()
+                and len(title) <= 80
+            ):
+                cursor = self._connection.execute(
+                    f"UPDATE {table} SET title=?,pinned=1,updated_utc=? WHERE {key}=?",
+                    (title, now, target_id),
+                )
+                replayed = cursor.rowcount == 1
+            elif operation in {"hide", "pin"} and isinstance(
+                payload.get("hidden" if operation == "hide" else "pinned"), bool
+            ):
+                column = "hidden" if operation == "hide" else "pinned"
+                cursor = self._connection.execute(
+                    f"UPDATE {table} SET {column}=?,updated_utc=? WHERE {key}=?",
+                    (int(cast(bool, payload[column])), now, target_id),
+                )
+                replayed = cursor.rowcount == 1
+            elif (operation == "approve" and payload.get("state") in {"pending", "approved"}) or (
+                operation == "reject" and payload.get("state") == "rejected"
+            ):
+                cursor = self._connection.execute(
+                    f"UPDATE {table} SET approval_state=?,updated_utc=? WHERE {key}=?",
+                    (payload["state"], now, target_id),
+                )
+                replayed = cursor.rowcount == 1
+            if not replayed:
+                self._connection.execute(
+                    "UPDATE story_edits SET status='needs_review' WHERE edit_id=?",
+                    (str(row["edit_id"]),),
+                )
+
+    def _replace_enrichment(
+        self,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        group: Mapping[str, object],
+    ) -> None:
+        value = _enrichment_from_group(target_kind, {**group, "id": target_id})
+        self._connection.execute(
+            """INSERT INTO story_group_enrichment VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(target_kind,target_id) DO UPDATE SET
+                   characters_json=excluded.characters_json,
+                   importance=excluded.importance,
+                   outcomes_json=excluded.outcomes_json,
+                   promoted_fact_ids_json=excluded.promoted_fact_ids_json,
+                   warnings_json=excluded.warnings_json""",
+            (
+                value.target_kind,
+                value.target_id,
+                storage.canonical_json(list(value.characters)),
+                value.importance,
+                storage.canonical_json(list(value.outcomes)),
+                storage.canonical_json(list(value.promoted_fact_ids)),
+                storage.canonical_json(list(value.warnings)),
+            ),
+        )
+
+    def _prune_enrichments(self) -> None:
+        self._connection.execute(
+            """DELETE FROM story_group_enrichment
+               WHERE (target_kind='event' AND NOT EXISTS (
+                         SELECT 1 FROM story_events WHERE event_id=target_id
+                     ))
+                  OR (target_kind='arc' AND NOT EXISTS (
+                         SELECT 1 FROM story_arcs WHERE arc_id=target_id
+                     ))"""
+        )
+
+    def _recompute_global_order(self) -> None:
+        """Order accepted groups by their earliest authoritative beat after partial replacement."""
+
+        event_rows = self._connection.execute(
+            """SELECT event.event_id,MIN(beat.sort_key) AS first_beat
+               FROM story_events event
+               JOIN story_event_members member ON member.event_id=event.event_id
+               JOIN presentation_nodes beat ON beat.node_id=member.beat_id
+               GROUP BY event.event_id ORDER BY first_beat,event.event_id"""
+        ).fetchall()
+        self._connection.executemany(
+            "UPDATE story_events SET sort_order=? WHERE event_id=?",
+            ((ordinal, str(row["event_id"])) for ordinal, row in enumerate(event_rows)),
+        )
+        arc_rows = self._connection.execute(
+            """SELECT arc.arc_id,MIN(beat.sort_key) AS first_beat
+               FROM story_arcs arc
+               JOIN story_arc_members arc_member ON arc_member.arc_id=arc.arc_id
+               JOIN story_event_members event_member
+                 ON event_member.event_id=arc_member.event_id
+               JOIN presentation_nodes beat ON beat.node_id=event_member.beat_id
+               GROUP BY arc.arc_id ORDER BY first_beat,arc.arc_id"""
+        ).fetchall()
+        for ordinal, row in enumerate(arc_rows):
+            arc_id = str(row["arc_id"])
+            self._connection.execute(
+                "UPDATE story_arcs SET sort_order=? WHERE arc_id=?", (ordinal, arc_id)
+            )
+            self._renumber_arc(arc_id)
+
+    def _prepare_global_candidate(
+        self,
+        candidate: Mapping[str, object],
+        *,
+        preserved_event_ids: set[str],
+        preserved_arc_ids: set[str],
+        preserved_claim_ids: set[str],
+    ) -> dict[str, object]:
+        """Remap every candidate collision before global replacement mutates stored state."""
+
+        events = _object_list(candidate["events"], "events")
+        event_ids = {cast(str, event["id"]) for event in events}
+        occupied_event_ids = preserved_event_ids | event_ids
+        event_id_map: dict[str, str] = {}
+        mapped_events: list[dict[str, object]] = []
+        for event in events:
+            original_id = cast(str, event["id"])
+            mapped_id = original_id
+            if original_id in preserved_event_ids:
+                mapped_id = _available_stable_id(
+                    "global-event",
+                    (original_id, *_string_list(event["beat_ids"], "event beat IDs")),
+                    occupied_event_ids,
+                )
+                occupied_event_ids.add(mapped_id)
+            event_id_map[original_id] = mapped_id
+            mapped_events.append({**event, "id": mapped_id})
+
+        arcs = _object_list(candidate["arcs"], "arcs")
+        arc_ids = {cast(str, arc["id"]) for arc in arcs}
+        occupied_arc_ids = preserved_arc_ids | arc_ids
+        arc_id_map: dict[str, str] = {}
+        mapped_arcs: list[dict[str, object]] = []
+        for arc in arcs:
+            original_id = cast(str, arc["id"])
+            mapped_members = [
+                event_id_map[event_id]
+                for event_id in _string_list(arc["event_ids"], "arc event IDs")
+            ]
+            mapped_id = original_id
+            if original_id in preserved_arc_ids:
+                mapped_id = _available_stable_id(
+                    "global-arc",
+                    (original_id, *mapped_members),
+                    occupied_arc_ids,
+                )
+                occupied_arc_ids.add(mapped_id)
+            arc_id_map[original_id] = mapped_id
+            mapped_arcs.append({**arc, "id": mapped_id, "event_ids": mapped_members})
+
+        claims = _object_list(candidate.get("claims", []), "claims")
+        claim_ids = {cast(str, claim["id"]) for claim in claims}
+        occupied_claim_ids = preserved_claim_ids | claim_ids
+        mapped_claims: list[dict[str, object]] = []
+        for claim in claims:
+            original_id = cast(str, claim["id"])
+            mapped_claim = dict(claim)
+            target_seed: str
+            event_id = claim.get("event_id")
+            arc_id = claim.get("arc_id")
+            if isinstance(event_id, str):
+                mapped_event_id = event_id_map[event_id]
+                mapped_claim["event_id"] = mapped_event_id
+                target_seed = mapped_event_id
+            elif isinstance(arc_id, str):
+                mapped_arc_id = arc_id_map[arc_id]
+                mapped_claim["arc_id"] = mapped_arc_id
+                target_seed = mapped_arc_id
+            else:
+                raise ValueError("a claim must target exactly one event or arc")
+            mapped_id = original_id
+            if original_id in preserved_claim_ids:
+                mapped_id = _available_stable_id(
+                    "global-claim", (original_id, target_seed), occupied_claim_ids
+                )
+                occupied_claim_ids.add(mapped_id)
+            mapped_claim["id"] = mapped_id
+            mapped_claims.append(mapped_claim)
+
+        return {
+            **candidate,
+            "events": mapped_events,
+            "arcs": mapped_arcs,
+            "claims": mapped_claims,
+        }
+
+    def _apply_candidate(self, candidate: Mapping[str, object], generation: str) -> None:
+        explicitly_pinned_arcs = {
+            str(row[0])
+            for row in self._connection.execute("SELECT arc_id FROM story_arcs WHERE pinned=1")
+        }
+        pinned_arcs = explicitly_pinned_arcs | {
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT arc_id FROM story_arc_members WHERE event_id IN "
+                "(SELECT event_id FROM story_events WHERE pinned=1)"
+            )
+        }
+        preserved_event_ids = {
+            str(row[0])
+            for row in self._connection.execute(
+                """SELECT event_id FROM story_events WHERE pinned=1
+                   UNION SELECT event_id FROM story_arc_members
+                   WHERE arc_id IN (SELECT arc_id FROM story_arcs WHERE pinned=1)"""
+            )
+        }
+        preserved_claim_ids = {
+            str(row["claim_id"])
+            for row in self._connection.execute("SELECT claim_id,event_id,arc_id FROM story_claims")
+            if (row["event_id"] is not None and str(row["event_id"]) in preserved_event_ids)
+            or (row["arc_id"] is not None and str(row["arc_id"]) in pinned_arcs)
+        }
+        candidate = self._prepare_global_candidate(
+            candidate,
+            preserved_event_ids=preserved_event_ids,
+            preserved_arc_ids=pinned_arcs,
+            preserved_claim_ids=preserved_claim_ids,
+        )
+        pinned_beats = {
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT beat_id FROM story_event_members WHERE event_id IN "
+                "(SELECT event_id FROM story_events WHERE pinned=1 UNION SELECT event_id "
+                "FROM story_arc_members WHERE arc_id IN "
+                "(SELECT arc_id FROM story_arcs WHERE pinned=1))"
+            )
+        }
+        # The global API is always a full replacement. Membership evidence may be stale after a
+        # refresh, so deletion is based on pin preservation alone--not on intersection with the
+        # current presentation index. Scoped replacement uses _apply_scoped_candidate instead.
+        removable_events = self._connection.execute(
+            """SELECT event.event_id FROM story_events event
+               LEFT JOIN story_arc_members membership ON membership.event_id=event.event_id
+               LEFT JOIN story_arcs arc ON arc.arc_id=membership.arc_id
+               WHERE event.pinned=0 AND COALESCE(arc.pinned,0)=0
+               ORDER BY event.event_id"""
+        ).fetchall()
+        removed_event_ids = tuple(str(row["event_id"]) for row in removable_events)
+        for event_row in removable_events:
+            event_id = str(event_row["event_id"])
+            self._connection.execute("DELETE FROM story_events WHERE event_id=?", (event_id,))
+        removed_arc_ids: list[str] = []
+        for row in self._connection.execute(
+            "SELECT arc_id FROM story_arcs WHERE pinned=0 ORDER BY arc_id"
+        ).fetchall():
+            arc_id = str(row["arc_id"])
+            if arc_id not in pinned_arcs:
+                self._connection.execute("DELETE FROM story_arcs WHERE arc_id=?", (arc_id,))
+                removed_arc_ids.append(arc_id)
+        now = storage.utc_now()
+        events = _object_list(candidate["events"], "events")
+        event_id_map: dict[str, str] = {}
+        for order, event in enumerate(events):
+            original_id = cast(str, event["id"])
+            beats = [
+                beat
+                for beat in _string_list(event["beat_ids"], "beat_ids")
+                if beat not in pinned_beats
+            ]
+            if not beats:
+                continue
+            event_id = original_id
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_events WHERE event_id=?", (event_id,)
+                ).fetchone()
+                is not None
+            ):
+                raise ValueError(f"candidate event ID collides after global preflight: {event_id}")
+            self._connection.execute(
+                "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    event_id,
+                    event["title"],
+                    event["summary"],
+                    order,
+                    _candidate_origin(event.get("origin")),
+                    0,
+                    0,
+                    "approved",
+                    0,
+                    generation,
+                    now,
+                ),
+            )
+            self._replace_members(event_id, beats)
+            self._replace_enrichment("event", event_id, event)
+            event_id_map[original_id] = event_id
+            if event_id == original_id:
+                self._reapply_simple_edits("event", event_id)
+        arc_id_map: dict[str, str] = {}
+        for order, arc in enumerate(_object_list(candidate["arcs"], "arcs")):
+            original_id = cast(str, arc["id"])
+            member_ids = [
+                event_id_map[event_id]
+                for event_id in _string_list(arc["event_ids"], "event_ids")
+                if event_id in event_id_map
+            ]
+            if not member_ids:
+                continue
+            arc_id = original_id
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_arcs WHERE arc_id=?", (arc_id,)
+                ).fetchone()
+                is not None
+            ):
+                raise ValueError(f"candidate arc ID collides after global preflight: {arc_id}")
+            self._connection.execute(
+                "INSERT INTO story_arcs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    arc_id,
+                    arc["title"],
+                    arc["summary"],
+                    order,
+                    _candidate_origin(arc.get("origin")),
+                    0,
+                    0,
+                    "approved",
+                    0,
+                    generation,
+                    now,
+                ),
+            )
+            arc_id_map[original_id] = arc_id
+            current = self._connection.execute(
+                "SELECT COALESCE(MAX(ordinal)+1,0) FROM story_arc_members WHERE arc_id=?", (arc_id,)
+            ).fetchone()
+            assert current is not None
+            next_order = int(current[0])
+            for event_id in member_ids:
+                self._connection.execute(
+                    "INSERT INTO story_arc_members VALUES (?,?,?)",
+                    (arc_id, event_id, next_order),
+                )
+                next_order += 1
+            self._replace_enrichment("arc", arc_id, arc)
+            if arc_id == original_id:
+                self._reapply_simple_edits("arc", arc_id)
+        for order, claim in enumerate(_object_list(candidate.get("claims", []), "claims")):
+            original_event_id = claim.get("event_id")
+            original_arc_id = claim.get("arc_id")
+            claim_event_id = (
+                event_id_map.get(original_event_id) if isinstance(original_event_id, str) else None
+            )
+            claim_arc_id = (
+                arc_id_map.get(original_arc_id) if isinstance(original_arc_id, str) else None
+            )
+            if claim_event_id is None and claim_arc_id is None:
+                continue
+            claim_id = cast(str, claim["id"])
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM story_claims WHERE claim_id=?", (claim_id,)
+                ).fetchone()
+                is not None
+            ):
+                raise ValueError(f"candidate claim ID collides after global preflight: {claim_id}")
+            self._connection.execute(
+                "INSERT INTO story_claims VALUES (?,?,?,?,?,?,?)",
+                (
+                    claim_id,
+                    claim_event_id,
+                    claim_arc_id,
+                    claim["text"],
+                    cast(str, claim.get("kind", "interpretation")),
+                    "approved",
+                    order,
+                ),
+            )
+            self._connection.executemany(
+                "INSERT INTO story_claim_evidence VALUES (?,?)",
+                (
+                    (claim_id, evidence_id)
+                    for evidence_id in _string_list(claim["evidence_ids"], "evidence_ids")
+                ),
+            )
+        if removed_event_ids:
+            placeholders = ",".join("?" for _ in removed_event_ids)
+            self._connection.execute(
+                f"""UPDATE story_edits SET status='needs_review'
+                    WHERE target_kind='event' AND target_id IN ({placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM story_events event
+                          WHERE event.event_id=story_edits.target_id
+                      )""",
+                removed_event_ids,
+            )
+        if removed_arc_ids:
+            placeholders = ",".join("?" for _ in removed_arc_ids)
+            self._connection.execute(
+                f"""UPDATE story_edits SET status='needs_review'
+                    WHERE target_kind='arc' AND target_id IN ({placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM story_arcs arc
+                          WHERE arc.arc_id=story_edits.target_id
+                      )""",
+                tuple(removed_arc_ids),
+            )
+        self._prune_enrichments()
+
+    def _derive_event_edges(self) -> None:
+        self._connection.execute("DELETE FROM story_event_edges")
+        member_rows = self._connection.execute(
+            """SELECT beat_id,event_id FROM story_event_members
+               ORDER BY event_id,ordinal,beat_id"""
+        ).fetchall()
+        event_for_beat = {str(row["beat_id"]): str(row["event_id"]) for row in member_rows}
+        members_by_event: dict[str, list[str]] = {}
+        for row in member_rows:
+            members_by_event.setdefault(str(row["event_id"]), []).append(str(row["beat_id"]))
+
+        edge_rows = self._connection.execute(
+            """SELECT edge_id,source_id,target_id,kind FROM presentation_edges
+               WHERE level=3 ORDER BY sort_key,edge_id"""
+        ).fetchall()
+        adjacency: dict[str, list[tuple[str, str, str]]] = {}
+        transition_order: dict[str, int] = {}
+        for ordinal, row in enumerate(edge_rows):
+            edge_id = str(row["edge_id"])
+            transition_order[edge_id] = ordinal
+            adjacency.setdefault(str(row["source_id"]), []).append(
+                (str(row["target_id"]), str(row["kind"]), edge_id)
+            )
+
+        ending_nodes = {
+            str(row["node_id"])
+            for row in self._connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3 AND kind='ending'"
+            )
+        }
+        grouped: dict[tuple[str, str, str], set[str]] = {}
+        for source_event, member_ids in sorted(members_by_event.items()):
+            frontier: deque[tuple[str, str | None, frozenset[str]]] = deque(
+                (beat_id, None, frozenset()) for beat_id in member_ids
+            )
+            seen: dict[tuple[str, str | None], set[str]] = {
+                (beat_id, None): set() for beat_id in member_ids
+            }
+            while frontier:
+                node_id, path_kind, path_transitions = frontier.popleft()
+                for target_id, edge_kind, edge_id in adjacency.get(node_id, ()):
+                    next_kind = _dominant_quotient_kind(path_kind, edge_kind)
+                    if target_id in ending_nodes:
+                        next_kind = "ending"
+                    next_transitions = path_transitions | {edge_id}
+                    target_event = event_for_beat.get(target_id)
+                    if target_event is not None and target_event != source_event:
+                        grouped.setdefault(
+                            (source_event, target_event, next_kind), set()
+                        ).update(next_transitions)
+                        continue
+
+                    state = (target_id, next_kind)
+                    known = seen.setdefault(state, set())
+                    if next_transitions.issubset(known):
+                        continue
+                    known.update(next_transitions)
+                    frontier.append((target_id, next_kind, frozenset(known)))
+
+        for (source, target, kind), transition_id_set in sorted(grouped.items()):
+            transition_ids = sorted(
+                transition_id_set,
+                key=lambda identifier: (transition_order[identifier], identifier),
+            )
+            self._connection.execute(
+                "INSERT INTO story_event_edges VALUES (?,?,?,?,?,?)",
+                (
+                    _stable_id("event-edge", source, target, kind),
+                    source,
+                    target,
+                    kind,
+                    "deterministic_quotient",
+                    storage.canonical_json(transition_ids),
+                ),
+            )
+
+    def _member_ids(self, event_id: str) -> tuple[str, ...]:
+        return tuple(
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT beat_id FROM story_event_members WHERE event_id=? ORDER BY ordinal",
+                (event_id,),
+            )
+        )
+
+    def _arc_member_ids(self, arc_id: str) -> tuple[str, ...]:
+        return tuple(
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT event_id FROM story_arc_members WHERE arc_id=? ORDER BY ordinal",
+                (arc_id,),
+            )
+        )
+
+    def _replace_members(self, event_id: str, beat_ids: Iterable[str]) -> None:
+        self._connection.execute("DELETE FROM story_event_members WHERE event_id=?", (event_id,))
+        self._connection.executemany(
+            "INSERT INTO story_event_members VALUES (?,?,?)",
+            ((event_id, beat_id, ordinal) for ordinal, beat_id in enumerate(beat_ids)),
+        )
+
+    def _shift_arc_members(self, arc_id: str, from_ordinal: int) -> None:
+        rows = self._connection.execute(
+            "SELECT event_id,ordinal FROM story_arc_members WHERE arc_id=? AND ordinal>=? "
+            "ORDER BY ordinal DESC",
+            (arc_id, from_ordinal),
+        ).fetchall()
+        for row in rows:
+            self._connection.execute(
+                "UPDATE story_arc_members SET ordinal=? WHERE arc_id=? AND event_id=?",
+                (int(row["ordinal"]) + 1, arc_id, str(row["event_id"])),
+            )
+
+    def _renumber_arc(self, arc_id: str) -> None:
+        rows = self._connection.execute(
+            "SELECT event_id FROM story_arc_members WHERE arc_id=? ORDER BY ordinal,event_id",
+            (arc_id,),
+        ).fetchall()
+        offset = len(rows) + 1
+        self._connection.execute(
+            "UPDATE story_arc_members SET ordinal=ordinal+? WHERE arc_id=?", (offset, arc_id)
+        )
+        for ordinal, row in enumerate(rows):
+            self._connection.execute(
+                "UPDATE story_arc_members SET ordinal=? WHERE arc_id=? AND event_id=?",
+                (ordinal, arc_id, str(row["event_id"])),
+            )
+
+    def _update_flag(
+        self,
+        operation: EditOperation,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        column: Literal["hidden", "pinned"],
+        value: bool,
+    ) -> None:
+        table, key = _target_table(target_kind)
+        with storage.transaction(self._connection):
+            cursor = self._connection.execute(
+                f"UPDATE {table} SET {column}=?,updated_utc=? WHERE {key}=?",
+                (int(value), storage.utc_now(), target_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"{target_kind} does not exist: {target_id}")
+            self._insert_edit(operation, target_kind, target_id, {column: value})
+
+    def _insert_edit(
+        self,
+        operation: EditOperation,
+        target_kind: Literal["arc", "event"],
+        target_id: str,
+        payload: Mapping[str, object],
+    ) -> None:
+        self._connection.execute(
+            "INSERT INTO story_edits VALUES (?,?,?,?,?,'applied',?)",
+            (
+                uuid.uuid4().hex,
+                operation,
+                target_kind,
+                target_id,
+                storage.canonical_json(dict(payload)),
+                storage.utc_now(),
+            ),
+        )
+
+    def _cache_exists(self, cache_key: str) -> bool:
+        return (
+            self._connection.execute(
+                "SELECT 1 FROM organization_cache WHERE cache_key=?", (cache_key,)
+            ).fetchone()
+            is not None
+        )
+
+
+def _stable_id(prefix: str, *values: str) -> str:
+    digest = hashlib.sha256(storage.canonical_json(list(values))).hexdigest()[:24]
+    return f"{prefix}:{digest}"
+
+
+def _dominant_quotient_kind(current: str | None, candidate: str) -> str:
+    """Retain the strongest deterministic semantic carried by a collapsed path."""
+    if current is None:
+        return candidate
+    current_priority = _QUOTIENT_KIND_PRIORITY.get(current, 1)
+    candidate_priority = _QUOTIENT_KIND_PRIORITY.get(candidate, 1)
+    return candidate if candidate_priority > current_priority else current
+
+
+def _available_stable_id(prefix: str, values: Sequence[str], occupied: set[str]) -> str:
+    """Choose a deterministic generated ID outside every currently reserved identifier."""
+
+    identifier = _stable_id(prefix, *values)
+    collision = 0
+    while identifier in occupied:
+        collision += 1
+        identifier = _stable_id(prefix, *values, str(collision))
+    return identifier
+
+
+def _require_digest(value: str, name: str) -> None:
+    if len(value) != _SHA256_LENGTH or any(char not in "0123456789abcdef" for char in value):
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
+
+def _sanitize_failure(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return " ".join(value.replace("\x00", "").split())[:500] or None
+
+
+def _optional_text(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _mapping(value: object, name: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise storage.ProjectCorruptError(f"{name} must be a JSON object")
+    return cast(dict[str, object], value)
+
+
+def _object_list(value: object, name: str) -> list[dict[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"{name} must be a list of objects")
+    return cast(list[dict[str, object]], value)
+
+
+def _string_list(value: object, name: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"{name} must be a list of non-empty strings")
+    return cast(list[str], value)
+
+
+def _unique_string_sequence(values: Sequence[str], name: str) -> tuple[str, ...]:
+    if isinstance(values, str) or not all(isinstance(value, str) and value for value in values):
+        raise ValueError(f"{name} must contain non-empty strings")
+    result = tuple(values)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} cannot contain duplicates")
+    return result
+
+
+def _chunked(values: Sequence[str], size: int) -> Iterable[Sequence[str]]:
+    for offset in range(0, len(values), size):
+        yield values[offset : offset + size]
+
+
+def _candidate_body_and_scope(
+    candidate: Mapping[str, object],
+) -> tuple[dict[str, object], tuple[tuple[str, ...], tuple[str, ...]] | None]:
+    body = dict(candidate)
+    raw_scope = body.pop("_scope", None)
+    if raw_scope is None:
+        return body, None
+    if not isinstance(raw_scope, Mapping) or set(raw_scope) != {"scope_ids", "covered_beat_ids"}:
+        raise storage.ProjectCorruptError("draft scope metadata is malformed")
+    try:
+        scopes = _unique_string_sequence(
+            _string_list(raw_scope.get("scope_ids"), "scope_ids"), "scope_ids"
+        )
+        covered = _unique_string_sequence(
+            _string_list(raw_scope.get("covered_beat_ids"), "covered_beat_ids"),
+            "covered_beat_ids",
+        )
+    except ValueError as exc:
+        raise storage.ProjectCorruptError("draft scope metadata is malformed") from exc
+    if not scopes or not covered:
+        raise storage.ProjectCorruptError("draft scope metadata cannot be empty")
+    return body, (scopes, covered)
+
+
+def _unique_ids(values: Sequence[Mapping[str, object]], name: str) -> set[str]:
+    ids = [item.get("id") for item in values]
+    if not all(isinstance(item, str) and item for item in ids) or len(set(ids)) != len(ids):
+        raise ValueError(f"{name} must have unique non-empty IDs")
+    return cast(set[str], set(ids))
+
+
+def _validate_text(
+    value: Mapping[str, object], key: str, maximum: int, *, allow_empty: bool = False
+) -> None:
+    text = value.get(key)
+    if not isinstance(text, str) or len(text) > maximum or (not allow_empty and not text.strip()):
+        raise ValueError(f"{key} must contain {'0' if allow_empty else '1'}-{maximum} characters")
+
+
+def _candidate_origin(value: object) -> str:
+    origin = "ai" if value is None else value
+    if not isinstance(origin, str) or origin not in _SUPPORTED_ORIGINS:
+        allowed = ", ".join(sorted(_SUPPORTED_ORIGINS))
+        raise ValueError(f"origin must be one of: {allowed}")
+    return origin
+
+
+def _optional_unique_strings(
+    value: Mapping[str, object], key: str, *, maximum: int
+) -> tuple[str, ...]:
+    raw = value.get(key, [])
+    strings = _string_list(raw, key)
+    if len(set(strings)) != len(strings):
+        raise ValueError(f"{key} cannot contain duplicates")
+    if any(len(item) > maximum or not item.strip() for item in strings):
+        raise ValueError(f"{key} entries must contain 1-{maximum} characters")
+    return tuple(strings)
+
+
+def _enrichment_from_group(target_kind: str, group: Mapping[str, object]) -> StoryEnrichment:
+    identifier = group.get("id")
+    if not isinstance(identifier, str):
+        raise ValueError("enrichment target requires an ID")
+    importance = group.get("importance", "supporting")
+    if not isinstance(importance, str):
+        raise ValueError("importance must be a string")
+    return StoryEnrichment(
+        target_kind,
+        identifier,
+        _optional_unique_strings(group, "characters", maximum=80),
+        importance,
+        _optional_unique_strings(group, "outcomes", maximum=320),
+        _optional_unique_strings(group, "promoted_fact_ids", maximum=200),
+        _optional_unique_strings(group, "warnings", maximum=320),
+    )
+
+
+def _enrichment_from_row(row: sqlite3.Row) -> StoryEnrichment:
+    def strings(column: str) -> tuple[str, ...]:
+        value = storage.decode_json(row[column])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise storage.ProjectCorruptError(
+                f"story enrichment {column} must be a JSON string array"
+            )
+        return tuple(value)
+
+    return StoryEnrichment(
+        str(row["target_kind"]),
+        str(row["target_id"]),
+        strings("characters_json"),
+        str(row["importance"]),
+        strings("outcomes_json"),
+        strings("promoted_fact_ids_json"),
+        strings("warnings_json"),
+    )
+
+
+def _require_keys(value: Mapping[str, object], allowed: set[str], name: str) -> None:
+    unexpected = set(value) - allowed
+    if unexpected:
+        raise ValueError(f"{name} contains unsupported fields: {sorted(unexpected)!r}")
+
+
+def _reject_authority_fields(value: object) -> None:
+    forbidden = {
+        "edges",
+        "requirements",
+        "effects",
+        "dialogue",
+        "narration",
+        "source_text",
+        "source_path",
+        "source_locations",
+    }
+    if isinstance(value, Mapping):
+        conflicts = forbidden.intersection(value)
+        if conflicts:
+            raise ValueError(
+                f"organization result contains authoritative or raw fields: {sorted(conflicts)!r}"
+            )
+        for item in value.values():
+            _reject_authority_fields(item)
+    elif isinstance(value, list):
+        for item in value:
+            _reject_authority_fields(item)
+
+
+def _target_table(target_kind: Literal["arc", "event"]) -> tuple[str, str]:
+    return ("story_arcs", "arc_id") if target_kind == "arc" else ("story_events", "event_id")

@@ -55,6 +55,7 @@ class StoryMapPresenter(QObject):
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
+    visible_count_changed = Signal(int)
 
     def __init__(
         self,
@@ -82,6 +83,8 @@ class StoryMapPresenter(QObject):
         self._include_technical = False
         self._focus_after_render: str | None = None
         self._continue_to_evidence = False
+        self._render_suppressed = False
+        self._task_status = ""
 
         canvas.semantic_level_changed.connect(self.set_level)
         canvas.expansion_requested.connect(self._expansion_requested)
@@ -96,9 +99,36 @@ class StoryMapPresenter(QObject):
     def level(self) -> SemanticLevel:
         return self._level
 
+    @property
+    def selected_overview_scope_ids(self) -> tuple[str, ...]:
+        """Return only an explicitly selected Level-1 scope.
+
+        An empty tuple is the full-game organizer contract; a loaded page is never silently
+        treated as the entire game.
+        """
+
+        selected = self._selected_by_level.get(SemanticLevel.OVERVIEW)
+        if selected is not None:
+            return (selected,)
+        return ()
+
+    def show_overview(self) -> None:
+        """Return the deterministic presenter to its complete bounded Level-1 view."""
+
+        self._level = SemanticLevel.OVERVIEW
+        self._selected_id = self._selected_by_level.get(SemanticLevel.OVERVIEW)
+        self.canvas.set_semantic_level(SemanticLevel.OVERVIEW)
+        if not self._render_suppressed:
+            self._load_map()
+
+    def reload(self) -> None:
+        if self._project_path is not None and not self._render_suppressed:
+            self._load_map()
+
     def set_project(self, session: ProjectSession | None) -> None:
         self._generation += 1
         self.cancel(clear_pending=True)
+        self._render_suppressed = False
         self._project_path = None if session is None else session.project_path
         self._level = SemanticLevel.OVERVIEW
         self._selected_id = None
@@ -114,6 +144,13 @@ class StoryMapPresenter(QObject):
         if session is not None:
             self._load_map()
 
+    def set_render_suppressed(self, suppressed: bool) -> None:
+        """Keep deterministic scope loading available without replacing an accepted map."""
+
+        self._render_suppressed = suppressed
+        if not suppressed and self._project_path is not None and self._task is None:
+            self._load_map()
+
     def cancel(self, *, clear_pending: bool = True) -> None:
         if clear_pending:
             self._pending = None
@@ -123,6 +160,8 @@ class StoryMapPresenter(QObject):
 
     @Slot(int)
     def set_level(self, value: int) -> None:
+        if self._render_suppressed:
+            return
         level = SemanticLevel(value)
         if level == self._level:
             return
@@ -159,7 +198,8 @@ class StoryMapPresenter(QObject):
 
     def set_include_technical(self, include: bool) -> None:
         self._include_technical = include
-        self._load_map()
+        if not self._render_suppressed:
+            self._load_map()
 
     def search(self, query: str) -> None:
         term = query.strip()
@@ -244,6 +284,8 @@ class StoryMapPresenter(QObject):
 
     @Slot(str, bool)
     def _expansion_requested(self, node_id: str, expanded: bool) -> None:
+        if self._render_suppressed:
+            return
         if self._level is SemanticLevel.OVERVIEW:
             _set_membership(self._expanded_overview, node_id, expanded)
             if expanded:
@@ -261,8 +303,11 @@ class StoryMapPresenter(QObject):
 
     @Slot(object)
     def _selection_changed(self, value: object) -> None:
+        if self._render_suppressed:
+            return
         self._selected_id = value if isinstance(value, str) else None
         if self._selected_id is None:
+            self._selected_by_level.pop(self._level, None)
             self.evidence_list.clear()
             return
         self._selected_by_level[self._level] = self._selected_id
@@ -385,6 +430,7 @@ class StoryMapPresenter(QObject):
             return
         task = WorkerTask(operation, self)
         self._task = task
+        self._task_status = status
         task.progress.connect(lambda _percent, message: self.status_changed.emit(message))
         task.succeeded.connect(accept)
         task.failed.connect(self._failure)
@@ -399,11 +445,15 @@ class StoryMapPresenter(QObject):
         if token != self._generation:
             return
         self._last_nodes[result.level] = tuple(node.id for node in result.nodes)
+        if self._render_suppressed:
+            return
+        restored = self._selected_by_level.get(result.level)
         self.canvas.set_semantic_level(result.level)
         self.canvas.set_slice(result.nodes, result.edges, preserve_navigation=True)
-        restored = self._selected_by_level.get(result.level)
+        self.visible_count_changed.emit(self.canvas.visible_item_count)
         if restored is not None and self.canvas.restore_selection(restored):
             self._selected_id = restored
+            self._selected_by_level[result.level] = restored
         if self._continue_to_evidence and result.level is SemanticLevel.EVENTS:
             event = _first(tuple(node.id for node in result.nodes))
             self._continue_to_evidence = False
@@ -475,13 +525,18 @@ class StoryMapPresenter(QObject):
         error = cast(BaseException, value)
         if isinstance(error, (ProjectCancelledError, ProjectOperationCancelled)):
             return
-        self.diagnostics_list.addItem("The map operation failed safely")
-        self.error_occurred.emit("The map operation failed safely.")
+        if "search" in self._task_status.casefold():
+            message = "Technical map search failed safely."
+        else:
+            message = "The map operation failed safely."
+        self.diagnostics_list.addItem(message.rstrip("."))
+        self.error_occurred.emit(message)
 
     @Slot()
     def _finished(self) -> None:
         task = self._task
         self._task = None
+        self._task_status = ""
         if task is not None:
             task.deleteLater()
         self.busy_changed.emit(False)
