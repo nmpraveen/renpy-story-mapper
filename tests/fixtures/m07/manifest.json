@@ -1,0 +1,105 @@
+{
+  "format": 1,
+  "hash_basis": "sha256-utf8-lf",
+  "authority": "synthetic_only",
+  "safety": {
+    "canonical_sample_accessed": false,
+    "game_python_executed": false,
+    "provider_called": false,
+    "remote_requests": false
+  },
+  "files": {
+    "route_topology.rpy": {
+      "sha256": "43df511d48e75dba2314e8df6f01ec5174b932e37668ae6db5c27f617ca741e5",
+      "physical_line_count": 103
+    },
+    "provider_timelines.json": {
+      "sha256": "54b5f66fe87c24e11428935a3b43b7238cdb89c74bc2bc1a0cc83f8c0dec0181"
+    },
+    "browser_contract.json": {
+      "sha256": "d26e0cffebb759a160ca7ce9ddf37320f0bd148b85d13e716a667c7a8e64eb95"
+    }
+  },
+  "observed_baseline_pipeline": {
+    "graph_nodes": 97,
+    "graph_edges": 106,
+    "graph_unresolved": 1,
+    "labels_in_scope": 14,
+    "semantic_scenes": 14,
+    "semantic_beats": 64,
+    "semantic_transitions": 79,
+    "semantic_unresolved": 1,
+    "requirements": 5,
+    "effects": 14,
+    "state_variables": 13,
+    "control_regions": {
+      "local_detour": 3,
+      "terminal_split": 2,
+      "loop_choice": 1
+    },
+    "loops": 1
+  },
+  "route_map_expectations": {
+    "chronological_spine": ["start", "day_two", "route_gate"],
+    "reconvergent_detours": ["start:4", "day_two:17", "day_two:20"],
+    "persistent_route_split": "route_gate:34",
+    "persistent_lanes": ["red_route", "blue_route"],
+    "nested_local_detours": ["day_two:17", "day_two:20"],
+    "loop": "loop_entry:59",
+    "shared_call_sites": ["route_topology.rpy:11", "route_topology.rpy:48"],
+    "shared_return": "route_topology.rpy:74",
+    "technical_corridor": {
+      "label": "technical_corridor",
+      "physical_span": [97, 101],
+      "source_nodes_to_collapse": 5,
+      "expected_visible_corridors": 1
+    },
+    "terminals": {
+      "game_ending": "game_ending",
+      "route_ending": "route_ending",
+      "dead_end": "dead_end",
+      "update_boundary": "update_boundary",
+      "unresolved_target": "unresolved_route"
+    },
+    "initial_node_limit": 30,
+    "user_visible_levels": ["route_map", "detail_evidence"],
+    "all_facts_and_evidence_level": "detail_evidence"
+  },
+  "evidence": [
+    {"id": "spine-day-1", "path": "m07/route_topology.rpy", "line": 2, "text": "\"Day 1 begins on the chronological spine.\""},
+    {"id": "gate-wits", "path": "m07/route_topology.rpy", "line": 5, "text": "\"Take the garden path\" if wits >= 2:"},
+    {"id": "effect-love", "path": "m07/route_topology.rpy", "line": 6, "text": "$ love += 1"},
+    {"id": "merge-day-1", "path": "m07/route_topology.rpy", "line": 10, "text": "\"Both Day 1 paths reconverge here.\""},
+    {"id": "call-shared-a", "path": "m07/route_topology.rpy", "line": 11, "text": "call shared_memory"},
+    {"id": "nested-choice", "path": "m07/route_topology.rpy", "line": 20, "text": "menu:"},
+    {"id": "gate-money", "path": "m07/route_topology.rpy", "line": 21, "text": "\"Ask the vendor\" if money >= 10:"},
+    {"id": "effect-money", "path": "m07/route_topology.rpy", "line": 22, "text": "$ money -= 10"},
+    {"id": "persistent-fork", "path": "m07/route_topology.rpy", "line": 34, "text": "menu:"},
+    {"id": "gate-red", "path": "m07/route_topology.rpy", "line": 35, "text": "\"Commit to the red route\" if red_points >= 3:"},
+    {"id": "effect-red-route", "path": "m07/route_topology.rpy", "line": 36, "text": "$ route = \"red\""},
+    {"id": "effect-dating", "path": "m07/route_topology.rpy", "line": 37, "text": "$ dating = True"},
+    {"id": "gate-blue", "path": "m07/route_topology.rpy", "line": 39, "text": "\"Commit to the blue route\" if blue_points >= 3:"},
+    {"id": "effect-blue-route", "path": "m07/route_topology.rpy", "line": 40, "text": "$ route = \"blue\""},
+    {"id": "effect-job", "path": "m07/route_topology.rpy", "line": 41, "text": "$ job = \"Harbor\""},
+    {"id": "call-shared-b", "path": "m07/route_topology.rpy", "line": 48, "text": "call shared_memory"},
+    {"id": "gate-courage", "path": "m07/route_topology.rpy", "line": 49, "text": "if courage >= 5:"},
+    {"id": "loop-choice", "path": "m07/route_topology.rpy", "line": 59, "text": "label loop_entry:"},
+    {"id": "loop-back", "path": "m07/route_topology.rpy", "line": 69, "text": "jump loop_entry"},
+    {"id": "shared-return", "path": "m07/route_topology.rpy", "line": 74, "text": "return"},
+    {"id": "terminal-game", "path": "m07/route_topology.rpy", "line": 77, "text": "\"The complete story reaches a game ending.\""},
+    {"id": "terminal-route", "path": "m07/route_topology.rpy", "line": 81, "text": "\"The red lane reaches a route ending.\""},
+    {"id": "terminal-dead", "path": "m07/route_topology.rpy", "line": 85, "text": "\"This refusal is a dead end.\""},
+    {"id": "terminal-update", "path": "m07/route_topology.rpy", "line": 89, "text": "\"This route stops at an update boundary.\""},
+    {"id": "dynamic-target", "path": "m07/route_topology.rpy", "line": 94, "text": "jump expression selected_destination"},
+    {"id": "corridor-start", "path": "m07/route_topology.rpy", "line": 97, "text": "$ audit_step = 1"},
+    {"id": "corridor-end", "path": "m07/route_topology.rpy", "line": 101, "text": "$ audit_step += 1"}
+  ],
+  "integration_contract": {
+    "presentation_level_names": ["ROUTE_MAP", "DETAIL_EVIDENCE"],
+    "scope_checkpoint_statuses": ["pending", "cached", "in_flight", "validated", "fallback", "failed", "cancelled"],
+    "provider_policy": {"model": "gpt-5.6-luna", "reasoning": "high", "fast_mode": false, "initial_concurrency": 8, "maximum_concurrency": 12, "maximum_repairs": 2},
+    "completion_order_is_nonauthoritative": true,
+    "assembly_order": "scope_ordinal_then_scope_id",
+    "usage_persistence": "after_each_attempt"
+  }
+}

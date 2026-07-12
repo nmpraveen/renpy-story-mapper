@@ -1,0 +1,121 @@
+{
+  "format": 1,
+  "clock": "logical_ticks",
+  "model": "gpt-5.6-luna",
+  "reasoning": "high",
+  "fast_mode": false,
+  "limits": {
+    "initial_concurrency": 8,
+    "maximum_concurrency": 12,
+    "maximum_repairs": 2
+  },
+  "scenarios": {
+    "shuffled_completion": {
+      "scopes": ["scope-a", "scope-b", "scope-c", "scope-d"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "started"},
+        {"tick": 1, "scope": "scope-b", "event": "started"},
+        {"tick": 1, "scope": "scope-c", "event": "started"},
+        {"tick": 1, "scope": "scope-d", "event": "started"},
+        {"tick": 2, "scope": "scope-c", "event": "validated", "input_tokens": 30, "output_tokens": 7},
+        {"tick": 3, "scope": "scope-a", "event": "validated", "input_tokens": 10, "output_tokens": 3},
+        {"tick": 4, "scope": "scope-d", "event": "validated", "input_tokens": 40, "output_tokens": 9},
+        {"tick": 5, "scope": "scope-b", "event": "validated", "input_tokens": 20, "output_tokens": 5}
+      ],
+      "expected_assembly": ["scope-a", "scope-b", "scope-c", "scope-d"],
+      "expected_calls": 4
+    },
+    "cancellation_resume": {
+      "scopes": ["scope-a", "scope-b", "scope-c"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "validated", "input_tokens": 10, "output_tokens": 2},
+        {"tick": 2, "scope": "scope-b", "event": "cancelled"},
+        {"tick": 2, "scope": "scope-c", "event": "cancelled"},
+        {"tick": 3, "event": "resume"},
+        {"tick": 4, "scope": "scope-b", "event": "validated", "input_tokens": 20, "output_tokens": 4},
+        {"tick": 5, "scope": "scope-c", "event": "validated", "input_tokens": 30, "output_tokens": 6}
+      ],
+      "expected_resume_calls": 2,
+      "validated_before_resume": ["scope-a"]
+    },
+    "cache_replay": {
+      "scopes": ["scope-a", "scope-b"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "cached"},
+        {"tick": 1, "scope": "scope-b", "event": "cached"}
+      ],
+      "expected_calls": 0,
+      "expected_status": "validated"
+    },
+    "rate_limit_throttle": {
+      "scopes": ["scope-a", "scope-b", "scope-c"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "rate_limited", "retry_after_ticks": 3},
+        {"tick": 1, "event": "concurrency", "value": 4},
+        {"tick": 4, "scope": "scope-a", "event": "validated", "input_tokens": 11, "output_tokens": 2}
+      ],
+      "expected_peak_after_signal": 4,
+      "expected_attempts": 2
+    },
+    "latency_adaptation": {
+      "scopes": ["scope-slow", "scope-fast"],
+      "events": [
+        {"tick": 1, "scope": "scope-slow", "event": "started", "timeout_ticks": 10},
+        {"tick": 9, "scope": "scope-slow", "event": "validated", "input_tokens": 50, "output_tokens": 10},
+        {"tick": 10, "scope": "scope-fast", "event": "started", "timeout_ticks": 16},
+        {"tick": 12, "scope": "scope-fast", "event": "validated", "input_tokens": 20, "output_tokens": 4}
+      ],
+      "expected_next_timeout_ticks": 16
+    },
+    "bounded_repairs": {
+      "scopes": ["scope-a", "scope-b", "scope-c"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "repair_started"},
+        {"tick": 1, "scope": "scope-b", "event": "repair_started"},
+        {"tick": 1, "scope": "scope-c", "event": "repair_queued"},
+        {"tick": 2, "scope": "scope-a", "event": "fallback"},
+        {"tick": 2, "scope": "scope-c", "event": "repair_started"},
+        {"tick": 3, "scope": "scope-b", "event": "validated", "input_tokens": 22, "output_tokens": 5},
+        {"tick": 4, "scope": "scope-c", "event": "failed", "input_tokens": 33, "output_tokens": 0}
+      ],
+      "expected_maximum_concurrent_repairs": 2
+    },
+    "hard_token_budget": {
+      "scopes": ["scope-a", "scope-b"],
+      "budget": {"hard_total_tokens": 100},
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "validated", "input_tokens": 70, "output_tokens": 20},
+        {"tick": 2, "scope": "scope-b", "event": "budget_blocked", "estimated_tokens": 30}
+      ],
+      "expected_consumed_tokens": 90,
+      "expected_calls": 1
+    },
+    "soft_partial_coverage": {
+      "scopes": ["scope-a", "scope-b", "scope-c", "scope-d"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "validated", "input_tokens": 10, "output_tokens": 2},
+        {"tick": 2, "scope": "scope-b", "event": "validated", "input_tokens": 10, "output_tokens": 2},
+        {"tick": 3, "scope": "scope-c", "event": "fallback"},
+        {"tick": 4, "scope": "scope-d", "event": "pending"},
+        {"tick": 5, "event": "soft_limit_reached"}
+      ],
+      "expected": {"ai_scopes": 2, "technical_scopes": 1, "pending_scopes": 1, "reviewable": true}
+    },
+    "per_attempt_usage_failure": {
+      "scopes": ["scope-a"],
+      "events": [
+        {"tick": 1, "scope": "scope-a", "event": "invalid", "attempt": 1, "input_tokens": 40, "output_tokens": 8},
+        {"tick": 2, "scope": "scope-a", "event": "failed", "attempt": 2, "input_tokens": 42, "output_tokens": 0, "failure": "schema"}
+      ],
+      "expected": {"calls": 2, "input_tokens": 82, "output_tokens": 8, "failures": 1}
+    },
+    "normalized_identity": {
+      "scopes": ["global/scope-a", "scoped/scope-a"],
+      "events": [
+        {"tick": 1, "scope": "global/scope-a", "event": "validated", "cache_identity": "sha256:identical-a", "input_tokens": 12, "output_tokens": 3},
+        {"tick": 2, "scope": "scoped/scope-a", "event": "cached", "cache_identity": "sha256:identical-a"}
+      ],
+      "expected_calls": 1
+    }
+  }
+}
