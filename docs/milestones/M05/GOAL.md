@@ -77,8 +77,8 @@ traceable to, the immutable deterministic M01-M04 foundation.
 
 ## State
 
-Active from synchronized `main` commit `0ae86f79c4ed18b4c8a33ee4a98b1a097521e4d5` on
-`milestone/m05-ai-story-explorer`. The single native self-goal is attached to permanent orchestrator
-task `019f4d73-853a-7df2-a43a-47733dbafb95` and must remain active until integration, Windows and
-canonical acceptance, documentation, native infographic generation, and the unmerged PR are all
-complete.
+Complete. The implementation was merged by the user through PR #7 at `2df4d67`; final synthetic
+and separately consented real-script acceptance passed without changing deterministic authority or
+the read-only source. Windows verification, completion documentation, retained screenshots, and
+the native infographic are complete. The app currently exposes no active goal record after the
+earlier product-level pause, so `GOAL.md` is the durable milestone-goal status.

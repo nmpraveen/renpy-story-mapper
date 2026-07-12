@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-11
 
-Status: M01, M02, M03, and M04 are complete. M05 is approved and active on
-`milestone/m05-ai-story-explorer` from synchronized `main` commit `0ae86f7`.
+Status: M01 through M05 are complete. M05 implementation was merged through PR #7 on 2026-07-11;
+the approved roadmap is complete.
 
 ## 1. Product goal
 
@@ -416,8 +416,9 @@ Completion evidence:
 
 ### M05 - AI-Organized Story Explorer and Final Product Validation
 
-Status: Approved and active from synchronized `main` commit `0ae86f7` on
-`milestone/m05-ai-story-explorer`. M05 is the final milestone in the currently approved roadmap.
+Status: Complete. The user merged implementation PR #7 to `main` at `2df4d67` on 2026-07-11.
+Final acceptance evidence and closeout artifacts were completed immediately afterward. M05 is the
+final milestone in the approved roadmap.
 
 Objective: convert the technically correct M04 graph into the finished story-reading experience.
 The default journey must become an arc-first Story Explorer while M01-M04 remain the immutable
@@ -737,6 +738,29 @@ Explicit exclusions and assumptions:
   limitations and are not claimed as accepted M05 behavior.
 - M05 completes the approved roadmap; no M06 is implied.
 
+#### Completion evidence
+
+- Schema-v4 organization storage, isolated Luna/High provider boundary, bounded reconciliation,
+  deterministic quotient edges, review/apply/corrections, layered Story Explorer, adaptive Windows
+  UI, complex fixture, and independent adversarial review are integrated.
+- Final Windows CPython 3.12 verification passed 348 tests, Ruff, strict mypy across 34 source
+  files, `pip check`, JSON/whitespace validation, normal Windows UI checks, and both live AI
+  end-to-end paths.
+- The complex fixture's corrected cached run produced four arcs, 33 events, and 77 evidence-backed
+  claims with 12 cache hits, zero provider calls, and unchanged deterministic authority SHA-256
+  `337e5158a1d62d22b7ee76f68b2704b2077343f75e9a14e4781f61aad08ed618`.
+- The separately consented real `.rpy` smoke produced one arc, four AI events, 14 claims, and six
+  deterministic fallback events. Its cached rerun used four hits and zero provider calls in 54 ms.
+- The real source remained unchanged: SHA-256
+  `d3a4e0a305c6c8a8d84ff5bd99845a4035f0bde7ce953699af71d607806d7f71`, 9,994 bytes,
+  `2026-03-27T22:21:22.0000000Z`. Its deterministic authority remained
+  `55b48b9e3202e50186aab7f96b3c22f7cd10c262a26b769413e3cf50a7910374`.
+- Normal Windows rendering, AI review, accepted/technical comparison, exact evidence, cache reuse,
+  source immutability, and the 240-item cap passed. The completion report, metrics, screenshots,
+  and native infographic are retained under `docs/milestones/M05/`.
+- Deferred limitations are LM Studio product validation, full canonical cloud organization,
+  database compaction, packaging, and distribution. No M06 is implied.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -823,7 +847,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute only M05 under its single active self-goal. Integrate the story-model and provider
-contracts first, then deterministic layout, then the Story Explorer UI, and finally independent
-review and complete Windows/canonical acceptance. Produce one unmerged M05 PR and stop for explicit
-user approval. Do not create M06.
+The approved M01-M05 roadmap is complete. Do not create M06. Any future packaging, distribution,
+LM Studio validation, compaction, or new product capability requires a separately approved plan.
