@@ -14,151 +14,66 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to story</a>
-  <div id="app" class="app-shell">
+  <div class="app-shell">
     <header class="masthead">
-      <button id="homeButton" class="wordmark" type="button" aria-label="Return to welcome">
-        <span class="wordmark-mark" aria-hidden="true">R</span>
-        <span>Story Mapper</span>
-      </button>
-      <div id="projectIdentity" class="project-identity" hidden>
-        <span id="projectName" class="project-name"></span>
-        <span id="projectBadge" class="badge">Technical organization</span>
-      </div>
+      <button id="homeButton" class="wordmark" type="button" aria-label="Return to welcome"><span class="wordmark-mark" aria-hidden="true">R</span><span>Story Mapper</span></button>
+      <div id="projectIdentity" class="project-identity" hidden><strong id="projectName"></strong><span id="projectBadge" class="status-badge">Technical map</span></div>
       <div class="masthead-actions">
-        <button id="diagnosticsButton" class="quiet-button" type="button" aria-haspopup="dialog">Diagnostics</button>
+        <button id="refreshProject" class="quiet-button" type="button" hidden>Refresh</button>
+        <button id="diagnosticsButton" class="quiet-button" type="button">Diagnostics</button>
+        <button id="settingsButton" class="quiet-button" type="button" aria-label="Change color theme">Theme</button>
         <button id="quitButton" class="quiet-button" type="button">Quit</button>
-        <button id="themeButton" class="icon-button" type="button" aria-label="Change color theme" title="Change color theme">◐</button>
       </div>
     </header>
 
     <main id="main">
       <section id="welcomeView" class="welcome" aria-labelledby="welcomeTitle">
-        <div class="welcome-copy">
-          <p class="eyebrow">Private story analysis</p>
-          <h1 id="welcomeTitle">Trace every choice.<br>Keep every source private.</h1>
-          <p class="dek">Build an evidence-linked map without running game code.</p>
-          <div class="welcome-actions" aria-label="Open a story source">
-            <button class="primary-button" type="button" data-open-kind="folder">Open Folder</button>
-            <button class="secondary-button" type="button" data-open-kind="archive">Open Archive</button>
-            <button class="secondary-button" type="button" data-open-kind="file">Open File</button>
-            <button class="secondary-button" type="button" data-open-kind="project">Open Project</button>
-          </div>
+        <div class="welcome-copy"><p class="eyebrow">Private story analysis</p><h1 id="welcomeTitle">Trace the story.<br>Keep the source local.</h1><p>Build an evidence-linked route map without running game code.</p>
+          <div class="welcome-actions" aria-label="Open a story source"><button class="primary-button" type="button" data-open-kind="folder">Open Folder</button><button class="secondary-button" type="button" data-open-kind="archive">Open Archive</button><button class="secondary-button" type="button" data-open-kind="file">Open File</button><button class="secondary-button" type="button" data-open-kind="project">Open Project</button></div>
         </div>
-        <div class="welcome-rule" aria-hidden="true"><span>01</span><i></i><span>local only</span></div>
-        <section class="recent-section" aria-labelledby="recentTitle">
-          <div class="section-heading">
-            <h2 id="recentTitle">Recent projects</h2>
-            <span id="recentCount" class="count"></span>
+        <section class="recent-section" aria-labelledby="recentTitle"><div class="section-heading"><h2 id="recentTitle">Recent projects</h2><span id="recentCount"></span></div><div id="recentProjects" class="recent-grid"></div></section>
+      </section>
+
+      <section id="progressView" class="progress-view" hidden aria-labelledby="progressTitle"><div class="progress-card"><p class="eyebrow">Static analysis</p><h1 id="progressTitle">Reading story structure</h1><p id="progressStage" aria-live="polite">Preparing</p><div class="progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div><div class="progress-meta"><span id="progressPercent">0%</span><span id="progressElapsed">0:00</span></div><button id="cancelAnalysis" class="secondary-button" type="button">Cancel</button></div></section>
+
+      <section id="workspaceView" class="workspace" hidden aria-label="Story workspace">
+        <section id="routeMapView" class="route-map-view" data-level="route_map" aria-labelledby="mapTitle">
+          <div class="commandbar">
+            <div><p class="eyebrow">Route Map</p><h1 id="mapTitle">Chronological story lines</h1></div>
+            <label class="search-control"><span class="sr-only">Search visible stations</span><input id="searchInput" type="search" placeholder="Search stations  /" autocomplete="off" aria-keyshortcuts="/"></label>
+            <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">View</button>
+            <button id="organizeButton" class="accent-button" type="button">Organize</button>
+            <div id="filterPanel" class="popover" hidden><label><input id="technicalToggle" type="checkbox" checked> Technical corridors</label><label><input id="unresolvedToggle" type="checkbox" checked> Unresolved paths</label></div>
           </div>
-          <div id="recentProjects" class="recent-grid"></div>
+
+          <div class="map-layout">
+            <aside class="line-index" aria-labelledby="lineIndexTitle"><h2 id="lineIndexTitle">Lines</h2><button class="line-key" type="button" data-lane="spine"><i class="swatch spine"></i><span>Chronological spine</span></button><button class="line-key" type="button" data-lane="detour"><i class="swatch detour"></i><span>Reconvergent detours</span></button><button class="line-key" type="button" data-lane="persistent"><i class="swatch red"></i><span>Persistent routes</span></button><div class="shape-key" aria-label="Station shapes"><span>◆ Choice</span><span>◇ Merge</span><span>↻ Loop</span><span>■ Terminal</span><span>? Unresolved</span></div><div id="coverageSummary" class="coverage-summary"></div></aside>
+
+            <section class="map-panel">
+              <header class="map-tools" aria-label="Map view"><span id="pageStatus">Stations 1–30</span><button id="previousPage" class="quiet-button" type="button">Previous</button><button id="nextPage" class="quiet-button" type="button">Next</button><span class="tool-divider"></span><button id="zoomOut" class="icon-button" type="button" aria-label="Zoom out">−</button><output id="zoomValue" aria-live="polite">100%</output><button id="zoomIn" class="icon-button" type="button" aria-label="Zoom in">+</button><button id="fitMap" class="quiet-button" type="button">Fit</button></header>
+              <div id="mapViewport" class="map-viewport" tabindex="0" role="application" aria-label="Chronological Route Map. Use arrow keys to select stations and line segments, Enter to open Detail and Evidence, plus or minus to zoom, and zero to fit."><canvas id="edgeCanvas" aria-hidden="true"></canvas><div id="mapWorld" class="map-world" role="listbox" aria-label="Route Map elements"></div></div>
+              <footer class="map-status"><span id="visibleStatus">0 stations</span><span id="selectionStatus">No selection</span><span>Pan · Zoom · Fit</span></footer>
+            </section>
+          </div>
+
+          <aside id="organizationPanel" class="organization-panel" aria-labelledby="organizationTitle">
+            <div><p class="eyebrow">Optional enrichment</p><h2 id="organizationTitle">Organization</h2></div><div id="organizationMetrics" class="organization-metrics"></div><div class="organization-actions"><button id="cancelOrganization" class="secondary-button" type="button" hidden>Cancel run</button><button id="resumeOrganization" class="secondary-button" type="button" hidden>Resume</button><button id="reviewPartial" class="secondary-button" type="button" hidden>Review partial</button></div>
+          </aside>
         </section>
-      </section>
 
-      <section id="progressView" class="progress-view" hidden aria-labelledby="progressTitle">
-        <div class="progress-card">
-          <p class="eyebrow">Static analysis</p>
-          <h1 id="progressTitle">Reading story structure</h1>
-          <p id="progressStage" class="progress-stage" aria-live="polite"></p>
-          <div class="progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div>
-          <div class="progress-meta"><span id="progressPercent">0%</span><span id="progressElapsed">0:00</span></div>
-          <button id="cancelAnalysis" class="secondary-button" type="button">Cancel</button>
-        </div>
-      </section>
-
-      <section id="workspaceView" class="workspace" hidden aria-label="Story Explorer">
-        <nav class="commandbar" aria-label="Story commands">
-          <div id="breadcrumbs" class="breadcrumbs" aria-label="Story level"></div>
-          <label class="search-control">
-            <span class="sr-only">Search story</span>
-            <input id="searchInput" type="search" autocomplete="off" placeholder="Search story  /" aria-keyshortcuts="/">
-          </label>
-          <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">Filter</button>
-          <button id="refreshProject" class="quiet-button" type="button" hidden>Refresh</button>
-          <button id="organizeButton" class="accent-button" type="button">Organize Story</button>
-          <div id="filterPanel" class="popover" hidden>
-            <label><input id="technicalToggle" type="checkbox"> Technical items</label>
-            <label><input id="unresolvedToggle" type="checkbox" checked> Unresolved items</label>
-            <label><input id="requirementsToggle" type="checkbox" checked> Requirements</label>
-            <label><input id="effectsToggle" type="checkbox" checked> Effects</label>
+        <section id="detailView" class="detail-view" data-level="detail_evidence" hidden aria-labelledby="detailTitle">
+          <header class="detail-command"><button id="backToRouteMap" class="back-button" type="button">← Back to Route Map</button><span id="detailKind" class="status-badge"></span></header>
+          <div class="detail-layout">
+            <article class="detail-main"><p class="eyebrow">Detail / Evidence</p><h1 id="detailTitle">Selected route element</h1><p id="detailSummary" class="detail-summary"></p><nav id="pathStrip" class="path-strip" aria-label="Local predecessor and successor strip"></nav><div id="detailFacts"></div><section aria-labelledby="interpretationTitle"><h2 id="interpretationTitle">AI interpretations</h2><div id="interpretations"></div></section></article>
+            <aside class="evidence-pane" aria-labelledby="evidenceTitle"><h2 id="evidenceTitle">Exact evidence</h2><div id="evidenceList"></div></aside>
           </div>
-        </nav>
-
-        <div class="workspace-grid">
-          <aside class="navigator" aria-labelledby="navigatorTitle">
-            <div class="panel-heading"><h2 id="navigatorTitle">Story index</h2></div>
-            <nav id="storyNavigator" class="story-nav" aria-label="Story arcs"></nav>
-            <div class="navigator-footer">
-              <span class="status-dot"></span><span id="organizationStatus">Technical organization</span>
-            </div>
-          </aside>
-
-          <section class="map-panel" aria-labelledby="mapTitle">
-            <header class="map-heading">
-              <div>
-                <p id="levelLabel" class="eyebrow">Level 1 · Arcs</p>
-                <h1 id="mapTitle">Story overview</h1>
-              </div>
-              <div class="map-tools" aria-label="Map view">
-                <button id="zoomOut" class="icon-button" type="button" aria-label="Zoom out">−</button>
-                <output id="zoomValue" aria-live="polite">100%</output>
-                <button id="zoomIn" class="icon-button" type="button" aria-label="Zoom in">+</button>
-                <button id="fitMap" class="quiet-button" type="button">Fit</button>
-              </div>
-            </header>
-            <div id="mapViewport" class="map-viewport" tabindex="0" aria-label="Interactive story graph. Use arrow keys to move between items, Enter to open, plus and minus to zoom.">
-              <canvas id="edgeCanvas" aria-hidden="true"></canvas>
-              <div id="mapWorld" class="map-world" role="listbox" aria-label="Story map"></div>
-              <div class="map-compass" aria-hidden="true"><span>N</span><i></i></div>
-            </div>
-            <footer class="map-status">
-              <span id="visibleStatus">0 items</span>
-              <span id="overflowStatus"></span>
-              <span>Pan · Zoom · Select</span>
-            </footer>
-          </section>
-
-          <aside class="inspector" aria-labelledby="inspectorTitle">
-            <div class="panel-heading"><h2 id="inspectorTitle">Inspector</h2><span id="selectionKind" class="badge"></span></div>
-            <div id="inspectorTabs" class="tabs" role="tablist" aria-label="Inspector sections">
-              <button id="tab-summary" role="tab" aria-selected="true" aria-controls="panel-summary" tabindex="0">Summary</button>
-              <button id="tab-state" role="tab" aria-selected="false" aria-controls="panel-state" tabindex="-1">Choices &amp; State</button>
-              <button id="tab-evidence" role="tab" aria-selected="false" aria-controls="panel-evidence" tabindex="-1">Evidence</button>
-              <button id="tab-details" role="tab" aria-selected="false" aria-controls="panel-details" tabindex="-1">Details</button>
-            </div>
-            <div id="panel-summary" class="tab-panel" role="tabpanel" aria-labelledby="tab-summary"></div>
-            <div id="panel-state" class="tab-panel" role="tabpanel" aria-labelledby="tab-state" hidden></div>
-            <div id="panel-evidence" class="tab-panel" role="tabpanel" aria-labelledby="tab-evidence" hidden></div>
-            <div id="panel-details" class="tab-panel" role="tabpanel" aria-labelledby="tab-details" hidden></div>
-          </aside>
-        </div>
+        </section>
       </section>
     </main>
 
-    <dialog id="consentDialog" aria-labelledby="consentTitle">
-      <form method="dialog" class="dialog-card">
-        <p class="eyebrow">Explicit consent required</p>
-        <h2 id="consentTitle">Organize this story?</h2>
-        <p>Selected story evidence will be sent to the configured provider only after you continue. The deterministic map stays authoritative.</p>
-        <div class="consent-facts"><span>Scope</span><strong id="consentScope">Current project</strong><span>Mode</span><strong>Cloud · GPT-5.6 Luna</strong></div>
-        <div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Continue to review</button></div>
-      </form>
-    </dialog>
-
-    <dialog id="reviewDialog" aria-labelledby="reviewTitle">
-      <div class="dialog-card review-card">
-        <header><div><p class="eyebrow">Organization draft</p><h2 id="reviewTitle">Review proposed structure</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header>
-        <div id="reviewMeta" class="review-meta"></div>
-        <div id="reviewProgress" class="review-progress" role="status" aria-live="polite"></div>
-        <div id="reviewComparison" class="review-comparison"></div>
-        <nav id="reviewPager" class="review-pager" aria-label="Draft candidate pages"><button id="reviewPrevious" class="secondary-button" type="button">Previous</button><span id="reviewPage"></span><button id="reviewNext" class="secondary-button" type="button">Next</button></nav>
-        <footer class="dialog-actions"><button id="discardDraft" class="secondary-button" type="button">Discard Draft</button><button id="applyDraft" class="accent-button" type="button" disabled>Apply Draft</button></footer>
-      </div>
-    </dialog>
-
-    <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle">
-      <div class="dialog-card diagnostics-card"><header><div><p class="eyebrow">Local diagnostics</p><h2 id="diagnosticsTitle">Diagnostics</h2></div><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div>
-    </dialog>
-
+    <dialog id="consentDialog" aria-labelledby="consentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Explicit cloud confirmation</p><h2 id="consentTitle">Start optional organization?</h2><p>Only the prepared scope is sent after confirmation. The deterministic Route Map stays authoritative.</p><dl id="consentFacts" class="consent-facts"></dl><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Confirm and start</button></div></form></dialog>
+    <dialog id="reviewDialog" aria-labelledby="reviewTitle"><div class="dialog-card review-card"><header><div><p class="eyebrow">Validated partial result</p><h2 id="reviewTitle">Review before apply</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header><div id="reviewCoverage"></div><p>Validated scopes can be applied while technical fallback and pending scopes remain explicit.</p><div class="dialog-actions"><button id="applyAssembly" class="accent-button" type="button">Apply validated partial</button></div></div></dialog>
+    <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle"><div class="dialog-card"><header><h2 id="diagnosticsTitle">Diagnostics</h2><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div></dialog>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
 </body>

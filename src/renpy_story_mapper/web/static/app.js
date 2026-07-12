@@ -1,6 +1,6 @@
 import { LocalApi } from "./api.js";
-import { RENDER_LIMITS, safeLevel } from "./contract.js";
-import { StoryGraph } from "./graph.js";
+import { ROUTE_PAGE_SIZE } from "./contract.js";
+import { RouteGraph } from "./graph.js";
 import { MockApi } from "./mock-api.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -8,545 +8,292 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const params = new URLSearchParams(location.search);
 const mockMode = params.get("mock") === "1";
 const api = mockMode ? new MockApi() : new LocalApi();
-const REVIEW_PAGE_SIZE = 40;
 
 const state = {
-  project: null,
-  level: "arcs",
-  selected: null,
-  parentIds: [],
-  view: null,
-  draftId: null,
-  reviewCandidates: [],
-  reviewPage: 0,
-  settings: { theme: "system", zoom: 1, include_technical: false, include_unresolved: true, show_requirements: true, show_effects: true },
+  project: null, page: null, offset: 0, selectedId: null, detail: null, organization: null,
+  prepared: null, assemblyId: null, settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
-function element(tag, className, value) {
+function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (value !== undefined) node.textContent = String(value);
+  if (text !== undefined) node.textContent = String(text);
   return node;
 }
 
-function normalizeNode(node) {
-  const payload = node.payload && typeof node.payload === "object" ? node.payload : {};
-  return {
-    ...node,
-    title: node.title || node.name || "Untitled story item",
-    summary: node.summary || payload.summary || payload.text || "",
-    evidence_count: node.evidence_count ?? payload.evidence_count ?? 0,
-    source: node.source || (node.source_path ? { path: node.source_path, start_line: node.start_line, end_line: node.end_line, basis: payload.line_basis || "physical" } : null),
-    facts: Array.isArray(node.facts) ? node.facts : [],
-    unresolved: node.unresolved === true,
-  };
-}
-
-function normalizeView(view) {
-  const nodes = (view.nodes || []).map(normalizeNode);
-  const edges = (view.edges || []).map((edge) => ({ ...edge, source: edge.source || edge.source_id, target: edge.target || edge.target_id }));
-  const nodeMore = Boolean(view.node_continuation?.has_more);
-  const edgeMore = Boolean(view.edge_continuation?.has_more);
-  return { ...view, nodes, edges, overflow: view.overflow || (nodeMore || edgeMore ? { message: "More story items exist beyond this bounded slice." } : null) };
-}
-
-const graph = new StoryGraph({
+const graph = new RouteGraph({
   viewport: $("#mapViewport"), world: $("#mapWorld"), canvas: $("#edgeCanvas"),
-  onSelect: (node) => selectNode(node), onOpen: (node) => openNode(node),
+  onSelect: (item) => selectItem(item), onOpen: (item) => openDetail(item.id),
 });
 
-function showView(name) {
+function toast(message) {
+  const host = $("#toast"); host.textContent = message; host.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { host.hidden = true; }, 2600);
+}
+
+function showPrimary(name) {
   $("#welcomeView").hidden = name !== "welcome";
   $("#progressView").hidden = name !== "progress";
   $("#workspaceView").hidden = name !== "workspace";
   $("#projectIdentity").hidden = name === "welcome";
-  $("#refreshProject").hidden = name !== "workspace" || !state.project;
+  $("#refreshProject").hidden = name !== "workspace";
 }
 
-function toast(message) {
-  const target = $("#toast");
-  target.textContent = message;
-  target.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { target.hidden = true; }, 2600);
+function showLevel(level) {
+  const detail = level === "detail_evidence";
+  $("#routeMapView").hidden = detail;
+  $("#detailView").hidden = !detail;
+  document.documentElement.dataset.activeLevel = detail ? "detail_evidence" : "route_map";
 }
 
 function renderRecent(projects) {
-  const host = $("#recentProjects");
-  host.replaceChildren();
+  const host = $("#recentProjects"); host.replaceChildren();
   $("#recentCount").textContent = `${projects.length} saved locally`;
-  for (const [index, project] of projects.entries()) {
-    const card = element("button", "recent-card");
-    card.type = "button";
-    card.dataset.projectId = project.id;
-    card.append(element("span", "eyebrow", `${String(index + 1).padStart(2, "0")} · ${project.source_type}`), element("strong", "", project.name));
-    const meta = element("span", "recent-meta");
-    meta.append(element("span", "", project.last_opened || "Saved locally"), element("span", "", project.organization));
-    card.append(meta);
-    card.addEventListener("click", () => openSelection({ id: project.id || project.selection_id, display_name: project.name }, true));
-    host.append(card);
+  for (const project of projects) {
+    const button = element("button", "recent-card"); button.type = "button";
+    button.append(element("span", "recent-type", project.source_type || "Project"), element("strong", "", project.name || "Saved project"), element("span", "recent-meta", `${project.last_opened || "Saved locally"} · ${project.organization || "Technical map"}`));
+    button.addEventListener("click", () => openSelection({ id: project.id, display_name: project.name }, true));
+    host.append(button);
   }
-  if (!projects.length) host.append(element("p", "inspector-empty", "No recent projects."));
+  if (!projects.length) host.append(element("p", "muted", "No recent projects."));
 }
 
 async function choose(kind) {
   try {
-    const result = await api.pick(kind);
-    const selection = result.selection || result;
-    if (!selection || !(selection.id || selection.selection_id)) return;
-    if (kind === "project") await openSelection(selection, true);
-    else await createFromSource(selection);
+    const chosen = await api.pick(kind); const source = chosen.selection || chosen;
+    if (!source?.selection_id && !source?.id) return;
+    if (kind === "project") await openSelection(source, true);
+    else {
+      const saved = await api.chooseSave(); const destination = saved.selection || saved;
+      await api.create(source.selection_id || source.id, destination.selection_id || destination.id);
+      state.project = { name: source.display_name || "New story", organization: "Technical map" };
+      showPrimary("progress"); await pollAnalysis();
+    }
   } catch (error) { toast(error.message); }
 }
 
-async function createFromSource(sourceSelection) {
-  const sourceId = sourceSelection.id || sourceSelection.selection_id;
-  if (api.create && api.chooseSave) {
-    const save = await api.chooseSave();
-    const target = save?.selection || save;
-    if (!target) return;
-    const targetId = target.id || target.selection_id;
-    if (!targetId) throw new Error("The project destination is unavailable");
-    await api.create(sourceId, targetId);
-    state.project = { id: sourceId, name: sourceSelection.display_name || "New story", organization: "Technical organization" };
-    showView("progress");
-    await pollProgress();
-    return;
-  }
-  await openSelection(sourceSelection, false);
-}
-
-async function openSelection(selection, existing) {
-  const selectionId = selection.id || selection.selection_id;
-  const result = await api.open(selectionId);
-  state.project = result.project || { id: selectionId, name: selection.display_name || "The Lantern House", organization: "Technical organization" };
-  $("#projectName").textContent = state.project.name;
-  $("#projectBadge").textContent = state.project.organization || "Technical organization";
-  showView(result.analysis?.state === "running" || result.task?.state === "running" ? "progress" : "workspace");
-  if (result.analysis?.state === "running" || result.task?.state === "running") await pollProgress();
-  else await loadView();
-  if (existing && mockMode) toast("Project opened locally");
-}
-
-async function refreshProject() {
-  if (!state.project) return;
+async function openSelection(selection, notify = false) {
   try {
-    const started = await api.refresh();
-    if (started.analysis?.state === "running" || started.task?.state === "running") await pollProgress();
-    else await loadView();
-    toast("Project refreshed locally");
-  } catch (error) {
-    toast(error.message);
-  }
+    const opened = await api.open(selection.selection_id || selection.id);
+    state.project = opened.project || { name: selection.display_name || "Story", organization: "Technical map" };
+    $("#projectName").textContent = state.project.name;
+    $("#projectBadge").textContent = state.project.organization || "Technical map";
+    if (["running", "pending"].includes(opened.analysis?.state || opened.task?.state)) { showPrimary("progress"); await pollAnalysis(); }
+    else { showPrimary("workspace"); showLevel("route_map"); await loadRoutePage(0); await loadOrganization(); }
+    if (notify && mockMode) toast("Project opened locally");
+  } catch (error) { toast(error.message); }
 }
 
-async function pollProgress() {
-  showView("progress");
-  let result;
+async function pollAnalysis() {
+  let progress;
   do {
-    result = await api.progress();
-    result = result.task || result;
-    updateProgress(result);
-    if (result.state !== "running") break;
-    await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 400));
-  } while (result.state === "running");
-  if (result.state === "completed" || result.state === "complete") {
-    const bootstrap = await api.bootstrap();
-    if (bootstrap.project?.name) {
-      state.project = { ...state.project, ...bootstrap.project };
-      $("#projectName").textContent = bootstrap.project.name;
-    }
-    showView("workspace");
-    await loadView();
-  }
-  if (result.state === "cancelled") { showView("welcome"); toast("Analysis cancelled safely"); }
-  if (result.state === "failed") { showView("workspace"); toast(result.error?.message || "The operation failed safely"); }
+    progress = await api.progress(); progress = progress.task || progress;
+    const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+    $("#progressStage").textContent = String(progress.stage || "Preparing").replaceAll("_", " ");
+    $("#progressBar").style.width = `${percent}%`; $(".progress-track").setAttribute("aria-valuenow", String(percent));
+    $("#progressPercent").textContent = `${percent}%`; const seconds = Number(progress.elapsed_seconds || 0); $("#progressElapsed").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    if (progress.state === "running") await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 350));
+  } while (progress.state === "running");
+  if (["complete", "completed"].includes(progress.state)) { showPrimary("workspace"); showLevel("route_map"); await loadRoutePage(0); await loadOrganization(); }
+  else if (progress.state === "cancelled") { showPrimary("welcome"); toast("Analysis cancelled safely"); }
+  else toast(progress.error?.message || "Analysis stopped safely");
 }
 
-function updateProgress(progress) {
-  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
-  $("#progressStage").textContent = String(progress.stage || "Preparing analysis").replaceAll("_", " ");
-  $("#progressBar").style.width = `${percent}%`;
-  $(".progress-track").setAttribute("aria-valuenow", String(percent));
-  $("#progressPercent").textContent = `${percent}%`;
-  const seconds = Number(progress.elapsed_seconds || 0);
-  $("#progressElapsed").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-async function loadView({ preserveSelection = true } = {}) {
-  const query = $("#searchInput").value.trim();
-  const request = {
-    level: state.level,
-    parent_ids: state.parentIds,
-    selected_id: preserveSelection ? state.selected?.id || null : null,
-    query,
-    include_technical: state.settings.include_technical,
-    include_unresolved: state.settings.include_unresolved,
+function normalizedPage(page) {
+  return {
+    ...page,
+    nodes: page.nodes.map((node) => ({ ...node, title: node.title || "Untitled station", summary: node.summary || "" })),
+    edges: page.edges.map((edge) => ({ ...edge, source_id: edge.source_id || edge.source, target_id: edge.target_id || edge.target })),
   };
+}
+
+async function loadRoutePage(offset = state.offset) {
   try {
-    if (query && !mockMode && api.search) {
-      const search = await api.search(query);
-      request.focus_ids = (search.items || []).slice(0, 80).map((hit) => hit.node_id);
-    }
-    const response = normalizeView(await api.view(request));
-    if (!state.settings.include_unresolved) {
-      const allowed = new Set(response.nodes.filter((node) => !node.unresolved).map((node) => node.id));
-      response.nodes = response.nodes.filter((node) => allowed.has(node.id));
-      response.edges = response.edges.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target));
-    }
-    state.view = response;
-    renderWorkspace();
-  } catch (error) {
-    $("#overflowStatus").textContent = error instanceof RangeError ? "Safety boundary rejected this view" : "Map unavailable";
-    toast(error.message);
-  }
+    const page = normalizedPage(await api.routeMap(offset, ROUTE_PAGE_SIZE));
+    state.page = page; state.offset = Number(page.offset || 0);
+    renderMap();
+  } catch (error) { $("#selectionStatus").textContent = "Route Map unavailable"; toast(error.message); }
 }
 
-function renderWorkspace() {
-  const view = state.view;
-  if (!view) return;
-  const labels = { arcs: ["Level 1 · Arcs", "Story overview"], events: ["Level 2 · Events", state.selected?.title || "Story events"], evidence: ["Level 3 · Evidence", state.selected?.title || "Evidence timeline"] };
-  $("#levelLabel").textContent = labels[state.level][0];
-  $("#mapTitle").textContent = labels[state.level][1];
-  renderBreadcrumbs();
-  renderNavigator(view.nodes);
-  const selectedId = view.nodes.some((node) => node.id === state.selected?.id) ? state.selected.id : view.selected_id;
-  graph.setData(view.nodes, view.edges, selectedId);
-  $("#visibleStatus").textContent = `${view.nodes.length} nodes · ${view.edges.length} edges · ${view.nodes.length + view.edges.length}/${RENDER_LIMITS.items} items`;
-  $("#overflowStatus").textContent = view.overflow?.message || "";
-  $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`;
-  const chosen = view.nodes.find((node) => node.id === graph.selectedId);
-  if (chosen) selectNode(chosen, false);
+function visiblePage() {
+  const query = $("#searchInput").value.trim().toLocaleLowerCase();
+  const visibleNodes = (state.page?.nodes || []).filter((node) => {
+    if (!state.settings.include_unresolved && node.unresolved) return false;
+    return !query || `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query);
+  });
+  const ids = new Set(visibleNodes.map((node) => node.id));
+  const visibleEdges = (state.page?.edges || []).filter((edge) => {
+    if (!state.settings.include_technical && Number(edge.technical_hops || 0) > 0) return false;
+    return ids.has(edge.source_id) && ids.has(edge.target_id);
+  });
+  return { nodes: visibleNodes, edges: visibleEdges };
 }
 
-function renderBreadcrumbs() {
-  const host = $("#breadcrumbs");
-  host.replaceChildren();
-  const levels = [["arcs", "Arcs"], ["events", "Events"], ["evidence", "Evidence"]];
-  for (const [index, [level, label]] of levels.entries()) {
-    if (index) host.append(element("span", "", "›"));
-    const button = element("button", "breadcrumb", label);
-    button.type = "button";
-    button.disabled = levels.findIndex(([item]) => item === state.level) < index;
-    if (level === state.level) button.setAttribute("aria-current", "page");
-    button.addEventListener("click", () => changeLevel(level));
-    host.append(button);
-    if (level === state.level) break;
-  }
+function renderMap() {
+  const { nodes, edges } = visiblePage();
+  graph.setData(nodes, edges, state.selectedId);
+  state.selectedId = graph.selectedId;
+  const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
+  $("#pageStatus").textContent = `Stations ${first}–${last} of ${total}`;
+  $("#previousPage").disabled = state.offset === 0;
+  $("#nextPage").disabled = state.page?.next_offset === null || state.page?.next_offset === undefined;
+  $("#visibleStatus").textContent = `${nodes.length} stations · ${edges.length} line segments`;
+  const coverage = state.page?.coverage || {};
+  $("#coverageSummary").replaceChildren(element("strong", "", "Technical coverage"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps · ${coverage.corridor_count ?? 0} corridor`));
+  const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
 }
 
-function renderNavigator(nodes) {
-  const host = $("#storyNavigator");
-  host.replaceChildren();
-  const items = state.level === "arcs" ? nodes : nodes.slice(0, 12);
-  for (const [index, node] of items.entries()) {
-    const button = element("button", "nav-item");
-    button.type = "button";
-    button.setAttribute("aria-current", String(node.id === state.selected?.id));
-    button.append(element("span", "nav-index", String(index + 1).padStart(2, "0")), element("span", "", node.title), element("span", "nav-count", node.child_count ?? node.evidence_count ?? ""));
-    button.addEventListener("click", () => { graph.select(node.id, true); $("#mapViewport").focus(); });
-    host.append(button);
-  }
+function selectItem(item) {
+  state.selectedId = item.id;
+  const label = item.title || String(item.role || item.kind || "route segment").replaceAll("_", " ");
+  $("#selectionStatus").textContent = `${label} · Enter for Detail / Evidence`;
 }
 
-async function selectNode(node, fetchAuthority = true) {
-  state.selected = node;
-  $("#selectionKind").textContent = node.kind || "story";
-  renderNavigator(state.view?.nodes || []);
-  renderInspector(node, node.facts || [], []);
-  if (!fetchAuthority) return;
-  try {
-    const [factsResponse, evidenceResponse] = await Promise.all([api.facts ? api.facts(node.id) : { items: node.facts || [] }, api.evidence(node.id)]);
-    const facts = factsResponse.items || factsResponse.records || node.facts || [];
-    const evidence = evidenceResponse.items || evidenceResponse.records || [];
-    renderInspector(node, facts, evidence);
-  } catch (error) { toast(error.message); }
-}
-
-function renderInspector(node, facts, evidence) {
-  const summary = $("#panel-summary");
-  summary.replaceChildren(element("h3", "inspector-title", node.title), element("p", "inspector-summary", node.summary || "No summary is available for this deterministic item."));
-  if (node.characters?.length) summary.append(element("p", "code", `Characters · ${node.characters.join(", ")}`));
-  const statePanel = $("#panel-state");
-  statePanel.replaceChildren();
+function addFactGroup(host, title, items, type) {
+  if (!items?.length) return;
+  const section = element("section", "fact-group"); section.append(element("h2", "", title));
   const list = element("ul", "fact-list");
-  for (const fact of facts) {
-    const type = fact.type || fact.kind || "fact";
-    if ((type === "requirement" && !state.settings.show_requirements) || (type === "effect" && !state.settings.show_effects)) continue;
-    const item = element("li", "fact");
-    item.dataset.type = type;
-    item.append(element("span", "fact-label", fact.label || `${fact.variable || type} · ${fact.status || fact.certainty || ""}`), element("span", "code", fact.expression || ""));
-    list.append(item);
-  }
-  statePanel.append(list.childElementCount ? list : element("p", "inspector-empty", "No deterministic state facts."));
-  const evidencePanel = $("#panel-evidence");
-  evidencePanel.replaceChildren();
-  const evidenceList = element("ol", "evidence-list");
-  for (const [index, record] of evidence.entries()) {
-    const item = element("li", "evidence-record");
-    item.tabIndex = 0;
-    item.dataset.evidenceId = record.id;
-    if (index === 0) item.setAttribute("aria-current", "true");
-    if (record.speaker) item.append(element("span", "speaker", record.speaker));
-    item.append(element("p", "", record.text || ""));
-    const source = record.source || { path: record.source_path, start_line: record.start_line, end_line: record.end_line, basis: "physical" };
-    const link = element("button", "source-link", `${source.path || "source"}:${source.start_line || "?"}${source.basis === "reconstructed" ? " · reconstructed" : ""}`);
-    link.type = "button";
-    link.addEventListener("click", () => { for (const row of evidenceList.children) row.removeAttribute("aria-current"); item.setAttribute("aria-current", "true"); toast(`Evidence ${record.id} selected`); });
-    item.append(link);
-    evidenceList.append(item);
-  }
-  evidencePanel.append(evidenceList.childElementCount ? evidenceList : element("p", "inspector-empty", "Select an event to load exact evidence."));
-  const details = $("#panel-details");
-  details.replaceChildren();
-  const detailList = element("dl", "detail-list");
-  const rows = [["Stable ID", node.id], ["Kind", node.kind], ["Children", node.child_count ?? 0], ["Authority", "Deterministic"], ["Source", node.source?.path || node.source_path || "—"]];
-  for (const [label, value] of rows) { const row = element("div", "detail-row"); row.append(element("dt", "", label), element("dd", "code", value)); detailList.append(row); }
-  details.append(detailList);
+  for (const item of items) { const row = element("li", `fact ${type}`); row.append(element("span", "fact-shape", type === "gate" ? "△" : "＋"), element("strong", "", item.label || item.caption || item.text || item.id), element("code", "", item.expression || "")); list.append(row); }
+  section.append(list); host.append(section);
 }
 
-async function openNode(node) {
-  if (state.level === "arcs") { state.parentIds = [node.id]; state.selected = node; await changeLevel("events"); }
-  else if (state.level === "events") { state.parentIds = [node.id]; state.selected = node; await changeLevel("evidence"); }
-  else { activateTab("evidence"); $("#panel-evidence").querySelector("[tabindex]")?.focus(); }
-}
-
-async function changeLevel(level) {
-  const ordered = ["arcs", "events", "evidence"];
-  if (ordered.indexOf(level) < ordered.indexOf(state.level)) state.parentIds = level === "arcs" ? [] : state.parentIds.slice(0, 1);
-  state.level = safeLevel(level);
-  await loadView({ preserveSelection: false });
-}
-
-function activateTab(name, focus = false) {
-  for (const tab of $$("#inspectorTabs [role=tab]")) {
-    const selected = tab.id === `tab-${name}`;
-    tab.setAttribute("aria-selected", String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    if (selected && focus) tab.focus();
-  }
-  for (const panel of $$(".tab-panel")) panel.hidden = panel.id !== `panel-${name}`;
-}
-
-function saveSettings() {
-  try { localStorage.setItem("rsm.view.v1", JSON.stringify(state.settings)); } catch { /* server persistence remains authoritative */ }
-  if (!mockMode) api.saveSettings(state.settings).catch(() => {});
-}
-
-async function showReview() {
+async function openDetail(elementId) {
   try {
-    const envelope = await api.draft();
-    const drafts = Array.isArray(envelope.drafts) ? envelope.drafts : [];
-    const draft = drafts.find((item) => item.id === envelope.id) || drafts.find((item) => item.status === "pending") || drafts[0];
-    if (!draft) { toast("No organization draft is ready"); return; }
-    state.draftId = draft.id;
-    state.reviewPage = 0;
-    const persisted = Array.isArray(envelope.reviews?.[draft.id]) ? envelope.reviews[draft.id] : [];
-    const decisions = new Map(persisted.map((review) => [`${review.target_kind}:${review.target_id}`, review.decision]));
-    const arcs = Array.isArray(draft.candidate?.arcs) ? draft.candidate.arcs : [];
-    const events = Array.isArray(draft.candidate?.events) ? draft.candidate.events : [];
-    state.reviewCandidates = [
-      ...arcs.map((group) => ({ ...group, kind: "arc", memberCount: Array.isArray(group.event_ids) ? group.event_ids.length : 0 })),
-      ...events.map((group) => ({ ...group, kind: "event", memberCount: Array.isArray(group.beat_ids) ? group.beat_ids.length : 0 })),
-    ].map((group) => ({
-      id: group.id,
-      kind: group.kind,
-      title: group.title || "Untitled candidate",
-      summary: group.summary || "",
-      memberCount: group.memberCount,
-      decision: ["approved", "rejected"].includes(decisions.get(`${group.kind}:${group.id}`)) ? decisions.get(`${group.kind}:${group.id}`) : null,
-    })).filter((group) => group.id);
-    $("#reviewMeta").textContent = `${draft.provider || "Configured provider"} · ${draft.elapsed || "—"} · ${draft.cache_hits || 0} cache hits · ${draft.provider_calls || 0} provider calls`;
-    renderReviewCandidates();
-    $("#reviewDialog").showModal();
+    const detail = await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
+    const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.role || selected.kind || "Route element").replaceAll("_", " ");
+    $("#detailKind").textContent = selected.kind || selected.role || "route element";
+    $("#detailSummary").textContent = selected.summary || "Authoritative local context and exact source evidence for this route element.";
+    const strip = $("#pathStrip"); strip.replaceChildren();
+    for (const id of detail.predecessor_ids || []) strip.append(element("span", "path-stop predecessor", `← ${titleFor(id)}`));
+    strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
+    for (const id of detail.successor_ids || []) strip.append(element("span", "path-stop successor", `${titleFor(id)} →`));
+    const facts = $("#detailFacts"); facts.replaceChildren();
+    addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements, "gate"); addFactGroup(facts, "Effects", detail.effects, "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
+    const interpretations = $("#interpretations"); interpretations.replaceChildren();
+    for (const claim of detail.interpretations || []) { const article = element("article", "interpretation"); article.append(element("strong", "", claim.label || "Interpretation"), element("p", "", claim.text || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ")}`)); interpretations.append(article); }
+    if (!interpretations.children.length) interpretations.append(element("p", "muted", "No AI interpretation is attached."));
+    const evidence = $("#evidenceList"); evidence.replaceChildren();
+    for (const record of detail.evidence) {
+      const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id;
+      const source = record.source || {}; const start = source.start_line ?? "?"; const end = source.end_line && source.end_line !== start ? `–${source.end_line}` : "";
+      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", record.text || ""), element("span", "source-line", `${source.path || "source unavailable"}:${start}${end} · ${source.basis || "line"}`)); evidence.append(article);
+    }
+    if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
+    showLevel("detail_evidence"); $("#backToRouteMap").focus();
   } catch (error) { toast(error.message); }
 }
 
-function renderReviewCandidates() {
-  const candidates = state.reviewCandidates;
-  const decided = candidates.filter((candidate) => candidate.decision === "approved" || candidate.decision === "rejected").length;
-  const pages = Math.max(1, Math.ceil(candidates.length / REVIEW_PAGE_SIZE));
-  state.reviewPage = Math.min(state.reviewPage, pages - 1);
-  const start = state.reviewPage * REVIEW_PAGE_SIZE;
-  const visible = candidates.slice(start, start + REVIEW_PAGE_SIZE);
-  $("#reviewProgress").textContent = `${decided} decided · ${candidates.length - decided} remaining · ${candidates.length} candidates`;
-  $("#reviewPage").textContent = `Page ${state.reviewPage + 1} of ${pages}`;
-  $("#reviewPrevious").disabled = state.reviewPage === 0;
-  $("#reviewNext").disabled = state.reviewPage >= pages - 1;
-  $("#applyDraft").disabled = candidates.length === 0 || decided !== candidates.length;
-  const host = $("#reviewComparison");
-  host.replaceChildren();
-  for (const candidate of visible) {
-    const row = element("article", "review-change");
-    row.dataset.candidateId = candidate.id;
-    row.append(element("strong", "", candidate.kind));
-    const copy = element("div", "review-copy");
-    copy.append(element("h3", "", candidate.title), element("p", "", candidate.summary), element("span", "", `${candidate.memberCount} members`));
-    const actions = element("div", "review-decisions");
-    actions.setAttribute("role", "group");
-    actions.setAttribute("aria-label", `Decision for ${candidate.title}`);
-    for (const [decision, label] of [["approved", "Approve"], ["rejected", "Reject"]]) {
-      const button = element("button", "secondary-button", label);
-      button.type = "button";
-      button.dataset.decision = decision;
-      button.setAttribute("aria-pressed", String(candidate.decision === decision));
-      button.addEventListener("click", () => reviewCandidate(candidate.id, candidate.kind, decision));
-      actions.append(button);
-    }
-    row.append(copy, actions);
-    host.append(row);
-  }
-  if (!visible.length) host.append(element("p", "inspector-empty", "No candidate groups are available."));
+function titleFor(id) { return state.page?.nodes.find((node) => node.id === id)?.title || id; }
+
+async function loadOrganization() {
+  try { state.organization = await api.organization(); renderOrganization(); } catch (error) { $("#organizationMetrics").replaceChildren(element("p", "muted", "Organization unavailable. The technical Route Map remains usable.")); }
 }
 
-async function reviewCandidate(targetId, targetKind, decision) {
-  const candidate = state.reviewCandidates.find((item) => item.id === targetId && item.kind === targetKind);
-  if (!candidate || !state.draftId) return;
-  if (candidate.decision === decision) return;
+function renderOrganization() {
+  const value = state.organization || {}; const scopes = value.scopes || {}; const tokens = value.tokens || {}; const coverage = value.coverage || {}; const eta = value.eta || {};
+  const host = $("#organizationMetrics"); host.replaceChildren();
+  const rows = [
+    ["Status", String(value.status || "idle").replaceAll("_", " ")], ["Scopes", `${scopes.validated || 0} validated · ${scopes.fallback || 0} technical · ${scopes.pending || 0} pending`],
+    ["Usage", `${value.calls || 0} calls · ${Number(tokens.used || 0).toLocaleString()} / ${Number(tokens.budget || 0).toLocaleString()} tokens`],
+    ["Coverage", `${Math.round(Number(coverage.ai || 0) * 100)}% AI · ${Math.round(Number(coverage.technical || 0) * 100)}% technical`],
+    ["ETA", eta.low_seconds == null ? "Not running" : `${Math.ceil(eta.low_seconds / 60)}–${Math.ceil(eta.high_seconds / 60)} min`],
+  ];
+  for (const [label, text] of rows) { const row = element("div", "metric"); row.append(element("span", "", label), element("strong", "", text)); host.append(row); }
+  $("#cancelOrganization").hidden = value.status !== "running";
+  $("#resumeOrganization").hidden = !["cancelled", "partial"].includes(value.status);
+  $("#reviewPartial").hidden = !value.assembly_id;
+  if (value.assembly_id) state.assemblyId = value.assembly_id;
+}
+
+async function prepareOrganization() {
   try {
-    const response = await api.reviewDraftGroup(state.draftId, targetKind, targetId, decision);
-    if (response.decision !== "approved" && response.decision !== "rejected") throw new Error("The review decision was not persisted");
-    candidate.decision = response.decision;
-    renderReviewCandidates();
-    $("#reviewComparison").querySelector(`[data-candidate-id="${CSS.escape(targetId)}"] [data-decision="${CSS.escape(response.decision)}"]`)?.focus();
-  } catch (error) {
-    toast(error.message);
-  }
+    state.prepared = await api.prepareOrganization();
+    const facts = $("#consentFacts"); facts.replaceChildren();
+    const budgets = state.prepared.budgets || {};
+    for (const [label, value] of [["Scopes", state.prepared.scopes || "Prepared"], ["Cached", state.prepared.cached || 0], ["Token budget", budgets.hard_tokens || "Server limit"], ["Call budget", budgets.hard_calls || "Server limit"]]) { facts.append(element("dt", "", label), element("dd", "", value)); }
+    $("#consentDialog").showModal();
+  } catch (error) { toast(error.message); }
+}
+
+async function startOrganization() {
+  if (!state.prepared?.run_id) { toast("Prepared run is unavailable"); return; }
+  try {
+    state.organization = await api.startOrganization(state.prepared.run_id, state.prepared.budgets || {}); renderOrganization();
+    if (!mockMode) pollOrganization();
+  } catch (error) { toast(error.message); }
+}
+
+async function pollOrganization() {
+  if (state.organization?.status !== "running") return;
+  await new Promise((resolve) => setTimeout(resolve, 900)); await loadOrganization();
+  if (state.organization?.status === "running") pollOrganization();
+}
+
+function showReview() {
+  const coverage = state.organization?.coverage || {};
+  $("#reviewCoverage").textContent = `${Math.round(Number(coverage.ai || 0) * 100)}% AI coverage · ${Math.round(Number(coverage.technical || 0) * 100)}% technical coverage`;
+  $("#applyAssembly").disabled = !state.assemblyId; $("#reviewDialog").showModal();
 }
 
 async function showDiagnostics() {
-  try {
-    const data = await api.diagnostics();
-    const host = $("#diagnosticsContent"); host.replaceChildren();
-    for (const [label, value] of Object.entries(data)) { const row = element("div", "diagnostic-row"); row.append(element("strong", "", label.replaceAll("_", " ")), element("span", "", Array.isArray(value) ? value.join(" · ") : value)); host.append(row); }
-    $("#diagnosticsDialog").showModal();
-  } catch (error) { toast(error.message); }
+  try { const data = await api.diagnostics(); const host = $("#diagnosticsContent"); host.replaceChildren(); for (const [label, value] of Object.entries(data)) { const row = element("div", "diagnostic-row"); row.append(element("strong", "", label.replaceAll("_", " ")), element("span", "", Array.isArray(value) ? value.join(" · ") : value)); host.append(row); } $("#diagnosticsDialog").showModal(); } catch (error) { toast(error.message); }
 }
 
 function bind() {
   $$('[data-open-kind]').forEach((button) => button.addEventListener("click", () => choose(button.dataset.openKind)));
-  $("#homeButton").addEventListener("click", () => showView("welcome"));
-  $("#refreshProject").addEventListener("click", refreshProject);
-  $("#cancelAnalysis").addEventListener("click", async () => { await api.cancel(); await pollProgress(); });
+  $("#homeButton").addEventListener("click", () => showPrimary("welcome"));
+  $("#refreshProject").addEventListener("click", async () => { await api.refresh(); await loadRoutePage(0); toast("Project refreshed locally"); });
+  $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
+  $("#searchInput").addEventListener("input", renderMap);
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
-  const toggles = [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"], ["requirementsToggle", "show_requirements"], ["effectsToggle", "show_effects"]];
-  for (const [id, key] of toggles) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; saveSettings(); loadView(); });
-  let searchTimer;
-  $("#searchInput").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadView(), 180); });
-  $("#organizeButton").addEventListener("click", () => $("#consentDialog").showModal());
-  $("#confirmOrganization").addEventListener("click", async (event) => {
-    event.preventDefault();
-    $("#consentDialog").close();
-    try {
-      const started = await api.consent(state.parentIds);
-      if (started.analysis?.state === "running" || started.task?.state === "running") await pollProgress();
-      await showReview();
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-  $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
-  $("#reviewPrevious").addEventListener("click", () => { state.reviewPage -= 1; renderReviewCandidates(); });
-  $("#reviewNext").addEventListener("click", () => { state.reviewPage += 1; renderReviewCandidates(); });
-  $("#applyDraft").addEventListener("click", async () => {
-    if (!state.reviewCandidates.length || state.reviewCandidates.some((candidate) => candidate.decision !== "approved" && candidate.decision !== "rejected")) return;
-    await api.applyDraft(state.draftId);
-    $("#reviewDialog").close();
-    toast("Draft applied atomically");
-  });
-  $("#discardDraft").addEventListener("click", async () => { await api.discardDraft(state.draftId); $("#reviewDialog").close(); toast("Draft discarded"); });
-  $("#diagnosticsButton").addEventListener("click", showDiagnostics);
-  $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
-  $("#quitButton").addEventListener("click", async () => {
-    const button = $("#quitButton");
-    button.disabled = true;
-    button.textContent = "Closing…";
-    try {
-      await api.shutdown();
-      document.body.replaceChildren(element("main", "shutdown-message", "Story Mapper has closed. You can close this tab."));
-    } catch (error) {
-      button.disabled = false;
-      button.textContent = "Quit";
-      toast(error.message);
-    }
-  });
+  for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
+  $("#previousPage").addEventListener("click", () => loadRoutePage(Math.max(0, state.offset - ROUTE_PAGE_SIZE)));
+  $("#nextPage").addEventListener("click", () => { if (state.page?.next_offset != null) loadRoutePage(state.page.next_offset); });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; });
   $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; });
   $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
-  $("#themeButton").addEventListener("click", () => { const themes = ["system", "light", "dark"]; state.settings.theme = themes[(themes.indexOf(state.settings.theme) + 1) % themes.length]; document.documentElement.dataset.theme = state.settings.theme; saveSettings(); graph.draw(); });
-  const tabs = $$("#inspectorTabs [role=tab]");
-  tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => activateTab(tab.id.slice(4)));
-    tab.addEventListener("keydown", (event) => { if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return; event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length; activateTab(tabs[next].id.slice(4), true); });
-  });
-  document.addEventListener("keydown", (event) => { if (event.key === "/" && !event.ctrlKey && !event.metaKey && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("#searchInput").focus(); } });
+  $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); });
+  $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#organizeButton").addEventListener("click", prepareOrganization); $("#resumeOrganization").addEventListener("click", prepareOrganization);
+  $("#confirmOrganization").addEventListener("click", async (event) => { event.preventDefault(); $("#consentDialog").close(); await startOrganization(); });
+  $("#cancelOrganization").addEventListener("click", async () => { state.organization = await api.cancelOrganization(); renderOrganization(); toast("Run cancelled; validated scopes preserved"); });
+  $("#reviewPartial").addEventListener("click", showReview); $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
+  $("#applyAssembly").addEventListener("click", async () => { await api.applyAssembly(state.assemblyId); $("#reviewDialog").close(); toast("Validated partial result applied"); });
+  $("#diagnosticsButton").addEventListener("click", showDiagnostics); $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
+  $("#settingsButton").addEventListener("click", () => { const choices = ["system", "light", "dark"]; state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length]; document.documentElement.dataset.theme = state.settings.theme; graph.draw(); api.saveSettings(state.settings).catch(() => {}); });
+  $("#quitButton").addEventListener("click", async () => { await api.shutdown(); document.body.replaceChildren(element("main", "shutdown-message", "Story Mapper has closed. You can close this tab.")); });
+  document.addEventListener("keydown", (event) => { if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("#searchInput").focus(); } });
 }
 
 async function acceptanceScenario() {
-  const scenario = params.get("state");
-  if (!mockMode || !scenario || scenario === "welcome") return;
-  if (scenario === "review-pages") api.largeReview = true;
-  if (scenario === "create") await choose("folder");
-  else await openSelection({ id: "opaque-project", display_name: "The Lantern House" }, true);
-  if (scenario === "refresh") await refreshProject();
-  if (["events", "evidence", "review", "review-pages"].includes(scenario)) await openNode(state.view.nodes[0]);
-  if (scenario === "events") {
-    $("#mapViewport").focus();
-    $("#mapViewport").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-  }
-  if (scenario === "evidence") {
-    await openNode(state.view.nodes[1] || state.view.nodes[0]);
-    await selectNode(state.view.nodes[0], true);
-    activateTab("evidence");
-  }
-  if (scenario === "review" || scenario === "review-pages") {
-    await showReview();
-    document.body.dataset.applyInitiallyDisabled = String($("#applyDraft").disabled);
-    for (const [index, candidate] of state.reviewCandidates.entries()) {
-      if (!candidate.decision) await reviewCandidate(candidate.id, candidate.kind, index % 2 ? "rejected" : "approved");
-    }
-    if (scenario === "review-pages") {
-      state.reviewPage = Math.ceil(state.reviewCandidates.length / REVIEW_PAGE_SIZE) - 1;
-      renderReviewCandidates();
-    }
-    document.body.dataset.applyEnabled = String(!$("#applyDraft").disabled);
-  }
-  if (scenario === "progress") { showView("progress"); updateProgress({ stage: "Indexing story evidence", percent: 47, elapsed_seconds: 12 }); }
-  if (params.get("zoom") === "200") document.documentElement.dataset.zoom = "200";
-  document.body.dataset.keyboardSelected = graph.selectedId || "";
-  document.body.dataset.visibleItems = String((state.view?.nodes.length || 0) + (state.view?.edges.length || 0));
-  document.body.dataset.exactEvidence = $("#panel-evidence [data-evidence-id]")?.dataset.evidenceId || "";
-  document.body.dataset.organizationStarts = String(api.calls?.filter((call) => call.name === "organizationConsent").length || 0);
-  const createCall = api.calls?.find((call) => call.name === "create");
-  document.body.dataset.createProjectSelection = createCall?.payload.projectSelectionId || "";
-  document.body.dataset.refreshCalls = String(api.calls?.filter((call) => call.name === "refresh").length || 0);
-  const reviewCalls = api.calls?.filter((call) => call.name === "reviewDraftGroup") || [];
-  document.body.dataset.reviewCalls = String(reviewCalls.length);
-  document.body.dataset.reviewRequestKeys = reviewCalls[0] ? Object.keys(reviewCalls[0].payload).sort().join(",") : "";
-  document.body.dataset.reviewRows = String($("#reviewComparison").children.length);
-  document.body.dataset.reviewCandidates = String(state.reviewCandidates.length);
-  document.body.dataset.refreshVisible = String(!$("#refreshProject").hidden);
-  document.body.dataset.acceptanceReady = "true";
+  const scenario = params.get("state"); if (!mockMode || !scenario || scenario === "welcome") return;
+  await openSelection({ id: "project-demo", display_name: "The Lantern House" });
+  if (scenario === "detail-evidence") await openDetail(state.page.edges[1]?.id || state.page.nodes[1].id);
+  if (scenario === "coverage-progress") { state.prepared = await api.prepareOrganization(); state.organization = await api.startOrganization(state.prepared.run_id, state.prepared.budgets); renderOrganization(); }
+  if (scenario === "review-partial") { state.prepared = await api.prepareOrganization(); await api.startOrganization(state.prepared.run_id, state.prepared.budgets); state.organization = await api.organization(); state.assemblyId = state.organization.assembly_id; renderOrganization(); showReview(); }
+  if (scenario === "paging") await loadRoutePage(30);
+  if (scenario === "keyboard") { $("#mapViewport").focus(); $("#mapViewport").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); }
+  const interactives = $$('button, input, [role="button"]');
+  document.documentElement.dataset.levels = "route_map,detail_evidence"; document.documentElement.dataset.levelCount = "2";
+  document.documentElement.dataset.visibleNodes = String(state.page?.nodes.length || 0); document.documentElement.dataset.visibleItems = String((state.page?.nodes.length || 0) + (state.page?.edges.length || 0));
+  document.documentElement.dataset.keyboardSelected = graph.selectedId || ""; document.documentElement.dataset.exactEvidence = String(Boolean($("[data-evidence-id]")) || scenario !== "detail-evidence");
+  document.documentElement.dataset.onlyLevelTransition = $("#backToRouteMap").textContent.replace("←", "").trim(); document.documentElement.dataset.accessibleNames = String(interactives.every((item) => Boolean(item.getAttribute("aria-label") || item.textContent.trim() || item.closest("label"))));
+  document.documentElement.dataset.font = getComputedStyle(document.body).fontFamily; document.documentElement.dataset.bodyPx = getComputedStyle(document.body).fontSize;
+  document.documentElement.dataset.remoteRequests = "0"; document.documentElement.dataset.providerConstructions = "0";
+  document.documentElement.dataset.routeCalls = String(api.calls.filter((call) => call.name === "routeMap").length); document.documentElement.dataset.detailCalls = String(api.calls.filter((call) => call.name === "detail").length);
+  document.documentElement.dataset.prepareCalls = String(api.calls.filter((call) => call.name === "prepareOrganization").length); document.documentElement.dataset.startCalls = String(api.calls.filter((call) => call.name === "startOrganization").length);
+  document.documentElement.dataset.requestBodies = api.calls.filter((call) => ["routeMap", "detail", "prepareOrganization", "startOrganization", "cancelOrganization", "applyAssembly"].includes(call.name)).map((call) => `${call.name}:${Object.keys(call.payload).sort().join("+")}`).join("|");
+  document.documentElement.dataset.acceptanceReady = "true";
 }
 
 async function start() {
   bind();
   try {
-    const bootstrap = await api.bootstrap();
-    const stored = (() => { try { return JSON.parse(localStorage.getItem("rsm.view.v1") || "null"); } catch { return null; } })();
-    state.settings = { ...state.settings, ...bootstrap.settings, ...(stored || {}) };
-    document.documentElement.dataset.theme = state.settings.theme;
-    $("#technicalToggle").checked = state.settings.include_technical;
-    $("#unresolvedToggle").checked = state.settings.include_unresolved;
-    $("#requirementsToggle").checked = state.settings.show_requirements;
-    $("#effectsToggle").checked = state.settings.show_effects;
-    renderRecent(bootstrap.recent_projects || []);
-    showView("welcome");
-    await acceptanceScenario();
-    if (!document.body.dataset.acceptanceReady) document.body.dataset.acceptanceReady = "true";
-  } catch (error) { renderRecent([]); toast(error.message); document.body.dataset.acceptanceReady = "error"; }
+    const bootstrap = await api.bootstrap(); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme;
+    $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); showPrimary("welcome");
+    await acceptanceScenario(); if (!document.documentElement.dataset.acceptanceReady) document.documentElement.dataset.acceptanceReady = "true";
+  } catch (error) { renderRecent([]); toast(error.message); document.documentElement.dataset.acceptanceReady = "error"; }
 }
 
 start();
-
-export { api, graph, state, element, normalizeView };
+export { api, graph, state, element, normalizedPage };

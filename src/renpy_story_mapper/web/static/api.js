@@ -1,6 +1,8 @@
-import { ENDPOINTS, LEVEL_NUMBER, assertBoundedView } from "./contract.js";
+import {
+  ENDPOINTS, ROUTE_PAGE_SIZE, assertDetail, assertOrganization, assertRoutePage,
+} from "./contract.js";
 
-const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export class LocalApi {
   constructor({ session, csrf } = {}) {
@@ -10,14 +12,14 @@ export class LocalApi {
 
   async request(path, { method = "GET", body, signal } = {}) {
     if (!Object.values(ENDPOINTS).includes(path)) throw new TypeError("Unknown local API endpoint");
-    const upperMethod = method.toUpperCase();
+    const verb = method.toUpperCase();
     const headers = { Accept: "application/json", "X-RSM-Session": this.session };
-    if (mutationMethods.has(upperMethod)) {
+    if (mutations.has(verb)) {
       headers["Content-Type"] = "application/json";
       headers["X-RSM-CSRF"] = this.csrf;
     }
     const response = await fetch(path, {
-      method: upperMethod,
+      method: verb,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: "same-origin",
@@ -31,32 +33,31 @@ export class LocalApi {
     return payload;
   }
 
-  async bootstrap() {
-    return this.request(ENDPOINTS.bootstrap);
-  }
-  pick(kind) {
-    const apiKind = kind === "file" ? "source" : kind;
-    return this.request(ENDPOINTS.nativePicker, { method: "POST", body: { kind: apiKind } });
-  }
+  bootstrap() { return this.request(ENDPOINTS.bootstrap); }
+  pick(kind) { return this.request(ENDPOINTS.nativePicker, { method: "POST", body: { kind: kind === "file" ? "source" : kind } }); }
   chooseSave() { return this.request(ENDPOINTS.nativePicker, { method: "POST", body: { kind: "project_save" } }); }
   open(selectionId) { return this.request(ENDPOINTS.projectsOpen, { method: "POST", body: { selection_id: selectionId } }); }
   create(sourceSelectionId, projectSelectionId) { return this.request(ENDPOINTS.projectsCreate, { method: "POST", body: { source_selection_id: sourceSelectionId, project_selection_id: projectSelectionId } }); }
   refresh() { return this.request(ENDPOINTS.projectsRefresh, { method: "POST", body: {} }); }
   progress() { return this.request(ENDPOINTS.analysisProgress); }
-  cancel() { return this.request(ENDPOINTS.analysisCancel, { method: "POST", body: {} }); }
-  async view(request) {
-    const payload = { ...request, level: LEVEL_NUMBER[request.level] || 1, node_limit: 80, edge_limit: 120 };
-    return assertBoundedView(await this.request(ENDPOINTS.storyView, { method: "POST", body: payload }));
-  }
-  search(query) { return this.request(ENDPOINTS.storySearch, { method: "POST", body: { query, limit: 100 } }); }
-  evidence(nodeId) { return this.request(ENDPOINTS.storyEvidence, { method: "POST", body: { node_id: nodeId, limit: 80 } }); }
-  facts(nodeId) { return this.request(ENDPOINTS.storyFacts, { method: "POST", body: { node_id: nodeId, limit: 80 } }); }
+  cancelAnalysis() { return this.request(ENDPOINTS.analysisCancel, { method: "POST", body: {} }); }
   saveSettings(settings) { return this.request(ENDPOINTS.settings, { method: "PUT", body: settings }); }
-  consent(scopeIds) { return this.request(ENDPOINTS.organizationConsent, { method: "POST", body: { scope_ids: scopeIds, consent: true } }); }
-  draft() { return this.request(ENDPOINTS.organizationDraft); }
-  reviewDraftGroup(draftId, targetKind, targetId, decision) { return this.request(ENDPOINTS.organizationReview, { method: "POST", body: { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision } }); }
-  applyDraft(draftId) { return this.request(ENDPOINTS.organizationApply, { method: "POST", body: { draft_id: draftId } }); }
-  discardDraft(draftId) { return this.request(ENDPOINTS.organizationDiscard, { method: "POST", body: { draft_id: draftId } }); }
   diagnostics() { return this.request(ENDPOINTS.diagnostics); }
   shutdown() { return this.request(ENDPOINTS.shutdown, { method: "POST", body: {} }); }
+
+  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE) {
+    return assertRoutePage(await this.request(ENDPOINTS.routeMap, { method: "POST", body: { offset, limit } }));
+  }
+  async detail(elementId) {
+    return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
+  }
+  async organization() { return assertOrganization(await this.request(ENDPOINTS.organization)); }
+  async prepareOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationPrepare, { method: "POST", body: {} })); }
+  async startOrganization(runId, budgets) {
+    return assertOrganization(await this.request(ENDPOINTS.organizationStart, {
+      method: "POST", body: { run_id: runId, confirm_cloud: true, budgets },
+    }));
+  }
+  async cancelOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationCancel, { method: "POST", body: {} })); }
+  async applyAssembly(assemblyId) { return assertOrganization(await this.request(ENDPOINTS.assemblyApply, { method: "POST", body: { assembly_id: assemblyId } })); }
 }

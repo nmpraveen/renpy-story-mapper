@@ -1,90 +1,128 @@
-import { assertBoundedView } from "./contract.js";
+import { ROUTE_PAGE_SIZE, assertDetail, assertOrganization, assertRoutePage } from "./contract.js";
 
-const text = [
-  "A quiet arrival establishes the town and its unresolved history.",
-  "A choice divides the investigation before the paths converge.",
-  "Trust becomes the gate for a private conversation.",
-  "The shared call returns to the central story line.",
+const titles = [
+  "Day 1 · Arrival", "Garden choice", "A quiet refusal", "Garden conversation", "Day 1 merge",
+  "Shared memory", "Day 2 · Market", "Vendor choice", "Market return", "Route commitment",
+  "Red route · Promise", "Blue route · Harbor", "Red route · Night", "Blue route · Shift",
+  "Shared call", "Courage gate", "Loop entry", "Try again", "Loop exit", "Final crossing",
+  "Game ending", "Route ending", "Dead end", "Update boundary", "Unresolved target", "Epilogue",
+  "Afterword", "Credits boundary", "Appendix route", "Last station", "Follow-on day", "Follow-on choice",
 ];
 
-function nodesFor(level) {
-  const count = level === "arcs" ? 6 : level === "events" ? 14 : 9;
-  return Array.from({ length: count }, (_, index) => ({
-    id: `${level}-${index + 1}`,
-    title: level === "arcs" ? ["The Arrival", "Old Signals", "Fault Lines", "Night Crossing", "The Reckoning", "Four Endings"][index] : level === "events" ? `Event ${String(index + 1).padStart(2, "0")} · ${["Arrival", "Question", "Choice", "Detour", "Meeting", "Return", "Gate"][index % 7]}` : `Evidence ${index + 1}`,
-    summary: text[index % text.length],
-    kind: index % 7 === 2 ? "choice" : index % 9 === 4 ? "merge" : index % 11 === 7 ? "unresolved" : level.slice(0, -1),
-    technical: index === count - 1,
-    unresolved: index % 11 === 7,
-    parent_id: level === "arcs" ? null : "arcs-1",
-    characters: index % 2 ? ["Mara", "Elias"] : ["Mara"],
-    facts: [
-      { id: `req-${index}`, type: "requirement", label: "Trust ≥ 2", expression: "trust >= 2", certainty: "proven" },
-      { id: `effect-${index}`, type: "effect", label: "Trust +1", expression: "trust += 1", certainty: "proven" },
-    ],
-    evidence_count: 3 + (index % 4),
-    source: { path: "game/story/chapter_01.rpy", start_line: 118 + index * 4, end_line: 121 + index * 4, basis: "physical" },
-  }));
+const lane = (index) => {
+  if ([2, 3, 7].includes(index)) return ["detour-a", "detour"];
+  if ([10, 12, 15, 17, 21].includes(index)) return ["red", "persistent"];
+  if ([11, 13, 22, 23].includes(index)) return ["blue", "persistent"];
+  return ["spine", "spine"];
+};
+
+const kind = (index) => {
+  if ([1, 7, 9].includes(index)) return "choice";
+  if ([4, 8, 14].includes(index)) return "merge";
+  if (index === 16) return "loop";
+  if ([20, 21, 22, 23].includes(index)) return "terminal";
+  if (index === 24) return "unresolved";
+  return "milestone";
+};
+
+const allNodes = titles.map((title, index) => {
+  const [lane_id, lane_kind] = lane(index);
+  return {
+    id: `station-${index + 1}`, title, kind: kind(index), lane_id, lane_kind, order: index,
+    terminal_kind: index === 20 ? "game_ending" : index === 21 ? "route_ending" : index === 22 ? "dead_end" : index === 23 ? "update_boundary" : null,
+    unresolved: index === 24, evidence_ids: [`evidence-${index + 1}`], region_ids: [],
+    summary: index === 1 ? "A compact choice opens a proven reconvergent detour." : "A chronological story milestone with exact local evidence.",
+    effects: index === 3 ? [{ id: "effect-love", label: "Love +1" }] : [],
+  };
+});
+
+const edge = (id, source, target, role = "flow", options = {}) => ({
+  id, source_id: `station-${source}`, target_id: `station-${target}`, role,
+  lane_id: options.lane || "spine", gate_ids: options.gates || [], effect_ids: options.effects || [],
+  evidence_ids: options.evidence || [`edge-evidence-${id}`], technical_hops: options.technical || 0,
+  proven_merge: options.merge || false,
+});
+
+const allEdges = [
+  edge("spine-1", 1, 2), edge("fork-garden", 2, 3, "local_detour"),
+  edge("fork-wits", 2, 4, "local_detour", { lane: "detour-a", gates: ["gate-wits"] }),
+  edge("merge-refusal", 3, 5, "merge", { merge: true }), edge("merge-garden", 4, 5, "merge", { merge: true, effects: ["effect-love"] }),
+  edge("corridor", 5, 6, "technical_corridor", { technical: 5 }), edge("spine-2", 6, 7),
+  edge("market-fork", 7, 8, "flow"), edge("market-detour", 8, 9, "local_detour", { gates: ["gate-money"], effects: ["effect-money"] }),
+  edge("route-fork", 9, 10, "flow"), edge("red-entry", 10, 11, "persistent_route", { lane: "red", gates: ["gate-red"], effects: ["effect-red-route"] }),
+  edge("blue-entry", 10, 12, "persistent_route", { lane: "blue", gates: ["gate-blue"], effects: ["effect-blue-route"] }),
+  edge("red-line", 11, 13, "persistent_route", { lane: "red" }), edge("blue-line", 12, 14, "persistent_route", { lane: "blue" }),
+  edge("red-shared", 13, 15, "shared_call", { lane: "red" }), edge("blue-shared", 14, 15, "shared_call", { lane: "blue", merge: true }),
+  edge("loop-entry", 15, 17), edge("loop-back", 17, 18, "loop_choice", { lane: "red" }), edge("loop-cycle", 18, 17, "loop_choice", { lane: "red" }),
+  edge("loop-exit", 17, 19), edge("final", 19, 20), edge("ending-game", 20, 21),
+  edge("ending-route", 20, 22, "persistent_route", { lane: "red" }), edge("ending-dead", 20, 23, "terminal_split"),
+  edge("ending-update", 20, 24, "terminal_split", { lane: "blue" }), edge("ending-unresolved", 20, 25, "unresolved"),
+  edge("epilogue", 21, 26), edge("afterword", 26, 27), edge("credits", 27, 28), edge("appendix", 28, 29), edge("last", 29, 30),
+  edge("follow", 30, 31), edge("follow-choice", 31, 32),
+];
+
+function page(offset, limit) {
+  const nodes = allNodes.slice(offset, offset + limit);
+  const ids = new Set(nodes.map((node) => node.id));
+  const edges = allEdges.filter((item) => ids.has(item.source_id) || ids.has(item.target_id));
+  return assertRoutePage({
+    level: "route_map", offset, limit, total_nodes: allNodes.length, nodes, edges,
+    next_offset: offset + nodes.length < allNodes.length ? offset + nodes.length : null,
+    coverage: { control_nodes: 97, visible_nodes: 32, technical_nodes: 5, unresolved_nodes: 1, corridor_count: 1 },
+  });
 }
 
-function edgesFor(nodes) {
-  const edges = [];
-  for (let index = 0; index < nodes.length - 1; index += 1) {
-    edges.push({ id: `edge-${index}`, source: nodes[index].id, target: nodes[index + 1].id, kind: index === 2 ? "choice" : "flow", label: index === 2 ? "Trust ≥ 2" : "" });
-    if (index === 2 && nodes[index + 3]) edges.push({ id: `branch-${index}`, source: nodes[index].id, target: nodes[index + 3].id, kind: "choice", label: "Wait" });
-  }
-  return edges;
+function detailFor(elementId) {
+  const node = allNodes.find((item) => item.id === elementId);
+  const selectedEdge = allEdges.find((item) => item.id === elementId);
+  const element = node || selectedEdge;
+  if (!element) throw new Error("The selected map element is unavailable");
+  const isEdge = Boolean(selectedEdge);
+  return assertDetail({
+    level: "detail_evidence", element,
+    predecessor_ids: isEdge ? [selectedEdge.source_id] : allEdges.filter((item) => item.target_id === node.id).map((item) => item.source_id),
+    successor_ids: isEdge ? [selectedEdge.target_id] : allEdges.filter((item) => item.source_id === node.id).map((item) => item.target_id),
+    choices: [{ id: "choice-garden", caption: "Take the garden path" }],
+    gates: [{ id: "gate-wits", label: "Wits ≥ 2", expression: "wits >= 2", certainty: "proven" }],
+    effects: [{ id: "effect-love", label: "Love +1", expression: "love += 1", certainty: "proven" }],
+    dialogue: [{ id: "dialogue-1", speaker: "Mara", text: "There is another way through this." }],
+    narration: [{ id: "narration-1", text: "A short garden detour." }],
+    interpretations: [{ id: "claim-1", label: "Interpretation", text: "The conversation strengthens the relationship.", evidence_ids: ["effect-love"] }],
+    evidence: [
+      { id: "gate-wits", kind: "choice", text: '"Take the garden path" if wits >= 2:', source: { path: "m07/route_topology.rpy", start_line: 5, end_line: 5, basis: "physical" } },
+      { id: "effect-love", kind: "effect", text: "$ love += 1", source: { path: "m07/route_topology.rpy", start_line: 6, end_line: 6, basis: "physical" } },
+      { id: "dialogue-1", kind: "dialogue", text: "There is another way through this.", source: { path: "m07/route_topology.rpy", start_line: 7, end_line: 7, basis: "physical" } },
+    ],
+    back_target: "route_map",
+  });
 }
 
 export class MockApi {
-  constructor() { this.calls = []; this.level = "arcs"; this.cancelled = false; }
+  constructor() { this.calls = []; this.cancelled = false; this.started = false; this.polls = 0; }
   record(name, payload = {}) { this.calls.push({ name, payload }); }
   async bootstrap() {
     this.record("bootstrap");
-    return {
-      api_version: "v1", project: null,
-      recent_projects: [
-        { id: "project-demo", name: "The Lantern House", source_type: "Archive", last_opened: "Today · 10:42", organization: "Accepted", deterministic: true },
-        { id: "project-north", name: "Northbound", source_type: "Folder", last_opened: "Yesterday", organization: "Technical", deterministic: true },
-        { id: "project-glass", name: "Glass Harbor", source_type: "Project", last_opened: "8 Jul", organization: "Draft ready", deterministic: true },
-      ],
-      settings: { theme: "system", zoom: 1, include_technical: false, include_unresolved: true, show_requirements: true, show_effects: true },
-    };
+    return { recent_projects: [{ id: "project-demo", name: "The Lantern House", source_type: "Archive", last_opened: "Today · 10:42", organization: "Technical map" }], settings: { theme: "dark", include_technical: true, include_unresolved: true } };
   }
-  async pick(kind) { this.record("pick", { kind }); return { selection_id: `opaque-${kind}`, display_name: kind === "folder" ? "The Lantern House" : "Selected story", kind }; }
-  async chooseSave() { this.record("chooseSave"); return { selection_id: "opaque-project-save", kind: "project_save", display_name: "The Lantern House.rsmproj" }; }
-  async create(sourceSelectionId, projectSelectionId) { this.record("create", { sourceSelectionId, projectSelectionId }); return { task: { id: "analysis-demo", state: "running" } }; }
-  async refresh() { this.record("refresh"); return { analysis: { id: "refresh-demo", state: "running" } }; }
-  async open(selectionId) { this.record("open", { selectionId }); return { project: { id: "project-demo", name: "The Lantern House", organization: "Technical organization", level: "arcs" }, analysis: { id: "analysis-demo", state: "running" } }; }
-  async progress() { this.record("progress"); return { state: this.cancelled ? "cancelled" : "complete", stage: this.cancelled ? "Cancelled safely" : "Presentation index ready", percent: this.cancelled ? 47 : 100, elapsed_seconds: 8 }; }
-  async cancel() { this.record("cancel"); this.cancelled = true; return { state: "cancelled" }; }
-  async view(request) {
-    this.record("view", request); this.level = request.level;
-    let nodes = nodesFor(request.level);
-    if (!request.include_technical) nodes = nodes.filter((node) => !node.technical);
-    if (request.include_unresolved === false) nodes = nodes.filter((node) => !node.unresolved);
-    const query = String(request.query || "").toLocaleLowerCase();
-    if (query) nodes = nodes.filter((node) => `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query));
-    return assertBoundedView({ level: request.level, nodes, edges: edgesFor(nodes), overflow: request.level === "events" ? { nodes_total: 318, edges_total: 442, message: "Showing a bounded slice: 14 of 318 nodes" } : null, selected_id: request.selected_id || null });
+  async pick(kind) { this.record("pick", { kind }); return { selection_id: `opaque-${kind}`, display_name: "The Lantern House" }; }
+  async chooseSave() { this.record("chooseSave"); return { selection_id: "opaque-project-save" }; }
+  async create(sourceSelectionId, projectSelectionId) { this.record("create", { sourceSelectionId, projectSelectionId }); return { task: { state: "running" } }; }
+  async open(selectionId) { this.record("open", { selectionId }); return { project: { id: "project-demo", name: "The Lantern House", organization: "Technical map" }, analysis: { state: "complete" } }; }
+  async refresh() { this.record("refresh"); return { analysis: { state: "complete" } }; }
+  async progress() { this.record("progress"); return { state: "complete", stage: "Route Map ready", percent: 100, elapsed_seconds: 8 }; }
+  async cancelAnalysis() { this.record("cancelAnalysis"); return { state: "cancelled" }; }
+  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE) { this.record("routeMap", { offset, limit }); return page(offset, limit); }
+  async detail(elementId) { this.record("detail", { element_id: elementId }); return detailFor(elementId); }
+  async organization() {
+    this.record("organization"); this.polls += 1;
+    const done = this.started && this.polls > 1;
+    return assertOrganization({ status: done ? "review_ready" : this.started ? "running" : this.cancelled ? "cancelled" : "idle", run_id: "run-demo", assembly_id: done ? "assembly-demo" : null, scopes: { total: 8, validated: done ? 5 : 3, fallback: 1, pending: done ? 2 : 4, failed: 0 }, calls: done ? 6 : 4, tokens: { used: done ? 12400 : 7800, budget: 18000 }, coverage: { ai: done ? 0.625 : 0.375, technical: done ? 0.75 : 0.5 }, eta: { low_seconds: done ? 0 : 90, high_seconds: done ? 0 : 210 }, partial: true });
   }
-  async evidence(nodeId) {
-    this.record("evidence", { nodeId });
-    return { node_id: nodeId, records: Array.from({ length: 6 }, (_, index) => ({ id: `${nodeId}-e${index}`, kind: index % 2 ? "dialogue" : "expression", speaker: index % 2 ? "Mara" : "", text: index % 2 ? "There is another way through this." : index === 0 ? "trust >= 2" : "trust += 1", source: { path: "game/story/chapter_01.rpy", start_line: 118 + index, end_line: 118 + index, basis: "physical" } })), truncated: false };
-  }
-  async facts(nodeId) { this.record("facts", { nodeId }); return { items: nodesFor(this.level).find((node) => node.id === nodeId)?.facts || [] }; }
-  async search(query) { this.record("search", { query }); return { items: nodesFor(this.level).filter((node) => `${node.title} ${node.summary}`.toLowerCase().includes(query.toLowerCase())).map((node) => ({ node_id: node.id, title: node.title, level: this.level })) }; }
+  async prepareOrganization() { this.record("prepareOrganization", {}); return assertOrganization({ run_id: "run-demo", scopes: 8, cached: 2, budgets: { soft_tokens: 15000, hard_tokens: 18000, hard_calls: 16 }, provider_constructed: false }); }
+  async startOrganization(runId, budgets) { this.record("startOrganization", { run_id: runId, confirm_cloud: true, budgets }); this.started = true; this.cancelled = false; this.polls = 0; return this.organization(); }
+  async cancelOrganization() { this.record("cancelOrganization", {}); this.cancelled = true; this.started = false; return assertOrganization({ status: "cancelled", validated_preserved: 3 }); }
+  async applyAssembly(assemblyId) { this.record("applyAssembly", { assembly_id: assemblyId }); return assertOrganization({ status: "applied", assembly_id: assemblyId }); }
   async saveSettings(settings) { this.record("saveSettings", settings); return { settings }; }
-  async consent(scopeIds) { this.record("organizationConsent", { scopeIds }); return { draft_id: "draft-demo", status: "review_ready" }; }
-  async organization() { this.record("organization"); return this.draft(); }
-  async draft() {
-    this.record("draft");
-    const arcs = this.largeReview ? Array.from({ length: 8 }, (_, index) => ({ id: `arc-${index + 1}`, title: `Arc ${index + 1}`, summary: "Evidence-backed arc candidate.", event_ids: [`event-${index + 1}`] })) : [{ id: "arc-arrival", title: "The Arrival", summary: "The investigation begins and opens the first route.", event_ids: ["event-crossing", "event-ending"] }];
-    const events = this.largeReview ? Array.from({ length: 77 }, (_, index) => ({ id: `event-${index + 1}`, title: `Event ${index + 1}`, summary: "Evidence-backed event candidate.", beat_ids: [`beat-${index + 1}`] })) : [{ id: "event-crossing", title: "Night Crossing", summary: "Seven technical beats form one evidence-backed event.", beat_ids: ["b1", "b2", "b3", "b4", "b5", "b6", "b7"] }, { id: "event-ending", title: "Four Endings", summary: "The authoritative terminal outcomes remain distinct.", beat_ids: ["ending-1", "ending-2", "ending-3", "ending-4"] }];
-    return { id: "draft-demo", drafts: [{ id: "draft-demo", provider: "Codex / GPT-5.6 Luna / High", elapsed: "01:42", cache_hits: 12, provider_calls: 0, candidate: { arcs, events } }], reviews: { "draft-demo": this.largeReview ? [] : [{ target_kind: "event", target_id: "event-crossing", decision: "approved" }] } };
-  }
-  async reviewDraftGroup(draftId, targetKind, targetId, decision) { this.record("reviewDraftGroup", { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision }); return { draft_id: draftId, target_kind: targetKind, target_id: targetId, decision }; }
-  async applyDraft(draftId) { this.record("applyDraft", { draftId }); return { status: "accepted" }; }
-  async discardDraft(draftId) { this.record("discardDraft", { draftId }); return { status: "discarded" }; }
-  async diagnostics() { this.record("diagnostics"); return { version: "0.1.0", project_schema: 5, browser_api: "v1", provider_requests_on_open: this.calls.filter((call) => call.name === "organizationConsent").length, messages: ["Presentation index loaded", "Rendering limited to 240 items", "No remote requests observed"] }; }
+  async diagnostics() { this.record("diagnostics"); return { browser_api: "v1", levels: 2, provider_requests_on_open: 0, network: "loopback only" }; }
   async shutdown() { this.record("shutdown"); return { state: "shutting_down" }; }
 }
