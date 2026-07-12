@@ -393,10 +393,13 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
         )
         assert blocking.wait(timeout=3)
         cancelling = api.dispatch("POST", M07_API_ROUTES["cancel"], {})
-        assert cancelling["status"] == "cancelling"
+        # Keep the packaged app's polling loop alive until durable cancellation is visible.
+        assert cancelling["status"] == "running"
+        assert cancelling["stage"] == "cancelling"
         assert "scopes" in cancelling and "coverage" in cancelling
         assert _wait(api)["state"] == "cancelled"
         cancelled = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert cancelled["status"] == "cancelled"
         assert cancelled["scope_counts"]["cancelled"] > 0
         assert "private provider detail" not in str(cancelled)
 

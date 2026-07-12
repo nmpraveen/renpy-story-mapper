@@ -260,10 +260,13 @@ class ProjectApi:
             return json_value(response)
         if method == "POST" and path == M07_API_ROUTES["cancel"]:
             self.cancel()
+            # The packaged browser polls only while status is ``running``.  Keep that
+            # lifecycle status until the background boundary durably reports cancellation;
+            # advertising ``cancelled`` here would also enable Resume before the old task exits.
             return json_value(
                 self._m07_workflow().status(
                     stage="cancelling",
-                    status_override="cancelling",
+                    status_override="running",
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["assembly_apply"]:
