@@ -22,6 +22,7 @@ IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
 
 if TYPE_CHECKING:
     from renpy_story_mapper.ingestion.contracts import IngestionResult
+    from renpy_story_mapper.m07_model import M07ModelService
     from renpy_story_mapper.presentation import PresentationService
     from renpy_story_mapper.story_organization import StoryOrganizationService
 
@@ -728,6 +729,13 @@ class Project:
         from renpy_story_mapper.story_organization import StoryOrganizationService
 
         return StoryOrganizationService(self)
+
+    def m07_model_service(self) -> M07ModelService:
+        """Return durable M07 scope, accounting, coverage, and assembly contracts."""
+
+        from renpy_story_mapper.m07_model import M07ModelService
+
+        return M07ModelService(self)
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""

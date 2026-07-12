@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Final
 
 APPLICATION_ID: Final = 0x52534D50  # "RSMP"
-SCHEMA_VERSION: Final = 5
+SCHEMA_VERSION: Final = 6
 
 PAYLOAD_COLLECTIONS: Final = frozenset(
     {
         "m01_graph",
         "m02_semantic",
         "m06_control_flow",
+        "m07_route_map",
         "diagnostics",
         "unresolved",
         "gates",
@@ -121,6 +122,8 @@ def initialize_database(
                 _migrate_to_v4(connection)
             elif next_version == 5:
                 _migrate_to_v5(connection)
+            elif next_version == 6:
+                _migrate_to_v6(connection)
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
             current = next_version
@@ -416,6 +419,55 @@ def _validate_schema_shape(
                 },
             }
         )
+    if version >= 6:
+        required.update(
+            {
+                "m07_scope_checkpoints": {
+                    "scope_id",
+                    "ordinal",
+                    "generation",
+                    "input_hash",
+                    "scope_json",
+                    "status",
+                    "result_json",
+                    "result_hash",
+                    "attempts",
+                    "calls",
+                    "input_tokens",
+                    "output_tokens",
+                    "error_code",
+                    "updated_utc",
+                },
+                "m07_provider_attempts": {
+                    "attempt_id",
+                    "scope_id",
+                    "ordinal",
+                    "outcome",
+                    "calls",
+                    "input_tokens",
+                    "output_tokens",
+                    "elapsed_ms",
+                    "cached",
+                    "created_utc",
+                },
+                "m07_scope_overrides": {
+                    "scope_id",
+                    "correction_json",
+                    "pinned",
+                    "updated_utc",
+                },
+                "m07_assemblies": {
+                    "assembly_id",
+                    "generation",
+                    "status",
+                    "payload_json",
+                    "payload_hash",
+                    "coverage_json",
+                    "created_utc",
+                    "applied_utc",
+                },
+            }
+        )
     try:
         tables = {
             str(row[0])
@@ -456,6 +508,10 @@ def _validate_schema_shape(
             "source_derivations": ("derivation_id",),
             "recovery_results": ("recovery_id",),
             "source_coverage": ("singleton",),
+            "m07_scope_checkpoints": ("scope_id",),
+            "m07_provider_attempts": ("attempt_id",),
+            "m07_scope_overrides": ("scope_id",),
+            "m07_assemblies": ("assembly_id",),
         }
         declared_types: dict[str, dict[str, str]] = {
             "project_metadata": {
@@ -714,6 +770,50 @@ def _validate_schema_shape(
                 "warning": "TEXT",
                 "updated_utc": "TEXT",
             },
+            "m07_scope_checkpoints": {
+                "scope_id": "TEXT",
+                "ordinal": "INTEGER",
+                "generation": "TEXT",
+                "input_hash": "TEXT",
+                "scope_json": "BLOB",
+                "status": "TEXT",
+                "result_json": "BLOB",
+                "result_hash": "TEXT",
+                "attempts": "INTEGER",
+                "calls": "INTEGER",
+                "input_tokens": "INTEGER",
+                "output_tokens": "INTEGER",
+                "error_code": "TEXT",
+                "updated_utc": "TEXT",
+            },
+            "m07_provider_attempts": {
+                "attempt_id": "TEXT",
+                "scope_id": "TEXT",
+                "ordinal": "INTEGER",
+                "outcome": "TEXT",
+                "calls": "INTEGER",
+                "input_tokens": "INTEGER",
+                "output_tokens": "INTEGER",
+                "elapsed_ms": "INTEGER",
+                "cached": "INTEGER",
+                "created_utc": "TEXT",
+            },
+            "m07_scope_overrides": {
+                "scope_id": "TEXT",
+                "correction_json": "BLOB",
+                "pinned": "INTEGER",
+                "updated_utc": "TEXT",
+            },
+            "m07_assemblies": {
+                "assembly_id": "TEXT",
+                "generation": "TEXT",
+                "status": "TEXT",
+                "payload_json": "BLOB",
+                "payload_hash": "TEXT",
+                "coverage_json": "BLOB",
+                "created_utc": "TEXT",
+                "applied_utc": "TEXT",
+            },
         }
         nullable = {
             ("sources", "modified_ns"),
@@ -743,6 +843,10 @@ def _validate_schema_shape(
             ("recovery_results", "output_sha256"),
             ("recovery_results", "sanitized_error"),
             ("source_coverage", "warning"),
+            ("m07_scope_checkpoints", "result_json"),
+            ("m07_scope_checkpoints", "result_hash"),
+            ("m07_scope_checkpoints", "error_code"),
+            ("m07_assemblies", "applied_utc"),
         }
         for table, expected_columns in required.items():
             if table not in tables:
@@ -994,6 +1098,29 @@ def _validate_schema_shape(
                 raise ProjectCorruptError(
                     f"project source table {table!r} has invalid foreign keys"
                 )
+    if version >= 6:
+        m07_indexes = {
+            "m07_scope_status_idx": ("status", "ordinal", "scope_id"),
+            "m07_attempt_scope_idx": ("scope_id", "ordinal"),
+            "m07_assembly_status_idx": ("status", "created_utc", "assembly_id"),
+        }
+        for name, expected in m07_indexes.items():
+            actual = tuple(
+                str(row[2]) for row in connection.execute(f'PRAGMA index_info("{name}")')
+            )
+            if actual != expected:
+                raise ProjectCorruptError(f"project M07 index {name!r} has invalid columns")
+        m07_foreign_keys = {
+            "m07_provider_attempts": {("m07_scope_checkpoints", "scope_id", "scope_id", "CASCADE")},
+            "m07_scope_overrides": {("m07_scope_checkpoints", "scope_id", "scope_id", "CASCADE")},
+        }
+        for table, expected_fk in m07_foreign_keys.items():
+            actual_foreign_keys = {
+                (str(row[2]), str(row[3]), str(row[4]), str(row[6]).upper())
+                for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
+            }
+            if actual_foreign_keys != expected_fk:
+                raise ProjectCorruptError(f"project M07 table {table!r} has invalid foreign keys")
 
 
 @contextmanager
@@ -1493,6 +1620,74 @@ def _migrate_to_v5(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
         (5, utc_now()),
+    )
+
+
+def _migrate_to_v6(connection: sqlite3.Connection) -> None:
+    """Add resumable M07 scope state and serialized deterministic assemblies."""
+
+    statements = (
+        """CREATE TABLE IF NOT EXISTS m07_scope_checkpoints (
+            scope_id TEXT PRIMARY KEY NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            generation TEXT NOT NULL,
+            input_hash TEXT NOT NULL CHECK (length(input_hash) = 64),
+            scope_json BLOB NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'pending','cached','in_flight','validated','fallback','failed','cancelled'
+            )),
+            result_json BLOB,
+            result_hash TEXT CHECK (result_hash IS NULL OR length(result_hash) = 64),
+            attempts INTEGER NOT NULL CHECK (attempts >= 0),
+            calls INTEGER NOT NULL CHECK (calls >= 0),
+            input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+            output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+            error_code TEXT,
+            updated_utc TEXT NOT NULL
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS m07_provider_attempts (
+            attempt_id TEXT PRIMARY KEY NOT NULL,
+            scope_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            outcome TEXT NOT NULL,
+            calls INTEGER NOT NULL CHECK (calls >= 0),
+            input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+            output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+            elapsed_ms INTEGER NOT NULL CHECK (elapsed_ms >= 0),
+            cached INTEGER NOT NULL CHECK (cached IN (0,1)),
+            created_utc TEXT NOT NULL,
+            FOREIGN KEY (scope_id) REFERENCES m07_scope_checkpoints(scope_id) ON DELETE CASCADE,
+            UNIQUE (scope_id, ordinal)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS m07_scope_overrides (
+            scope_id TEXT PRIMARY KEY NOT NULL,
+            correction_json BLOB NOT NULL,
+            pinned INTEGER NOT NULL CHECK (pinned IN (0,1)),
+            updated_utc TEXT NOT NULL,
+            FOREIGN KEY (scope_id) REFERENCES m07_scope_checkpoints(scope_id) ON DELETE CASCADE
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS m07_assemblies (
+            assembly_id TEXT PRIMARY KEY NOT NULL,
+            generation TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('draft','applied','superseded')),
+            payload_json BLOB NOT NULL,
+            payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+            coverage_json BLOB NOT NULL,
+            created_utc TEXT NOT NULL,
+            applied_utc TEXT
+        ) STRICT""",
+        "CREATE INDEX IF NOT EXISTS m07_scope_status_idx "
+        "ON m07_scope_checkpoints(status, ordinal, scope_id)",
+        "CREATE INDEX IF NOT EXISTS m07_attempt_scope_idx "
+        "ON m07_provider_attempts(scope_id, ordinal)",
+        "CREATE INDEX IF NOT EXISTS m07_assembly_status_idx "
+        "ON m07_assemblies(status, created_utc, assembly_id)",
+    )
+    for statement in statements:
+        connection.execute(statement)
+    connection.execute(
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
+        (6, utc_now()),
     )
 
 
