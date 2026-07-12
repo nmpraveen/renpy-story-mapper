@@ -17,12 +17,13 @@ from pathlib import Path
 from typing import Final
 
 APPLICATION_ID: Final = 0x52534D50  # "RSMP"
-SCHEMA_VERSION: Final = 4
+SCHEMA_VERSION: Final = 5
 
 PAYLOAD_COLLECTIONS: Final = frozenset(
     {
         "m01_graph",
         "m02_semantic",
+        "m06_control_flow",
         "diagnostics",
         "unresolved",
         "gates",
@@ -107,9 +108,9 @@ def initialize_database(
     if application_id not in {0, APPLICATION_ID}:
         raise ProjectCorruptError("SQLite file belongs to another application")
 
-    while current < target_version:
-        next_version = current + 1
-        with transaction(connection):
+    with transaction(connection):
+        while current < target_version:
+            next_version = current + 1
             if next_version == 1:
                 _migrate_to_v1(connection)
             elif next_version == 2:
@@ -118,17 +119,16 @@ def initialize_database(
                 _migrate_to_v3(connection)
             elif next_version == 4:
                 _migrate_to_v4(connection)
+            elif next_version == 5:
+                _migrate_to_v5(connection)
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
-        current = next_version
-    if current == 4 and needs_v4_enrichment_extension(connection):
-        with transaction(connection):
+            current = next_version
+        if current >= 4 and needs_v4_enrichment_extension(connection):
             _migrate_v4_enrichment_extension(connection)
 
 
-def validate_database(
-    connection: sqlite3.Connection, *, allow_legacy_v4: bool = False
-) -> int:
+def validate_database(connection: sqlite3.Connection, *, allow_legacy_v4: bool = False) -> int:
     """Validate project identity, supported version, and SQLite integrity."""
 
     try:
@@ -371,6 +371,51 @@ def _validate_schema_shape(
         )
         if allow_legacy_v4 and needs_v4_enrichment_extension(connection):
             required.pop("story_group_enrichment")
+    if version >= 5:
+        required.update(
+            {
+                "source_derivations": {
+                    "derivation_id",
+                    "source_path",
+                    "source_kind",
+                    "tier",
+                    "locator",
+                    "input_sha256",
+                    "output_sha256",
+                    "line_basis",
+                    "tool_name",
+                    "tool_version",
+                    "tool_commit",
+                    "tool_bundle_sha256",
+                    "options_json",
+                    "complete",
+                    "warnings_json",
+                    "created_utc",
+                },
+                "recovery_results": {
+                    "recovery_id",
+                    "source_path",
+                    "locator",
+                    "input_sha256",
+                    "output_sha256",
+                    "tool_bundle_sha256",
+                    "cache_hit",
+                    "complete",
+                    "status",
+                    "sanitized_error",
+                    "created_utc",
+                },
+                "source_coverage": {
+                    "singleton",
+                    "complete",
+                    "partial_allowed",
+                    "ai_transmission_blocked",
+                    "acknowledged",
+                    "warning",
+                    "updated_utc",
+                },
+            }
+        )
     try:
         tables = {
             str(row[0])
@@ -408,6 +453,9 @@ def _validate_schema_shape(
             "story_claim_evidence": ("claim_id", "evidence_id"),
             "story_group_enrichment": ("target_kind", "target_id"),
             "story_edits": ("edit_id",),
+            "source_derivations": ("derivation_id",),
+            "recovery_results": ("recovery_id",),
+            "source_coverage": ("singleton",),
         }
         declared_types: dict[str, dict[str, str]] = {
             "project_metadata": {
@@ -626,6 +674,46 @@ def _validate_schema_shape(
                 "status": "TEXT",
                 "created_utc": "TEXT",
             },
+            "source_derivations": {
+                "derivation_id": "TEXT",
+                "source_path": "TEXT",
+                "source_kind": "TEXT",
+                "tier": "TEXT",
+                "locator": "TEXT",
+                "input_sha256": "TEXT",
+                "output_sha256": "TEXT",
+                "line_basis": "TEXT",
+                "tool_name": "TEXT",
+                "tool_version": "TEXT",
+                "tool_commit": "TEXT",
+                "tool_bundle_sha256": "TEXT",
+                "options_json": "BLOB",
+                "complete": "INTEGER",
+                "warnings_json": "BLOB",
+                "created_utc": "TEXT",
+            },
+            "recovery_results": {
+                "recovery_id": "TEXT",
+                "source_path": "TEXT",
+                "locator": "TEXT",
+                "input_sha256": "TEXT",
+                "output_sha256": "TEXT",
+                "tool_bundle_sha256": "TEXT",
+                "cache_hit": "INTEGER",
+                "complete": "INTEGER",
+                "status": "TEXT",
+                "sanitized_error": "TEXT",
+                "created_utc": "TEXT",
+            },
+            "source_coverage": {
+                "singleton": "INTEGER",
+                "complete": "INTEGER",
+                "partial_allowed": "INTEGER",
+                "ai_transmission_blocked": "INTEGER",
+                "acknowledged": "INTEGER",
+                "warning": "TEXT",
+                "updated_utc": "TEXT",
+            },
         }
         nullable = {
             ("sources", "modified_ns"),
@@ -647,6 +735,14 @@ def _validate_schema_shape(
             ("organization_drafts", "resolved_utc"),
             ("story_claims", "event_id"),
             ("story_claims", "arc_id"),
+            ("source_derivations", "tool_name"),
+            ("source_derivations", "tool_version"),
+            ("source_derivations", "tool_commit"),
+            ("source_derivations", "tool_bundle_sha256"),
+            ("recovery_results", "source_path"),
+            ("recovery_results", "output_sha256"),
+            ("recovery_results", "sanitized_error"),
+            ("source_coverage", "warning"),
         }
         for table, expected_columns in required.items():
             if table not in tables:
@@ -878,6 +974,26 @@ def _validate_schema_shape(
                 raise ProjectCorruptError(
                     f"project organization table {table!r} has invalid constraints"
                 )
+    if version >= 5:
+        source_indexes = {
+            "source_derivations_source_idx": ("source_path", "derivation_id"),
+            "recovery_results_source_idx": ("source_path", "created_utc", "recovery_id"),
+        }
+        for name, expected in source_indexes.items():
+            actual = tuple(
+                str(row[2]) for row in connection.execute(f'PRAGMA index_info("{name}")')
+            )
+            if actual != expected:
+                raise ProjectCorruptError(f"project source index {name!r} has invalid columns")
+        for table in ("source_derivations", "recovery_results"):
+            actual_foreign_keys = {
+                (str(row[2]), str(row[3]), str(row[4]), str(row[6]).upper())
+                for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
+            }
+            if actual_foreign_keys != {("sources", "source_path", "path", "CASCADE")}:
+                raise ProjectCorruptError(
+                    f"project source table {table!r} has invalid foreign keys"
+                )
 
 
 @contextmanager
@@ -904,9 +1020,7 @@ def check_collection(collection: str) -> None:
         raise ValueError(f"unknown payload collection {collection!r}; expected one of: {allowed}")
 
 
-def make_backup(
-    source: Path, destination: Path, *, allow_legacy_v4: bool = False
-) -> None:
+def make_backup(source: Path, destination: Path, *, allow_legacy_v4: bool = False) -> None:
     """Create a consistent SQLite backup and atomically publish it."""
 
     temporary = destination.with_name(f".{destination.name}.tmp")
@@ -1115,7 +1229,7 @@ def _migrate_to_v3(connection: sqlite3.Connection) -> None:
 def needs_v4_enrichment_extension(connection: sqlite3.Connection) -> bool:
     """Return whether a pre-enrichment schema-v4 project needs the additive extension."""
 
-    if _pragma_int(connection, "user_version") != 4:
+    if _pragma_int(connection, "user_version") < 4:
         return False
     names = {
         str(row[0])
@@ -1324,6 +1438,61 @@ def _migrate_to_v4(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
         (4, utc_now()),
+    )
+
+
+def _migrate_to_v5(connection: sqlite3.Connection) -> None:
+    statements = (
+        """CREATE TABLE IF NOT EXISTS source_derivations (
+            derivation_id TEXT PRIMARY KEY NOT NULL,
+            source_path TEXT NOT NULL,
+            source_kind TEXT NOT NULL CHECK (source_kind IN ('original','reconstructed')),
+            tier TEXT NOT NULL,
+            locator TEXT NOT NULL,
+            input_sha256 TEXT NOT NULL CHECK (length(input_sha256) = 64),
+            output_sha256 TEXT NOT NULL CHECK (length(output_sha256) = 64),
+            line_basis TEXT NOT NULL,
+            tool_name TEXT, tool_version TEXT, tool_commit TEXT, tool_bundle_sha256 TEXT,
+            options_json BLOB NOT NULL,
+            complete INTEGER NOT NULL CHECK (complete IN (0,1)),
+            warnings_json BLOB NOT NULL,
+            created_utc TEXT NOT NULL,
+            FOREIGN KEY (source_path) REFERENCES sources(path) ON DELETE CASCADE,
+            UNIQUE (source_path)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS recovery_results (
+            recovery_id TEXT PRIMARY KEY NOT NULL,
+            source_path TEXT,
+            locator TEXT NOT NULL,
+            input_sha256 TEXT NOT NULL CHECK (length(input_sha256) = 64),
+            output_sha256 TEXT CHECK (output_sha256 IS NULL OR length(output_sha256) = 64),
+            tool_bundle_sha256 TEXT NOT NULL CHECK (length(tool_bundle_sha256) = 64),
+            cache_hit INTEGER NOT NULL CHECK (cache_hit IN (0,1)),
+            complete INTEGER NOT NULL CHECK (complete IN (0,1)),
+            status TEXT NOT NULL CHECK (status IN ('recovered','partial','failed')),
+            sanitized_error TEXT,
+            created_utc TEXT NOT NULL,
+            FOREIGN KEY (source_path) REFERENCES sources(path) ON DELETE CASCADE
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS source_coverage (
+            singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+            complete INTEGER NOT NULL CHECK (complete IN (0,1)),
+            partial_allowed INTEGER NOT NULL CHECK (partial_allowed IN (0,1)),
+            ai_transmission_blocked INTEGER NOT NULL CHECK (ai_transmission_blocked IN (0,1)),
+            acknowledged INTEGER NOT NULL CHECK (acknowledged IN (0,1)),
+            warning TEXT,
+            updated_utc TEXT NOT NULL
+        ) STRICT""",
+        "CREATE INDEX IF NOT EXISTS source_derivations_source_idx "
+        "ON source_derivations(source_path, derivation_id)",
+        "CREATE INDEX IF NOT EXISTS recovery_results_source_idx "
+        "ON recovery_results(source_path, created_utc, recovery_id)",
+    )
+    for statement in statements:
+        connection.execute(statement)
+    connection.execute(
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
+        (5, utc_now()),
     )
 
 

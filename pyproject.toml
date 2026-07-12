@@ -30,6 +30,9 @@ renpy-story-mapper-gui = "renpy_story_mapper.ui.app:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/renpy_story_mapper"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"THIRD_PARTY_NOTICES.md" = "renpy_story_mapper/THIRD_PARTY_NOTICES.md"
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
@@ -38,6 +41,8 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["src/renpy_story_mapper/ingestion/_vendor"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF", "SIM"]
@@ -47,3 +52,4 @@ python_version = "3.12"
 strict = true
 packages = ["renpy_story_mapper"]
 mypy_path = "src"
+exclude = ["src/renpy_story_mapper/ingestion/_vendor/"]

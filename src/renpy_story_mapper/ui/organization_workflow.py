@@ -134,6 +134,14 @@ class OrganizationWorkflow:
         cancelled: CancelCheck,
         confirm_cloud: ConsentCallback | None = None,
     ) -> WorkflowResult:
+        coverage_reader = getattr(self._project, "source_coverage", None)
+        coverage = coverage_reader() if callable(coverage_reader) else {}
+        if coverage.get("ai_transmission_blocked") and not coverage.get("acknowledged"):
+            raise OrganizationError(
+                "AI organization is blocked because this project has incomplete source coverage. "
+                "Review and explicitly acknowledge the missing coverage before transmitting story "
+                "evidence."
+            )
         if isinstance(scope_ids, (str, bytes)) or any(
             not isinstance(scope_id, str) or not scope_id for scope_id in scope_ids
         ):

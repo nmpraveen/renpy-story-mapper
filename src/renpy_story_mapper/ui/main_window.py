@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
         self.select_source_button = QPushButton("Folder", self)
         self.select_source_button.setObjectName("newProjectButton")
-        self.select_archive_button = QPushButton("Archive", self)
+        self.select_archive_button = QPushButton("File", self)
         self.select_archive_button.setObjectName("newArchiveProjectButton")
         self.open_button = QPushButton("Open", self)
         self.open_button.setObjectName("openProjectButton")
@@ -841,7 +841,10 @@ class MainWindow(QMainWindow):
     @Slot()
     def _choose_new_archive_project(self) -> None:
         source, _ = QFileDialog.getOpenFileName(
-            self, "Select scripts.rpa", "", "Ren'Py archive (*.rpa)"
+            self,
+            "Select Ren'Py source",
+            "",
+            "Ren'Py source or archive (*.rpy *.rpyc *.rpa)",
         )
         if not source:
             return

@@ -17,11 +17,9 @@ from renpy_story_mapper.project import (
     ProjectCancelledError,
     ProjectCorruptionError,
     RefreshReport,
-    create_archive_project,
-    create_project,
+    create_ingested_project,
     open_project,
-    refresh_archive_project,
-    refresh_project,
+    refresh_ingested_project,
 )
 from renpy_story_mapper.ui.workers import CancelCheck, ProgressReporter, WorkerTask
 
@@ -64,10 +62,10 @@ class LocalProjectBackend:
     def create(
         self, project_path: Path, source_path: Path, cancel_check: CancelCheck
     ) -> ProjectSession:
-        project = (
-            create_archive_project(project_path, source_path, cancel_check=cancel_check)
-            if source_path.is_file()
-            else create_project(project_path, source_path, cancel_check=cancel_check)
+        project = create_ingested_project(
+            project_path,
+            source_path,
+            cancel_check=cancel_check,
         )
         try:
             return _session_from_project(project)
@@ -86,11 +84,11 @@ class LocalProjectBackend:
             project.close()
 
     def refresh(self, session: ProjectSession, cancel_check: CancelCheck) -> RefreshReport:
-        if session.source_kind == "archive":
-            return refresh_archive_project(
-                session.project_path, session.source_path, cancel_check=cancel_check
-            )
-        return refresh_project(session.project_path, session.source_path, cancel_check=cancel_check)
+        return refresh_ingested_project(
+            session.project_path,
+            session.source_path,
+            cancel_check=cancel_check,
+        )
 
 
 class ProjectController(QObject):
@@ -248,17 +246,19 @@ def validate_create_paths(
     source_path = Path(source).expanduser().resolve()
     if not source_path.exists():
         raise ValueError("The selected game source does not exist.")
-    if source_path.is_file() and source_path.suffix.lower() != ".rpa":
-        raise ValueError("Select a game folder or an RPA archive.")
+    if source_path.is_file() and source_path.suffix.lower() not in {".rpy", ".rpyc", ".rpa"}:
+        raise ValueError("Select a game folder or a Ren'Py .rpy, .rpyc, or .rpa file.")
     if not source_path.is_dir() and not source_path.is_file():
-        raise ValueError("Select a game folder or an RPA archive.")
+        raise ValueError("Select a game folder or a Ren'Py source/archive file.")
     project_path = validate_project_path(output, must_exist=False)
     if project_path.exists():
         raise ValueError("The project file already exists.")
     if source_path.is_dir() and _is_within(project_path, source_path):
         raise ValueError("Store the project outside the selected game folder.")
     if source_path.is_file() and project_path.parent == source_path.parent:
-        raise ValueError("Store the project outside the archive folder.")
+        if source_path.suffix.lower() == ".rpa":
+            raise ValueError("Store the project outside the archive folder.")
+        raise ValueError("Store the project outside the selected source folder.")
     return source_path, project_path
 
 
@@ -279,12 +279,16 @@ def validate_project_path(value: str | os.PathLike[str], *, must_exist: bool) ->
 def _session_from_project(project: Project) -> ProjectSession:
     metadata: Mapping[str, object] = project.metadata()
     source_kind = str(metadata.get("source_kind", ""))
-    source_value = (
-        metadata.get("source_path")
-        if source_kind == "archive"
-        else metadata.get("source_root")
-    )
-    if source_kind not in {"archive", "folder"} or not isinstance(source_value, str):
+    legacy_folder = source_kind == "folder"
+    source_value = metadata.get("source_root" if legacy_folder else "source_path")
+    supported_kinds = {
+        "archive",
+        "folder",
+        "game_folder",
+        "source_file",
+        "compiled_file",
+    }
+    if source_kind not in supported_kinds or not isinstance(source_value, str):
         raise ProjectCorruptionError("project source metadata is invalid")
     return ProjectSession(project.path, Path(source_value), source_kind, len(project.sources()))
 

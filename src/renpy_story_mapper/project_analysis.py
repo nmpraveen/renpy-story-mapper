@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive
@@ -45,6 +46,95 @@ from renpy_story_mapper.state import FactStatus, StateAnalysis, StateEvidence, e
 from renpy_story_mapper.storage import ProjectOperationCancelled, canonical_json
 
 CancelCheck = Callable[[], bool] | None
+
+
+def create_input_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    entry_label: str = "start",
+    options: object | None = None,
+    cancel_check: CancelCheck = None,
+) -> Project:
+    """Create a project through the unified schema-v5 ingestion boundary."""
+
+    from renpy_story_mapper.ingestion import IngestionOptions, ingest_input
+
+    configured = options if isinstance(options, IngestionOptions) else IngestionOptions()
+    result = ingest_input(input_path, configured, cancel_check)
+    if result.plan.existing_project is not None:
+        return Project.open(result.plan.existing_project)
+    project = Project.create(
+        database_path,
+        metadata={
+            "source_kind": result.plan.input_kind.value,
+            "source_path": str(result.plan.resolved_input),
+            "entry_label": entry_label,
+            "source_coverage_complete": result.complete,
+        },
+    )
+    try:
+        metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+        _refresh_open_project(
+            project,
+            result.content_by_path,
+            entry_label=entry_label,
+            cancel_check=cancel_check,
+            source_metadata=metadata,
+        )
+        project.replace_ingestion_provenance(result)
+        return project
+    except BaseException:
+        project.delete()
+        raise
+
+
+def refresh_input_project(
+    database_path: str | os.PathLike[str],
+    input_path: str | os.PathLike[str],
+    *,
+    options: object | None = None,
+    cancel_check: CancelCheck = None,
+) -> RefreshReport:
+    """Refresh an existing project through unified ingestion using atomic staging."""
+
+    from renpy_story_mapper.ingestion import IngestionOptions, ingest_input
+
+    configured = options if isinstance(options, IngestionOptions) else IngestionOptions()
+    result = ingest_input(input_path, configured, cancel_check)
+    if result.plan.existing_project is not None:
+        raise ValueError(
+            "an existing project input is already current and cannot refresh another project"
+        )
+    project_path = Path(database_path).resolve(strict=True)
+    temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
+    original = Project.open(project_path)
+    try:
+        original.backup(temporary)
+    finally:
+        original.close()
+    try:
+        staged = Project.open(temporary)
+        try:
+            entry_label = str(staged.metadata().get("entry_label", "start"))
+            metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+            report = _refresh_open_project(
+                staged,
+                result.content_by_path,
+                entry_label=entry_label,
+                cancel_check=cancel_check,
+                source_metadata=metadata,
+            )
+            staged.replace_ingestion_provenance(result)
+            staged.set_metadata({"source_coverage_complete": result.complete})
+        finally:
+            staged.close()
+        _check_cancelled(cancel_check)
+        os.replace(temporary, project_path)
+        return report
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def create_folder_project(
@@ -212,7 +302,11 @@ def project_snapshot(project: Project) -> dict[str, object]:
         ],
         "graph": project.payload("m01_graph", "authoritative") or {},
         "semantic": project.payload("m02_semantic", "authoritative") or {},
+        "control_flow": project.payload("m06_control_flow", "authoritative") or {},
         "import_manifest": project.payload("import_manifest", "authoritative") or {},
+        "source_derivations": list(project.source_derivations()),
+        "recovery_results": list(project.recovery_results()),
+        "source_coverage": project.source_coverage(),
         "requirements": _payload_lists(project, "gates"),
         "effects": _payload_lists(project, "effects"),
         "state_variables": _payload_lists(project, "state_registry"),
@@ -227,11 +321,20 @@ def _refresh_open_project(
     *,
     entry_label: str,
     cancel_check: CancelCheck,
+    source_metadata: Mapping[str, object] | None = None,
 ) -> RefreshReport:
     previous_dependencies = _stored_dependencies(project)
     previous_registry = project.payload("state_registry", "authoritative")
     fingerprints = tuple(
-        SourceFingerprint.from_bytes(path, content_by_path[path])
+        SourceFingerprint.from_bytes(
+            path,
+            content_by_path[path],
+            metadata=(
+                cast(Mapping[str, object], source_metadata[path])
+                if source_metadata is not None
+                else None
+            ),
+        )
         for path in sorted(content_by_path)
     )
     refresh = project.refresh_sources(fingerprints, cancelled=cancel_check)
@@ -261,12 +364,19 @@ def _refresh_open_project(
     counts["diagnostics"] = len(diagnostics)
     semantic = build_semantic_story(graph)
     state = extract_state(module_values)
+    control_flow = analyze_control_flow(
+        graph,
+        semantic,
+        state.requirements,
+        state.effects,
+    ).to_dict()
 
     records = _analysis_records(
         modules,
         dependencies,
         graph,
         semantic,
+        control_flow,
         state,
         parsed_paths,
         previous_registry,
@@ -290,6 +400,7 @@ def _analysis_records(
     dependencies: Mapping[str, set[str]],
     graph: dict[str, object],
     semantic: dict[str, object],
+    control_flow: dict[str, object],
     state: StateAnalysis,
     parsed_paths: set[str],
     previous_registry: object,
@@ -310,6 +421,7 @@ def _analysis_records(
         (
             PayloadRecord("m01_graph", "authoritative", graph, all_paths),
             PayloadRecord("m02_semantic", "authoritative", semantic, all_paths),
+            PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths),
         )
     )
 

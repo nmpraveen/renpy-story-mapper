@@ -1,9 +1,10 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-11
+Last revised: 2026-07-12
 
-Status: M01 through M05 are complete. M05 implementation was merged through PR #7 on 2026-07-11;
-the approved roadmap is complete.
+Status: M01 through M05 are complete. M06 implementation and Windows acceptance are complete on
+its unmerged milestone branch in PR #9. M07 is approved in principle
+but must not begin until M06 is merged with explicit approval and separately approved to start.
 
 ## 1. Product goal
 
@@ -17,8 +18,8 @@ editor, or a public distribution project. The main experience is:
 Select a Ren'Py game
   -> analyze it without running game code
   -> identify story paths, choices, requirements, and state changes
-  -> organize the result into human-sized story events
-  -> explore the story at three levels of detail
+  -> classify temporary detours, persistent routes, loops, merges, and endings
+  -> explore a broad route map and its exact detail/evidence workspace
 ```
 
 The final map must answer visually, without requiring the user to ask questions:
@@ -103,86 +104,41 @@ effects.
 11. Windows with CPython 3.12 is the only runtime authority.
 12. Work on exactly one explicitly approved milestone at a time.
 
-## 4. The three-level story map
+## 4. The two-level story map
 
-The application must provide semantic zoom: zooming out simplifies the story, and zooming in
-reveals progressively more evidence. It must not merely make the same hundreds of boxes physically
-smaller or larger.
+The current three-level arc/event/evidence hierarchy is superseded. The product has exactly two
+user-visible levels; internal beats and AI events may remain implementation records but do not
+create extra navigation levels.
 
-### Level 1 - Story overview
+### Level 1 - Route Map
 
-Purpose: understand the big picture at a glance.
+Purpose: understand the story spine, meaningful choices, persistent routes, merges, loops, and
+endings at a glance.
 
-Show a small number of major arcs, turning points, relationships, roles, and outcomes. Examples:
+- Default to a chronological chapter/day/major-event spine.
+- Draw temporary choices as compact detours that visibly reconnect at proven merge points.
+- Draw persistent mutually exclusive routes in separate lanes until a proven merge or terminal.
+- Put requirements on entering edges and effects on the event or path that causes them.
+- Distinguish game endings, route endings, dead ends, update boundaries, and unresolved targets.
+- Collapse routine dialogue and technical one-in/one-out chains into corridors or coverage markers.
+- Never turn individual technical fallback beats into thousands of equal-weight cards.
+- Keep the initial viewport near 30 meaningful nodes, with compact nodes and visible connecting
+  lines as the primary visual grammar.
 
-```text
-Person A meets Person B
-  -> relationship grows
-  -> Person A joins Company Z
-```
+### Level 2 - Detail and Evidence
 
-Level 1 should emphasize:
+Purpose: inspect and verify the selected milestone, choice, edge, gate, merge, loop, or ending.
 
-- chapters or major arcs
-- important relationship changes
-- major career, location, allegiance, or route changes
-- major branch points and endings
-- concise outcome summaries
+- Show the concise summary and immediate predecessor/successor context.
+- Show exact choice captions, conditions, requirements, effects, dialogue, and narration.
+- Retain relative source path and qualified physical/reconstructed line evidence.
+- Pair every AI claim directly with deterministic evidence IDs and label interpretation as such.
+- Provide a small local path strip, not another full graph level.
+- Use **Back to Route Map** as the only level transition.
 
-It should hide routine dialogue, image/audio commands, pauses, save setup, and most implementation
-details.
-
-### Level 2 - Story events and choices
-
-Purpose: understand how the story progresses and branches.
-
-Show human-sized events rather than one node per line or one node per label. Each event may show:
-
-- a readable event title and short summary
-- involved characters
-- player choices
-- incoming requirements or gates
-- outgoing effects and important state changes
-- branch merges, loops, shared calls, and endings
-- warnings when a connection or effect is unresolved
-
-Examples of visible annotations:
-
-```text
-[Requires: Ian Wits > 0]
-[Choice: Offer help]
-[Effect: Lust increases]
-[Effect: Ian/Lena relationship points +1]
-[Sets: Ian and Lena are dating]
-```
-
-### Level 3 - Exact evidence
-
-Purpose: verify every conclusion and inspect small details.
-
-Show the deterministic source-linked representation:
-
-- exact dialogue and narration
-- exact choice captions
-- original conditions
-- explicit assignments, increments, decrements, and relevant calls
-- labels, jumps, calls, returns, fallthrough, and merge points
-- file path and physical source lines
-- technical commands on demand
-- unresolved behavior with the reason it could not be resolved
-
-Level 3 is where accuracy is audited. Levels 1 and 2 are readable projections over this evidence.
-
-### Required interaction
-
-- Mouse-wheel zoom and pan.
-- Semantic transitions between Levels 1, 2, and 3.
-- Expand or collapse a single arc, event, choice, or branch without expanding everything.
-- Fit the current story, branch, or selection to the window.
-- Preserve the user's location and selection while changing detail levels.
-- Search by character, label, dialogue, choice text, variable, condition, or event title.
-- Toggle technical nodes and unresolved items.
-- Click any high-level claim to reveal the lower-level evidence supporting it.
+Required interaction remains pan, zoom, fit, search, filters, technical/unresolved toggles,
+selection preservation, and direct evidence traversal. Physical zoom may change visual density but
+must never create an additional semantic level.
 
 ## 5. Story state, requirements, and effects
 
@@ -229,9 +185,9 @@ than present them as proven facts.
 ## 6. Technical architecture
 
 ```text
-Game folder or scripts.rpa
+Game folder, .rpy, .rpyc, or .rpa
         |
-Read-only inventory and .rpy precedence
+Read-only inventory, source precedence, and isolated compiled-source recovery (M06)
         |
 Safe static parser
         |
@@ -241,9 +197,13 @@ Deterministic scenes, beats, and transitions (M02)
         |
 Requirements, state effects, and durable project storage (M03)
         |
-Three-level interactive Windows graph (M04)
+Legacy three-level interactive Windows graph (M04)
         |
 AI-assisted event grouping, titles, summaries, and high-level meaning (M05)
+        |
+Deterministic control regions and route semantics (M06)
+        |
+Two-level route map plus resumable parallel AI enrichment (M07)
 ```
 
 The underlying structure is a graph, not necessarily a tree. The interface may present a clean
@@ -278,11 +238,12 @@ flowchart, but it must preserve splits, merges, loops, calls, returns, shared sc
 PyInstaller packaging, an installer, public distribution, macOS support, game editing, and game
 patching are outside the active plan.
 
-## 7. Remaining milestones
+## 7. Milestones
 
-The approved roadmap contains M03 through M05. M03 and M04 are complete, leaving exactly one
-planned milestone. Do not create M06 or M07. Ideas beyond M05 belong in a future backlog and are
-not commitments.
+M01 through M05 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
+compiled-only large-game trial exposed source-recovery, branch-classification, AI-scale, and graph
+readability limits. M06 is active. M07 is planned but remains gated behind M06 completion and a
+separate explicit start approval.
 
 ### M03 - Story state and durable projects
 
@@ -761,15 +722,162 @@ Explicit exclusions and assumptions:
 - Deferred limitations are LM Studio product validation, full canonical cloud organization,
   database compaction, packaging, and distribution. No M06 is implied.
 
+### M06 - Safe Source Recovery and Correct Route Semantics
+
+Status: Complete on 2026-07-12 in PR #9; the PR remains unmerged until explicit user approval.
+
+Objective: accept common modern Ren'Py source forms without modifying or executing the game, and
+prove whether alternatives are temporary detours, persistent routes, loops, or terminals before
+presentation or AI organization.
+
+Deliverables:
+
+- One unified ingestion path for a game folder, parent folder containing `game`, direct `.rpy`,
+  direct `.rpyc`, direct `.rpa`, and existing `.rsmproj` inputs.
+- Deterministic precedence: loose original `.rpy`, archived original `.rpy`, loose reconstructed
+  `.rpyc`, then archived reconstructed `.rpyc`; identical same-tier inputs deduplicate and
+  conflicting same-tier inputs fail as ambiguous.
+- Retain the existing bounded original RPA reader; do not vendor or invoke UnRPA.
+- Bundle a reviewed, pinned runtime-only Unrpyc snapshot behind an isolated Windows helper. Never
+  inject into, execute, or write beside the game. Disable network, shell use, arbitrary output,
+  translation, injector behavior, multiprocessing, and permissive recovery modes. Bound time,
+  memory, process count, input/output, logs, and decompression.
+- Treat every recovered file and line as reconstructed evidence. Persist tool commit/bundle hash,
+  input/output hashes, options, locator, and line basis. Never claim recovered lines are original
+  author source lines.
+- Provide an explicit recovered-source export to a user-selected destination outside the game,
+  accompanied by provenance and warnings. Internal cache data remains outside the project and game.
+- Modern Unrpyc-compatible inputs are the initial target. Ancient Python 2-era, obfuscated, or
+  modified formats fail explicitly instead of falling back to unsafe behavior.
+- Add schema-v5 source derivations, recovery results, incomplete-coverage state, procedure/loop
+  summaries, control regions/arms, control ownership, edge roles, and explicit terminals.
+- Normalize calls and call-site-specific returns, condense loop SCCs, compute post-dominators, and
+  classify `local_detour`, `optional_detour`, `reconvergent_route_segment`, `persistent_route`,
+  `terminal_split`, `loop_choice`, or `unresolved`.
+- A concrete common post-dominator proves reconvergence. Relationship/point changes alone do not
+  prove a lasting route. Persistent routes require non-reconvergent content, mutually exclusive
+  downstream state dispatch, or distinct terminals. The virtual super-exit is never displayed.
+- Preserve all ordered transition evidence and explicit semantic roles; remove dominant-edge
+  quotienting as an authority for route shape.
+
+Public boundaries:
+
+```text
+inspect_input(path, options, cancel_check) -> IngestionPlan
+ingest_input(path, options, cancel_check) -> IngestionResult
+analyze_control_flow(graph, semantic_story, gates, effects) -> ControlFlowAnalysis
+```
+
+The default compiled policy is automatic and strict. Partial recovery is opt-in, produces a
+persistent incomplete-coverage warning, and blocks AI transmission until explicitly acknowledged.
+
+Worker sequence:
+
+1. Source-ingestion/recovery worker: unified discovery, precedence, isolated recovery, provenance,
+   export, schema storage, and focused tests; no control analysis or UI redesign.
+2. Route-semantics worker: procedure summaries, loops, post-dominators, control regions, edge
+   roles, persistence, and focused fixtures; no recovery or M07 UI/AI work.
+3. Tests/security/review worker: malicious and compatibility fixtures, migration and performance
+   harnesses, independent diff review, and new tests only; production fixes return to owners.
+
+All normal workers use GPT-5.6 Sol with High reasoning and fast mode disabled. GPT-5.6 Luna is not
+used in M06 because M06 performs no story AI analysis.
+
+Acceptance criteria:
+
+- Windows CPython 3.12 full pytest, Ruff, strict mypy, `pip check`, `git diff --check`, and M06
+  end-to-end checks pass.
+- Recovery-helper packaging/isolation, timeout, cancellation, oversized output, corruption,
+  ambiguity, cache replay, and provenance/export cases pass without game writes or execution.
+- Synthetic simple/nested diamonds, optional scenes, long reconvergent segments, state dispatch,
+  distinct/shared endings, loops, recursion, non-returning calls, and dynamic targets classify
+  exactly as expected with stable IDs and byte-equivalent canonical output.
+- MsDenvers curated walkthrough cases classify Days 1-19 variations as detours where they rejoin,
+  Day 20 character paths as persistent routes, and reconvergent choices within a persistent route
+  as local regions. The walkthrough is evaluation evidence only, never runtime input or authority.
+- Every authoritative transition retains evidence and an explicit role or unresolved diagnostic;
+  downstream mainline content is never duplicated once per reconvergent arm.
+- Approximately 10,000 nodes and 15,000 edges analyze within two seconds on the trial Windows
+  machine with under 256 MB additional peak memory and no per-event whole-graph BFS.
+- If any canonical sample is accessed, its SHA-256, size, and `LastWriteTimeUtc` are identical
+  before and after.
+
+Explicit exclusions:
+
+- No two-level UI redesign, parallel AI orchestration, LM Studio work, packaging/installer,
+  executable/APK/ZIP scanning, legacy Python 2 recovery, game editing, or automatic cloud calls.
+
+Completion evidence:
+
+- Unified folder/direct `.rpy`/`.rpyc`/`.rpa`/project ingestion, schema-v5 provenance, safe export,
+  the isolated Windows recovery helper, deterministic control regions, and persisted control-flow
+  payloads are integrated on `codex/m06-safe-ingestion-route-semantics`.
+- The pinned minimal Unrpyc runtime records upstream tag `v2.0.4`, internal version `2.0.3`, commit
+  `3ae8334ed71a05535927dcc559663d3aca51215b`, and bundle SHA-256
+  `fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775`.
+- Final Windows CPython 3.12 verification passed 376 tests, Ruff, strict mypy across 42 source
+  files, `pip check`, whitespace validation, wheel-content inspection, and all independent-review
+  regressions. Independent review found no remaining P0-P3 correctness or security issue.
+- The 10,000-node/14,998-edge control harness completed in 1.419 seconds with about 26.5 MB peak
+  traced memory. The adversarial 2,000-node persistent-split chain completed in 0.496 seconds with
+  about 5.1 MB and bounded membership, replacing the rejected quadratic implementation.
+- The read-only small `.rpy` produced 49 nodes/51 edges and one proven local detour. The read-only
+  small `.rpyc` recovered successfully into 339 nodes/345 edges and two terminal splits; unchanged
+  refresh parsed zero sources, reused one cached recovery, and preserved authority SHA-256
+  `9dc1a23c5661937b5ecdaf6271cf0c3898acf0ec15744b2e45da3258d4695948`.
+- Both small input files retained identical SHA-256, size, and `LastWriteTimeUtc`. The canonical
+  `scripts.rpa` was not accessed during M06.
+- Full AppContainer/restricted-token packaging remains a documented non-blocking limitation of the
+  source-form milestone. The suspended Job Object, minimal environment, bounded helper, audit
+  policy, cache isolation, and no-game-write rules are implemented and tested.
+
+### M07 - Two-Level Route Map and Resumable Parallel AI
+
+Status: Planned and approved in principle; do not create its goal, branch, tasks, or implementation
+until M06 is complete and the user explicitly approves M07 start.
+
+Objective: replace the three-level card hierarchy with the two-level Route Map and Detail/Evidence
+experience in Section 4, then make optional story enrichment scope-based, resumable, measurable,
+and substantially faster.
+
+Planned deliverables and locked decisions:
+
+- A chronological story-spine Route Map with compact milestones, visible fork/merge lines, edge
+  gates, detour lanes, persistent route lanes, loops, and distinct terminals. Default initial view
+  targets no more than about 30 meaningful nodes; technical fallback becomes corridor/coverage
+  metadata rather than singleton cards.
+- One Detail and Evidence workspace reached directly from any map element; no third level.
+- Deterministic route scopes are complete before AI runs. AI may name, summarize, and interpret
+  existing evidence but cannot decide edges, routes, gates, effects, merges, or endings.
+- Actual story analysis uses GPT-5.6 Luna with High reasoning and fast mode disabled. Normal Codex
+  implementation/review work uses GPT-5.6 Sol High with fast mode disabled.
+- Cloud analysis starts with eight independent workers and may ramp to twelve, with immediate
+  throttling on rate limits, latency, or errors; at most two repairs run concurrently. Persistence,
+  accounting, conflict resolution, and final deterministic assembly remain serialized.
+- Scope checkpoints persist `pending`, `cached/in-flight`, `validated`, `fallback`, `failed`, or
+  `cancelled`. Validated scopes survive cancellation and resume. Global all-or-nothing arc fallback
+  is removed from the default path.
+- Persist token/call usage after each provider attempt, normalize cache identity across identical
+  global/scoped inputs, use adaptive timeouts and budgets, show honest coverage and ETA ranges, and
+  present validated partial results when a soft time/token target is reached.
+- Ten minutes is an optimization target, not an SLA. A full MsDenvers cloud rerun requires a
+  separately confirmed scope and budget and is not triggered automatically.
+- The official walkthrough remains a diagnostic oracle only and is never a product dependency.
+
+M07 acceptance will include deterministic completion-order tests, cancellation/resume, zero-call
+cache replay, throttling and budget controls, native Windows UI testing at 100% and 200%, font and
+accessibility checks, direct evidence traversal, bounded node density, and explicit AI-versus-
+technical coverage.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
 
 1. Select a complex Ren'Py game folder or archive on Windows.
 2. Wait for safe static analysis without the game being executed or modified.
-3. See a clean Level 1 overview rather than hundreds of technical nodes.
-4. Zoom into Level 2 events and follow choices, requirements, effects, merges, and endings.
-5. Zoom into Level 3 to inspect exact dialogue, code expressions, and source lines.
+3. See a clean Route Map rather than hundreds of technical nodes.
+4. Follow choices, requirements, effects, detours, persistent routes, merges, loops, and endings.
+5. Open Detail and Evidence to inspect exact dialogue, code expressions, and qualified source lines.
 6. Understand important relationship, love/lust, skill, money, job, flag, and progression changes.
 7. Correct AI grouping or names when necessary.
 8. Close and reopen the project without repeating unchanged work.
@@ -847,5 +955,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-The approved M01-M05 roadmap is complete. Do not create M06. Any future packaging, distribution,
-LM Studio validation, compaction, or new product capability requires a separately approved plan.
+Leave M06 PR #9 unmerged. Present the completion report and native infographic, then stop for
+explicit merge and M07-start approval.
