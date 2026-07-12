@@ -1,6 +1,6 @@
 # M06 Goal — Safe Source Recovery and Correct Route Semantics
 
-Status: Active
+Status: Acceptance complete; PR publication and final goal closure pending
 
 Base commit: `7b5deeeeeab35a358eb78b7b660d3d57c02717b2`
 

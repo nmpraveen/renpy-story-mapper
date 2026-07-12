@@ -2,9 +2,9 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M05 are complete. M06 is the active approved milestone. M07 is approved in
-principle but must not begin until M06 is complete, merged with explicit approval, and separately
-approved to start.
+Status: M01 through M05 are complete. M06 implementation and Windows acceptance are complete on
+its unmerged milestone branch; its PR is pending final publication. M07 is approved in principle
+but must not begin until M06 is merged with explicit approval and separately approved to start.
 
 ## 1. Product goal
 
@@ -724,7 +724,8 @@ Explicit exclusions and assumptions:
 
 ### M06 - Safe Source Recovery and Correct Route Semantics
 
-Status: Active and approved on 2026-07-12.
+Status: Implementation and Windows acceptance complete on 2026-07-12; PR pending and must remain
+unmerged until explicit user approval.
 
 Objective: accept common modern Ren'Py source forms without modifying or executing the game, and
 prove whether alternatives are temporary detours, persistent routes, loops, or terminals before
@@ -806,6 +807,30 @@ Explicit exclusions:
 
 - No two-level UI redesign, parallel AI orchestration, LM Studio work, packaging/installer,
   executable/APK/ZIP scanning, legacy Python 2 recovery, game editing, or automatic cloud calls.
+
+Completion evidence:
+
+- Unified folder/direct `.rpy`/`.rpyc`/`.rpa`/project ingestion, schema-v5 provenance, safe export,
+  the isolated Windows recovery helper, deterministic control regions, and persisted control-flow
+  payloads are integrated on `codex/m06-safe-ingestion-route-semantics`.
+- The pinned minimal Unrpyc runtime records upstream tag `v2.0.4`, internal version `2.0.3`, commit
+  `3ae8334ed71a05535927dcc559663d3aca51215b`, and bundle SHA-256
+  `fb764521f9d3120b0c62198f086226f837802d73eccc9cad3c2ad683b1117775`.
+- Final Windows CPython 3.12 verification passed 376 tests, Ruff, strict mypy across 42 source
+  files, `pip check`, whitespace validation, wheel-content inspection, and all independent-review
+  regressions. Independent review found no remaining P0-P3 correctness or security issue.
+- The 10,000-node/14,998-edge control harness completed in 1.419 seconds with about 26.5 MB peak
+  traced memory. The adversarial 2,000-node persistent-split chain completed in 0.496 seconds with
+  about 5.1 MB and bounded membership, replacing the rejected quadratic implementation.
+- The read-only small `.rpy` produced 49 nodes/51 edges and one proven local detour. The read-only
+  small `.rpyc` recovered successfully into 339 nodes/345 edges and two terminal splits; unchanged
+  refresh parsed zero sources, reused one cached recovery, and preserved authority SHA-256
+  `9dc1a23c5661937b5ecdaf6271cf0c3898acf0ec15744b2e45da3258d4695948`.
+- Both small input files retained identical SHA-256, size, and `LastWriteTimeUtc`. The canonical
+  `scripts.rpa` was not accessed during M06.
+- Full AppContainer/restricted-token packaging remains a documented non-blocking limitation of the
+  source-form milestone. The suspended Job Object, minimal environment, bounded helper, audit
+  policy, cache isolation, and no-game-write rules are implemented and tested.
 
 ### M07 - Two-Level Route Map and Resumable Parallel AI
 
@@ -931,5 +956,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute M06 on one milestone branch and PR. Complete integration, Windows verification,
-documentation, and the native M06 infographic, then stop for explicit merge and M07-start approval.
+Publish the single M06 PR and leave it unmerged. Present the completion report and native
+infographic, complete the M06 goal, and stop for explicit merge and M07-start approval.
