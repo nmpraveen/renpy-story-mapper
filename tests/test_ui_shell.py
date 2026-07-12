@@ -142,8 +142,14 @@ def test_source_and_output_validation_is_read_only(source_tree: Path, tmp_path: 
     archive.write_bytes(b"fixture only")
     with pytest.raises(ValueError, match="outside the archive folder"):
         validate_create_paths(archive, tmp_path / "map.rsmproj")
-    with pytest.raises(ValueError, match="RPA archive"):
-        validate_create_paths(source_file, tmp_path / "map.rsmproj")
+    selected, output = validate_create_paths(source_file, tmp_path / "map.rsmproj")
+    assert selected == source_file.resolve()
+    assert output == (tmp_path / "map.rsmproj").resolve()
+
+    unsupported = source_tree / "notes.txt"
+    unsupported.write_text("not a Ren'Py source", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"\.rpy, \.rpyc, or \.rpa"):
+        validate_create_paths(unsupported, tmp_path / "other.rsmproj")
     assert before == (source_file.read_bytes(), source_file.stat().st_mtime_ns)
 
 
