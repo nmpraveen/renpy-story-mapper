@@ -114,7 +114,12 @@ def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     assert "refresh()" in api and "ENDPOINTS.projectsRefresh" in api
     assert 'id="refreshProject"' in html and ">Refresh</button>" in html
     assert '$("#refreshProject").addEventListener("click", async () =>' in app
-    assert "await api.refresh()" in app and "await loadRoutePage(0)" in app
+    assert "await api.refresh()" in app and "await resetRoutePaging()" in app
+    reset = app[
+        app.index("async function resetRoutePaging()") : app.index("function nextCursor()")
+    ]
+    assert "state.cursorHistory = []" in reset
+    assert "await loadRoutePage({ offset: 0, edgeOffset: 0 })" in reset
 
 
 def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
