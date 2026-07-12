@@ -280,7 +280,7 @@ class ProjectApi:
                 ready = self._project_path is not None
             return {
                 "version": "0.1.0",
-                "project_schema": 5 if ready else None,
+                "project_schema": 6 if ready else None,
                 "browser_api": "v1",
                 "provider_requests_on_open": 0,
                 "messages": ["Rendering is bounded", "No provider is invoked by project open"],

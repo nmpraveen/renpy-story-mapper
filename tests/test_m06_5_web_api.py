@@ -261,6 +261,9 @@ def test_open_view_evidence_and_no_provider_construction(
     assert status == 200
     assert evidence["node_id"] == view["nodes"][0]["id"]
     assert evidence["records"]
+    status, diagnostics, _headers = request(running_server, "GET", "/api/v1/diagnostics")
+    assert status == 200
+    assert diagnostics["project_schema"] == 6
 
 
 def test_story_view_node_unresolved_contract_is_stable_json() -> None:
