@@ -15,8 +15,14 @@ from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
-from renpy_story_mapper.story_organization import StoryOrganizationService
-from renpy_story_mapper.ui.organization_workflow import OrganizationOptions, OrganizationWorkflow
+from renpy_story_mapper.m07_model import M07ModelService
+from renpy_story_mapper.organization.parallel import (
+    BudgetPolicy,
+    CheckpointSink,
+    ParallelOrganizationScheduler,
+    SchedulerConfig,
+    normalized_cache_identity,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "m07"
@@ -274,24 +280,21 @@ def test_browser_fixture_and_harness_define_exactly_two_local_levels() -> None:
 
 
 def test_public_scope_checkpoint_contract_is_durable_and_queryable() -> None:
-    """Expected to fail before the M07 checkpoint storage implementation is integrated."""
-    required = {"scope_checkpoints", "record_scope_checkpoint", "record_provider_attempt"}
-    assert required <= set(dir(StoryOrganizationService))
-    statuses = inspect.signature(StoryOrganizationService.record_scope_checkpoint).parameters
-    assert {"run_id", "scope_id", "status", "ordinal"} <= set(statuses)
+    required = {"checkpoints", "transition", "record_attempt", "coverage", "assemble"}
+    assert required <= set(dir(M07ModelService))
+    transition = inspect.signature(M07ModelService.transition).parameters
+    assert {"scope_id", "status", "result", "error_code"} <= set(transition)
+    assert "attempt" in inspect.signature(M07ModelService.record_attempt).parameters
 
 
 def test_public_parallel_workflow_exposes_locked_policy_and_resume() -> None:
-    """Expected to fail before the M07 parallel orchestration implementation is integrated."""
-    option_fields = {field.name for field in fields(OrganizationOptions)}
-    assert {
-        "initial_concurrency",
-        "maximum_concurrency",
-        "maximum_repairs",
-        "soft_token_budget",
-        "hard_token_budget",
-    } <= option_fields
-    assert hasattr(OrganizationWorkflow, "resume")
+    config_fields = {field.name for field in fields(SchedulerConfig)}
+    assert {"initial_workers", "maximum_workers", "maximum_repairs", "budget"} <= config_fields
+    budget_fields = {field.name for field in fields(BudgetPolicy)}
+    assert {"soft_tokens", "hard_tokens", "hard_calls"} <= budget_fields
+    assert hasattr(ParallelOrganizationScheduler, "run")
+    assert hasattr(CheckpointSink, "checkpoint")
+    assert callable(normalized_cache_identity)
 
 
 def test_production_browser_contract_removes_all_third_level_navigation() -> None:
