@@ -95,6 +95,7 @@ class RouteEdge:
     role: str
     lane_id: str
     control_edge_ids: tuple[str, ...]
+    control_node_ids: tuple[str, ...]
     gate_ids: tuple[str, ...]
     effect_ids: tuple[str, ...]
     evidence_ids: tuple[str, ...]
@@ -109,6 +110,7 @@ class RouteEdge:
             "role": self.role,
             "lane_id": self.lane_id,
             "control_edge_ids": list(self.control_edge_ids),
+            "control_node_ids": list(self.control_node_ids),
             "gate_ids": list(self.gate_ids),
             "effect_ids": list(self.effect_ids),
             "evidence_ids": list(self.evidence_ids),
@@ -166,11 +168,18 @@ class RouteMap:
     initial_node_limit: int = DEFAULT_INITIAL_NODE_LIMIT
     evidence: tuple[RouteEvidence, ...] = ()
 
+    @property
+    def initial_node_ids(self) -> tuple[str, ...]:
+        """Stable bounded first viewport; authoritative topology remains complete."""
+
+        return tuple(node.id for node in self.nodes[: self.initial_node_limit])
+
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": ROUTE_MAP_SCHEMA_VERSION,
             "presentation_levels": ["route_map", "detail_evidence"],
             "initial_node_limit": self.initial_node_limit,
+            "initial_node_ids": list(self.initial_node_ids),
             "nodes": [item.to_dict() for item in self.nodes],
             "edges": [item.to_dict() for item in self.edges],
             "scopes": [item.to_dict() for item in self.scopes],
@@ -225,6 +234,32 @@ class RouteMap:
                 }
         raise KeyError(f"unknown route-map element: {element_id}")
 
+    def page(
+        self, *, offset: int = 0, limit: int = DEFAULT_INITIAL_NODE_LIMIT
+    ) -> dict[str, object]:
+        """Return a deterministic follow-on slice without adding a semantic level."""
+
+        if offset < 0:
+            raise ValueError("page offset cannot be negative")
+        if limit < 1 or limit > DEFAULT_INITIAL_NODE_LIMIT:
+            raise ValueError("page limit must be between 1 and 30")
+        page_nodes = self.nodes[offset : offset + limit]
+        node_ids = {node.id for node in page_nodes}
+        page_edges = tuple(
+            edge for edge in self.edges if edge.source_id in node_ids or edge.target_id in node_ids
+        )
+        next_offset = offset + len(page_nodes)
+        return {
+            "level": "route_map",
+            "offset": offset,
+            "limit": limit,
+            "total_nodes": len(self.nodes),
+            "node_ids": [node.id for node in page_nodes],
+            "nodes": [node.to_dict() for node in page_nodes],
+            "edges": [edge.to_dict() for edge in page_edges],
+            "next_offset": next_offset if next_offset < len(self.nodes) else None,
+        }
+
 
 def project_route_map(
     control_flow: Mapping[str, object],
@@ -257,8 +292,13 @@ def project_route_map(
 
     terminal_by_node = {_text(item, "node_id"): _text(item, "kind") for item in terminals}
     loop_nodes = {node for loop in loops for node in _strings(loop.get("node_ids"))}
+    loop_entries = {
+        entry
+        for loop in loops
+        for entry in (_strings(loop.get("entry_node_ids")) or _strings(loop.get("node_ids"))[:1])
+    }
     regions_by_node: dict[str, list[dict[str, object]]] = defaultdict(list)
-    meaningful: set[str] = set(terminal_by_node) | loop_nodes
+    meaningful: set[str] = set(terminal_by_node) | loop_entries
     for region in regions:
         split = _text(region, "split_node_id")
         meaningful.add(split)
@@ -274,12 +314,11 @@ def project_route_map(
             endpoints = (_text(edge, "source"), _text(edge, "target"))
             meaningful.update(endpoints)
             unresolved_control.update(endpoints)
-    # Narrative/choice beats anchor the chronological spine; routine structural beats collapse.
-    for control_id, owned_beats in beat_by_control.items():
-        if any(
-            str(beat.get("kind")) in {"narrative", "choice", "condition"} for beat in owned_beats
-        ):
-            meaningful.add(control_id)
+    # Labels anchor the spine. Routine narrative and technical chains stay inside
+    # evidence-bearing corridors rather than becoming singleton route cards.
+    meaningful.update(
+        node_id for node_id, node in node_by_id.items() if str(node.get("kind")) == "label"
+    )
 
     order_key = {
         node_id: _node_order(node, beat_by_control.get(node_id, []))
@@ -288,21 +327,6 @@ def project_route_map(
     selected = sorted(
         (node for node in meaningful if node in node_by_id), key=lambda item: order_key[item]
     )
-    if len(selected) > initial_node_limit:
-        mandatory = (
-            set(terminal_by_node)
-            | loop_nodes
-            | unresolved_control
-            | {_text(arm, "entry_node_id") for arm in arms}
-            | {_text(region, "split_node_id") for region in regions}
-            | {
-                str(region["merge_node_id"])
-                for region in regions
-                if isinstance(region.get("merge_node_id"), str)
-            }
-        )
-        prioritized = sorted(selected, key=lambda item: (item not in mandatory, order_key[item]))
-        selected = sorted(prioritized[:initial_node_limit], key=lambda item: order_key[item])
     selected_set = set(selected)
 
     arms_by_node: dict[str, list[dict[str, object]]] = defaultdict(list)
@@ -377,6 +401,7 @@ def project_route_map(
                             fact_requirements,
                             fact_effects,
                             regions,
+                            beat_by_control,
                         )
                     )
                 continue
@@ -568,6 +593,7 @@ def _route_edge(
     requirements: Mapping[str, tuple[str, ...]],
     effects: Mapping[str, tuple[str, ...]],
     regions: Sequence[Mapping[str, object]],
+    beat_by_control: Mapping[str, Sequence[Mapping[str, object]]],
 ) -> RouteEdge:
     edge_ids = tuple(_text(edge, "id") for edge in edges)
     roles = tuple(_text(edge, "role") for edge in edges)
@@ -580,6 +606,11 @@ def _route_edge(
                 _stable_id("edge_evidence", _text(edge, "id"), str(ordinal))
                 for edge in edges
                 for ordinal, _item in enumerate(_edge_evidence(edge))
+            }
+            | {
+                _text(beat, "id")
+                for node_id in traversed
+                for beat in beat_by_control.get(node_id, ())
             }
         )
     )
@@ -596,6 +627,7 @@ def _route_edge(
         role,
         lane_id,
         edge_ids,
+        tuple(traversed),
         gate_ids,
         effect_ids,
         evidence_ids,

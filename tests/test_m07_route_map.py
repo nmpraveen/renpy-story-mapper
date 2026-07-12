@@ -27,13 +27,17 @@ def test_exactly_two_levels_diamonds_reconvergence_and_nested_detours() -> None:
     route_map = project_route_map(control, semantic)
 
     assert route_map.to_dict()["presentation_levels"] == ["route_map", "detail_evidence"]
-    assert len(route_map.nodes) <= 30
+    assert len(route_map.initial_node_ids) <= 30
     assert any(node.kind is RouteNodeKind.CHOICE for node in route_map.nodes)
     assert any(node.kind is RouteNodeKind.MERGE for node in route_map.nodes)
     assert any(edge.proven_merge for edge in route_map.edges)
     assert any(node.lane_kind is RouteLaneKind.DETOUR for node in route_map.nodes)
     assert route_map.coverage.technical_nodes > 0
     assert route_map.coverage.corridor_count > 0
+    corridor = next(edge for edge in route_map.edges if edge.technical_hops > 0)
+    assert len(corridor.control_node_ids) == corridor.technical_hops + 2
+    scoped_evidence = {item for scope in route_map.scopes for item in scope.evidence_ids}
+    assert set(corridor.evidence_ids) <= scoped_evidence
 
     choice = next(node for node in route_map.nodes if node.kind is RouteNodeKind.CHOICE)
     detail = route_map.detail(choice.id)
@@ -101,12 +105,12 @@ def test_stable_ids_order_hash_and_permuted_authority() -> None:
     assert [scope.ordinal for scope in first.scopes] == list(range(len(first.scopes)))
 
 
-def test_initial_projection_is_bounded_at_scale() -> None:
+def test_complete_topology_has_bounded_deterministic_pages_at_scale() -> None:
     count = 2_000
     nodes = [
         {
             "id": f"n{i:04d}",
-            "kind": "statement",
+            "kind": "unresolved",
             "label": "start",
             "hidden": False,
             "synthetic": False,
@@ -123,10 +127,10 @@ def test_initial_projection_is_bounded_at_scale() -> None:
             "id": f"e{i:04d}",
             "source": f"n{i:04d}",
             "target": f"n{i + 1:04d}",
-            "role": "flow",
-            "semantic_roles": ["fallthrough"],
+            "role": "unresolved",
+            "semantic_roles": ["unresolved_behavior"],
             "evidence": [],
-            "resolved": True,
+            "resolved": False,
         }
         for i in range(count - 1)
     ]
@@ -150,9 +154,20 @@ def test_initial_projection_is_bounded_at_scale() -> None:
     }
     semantic = {"schema_version": 1, "beats": beats}
     route_map = project_route_map(control, semantic)
-    assert len(route_map.nodes) == 30
+    assert len(route_map.nodes) == count
+    assert len(route_map.initial_node_ids) == 30
+    assert route_map.initial_node_ids == tuple(node.id for node in route_map.nodes[:30])
+    first = route_map.page()
+    second = route_map.page(offset=30)
+    assert first["next_offset"] == 30
+    assert second["offset"] == 30
+    assert set(first["node_ids"]).isdisjoint(second["node_ids"])
+    assert route_map.page(offset=30) == second
+    assert len({node_id for scope in route_map.scopes for node_id in scope.node_ids}) == count
+    assert any(node.id == second["node_ids"][0] for node in route_map.nodes)
+    assert route_map.detail(str(second["node_ids"][0]))["level"] == "detail_evidence"
     assert route_map.coverage.control_nodes == count
-    assert route_map.coverage.technical_nodes == count - 30
+    assert route_map.coverage.technical_nodes == 0
     assert route_map.nodes[-1].kind is RouteNodeKind.TERMINAL
 
 
@@ -164,6 +179,7 @@ def test_project_analysis_persists_route_map_and_pre_ai_scopes(tmp_path: Path) -
         payload = project.payload("m07_route_map", "authoritative")
         assert isinstance(payload, dict)
         assert payload["presentation_levels"] == ["route_map", "detail_evidence"]
+        assert len(payload["initial_node_ids"]) <= 30
         checkpoints = project.m07_model_service().checkpoints()
         assert checkpoints
         assert [item.ordinal for item in checkpoints] == list(range(len(checkpoints)))
