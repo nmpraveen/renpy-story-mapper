@@ -2,13 +2,13 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "c4bdb091e57b3242d47d84bd9816961afcd7f8b03f3382553e32096a2a5bcb40",
-    "api.js": "447ee54bd778302320e8f2f28e4a3def751d710a389bfb2d7a1c1113161f8957",
-    "app.js": "a7341c3757fa358d013b3948d03412bc2e89406834dcb3c38a3cdd3850e3c486",
-    "contract.js": "af3152237b7eb31016dfb6cfc0a94411486f795a9936ddf415f6f233963494d3",
-    "graph.js": "4b4850c4221b93f77c45c0aba4ad6a02352c24cb7fe3da0b774edaffea3564b5",
-    "index.html": "3a8c3e63b498e6789eb50489610d2bee6ce983cc4a8b24d337d0e2444efa7eef",
-    "mock-api.js": "f9e71dee9aa8f838f7276d381433768a09eb37f998e01e02b9b3c4c9577ce93e",
-    "styles.css": "c87c9583598f7c918b0c47c4c52b07927d566389e513e6d4203c426e33c5a199"
+    "API_CONTRACT.md": "415fc8146e4baab956202657057849625484fc2d9b8a64e8c108339a2f6299f3",
+    "api.js": "c9053e974b93e942cb36e8d01ef3029a02eeccc89664c1ecea07bc0e854cde67",
+    "app.js": "3ddf811526cbf2733ed0dc879bb247e21cb4e63f0fc6a9fe7216aa2333dcf8a2",
+    "contract.js": "2b19e60fae0cf92ba65af35b3341d16dbd04f652febe81bad24e7499ea7165d9",
+    "graph.js": "dcbd8347b8560581b5f7bb89fb08893aafc0c07ec55d95d8edb864680f672d91",
+    "index.html": "fc26da338edd2fa7ac8b2f40f351bcecdbfeb87209c05fff79fde9a92b21db4b",
+    "mock-api.js": "74dcdb773864cf461ead3dcd22f7e76d4abec853d53dc86a4b0b04abc3d64cb2",
+    "styles.css": "d3f00e47a69db750d14c46a9c33fdabf168413685ffd56417082181804dae800"
   }
 }

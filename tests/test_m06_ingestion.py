@@ -191,21 +191,21 @@ def test_export_requires_new_destination_outside_source_and_writes_manifest(
         export_recovered_sources(result, destination)
 
 
-def test_schema_v5_migration_and_project_provenance_contract(tmp_path: Path) -> None:
+def test_schema_v5_to_v6_migration_and_project_provenance_contract(tmp_path: Path) -> None:
     legacy = tmp_path / "legacy.rsmproj"
     connection = storage.connect(legacy)
-    storage.initialize_database(connection, target_version=4)
+    storage.initialize_database(connection, target_version=5)
     connection.close()
     with Project.open(legacy) as migrated:
-        assert migrated.schema_version == 5
+        assert migrated.schema_version == storage.SCHEMA_VERSION
         assert migrated.source_coverage() == {}
-    assert (tmp_path / "legacy.rsmproj.pre-migrate-v4.bak").is_file()
+    assert (tmp_path / "legacy.rsmproj.pre-migrate-v5.bak").is_file()
 
     compiled = tmp_path / "script.rpyc"
     compiled.write_bytes(make_modern_rpyc())
     project_path = tmp_path / "story.rsmproj"
     with create_input_project(project_path, compiled, options=options(tmp_path)) as project:
-        assert project.schema_version == 5
+        assert project.schema_version == storage.SCHEMA_VERSION
         derivation = project.source_derivations()[0]
         assert derivation["source_kind"] == "reconstructed"
         assert derivation["line_basis"] == "reconstructed_unrpyc_output_v1"

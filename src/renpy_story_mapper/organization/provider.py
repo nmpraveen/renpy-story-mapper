@@ -27,6 +27,7 @@ from renpy_story_mapper.organization.contracts import (
     OrganizationChunkResult,
     OrganizationRequest,
     ProgressCallback,
+    ProviderAttemptUsage,
     ProviderExecutionMetadata,
     ProviderState,
     ProviderStatus,
@@ -293,6 +294,8 @@ class CodexCliProvider:
         lmstudio_base_url: str = "http://127.0.0.1:1234",
         model_discovery: ModelDiscovery | None = None,
         environment_factory: EnvironmentFactory | None = None,
+        attempt_observer: Callable[[ProviderAttemptUsage], None] | None = None,
+        repair_semaphore: threading.Semaphore | None = None,
     ) -> None:
         self.mode = mode
         self.executable = executable
@@ -317,6 +320,16 @@ class CodexCliProvider:
         self._output_tokens: int | None = None
         self._effective_model: str | None = None
         self._reported_model: str | None = None
+        self._attempt_observer = attempt_observer
+        self._repair_semaphore = repair_semaphore
+
+    def set_attempt_observer(self, observer: Callable[[ProviderAttemptUsage], None] | None) -> None:
+        """Install a scheduler-owned incremental accounting sink."""
+        self._attempt_observer = observer
+
+    def set_repair_semaphore(self, semaphore: threading.Semaphore | None) -> None:
+        """Share a scheduler repair bound across otherwise independent providers."""
+        self._repair_semaphore = semaphore
 
     def status(self) -> ProviderStatus:
         if self._cached_status is not None:
@@ -596,12 +609,23 @@ class CodexCliProvider:
                 self._input_tokens = None
                 self._output_tokens = None
                 usage_recorded = False
+                attempt_started_at = time.monotonic()
+                outcome = "failed"
+                repair_acquired = False
                 try:
+                    if repair and self._repair_semaphore is not None:
+                        while not self._repair_semaphore.acquire(timeout=0.05):
+                            if cancelled() or self._cancel_requested.is_set():
+                                raise OrganizationCancelledError(
+                                    "Story organization was cancelled while awaiting repair."
+                                )
+                        repair_acquired = True
                     raw = self._execute(request, progress, cancelled, repair=repair)
                     input_usage.append(self._input_tokens)
                     output_usage.append(self._output_tokens)
                     usage_recorded = True
                     result = validate_result(raw, request)
+                    outcome = "validated"
                     normalized = json.dumps(
                         result.raw_normalized,
                         ensure_ascii=False,
@@ -652,6 +676,30 @@ class CodexCliProvider:
                         "The organizer returned invalid structured output twice; "
                         "using deterministic organization."
                     ) from None
+                except OrganizationCancelledError:
+                    outcome = "cancelled"
+                    raise
+                except ProviderTimeoutError:
+                    outcome = "timeout"
+                    raise
+                except ProviderRateLimitError:
+                    outcome = "rate_limited"
+                    raise
+                finally:
+                    if repair_acquired and self._repair_semaphore is not None:
+                        self._repair_semaphore.release()
+                    if self._attempt_observer is not None:
+                        self._attempt_observer(
+                            ProviderAttemptUsage(
+                                attempt=attempt,
+                                elapsed_ms=round(
+                                    (time.monotonic() - attempt_started_at) * 1000
+                                ),
+                                outcome=outcome,
+                                input_tokens=self._input_tokens,
+                                output_tokens=self._output_tokens,
+                            )
+                        )
             assert last_error is not None
             raise last_error
         finally:

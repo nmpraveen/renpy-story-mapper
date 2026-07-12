@@ -1,57 +1,43 @@
 # Browser API contract
 
-The browser is a presentation client for the loopback-only Python service. `contract.js` is the
-single frontend route manifest. All routes are under `/api/v1`; the server owns authentication,
-CSRF, Host/Origin checks, request bounds, path redaction, and authoritative story data.
+The packaged browser is a presentation client for the loopback-only Python service. The service
+owns story topology, evidence, organization state, session/CSRF enforcement, request bounds, and
+path redaction. JavaScript never derives authoritative connectivity.
 
-## Core rules
+## Two-level M07 surface
 
-- Reads include `X-RSM-Session`; mutations also include `X-RSM-CSRF`.
-- Native dialogs return `{selection_id, kind, display_name}`. `selection_id` is an opaque,
-  launch-scoped
-  capability. No browser request or response needs an absolute filesystem path.
-- Presentation responses own node IDs, parentage, order, kinds, edges, facts, and evidence. The
-  frontend only lays out the returned bounded page.
-- View requests send numeric levels `1` (arcs), `2` (events), and `3` (evidence), with limits of
-  80 nodes and 120 edges. The client rejects more than 240 combined render items.
-- `node_continuation.has_more` or `edge_continuation.has_more` must remain visible as bounded-slice
-  overflow; the client never silently fetches an unbounded graph.
-- Search, facts, and evidence are separate authoritative queries. Search text is never interpreted
-  as a local graph query in production.
-- Opening, rendering, searching, or loading evidence must not start organization. Organization
-  start is a separate consent-bearing mutation, and apply/discard are explicit draft mutations.
+The only visible levels are `route_map` and `detail_evidence`. Stations and line segments open the
+same Detail/Evidence workspace directly. **Back to Route Map** is the sole level transition. Pan,
+zoom, fit, search, filters, and follow-on pages alter visual position or density only.
 
-## Routes
+The first page requests no more than 30 meaningful stations. Dense pages use an independent line
+cursor: Next exhausts `edge_next_offset` slices for the current station page before advancing
+`next_offset`, and Previous follows a bounded history of cursors actually visited. The client
+rejects more than 30 stations, 180 line segments, or 240 combined rendered items. Status text
+reports both station and line ranges plus overflow. Technical one-in/one-out work remains
+line-corridor coverage and is not expanded into singleton cards.
 
-`GET /api/v1/bootstrap`, `GET /api/v1/recent`, `POST /api/v1/native-picker`,
-`POST /api/v1/projects/open`, `POST /api/v1/projects/create`,
-`POST /api/v1/projects/refresh`, `GET /api/v1/analysis/progress`,
-`POST /api/v1/analysis/cancel`, `POST /api/v1/story/view`,
-`POST /api/v1/story/search`, `POST /api/v1/story/evidence`,
-`POST /api/v1/story/facts`, `GET /api/v1/organization/draft`,
-`POST /api/v1/organization/consent`, `POST /api/v1/organization/review`,
-`POST /api/v1/organization/apply`, `POST /api/v1/organization/discard`, and
-`POST /api/v1/shutdown`.
+## Locked M07 routes
 
-The bootstrap response includes `recent_projects`, `settings`, and the server's route manifest.
-`PUT /api/v1/settings` and `GET /api/v1/diagnostics` complete the local view-state and troubleshooting
-flows. Session and CSRF values are injected into the empty packaged meta elements when the index is
-served; they are never stored in the asset bundle.
-The shutdown mutation is acknowledged before the launcher exits, so Quit does not leave the local
-server running in the background.
+- `POST /api/v1/m07/route-map` with `{offset, limit, edge_offset, edge_limit}`
+- `POST /api/v1/m07/detail` with `{element_id}`
+- `GET /api/v1/m07/organization`
+- `POST /api/v1/m07/organization/prepare` with `{}`
+- `POST /api/v1/m07/organization/start` with `{run_id, confirm_cloud: true, budgets}`
+- `POST /api/v1/m07/organization/cancel` with `{}`
+- `POST /api/v1/m07/assembly/apply` with `{assembly_id}`
 
-Every story-view node includes the backend-owned `unresolved` boolean. The frontend unresolved
-toggle filters only this field and never infers classification from kind text or opaque payloads.
+Open, render, Detail/Evidence, and prepare never construct a provider. Cloud work begins only at
+the explicit start mutation after confirmation. Organization state reports scope counts, calls,
+tokens, AI coverage, technical coverage, and an ETA range; cancellation preserves validated
+scopes. A partial assembly remains reviewable and requires an explicit apply mutation.
 
-The draft envelope contains pending `drafts`, each draft's raw candidate at `draft.candidate.arcs`
-and `draft.candidate.events`, and persisted decisions at `reviews[draft_id]`. Review mutations send
-exactly `{draft_id, target_kind, target_id, decision}`. Arc member counts use `event_ids`; event
-member counts use `beat_ids`. Candidate rows are paged 40 at a time and Apply remains disabled
-until every candidate across all pages has an explicit persisted approved/rejected decision.
+## Local shell routes
 
-## Mock contract
+The existing bootstrap, opaque native picker, project create/open/refresh, deterministic analysis
+progress/cancel, settings, diagnostics, shutdown, Host/Origin, session, CSRF, CSP, cache, and error
+redaction boundaries remain unchanged. No browser request contains an absolute filesystem path.
 
-`mock-api.js` implements the same method-level interface with opaque selections and deterministic
-fixtures. It is enabled only by the explicit `?mock=1` acceptance URL; production launch URLs do
-not include that flag. The mock records every method call so acceptance can prove that project
-opening and story traversal make zero implicit organization-start requests.
+`mock-api.js` mirrors the live method interface and exact mutation bodies. It is enabled only by
+the explicit `?mock=1` acceptance URL. The M07 Chrome harness serves these production assets from
+an ephemeral `127.0.0.1` origin and records zero remote requests and zero provider constructions.

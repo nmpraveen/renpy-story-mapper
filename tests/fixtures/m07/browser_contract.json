@@ -1,0 +1,53 @@
+{
+  "format": 1,
+  "levels": ["route_map", "detail_evidence"],
+  "initial_node_limit": 30,
+  "render_item_limit": 240,
+  "zoom_percentages": [100, 200],
+  "required_states": [
+    "route-map",
+    "detail-evidence",
+    "coverage-progress",
+    "review-partial"
+  ],
+  "route_features": [
+    "chronological_spine",
+    "fork_lines",
+    "merge_lines",
+    "detour_lane",
+    "persistent_lane",
+    "loop",
+    "gate",
+    "effect",
+    "technical_corridor",
+    "game_ending",
+    "route_ending",
+    "dead_end",
+    "update_boundary",
+    "unresolved_target"
+  ],
+  "detail_features": [
+    "direct_from_map_element",
+    "local_path_strip",
+    "exact_caption",
+    "exact_requirement",
+    "exact_effect",
+    "relative_path",
+    "physical_line",
+    "evidence_id",
+    "interpretation_label"
+  ],
+  "only_level_transition_label": "Back to Route Map",
+  "accessibility": {
+    "font_stack_must_include": ["Segoe UI", "system-ui"],
+    "minimum_body_px": 14,
+    "keyboard_keys": ["Tab", "Enter", "Escape", "ArrowLeft", "ArrowRight", "Home", "End"],
+    "requires_visible_focus": true,
+    "requires_accessible_names": true,
+    "color_alone_forbidden": true
+  },
+  "network": {
+    "allowed_origins": ["127.0.0.1"],
+    "remote_requests": 0
+  }
+}

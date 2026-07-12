@@ -40,6 +40,7 @@ from renpy_story_mapper.project import (
     RefreshReport,
     SourceFingerprint,
 )
+from renpy_story_mapper.route_map import RouteMap, project_route_map
 from renpy_story_mapper.rpa import RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import FactStatus, StateAnalysis, StateEvidence, extract_state
@@ -303,6 +304,7 @@ def project_snapshot(project: Project) -> dict[str, object]:
         "graph": project.payload("m01_graph", "authoritative") or {},
         "semantic": project.payload("m02_semantic", "authoritative") or {},
         "control_flow": project.payload("m06_control_flow", "authoritative") or {},
+        "route_map": project.payload("m07_route_map", "authoritative") or {},
         "import_manifest": project.payload("import_manifest", "authoritative") or {},
         "source_derivations": list(project.source_derivations()),
         "recovery_results": list(project.recovery_results()),
@@ -370,6 +372,7 @@ def _refresh_open_project(
         state.requirements,
         state.effects,
     ).to_dict()
+    route_map = project_route_map(control_flow, semantic, state.requirements, state.effects)
 
     records = _analysis_records(
         modules,
@@ -377,11 +380,15 @@ def _refresh_open_project(
         graph,
         semantic,
         control_flow,
+        route_map,
         state,
         parsed_paths,
         previous_registry,
     )
     project.write_payloads(records, cancelled=cancel_check)
+    project.m07_model_service().register_scopes(
+        route_map.scopes, generation=route_map.authority_hash
+    )
     from renpy_story_mapper.presentation import rebuild_presentation_index
 
     rebuild_presentation_index(project, cancelled=cancel_check)
@@ -401,6 +408,7 @@ def _analysis_records(
     graph: dict[str, object],
     semantic: dict[str, object],
     control_flow: dict[str, object],
+    route_map: RouteMap,
     state: StateAnalysis,
     parsed_paths: set[str],
     previous_registry: object,
@@ -422,6 +430,7 @@ def _analysis_records(
             PayloadRecord("m01_graph", "authoritative", graph, all_paths),
             PayloadRecord("m02_semantic", "authoritative", semantic, all_paths),
             PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths),
+            PayloadRecord("m07_route_map", "authoritative", route_map.to_dict(), all_paths),
         )
     )
 

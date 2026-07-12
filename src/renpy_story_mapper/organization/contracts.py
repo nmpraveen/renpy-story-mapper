@@ -131,6 +131,21 @@ class ProviderExecutionMetadata:
 
 
 @dataclass(frozen=True)
+class ProviderAttemptUsage:
+    """Usage emitted after every provider attempt, including unsuccessful attempts."""
+
+    attempt: int
+    elapsed_ms: int
+    outcome: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class AttemptObserver(Protocol):
+    def __call__(self, usage: ProviderAttemptUsage) -> None: ...
+
+
+@dataclass(frozen=True)
 class OrganizationChunkResult:
     stage: OrganizationStage
     groups: tuple[OrganizationGroup, ...]

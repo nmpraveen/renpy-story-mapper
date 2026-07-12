@@ -1,47 +1,62 @@
-/**
- * Frontend contract for the loopback API. JavaScript never derives story authority.
- * Backend responses own node membership, ordering, edges, facts, and evidence locations.
- * Native pickers return opaque `selection_id` values; browser clients never submit paths.
- */
+/** Packaged loopback API and rendering safety contract. */
 export const API_VERSION = "v1";
-export const RENDER_LIMITS = Object.freeze({ nodes: 80, edges: 120, items: 240 });
+export const ROUTE_PAGE_SIZE = 30;
+export const ROUTE_EDGE_PAGE_SIZE = 180;
+export const RENDER_LIMITS = Object.freeze({ nodes: 30, edges: 180, items: 240 });
 
 export const ENDPOINTS = Object.freeze({
   bootstrap: "/api/v1/bootstrap",
-  recent: "/api/v1/recent",
   nativePicker: "/api/v1/native-picker",
   projectsOpen: "/api/v1/projects/open",
   projectsCreate: "/api/v1/projects/create",
   projectsRefresh: "/api/v1/projects/refresh",
   analysisProgress: "/api/v1/analysis/progress",
   analysisCancel: "/api/v1/analysis/cancel",
-  storyView: "/api/v1/story/view",
-  storySearch: "/api/v1/story/search",
-  storyEvidence: "/api/v1/story/evidence",
-  storyFacts: "/api/v1/story/facts",
   settings: "/api/v1/settings",
-  organizationConsent: "/api/v1/organization/consent",
-  organizationDraft: "/api/v1/organization/draft",
-  organizationReview: "/api/v1/organization/review",
-  organizationApply: "/api/v1/organization/apply",
-  organizationDiscard: "/api/v1/organization/discard",
   diagnostics: "/api/v1/diagnostics",
   shutdown: "/api/v1/shutdown",
+  routeMap: "/api/v1/m07/route-map",
+  routeDetail: "/api/v1/m07/detail",
+  organization: "/api/v1/m07/organization",
+  organizationPrepare: "/api/v1/m07/organization/prepare",
+  organizationStart: "/api/v1/m07/organization/start",
+  organizationCancel: "/api/v1/m07/organization/cancel",
+  assemblyApply: "/api/v1/m07/assembly/apply",
 });
 
-export const LEVEL_NUMBER = Object.freeze({ arcs: 1, events: 2, evidence: 3 });
+const object = (value) => value && typeof value === "object" && !Array.isArray(value);
 
-export function assertBoundedView(view) {
-  if (!view || !Array.isArray(view.nodes) || !Array.isArray(view.edges)) {
-    throw new TypeError("Invalid story view response");
+export function assertRoutePage(page) {
+  if (!object(page) || !Array.isArray(page.nodes) || !Array.isArray(page.edges)) {
+    throw new TypeError("Invalid Route Map response");
   }
-  const items = view.nodes.length + view.edges.length;
-  if (view.nodes.length > RENDER_LIMITS.nodes || view.edges.length > RENDER_LIMITS.edges || items > RENDER_LIMITS.items) {
-    throw new RangeError("Story view exceeds the packaged rendering boundary");
+  const nodes = page.nodes.length;
+  const edges = page.edges.length;
+  if (nodes > RENDER_LIMITS.nodes || edges > RENDER_LIMITS.edges || nodes + edges > RENDER_LIMITS.items) {
+    throw new RangeError("Route Map exceeds the packaged rendering boundary");
   }
-  return view;
+  for (const key of ["edge_offset", "edge_limit", "page_edge_total"]) {
+    if (!Number.isInteger(page[key]) || page[key] < 0) throw new TypeError(`Invalid Route Map ${key}`);
+  }
+  if (page.edge_next_offset !== null && (!Number.isInteger(page.edge_next_offset) || page.edge_next_offset < 0)) {
+    throw new TypeError("Invalid Route Map edge_next_offset");
+  }
+  if (edges > page.edge_limit || page.edge_limit > RENDER_LIMITS.edges) {
+    throw new RangeError("Route Map edge slice exceeds the packaged rendering boundary");
+  }
+  if (page.level && page.level !== "route_map") throw new TypeError("Unexpected semantic level");
+  return page;
 }
 
-export function safeLevel(value) {
-  return value === "events" || value === "evidence" ? value : "arcs";
+export function assertDetail(detail) {
+  if (!object(detail) || !object(detail.element) || !Array.isArray(detail.evidence)) {
+    throw new TypeError("Invalid Detail/Evidence response");
+  }
+  if (detail.level && detail.level !== "detail_evidence") throw new TypeError("Unexpected semantic level");
+  return detail;
+}
+
+export function assertOrganization(value) {
+  if (!object(value)) throw new TypeError("Invalid organization response");
+  return value;
 }

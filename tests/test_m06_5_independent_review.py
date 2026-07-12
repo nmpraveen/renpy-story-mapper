@@ -134,15 +134,14 @@ def test_production_picker_shapes_create_and_refresh_a_real_project(tmp_path: Pa
     app = _text("app.js")
     api = _text("api.js")
     create_flow = app[
-        app.index("async function createFromSource") : app.index("async function openSelection")
+        app.index("async function choose") : app.index("async function openSelection")
     ]
-    assert "target.selection_id" in create_flow
-    assert "if (!targetId)" in create_flow
-    assert "api.create(sourceId, targetId)" in create_flow
-    assert "api.create(sourceId, target.id)" not in create_flow
+    assert "destination.selection_id || destination.id" in create_flow
+    assert "if (!destination?.selection_id && !destination?.id) return" in create_flow
+    assert "api.create(source.selection_id || source.id" in create_flow
     assert "ENDPOINTS.projectsRefresh" in api
-    assert "api.refresh(" in app
-    assert '$("#refreshProject").addEventListener("click", refreshProject)' in app
+    assert "await api.refresh()" in app
+    assert '$("#refreshProject").addEventListener("click", async () =>' in app
 
 
 def test_known_dynamic_jump_is_authoritatively_unresolved(tmp_path: Path) -> None:
@@ -340,18 +339,13 @@ def test_draft_review_contract_is_exact_and_pagination_is_bounded(tmp_path: Path
     app = _text("app.js")
     html = _text("index.html")
 
-    assert 'organizationReview: "/api/v1/organization/review"' in contract
-    assert "ENDPOINTS.organizationReview" in api
-    assert "draft_id: draftId" in api
-    assert "target_kind: targetKind" in api
-    assert "target_id: targetId" in api
-    assert "decision" in api
-    assert "const REVIEW_PAGE_SIZE = 40" in app
-    assert "candidates.slice(start, start + REVIEW_PAGE_SIZE)" in app
-    assert "Math.ceil(candidates.length / REVIEW_PAGE_SIZE)" in app
-    assert "decided !== candidates.length" in app
-    assert "api.reviewDraftGroup" in app
-    assert 'id="applyDraft"' in html and "disabled>Apply Draft" in html
+    assert 'assemblyApply: "/api/v1/m07/assembly/apply"' in contract
+    assert "ENDPOINTS.assemblyApply" in api
+    assert "assembly_id: assemblyId" in api
+    assert "api.applyAssembly" in app
+    assert "state.organization?.coverage" in app
+    assert "value.assembly_id" in app
+    assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
 
 
 def test_connection_close_header_is_enforced_by_the_http_lifecycle(tmp_path: Path) -> None:

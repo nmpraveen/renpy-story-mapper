@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import copy
+import hashlib
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from renpy_story_mapper.control_flow import analyze_control_flow
+from renpy_story_mapper.graph import build_graph
+from renpy_story_mapper.parser import parse_script
+from renpy_story_mapper.project import create_ingested_project
+from renpy_story_mapper.route_map import (
+    RouteLaneKind,
+    RouteNodeKind,
+    page_route_map_payload,
+    project_route_map,
+)
+from renpy_story_mapper.semantic import build_semantic_story
+
+FIXTURES = Path(__file__).parent / "fixtures" / "m06"
+
+
+def _fixture(name: str, *, entry: str = "start") -> tuple[dict[str, Any], dict[str, Any]]:
+    with (FIXTURES / name).open(encoding="utf-8") as stream:
+        graph = build_graph([parse_script(f"m06/{name}", stream)], entry_label=entry)
+    semantic = build_semantic_story(graph)
+    return semantic, analyze_control_flow(graph, semantic).to_dict()
+
+
+def test_exactly_two_levels_diamonds_reconvergence_and_nested_detours() -> None:
+    semantic, control = _fixture("control_regions.rpy")
+    route_map = project_route_map(control, semantic)
+
+    assert route_map.to_dict()["presentation_levels"] == ["route_map", "detail_evidence"]
+    assert len(route_map.initial_node_ids) <= 30
+    assert any(node.kind is RouteNodeKind.CHOICE for node in route_map.nodes)
+    assert any(node.kind is RouteNodeKind.MERGE for node in route_map.nodes)
+    assert any(edge.proven_merge for edge in route_map.edges)
+    assert any(node.lane_kind is RouteLaneKind.DETOUR for node in route_map.nodes)
+    assert route_map.coverage.technical_nodes > 0
+    assert route_map.coverage.corridor_count > 0
+    corridor = next(edge for edge in route_map.edges if edge.technical_hops > 0)
+    assert len(corridor.control_node_ids) == corridor.technical_hops + 2
+    scoped_evidence = {item for scope in route_map.scopes for item in scope.evidence_ids}
+    assert set(corridor.evidence_ids) <= scoped_evidence
+
+    choice = next(node for node in route_map.nodes if node.kind is RouteNodeKind.CHOICE)
+    detail = route_map.detail(choice.id)
+    assert detail["level"] == "detail_evidence"
+    assert detail["back_target"] == "route_map"
+    assert "successor_ids" in detail
+    assert detail["evidence"]
+
+
+def test_persistent_routes_terminals_loops_calls_and_unresolved_are_visible() -> None:
+    semantic, control = _fixture("control_regions.rpy", entry="terminal_routes")
+    terminal_map = project_route_map(control, semantic)
+    assert any(node.lane_kind is RouteLaneKind.PERSISTENT for node in terminal_map.nodes)
+    assert any(node.kind is RouteNodeKind.TERMINAL for node in terminal_map.nodes)
+    nodes = {node.id: node for node in terminal_map.nodes}
+    persistent_edges = [
+        edge
+        for edge in terminal_map.edges
+        if nodes[edge.source_id].lane_kind is RouteLaneKind.PERSISTENT
+        or nodes[edge.target_id].lane_kind is RouteLaneKind.PERSISTENT
+    ]
+    assert persistent_edges
+    for edge in persistent_edges:
+        endpoint_lanes = {
+            node.lane_id
+            for node in (nodes[edge.source_id], nodes[edge.target_id])
+            if node.lane_kind is RouteLaneKind.PERSISTENT
+        }
+        assert edge.lane_id in endpoint_lanes
+        if edge.technical_hops:
+            assert edge.role == "terminal_split"
+
+    permuted = copy.deepcopy(control)
+    for key in ("nodes", "edges", "regions", "arms", "loops", "terminals"):
+        permuted[key] = list(reversed(permuted[key]))
+    reordered = project_route_map(permuted, semantic)
+    assert reordered.canonical_json() == terminal_map.canonical_json()
+
+    semantic, control = _fixture("calls_loops.rpy", entry="loop_entry")
+    loop_map = project_route_map(control, semantic)
+    assert any(node.kind is RouteNodeKind.LOOP for node in loop_map.nodes)
+    assert any(role in edge.role for edge in loop_map.edges for role in ("loop", "corridor"))
+
+    semantic, control = _fixture("calls_loops.rpy", entry="dynamic_arm")
+    unresolved_map = project_route_map(control, semantic)
+    assert any(node.unresolved for node in unresolved_map.nodes)
+
+    semantic, control = _fixture("calls_loops.rpy")
+    call_map = project_route_map(control, semantic)
+    assert any(
+        "call" in control_edge_id or any("call" in role for role in (edge.role,))
+        for edge in call_map.edges
+        for control_edge_id in edge.control_edge_ids
+    )
+
+
+def test_edge_gates_effects_and_direct_evidence_contract() -> None:
+    semantic, control = _fixture("control_regions.rpy")
+    first_edge = control["edges"][0]
+    assert isinstance(first_edge, dict)
+    target = str(first_edge["target"])
+    requirements = [{"id": "gate_wits", "evidence": {"graph_node_id": target}}]
+    effects = [{"id": "effect_love", "evidence": {"graph_node_id": target}}]
+    route_map = project_route_map(control, semantic, requirements, effects)
+
+    edge = next(item for item in route_map.edges if item.gate_ids or item.effect_ids)
+    assert edge.gate_ids == ("gate_wits",)
+    assert edge.effect_ids == ("effect_love",)
+    detail = route_map.detail(edge.id)
+    assert detail["gate_ids"] == ["gate_wits"]
+    assert detail["effect_ids"] == ["effect_love"]
+    assert detail["evidence_ids"]
+    assert detail["evidence"]
+
+
+def test_stable_ids_order_hash_and_permuted_authority() -> None:
+    semantic, control = _fixture("control_regions.rpy")
+    first = project_route_map(control, semantic)
+    permuted = copy.deepcopy(control)
+    for key in ("nodes", "edges", "regions", "arms", "loops", "terminals"):
+        permuted[key] = list(reversed(permuted[key]))
+    second = project_route_map(permuted, semantic)
+
+    assert second.canonical_json() == first.canonical_json()
+    assert second.authority_hash == first.authority_hash
+    assert hashlib.sha256(first.canonical_json()).hexdigest() == first.authority_hash
+    assert [node.order for node in first.nodes] == list(range(len(first.nodes)))
+    assert [scope.ordinal for scope in first.scopes] == list(range(len(first.scopes)))
+
+
+def test_complete_topology_has_bounded_deterministic_pages_at_scale() -> None:
+    count = 2_000
+    nodes = [
+        {
+            "id": f"n{i:04d}",
+            "kind": "unresolved",
+            "label": "start",
+            "hidden": False,
+            "synthetic": False,
+            "source": {
+                "path": "scale.rpy",
+                "start": {"line": i + 1, "column": 0},
+                "end": {"line": i + 1, "column": 1},
+            },
+        }
+        for i in range(count)
+    ]
+    edges = [
+        {
+            "id": f"e{i:04d}",
+            "source": f"n{i:04d}",
+            "target": f"n{i + 1:04d}",
+            "role": "unresolved",
+            "semantic_roles": ["unresolved_behavior"],
+            "evidence": [],
+            "resolved": False,
+        }
+        for i in range(count - 1)
+    ]
+    beats = [
+        {
+            "id": f"beat{i:04d}",
+            "kind": "narrative",
+            "graph_node_ids": [f"n{i:04d}"],
+            "content": [{"text": f"Moment {i}"}],
+        }
+        for i in range(count)
+    ]
+    control = {
+        "schema_version": 1,
+        "nodes": nodes,
+        "edges": edges,
+        "regions": [],
+        "arms": [],
+        "loops": [],
+        "terminals": [{"node_id": f"n{count - 1:04d}", "kind": "game_end"}],
+    }
+    semantic = {"schema_version": 1, "beats": beats}
+    route_map = project_route_map(control, semantic)
+    assert len(route_map.nodes) == count
+    assert len(route_map.initial_node_ids) == 30
+    assert route_map.initial_node_ids == tuple(node.id for node in route_map.nodes[:30])
+    first = route_map.page()
+    second = route_map.page(offset=30)
+    assert first["next_offset"] == 30
+    assert second["offset"] == 30
+    assert set(first["node_ids"]).isdisjoint(second["node_ids"])
+    assert route_map.page(offset=30) == second
+    assert len({node_id for scope in route_map.scopes for node_id in scope.node_ids}) == count
+    assert any(node.id == second["node_ids"][0] for node in route_map.nodes)
+    assert route_map.detail(str(second["node_ids"][0]))["level"] == "detail_evidence"
+    assert route_map.coverage.control_nodes == count
+    assert route_map.coverage.technical_nodes == 0
+    assert route_map.nodes[-1].kind is RouteNodeKind.TERMINAL
+
+
+def test_dense_page_hard_bounds_edge_continuation_and_persisted_authority() -> None:
+    count = 30
+    nodes = [
+        {
+            "id": f"dense_{index:02d}",
+            "kind": "unresolved",
+            "label": "dense",
+            "hidden": False,
+            "synthetic": False,
+            "source": {
+                "path": "dense.rpy",
+                "start": {"line": index + 1, "column": 0},
+                "end": {"line": index + 1, "column": 1},
+            },
+        }
+        for index in range(count)
+    ]
+    pairs = [
+        (source, target) for source in range(count) for target in range(count) if source != target
+    ][:211]
+    edges = [
+        {
+            "id": f"dense_edge_{ordinal:03d}",
+            "source": f"dense_{source:02d}",
+            "target": f"dense_{target:02d}",
+            "role": "unresolved",
+            "semantic_roles": ["unresolved_behavior"],
+            "evidence": [],
+            "resolved": False,
+        }
+        for ordinal, (source, target) in enumerate(pairs)
+    ]
+    control = {
+        "schema_version": 1,
+        "nodes": nodes,
+        "edges": edges,
+        "regions": [],
+        "arms": [],
+        "loops": [],
+        "terminals": [],
+    }
+    semantic = {"schema_version": 1, "beats": []}
+    route_map = project_route_map(control, semantic)
+    authority = route_map.to_dict()
+    assert len(authority["nodes"]) == 30
+    assert len(authority["edges"]) == 211
+    assert authority["page_limits"] == {"nodes": 30, "edges": 180, "items": 240}
+
+    first = route_map.page()
+    assert len(first["nodes"]) == 30
+    assert len(first["edges"]) == 180
+    assert first["item_count"] == 210
+    assert first["edge_next_offset"] == 180
+    assert first["overflow"] == {
+        "has_more_nodes": False,
+        "has_more_edges": True,
+        "nodes_remaining": 0,
+        "edges_remaining": 31,
+    }
+    continuation = route_map.page(edge_offset=180)
+    assert continuation["node_ids"] == first["node_ids"]
+    assert len(continuation["edges"]) == 31
+    assert continuation["item_count"] == 61
+    assert continuation["edge_next_offset"] is None
+    assert route_map.page(edge_offset=180) == continuation
+    assert page_route_map_payload(authority) == first
+    assert page_route_map_payload(authority, edge_offset=180) == continuation
+
+    permuted = copy.deepcopy(control)
+    permuted["nodes"] = list(reversed(permuted["nodes"]))
+    permuted["edges"] = list(reversed(permuted["edges"]))
+    reordered = project_route_map(permuted, semantic)
+    assert reordered.page() == first
+    assert reordered.page(edge_offset=180) == continuation
+
+    with pytest.raises(ValueError, match="between 1 and 30"):
+        route_map.page(limit=31)
+    with pytest.raises(ValueError, match="between 1 and 180"):
+        route_map.page(edge_limit=181)
+    with pytest.raises(ValueError, match="cannot be negative"):
+        route_map.page(edge_offset=-1)
+
+
+def test_project_analysis_persists_route_map_and_pre_ai_scopes(tmp_path: Path) -> None:
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_bytes((FIXTURES / "control_regions.rpy").read_bytes())
+    with create_ingested_project(tmp_path / "story.rsmproj", source) as project:
+        payload = project.payload("m07_route_map", "authoritative")
+        assert isinstance(payload, dict)
+        assert payload["presentation_levels"] == ["route_map", "detail_evidence"]
+        assert len(payload["initial_node_ids"]) <= 30
+        checkpoints = project.m07_model_service().checkpoints()
+        assert checkpoints
+        assert [item.ordinal for item in checkpoints] == list(range(len(checkpoints)))
