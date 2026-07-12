@@ -8,12 +8,14 @@ Integrated base reviewed: `f64c8ef241f0773d43f03cab71c52f101ae8dc6b`
 
 Production diff reviewed: `3125743..f64c8ef`
 
-## Recommendation
+## Initial recommendation (superseded)
 
-**NO-SHIP.** The integrated implementation has six independently reproduced P1 defects and one
+**NO-SHIP at `f64c8ef`.** The integrated implementation had six independently reproduced P1 defects and one
 P2 supply-chain metadata defect. The positive baseline suite remains green because the review
 regressions are retained as strict expected failures; running them with `--runxfail` reproduces
 all six implementation failures.
+
+This historical recommendation is superseded by the final closure at the end of this report.
 
 No production code was changed by this review.
 
@@ -414,10 +416,111 @@ git diff --check f64c8ef..ee87c31
 
 No canonical or MsDenvers archive was accessed, and no cloud AI was run.
 
-### Final recommendation
+### Re-review recommendation at `ee87c31` (superseded)
 
 **NO-SHIP at `ee87c31`.** All original review findings are resolved and the security/performance
 remediations pass, but M06 acceptance requires no remaining P0-P3 correctness/security finding.
 Correct the `may_terminate` treatment of non-returning/diverging calls, add a regression that
 distinguishes termination from divergence, and rerun the Windows matrix. No other P0-P3 issue was
 found in this final re-review.
+
+## Final closure — 2026-07-12
+
+Final verification target: `C:\Users\prave\Documents\Codex\Renpy`
+
+Final target branch: `codex/m06-safe-ingestion-route-semantics`
+
+Exact final target commit: `eb850dca4ccb73e7f3334c03f8837331467f7368`
+
+Commit `eb850dc` replaces the incorrect shortcut that treated every non-returning callee as a
+concrete termination. Procedure termination is now a separate fixed-point fact propagated only
+from concrete terminating procedures or terminating tail jumps. The orchestrator checkout was
+inspected and verified without modification.
+
+### P2 closure evidence
+
+The corrected procedure summaries satisfy every requested case:
+
+| Procedure shape | `may_return` | `may_terminate` | Result |
+|---|---:|---:|---|
+| Helper with explicit return | true | false | Caller continuation remains possible |
+| Caller of returning helper with explicit return | true | false | Return propagates through caller |
+| Infinite self-jump | false | false | Divergence is not termination |
+| Caller of infinite self-jump | false | false | Non-returning callee does not create termination |
+| Concrete ending | false | true | Concrete termination is recognized |
+| Caller of concrete ending | false | true | Termination propagates through caller |
+| Unbounded recursive call | false | false | Recursive behavior remains conservative |
+| Dynamic/unresolved call | false | false | Unresolved behavior remains conservative |
+
+Focused production and integrated-review command:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pytest `
+  tests/test_m06_control_flow.py::test_procedure_termination_fixed_point_distinguishes_divergence `
+  tests/test_m06_control_flow.py::test_unresolved_call_does_not_become_concrete_termination `
+  tests/test_m06_control_flow.py::test_calls_use_call_site_correct_return_sites_without_cross_product `
+  tests/test_m06_control_flow.py::test_control_flow_is_persisted_and_reopens_canonically `
+  tests/test_m06_security_review.py -q
+# 10 passed in 0.28s
+```
+
+A separate fresh temporary schema-v5 project combined returning, infinite, terminating,
+recursive, and unresolved procedures. Its authoritative `m06_control_flow` payload was identical
+before and after `Project.open()`. Persisted flags matched the table above, recursion and unresolved
+diagnostics remained conservative, and the canonical reopened payload SHA-256 was
+`91245e2c5261a118e1b48d7b1448d5a8012791d59d8649d1d0b33109631c7605`.
+
+The caller-specific call-summary invariant remains accepted: returning callees get unique
+synthetic return sites and continuation evidence; non-returning callees get no false continuation;
+raw callee return evidence remains procedure-scoped rather than multiplied across callers.
+
+### Final scale gates
+
+The same Windows CPython 3.12 `tracemalloc` harness used in the preceding review produced:
+
+| Harness | Nodes | Edges | Regions | Arm membership | Elapsed | Traced peak delta | Canonical SHA-256 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Linear 10k/15k | 10,000 | 14,998 | 0 | 0 | 1.418960 s | 26,526,210 bytes | `aabfd35edb3e49b5651117432d712ba26db0026e395d7a70f0f1af788c4d8bae` |
+| Persistent split chain | 2,000 | 1,999 | 999 | 1,998 | 0.495679 s | 5,102,817 bytes | `4a4a3bd38744a457e75eae9913b8c290680b4b2ede9213819c303f80cbd96d4f` |
+
+Both gates remain comfortably below two seconds and 256 MiB additional traced memory.
+
+### Final acceptance matrix
+
+All commands ran in the clean orchestrator checkout at exact commit `eb850dc`:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pytest
+# 376 passed in 20.25s
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m ruff check src tests scripts
+# All checks passed!
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m mypy src\renpy_story_mapper
+# Success: no issues found in 42 source files
+
+& 'C:\Users\prave\Documents\Codex\Renpy\.venv\Scripts\python.exe' -m pip check
+# No broken requirements found.
+
+git diff --check
+git diff --check ee87c31..eb850dc
+# Both passed with no output; the orchestrator worktree remained clean.
+```
+
+No canonical or MsDenvers archive was accessed, and no cloud AI was run.
+
+### Non-blocking packaging limitation
+
+The recovery helper remains a suspended process constrained by a kill-on-close Job Object,
+sanitized environment, explicit filesystem audit policy, and time/memory/process/output bounds. It
+is not a Windows AppContainer or restricted-token sandbox. That remains an explicit packaging and
+defense-in-depth limitation, but it is non-blocking for the current M06 source-form deliverable.
+
+### Final recommendation
+
+**SHIP for the M06 source-form deliverable at `eb850dc`.** No P0, P1, P2, or P3 correctness or
+security finding remains. The AppContainer/restricted-token packaging limitation must remain
+documented and should be revisited before any future packaged or publicly distributed build.
