@@ -19,6 +19,7 @@ from renpy_story_mapper.organization import CodexMode
 from renpy_story_mapper.organization.contracts import (
     OrganizationChunkResult,
     OrganizationConstraints,
+    OrganizationGroup,
     OrganizationRequest,
     OrganizationStage,
     ProviderExecutionMetadata,
@@ -51,6 +52,7 @@ from renpy_story_mapper.ui.main_window import MainWindow
 from renpy_story_mapper.ui.organization_workflow import (
     OrganizationOptions,
     OrganizationWorkflow,
+    _candidate_payload,
     _complete_prompt_chars,
     _EventCandidate,
     _node_story_text,
@@ -59,6 +61,7 @@ from renpy_story_mapper.ui.organization_workflow import (
     _paged_facts,
     _paged_view,
     _reconcile_events,
+    _request_member_characters,
     collect_organization_input,
 )
 from renpy_story_mapper.ui.story_explorer import (
@@ -71,6 +74,66 @@ from renpy_story_mapper.ui.story_explorer import (
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m05" / "organization"
+
+
+def test_candidate_payload_intersects_characters_with_exact_member_evidence() -> None:
+    event = _EventCandidate(
+        id="event-a",
+        title="Evidence-bound event",
+        summary="Only Mira speaks in the final member set.",
+        beat_ids=("beat-a",),
+        characters=("jonas", "mira"),
+        importance="major",
+        outcomes=(),
+        fact_ids=(),
+        claims=(),
+        warnings=(),
+        allowed_character_names=("mira",),
+    )
+    arc = OrganizationGroup(
+        id="arc-a",
+        title="Evidence-bound arc",
+        summary="The arc inherits only supported characters.",
+        member_ids=("event-a",),
+        characters=("jonas", "mira"),
+        importance="major",
+        outcomes=(),
+        promoted_fact_ids=(),
+        claims=(),
+        warnings=(),
+    )
+    arcs = OrganizationChunkResult(
+        OrganizationStage.ARCS,
+        (arc,),
+        (),
+        {"stage": "arcs", "groups": [], "ungrouped_ids": []},
+    )
+
+    candidate = _candidate_payload((event,), set(), arcs)
+    assert candidate["events"][0]["characters"] == ["mira"]  # type: ignore[index]
+    assert candidate["arcs"][0]["characters"] == ["mira"]  # type: ignore[index]
+
+
+def test_stage_one_character_evidence_is_scoped_to_exact_group_members() -> None:
+    request = OrganizationRequest(
+        run_id="run",
+        chunk_id="chunk",
+        scope_id="scene",
+        stage=OrganizationStage.EVENTS,
+        payload={
+            "beats": [
+                {"id": "beat-a", "speaker": "mira", "speakers": ["mira"]},
+                {"id": "beat-b", "speaker": "jonas", "speakers": ["jonas"]},
+            ]
+        },
+        constraints=OrganizationConstraints(
+            ordered_member_ids=("beat-a", "beat-b"),
+            required_member_ids=frozenset({"beat-a", "beat-b"}),
+            character_names=frozenset({"mira", "jonas"}),
+        ),
+    )
+
+    assert _request_member_characters(request, ("beat-a",)) == ("mira",)
 
 
 class _FakePresentation:

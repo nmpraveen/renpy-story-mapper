@@ -110,6 +110,7 @@ class _EventCandidate:
     warnings: tuple[str, ...]
     allowed_evidence_ids: tuple[str, ...] = ()
     allowed_fact_ids: tuple[str, ...] = ()
+    allowed_character_names: tuple[str, ...] = ()
 
 
 class OrganizationWorkflow:
@@ -923,6 +924,9 @@ def _group_event(
     allowed_fact_ids = tuple(
         sorted({value for item in members for value in item.allowed_fact_ids})
     )
+    allowed_character_names = tuple(
+        sorted({value for item in members for value in item.allowed_character_names})
+    )
     return _EventCandidate(
         group.id if id_prefix is None else _stable_id(id_prefix, group.id),
         group.title,
@@ -936,7 +940,29 @@ def _group_event(
         group.warnings,
         allowed_evidence_ids,
         allowed_fact_ids,
+        allowed_character_names,
     )
+
+
+def _request_member_characters(
+    request: OrganizationRequest, member_ids: Sequence[str]
+) -> tuple[str, ...]:
+    """Return only deterministic speakers attached to the exact grouped beats."""
+    selected = set(member_ids)
+    characters: set[str] = set()
+    raw_beats = request.payload.get("beats", [])
+    if not isinstance(raw_beats, list):
+        return ()
+    for value in raw_beats:
+        if not isinstance(value, dict) or value.get("id") not in selected:
+            continue
+        speaker = value.get("speaker")
+        if isinstance(speaker, str):
+            characters.add(speaker)
+        speakers = value.get("speakers", [])
+        if isinstance(speakers, list):
+            characters.update(item for item in speakers if isinstance(item, str))
+    return tuple(sorted(characters))
 
 
 def _reconcile_events(
@@ -958,14 +984,17 @@ def _reconcile_events(
         _check_reconciliation_cancel(cancelled)
         scene = str(request.payload.get("scene_id", request.scope_id))
         request_count_by_scene[scene] += 1
-        by_scene[scene].extend(
-            replace(
-                _group_event(group, id_prefix=request.chunk_id),
-                allowed_evidence_ids=tuple(sorted(request.constraints.evidence_ids)),
-                allowed_fact_ids=tuple(sorted(request.constraints.fact_ids)),
+        for group in result.groups:
+            by_scene[scene].append(
+                replace(
+                    _group_event(group, id_prefix=request.chunk_id),
+                    allowed_evidence_ids=tuple(sorted(request.constraints.evidence_ids)),
+                    allowed_fact_ids=tuple(sorted(request.constraints.fact_ids)),
+                    allowed_character_names=_request_member_characters(
+                        request, group.member_ids
+                    ),
+                )
             )
-            for group in result.groups
-        )
         ungrouped_beats.update(result.ungrouped_ids)
         raw_beats = request.payload.get("beats", [])
         if isinstance(raw_beats, list):
@@ -1505,7 +1534,11 @@ def _build_arc_batch_request(
                 "title": event.title,
                 "summary": event.summary,
                 "major_fact_ids": list(event.fact_ids),
-                "characters": list(event.characters),
+                "characters": [
+                    character
+                    for character in event.characters
+                    if character in event.allowed_character_names
+                ],
                 "importance": event.importance,
                 "outcomes": list(event.outcomes),
                 "evidence_ids": sorted(
@@ -1587,7 +1620,11 @@ def _candidate_payload(
                 "summary": event.summary,
                 "beat_ids": list(event.beat_ids),
                 "origin": "ai",
-                "characters": list(event.characters),
+                "characters": [
+                    character
+                    for character in event.characters
+                    if character in event.allowed_character_names
+                ],
                 "importance": event.importance,
                 "outcomes": list(event.outcomes),
                 "promoted_fact_ids": list(event.fact_ids),
@@ -1602,7 +1639,16 @@ def _candidate_payload(
                 "summary": arc.summary,
                 "event_ids": list(arc.member_ids),
                 "origin": "ai",
-                "characters": list(arc.characters),
+                "characters": [
+                    character
+                    for character in arc.characters
+                    if character
+                    in {
+                        supported
+                        for event_id in arc.member_ids
+                        for supported in events_by_id[event_id].allowed_character_names
+                    }
+                ],
                 "importance": arc.importance,
                 "outcomes": list(arc.outcomes),
                 "promoted_fact_ids": list(arc.promoted_fact_ids),
