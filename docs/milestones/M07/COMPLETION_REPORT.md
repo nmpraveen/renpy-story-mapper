@@ -170,4 +170,4 @@ with SHA-256 `209578598a2b84c034fd16af05c0a092af235cef6c6ffee0847b314399bb8b4b`.
 - Independent review: `docs/milestones/M07/INDEPENDENT_REVIEW.md`
 - Completion report: this file
 - Native infographic: `docs/milestones/M07/INFOGRAPHIC.png`
-- Pull request: pending publication; it will remain unmerged
+- Pull request: https://github.com/nmpraveen/renpy-story-mapper/pull/11 (unmerged)
