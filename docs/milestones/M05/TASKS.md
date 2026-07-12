@@ -18,7 +18,7 @@ Runtime authority: Windows with CPython 3.12
 | `019f5117-6cfe-75f0-a934-887c14245b0a` (corrective turn) | M05 - LM Studio Model Preflight and Cancellation Margin | Resolve the local model before cache lookup and tighten Windows process shutdown under the two-second end-to-end gate | `codex/m05-provider-preflight`; `C:\Users\prave\.codex\worktrees\m05-provider-preflight\Renpy` | Provider contracts/process boundary and focused mocked Windows tests; no UI/storage/layout edits | Delivered, independently verified, and integrated | Worker `d2ef42a`; integrated `fd688ff` |
 | `019f51f6-2614-7621-9954-6ec9f3c840b2` | M05 - Real LM Studio Structured Output | Historical LM Studio structured-output correction task | `codex/m05-runtime-structured-output`; `C:\Users\prave\.codex\worktrees\1602\Renpy` | Provider/contracts only | Deferred by the approved ChatGPT-only M05 revision; do not retry during M05 | Deferred |
 | `019f52eb-e558-7971-b511-0ddd020401b5` | Create branching fixture | Synthetic multi-route Ren'Py fixture with gates, effects, calls, loop, merge, four endings, and one unresolved dynamic jump | `codex/m05-complex-branching-fixture`; `C:\Users\prave\.codex\worktrees\ccd4\Renpy` | `tests/fixtures/m05/complex_branching` only | Delivered, independently verified, integrated, and locked by an executable pipeline contract | Worker `109dfe0`; integrated `f7ad6f3` + `9d714b5` |
-| Pending | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; worktree pending | New review tests/fixtures and evidence only; production edits excluded | Planned after full integration | Pending |
+| `019f540f-eb55-7bd3-8293-02ac26f5f880` | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; `C:\Users\prave\.codex\worktrees\bda7\Renpy` | New review tests/fixtures and evidence only; production edits excluded | Active from accepted integration commit `9059acd` using GPT-5.6 Sol, High reasoning, and fast mode disabled | Pending |
 
 The orchestrator owns the cross-package contracts, worker monitoring, diff inspection, integration,
 conflict resolution, canonical archive handling, complete Windows acceptance, final documentation,
@@ -111,3 +111,6 @@ inside scope.
   cache entries with zero provider calls. The native Windows harness passed on the live organized
   project with 55 rendered items, exact evidence, isolated INI settings, and no provider call on
   open.
+- 2026-07-11: Started the single final independent review task
+  `019f540f-eb55-7bd3-8293-02ac26f5f880` from integration commit `9059acd` in a dedicated Windows
+  worktree with GPT-5.6 Sol, High reasoning, and fast mode disabled. Production edits are excluded.
