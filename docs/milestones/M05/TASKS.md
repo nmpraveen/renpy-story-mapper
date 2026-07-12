@@ -18,7 +18,7 @@ Runtime authority: Windows with CPython 3.12
 | `019f5117-6cfe-75f0-a934-887c14245b0a` (corrective turn) | M05 - LM Studio Model Preflight and Cancellation Margin | Resolve the local model before cache lookup and tighten Windows process shutdown under the two-second end-to-end gate | `codex/m05-provider-preflight`; `C:\Users\prave\.codex\worktrees\m05-provider-preflight\Renpy` | Provider contracts/process boundary and focused mocked Windows tests; no UI/storage/layout edits | Delivered, independently verified, and integrated | Worker `d2ef42a`; integrated `fd688ff` |
 | `019f51f6-2614-7621-9954-6ec9f3c840b2` | M05 - Real LM Studio Structured Output | Historical LM Studio structured-output correction task | `codex/m05-runtime-structured-output`; `C:\Users\prave\.codex\worktrees\1602\Renpy` | Provider/contracts only | Deferred by the approved ChatGPT-only M05 revision; do not retry during M05 | Deferred |
 | `019f52eb-e558-7971-b511-0ddd020401b5` | Create branching fixture | Synthetic multi-route Ren'Py fixture with gates, effects, calls, loop, merge, four endings, and one unresolved dynamic jump | `codex/m05-complex-branching-fixture`; `C:\Users\prave\.codex\worktrees\ccd4\Renpy` | `tests/fixtures/m05/complex_branching` only | Delivered, independently verified, integrated, and locked by an executable pipeline contract | Worker `109dfe0`; integrated `f7ad6f3` + `9d714b5` |
-| `019f540f-eb55-7bd3-8293-02ac26f5f880` | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; `C:\Users\prave\.codex\worktrees\bda7\Renpy` | New review tests/fixtures and evidence only; production edits excluded | Active from accepted integration commit `9059acd` using GPT-5.6 Sol, High reasoning, and fast mode disabled | Pending |
+| `019f540f-eb55-7bd3-8293-02ac26f5f880` | M05 - Independent final review | Adversarial acceptance review, new review tests, full Windows suite, and P0-P3 findings | `codex/m05-independent-review`; `C:\Users\prave\.codex\worktrees\bda7\Renpy` | New review tests/fixtures and evidence only; production edits excluded | Production blockers accepted after re-review; acceptance documentation remained with orchestrator | Review `df24a9e` + `4575cb4`; integrated `8931d4f` + `7ab7041` |
 
 The orchestrator owns the cross-package contracts, worker monitoring, diff inspection, integration,
 conflict resolution, canonical archive handling, complete Windows acceptance, final documentation,
@@ -114,3 +114,16 @@ inside scope.
 - 2026-07-11: Started the single final independent review task
   `019f540f-eb55-7bd3-8293-02ac26f5f880` from integration commit `9059acd` in a dedicated Windows
   worktree with GPT-5.6 Sol, High reasoning, and fast mode disabled. Production edits are excluded.
+- 2026-07-11: Independent review returned three production P2 findings: fail-open Luna/profile
+  selection, incomplete cache identity, and cross-target claim evidence. The orchestrator fixed all
+  three, verified 347 tests plus Ruff, strict mypy, and pip integrity, and pushed `fc239ce`.
+- 2026-07-11: The same review task strengthened its four adversarial tests and accepted every
+  production fix. Its only remaining P2 is acceptance evidence: the separately consented real
+  script smoke, final report, and infographic.
+- 2026-07-11: A fresh synthetic Luna/High run against the corrected cache identity made 12 provider
+  calls and safely exposed duplicate reconciled outcome values at final draft validation. Stable
+  de-duplication and a regression test were committed as `e8be732`.
+- 2026-07-11: The corrected retry used all 12 cache entries, launched no provider, completed in
+  174 ms, and produced a pending 33-event, four-arc, 77-claim draft while preserving deterministic
+  authority hash `337e5158a1d62d22b7ee76f68b2704b2077343f75e9a14e4781f61aad08ed618`.
+  Sanitized metrics, storage growth, and seven native UI screenshots are retained in this folder.
