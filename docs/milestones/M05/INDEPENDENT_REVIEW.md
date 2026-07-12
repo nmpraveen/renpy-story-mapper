@@ -1,103 +1,98 @@
 # M05 Independent Adversarial Review
 
 - Task ID: `019f540f-eb55-7bd3-8293-02ac26f5f880`
-- Review base: `9059acdb24aa17fd3259c2632f89e718a8186daf`
+- Original review base: `9059acdb24aa17fd3259c2632f89e718a8186daf`
+- Blocker-fix re-review base: `fc239ce1df6216c20daf347f635e01926f1c3a59`
 - Branch: `codex/m05-independent-review`
 - Worktree: `C:\Users\prave\.codex\worktrees\bda7\Renpy`
 - Runtime: Windows CPython 3.12.10
-- Status: **Return**
+- Code-fix status: **Accepted**
+- Milestone acceptance status: **Return for acceptance evidence only**
 
-## Findings
+## Closed code findings
 
-### P2 - The cloud provider boundary does not enforce the locked Luna model
+### Closed P2 - Luna, High reasoning, and disabled fast mode are intrinsic
 
-`CodexCliProvider.command()` adds `--model` only when its caller supplies a model
-(`provider.py:505-533`). A consented direct ChatGPT request with the default `None` model therefore
-runs with High reasoning and disabled fast mode but without the required `--model gpt-5.6-luna`.
-`OrganizationOptions` also accepts `model=None` and arbitrary nonempty `model_profile` values
-(`organization_workflow.py:79-85,143-170`), even though the provider command always selects High for
-ChatGPT. That permits persisted/cache profile metadata such as `balanced` to disagree with the
-actual command.
+Closed at `fc239ce`. The ChatGPT provider constructor, model setter, and command builder normalize a
+missing model to `gpt-5.6-luna` and reject every conflicting model
+(`provider.py:285-309,363-373,515-548`). The command always includes High reasoning and disables
+`fast_mode`. The workflow independently rejects any ChatGPT options that are not Luna plus the High
+profile before provider construction or consent (`organization_workflow.py:137-155`).
 
-Minimal reproduction: `test_reproduction_cloud_provider_command_is_not_intrinsically_luna_locked`
-and `test_reproduction_workflow_options_accept_mislabeled_execution_profile` in
-`tests/test_m05_independent_review.py`.
+The strengthened adversarial test verifies the default command and conflicting constructor,
+setter, command, and workflow inputs:
+`test_cloud_provider_command_is_intrinsically_luna_locked` and
+`test_workflow_rejects_mislabeled_execution_profile`.
 
-Responsible subsystem: organization provider and UI organization workflow option validation.
+### Closed P2 - Cache identity includes every prompt-affecting request field
 
-### P2 - Integrated workflow cache identity omits prompt constraints
+Closed at `fc239ce`. `build_cache_key()` hashes stage, scope, payload, ordered IDs, required IDs,
+context-only IDs, fact IDs, evidence IDs, and character names (`cache.py:35-71`). The integrated
+workflow now uses that exact input hash before every persistent cache lookup
+(`organization_workflow.py:229-265`). Provider mode, model profile/fingerprint, prompt version, and
+schema version remain part of the outer cache identity.
 
-The workflow hashes only `request.payload` (`organization_workflow.py:234-252`) before querying the
-persistent cache. The exact provider prompt also contains stage, scope, required/context IDs, fact
-IDs, evidence IDs, and allowed characters (`contracts.py:168-252`). The repository's dedicated
-`build_cache_key()` includes several of those omitted fields (`cache.py:35-68`), but the integrated
-workflow does not call it. Two different provider prompts can consequently share the same
-persistent workflow cache identity and skip a required model call.
+`test_cache_hash_includes_prompt_constraints` now changes each material field independently and
+proves that every resulting input hash differs.
 
-Minimal reproduction: `test_reproduction_workflow_cache_hash_omits_prompt_constraints`.
+### Closed P2 - Claim evidence is bound to its target event or arc
 
-Responsible subsystem: UI organization workflow/cache integration.
+Closed at `fc239ce`. Stage-1 reconciliation retains only evidence and fact permissions attached to
+the exact grouped beats (`organization_workflow.py:959-1028`). Candidate construction drops event
+or arc claims outside the target membership (`organization_workflow.py:1618-1656`). The domain
+validator independently derives evidence sets from each event's beats and each arc's member events,
+then rejects cross-target evidence (`story_organization.py:1604-1660`).
 
-### P2 - Claim evidence is checked project-wide, not against its target event or arc
+`test_claim_cannot_cite_evidence_outside_its_target_event_or_arc` proves rejection for both an event
+target and an arc target.
 
-Stage-1 events retain request-wide allowed evidence (`organization_workflow.py:983-996`), and final
-draft validation checks only that each claim evidence ID exists anywhere in
-`presentation_evidence` (`story_organization.py:1600-1626`). A claim attached to the first event is
-accepted when its sole evidence belongs exclusively to a different event. This defeats exact
-claim-to-evidence traceability while retaining syntactically valid IDs.
+No unresolved P0-P3 production correctness or security finding remains from this bounded re-review.
 
-Minimal reproduction: `test_reproduction_claim_can_cite_evidence_outside_its_target_event`.
+## Remaining acceptance/documentation blocker
 
-Responsible subsystem: organization workflow reconciliation and story-organization draft
-validation.
+### Open P2 - Live acceptance evidence is incomplete and not independently reproducible
 
-### P2 - Live acceptance evidence is incomplete and not independently reproducible
+This is not a production-code defect and was not changed by `fc239ce`. `TASKS.md:102-116` records
+aggregate prose for the synthetic Luna run, cached retry, apply/reopen behavior, and UI harness, but
+does not identify exact commands, retained result JSON, project/output locations, screenshot paths
+and hashes, deterministic before/after hashes, or database-growth measurements. No completed,
+separately consented `script small new.rpy` smoke run is recorded, although it remains required by
+`GOAL.md:29-31,59-64` and `MASTER_PLAN.md:686-715`.
 
-`TASKS.md:102-113` records aggregate prose for the synthetic Luna run, cached retry, apply, reopen,
-and UI harness. It does not record the exact commands, project/output locations, result JSON,
-screenshot paths/hashes, before/after deterministic hashes, or database-growth measurements. It
-also contains no completed separately consented `script small new.rpy` smoke run, which remains a
-required acceptance source in `GOAL.md:29-31,59-64` and `MASTER_PLAN.md:686-715`. At review base,
-`docs/milestones/M05/` contains only `GOAL.md` and `TASKS.md`; the required completion report,
-screenshots, and infographic are not present. The repository therefore cannot substantiate or
-independently rerun the claimed live acceptance without external state that was not delegated.
+At `fc239ce`, `docs/milestones/M05/` contains `GOAL.md`, `TASKS.md`, and this review only. The
+required `COMPLETION_REPORT.md`, screenshots, and native `INFOGRAPHIC.png` are absent. The supplied
+native UI harness still cannot be independently rerun because its accepted-plus-pending
+`.rsmproj` input and prior output evidence are not stored or identified in the repository.
 
 Responsible subsystem: milestone orchestration and acceptance evidence.
 
-No P0, P1, or P3 correctness/security findings were identified. The unresolved P2 findings block
-M05 acceptance under `GOAL.md:65-68`.
+## Re-review verification
 
-## Verification
+- `python.exe -m pytest tests\test_m05_independent_review.py -q`: 4 passed in 0.18 seconds.
+- `python.exe -m pytest tests\test_m05_independent_review.py tests\test_m05_organizer.py
+  tests\test_m05_story_explorer.py tests\test_story_organization.py -q`: 172 passed in 9.57
+  seconds.
+- `python.exe -m ruff check` on the four changed production modules and four relevant test files:
+  passed.
+- `python.exe -m mypy` on `provider.py`, `cache.py`, `organization_workflow.py`, and
+  `story_organization.py`: passed; no issues in 4 source files.
+- `git diff --check`: passed after the review update.
 
-- `python.exe --version`: Python 3.12.10.
-- Focused M05/domain suite: 209 passed in 10.32 seconds.
-- Review reproductions: 4 passed in 0.18 seconds.
-- Full `python.exe -m pytest`: 347 passed in 15.23 seconds.
-- `python.exe -m ruff check src tests scripts`: passed.
-- `python.exe -m mypy src\renpy_story_mapper`: passed; 34 source files.
-- `python.exe -m pip check`: passed; no broken requirements.
-- `git diff --check`: passed.
-- `git diff --check main..9059acd`: passed.
+Original review verification at `9059acd` remains recorded in Git history: 209 focused tests and
+347 full tests passed, together with repository-wide Ruff, strict mypy, `pip check`, and whitespace
+checks.
 
-The existing focused/full suites passing does not invalidate the reproductions: the added review
-tests intentionally assert the currently unsafe accepted behavior so the defects remain executable
-without modifying production code.
+## Risks and recommendation
 
-## Performance and security assessment
+- The three code fixes are defense-in-depth: both provider and workflow enforce the command lock;
+  both workflow filtering and domain validation enforce claim evidence locality; cache material is
+  tested field by field.
+- The re-review did not rerun live cloud organization, access canonical data, or rerun the native UI
+  harness because those actions and inputs remain outside the delegated scope.
+- Remaining risk is evidentiary rather than an identified code defect: the milestone cannot prove
+  the required secondary smoke run, immutable deterministic hashes, UI captures, or storage-growth
+  result from repository contents.
 
-- The representative layout and scale tests pass, and the focused M05 suite completed quickly.
-  The supplied live UI harness could not be rerun because its required accepted-plus-pending
-  `.rsmproj` input and output evidence were not stored or identified in the repository.
-- Consent is checked before provider process creation; execution is ephemeral/read-only and disables
-  web, shell, plugins, apps, hooks, browser/computer use, MCP elicitation, multi-agent, and fast mode.
-  Error messages are sanitized and cancellation uses bounded terminate/kill waits.
-- The remaining security/configuration risk is fail-open model selection at the provider/workflow
-  boundary. The remaining correctness risks are stale semantic cache hits and cross-target claim
-  evidence.
-
-## Recommendation
-
-Return M05 to the responsible provider/workflow, cache integration, story-organization validation,
-and orchestration owners. Re-review after the three production defects are fixed and focused
-regressions prove fail-closed behavior, and after repository-backed evidence records the secondary
-real-script smoke run and the exact live/UI/hash/growth acceptance results.
+Accept the `fc239ce` production blocker fixes. Keep M05 milestone acceptance open and return only to
+the orchestration/documentation owner until the missing repository-backed acceptance evidence and
+completion artifacts are supplied.
