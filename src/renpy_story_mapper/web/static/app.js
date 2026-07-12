@@ -65,6 +65,7 @@ async function choose(kind) {
     if (kind === "project") await openSelection(source, true);
     else {
       const saved = await api.chooseSave(); const destination = saved.selection || saved;
+      if (!destination?.selection_id && !destination?.id) return;
       await api.create(source.selection_id || source.id, destination.selection_id || destination.id);
       state.project = { name: source.display_name || "New story", organization: "Technical map" };
       showPrimary("progress"); await pollAnalysis();

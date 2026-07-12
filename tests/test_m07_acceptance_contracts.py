@@ -12,9 +12,6 @@ from typing import Any
 
 from renpy_story_mapper.control_flow import FlowEdgeRole, analyze_control_flow
 from renpy_story_mapper.graph import build_graph
-from renpy_story_mapper.parser import parse_script
-from renpy_story_mapper.semantic import build_semantic_story
-from renpy_story_mapper.state import extract_state
 from renpy_story_mapper.m07_model import M07ModelService
 from renpy_story_mapper.organization.parallel import (
     BudgetPolicy,
@@ -23,6 +20,9 @@ from renpy_story_mapper.organization.parallel import (
     SchedulerConfig,
     normalized_cache_identity,
 )
+from renpy_story_mapper.parser import parse_script
+from renpy_story_mapper.semantic import build_semantic_story
+from renpy_story_mapper.state import extract_state
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "m07"

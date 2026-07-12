@@ -52,17 +52,16 @@ def test_dom_rendering_is_xss_safe_and_has_no_html_sinks() -> None:
 
 def test_routes_are_versioned_and_centralized() -> None:
     contract = _text("contract.js")
-    assert contract.count('"/api/v1/') >= 18
+    assert contract.count('"/api/v1/') >= 17
     for name in ("app.js", "api.js", "graph.js", "mock-api.js"):
         assert '"/api/v1/' not in _text(name)
     routes = (
-        "story/view",
-        "story/search",
-        "story/evidence",
-        "story/facts",
-        "organization/apply",
-        "organization/discard",
-        "organization/review",
+        "m07/route-map",
+        "m07/detail",
+        "m07/organization/prepare",
+        "m07/organization/start",
+        "m07/organization/cancel",
+        "m07/assembly/apply",
     )
     for route in routes:
         assert route in contract
@@ -76,33 +75,32 @@ def test_render_boundary_overflow_and_visible_lines_are_explicit() -> None:
     graph = _text("graph.js")
     app = _text("app.js")
     html = _text("index.html")
-    assert "nodes: 80" in contract and "edges: 120" in contract and "items: 240" in contract
-    assert "Graph render boundary exceeded" in graph
+    assert "nodes: 30" in contract and "edges: 180" in contract and "items: 240" in contract
+    assert "Route Map render boundary exceeded" in graph
     assert "bezierCurveTo" in graph and "stroke()" in graph
-    assert 'id="overflowStatus"' in html
-    assert "node_continuation?.has_more" in app
+    assert 'id="pageStatus"' in html
+    assert "state.page?.next_offset" in app
 
 
 def test_keyboard_focus_tabs_and_map_commands_are_implemented() -> None:
     html = _text("index.html")
     graph = _text("graph.js")
-    app = _text("app.js")
-    for key in ("ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Enter"):
+    for key in ("ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End", "Enter"):
         assert key in graph
-    for key in ("ArrowLeft", "ArrowRight", "Home", "End"):
-        assert key in app
     assert 'aria-keyshortcuts="/"' in html
-    assert 'role="tablist"' in html and 'role="tabpanel"' in html
+    assert 'id="backToRouteMap"' in html and "Back to Route Map" in html
+    assert 'data-level="route_map"' in html and 'data-level="detail_evidence"' in html
     assert ":focus-visible" in _text("styles.css")
 
 
 def test_organization_is_never_implicit() -> None:
     app = _text("app.js")
-    start_body = app[app.index("async function start()") :]
-    assert "api.consent(" not in start_body
-    assert "api.consent(" in app
-    assert app.index("api.consent(") > app.index('$("#confirmOrganization").addEventListener')
-    assert "organizationConsent" in _text("contract.js")
+    api = _text("api.js")
+    assert "api.prepareOrganization()" in app
+    assert '$("#consentDialog").showModal()' in app
+    assert "api.startOrganization" in app
+    assert "confirm_cloud: true" in api
+    assert "organizationPrepare" in _text("contract.js")
 
 
 def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
@@ -110,21 +108,21 @@ def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     api = _text("api.js")
     mock = _text("mock-api.js")
     html = _text("index.html")
-    assert "target.id || target.selection_id" in app
+    assert "source.selection_id || source.id" in app
+    assert "destination.selection_id || destination.id" in app
     assert 'selection_id: "opaque-project-save"' in mock
     assert "refresh()" in api and "ENDPOINTS.projectsRefresh" in api
     assert 'id="refreshProject"' in html and ">Refresh</button>" in html
-    assert '$("#refreshProject").addEventListener("click", refreshProject)' in app
-    assert "await pollProgress()" in app
+    assert '$("#refreshProject").addEventListener("click", async () =>' in app
+    assert "await api.refresh()" in app and "await loadRoutePage(0)" in app
 
 
 def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
     app = _text("app.js")
     mock = _text("mock-api.js")
-    assert "unresolved: node.unresolved === true" in app
+    assert "if (!state.settings.include_unresolved && node.unresolved)" in app
     assert "payload.unresolved" not in app
-    assert "if (!state.settings.include_unresolved)" in app
-    assert "unresolved: index % 11 === 7" in mock
+    assert "unresolved: index === 24" in mock
 
 
 def test_production_review_shape_decisions_and_pagination_are_explicit() -> None:
@@ -132,25 +130,22 @@ def test_production_review_shape_decisions_and_pagination_are_explicit() -> None
     api = _text("api.js")
     mock = _text("mock-api.js")
     html = _text("index.html")
-    assert "draft.candidate?.arcs" in app and "draft.candidate?.events" in app
-    assert "envelope.reviews?.[draft.id]" in app
-    assert "group.event_ids" in app and "group.beat_ids" in app
-    assert "target_kind: targetKind" in api and "target_id: targetId" in api
-    assert "draft_id: draftId" in api and "decision" in api
-    assert "REVIEW_PAGE_SIZE = 40" in app
-    assert ".slice(start, start + REVIEW_PAGE_SIZE)" in app
-    assert 'id="applyDraft"' in html and "disabled>Apply Draft" in html
-    assert "candidate.decision" in app and "api.reviewDraftGroup" in app
-    assert "candidate: { arcs, events }" in mock and 'reviews: { "draft-demo"' in mock
+    assert "state.organization?.coverage" in app
+    assert "value.assembly_id" in app
+    assert "assembly_id: assemblyId" in api
+    assert "ENDPOINTS.assemblyApply" in api
+    assert "api.applyAssembly" in app
+    assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
+    assert "assembly_id: assemblyId" in mock
 
 
 def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
     css = _text("styles.css")
-    acceptance = (ROOT / "scripts" / "m06_5_browser_acceptance.py").read_text(encoding="utf-8")
+    acceptance = (ROOT / "scripts" / "m07_browser_acceptance.py").read_text(encoding="utf-8")
     assert "@media (max-width: 780px)" in css
     assert "@media (max-width: 480px)" in css
     assert "minmax(0, 1fr)" in css
-    assert '("events", 200)' in acceptance
+    assert '"route-map"' in acceptance and '"detail-evidence"' in acceptance
     assert "720,450" in acceptance and "1440,900" in acceptance
     assert "--force-device-scale-factor=2" in acceptance
 
