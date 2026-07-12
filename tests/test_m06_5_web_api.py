@@ -318,6 +318,87 @@ def test_story_view_node_unresolved_contract_is_stable_json() -> None:
         '{"id":"unresolved-id","kind":"UnReSoLvEd_branch","unresolved":true},'
         '{"id":"ordinary-id","kind":"label","unresolved":false}]'
     )
+    assert _story_view_node(nodes[0], authoritative_resolved=True)["unresolved"] is False
+
+
+def test_real_dynamic_jump_and_presentation_parents_are_unresolved(tmp_path: Path) -> None:
+    project_path = tmp_path / "complex.rsmproj"
+    project = create_ingested_project(
+        project_path, Path("tests/fixtures/m05/complex_branching").resolve()
+    )
+    project.close()
+    with PresentationService.open(project_path):
+        pass
+    with Project.open(project_path) as opened:
+        connection = opened._require_open()
+        emergency = connection.execute(
+            "SELECT node.node_id,node.parent_id,parent.parent_id AS scene_id "
+            "FROM presentation_nodes node "
+            "JOIN presentation_nodes parent ON parent.node_id=node.parent_id "
+            "WHERE node.level=3 AND "
+            "json_extract(CAST(node.payload_json AS TEXT),'$.source_text')="
+            "'jump expression emergency_route'"
+        ).fetchone()
+        normal = connection.execute(
+            "SELECT node_id FROM presentation_nodes WHERE level=3 AND "
+            "json_extract(CAST(payload_json AS TEXT),'$.source_text')='jump harbor_arrival'"
+        ).fetchone()
+        assert emergency is not None and normal is not None
+        emergency_id = str(emergency["node_id"])
+        event_id = str(emergency["parent_id"])
+        scene_id = str(emergency["scene_id"])
+        normal_id = str(normal["node_id"])
+
+    static = tmp_path / "static-complex"
+    static.mkdir()
+    (static / "index.html").write_text("ready", encoding="utf-8")
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        ProjectApi(
+            FakeDialogs(project_open=project_path),
+            state_store=UserStateStore(tmp_path / "state-complex.json"),
+        ),
+        static_root=static,
+        security=SessionSecurity("session-secret", "csrf-secret"),
+    )
+    thread = start_in_thread(server)
+    try:
+        _status, picked, _headers = request(
+            server, "POST", "/api/v1/native-picker", body={"kind": "project"}
+        )
+        _status, _opened, _headers = request(
+            server,
+            "POST",
+            "/api/v1/projects/open",
+            body={"selection_id": picked["selection_id"]},
+        )
+        for _ in range(100):
+            _status, progress, _headers = request(server, "GET", "/api/v1/analysis/progress")
+            if progress["state"] != "running":
+                break
+            time.sleep(0.01)
+        assert progress["state"] == "completed"
+
+        def focused(level: str, node_id: str) -> dict[str, Any]:
+            status, view, _headers = request(
+                server,
+                "POST",
+                "/api/v1/story/view",
+                body={"level": level, "focus_ids": [node_id]},
+            )
+            assert status == 200 and len(view["nodes"]) == 1
+            return view["nodes"][0]
+
+        emergency_node = focused("evidence", emergency_id)
+        assert emergency_node["kind"] == "jump"
+        assert emergency_node["unresolved"] is True
+        assert focused("evidence", normal_id)["unresolved"] is False
+        assert focused("events", event_id)["unresolved"] is True
+        assert focused("arcs", scene_id)["unresolved"] is True
+    finally:
+        server.close_service()
+        thread.join(timeout=5)
 
 
 def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_project: Path) -> None:

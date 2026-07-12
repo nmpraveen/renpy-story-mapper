@@ -92,6 +92,8 @@ class ProjectApi:
         self._future: Future[None] | None = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="story-mapper-web")
         self._lock = threading.Lock()
+        self._classification_lock = threading.Lock()
+        self._unresolved_cache: tuple[Path, str, frozenset[str], frozenset[str]] | None = None
         self._state_store = state_store or UserStateStore()
 
     def close(self) -> None:
@@ -366,9 +368,19 @@ class ProjectApi:
             edge_limit=bounded_int(body, "edge_limit", default=120, minimum=1, maximum=120),
             include_technical=boolean(body, "include_technical"),
         )
-        with PresentationService.open(self._project()) as service:
+        path = self._project()
+        with Project.open(path) as project:
+            service = PresentationService(project)
             page = service.view(request, selected_id=optional_string(body, "selected_id"))
-        nodes = [_story_view_node(node) for node in page.nodes]
+            unresolved_ids, resolved_ids = self._unresolved_presentation_ids(project)
+        nodes = [
+            _story_view_node(
+                node,
+                authoritative_unresolved=node.id in unresolved_ids,
+                authoritative_resolved=node.id in resolved_ids,
+            )
+            for node in page.nodes
+        ]
         edges = [
             {
                 "id": edge.id,
@@ -391,6 +403,65 @@ class ProjectApi:
                 },
             }
         )
+
+    def _unresolved_presentation_ids(
+        self, project: Project
+    ) -> tuple[frozenset[str], frozenset[str]]:
+        """Classify semantic unresolved authority once per project generation."""
+
+        connection = project._require_open()
+        generation_row = connection.execute(
+            "SELECT payload_hash FROM payloads "
+            "WHERE collection='m02_semantic' AND record_key='authoritative'"
+        ).fetchone()
+        if generation_row is None:
+            return frozenset(), frozenset()
+        generation = str(generation_row["payload_hash"])
+        key_path = project.path.resolve()
+        with self._classification_lock:
+            cached = self._unresolved_cache
+            if cached is not None and cached[0] == key_path and cached[1] == generation:
+                return cached[2], cached[3]
+            rows = connection.execute(
+                """WITH authority(graph_node_id, is_unresolved, is_resolved) AS (
+                     SELECT CAST(graph_id.value AS TEXT),
+                            CASE WHEN json_extract(record.value,'$.resolved')=0 THEN 1 ELSE 0 END,
+                            CASE WHEN json_extract(record.value,'$.resolved')=1 THEN 1 ELSE 0 END
+                     FROM payloads payload,
+                          json_each(CAST(payload.payload_json AS TEXT),'$.unresolved') record,
+                          json_each(record.value,'$.graph_node_ids') graph_id
+                     WHERE payload.collection='m02_semantic'
+                       AND payload.record_key='authoritative'
+                       AND json_extract(record.value,'$.resolved') IN (0,1)
+                   ), matched(node_id, parent_id, scene_id, is_unresolved, is_resolved) AS (
+                     SELECT node.node_id,node.parent_id,parent.parent_id,
+                            authority.is_unresolved,authority.is_resolved
+                     FROM presentation_nodes node
+                     JOIN presentation_nodes parent ON parent.node_id=node.parent_id,
+                          json_each(CAST(node.payload_json AS TEXT),'$.graph_node_ids') graph_id
+                     JOIN authority ON authority.graph_node_id=CAST(graph_id.value AS TEXT)
+                     WHERE node.level=3
+                   ), expanded(node_id, is_unresolved, is_resolved) AS (
+                     SELECT node_id,is_unresolved,is_resolved FROM matched
+                     UNION ALL
+                     SELECT parent_id,is_unresolved,is_resolved FROM matched
+                     UNION ALL
+                     SELECT scene_id,is_unresolved,is_resolved FROM matched
+                   )
+                   SELECT node_id,MAX(is_unresolved) AS is_unresolved,
+                          MAX(is_resolved) AS is_resolved
+                   FROM expanded WHERE node_id IS NOT NULL GROUP BY node_id"""
+            ).fetchall()
+            unresolved = frozenset(
+                str(row["node_id"]) for row in rows if bool(row["is_unresolved"])
+            )
+            resolved = frozenset(
+                str(row["node_id"])
+                for row in rows
+                if not bool(row["is_unresolved"]) and bool(row["is_resolved"])
+            )
+            self._unresolved_cache = (key_path, generation, unresolved, resolved)
+            return unresolved, resolved
 
     def _presentation_search(self, body: dict[str, JsonValue]) -> JsonValue:
         query = require_string(body, "query", maximum=256)
@@ -520,15 +591,23 @@ class ProjectApi:
             self._progress(task.id, task.kind, stage[:120], max(0, min(99, percent)))
 
 
-def _story_view_node(node: PresentationNode) -> dict[str, JsonValue]:
+def _story_view_node(
+    node: PresentationNode,
+    *,
+    authoritative_unresolved: bool = False,
+    authoritative_resolved: bool = False,
+) -> dict[str, JsonValue]:
     folded_kind = node.kind.casefold()
+    unresolved = authoritative_unresolved or (
+        not authoritative_resolved and ("unresolved" in folded_kind or "dynamic" in folded_kind)
+    )
     return {
         "id": node.id,
         "title": node.name,
         "summary": node.name,
         "kind": node.kind,
         "technical": node.technical,
-        "unresolved": "unresolved" in folded_kind or "dynamic" in folded_kind,
+        "unresolved": unresolved,
         "parent_id": node.parent_id,
         "source": None
         if node.source_path is None
