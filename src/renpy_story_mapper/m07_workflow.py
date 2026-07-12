@@ -44,12 +44,13 @@ from renpy_story_mapper.organization.parallel import (
 from renpy_story_mapper.organization.persistence import PersistentCheckpointSink
 from renpy_story_mapper.organization.validation import validate_result
 from renpy_story_mapper.project import Project
-from renpy_story_mapper.route_map import RouteScope as DeterministicRouteScope
+from renpy_story_mapper.route_map import (
+    RouteScope as DeterministicRouteScope,
+)
+from renpy_story_mapper.route_map import page_route_map_payload
 
 ProviderFactory = Callable[[RouteScope], OrganizationProvider]
 ProgressCallback = Callable[[ProgressSnapshot], None]
-MAX_ROUTE_PAGE_EDGES = 180
-MAX_ROUTE_PAGE_ITEMS = 240
 
 
 class PreparedRunError(ValueError):
@@ -141,25 +142,29 @@ class M07WorkflowService:
         self._last_progress: ProgressSnapshot | None = None
         self._last_budget: BudgetPolicy | None = None
 
-    def route_map(self, *, offset: int = 0, limit: int = 30) -> dict[str, object]:
-        if offset < 0 or not 1 <= limit <= 30:
-            raise ValueError("route page is outside the bounded range")
+    def route_map(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 30,
+        edge_offset: int = 0,
+        edge_limit: int = 180,
+    ) -> dict[str, object]:
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
             overlay, applied = _applied_overlay(project)
             coverage = project.m07_model_service().coverage().to_dict()
-        nodes = [_overlay_node(item, overlay) for item in _records(route.get("nodes"), "nodes")]
-        edges = _records(route.get("edges"), "edges")
-        page_nodes = nodes[offset : offset + limit]
-        page_ids = {_string(item.get("id"), "node id") for item in page_nodes}
-        matching_edges = [
-            item
-            for item in edges
-            if item.get("source_id") in page_ids or item.get("target_id") in page_ids
+        page = page_route_map_payload(
+            route,
+            offset=offset,
+            limit=limit,
+            edge_offset=edge_offset,
+            edge_limit=edge_limit,
+        )
+        page["nodes"] = [
+            _overlay_node(item, overlay) for item in _records(page.get("nodes"), "nodes")
         ]
-        edge_limit = min(MAX_ROUTE_PAGE_EDGES, MAX_ROUTE_PAGE_ITEMS - len(page_nodes))
-        page_edges = matching_edges[:edge_limit]
-        total = len(nodes)
+        nodes = _records(route.get("nodes"), "nodes")
         lanes = sorted(
             {
                 (_string(item.get("lane_id"), "lane id"), str(item.get("lane_kind", "spine")))
@@ -167,17 +172,12 @@ class M07WorkflowService:
             }
         )
         result = {
-            "level": "route_map",
+            **page,
             "schema_version": route.get("schema_version", 1),
             "authority_hash": hashlib.sha256(storage.canonical_json(route)).hexdigest(),
-            "offset": offset,
-            "limit": limit,
-            "next_offset": offset + len(page_nodes) if offset + len(page_nodes) < total else None,
-            "total_nodes": total,
-            "total_edges": len(edges),
             "totals": {
-                "nodes": total,
-                "edges": len(edges),
+                "nodes": page["total_nodes"],
+                "edges": page["total_edges"],
                 "scopes": len(_records(route.get("scopes"), "scopes")),
             },
             "coverage": _json_mapping(route.get("coverage")),
@@ -185,9 +185,6 @@ class M07WorkflowService:
             "ai_coverage": _ratio(coverage, "validated"),
             "technical_coverage": _technical_ratio(coverage),
             "initial_node_ids": list(_strings(route.get("initial_node_ids")))[:30],
-            "nodes": page_nodes,
-            "edges": page_edges,
-            "edges_truncated": len(page_edges) < len(matching_edges),
             "lanes": [{"id": lane_id, "kind": lane_kind} for lane_id, lane_kind in lanes],
             "applied_assembly": applied,
         }

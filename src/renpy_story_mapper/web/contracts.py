@@ -21,7 +21,7 @@ M07_API_ROUTES: Final[dict[str, str]] = {
     "cancel": "/api/v1/m07/organization/cancel",
     "assembly_apply": "/api/v1/m07/assembly/apply",
 }
-M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit")
+M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit", "edge_offset", "edge_limit")
 M07_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
 M07_PREPARE_REQUEST_FIELDS: Final = (
     "scope_ids",

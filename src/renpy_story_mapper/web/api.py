@@ -191,6 +191,20 @@ class ProjectApi:
                 self._m07_workflow().route_map(
                     offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
                     limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                    edge_offset=bounded_int(
+                        body,
+                        "edge_offset",
+                        default=0,
+                        minimum=0,
+                        maximum=2_000_000,
+                    ),
+                    edge_limit=bounded_int(
+                        body,
+                        "edge_limit",
+                        default=180,
+                        minimum=1,
+                        maximum=180,
+                    ),
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["detail"]:

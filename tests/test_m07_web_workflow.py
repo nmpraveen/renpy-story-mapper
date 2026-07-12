@@ -185,6 +185,7 @@ def test_route_page_stably_caps_high_fanout_edges(m07_project: Path) -> None:
             "title": f"Node {index}",
             "lane_id": "spine",
             "lane_kind": "spine",
+            "order": index,
             "evidence_ids": [],
         }
         for index in range(30)
@@ -228,19 +229,51 @@ def test_route_page_stably_caps_high_fanout_edges(m07_project: Path) -> None:
             ]
         )
     api = _api(m07_project, [])
+    static_root = Path(__file__).parents[1] / "src" / "renpy_story_mapper" / "web" / "static"
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        api,
+        static_root=static_root,
+        security=SessionSecurity("m07-session", "m07-csrf"),
+    )
+    thread = start_in_thread(server)
     try:
-        first = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
-        second = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
-        assert first == second
+        status, first = _http_request(server, "POST", M07_API_ROUTES["route_map"], {})
+        assert status == 200
+        status, repeated = _http_request(server, "POST", M07_API_ROUTES["route_map"], {})
+        assert status == 200
+        assert first == repeated
         assert first["total_nodes"] == 30
         assert first["total_edges"] == 300
+        assert first["page_edge_total"] == 300
         assert len(first["nodes"]) == 30
         assert len(first["edges"]) == 180
-        assert len(first["nodes"]) + len(first["edges"]) == 210
-        assert first["edges_truncated"] is True
+        assert first["item_count"] == 210
+        assert first["edge_next_offset"] == 180
+        assert first["overflow"]["has_more_edges"] is True
         assert str(m07_project.parent) not in str(first)
+
+        status, second = _http_request(
+            server,
+            "POST",
+            M07_API_ROUTES["route_map"],
+            {"edge_offset": first["edge_next_offset"], "edge_limit": 180},
+        )
+        assert status == 200
+        assert second["edge_offset"] == 180
+        assert second["edge_next_offset"] is None
+        assert second["overflow"]["has_more_edges"] is False
+        assert second["overflow"]["edges_remaining"] == 0
+        assert len(second["edges"]) == 120
+        assert {item["id"] for item in first["edges"]}.isdisjoint(
+            item["id"] for item in second["edges"]
+        )
+        assert [item["id"] for item in second["nodes"]] == [item["id"] for item in first["nodes"]]
     finally:
-        api.close()
+        server.close_service()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
 
 
 def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
