@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import threading
@@ -129,6 +130,127 @@ def test_chunking_honors_limits_boundaries_context_and_unique_membership() -> No
     )
 
 
+def test_dense_boundaries_pack_scene_instead_of_flushing_every_beat() -> None:
+    kinds = ("condition", "choice", "jump", "return")
+    beats = [
+        _beat(number, kind=kinds[(number - 1) % len(kinds)])
+        for number in range(1, 41)
+    ]
+
+    requests = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=beats,
+        facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
+    )
+
+    assert len(requests) == 1
+    assert requests[0].constraints.ordered_member_ids == tuple(beat.id for beat in beats)
+
+
+def test_required_split_prefers_strongest_nearby_boundary() -> None:
+    beats = [_beat(number) for number in range(1, 131)]
+    beats[112] = _beat(113, kind="return")
+    beats[118] = _beat(119, kind="condition")
+
+    requests = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=beats,
+        facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
+    )
+
+    assert requests[0].constraints.ordered_member_ids == tuple(
+        beat.id for beat in beats[:113]
+    )
+    assert [
+        member for request in requests for member in request.constraints.ordered_member_ids
+    ] == [beat.id for beat in beats]
+
+
+def test_fact_bearing_technical_beat_is_required_without_raw_command_text() -> None:
+    technical = BeatRecord(
+        **{
+            **_beat(1, kind="opaque").__dict__,
+            "text": "$ secret_flag = calculate_dynamic_value()",
+            "fact_ids": ("fact-1",),
+        }
+    )
+    fallback: list[str] = []
+
+    requests = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[technical],
+        facts=[FactRecord("fact-1", "secret_flag = ?", "unknown", "possible", ("evidence-1",))],
+        on_deterministic_fallback=lambda beat: fallback.append(beat.id),
+    )
+
+    assert fallback == []
+    assert len(requests) == 1
+    assert requests[0].constraints.required_member_ids == frozenset({technical.id})
+    payload_beats = requests[0].payload["beats"]
+    payload_facts = requests[0].payload["facts"]
+    assert isinstance(payload_beats, list) and isinstance(payload_beats[0], dict)
+    assert isinstance(payload_facts, list) and isinstance(payload_facts[0], dict)
+    assert "text" not in payload_beats[0]
+    assert payload_facts[0]["id"] == "fact-1"
+
+
+def test_factless_technical_only_scene_can_stay_deterministic_without_provider() -> None:
+    technical = BeatRecord(**{**_beat(2, kind="show").__dict__, "fact_ids": ()})
+    fallback: list[str] = []
+
+    requests = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[technical],
+        on_deterministic_fallback=lambda beat: fallback.append(beat.id),
+    )
+
+    assert requests == []
+    assert fallback == [technical.id]
+
+
+def test_prompt_embeds_exact_raw_json_output_contract_for_initial_and_repair() -> None:
+    request = _request()
+    initial = json.loads(serialize_organization_prompt(request, repair=False))
+    repair = json.loads(serialize_organization_prompt(request, repair=True))
+
+    for envelope in (initial, repair):
+        output = envelope["output_contract"]
+        assert output["top_level"]["exact_keys"] == [
+            "stage",
+            "groups",
+            "ungrouped_ids",
+        ]
+        assert output["top_level"]["stage"] == "events"
+        assert output["group"]["exact_keys"] == [
+            "id",
+            "title",
+            "summary",
+            "member_ids",
+            "characters",
+            "importance",
+            "outcomes",
+            "promoted_fact_ids",
+            "claims",
+            "warnings",
+        ]
+        assert output["claim"]["exact_keys"] == ["text", "evidence_ids"]
+        assert output["claim"]["text"].startswith("non-empty")
+        assert "unique" in output["ordering"]
+        assert "non-crossing" in output["ordering"]
+        assert envelope["contract"]["required_member_ids"] == [
+            "beat-1",
+            "beat-2",
+            "beat-3",
+        ]
+        assert "Do not emit analysis" in output["serialization"]
+    assert "Produce a new response from scratch" in repair["instruction"]
+    assert "Do not use Markdown" in initial["instruction"]
+
+
 def test_chunking_splits_scenes_and_rejects_duplicate_or_oversized_beats() -> None:
     chunks = build_event_chunks(
         run_id="run",
@@ -151,6 +273,19 @@ def test_chunking_splits_scenes_and_rejects_duplicate_or_oversized_beats() -> No
             beats=[huge],
             facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
         )
+
+    fallback_ids: list[str] = []
+    requests = build_event_chunks(
+        run_id="run",
+        scope_id="scope",
+        beats=[huge, _beat(2)],
+        facts=[FactRecord("fact-1", "points += 1", "points +1", "proven", ("evidence-1",))],
+        on_oversized=lambda beat: fallback_ids.append(beat.id),
+    )
+    assert fallback_ids == [huge.id]
+    assert [
+        member for request in requests for member in request.constraints.ordered_member_ids
+    ] == ["beat-2"]
 
 
 def test_chunking_preserves_supplied_chronology_across_reverse_lexical_scenes() -> None:
@@ -210,7 +345,7 @@ def test_multi_speaker_metadata_remains_inside_exact_chunk_size_limit() -> None:
             **_beat(2).__dict__,
             "speaker": None,
             "speaker_names": speakers,
-            "text": "n" * 39_000,
+            "text": "n" * 37_000,
         }
     )
     chunks = build_event_chunks(run_id="run", scope_id="scope", beats=[beat])
@@ -246,7 +381,7 @@ def test_chunking_rejects_runtime_invalid_speaker_types(
 
 
 def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None:
-    near_limit = BeatRecord(**{**_beat(3).__dict__, "text": "x" * 45_500, "fact_ids": ("fact-1",)})
+    near_limit = BeatRecord(**{**_beat(3).__dict__, "text": "x" * 43_000, "fact_ids": ("fact-1",)})
     chunks = build_event_chunks(
         run_id="run",
         scope_id="scope",
@@ -272,7 +407,7 @@ def test_chunk_limit_reduces_context_and_repartitions_for_fact_payload() -> None
         for repair in (False, True)
     )
     final_chunk = next(
-        chunk for chunk in chunks if chunk.constraints.ordered_member_ids == ("beat-3",)
+        chunk for chunk in chunks if "beat-3" in chunk.constraints.ordered_member_ids
     )
     assert "beat-2" not in final_chunk.constraints.context_member_ids
     assert len(final_chunk.constraints.context_member_ids) < 2
@@ -707,7 +842,7 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
     assert process.started is not None
     program, args = process.started
     assert program == "codex"
-    assert args == [
+    assert args[:8] == [
         "exec",
         "--ephemeral",
         "--skip-git-repo-check",
@@ -715,11 +850,39 @@ def test_provider_commands_are_direct_stdin_only_and_sterile() -> None:
         "read-only",
         "--ignore-user-config",
         "--ignore-rules",
-        "--json",
-        "--output-schema",
-        args[9],
-        "-",
+        "--strict-config",
     ]
+    schema_index = args.index("--output-schema")
+    disabled = args[8 : args.index("-c")]
+    assert disabled == [
+        value
+        for feature in (
+            "plugins",
+            "apps",
+            "hooks",
+            "browser_use",
+            "browser_use_external",
+            "browser_use_full_cdp_access",
+            "computer_use",
+            "fast_mode",
+            "image_generation",
+            "in_app_browser",
+            "multi_agent",
+            "goals",
+            "shell_tool",
+            "tool_call_mcp_elicitation",
+            "tool_suggest",
+            "workspace_dependencies",
+        )
+        for value in ("--disable", feature)
+    ]
+    assert args[args.index("-c") : args.index("--json")] == [
+        "-c",
+        'web_search="disabled"',
+        "-c",
+        "analytics.enabled=false",
+    ]
+    assert args[schema_index + 2 :] == ["-"]
     assert Path(process.cwd).name.startswith("renpy-story-organizer-")
     assert not Path(process.cwd).exists()
     assert b"synthetic" in process.stdin
@@ -759,6 +922,19 @@ def test_lmstudio_status_resolves_one_model_from_loopback_without_story_input() 
     assert status.context_window_tokens == 12_288
     assert calls == [("http://127.0.0.1:1234/api/v1/models", 0.5)]
     assert "story" not in calls[0][0].lower()
+
+
+def test_lmstudio_status_sanitizes_an_empty_loaded_instance_identifier() -> None:
+    provider = CodexCliProvider(
+        CodexMode.CODEX_LMSTUDIO,
+        process_factory=lambda: FakeProcess(b""),
+        model_discovery=lambda _url, _timeout: _lmstudio_payload(""),
+    )
+
+    status = provider.status()
+
+    assert status.state is ProviderState.MISSING
+    assert "invalid native model list" in status.message
 
 
 @pytest.mark.parametrize(
@@ -1169,6 +1345,10 @@ def test_lmstudio_child_removes_proxies_and_sets_loopback_no_proxy() -> None:
     assert process.environment.value("NO_PROXY") == "127.0.0.1,localhost,::1"
     assert process.environment.value("no_proxy") == "127.0.0.1,localhost,::1"
     assert process.environment.value("KEEP_ME") == "safe"
+    isolated_home = Path(process.environment.value("CODEX_HOME"))
+    assert isolated_home.name.startswith("renpy-story-organizer-")
+    assert isolated_home == Path(process.cwd)
+    assert not isolated_home.exists()
 
 
 def test_chatgpt_child_environment_is_not_replaced() -> None:
@@ -1212,20 +1392,124 @@ def test_cloud_provider_requires_fresh_matching_consent_before_process_creation(
         )
     assert not called
 
+    for run_id, consent in (("", ""), ("   ", "   "), ("run-1", None)):
+        called = False
+        invalid = OrganizationRequest(
+            **{
+                **_request().__dict__,
+                "run_id": run_id,
+                "cloud_consent_run_id": consent,
+            }
+        )
+        with pytest.raises(ConsentRequiredError):
+            CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=factory).organize(
+                invalid, lambda _p, _s: None, lambda: False
+            )
+        assert not called
+
 
 def test_injected_provider_does_not_consult_machine_codex_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def forbidden_which(_name: str) -> str:
+    def forbidden_which(_name: str) -> tuple[Path, ...]:
         raise AssertionError("machine PATH must not be consulted for an injected provider")
 
-    monkeypatch.setattr("renpy_story_mapper.organization.provider.shutil.which", forbidden_which)
+    monkeypatch.setattr(
+        "renpy_story_mapper.organization.provider._path_executable_candidates",
+        forbidden_which,
+    )
     process = FakeProcess(_jsonl(_valid_payload()))
     provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
     assert provider.status().state is ProviderState.READY
     assert (
         provider.organize(_request(), lambda _p, _s: None, lambda: False).groups[0].id == "group-1"
     )
+
+
+def test_native_discovery_never_executes_a_cwd_planted_codex(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    planted = cwd / "codex.exe"
+    planted.write_bytes(b"untrusted")
+    path_root = tmp_path / "trusted-bin"
+    path_root.mkdir()
+    (path_root / "codex.cmd").write_text("@echo off\r\n", encoding="utf-8")
+    vendor = (
+        path_root
+        / "node_modules"
+        / "@openai"
+        / "codex"
+        / "node_modules"
+        / "@openai"
+        / "codex-win32-x64"
+        / "vendor"
+        / "x86_64-pc-windows-msvc"
+        / "bin"
+        / "codex.exe"
+    )
+    vendor.parent.mkdir(parents=True)
+    vendor.write_bytes(b"trusted")
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("PATH", str(path_root))
+    monkeypatch.setenv("PATHEXT", ".EXE;.CMD")
+    probed: list[str] = []
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+    def probe(executable: str, _deadline: float | None = None) -> str:
+        probed.append(executable)
+        return "codex-cli synthetic"
+
+    monkeypatch.setattr(provider, "_probe_version", probe)
+    status = provider.status()
+
+    assert status.state is ProviderState.READY
+    assert status.executable == str(vendor.resolve())
+    assert probed == [str(vendor.resolve())]
+    assert str(planted.resolve()) not in probed
+
+
+def test_native_executable_discovery_has_one_strict_total_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path_root = tmp_path / "bin"
+    path_root.mkdir()
+    (path_root / "codex.exe").write_bytes(b"first")
+    (path_root / "codex.cmd").write_text("@echo off\r\n", encoding="utf-8")
+    vendor = (
+        path_root
+        / "node_modules"
+        / "@openai"
+        / "codex"
+        / "node_modules"
+        / "@openai"
+        / "codex-win32-x64"
+        / "vendor"
+        / "x86_64-pc-windows-msvc"
+        / "bin"
+        / "codex.exe"
+    )
+    vendor.parent.mkdir(parents=True)
+    vendor.write_bytes(b"second")
+    monkeypatch.setenv("PATH", str(path_root))
+    monkeypatch.setenv("PATHEXT", ".EXE;.CMD")
+    calls: list[str] = []
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+    def slow_probe(executable: str, deadline: float | None = None) -> None:
+        assert deadline is not None
+        calls.append(executable)
+        time.sleep(max(0.0, deadline - time.monotonic()) + 0.02)
+
+    monkeypatch.setattr(provider, "_probe_version", slow_probe)
+    started = time.monotonic()
+    status = provider.status()
+    elapsed = time.monotonic() - started
+
+    assert status.state is ProviderState.MISSING
+    assert len(calls) == 1
+    assert elapsed < 0.8
 
 
 @pytest.mark.parametrize("use_cancel_method", [False, True])
@@ -1300,8 +1584,60 @@ def test_provider_repairs_once_then_accepts_and_never_more_than_twice() -> None:
     assert not failures
 
 
+def test_provider_totals_retry_usage_and_hashes_every_transmitted_prompt() -> None:
+    request = _request()
+    first_usage = (
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 111, "output_tokens": 22},
+            }
+        )
+        + "\n"
+    ).encode()
+    second_usage = (
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 222, "output_tokens": 33},
+            }
+        )
+        + "\n"
+    ).encode()
+    processes = [
+        FakeProcess(first_usage + _jsonl({"bad": True})),
+        FakeProcess(second_usage + _jsonl(_valid_payload())),
+    ]
+    provider = CodexCliProvider(
+        CodexMode.CODEX_CHATGPT, process_factory=lambda: processes.pop(0)
+    )
+
+    result = provider.organize(request, lambda _p, _s: None, lambda: False)
+
+    assert result.attempts == 2
+    assert result.metadata is not None
+    assert result.metadata.input_tokens == 333
+    assert result.metadata.output_tokens == 55
+    prompts = [
+        serialize_organization_prompt(request, repair=repair).encode("utf-8")
+        for repair in (False, True)
+    ]
+    framed = b"".join(len(prompt).to_bytes(8, "big") + prompt for prompt in prompts)
+    first_only = len(prompts[0]).to_bytes(8, "big") + prompts[0]
+    assert result.metadata.input_hash == hashlib.sha256(framed).hexdigest()
+    assert result.metadata.input_hash != hashlib.sha256(first_only).hexdigest()
+
+
 @pytest.mark.parametrize(
-    "marker", ["command_execution", "mcp_tool_call", "web_search", "file_change"]
+    "marker",
+    [
+        "command_execution",
+        "mcp_tool_call",
+        "collab_tool_call",
+        "dynamic_tool_call",
+        "web_search",
+        "file_change",
+    ],
 )
 def test_provider_terminates_and_rejects_policy_events(marker: str) -> None:
     process = FakeProcess((json.dumps({"type": marker}) + "\n").encode())
@@ -1309,6 +1645,44 @@ def test_provider_terminates_and_rejects_policy_events(marker: str) -> None:
     with pytest.raises(PolicyViolationError):
         provider.organize(_request(), lambda _p, _s: None, lambda: False)
     assert process.terminated
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"type": "turn.completed", "output": [{"type": "mcp_tool_call"}]},
+        {"type": "item.completed", "item": {"type": "future_action"}},
+        {"type": "item.started", "item": {}},
+    ],
+)
+def test_provider_fail_closes_nested_or_unknown_action_items(
+    event: dict[str, object],
+) -> None:
+    process = FakeProcess((json.dumps(event) + "\n").encode())
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+
+    with pytest.raises(PolicyViolationError):
+        provider.organize(_request(), lambda _p, _s: None, lambda: False)
+
+    assert process.terminated
+
+
+def test_provider_does_not_treat_quoted_policy_words_as_executed_tools() -> None:
+    payload = _valid_payload()
+    groups = payload["groups"]
+    assert isinstance(groups, list) and isinstance(groups[0], dict)
+    groups[0]["warnings"] = [
+        "The source literally mentions web_search, shell_command, and apply_patch."
+    ]
+    process = FakeProcess(_jsonl(payload))
+    provider = CodexCliProvider(CodexMode.CODEX_CHATGPT, process_factory=lambda: process)
+
+    result = provider.organize(_request(), lambda _p, _s: None, lambda: False)
+
+    assert result.groups[0].warnings == (
+        "The source literally mentions web_search, shell_command, and apply_patch.",
+    )
+    assert not process.terminated
 
 
 def test_provider_cancellation_terminates_with_bounded_wait_and_cleans_temp() -> None:

@@ -112,12 +112,35 @@ _STYLES: dict[str, NodeVisualStyle] = {
     "unresolved": NodeVisualStyle("#FFF0F0", "#A13333", "#D44A4A", dashed=True),
 }
 _DEFAULT_STYLE = NodeVisualStyle("#F3F4F6", "#4B5563", "#6B7280")
+_KIND_LABELS = {
+    "container": "ARC / SCOPE",
+    "event": "EVENT",
+    "story": "EVIDENCE",
+    "choice": "CHOICE",
+    "gate": "REQUIREMENT",
+    "effect": "EFFECT",
+    "merge": "MERGE",
+    "loop": "LOOP",
+    "jump": "JUMP",
+    "call": "CALL",
+    "return": "RETURN",
+    "shared_call": "SHARED CALL",
+    "ending": "ENDING",
+    "technical": "TECHNICAL",
+    "unresolved": "UNRESOLVED",
+}
 
 
 def visual_style_for(kind: str) -> NodeVisualStyle:
     """Return a stable style for every supported semantic classification."""
 
     return _STYLES.get(kind, _DEFAULT_STYLE)
+
+
+def semantic_kind_label(kind: str) -> str:
+    """Return the visible text label paired with a node's semantic styling."""
+
+    return _KIND_LABELS.get(kind, kind.replace("_", " ").upper() or "STORY ITEM")
 
 
 def semantic_level_for_scale(scale: float) -> SemanticLevel:
@@ -148,6 +171,7 @@ class _NodeItem(QGraphicsObject):
         self.spec = spec
         self.semantic_level = SemanticLevel.EVENTS
         self.search_highlighted = False
+        self.application_zoom = 1.0
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
@@ -155,7 +179,17 @@ class _NodeItem(QGraphicsObject):
         self.setToolTip(spec.detail or spec.summary or spec.title)
 
     def boundingRect(self) -> QRectF:
-        return QRectF(0.0, 0.0, self.WIDTH, self.HEIGHT)
+        return QRectF(
+            0.0,
+            0.0,
+            self.WIDTH * self.application_zoom,
+            self.HEIGHT * self.application_zoom,
+        )
+
+    def set_application_zoom(self, scale: float) -> None:
+        self.prepareGeometryChange()
+        self.application_zoom = scale
+        self.update()
 
     def paint(
         self,
@@ -163,6 +197,8 @@ class _NodeItem(QGraphicsObject):
         _option: QStyleOptionGraphicsItem,
         _widget: QWidget | None = None,
     ) -> None:
+        painter.save()
+        painter.scale(self.application_zoom, self.application_zoom)
         style = visual_style_for(self.spec.kind)
         border = QColor("#1A73E8") if self.isSelected() else QColor(style.border)
         if self.search_highlighted and not self.isSelected():
@@ -172,7 +208,7 @@ class _NodeItem(QGraphicsObject):
             pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(QColor(style.fill))
-        painter.drawRoundedRect(self.boundingRect(), 9.0, 9.0)
+        painter.drawRoundedRect(QRectF(0.0, 0.0, self.WIDTH, self.HEIGHT), 9.0, 9.0)
 
         painter.fillRect(QRectF(0.0, 0.0, 7.0, self.HEIGHT), QColor(style.accent))
         painter.setPen(QColor("#18202A"))
@@ -181,7 +217,18 @@ class _NodeItem(QGraphicsObject):
         title_font.setPointSize(10)
         painter.setFont(title_font)
         painter.drawText(
-            QRectF(15.0, 10.0, 230.0, 24.0), elide_visible_text(self.spec.title, 36)
+            QRectF(15.0, 10.0, 154.0, 24.0), elide_visible_text(self.spec.title, 24)
+        )
+
+        kind_font = painter.font()
+        kind_font.setBold(True)
+        kind_font.setPointSize(7)
+        painter.setFont(kind_font)
+        painter.setPen(QColor(style.border))
+        painter.drawText(
+            QRectF(172.0, 10.0, 73.0, 22.0),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            elide_visible_text(semantic_kind_label(self.spec.kind), 14),
         )
 
         body_font = painter.font()
@@ -206,6 +253,7 @@ class _NodeItem(QGraphicsObject):
             painter.drawText(
                 QRectF(15.0, 130.0, 230.0, 20.0), elide_visible_text(evidence, 48)
             )
+        painter.restore()
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         canvas = self.scene().views()[0] if self.scene() and self.scene().views() else None
@@ -283,6 +331,7 @@ class GraphCanvas(QGraphicsView):
         self._panning = False
         self._pan_origin = QPoint()
         self._layout_positions: dict[str, QPointF] = {}
+        self._application_zoom_percent = 100
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
@@ -305,8 +354,32 @@ class GraphCanvas(QGraphicsView):
         return len(self._node_items) + len(self._edge_items)
 
     @property
+    def visible_item_count(self) -> int:
+        return sum(item.isVisible() for item in self._node_items.values()) + sum(
+            item.isVisible() for item in self._edge_items
+        )
+
+    @property
     def rendered_node_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._node_items))
+
+    @property
+    def application_zoom_percent(self) -> int:
+        return self._application_zoom_percent
+
+    def set_application_zoom(self, percent: int) -> None:
+        """Scale card typography with the Windows application zoom setting."""
+
+        if percent < 100 or percent > 200:
+            raise ValueError("Application zoom must be between 100 and 200 percent.")
+        self._application_zoom_percent = percent
+        scale = percent / 100.0
+        for item in self._node_items.values():
+            item.set_application_zoom(scale)
+        self._layout_nodes()
+        self._update_edges()
+        self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-60, -60, 60, 60))
+        self.viewport().update()
 
     def set_slice(
         self,
@@ -346,6 +419,7 @@ class GraphCanvas(QGraphicsView):
             for node_spec in accepted_nodes:
                 item = _NodeItem(node_spec)
                 item.semantic_level = self._semantic_level
+                item.set_application_zoom(self._application_zoom_percent / 100.0)
                 item.search_highlighted = node_spec.id in self._search_results
                 self._scene.addItem(item)
                 self._node_items[node_spec.id] = item
@@ -420,7 +494,8 @@ class GraphCanvas(QGraphicsView):
         hidden = set(self._hidden_kinds)
         hidden.discard(kind) if visible else hidden.add(kind)
         self._hidden_kinds = frozenset(hidden)
-        self._apply_visibility()
+        self._apply_visibility(clear_filtered_selection=True)
+        self.filters_changed.emit(self._variable_filter, self._category_filter)
 
     def set_search_results(self, node_ids: Iterable[str]) -> None:
         self._search_results = frozenset(node_ids)
@@ -551,11 +626,13 @@ class GraphCanvas(QGraphicsView):
             for node_id, item in self._node_items.items():
                 position = self._layout_positions.get(node_id)
                 if position is not None:
-                    item.setPos(position)
+                    scale = self._application_zoom_percent / 100.0
+                    item.setPos(position.x() * scale, position.y() * scale)
             return
         columns = 4
-        x_spacing = _NodeItem.WIDTH + 90.0
-        y_spacing = _NodeItem.HEIGHT + 70.0
+        scale = self._application_zoom_percent / 100.0
+        x_spacing = (_NodeItem.WIDTH + 90.0) * scale
+        y_spacing = (_NodeItem.HEIGHT + 70.0) * scale
         for index, node_id in enumerate(sorted(self._node_items)):
             row, column = divmod(index, columns)
             self._node_items[node_id].setPos(column * x_spacing, row * y_spacing)
@@ -574,8 +651,9 @@ class GraphCanvas(QGraphicsView):
                 path.cubicTo(QPointF(middle_x, start.y()), QPointF(middle_x, end.y()), end)
             edge.setPath(path)
 
-    def _apply_visibility(self) -> None:
+    def _apply_visibility(self, *, clear_filtered_selection: bool = False) -> None:
         was_suspended = self._selection_updates_suspended
+        selection_cleared = False
         self._selection_updates_suspended = True
         try:
             for item in self._node_items.values():
@@ -596,6 +674,12 @@ class GraphCanvas(QGraphicsView):
             selected_item = self._node_items.get(self._selected_id or "")
             if selected_item is not None and selected_item.isVisible():
                 selected_item.setSelected(True)
+            elif selected_item is not None and clear_filtered_selection:
+                selected_item.setSelected(False)
+                self._selected_id = None
+                selection_cleared = True
+            elif selected_item is not None:
+                selected_item.setSelected(False)
             for edge in self._edge_items:
                 edge.setVisible(
                     self._node_items[edge.spec.source].isVisible()
@@ -603,9 +687,11 @@ class GraphCanvas(QGraphicsView):
                 )
         finally:
             self._selection_updates_suspended = was_suspended
+        if selection_cleared and not was_suspended:
+            self.selection_changed.emit(None)
 
     def _filters_updated(self) -> None:
-        self._apply_visibility()
+        self._apply_visibility(clear_filtered_selection=True)
         self.filters_changed.emit(self._variable_filter, self._category_filter)
 
     def _sync_semantic_level_to_scale(self) -> None:
@@ -681,6 +767,7 @@ __all__ = [
     "SemanticLevel",
     "SourceEvidence",
     "elide_visible_text",
+    "semantic_kind_label",
     "semantic_level_for_scale",
     "visual_style_for",
 ]

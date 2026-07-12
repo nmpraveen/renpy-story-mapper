@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Literal, cast
 
 from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self,
         controller: ProjectController | None = None,
         presentation_service: PresentationService | None = None,
+        settings: QSettings | None = None,
     ) -> None:
         super().__init__()
         self.controller = controller or ProjectController(parent=self)
@@ -65,12 +67,16 @@ class MainWindow(QMainWindow):
         self._review_dialog: DraftReviewDialog | None = None
         self._current_project_path: str | None = None
         self._last_organization_options: OrganizationOptions | None = None
+        self._last_organization_scopes: tuple[str, ...] = ()
         self._organization_started_at: float | None = None
         self._organization_status = ""
+        self._recovery_callback: Callable[[], None] | None = None
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(250)
         self._elapsed_timer.timeout.connect(self._update_elapsed_status)
-        self._settings = QSettings("RenPyStoryMapper", "StoryMapper")
+        self._settings = (
+            settings if settings is not None else QSettings("RenPyStoryMapper", "StoryMapper")
+        )
         self.setWindowTitle("Ren'Py Story Mapper")
         self.resize(1280, 800)
         self._build_toolbar()
@@ -178,7 +184,9 @@ class MainWindow(QMainWindow):
         self.command_bar.setStretchFactor(self.search_input, 1)
         layout.addLayout(self.command_bar)
 
-        self.technical_filter = QCheckBox("Technical organization", self.workspace_page)
+        self.technical_filter = QCheckBox(
+            "Technical map / unorganized scopes", self.workspace_page
+        )
         self.technical_filter.setObjectName("technicalFilter")
         self.unresolved_filter = QCheckBox("Unresolved behavior", self.workspace_page)
         self.unresolved_filter.setObjectName("unresolvedFilter")
@@ -258,7 +266,7 @@ class MainWindow(QMainWindow):
         self.recovery_button.setObjectName("recoveryAction")
         self.recovery_button.setAccessibleName("Retry the last story operation")
         self.recovery_button.hide()
-        self.recovery_button.clicked.connect(self._retry_organization)
+        self.recovery_button.clicked.connect(self._run_recovery)
         status.addWidget(self.level_status)
         status.addWidget(self.visible_count_status)
         status.addWidget(self.provenance_status)
@@ -399,7 +407,7 @@ class MainWindow(QMainWindow):
         self.level_three_button.clicked.connect(self._show_level_three)
         self.fit_button.clicked.connect(self.graph_canvas.fit_all)
         self.search_input.returnPressed.connect(self._search_story)
-        self.technical_filter.toggled.connect(self.map_presenter.set_include_technical)
+        self.technical_filter.toggled.connect(self._toggle_technical_view)
         self.unresolved_filter.toggled.connect(
             lambda visible: self.graph_canvas.set_kind_visible("unresolved", visible)
         )
@@ -427,10 +435,13 @@ class MainWindow(QMainWindow):
             )
         )
         self.map_presenter.status_changed.connect(self.status_label.setText)
-        self.map_presenter.error_occurred.connect(self.diagnostics_list.addItem)
+        self.map_presenter.error_occurred.connect(self._show_presentation_error)
         self.map_presenter.busy_changed.connect(self._presentation_busy_changed)
+        self.map_presenter.visible_count_changed.connect(
+            lambda count: self.visible_count_status.setText(f"{count} visible")
+        )
         self.accepted_presenter.status_changed.connect(self.status_label.setText)
-        self.accepted_presenter.error_occurred.connect(self._show_contextual_error)
+        self.accepted_presenter.error_occurred.connect(self._show_presentation_error)
         self.accepted_presenter.busy_changed.connect(self._presentation_busy_changed)
         self.accepted_presenter.visible_count_changed.connect(
             lambda count: self.visible_count_status.setText(f"{count} visible")
@@ -441,11 +452,16 @@ class MainWindow(QMainWindow):
         )
         self.accepted_presenter.pending_draft_changed.connect(self._show_review)
         self.accepted_presenter.ready.connect(self._accepted_story_ready)
+        self.accepted_presenter.technical_map_requested.connect(self._show_technical_map)
+        self.accepted_presenter.accepted_map_requested.connect(self._show_accepted_map)
+        self.accepted_presenter.selection_context_changed.connect(
+            self._refresh_correction_choices
+        )
         self.organization_controller.set_project(self.controller.session)
         self.organization_controller.progress_changed.connect(self._organization_progress)
         self.organization_controller.busy_changed.connect(self._presentation_busy_changed)
         self.organization_controller.busy_changed.connect(self._organization_busy_changed)
-        self.organization_controller.error_occurred.connect(self._show_contextual_error)
+        self.organization_controller.error_occurred.connect(self._show_organization_error)
         self.organization_controller.draft_ready.connect(self._draft_ready)
         self.organization_controller.organization_outcome.connect(self._reload_story)
 
@@ -461,6 +477,8 @@ class MainWindow(QMainWindow):
         self.organize_button.setMenu(organize_menu)
         self.rename_node_button.clicked.disconnect()
         self.rename_node_button.clicked.connect(self._rename_selected)
+        self.reset_node_name_button.clicked.disconnect()
+        self.reset_node_name_button.clicked.connect(self._reset_selected_name)
         self.hide_node_button.clicked.disconnect()
         self.hide_node_button.clicked.connect(self._hide_selected)
         self.pin_node_button.clicked.connect(self._pin_selected)
@@ -470,32 +488,77 @@ class MainWindow(QMainWindow):
         self.merge_event_button.clicked.connect(self._merge_selected)
         self.move_event_button.clicked.connect(self._move_selected)
         self.graph_canvas.selection_changed.connect(self._refresh_correction_choices)
+        self.graph_canvas.filters_changed.connect(
+            lambda _variables, _categories: self.visible_count_status.setText(
+                f"{self.graph_canvas.visible_item_count} visible"
+            )
+        )
+
+    @Slot(bool)
+    def _toggle_technical_view(self, visible: bool) -> None:
+        self.map_presenter.set_include_technical(visible)
+        if not self.accepted_presenter.active:
+            return
+        if visible:
+            self._show_technical_map()
+        else:
+            self._show_accepted_map()
+
+    @Slot()
+    def _show_technical_map(self) -> None:
+        if not self.accepted_presenter.active:
+            self.map_presenter.set_render_suppressed(False)
+            return
+        if not self.technical_filter.isChecked():
+            self.technical_filter.blockSignals(True)
+            self.technical_filter.setChecked(True)
+            self.technical_filter.blockSignals(False)
+        self.accepted_presenter.enter_technical_mode()
+        self.map_presenter.set_include_technical(True)
+        self.map_presenter.show_overview()
+        self.map_presenter.set_render_suppressed(False)
+        self.breadcrumb_label.setText("Technical map")
+        self._refresh_correction_choices(None)
+
+    @Slot()
+    def _show_accepted_map(self) -> None:
+        if not self.accepted_presenter.active:
+            return
+        if self.technical_filter.isChecked():
+            self.technical_filter.blockSignals(True)
+            self.technical_filter.setChecked(False)
+            self.technical_filter.blockSignals(False)
+        self.map_presenter.set_render_suppressed(True)
+        self.map_presenter.set_include_technical(False)
+        self.accepted_presenter.enter_accepted_mode()
+        self.breadcrumb_label.setText("Accepted overview")
+        self._refresh_correction_choices(None)
 
     @Slot()
     def _go_back(self) -> None:
-        if getattr(self, "accepted_presenter", None) is not None and self.accepted_presenter.active:
-            self.accepted_presenter.show_overview()
+        if self.accepted_presenter.viewing_accepted:
+            self._show_accepted_map()
             self.breadcrumb_label.setText("Overview")
         else:
             self.map_presenter.go_up()
 
     @Slot()
     def _show_level_one(self) -> None:
-        if self.accepted_presenter.active:
-            self.accepted_presenter.show_overview()
+        if self.accepted_presenter.viewing_accepted:
+            self._show_accepted_map()
         else:
             self.graph_canvas.set_semantic_level(SemanticLevel.OVERVIEW)
 
     @Slot()
     def _show_level_two(self) -> None:
-        if self.accepted_presenter.active and self.accepted_presenter.selected_arc_id:
+        if self.accepted_presenter.viewing_accepted and self.accepted_presenter.selected_arc_id:
             self.accepted_presenter.show_arc(self.accepted_presenter.selected_arc_id)
         else:
             self.graph_canvas.set_semantic_level(SemanticLevel.EVENTS)
 
     @Slot()
     def _show_level_three(self) -> None:
-        if self.accepted_presenter.active and self.accepted_presenter.selected_event_id:
+        if self.accepted_presenter.viewing_accepted and self.accepted_presenter.selected_event_id:
             self.accepted_presenter.show_evidence(self.accepted_presenter.selected_event_id)
         else:
             self.graph_canvas.set_semantic_level(SemanticLevel.EVIDENCE)
@@ -504,21 +567,29 @@ class MainWindow(QMainWindow):
     @Slot()
     def _search_story(self) -> None:
         query = self.search_input.text()
-        if self.accepted_presenter.active and self.accepted_presenter.search(query):
+        if self.accepted_presenter.viewing_accepted:
+            self.accepted_presenter.search(query)
             return
         self.map_presenter.search(query)
 
     def _organize(self, options: OrganizationOptions) -> None:
-        scopes = self.map_presenter.selected_overview_scope_ids
-        if not scopes:
-            self.status_label.setText("Select a Level 1 story scope first.")
-            return
+        scopes = (
+            self.map_presenter.selected_overview_scope_ids
+            if not self.accepted_presenter.viewing_accepted
+            else ()
+        )
+        self._begin_organization(tuple(scopes), options)
+
+    def _begin_organization(
+        self, scopes: tuple[str, ...], options: OrganizationOptions
+    ) -> None:
+        scope_label = "selected scope" if scopes else "full game"
         cloud_confirmed = False
         if options.mode is CodexMode.CODEX_CHATGPT:
             result = QMessageBox.question(
                 self,
                 "Send story evidence to ChatGPT?",
-                "This run sends selected story text to the cloud organizer. Continue?",
+                f"This run sends {scope_label} story evidence to the cloud organizer. Continue?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -526,7 +597,9 @@ class MainWindow(QMainWindow):
             if not cloud_confirmed:
                 return
         self._last_organization_options = options
-        self.recovery_button.hide()
+        self._last_organization_scopes = scopes
+        self._clear_recovery()
+        self.status_label.setText(f"Organizing {scope_label}")
         self.organization_controller.organize(scopes, options, cloud_confirmed=cloud_confirmed)
 
     @Slot(int, str)
@@ -558,7 +631,7 @@ class MainWindow(QMainWindow):
     def _retry_organization(self) -> None:
         options = self._last_organization_options
         if options is not None:
-            self._organize(options)
+            self._begin_organization(self._last_organization_scopes, options)
 
     @Slot(str, object)
     def _draft_ready(self, _draft_id: str, _result: object) -> None:
@@ -569,8 +642,12 @@ class MainWindow(QMainWindow):
     def _accepted_story_ready(self) -> None:
         suppress = getattr(self.map_presenter, "set_render_suppressed", None)
         if callable(suppress):
-            suppress(self.accepted_presenter.active)
-        self._restore_story_navigation()
+            suppress(self.accepted_presenter.active and not self.technical_filter.isChecked())
+        if self.accepted_presenter.active and self.technical_filter.isChecked():
+            self._show_technical_map()
+        else:
+            self._restore_story_navigation()
+        self._clear_recovery()
 
     @Slot(object, object, object)
     def _show_review(self, draft: object, run: object, snapshot: object) -> None:
@@ -627,6 +704,11 @@ class MainWindow(QMainWindow):
             self.organization_controller.mutate(
                 lambda service: service.rename(kind, identifier, title)
             )
+
+    @Slot()
+    def _reset_selected_name(self) -> None:
+        if self._accepted_target() is None:
+            self.map_presenter.reset_selected_name()
 
     @Slot()
     def _hide_selected(self) -> None:
@@ -700,8 +782,43 @@ class MainWindow(QMainWindow):
             self.move_target_input,
         ):
             combo.clear()
-        if not self.accepted_presenter.active:
+        target = self._accepted_target()
+        if target is None:
+            technical_target = (
+                not self.accepted_presenter.viewing_accepted
+                and self.graph_canvas.selected_node_id is not None
+            )
+            self.rename_node_button.setEnabled(technical_target)
+            self.reset_node_name_button.setEnabled(technical_target)
+            self.reset_node_name_button.setToolTip("Reset the deterministic presentation name")
+            self.hide_node_button.setEnabled(technical_target)
+            self.hide_node_button.setText("Hide selected")
+            self.pin_node_button.setText("Pin selected")
+            self.pin_node_button.setEnabled(False)
+            self.approve_node_button.setText("Approve")
+            self.approve_node_button.setEnabled(False)
+            self.reject_node_button.setText("Reject")
+            self.reject_node_button.setEnabled(False)
+            self.split_event_button.setEnabled(False)
+            self.merge_event_button.setEnabled(False)
+            self.move_event_button.setEnabled(False)
             return
+        self.rename_node_button.setEnabled(True)
+        self.reset_node_name_button.setEnabled(False)
+        self.reset_node_name_button.setToolTip(
+            "Accepted AI titles can be renamed; their original title is not overwritten by Reset."
+        )
+        hidden = self.accepted_presenter.selected_hidden
+        self.hide_node_button.setText("Unhide selected" if hidden else "Hide selected")
+        self.hide_node_button.setEnabled(True)
+        pinned = self.accepted_presenter.selected_pinned
+        self.pin_node_button.setText("Unpin selected" if pinned else "Pin selected")
+        self.pin_node_button.setEnabled(True)
+        approval = self.accepted_presenter.selected_approval_state
+        self.approve_node_button.setText("Approved" if approval == "approved" else "Approve")
+        self.approve_node_button.setEnabled(approval != "approved")
+        self.reject_node_button.setText("Rejected" if approval == "rejected" else "Reject")
+        self.reject_node_button.setEnabled(approval != "rejected")
         boundaries, siblings, arcs = self.accepted_presenter.correction_choices()
         for identifier, label in boundaries:
             self.split_boundary_input.addItem(label, identifier)
@@ -709,6 +826,10 @@ class MainWindow(QMainWindow):
             self.merge_target_input.addItem(label, identifier)
         for identifier, label in arcs:
             self.move_target_input.addItem(label, identifier)
+        is_event = target[0] == "event" and not hidden
+        self.split_event_button.setEnabled(is_event and bool(boundaries))
+        self.merge_event_button.setEnabled(is_event and bool(siblings))
+        self.move_event_button.setEnabled(is_event and bool(arcs))
 
     def _connect_controller(self) -> None:
         self.controller.state_changed.connect(self._apply_state)
@@ -806,6 +927,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _project_changed(self, value: object) -> None:
+        self._clear_recovery()
         if self._current_project_path is not None:
             self._save_story_navigation()
         if isinstance(value, ProjectSession):
@@ -822,6 +944,10 @@ class MainWindow(QMainWindow):
         session = value if isinstance(value, ProjectSession) else None
         presentation_session = None if self._close_when_idle else session
         if self._presentation_service is not None:
+            if hasattr(self, "map_presenter"):
+                self.map_presenter.set_include_technical(
+                    self.technical_filter.isChecked()
+                )
             self._presentation_service.set_project(presentation_session)
         if hasattr(self, "accepted_presenter"):
             self.accepted_presenter.set_project(presentation_session)
@@ -831,13 +957,56 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _show_error(self, message: str) -> None:
         self._show_contextual_error(message)
-        QMessageBox.warning(self, "Ren'Py Story Mapper", message)
+        self._set_recovery("Open Project", self._choose_existing_project)
+
+    @Slot(str)
+    def _show_organization_error(self, message: str) -> None:
+        self._show_contextual_error(message)
+        self._set_recovery("Retry organization", self._retry_organization)
+
+    @Slot(str)
+    def _show_presentation_error(self, message: str) -> None:
+        self._show_contextual_error(message)
+        normalized = message.casefold()
+        if "story view" in normalized:
+            self._set_recovery("Retry accepted story", self.accepted_presenter.reload)
+        elif "search" in normalized:
+            self._set_recovery("Retry search", self._search_story)
+        elif (
+            self.accepted_presenter.viewing_accepted
+            and self.accepted_presenter.selected_event_id is not None
+        ):
+            event_id = self.accepted_presenter.selected_event_id
+            self._set_recovery(
+                "Retry evidence", lambda: self.accepted_presenter.show_evidence(event_id)
+            )
+        elif self.accepted_presenter.active:
+            self._set_recovery("Open technical map", self._show_technical_map)
+        else:
+            self._set_recovery("Retry map", self.map_presenter.reload)
 
     @Slot(str)
     def _show_contextual_error(self, message: str) -> None:
         self.diagnostics_list.addItem(message)
         self.status_label.setText(message)
         self.recovery_button.show()
+
+    def _set_recovery(self, label: str, callback: Callable[[], None]) -> None:
+        self._recovery_callback = callback
+        self.recovery_button.setText(label)
+        self.recovery_button.setAccessibleName(label)
+        self.recovery_button.show()
+
+    def _clear_recovery(self) -> None:
+        self._recovery_callback = None
+        self.recovery_button.hide()
+
+    @Slot()
+    def _run_recovery(self) -> None:
+        callback = self._recovery_callback
+        self._clear_recovery()
+        if callback is not None:
+            callback()
 
     def _remember_project(self, session: ProjectSession) -> None:
         path = str(session.project_path)
@@ -916,6 +1085,10 @@ class MainWindow(QMainWindow):
         font = self.font()
         font.setPixelSize(round(14 * percent / 100))
         self.setFont(font)
+        self.setProperty("applicationZoomPercent", percent)
+        apply_story_palette(self, dark=bool(self.property("storyPaletteDark")))
+        if hasattr(self, "graph_canvas"):
+            self.graph_canvas.set_application_zoom(percent)
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)

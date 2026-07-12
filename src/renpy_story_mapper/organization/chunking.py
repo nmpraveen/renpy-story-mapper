@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections import deque
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
@@ -21,8 +22,16 @@ MAX_CHARS = MAX_PROMPT_CHARS
 MAX_ASSIGNED_BEATS = 120
 MAX_CONTEXT_BEATS = 2
 MAX_SPEAKER_NAME_CHARS = 120
-_BOUNDARY_KINDS = {"choice", "jump", "return", "condition"}
-_OMITTED_TECHNICAL_KINDS = {"technical", "opaque", "command", "audio", "image", "pause"}
+_BOUNDARY_SEARCH_BEATS = 24
+_BOUNDARY_STRENGTH = {
+    "condition": 1,
+    "choice": 2,
+    "jump": 3,
+    "return": 4,
+    "ending": 4,
+}
+_TEXT_BEARING_KINDS = {"narrative", "narration", "dialogue", "choice", "condition"}
+_COVERAGE_KINDS = {"narrative", "narration", "dialogue", "choice", "condition"}
 
 
 @dataclass(frozen=True)
@@ -51,7 +60,7 @@ def _beat_payload(beat: BeatRecord, *, context: bool) -> dict[str, object]:
         value["speaker"] = beat.speaker
     if speakers:
         value["speakers"] = speakers
-    if beat.text and beat.kind not in _OMITTED_TECHNICAL_KINDS:
+    if beat.text and beat.kind in _TEXT_BEARING_KINDS:
         value["text"] = beat.text
     if beat.condition:
         value["condition"] = beat.condition
@@ -80,33 +89,74 @@ def _beat_speakers(beat: BeatRecord) -> list[str]:
     return speakers
 
 
-def _size(beats: list[BeatRecord]) -> int:
+def _encoded_beat_size(beat: BeatRecord) -> int:
     return len(
         json.dumps(
-            [_beat_payload(beat, context=False) for beat in beats],
+            _beat_payload(beat, context=False),
             ensure_ascii=False,
             separators=(",", ":"),
         )
     )
 
 
+def _payload_list_size(encoded_sizes: Sequence[int]) -> int:
+    if not encoded_sizes:
+        return 2
+    return 2 + sum(encoded_sizes) + len(encoded_sizes) - 1
+
+
+def _preferred_boundary_split(
+    beats: Sequence[BeatRecord],
+    *,
+    target: int,
+    maximum: int,
+) -> int:
+    bounded_target = max(1, min(target, maximum))
+    lower = max(1, bounded_target - _BOUNDARY_SEARCH_BEATS)
+    upper = min(maximum, bounded_target + _BOUNDARY_SEARCH_BEATS)
+    candidates = [
+        (index + 1, _BOUNDARY_STRENGTH[beat.kind])
+        for index, beat in enumerate(beats)
+        if beat.kind in _BOUNDARY_STRENGTH and lower <= index + 1 <= upper
+    ]
+    if not candidates:
+        return bounded_target
+    return max(
+        candidates,
+        key=lambda item: (
+            item[1],
+            -abs(item[0] - bounded_target),
+            item[0],
+        ),
+    )[0]
+
+
 def _partition(beats: list[BeatRecord]) -> list[_ChunkDraft]:
     drafts: list[_ChunkDraft] = []
     current: list[BeatRecord] = []
+    current_sizes: list[int] = []
     current_scene = ""
     for beat in beats:
-        scene_changed = bool(current and beat.scene_id != current_scene)
-        would_overflow = bool(
-            current and (len(current) >= MAX_ASSIGNED_BEATS or _size([*current, beat]) > MAX_CHARS)
-        )
-        if scene_changed or would_overflow:
+        if current and beat.scene_id != current_scene:
             drafts.append(_ChunkDraft(current_scene, tuple(current)))
             current = []
+            current_sizes = []
         current_scene = beat.scene_id
+        beat_size = _encoded_beat_size(beat)
+        while current and (
+            len(current) >= MAX_ASSIGNED_BEATS
+            or _payload_list_size((*current_sizes, beat_size)) > MAX_CHARS
+        ):
+            split = _preferred_boundary_split(
+                current,
+                target=len(current),
+                maximum=len(current),
+            )
+            drafts.append(_ChunkDraft(current_scene, tuple(current[:split])))
+            current = current[split:]
+            current_sizes = current_sizes[split:]
         current.append(beat)
-        if beat.kind in _BOUNDARY_KINDS and len(current) > 1:
-            drafts.append(_ChunkDraft(current_scene, tuple(current)))
-            current = []
+        current_sizes.append(beat_size)
     if current:
         drafts.append(_ChunkDraft(current_scene, tuple(current)))
     return drafts
@@ -118,8 +168,10 @@ def build_event_chunks(
     scope_id: str,
     beats: list[BeatRecord],
     facts: list[FactRecord] | None = None,
+    on_oversized: Callable[[BeatRecord], None] | None = None,
+    on_deterministic_fallback: Callable[[BeatRecord], None] | None = None,
 ) -> list[OrganizationRequest]:
-    """Build Stage-1 chunks; assigned membership never overlaps between chunks."""
+    """Build Stage-1 chunks; optionally route untransmittable single beats to fallback."""
     ordered = list(beats)
     if len({beat.id for beat in ordered}) != len(ordered):
         raise ValueError("Beat IDs must be unique before chunking.")
@@ -133,24 +185,32 @@ def build_event_chunks(
         raise ValueError("Every referenced fact ID must have an input fact record.")
     index_by_id = {beat.id: index for index, beat in enumerate(ordered)}
     requests: list[OrganizationRequest] = []
-    pending = _partition(ordered)
+    pending = deque(_partition(ordered))
     while pending:
-        draft = pending.pop(0)
+        draft = pending.popleft()
         first = index_by_id[draft.beats[0].id]
         last = index_by_id[draft.beats[-1].id]
         candidates: list[tuple[int, int, BeatRecord]] = []
+        before_count = 0
         for index in range(first - 1, -1, -1):
             candidate = ordered[index]
             if candidate.scene_id != draft.scene_id:
                 break
             if candidate.is_context_candidate:
                 candidates.append((first - index, index, candidate))
+                before_count += 1
+                if before_count >= MAX_CONTEXT_BEATS:
+                    break
+        after_count = 0
         for index in range(last + 1, len(ordered)):
             candidate = ordered[index]
             if candidate.scene_id != draft.scene_id:
                 break
             if candidate.is_context_candidate:
                 candidates.append((index - last, index, candidate))
+                after_count += 1
+                if after_count >= MAX_CONTEXT_BEATS:
+                    break
         context_priority = [
             item[2] for item in sorted(candidates, key=lambda item: (item[0], item[1]))
         ][:MAX_CONTEXT_BEATS]
@@ -177,14 +237,26 @@ def build_event_chunks(
             )
         if not _request_prompts_fit(request):
             if len(draft.beats) == 1:
+                if on_oversized is not None:
+                    on_oversized(draft.beats[0])
+                    continue
                 raise ValueError(
                     "A single complete organization prompt exceeds the 48,000-character limit."
                 )
-            midpoint = len(draft.beats) // 2
-            pending[0:0] = [
-                _ChunkDraft(draft.scene_id, draft.beats[:midpoint]),
-                _ChunkDraft(draft.scene_id, draft.beats[midpoint:]),
-            ]
+            midpoint = _preferred_boundary_split(
+                draft.beats,
+                target=len(draft.beats) // 2,
+                maximum=len(draft.beats) - 1,
+            )
+            pending.appendleft(_ChunkDraft(draft.scene_id, draft.beats[midpoint:]))
+            pending.appendleft(_ChunkDraft(draft.scene_id, draft.beats[:midpoint]))
+            continue
+        if (
+            not request.constraints.required_member_ids
+            and on_deterministic_fallback is not None
+        ):
+            for beat in draft.beats:
+                on_deterministic_fallback(beat)
             continue
         requests.append(request)
     return requests
@@ -227,7 +299,9 @@ def _event_request(
         constraints=OrganizationConstraints(
             ordered_member_ids=assigned_ids,
             required_member_ids=frozenset(
-                beat.id for beat in draft.beats if beat.requires_coverage
+                beat.id
+                for beat in draft.beats
+                if beat.kind in _COVERAGE_KINDS or bool(beat.fact_ids)
             ),
             context_member_ids=context_ids,
             fact_ids=used_fact_ids,

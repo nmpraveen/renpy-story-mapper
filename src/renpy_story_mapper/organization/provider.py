@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
+import os
 import tempfile
 import threading
 import time
@@ -47,6 +47,7 @@ _POLL_MS = 20
 _CANCEL_GRACE_MS = 500
 _KILL_CLEANUP_MS = 100
 _MODEL_DISCOVERY_TIMEOUT_SECONDS = 0.5
+_EXECUTABLE_DISCOVERY_TIMEOUT_SECONDS = 0.5
 _MAX_MODEL_DISCOVERY_BYTES = 64 * 1024
 _START_POLL_ATTEMPTS = 35
 _DISCOVERY_SOCKET_TIMEOUT_SECONDS = 0.1
@@ -55,15 +56,38 @@ _LMSTUDIO_BASE_URL = "http://127.0.0.1:1234"
 _LMSTUDIO_MODELS_URL = f"{_LMSTUDIO_BASE_URL}/api/v1/models"
 _LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1"
 _PROXY_VARIABLES = {"ALL_PROXY", "FTP_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
+_DISABLED_CODEX_FEATURES = (
+    "plugins",
+    "apps",
+    "hooks",
+    "browser_use",
+    "browser_use_external",
+    "browser_use_full_cdp_access",
+    "computer_use",
+    "fast_mode",
+    "image_generation",
+    "in_app_browser",
+    "multi_agent",
+    "goals",
+    "shell_tool",
+    "tool_call_mcp_elicitation",
+    "tool_suggest",
+    "workspace_dependencies",
+)
 _FORBIDDEN_MARKERS = {
     "command_execution",
     "shell_command",
     "function_call",
     "mcp_tool_call",
+    "collab_tool_call",
+    "dynamic_tool_call",
     "web_search",
     "file_change",
     "apply_patch",
 }
+_POLICY_TYPE_FIELDS = {"type", "kind", "name", "tool", "tool_name"}
+_TEXT_PAYLOAD_FIELDS = {"text", "message", "content", "output", "summary"}
+_SAFE_CODEX_ITEM_TYPES = {"agent_message", "reasoning", "todo_list", "error"}
 
 
 class Process(Protocol):
@@ -190,6 +214,68 @@ def _as_bytes(value: object) -> bytes:
     if isinstance(value, bytes):
         return value
     return bytes(cast(QByteArray, value).data())
+
+
+def _path_executable_candidates(command: str) -> tuple[Path, ...]:
+    """Resolve a bare Windows command from absolute PATH entries, never the CWD."""
+
+    command_path = Path(command)
+    if command_path.name != command or command_path.is_absolute():
+        return ()
+    path_extensions = tuple(
+        extension.casefold()
+        for extension in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")
+        if extension
+    )
+    names = (
+        (command,)
+        if command_path.suffix
+        else tuple(f"{command}{extension}" for extension in path_extensions)
+    )
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for raw_directory in os.environ.get("PATH", "").split(os.pathsep):
+        directory_text = raw_directory.strip().strip('"')
+        if not directory_text:
+            continue
+        directory = Path(directory_text)
+        if not directory.is_absolute():
+            continue
+        for name in names:
+            candidate = directory / name
+            if not candidate.is_file():
+                continue
+            normalized = str(candidate.resolve()).casefold()
+            if normalized not in seen:
+                seen.add(normalized)
+                candidates.append(candidate.resolve())
+    return tuple(candidates)
+
+
+def _contains_forbidden_policy_event(value: object) -> bool:
+    """Inspect event metadata without treating quoted story/result text as a tool call."""
+
+    if isinstance(value, dict):
+        nested_item = value.get("item")
+        if isinstance(nested_item, dict):
+            item_type = nested_item.get("type")
+            if not isinstance(item_type, str) or item_type not in _SAFE_CODEX_ITEM_TYPES:
+                return True
+        for key, item in value.items():
+            normalized_key = str(key).casefold()
+            if (
+                normalized_key in _POLICY_TYPE_FIELDS
+                and isinstance(item, str)
+                and item.casefold() in _FORBIDDEN_MARKERS
+            ):
+                return True
+            if (
+                normalized_key not in _TEXT_PAYLOAD_FIELDS or not isinstance(item, str)
+            ) and _contains_forbidden_policy_event(item):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_forbidden_policy_event(item) for item in value)
+    return False
 
 
 class CodexCliProvider:
@@ -349,7 +435,8 @@ class CodexCliProvider:
                     validated_identifier = _validated_model_identifier(identifier)
                 except ValueError:
                     return self._invalid_lmstudio_status(executable, version)
-                assert validated_identifier is not None
+                if validated_identifier is None:
+                    return self._invalid_lmstudio_status(executable, version)
                 loaded_instances.append((validated_identifier, context_length))
         selected_instances = loaded_instances
         if requested_model is not None:
@@ -424,10 +511,19 @@ class CodexCliProvider:
             "read-only",
             "--ignore-user-config",
             "--ignore-rules",
-            "--json",
-            "--output-schema",
-            str(schema_path),
+            "--strict-config",
         ]
+        for feature in _DISABLED_CODEX_FEATURES:
+            args.extend(["--disable", feature])
+        args.extend(
+            [
+                "-c",
+                'web_search="disabled"',
+                "-c",
+                "analytics.enabled=false",
+            ]
+        )
+        args.extend(["--json", "--output-schema", str(schema_path)])
         if model:
             args.extend(["--model", model])
         if self.mode is CodexMode.CODEX_LMSTUDIO:
@@ -449,7 +545,11 @@ class CodexCliProvider:
                 )
             if (
                 self.mode is CodexMode.CODEX_CHATGPT
-                and request.cloud_consent_run_id != request.run_id
+                and (
+                    not request.run_id
+                    or request.run_id != request.run_id.strip()
+                    or request.cloud_consent_run_id != request.run_id
+                )
             ):
                 raise ConsentRequiredError(
                     "Confirm cloud story transmission for this organization run before continuing."
@@ -463,16 +563,27 @@ class CodexCliProvider:
                     provider_status.message
                     or "Codex CLI is unavailable. Install it or use deterministic organization."
                 )
-            self._input_tokens = None
-            self._output_tokens = None
             self._effective_model = request.model or provider_status.model_identifier
             self._reported_model = None
             progress(0, "Preparing isolated organizer")
             started_at = time.monotonic()
             last_error: InvalidProviderOutputError | None = None
+            transmitted_prompts: list[bytes] = []
+            input_usage: list[int | None] = []
+            output_usage: list[int | None] = []
             for attempt in (1, 2):
+                repair = attempt == 2
+                transmitted_prompts.append(
+                    self._prompt(request, repair=repair).encode("utf-8")
+                )
+                self._input_tokens = None
+                self._output_tokens = None
+                usage_recorded = False
                 try:
-                    raw = self._execute(request, progress, cancelled, repair=attempt == 2)
+                    raw = self._execute(request, progress, cancelled, repair=repair)
+                    input_usage.append(self._input_tokens)
+                    output_usage.append(self._output_tokens)
+                    usage_recorded = True
                     result = validate_result(raw, request)
                     normalized = json.dumps(
                         result.raw_normalized,
@@ -480,7 +591,20 @@ class CodexCliProvider:
                         sort_keys=True,
                         separators=(",", ":"),
                     ).encode("utf-8")
-                    input_material = self._prompt(request, repair=False).encode("utf-8")
+                    input_material = b"".join(
+                        len(prompt).to_bytes(8, "big") + prompt
+                        for prompt in transmitted_prompts
+                    )
+                    total_input_tokens = (
+                        sum(cast(int, value) for value in input_usage)
+                        if all(value is not None for value in input_usage)
+                        else None
+                    )
+                    total_output_tokens = (
+                        sum(cast(int, value) for value in output_usage)
+                        if all(value is not None for value in output_usage)
+                        else None
+                    )
                     return OrganizationChunkResult(
                         stage=result.stage,
                         groups=result.groups,
@@ -494,12 +618,15 @@ class CodexCliProvider:
                             elapsed_ms=round((time.monotonic() - started_at) * 1000),
                             input_hash=hashlib.sha256(input_material).hexdigest(),
                             output_hash=hashlib.sha256(normalized).hexdigest(),
-                            input_tokens=self._input_tokens,
-                            output_tokens=self._output_tokens,
+                            input_tokens=total_input_tokens,
+                            output_tokens=total_output_tokens,
                             context_window_tokens=provider_status.context_window_tokens,
                         ),
                     )
                 except InvalidProviderOutputError as exc:
+                    if not usage_recorded:
+                        input_usage.append(None)
+                        output_usage.append(None)
                     last_error = exc
                     if attempt == 1:
                         progress(75, "Repairing structured output")
@@ -547,7 +674,9 @@ class CodexCliProvider:
                     )
                 process.setWorkingDirectory(temp_path)
                 if self.mode is CodexMode.CODEX_LMSTUDIO:
-                    process.setProcessEnvironment(self._lmstudio_process_environment())
+                    process.setProcessEnvironment(
+                        self._lmstudio_process_environment(Path(temp_path))
+                    )
                 program, arguments = self.command(
                     schema_path,
                     self._model_override or self._effective_model,
@@ -640,7 +769,7 @@ class CodexCliProvider:
                     "The organizer emitted malformed JSONL; using deterministic organization."
                 ) from None
             marker_text = json.dumps(event, separators=(",", ":")).lower()
-            if any(marker in marker_text for marker in _FORBIDDEN_MARKERS):
+            if _contains_forbidden_policy_event(event):
                 self._stop_process(process)
                 raise PolicyViolationError(
                     "The organizer attempted a forbidden tool, web, MCP, command, or file action."
@@ -716,11 +845,16 @@ class CodexCliProvider:
         ):
             raise ValueError("The complete organization prompt exceeds the 48,000-character limit.")
 
-    def _lmstudio_process_environment(self) -> QProcessEnvironment:
+    def _lmstudio_process_environment(self, codex_home: Path) -> QProcessEnvironment:
+        """Return a proxy-free local environment with no user Codex state."""
+
+        if not codex_home.is_absolute():
+            raise ValueError("The isolated local Codex home must be absolute.")
         environment = self._environment_factory()
         for name in environment.keys():  # noqa: SIM118 - Qt wrapper is not iterable
             if name.upper() in _PROXY_VARIABLES:
                 environment.remove(name)
+        environment.insert("CODEX_HOME", str(codex_home))
         environment.insert("NO_PROXY", _LOOPBACK_NO_PROXY)
         environment.insert("no_proxy", _LOOPBACK_NO_PROXY)
         return environment
@@ -733,11 +867,22 @@ class CodexCliProvider:
             process.waitForFinished(_KILL_CLEANUP_MS)
 
     @staticmethod
-    def _probe_version(executable: str) -> str | None:
+    def _probe_version(executable: str, deadline: float | None = None) -> str | None:
+        if deadline is None:
+            deadline = time.monotonic() + _EXECUTABLE_DISCOVERY_TIMEOUT_SECONDS
+        remaining_ms = max(0, round((deadline - time.monotonic()) * 1000))
+        if remaining_ms <= 0:
+            return None
         process = QProcess()
         process.start(executable, ["--version"])
-        if not process.waitForStarted(2_000) or not process.waitForFinished(2_000):
+        if not process.waitForStarted(remaining_ms):
             process.kill()
+            process.waitForFinished(50)
+            return None
+        remaining_ms = max(0, round((deadline - time.monotonic()) * 1000))
+        if remaining_ms <= 0 or not process.waitForFinished(remaining_ms):
+            process.kill()
+            process.waitForFinished(50)
             return None
         if process.exitCode() != 0:
             return None
@@ -747,26 +892,31 @@ class CodexCliProvider:
         return version or None
 
     def _discover_native_executable(self) -> tuple[str | None, str | None]:
+        deadline = time.monotonic() + _EXECUTABLE_DISCOVERY_TIMEOUT_SECONDS
         candidates: list[Path] = []
         configured = Path(self.executable)
-        if configured.suffix.lower() == ".exe" and configured.is_file():
-            candidates.append(configured)
-        shim = shutil.which(self.executable)
-        if shim is not None:
-            npm_package = Path(shim).parent / "node_modules" / "@openai" / "codex"
+        if (
+            configured.is_absolute()
+            and configured.suffix.casefold() == ".exe"
+            and configured.is_file()
+        ):
+            candidates.append(configured.resolve())
+        for shim in _path_executable_candidates(self.executable):
+            if shim.suffix.casefold() == ".exe":
+                candidates.append(shim)
+            npm_package = shim.parent / "node_modules" / "@openai" / "codex"
             candidates.extend(
                 sorted(npm_package.glob("node_modules/@openai/codex-*/vendor/*/bin/codex.exe"))
             )
-        path_executable = shutil.which(f"{self.executable}.exe")
-        if path_executable is not None:
-            candidates.append(Path(path_executable))
         seen: set[str] = set()
         for candidate in candidates:
+            if time.monotonic() >= deadline:
+                break
             normalized = str(candidate.resolve())
             if normalized in seen:
                 continue
             seen.add(normalized)
-            version = self._probe_version(normalized)
+            version = self._probe_version(normalized, deadline)
             if version is not None:
                 return normalized, version
         return None, None

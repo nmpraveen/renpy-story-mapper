@@ -428,16 +428,20 @@ factual foundation for connectivity, requirements, effects, evidence, and source
 - The default experience is an arc-first Story Explorer in a polished adaptive Windows light/dark
   interface.
 - AI runs only after a manual **Organize Story** action.
-- One provider-neutral boundary has one `CodexCliProvider` with two modes: cloud organization
-  through the user's existing ChatGPT/Codex login, and local organization through Codex CLI
-  `--oss --local-provider lmstudio`.
+- One provider-neutral boundary has one active `CodexCliProvider` mode for M05: cloud organization
+  through the user's existing ChatGPT/Codex login. The dormant LM Studio adapter may remain in the
+  codebase, but it is hidden from the M05 user journey and its product validation is deferred.
 - Every cloud run requires a fresh explicit confirmation before rich story evidence is sent.
-- The balanced profile uses the authenticated Codex default or currently loaded LM Studio model
-  unless the user supplies an advanced override. Record the effective identifier when available.
+- Every M05 cloud organization request explicitly selects GPT-5.6 Luna (`gpt-5.6-luna`) with High
+  reasoning and fast mode disabled. There is no automatic model fallback or user override in the
+  accepted M05 path. Preflight or runtime model mismatch fails closed and is shown as an actionable
+  provider error. Record the requested and reported model identifier and reasoning profile.
 - A successful run creates a reviewable draft; it never silently replaces the accepted map.
 - Corrections include rename, split, merge, move, hide, pin, approve, and reject.
-- The canonical full-game organization and final acceptance run use LM Studio only. Cloud mode is
-  validated with synthetic fixtures unless separately authorized at action time.
+- The generated complex branching fixture is the primary M05 AI acceptance source. The small real
+  `script small new.rpy` file is a secondary read-only smoke source after separate per-run cloud
+  consent. Full canonical-game AI organization and LM Studio product validation are deferred and
+  must not be claimed as M05 acceptance evidence.
 - Existing base-project compaction is deferred. M05 measures database growth but does not gate on
   reducing the approximately 2.26 GB project.
 
@@ -512,9 +516,10 @@ OrganizationProvider.organize(request, progress, cancelled)
 OrganizationProvider.cancel()
 ```
 
-Implement `CodexCliProvider` with `CODEX_CHATGPT` and `CODEX_LMSTUDIO` modes. Cloud mode reuses
-`codex login` without reading or copying OAuth credentials. Every run launches `codex exec` through
-`QProcess` directly, never a shell, in a sterile temporary working directory with the equivalent of:
+Use `CodexCliProvider` in `CODEX_CHATGPT` mode for the accepted M05 path. Cloud mode reuses `codex
+login` without reading or copying OAuth credentials. The existing `CODEX_LMSTUDIO` adapter remains
+dormant and is not exposed by the M05 UI. Every run launches `codex exec` through `QProcess`
+directly, never a shell, in a sterile temporary working directory with the equivalent of:
 
 ```text
 codex exec
@@ -523,12 +528,19 @@ codex exec
   --sandbox read-only
   --ignore-user-config
   --ignore-rules
+  --strict-config
+  --disable fast_mode
+  -c model_reasoning_effort="high"
+  --model gpt-5.6-luna
   --json
   --output-schema <packaged-schema>
   -
 ```
 
-LM Studio mode adds `--oss --local-provider lmstudio`.
+The provider must verify that structured run metadata reports `gpt-5.6-luna`. A missing model,
+unsupported High-reasoning profile, or different reported model rejects the run without changing
+the accepted organization. It must never fall back to the authenticated default model. LM Studio's
+`--oss --local-provider lmstudio` path is deferred and unavailable from the M05 interface.
 
 - Stream story input through standard input; do not write prompt files.
 - Do not enable web search.
@@ -539,8 +551,9 @@ LM Studio mode adds `--oss --local-provider lmstudio`.
 - `--ephemeral` prevents Codex rollout persistence.
 - Store normalized structured output, hashes, timings, usage counts, CLI version, provider mode,
   and model identifier when available, but never credentials or raw provider logs.
-- Missing Codex, signed-out cloud mode, unavailable LM Studio, invalid JSON, refusal, timeout, rate
-  limiting, policy violation, and cancellation return sanitized actionable errors.
+- Missing Codex, signed-out cloud mode, unavailable GPT-5.6 Luna/High profile, model mismatch,
+  invalid JSON, refusal, timeout, rate limiting, policy violation, and cancellation return
+  sanitized actionable errors.
 
 #### Deterministic input and chunking
 
@@ -631,9 +644,10 @@ Create user-visible Windows worktree tasks from the milestone base:
 
 1. `codex/m05-story-model`: schema v4, migrations, organization records, quotient graphs,
    corrections, and caching; storage/story-domain modules and tests only; no provider or UI code.
-2. `codex/m05-codex-organizer`: Codex discovery, ChatGPT/LM Studio modes, chunking, schemas,
+2. `codex/m05-codex-organizer`: Codex discovery, the consent-gated ChatGPT path, chunking, schemas,
    validation, cancellation, and sanitized errors; provider package and mocked process tests only;
-   no UI or storage migrations.
+   no UI or storage migrations. The accepted configuration is GPT-5.6 Luna with High reasoning and
+   fast mode disabled; the existing LM Studio adapter is dormant and deferred.
 3. `codex/m05-layout-and-fixtures`: deterministic layered layout, branch lanes, semantic styles,
    and representative story/evaluation fixtures; canvas/layout and new fixtures only.
 4. `codex/m05-story-explorer-ui`: welcome screen, arc-first workspace, review flow, inspector,
@@ -660,25 +674,30 @@ git diff --check
 Milestone tests cover schema-v3-to-v4 migration, cancellation, corruption, rollback, quotient-graph
 derivation, output validation, invented IDs/facts, chunk boundaries and overlap, coverage,
 reconciliation, cache keys, mocked Codex success/refusal/malformed/rate-limit/policy-violation/
-timeout/cancellation/missing-executable behavior, both command modes, consent before every cloud
-run, absence of implicit cloud calls, atomic draft apply/discard, the full correction workflow,
+timeout/cancellation/missing-executable behavior, the active ChatGPT command profile, isolation of
+the dormant LM Studio adapter, consent before every cloud run, absence of implicit cloud calls,
+atomic draft apply/discard, the full correction workflow,
 adaptive theme, keyboard/focus/accessibility/scaling/evidence traversal, deterministic fallback,
 accepted-project opening without provider calls, and cached reruns with zero provider subprocesses.
 
-Validate real Codex/ChatGPT mode only on a synthetic non-game fixture through the existing login and
-structured-output path. For LM Studio, preflight `localhost:1234`, record the exact loaded model and
-context capability, and run synthetic fixtures before the canonical game. If LM Studio is not
-running or has no model loaded, canonical acceptance pauses rather than falling back to cloud.
+Validate the real Codex/ChatGPT path first on the generated complex branching fixture through the
+existing login and structured-output path. The command must explicitly select `gpt-5.6-luna`, High
+reasoning, and disabled fast mode; requested and reported metadata must match. After a separate
+fresh confirmation, use `script small new.rpy` as a secondary read-only real-script smoke run.
+Do not use the compiled-only `script smaller version.rpyc`, because M05 does not add decompilation.
+LM Studio and full canonical-game AI organization are deferred rather than silently substituted.
 
 Before and after every canonical access, record SHA-256, size, and `LastWriteTimeUtc`. Acceptance
 requires:
 
-- Level 1 shows no more than 12 coherent arcs or turning points.
-- `new_prologue` is reorganized from 196 beats into 8-20 coherent events.
+- The complex fixture's Level 1 shows no more than 12 coherent arcs or turning points.
+- The complex fixture forms approximately 12-30 coherent events while preserving its four endings,
+  27 choices, 26 proven gates, 88 effects, loop, merge, and shared call/return structure.
 - A selected arc defaults to no more than 30 Level 2 event cards and never exceeds 240 rendered
   items.
-- Canonical choices, Wits/Charisma gates, representative relationship-point changes, dating flag,
-  and chapter progression stay on the correct deterministic paths.
+- All fixture choices, gates, effects, endings, and unresolved behavior stay on their correct
+  deterministic paths. The small real-script smoke run preserves its five choices, nine effects,
+  and unresolved records.
 - Deterministic graph, requirement, effect, and evidence hashes are identical before and after AI
   organization.
 - Every accepted event and claim links to existing beat/evidence IDs; unsupported causal language
@@ -688,6 +707,8 @@ requires:
 - Cancellation returns control within two seconds and does not change the accepted map.
 - An unchanged rerun uses cached chunks and makes no model calls.
 - Reopening restores accepted organization, corrections, filters, selection, and navigation.
+- Provider evidence records GPT-5.6 Luna, High reasoning, and disabled fast mode for every live AI
+  acceptance call; a different or unavailable model never falls back silently.
 - The UI remains responsive during analysis and organization.
 - Independent review has no unresolved P0-P2 finding and no accepted P3 correctness/security
   finding.
@@ -706,9 +727,10 @@ Explicit exclusions and assumptions:
 - AI cannot create, delete, or redirect authoritative graph edges, requirements, effects, or
   evidence.
 - Rich-evidence cloud permission exists only after the in-app per-run confirmation.
-- The canonical full-game run remains local through LM Studio.
-- The user will start LM Studio and load a suitable model before canonical AI acceptance; it was
-  not listening on port 1234 when the plan was approved.
+- M05 exposes only the consent-gated GPT-5.6 Luna cloud path, with High reasoning and fast mode
+  disabled. No automatic provider or model fallback is permitted.
+- Local LM Studio organization and full canonical-game AI-scale validation are explicitly deferred
+  limitations and are not claimed as accepted M05 behavior.
 - M05 completes the approved roadmap; no M06 is implied.
 
 ## 8. Product completion definition

@@ -10,8 +10,9 @@ traceable to, the immutable deterministic M01-M04 foundation.
 
 - Transactional schema v4 storage for organization runs, chunks, drafts, accepted arcs/events,
   quotient edges, claims and evidence, cache records, and durable user edits.
-- Provider-neutral organization contracts plus one isolated `CodexCliProvider` supporting the
-  user's ChatGPT/Codex login and local LM Studio modes.
+- Provider-neutral organization contracts plus one isolated `CodexCliProvider`; M05 exposes only
+  the user's ChatGPT/Codex login with explicit GPT-5.6 Luna, High reasoning, and fast mode disabled.
+  The existing LM Studio adapter remains dormant for later work.
 - Manual organization only, fresh consent before every cloud run, rich-evidence safeguards,
   read-only ephemeral execution, strict output validation, cancellation, sanitized errors, and
   deterministic fallback.
@@ -25,8 +26,9 @@ traceable to, the immutable deterministic M01-M04 foundation.
   AI results without changing authoritative connectivity.
 - User-visible bounded worker tasks, inspected diffs, staged integration, and final adversarial
   review.
-- Full Windows CPython 3.12 verification, synthetic cloud-provider validation, local LM Studio
-  canonical organization, archive immutability evidence, and database-growth measurements.
+- Full Windows CPython 3.12 verification, complex synthetic fixture cloud validation, a separately
+  consented small real-script smoke run, archive-safety evidence when applicable, and
+  database-growth measurements. LM Studio and full canonical AI-scale validation are deferred.
 - M05 completion report, required UI screenshots, native-generated infographic, and one unmerged
   M05 pull request.
 
@@ -50,8 +52,12 @@ traceable to, the immutable deterministic M01-M04 foundation.
 - An unchanged rerun uses cache entries and launches no model subprocesses.
 - Reopening restores accepted organization, corrections, filters, selection, and navigation without
   analysis or provider calls.
-- Cloud transmission remains blocked until fresh confirmation for that run, and canonical story
-  text is validated only through local LM Studio unless separately authorized.
+- Cloud transmission remains blocked until fresh confirmation for that run. Every live acceptance
+  call explicitly uses GPT-5.6 Luna with High reasoning and fast mode disabled; model mismatch or
+  unavailability fails closed without changing the accepted map.
+- The complex branching fixture is the primary AI acceptance source, and the small readable `.rpy`
+  script is the secondary real-script smoke source. LM Studio and full canonical-game AI
+  organization are recorded as deferred limitations rather than accepted behavior.
 - The canonical archive's SHA-256, size, and LastWriteTimeUtc remain unchanged.
 - Pytest, Ruff, strict mypy, `pip check`, Windows UI checks, and M05 end-to-end tests pass under
   Windows CPython 3.12.

@@ -11,12 +11,13 @@ import hashlib
 import json
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol, cast
 
 import renpy_story_mapper.organization.contracts as organization_contracts
+from renpy_story_mapper import storage
 from renpy_story_mapper.organization import (
     BeatRecord,
     CodexMode,
@@ -38,6 +39,7 @@ from renpy_story_mapper.organization.contracts import (
 )
 from renpy_story_mapper.organization.errors import (
     ConsentRequiredError,
+    InvalidProviderOutputError,
     OrganizationCancelledError,
     OrganizationError,
 )
@@ -54,12 +56,14 @@ from renpy_story_mapper.presentation import (
 )
 from renpy_story_mapper.project import Project
 
-PROMPT_VERSION = "m05-story-organizer-v1"
+PROMPT_VERSION = "m05-story-organizer-v2"
 SCHEMA_VERSION = "m05-organization-v1"
 ARC_MAX_CHARS = int(getattr(organization_contracts, "MAX_PROMPT_CHARS", 48_000))
 ARC_MAX_EVENTS = 120
 ARC_MAX_GROUPS = 12
 ARC_MAX_RECONCILIATION_DEPTH = 32
+EVENT_MAX_RECONCILIATION_DEPTH = 32
+VIEW_PARENT_BATCH_SIZE = 400
 
 
 class CancelCheck(Protocol):
@@ -102,6 +106,8 @@ class _EventCandidate:
     fact_ids: tuple[str, ...]
     claims: tuple[tuple[str, tuple[str, ...]], ...]
     warnings: tuple[str, ...]
+    allowed_evidence_ids: tuple[str, ...] = ()
+    allowed_fact_ids: tuple[str, ...] = ()
 
 
 class OrganizationWorkflow:
@@ -124,8 +130,13 @@ class OrganizationWorkflow:
         cancelled: CancelCheck,
         confirm_cloud: ConsentCallback | None = None,
     ) -> WorkflowResult:
-        if not scope_ids:
-            raise ValueError("Select at least one deterministic story scope.")
+        if isinstance(scope_ids, (str, bytes)) or any(
+            not isinstance(scope_id, str) or not scope_id for scope_id in scope_ids
+        ):
+            raise ValueError("Story scope IDs must be non-empty strings.")
+        requested_scope_ids = tuple(scope_ids)
+        if len(set(requested_scope_ids)) != len(requested_scope_ids):
+            raise ValueError("Story scope IDs must be unique.")
         if not options.model_profile.strip():
             raise ValueError("Model profile cannot be empty.")
         requested_model = options.model.strip() if options.model is not None else None
@@ -242,56 +253,69 @@ class OrganizationWorkflow:
             if cached is not None:
                 result = validate_result(cached, request)
                 raise_if_cancelled()
-                cache_state: Literal["hit", "stored"] = "hit"
+                cache_state: Literal["hit", "stored", "bypassed"] = "hit"
+                chunk_status: Literal["validated", "rejected"] = "validated"
                 cache_hits += 1
             else:
                 provider_calls += 1
-                result = provider.organize(
-                    request,
-                    lambda value, text: progress(
-                        min(98, percent + max(0, min(10, value // 10))), text
-                    ),
-                    cancelled,
-                )
-                raise_if_cancelled()
-                metadata = result.metadata
-                if metadata is not None and isinstance(metadata.input_tokens, int):
-                    input_tokens += metadata.input_tokens
-                    input_tokens_observed = True
-                if metadata is not None and isinstance(metadata.output_tokens, int):
-                    output_tokens += metadata.output_tokens
-                    output_tokens_observed = True
-                reported_model = (
-                    None if metadata is None else metadata.model_identifier
-                )
-                if reported_model:
-                    if (
-                        effective_model_identifier is not None
-                        and effective_model_identifier != reported_model
-                    ):
-                        raise OrganizationError(
-                            "The organizer reported inconsistent model identifiers."
-                        )
-                    effective_model_identifier = reported_model
-                    update_model = getattr(service, "set_run_model_fingerprint", None)
-                    if not callable(update_model):
-                        raise OrganizationError(
-                            "Effective model recording is unavailable in this project version."
+                try:
+                    result = provider.organize(
+                        request,
+                        lambda value, text: progress(
+                            min(98, percent + max(0, min(10, value // 10))), text
+                        ),
+                        cancelled,
+                    )
+                except InvalidProviderOutputError:
+                    raise_if_cancelled()
+                    result = _deterministic_fallback_result(request)
+                    cache_state = "bypassed"
+                    chunk_status = "rejected"
+                    progress(
+                        percent,
+                        f"{label} - using deterministic fallback",
+                    )
+                else:
+                    raise_if_cancelled()
+                    metadata = result.metadata
+                    if metadata is not None and isinstance(metadata.input_tokens, int):
+                        input_tokens += metadata.input_tokens
+                        input_tokens_observed = True
+                    if metadata is not None and isinstance(metadata.output_tokens, int):
+                        output_tokens += metadata.output_tokens
+                        output_tokens_observed = True
+                    reported_model = (
+                        None if metadata is None else metadata.model_identifier
+                    )
+                    if reported_model:
+                        if (
+                            effective_model_identifier is not None
+                            and effective_model_identifier != reported_model
+                        ):
+                            raise OrganizationError(
+                                "The organizer reported inconsistent model identifiers."
+                            )
+                        effective_model_identifier = reported_model
+                        update_model = getattr(service, "set_run_model_fingerprint", None)
+                        if not callable(update_model):
+                            raise OrganizationError(
+                                "Effective model recording is unavailable in this project version."
+                            )
+                        raise_if_cancelled()
+                        update_model(run_id, reported_model)
+                        identity = service.cache_identity(
+                            provider_mode=options.mode.value,
+                            model_profile=options.model_profile,
+                            model_fingerprint=reported_model,
+                            prompt_version=options.prompt_version,
+                            output_schema_version=options.schema_version,
+                            input_hash=input_hash,
+                            ordered_ids=request.constraints.ordered_member_ids,
                         )
                     raise_if_cancelled()
-                    update_model(run_id, reported_model)
-                    identity = service.cache_identity(
-                        provider_mode=options.mode.value,
-                        model_profile=options.model_profile,
-                        model_fingerprint=reported_model,
-                        prompt_version=options.prompt_version,
-                        output_schema_version=options.schema_version,
-                        input_hash=input_hash,
-                        ordered_ids=request.constraints.ordered_member_ids,
-                    )
-                raise_if_cancelled()
-                service.store_cache_result(identity, result.raw_normalized)
-                cache_state = "stored"
+                    service.store_cache_result(identity, result.raw_normalized)
+                    cache_state = "stored"
+                    chunk_status = "validated"
             raise_if_cancelled()
             service.record_chunk(
                 run_id=run_id,
@@ -304,7 +328,7 @@ class OrganizationWorkflow:
                 ordinal=ordinal,
                 identity=identity,
                 cache_state=cache_state,
-                status="validated",
+                status=chunk_status,
                 result=result.raw_normalized,
                 chunk_id=f"{run_id}:{ordinal:05d}",
             )
@@ -314,12 +338,29 @@ class OrganizationWorkflow:
 
         try:
             progress(2, "Preparing deterministic story evidence")
-            beats, facts = collect_organization_input(self._project, scope_ids, cancelled)
+            resolved_scope_ids = resolve_organization_scopes(
+                self._project, requested_scope_ids, cancelled
+            )
+            beats, facts = collect_organization_input(
+                self._project, resolved_scope_ids, cancelled
+            )
+            covered_scope_ids = _ordered_unique(
+                tuple(beat.scene_id for beat in beats)
+            )
+            if not beats or not covered_scope_ids:
+                raise OrganizationError(
+                    "The selected story scope contains no deterministic beats to organize."
+                )
+            deterministic_fallback: set[str] = set()
             stage_one_requests = build_event_chunks(
                 run_id=run_id,
                 scope_id="selected-story",
                 beats=list(beats),
                 facts=list(facts),
+                on_oversized=lambda beat: deterministic_fallback.add(beat.id),
+                on_deterministic_fallback=lambda beat: deterministic_fallback.add(
+                    beat.id
+                ),
             )
             stage_one: list[tuple[OrganizationRequest, OrganizationChunkResult]] = []
             for index, request in enumerate(stage_one_requests):
@@ -331,7 +372,10 @@ class OrganizationWorkflow:
                 run_id,
                 stage_one,
                 execute,
+                cancelled=cancelled,
+                authoritative_adjacency={beat.id: beat.outgoing_ids for beat in beats},
             )
+            ungrouped_beats.update(deterministic_fallback)
             progress(74, "Organizing story arcs")
             arc_result = _organize_arcs(run_id, reconciled, connectivity, execute)
             candidate = _candidate_payload(reconciled, ungrouped_beats, arc_result)
@@ -347,7 +391,7 @@ class OrganizationWorkflow:
                     run_id,
                     generation,
                     candidate,
-                    scope_ids=tuple(scope_ids),
+                    scope_ids=covered_scope_ids,
                     covered_beat_ids=tuple(beat.id for beat in beats),
                 ),
             )
@@ -392,6 +436,30 @@ class OrganizationWorkflow:
             raise
 
 
+def resolve_organization_scopes(
+    project: Project,
+    scope_ids: Sequence[str],
+    cancelled: CancelCheck,
+) -> tuple[str, ...]:
+    """Resolve ``()`` to every visible Level-1 scope; preserve explicit selections."""
+
+    if scope_ids:
+        return tuple(scope_ids)
+    presentation = project.presentation_service()
+    try:
+        overview_nodes, _ = _paged_view(
+            presentation, PresentationLevel.OVERVIEW, (), cancelled
+        )
+    except storage.ProjectOperationCancelled as exc:
+        raise OrganizationCancelledError(
+            "Story organization was cancelled."
+        ) from exc
+    resolved = tuple(node.id for node in overview_nodes)
+    if not resolved:
+        raise OrganizationError("The project has no visible story scopes to organize.")
+    return resolved
+
+
 def collect_organization_input(
     project: Project,
     scope_ids: Sequence[str],
@@ -403,28 +471,81 @@ def collect_organization_input(
     nodes: list[PresentationNode] = []
     scene_by_node: dict[str, str] = {}
     seen_nodes: set[str] = set()
-    for scope_id in scope_ids:
-        event_nodes, _ = _paged_view(
-            presentation, PresentationLevel.EVENT, (scope_id,), cancelled
+    bulk_evidence = getattr(presentation, "evidence_for_nodes", None)
+    bulk_facts = getattr(presentation, "facts_for_nodes", None)
+    has_bulk_records = callable(bulk_evidence) and callable(bulk_facts)
+    if has_bulk_records:
+        event_nodes = _paged_children_for_parents(
+            presentation,
+            PresentationLevel.EVENT,
+            scope_ids,
+            cancelled,
         )
-        evidence_parents = tuple(node.id for node in event_nodes) or (scope_id,)
-        page_nodes, _page_edges = _paged_view(
-            presentation, PresentationLevel.EVIDENCE, evidence_parents, cancelled
+        selected_scopes = frozenset(scope_ids)
+        scene_by_event: dict[str, str] = {}
+        for event_node in event_nodes:
+            if (
+                event_node.parent_id is None
+                or event_node.parent_id not in selected_scopes
+            ):
+                raise OrganizationError(
+                    "Selected Level-2 story input has invalid scope ancestry."
+                )
+            scene_by_event[event_node.id] = event_node.parent_id
+        evidence_parents = tuple(node.id for node in event_nodes)
+        page_nodes = _paged_children_for_parents(
+            presentation,
+            PresentationLevel.EVIDENCE,
+            evidence_parents,
+            cancelled,
         )
         for node in page_nodes:
-            if node.id not in seen_nodes:
-                seen_nodes.add(node.id)
-                scene_by_node[node.id] = scope_id
-                nodes.append(node)
+            scene_id = scene_by_event.get(node.parent_id or "")
+            if scene_id is None:
+                raise OrganizationError(
+                    "Selected Level-3 story input has invalid scope ancestry."
+                )
+            if node.id in seen_nodes:
+                continue
+            seen_nodes.add(node.id)
+            scene_by_node[node.id] = scene_id
+            nodes.append(node)
+    else:
+        # Compatibility for older adapters. The integrated project service always uses the
+        # indexed bulk path above, so canonical work is not multiplied by the beat count.
+        for scope_id in scope_ids:
+            event_nodes, _ = _paged_view(
+                presentation, PresentationLevel.EVENT, (scope_id,), cancelled
+            )
+            evidence_parents = tuple(node.id for node in event_nodes) or (scope_id,)
+            page_nodes, _page_edges = _paged_view(
+                presentation, PresentationLevel.EVIDENCE, evidence_parents, cancelled
+            )
+            for node in page_nodes:
+                if node.id not in seen_nodes:
+                    seen_nodes.add(node.id)
+                    scene_by_node[node.id] = scope_id
+                    nodes.append(node)
+    if cancelled():
+        raise OrganizationCancelledError("Story organization was cancelled.")
     edge_query = getattr(presentation, "edges_for_nodes", None)
     if not callable(edge_query):
         raise OrganizationError(
             "Complete selected-scope connectivity is unavailable in this project version."
         )
-    presentation_edges = cast(
-        tuple[PresentationEdge, ...],
-        edge_query(PresentationLevel.EVIDENCE, tuple(node.id for node in nodes)),
-    )
+    try:
+        presentation_edges = cast(
+            tuple[PresentationEdge, ...],
+            edge_query(
+                PresentationLevel.EVIDENCE,
+                tuple(node.id for node in nodes),
+                **({"cancelled": cancelled} if has_bulk_records else {}),
+            ),
+        )
+    except storage.ProjectOperationCancelled as exc:
+        raise OrganizationCancelledError(
+            "Story organization was cancelled."
+        ) from exc
     selected_node_ids = frozenset(node.id for node in nodes)
     if any(
         edge.level is not PresentationLevel.EVIDENCE
@@ -438,13 +559,51 @@ def collect_organization_input(
     outgoing: dict[str, list[str]] = defaultdict(list)
     for edge in presentation_edges:
         outgoing[edge.source_id].append(edge.target_id)
+    evidence_by_node: dict[str, tuple[EvidenceRecord, ...]] = {}
+    facts_by_node: dict[str, tuple[PresentationFactRecord, ...]] = {}
+    if has_bulk_records:
+        node_ids = tuple(node.id for node in nodes)
+        try:
+            raw_evidence = cast(Any, bulk_evidence)(node_ids, cancelled=cancelled)
+            raw_facts = cast(Any, bulk_facts)(node_ids, cancelled=cancelled)
+        except storage.ProjectOperationCancelled as exc:
+            raise OrganizationCancelledError(
+                "Story organization was cancelled."
+            ) from exc
+        evidence_lists: dict[str, list[EvidenceRecord]] = defaultdict(list)
+        for record in raw_evidence:
+            if not isinstance(record, EvidenceRecord) or record.node_id not in selected_node_ids:
+                raise OrganizationError(
+                    "Bulk evidence returned a record outside the exact selected beats."
+                )
+            evidence_lists[record.node_id].append(record)
+        fact_lists: dict[str, list[PresentationFactRecord]] = defaultdict(list)
+        for record in raw_facts:
+            if (
+                not isinstance(record, PresentationFactRecord)
+                or record.node_id not in selected_node_ids
+            ):
+                raise OrganizationError(
+                    "Bulk facts returned a record outside the exact selected beats."
+                )
+            fact_lists[record.node_id].append(record)
+        evidence_by_node = {
+            node_id: tuple(records) for node_id, records in evidence_lists.items()
+        }
+        facts_by_node = {
+            node_id: tuple(records) for node_id, records in fact_lists.items()
+        }
     all_facts: dict[str, FactRecord] = {}
     beats: list[BeatRecord] = []
     for order, node in enumerate(nodes):
         if cancelled():
             raise OrganizationCancelledError("Story organization was cancelled.")
-        evidence = _paged_evidence(presentation, node.id, cancelled)
-        presentation_facts = _paged_facts(presentation, node.id, cancelled)
+        if has_bulk_records:
+            evidence = evidence_by_node.get(node.id, ())
+            presentation_facts = facts_by_node.get(node.id, ())
+        else:
+            evidence = _paged_evidence(presentation, node.id, cancelled)
+            presentation_facts = _paged_facts(presentation, node.id, cancelled)
         fact_ids: list[str] = []
         for fact in presentation_facts:
             if not isinstance(fact, PresentationFactRecord):
@@ -474,17 +633,48 @@ def collect_organization_input(
             end_line=node.end_line or (evidence[0].end_line if evidence else 0),
             evidence_ids=tuple(record.id for record in evidence),
             fact_ids=tuple(sorted(set(fact_ids))),
-            outgoing_ids=tuple(sorted(set(outgoing[node.id]))),
+            outgoing_ids=_ordered_unique(outgoing[node.id]),
+            speaker_names=speaker_names,
         )
-        if "speaker_names" in BeatRecord.__dataclass_fields__:
-            # Keep this UI worktree type-checkable both before and after the provider contract
-            # adding ``speaker_names`` is integrated.
-            beat = cast(
-                BeatRecord,
-                replace(cast(Any, beat), speaker_names=speaker_names),
-            )
         beats.append(beat)
     return tuple(beats), tuple(all_facts[key] for key in sorted(all_facts))
+
+
+def _paged_children_for_parents(
+    presentation: PresentationService,
+    level: PresentationLevel,
+    parent_ids: Sequence[str],
+    cancelled: CancelCheck,
+) -> list[PresentationNode]:
+    """Read children in contiguous parent batches below Windows SQLite's variable cap.
+
+    Parent IDs arrive in authoritative chronology. Each query is sorted by the presentation
+    index, so concatenating contiguous batches preserves that chronology without inventing a
+    secondary source-order heuristic.
+    """
+
+    nodes: list[PresentationNode] = []
+    by_id: dict[str, PresentationNode] = {}
+    for offset in range(0, len(parent_ids), VIEW_PARENT_BATCH_SIZE):
+        if cancelled():
+            raise OrganizationCancelledError("Story organization was cancelled.")
+        parent_batch = tuple(parent_ids[offset : offset + VIEW_PARENT_BATCH_SIZE])
+        batch_nodes, _ = _paged_view(
+            presentation,
+            level,
+            parent_batch,
+            cancelled,
+        )
+        for node in batch_nodes:
+            existing = by_id.get(node.id)
+            if existing is None:
+                by_id[node.id] = node
+                nodes.append(node)
+            elif existing != node:
+                raise OrganizationError(
+                    "Presentation paging returned conflicting duplicate story nodes."
+                )
+    return nodes
 
 
 def _paged_view(
@@ -688,16 +878,31 @@ def _nested_payload_strings(value: object, keys: frozenset[str]) -> tuple[str, .
 
 
 def _provider_kind(node: PresentationNode) -> str:
-    value = node.kind.casefold()
+    value = node.kind.casefold().strip()
     if "choice" in value:
         return "choice"
     if "condition" in value or "gate" in value:
         return "condition"
     if value in {"narrative", "narration", "dialogue"}:
         return value
-    if value in {"jump", "return"}:
-        return value
-    return "technical" if node.technical else "narrative"
+    return value or "technical"
+
+
+def _deterministic_fallback_result(
+    request: OrganizationRequest,
+) -> OrganizationChunkResult:
+    """Return a validated no-invention result for one twice-rejected provider request."""
+
+    members = list(request.constraints.ordered_member_ids)
+    result = validate_result(
+        {
+            "stage": request.stage.value,
+            "groups": [],
+            "ungrouped_ids": members,
+        },
+        request,
+    )
+    return replace(result, attempts=2)
 
 
 def _group_event(
@@ -710,6 +915,12 @@ def _group_event(
     members = [source[member] for member in group.member_ids if member in source]
     beat_ids = tuple(beat for member in members for beat in member.beat_ids) or group.member_ids
     claims = tuple((claim.text, claim.evidence_ids) for claim in group.claims)
+    allowed_evidence_ids = tuple(
+        sorted({value for item in members for value in item.allowed_evidence_ids})
+    )
+    allowed_fact_ids = tuple(
+        sorted({value for item in members for value in item.allowed_fact_ids})
+    )
     return _EventCandidate(
         group.id if id_prefix is None else _stable_id(id_prefix, group.id),
         group.title,
@@ -721,6 +932,8 @@ def _group_event(
         group.promoted_fact_ids,
         claims,
         group.warnings,
+        allowed_evidence_ids,
+        allowed_fact_ids,
     )
 
 
@@ -728,20 +941,30 @@ def _reconcile_events(
     run_id: str,
     stage_one: Sequence[tuple[OrganizationRequest, OrganizationChunkResult]],
     execute: Callable[[OrganizationRequest, int, str], OrganizationChunkResult],
+    *,
+    cancelled: CancelCheck | None = None,
+    authoritative_adjacency: Mapping[str, Sequence[str]] | None = None,
 ) -> tuple[list[_EventCandidate], set[str], list[dict[str, str]]]:
     by_scene: dict[str, list[_EventCandidate]] = defaultdict(list)
+    request_count_by_scene: dict[str, int] = defaultdict(int)
     ungrouped_beats: set[str] = set()
-    evidence_by_scene: dict[str, set[str]] = defaultdict(set)
-    facts_by_scene: dict[str, set[str]] = defaultdict(set)
-    beat_adjacency: dict[str, tuple[str, ...]] = {}
+    beat_adjacency: dict[str, tuple[str, ...]] = {
+        beat_id: tuple(targets)
+        for beat_id, targets in (authoritative_adjacency or {}).items()
+    }
     for request, result in stage_one:
+        _check_reconciliation_cancel(cancelled)
         scene = str(request.payload.get("scene_id", request.scope_id))
+        request_count_by_scene[scene] += 1
         by_scene[scene].extend(
-            _group_event(group, id_prefix=request.chunk_id) for group in result.groups
+            replace(
+                _group_event(group, id_prefix=request.chunk_id),
+                allowed_evidence_ids=tuple(sorted(request.constraints.evidence_ids)),
+                allowed_fact_ids=tuple(sorted(request.constraints.fact_ids)),
+            )
+            for group in result.groups
         )
         ungrouped_beats.update(result.ungrouped_ids)
-        evidence_by_scene[scene].update(request.constraints.evidence_ids)
-        facts_by_scene[scene].update(request.constraints.fact_ids)
         raw_beats = request.payload.get("beats", [])
         if isinstance(raw_beats, list):
             for value in raw_beats:
@@ -761,41 +984,230 @@ def _reconcile_events(
             # Required beats explicitly left ungrouped by Stage 1 remain deterministic fallback;
             # there is nothing schema-valid to ask Stage 2 to reconcile.
             continue
-        source_by_id = {event.id: event for event in source_events}
-        request = build_reconciliation_request(
-            run_id=run_id,
-            chunk_id=f"{scene}:reconcile",
-            scope_id=scene,
-            events=[_stage_two_event(event) for event in source_events],
-            ordered_event_ids=tuple(event.id for event in source_events),
-            evidence_ids=frozenset(evidence_by_scene[scene]),
-            fact_ids=frozenset(facts_by_scene[scene]),
+        if request_count_by_scene[scene] <= 1:
+            reconciled.extend(source_events)
+            continue
+        scene_events, scene_ungrouped = _reconcile_scene_events(
+            run_id,
+            scene,
+            source_events,
+            execute,
+            progress_percent=min(73, 50 + number),
+            cancelled=cancelled,
         )
-        result = execute(request, 50 + number, "Reconciling events")
-        reconciled.extend(
-            _group_event(group, source_by_id, id_prefix=scene) for group in result.groups
-        )
-        for event_id in result.ungrouped_ids:
-            ungrouped_beats.update(source_by_id[event_id].beat_ids)
-    event_by_beat = {
-        beat_id: event.id for event in reconciled for beat_id in event.beat_ids
-    }
-    connectivity = sorted(
-        {
-            (event_by_beat[source], event_by_beat[target], "flow")
-            for source, targets in beat_adjacency.items()
-            if source in event_by_beat
-            for target in targets
-            if target in event_by_beat and event_by_beat[source] != event_by_beat[target]
-        }
-    )
+        reconciled.extend(scene_events)
+        ungrouped_beats.update(scene_ungrouped)
+    connectivity = _collapsed_event_connectivity(reconciled, beat_adjacency)
     return (
         reconciled,
         ungrouped_beats,
-        [
-            {"source": source, "target": target, "kind": kind}
-            for source, target, kind in connectivity
-        ],
+        connectivity,
+    )
+
+
+def _collapsed_event_connectivity(
+    events: Sequence[_EventCandidate],
+    beat_adjacency: Mapping[str, Sequence[str]],
+) -> list[dict[str, str]]:
+    """Collapse finite technical/ungrouped beat paths to the next grouped events."""
+
+    event_by_beat: dict[str, str] = {}
+    beats_by_event: dict[str, list[str]] = defaultdict(list)
+    for event in events:
+        for beat_id in event.beat_ids:
+            existing = event_by_beat.get(beat_id)
+            if existing is not None and existing != event.id:
+                raise OrganizationError(
+                    "Reconciled events contain duplicate deterministic beat membership."
+                )
+            event_by_beat[beat_id] = event.id
+            beats_by_event[event.id].append(beat_id)
+
+    included = set(beat_adjacency) | set(event_by_beat)
+    collapsed: set[tuple[str, str, str]] = set()
+    for event in events:
+        pending = deque(beats_by_event[event.id])
+        seen: set[str] = set()
+        while pending:
+            source_beat = pending.popleft()
+            if source_beat in seen:
+                continue
+            seen.add(source_beat)
+            for target_beat in beat_adjacency.get(source_beat, ()):
+                if target_beat not in included:
+                    continue
+                target_event = event_by_beat.get(target_beat)
+                if target_event is not None and target_event != event.id:
+                    collapsed.add((event.id, target_event, "flow"))
+                    continue
+                if target_beat not in seen:
+                    pending.append(target_beat)
+    return [
+        {"source": source, "target": target, "kind": kind}
+        for source, target, kind in sorted(collapsed)
+    ]
+
+
+def _reconcile_scene_events(
+    run_id: str,
+    scene: str,
+    source_events: Sequence[_EventCandidate],
+    execute: Callable[[OrganizationRequest, int, str], OrganizationChunkResult],
+    *,
+    progress_percent: int,
+    depth: int = 0,
+    cancelled: CancelCheck | None = None,
+) -> tuple[list[_EventCandidate], set[str]]:
+    """Reconcile one scene with bounded prompts and recursive boundary passes."""
+
+    _check_reconciliation_cancel(cancelled)
+    if not source_events:
+        return [], set()
+    if len(source_events) == 1:
+        return list(source_events), set()
+    if depth >= EVENT_MAX_RECONCILIATION_DEPTH:
+        return list(source_events), set()
+    try:
+        batches = _partition_reconciliation_events(
+            run_id, scene, source_events, depth, cancelled=cancelled
+        )
+    except OrganizationCancelledError:
+        raise
+    except OrganizationError:
+        # A single normalized Stage-1 event can only exceed the contract through unusually
+        # large exact ID sets. Preserving it unchanged is safer than truncating authority.
+        return list(source_events), set()
+
+    preliminary: list[_EventCandidate] = []
+    ungrouped_beats: set[str] = set()
+    for index, batch in enumerate(batches, start=1):
+        _check_reconciliation_cancel(cancelled)
+        request = _build_reconciliation_batch_request(
+            run_id,
+            f"{scene}:reconcile:d{depth}:b{index}",
+            scene,
+            batch,
+        )
+        result = execute(
+            request,
+            min(73, progress_percent + min(depth, 8)),
+            "Reconciling events",
+        )
+        source_by_id = {event.id: event for event in batch}
+        for group in result.groups:
+            if any(member_id not in source_by_id for member_id in group.member_ids):
+                raise OrganizationError(
+                    "Stage-2 reconciliation returned an unknown event membership."
+                )
+            preliminary.append(
+                _group_event(group, source_by_id, id_prefix=request.chunk_id)
+            )
+        for event_id in result.ungrouped_ids:
+            source = source_by_id.get(event_id)
+            if source is None:
+                raise OrganizationError(
+                    "Stage-2 reconciliation returned an unknown ungrouped event."
+                )
+            ungrouped_beats.update(source.beat_ids)
+
+    if len(batches) == 1 or not preliminary:
+        return preliminary, ungrouped_beats
+    if len(preliminary) >= len(source_events):
+        # No reduction means another pass would reproduce the same batch boundaries forever.
+        # Keep the validated partial results so explicit ungrouped decisions are never restored.
+        return preliminary, ungrouped_beats
+
+    # The next layer receives every batch output in authoritative order. It is therefore the
+    # explicit boundary-reconciliation pass, and may itself partition recursively if needed.
+    reconciled, recursive_ungrouped = _reconcile_scene_events(
+        run_id,
+        scene,
+        preliminary,
+        execute,
+        progress_percent=progress_percent,
+        depth=depth + 1,
+        cancelled=cancelled,
+    )
+    return reconciled, ungrouped_beats | recursive_ungrouped
+
+
+def _partition_reconciliation_events(
+    run_id: str,
+    scene: str,
+    events: Sequence[_EventCandidate],
+    depth: int,
+    *,
+    cancelled: CancelCheck | None = None,
+) -> list[list[_EventCandidate]]:
+    batches: list[list[_EventCandidate]] = []
+    current: list[_EventCandidate] = []
+    for event in events:
+        _check_reconciliation_cancel(cancelled)
+        trial = [*current, event]
+        chunk_id = f"{scene}:reconcile:d{depth}:b{len(batches) + 1}"
+        try:
+            _build_reconciliation_batch_request(
+                run_id, chunk_id, scene, trial
+            )
+        except ValueError as exc:
+            if "complete organization prompt exceeds" not in str(exc).casefold():
+                raise
+            if not current:
+                raise OrganizationError(
+                    "A single normalized event exceeds the reconciliation request limit."
+                ) from exc
+            batches.append(current)
+            current = [event]
+            chunk_id = f"{scene}:reconcile:d{depth}:b{len(batches) + 1}"
+            try:
+                _build_reconciliation_batch_request(
+                    run_id, chunk_id, scene, current
+                )
+            except ValueError as single_exc:
+                if "complete organization prompt exceeds" not in str(single_exc).casefold():
+                    raise
+                raise OrganizationError(
+                    "A single normalized event exceeds the reconciliation request limit."
+                ) from single_exc
+        else:
+            current = trial
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _check_reconciliation_cancel(cancelled: CancelCheck | None) -> None:
+    if cancelled is not None and cancelled():
+        raise OrganizationCancelledError("Story organization was cancelled.")
+
+
+def _build_reconciliation_batch_request(
+    run_id: str,
+    chunk_id: str,
+    scene: str,
+    events: Sequence[_EventCandidate],
+) -> OrganizationRequest:
+    evidence_ids = frozenset(
+        value
+        for event in events
+        for value in (
+            *event.allowed_evidence_ids,
+            *(evidence for _, ids in event.claims for evidence in ids),
+        )
+    )
+    fact_ids = frozenset(
+        value
+        for event in events
+        for value in (*event.allowed_fact_ids, *event.fact_ids)
+    )
+    return build_reconciliation_request(
+        run_id=run_id,
+        chunk_id=chunk_id,
+        scope_id=scene,
+        events=[_stage_two_event(event) for event in events],
+        ordered_event_ids=tuple(event.id for event in events),
+        evidence_ids=evidence_ids,
+        fact_ids=fact_ids,
     )
 
 
@@ -989,19 +1401,31 @@ def _partition_arc_events(
     current: list[_EventCandidate] = []
     for event in events:
         trial = [*current, event]
-        request = _build_arc_batch_request(
-            "size-check",
-            "size-check",
-            trial,
-            local_connectivity,
-        )
-        size = _complete_prompt_chars(request)
+        try:
+            request = _build_arc_batch_request(
+                "size-check",
+                "size-check",
+                trial,
+                local_connectivity,
+            )
+        except ValueError as exc:
+            if "complete organization prompt exceeds" not in str(exc).casefold():
+                raise
+            request = None
+        size = ARC_MAX_CHARS + 1 if request is None else _complete_prompt_chars(request)
         if current and (len(trial) > ARC_MAX_EVENTS or size > ARC_MAX_CHARS):
             batches.append(current)
             current = [event]
-            request = _build_arc_batch_request(
-                "size-check", "size-check", current, local_connectivity
-            )
+            try:
+                request = _build_arc_batch_request(
+                    "size-check", "size-check", current, local_connectivity
+                )
+            except ValueError as exc:
+                if "complete organization prompt exceeds" not in str(exc).casefold():
+                    raise
+                raise OrganizationError(
+                    "A single normalized event exceeds the arc request limit."
+                ) from exc
             size = _complete_prompt_chars(request)
         else:
             current = trial
@@ -1208,4 +1632,5 @@ __all__ = [
     "OrganizationWorkflow",
     "WorkflowResult",
     "collect_organization_input",
+    "resolve_organization_scopes",
 ]

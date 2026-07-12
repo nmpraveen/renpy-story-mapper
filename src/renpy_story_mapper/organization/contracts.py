@@ -166,9 +166,11 @@ CancelledFunction = Callable[[], bool]
 def serialize_organization_prompt(request: OrganizationRequest, *, repair: bool) -> str:
     """Serialize the exact stdin envelope used by provider and chunk sizing."""
     instruction = (
-        "Repair the prior response. Return only JSON matching the schema and supplied IDs."
+        "The prior response was rejected. Produce a new response from scratch as exactly one "
+        "raw JSON object that satisfies output_contract. Do not use Markdown or code fences."
         if repair
-        else "Organize the supplied deterministic records. Return only schema-valid JSON."
+        else "Organize the supplied deterministic records. Return exactly one raw JSON object "
+        "that satisfies output_contract. Do not use Markdown or code fences."
     )
     envelope = {
         "instruction": instruction,
@@ -179,9 +181,65 @@ def serialize_organization_prompt(request: OrganizationRequest, *, repair: bool)
             "warnings, and ungrouped IDs. Never invent edges, conditions, facts, source "
             "locations, route destinations, or causal authority."
         ),
+        "output_contract": {
+            "top_level": {
+                "exact_keys": ["stage", "groups", "ungrouped_ids"],
+                "stage": request.stage.value,
+                "groups": "array of group objects",
+                "ungrouped_ids": "array of unique allowed member ID strings",
+            },
+            "group": {
+                "exact_keys": [
+                    "id",
+                    "title",
+                    "summary",
+                    "member_ids",
+                    "characters",
+                    "importance",
+                    "outcomes",
+                    "promoted_fact_ids",
+                    "claims",
+                    "warnings",
+                ],
+                "id": "non-empty string, at most 80 characters",
+                "title": "non-empty string, at most 80 characters",
+                "summary": "non-empty string, at most 320 characters",
+                "member_ids": "non-empty array of unique allowed member ID strings",
+                "characters": "array of unique allowed character-name strings",
+                "importance": "exactly supporting, major, or turning point",
+                "outcomes": "array of strings, each at most 320 characters",
+                "promoted_fact_ids": "array of unique allowed fact ID strings",
+                "claims": "array of claim objects",
+                "warnings": "array of strings, each at most 320 characters",
+            },
+            "claim": {
+                "exact_keys": ["text", "evidence_ids"],
+                "text": "non-empty string, at most 320 characters",
+                "evidence_ids": "non-empty array of unique allowed evidence ID strings",
+            },
+            "coverage": (
+                "Place every ID in contract.required_member_ids exactly once in "
+                "group.member_ids or ungrouped_ids. Never put a context-only ID in either "
+                "location."
+            ),
+            "ordering": (
+                "Every group ID must be unique. Preserve contract.allowed_member_ids order "
+                "inside each group, keep groups in chronological non-crossing order, and never "
+                "repeat a member across groups or ungrouped_ids."
+            ),
+            "serialization": (
+                "Emit the JSON object only, beginning with { and ending with }. Do not emit "
+                "analysis, prose, Markdown, or a fenced code block."
+            ),
+        },
         "contract": {
             "stage": request.stage.value,
             "allowed_member_ids": list(request.constraints.ordered_member_ids),
+            "required_member_ids": [
+                member_id
+                for member_id in request.constraints.ordered_member_ids
+                if member_id in request.constraints.required_member_ids
+            ],
             "context_only_ids": sorted(request.constraints.context_member_ids),
             "allowed_fact_ids": sorted(request.constraints.fact_ids),
             "allowed_evidence_ids": sorted(request.constraints.evidence_ids),

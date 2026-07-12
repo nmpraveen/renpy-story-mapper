@@ -510,7 +510,7 @@ def test_evidence_and_fact_paging_exhausts_more_than_one_hundred_rows() -> None:
     assert len({record.id for record in facts}) == 150
 
 
-def test_three_stage_cache_rerun_uses_no_provider_and_persists_scene_scopes(tmp_path: Path) -> None:
+def test_cache_rerun_uses_no_provider_and_persists_scene_scopes(tmp_path: Path) -> None:
     path = _create_project(tmp_path)
     with Project.open(path) as project:
         overview = project.presentation_service().view(
@@ -527,7 +527,6 @@ def test_three_stage_cache_rerun_uses_no_provider_and_persists_scene_scopes(tmp_
         assert result.provider_calls == len(first.requests) > 0
         assert {request.stage.value for request in first.requests} == {
             "events",
-            "reconcile",
             "arcs",
         }
         arc_payload = next(
@@ -693,7 +692,9 @@ def test_welcome_workspace_accessibility_and_application_zoom(qtbot: QtBot) -> N
     assert window.palette().color(QPalette.ColorRole.Window).lightness() < 128
 
 
-def test_organize_action_supplies_loaded_overview_scope(qtbot: QtBot) -> None:
+def test_organize_action_uses_full_game_when_no_scope_is_explicitly_selected(
+    qtbot: QtBot,
+) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
     window.map_presenter._last_nodes[SemanticLevel.OVERVIEW] = ("overview-scope",)
@@ -707,7 +708,7 @@ def test_organize_action_supplies_loaded_overview_scope(qtbot: QtBot) -> None:
     window.organization_controller.organize = organize  # type: ignore[method-assign]
     local_action = window.organize_button.menu().actions()[0]
     local_action.trigger()
-    assert captured == [("overview-scope",)]
+    assert captured == [()]
 
 
 def test_accepted_semantic_level_changes_reload_correct_slices(qtbot: QtBot) -> None:

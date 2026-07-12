@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -37,8 +37,6 @@ from renpy_story_mapper.organization.errors import (
 )
 from renpy_story_mapper.presentation import (
     EvidenceRecord,
-    PresentationLevel,
-    PresentationRequest,
     PresentationService,
     SearchHit,
 )
@@ -77,6 +75,8 @@ from renpy_story_mapper.ui.workers import WorkerTask
 
 MAX_ARCS = 12
 MAX_EVENTS = 30
+MAX_VISIBLE_ITEMS = 240
+MAX_REVIEW_ITEMS = 240
 
 
 @dataclass(frozen=True)
@@ -92,6 +92,15 @@ class StorySnapshot:
     draft_reviews: tuple[DraftReview, ...] = ()
     event_characters: tuple[tuple[str, tuple[str, ...]], ...] = ()
     enrichments: tuple[object, ...] = ()
+    event_filters: tuple[
+        tuple[str, tuple[str, ...], tuple[str, ...]], ...
+    ] = ()
+
+
+@dataclass(frozen=True)
+class _EvidenceSlice:
+    records: tuple[EvidenceRecord, ...]
+    truncated: bool
 
 
 class WelcomeWidget(QWidget):
@@ -187,7 +196,7 @@ class InspectorTabs(QTabWidget):
                 page.setAccessibleName(f"{self.tabText(index)} inspector tab")
 
 
-class DraftReviewDialog(QDialog):
+class _LegacyDraftReviewDialog(QDialog):
     review_requested = Signal(str, str, str)
     apply_requested = Signal(str)
     discard_requested = Signal(str)
@@ -410,6 +419,308 @@ class DraftReviewDialog(QDialog):
         self._fallback_item.setText(f"Deterministic fallback scopes  •  {rejected}")
 
 
+class DraftReviewDialog(QDialog):
+    """Bounded, covered-scope comparison with durable explicit decisions."""
+
+    review_requested = Signal(str, str, str)
+    apply_requested = Signal(str)
+    discard_requested = Signal(str)
+
+    def __init__(
+        self,
+        draft: OrganizationDraft,
+        run: OrganizationRun | None,
+        current_arcs: Sequence[StoryArc],
+        current_events: Sequence[StoryEvent],
+        reviews: Sequence[DraftReview],
+        parent: QWidget,
+    ) -> None:
+        super().__init__(parent)
+        self.draft = draft
+        self.setObjectName("draftReviewDialog")
+        self.setWindowTitle("Review organized story")
+        self.resize(920, 680)
+        root = QVBoxLayout(self)
+        candidate = draft.candidate if isinstance(draft.candidate, dict) else {}
+
+        metadata = QLabel(self)
+        metadata.setObjectName("draftMetadata")
+        if run is None:
+            metadata.setText("Validated draft | provider metadata unavailable")
+        else:
+            location = "Local" if "lmstudio" in run.provider_mode else "Cloud"
+            metadata.setText(
+                f"{location} | {run.model_profile} | {run.prompt_version} | "
+                f"{run.elapsed_ms or 0} ms"
+            )
+        root.addWidget(metadata)
+        usage = run.usage if run is not None and isinstance(run.usage, dict) else {}
+        model = run.model_fingerprint if run is not None and run.model_fingerprint else "Default"
+        self.provider_metadata = QLabel(
+            f"Provider: {run.provider_mode if run else 'unavailable'} | Model: {model} | "
+            f"Profile: {run.model_profile if run else 'unavailable'} | "
+            f"Schema: {run.output_schema_version if run else 'unavailable'} | "
+            f"Cache hits: {usage.get('cache_hits', 0)} | "
+            f"Provider calls: {usage.get('provider_calls', 0)} | "
+            f"Context: {usage.get('context_window_tokens', 'unknown')} | "
+            f"Tokens: {usage.get('input_tokens', 0)} in / "
+            f"{usage.get('output_tokens', 0)} out",
+            self,
+        )
+        self.provider_metadata.setObjectName("draftProviderMetadata")
+        self.provider_metadata.setWordWrap(True)
+        root.addWidget(self.provider_metadata)
+
+        scope_ids, covered_beat_ids = _draft_scope(candidate)
+        self.scope_summary = QLabel(
+            (
+                f"Covered scope: {len(scope_ids)} container(s), "
+                f"{len(covered_beat_ids)} deterministic beat(s)"
+                if scope_ids
+                else "Covered scope: full accepted organization"
+            ),
+            self,
+        )
+        self.scope_summary.setObjectName("draftScopeSummary")
+        root.addWidget(self.scope_summary)
+        self.comparison_summary = QLabel(self)
+        self.comparison_summary.setObjectName("draftComparisonSummary")
+        self.comparison_summary.setWordWrap(True)
+        root.addWidget(self.comparison_summary)
+
+        self.comparison = QListWidget(self)
+        self.comparison.setObjectName("draftComparison")
+        self.comparison.setAccessibleName("Covered-scope current and proposed comparison")
+        self._fallback_item: QListWidgetItem | None = None
+        self._comparison_total = 0
+        root.addWidget(self.comparison)
+
+        self.groups = QListWidget(self)
+        self.groups.setObjectName("draftReviewGroups")
+        self.groups.setAccessibleName("Candidate arcs and events requiring review")
+        self.groups.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._expected: set[tuple[str, str]] = set()
+        self._decisions = {
+            (review.target_kind, review.target_id): review.decision for review in reviews
+        }
+        self._group_records: list[tuple[str, str, dict[str, object]]] = []
+        self._group_page = 0
+        for kind, key in (("arc", "arcs"), ("event", "events")):
+            values = candidate.get(key, [])
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+                identifier = value.get("id")
+                title = value.get("title")
+                if not isinstance(identifier, str) or not isinstance(title, str):
+                    continue
+                self._expected.add((kind, identifier))
+                self._group_records.append((kind, identifier, value))
+
+        scoped_events = tuple(current_events)
+        scoped_arcs = tuple(current_arcs)
+        if covered_beat_ids:
+            covered = frozenset(covered_beat_ids)
+            scoped_events = tuple(
+                event for event in current_events if covered.intersection(event.beat_ids)
+            )
+            scoped_event_ids = {event.id for event in scoped_events}
+            scoped_arcs = tuple(
+                arc for arc in current_arcs if scoped_event_ids.intersection(arc.event_ids)
+            )
+        self._populate_comparison(candidate, scoped_arcs, scoped_events)
+        root.addWidget(self.groups, 1)
+
+        controls = QHBoxLayout()
+        self.previous_groups = QPushButton("Previous", self)
+        self.previous_groups.setObjectName("previousDraftGroups")
+        self.next_groups = QPushButton("Next", self)
+        self.next_groups.setObjectName("nextDraftGroups")
+        self.group_page_status = QLabel(self)
+        self.group_page_status.setObjectName("draftGroupPageStatus")
+        self.decision = QComboBox(self)
+        self.decision.setObjectName("draftDecision")
+        self.decision.setAccessibleName("Review decision")
+        self.decision.addItems(["Approve", "Reject"])
+        self.save_decision = QPushButton("Save decision", self)
+        self.save_decision.setObjectName("saveDraftDecision")
+        controls.addWidget(self.previous_groups)
+        controls.addWidget(self.next_groups)
+        controls.addWidget(self.group_page_status)
+        controls.addStretch(1)
+        controls.addWidget(self.decision)
+        controls.addWidget(self.save_decision)
+        root.addLayout(controls)
+
+        buttons = QDialogButtonBox(self)
+        self.apply_button = buttons.addButton(
+            "Apply Draft", QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        self.discard_button = buttons.addButton(
+            "Discard Draft", QDialogButtonBox.ButtonRole.DestructiveRole
+        )
+        self.close_button = buttons.addButton(QDialogButtonBox.StandardButton.Close)
+        self.apply_button.setObjectName("applyDraftButton")
+        self.discard_button.setObjectName("discardDraftButton")
+        self.apply_button.setEnabled(self._expected.issubset(self._decisions))
+        root.addWidget(buttons)
+
+        self.save_decision.clicked.connect(self._save)
+        self.groups.currentItemChanged.connect(self._sync_decision)
+        self.previous_groups.clicked.connect(lambda: self._change_group_page(-1))
+        self.next_groups.clicked.connect(lambda: self._change_group_page(1))
+        self.apply_button.clicked.connect(lambda: self.apply_requested.emit(draft.id))
+        self.discard_button.clicked.connect(lambda: self.discard_requested.emit(draft.id))
+        self.close_button.clicked.connect(self.reject)
+        self._render_group_page()
+
+    @Slot(object, object)
+    def _sync_decision(self, current: object, _previous: object) -> None:
+        if not isinstance(current, QListWidgetItem):
+            return
+        key = current.data(Qt.ItemDataRole.UserRole)
+        decision = self._decisions.get(key) if isinstance(key, tuple) else None
+        self.decision.setCurrentIndex(1 if decision == "rejected" else 0)
+
+    @Slot()
+    def _save(self) -> None:
+        item = self.groups.currentItem()
+        if item is None:
+            return
+        kind, identifier = cast(tuple[str, str], item.data(Qt.ItemDataRole.UserRole))
+        decision = "approved" if self.decision.currentIndex() == 0 else "rejected"
+        self.review_requested.emit(kind, identifier, decision)
+
+    @Slot(str, str, str)
+    def confirm_review(self, kind: str, identifier: str, decision: str) -> None:
+        """Count a decision only after the domain service confirms persistence."""
+
+        self._decisions[(kind, identifier)] = decision
+        self._render_group_page()
+        self.apply_button.setEnabled(self._expected.issubset(self._decisions))
+        self._update_fallback_summary()
+
+    def _change_group_page(self, delta: int) -> None:
+        page_count = max(
+            1, (len(self._group_records) + MAX_REVIEW_ITEMS - 1) // MAX_REVIEW_ITEMS
+        )
+        self._group_page = max(0, min(page_count - 1, self._group_page + delta))
+        self._render_group_page()
+
+    def _render_group_page(self) -> None:
+        self.groups.clear()
+        start = self._group_page * MAX_REVIEW_ITEMS
+        stop = min(len(self._group_records), start + MAX_REVIEW_ITEMS)
+        candidate = self.draft.candidate if isinstance(self.draft.candidate, dict) else {}
+        claims = candidate.get("claims", [])
+        for kind, identifier, value in self._group_records[start:stop]:
+            item = QListWidgetItem(
+                _review_group_text(
+                    kind,
+                    identifier,
+                    value,
+                    claims if isinstance(claims, list) else [],
+                    self._decisions.get((kind, identifier)),
+                )
+            )
+            item.setData(Qt.ItemDataRole.UserRole, (kind, identifier))
+            self.groups.addItem(item)
+        total = len(self._group_records)
+        page_count = max(1, (total + MAX_REVIEW_ITEMS - 1) // MAX_REVIEW_ITEMS)
+        shown_start = 0 if total == 0 else start + 1
+        self.group_page_status.setText(
+            f"{shown_start}-{stop} of {total} | Page {self._group_page + 1}/{page_count}"
+        )
+        self.previous_groups.setEnabled(self._group_page > 0)
+        self.next_groups.setEnabled(self._group_page + 1 < page_count)
+
+    def _add_comparison(self, text: str) -> None:
+        self._comparison_total += 1
+        # Reserve one of the 240 rows for deterministic-fallback status.
+        if self.comparison.count() < MAX_REVIEW_ITEMS - 1:
+            self.comparison.addItem(_bounded_text(text, 260))
+
+    def _populate_comparison(
+        self,
+        candidate: dict[str, object],
+        current_arcs: Sequence[StoryArc],
+        current_events: Sequence[StoryEvent],
+    ) -> None:
+        current_by_kind: dict[str, dict[str, object]] = {
+            "arc": {arc.id: arc for arc in current_arcs},
+            "event": {event.id: event for event in current_events},
+        }
+        counts = {name: 0 for name in ("added", "removed", "renamed", "split", "merged")}
+        proposed_events: list[dict[str, object]] = []
+        for kind, key in (("arc", "arcs"), ("event", "events")):
+            values = candidate.get(key, [])
+            proposed = (
+                {
+                    str(value.get("id")): value
+                    for value in values
+                    if isinstance(value, dict) and isinstance(value.get("id"), str)
+                }
+                if isinstance(values, list)
+                else {}
+            )
+            current = current_by_kind[kind]
+            if kind == "event":
+                proposed_events = list(proposed.values())
+            for identifier, value in proposed.items():
+                existing = current.get(identifier)
+                if existing is None:
+                    counts["added"] += 1
+                    self._add_comparison(
+                        f"Added {kind} | {value.get('title', identifier)}"
+                    )
+                elif getattr(existing, "title", None) != value.get("title"):
+                    counts["renamed"] += 1
+                    self._add_comparison(
+                        f"Renamed {kind} | {value.get('title', identifier)}"
+                    )
+            for identifier, current_value in current.items():
+                if identifier not in proposed:
+                    counts["removed"] += 1
+                    self._add_comparison(
+                        f"Removed {kind} | {getattr(current_value, 'title', identifier)}"
+                    )
+
+        counts["split"], counts["merged"] = _split_merge_counts(
+            current_events, proposed_events
+        )
+        ungrouped_count = len(_string_sequence(candidate.get("ungrouped_beat_ids")))
+        raw_claims = candidate.get("claims", [])
+        claims = raw_claims if isinstance(raw_claims, list) else []
+        evidence_ids = {
+            evidence
+            for claim in claims
+            if isinstance(claim, dict)
+            for evidence in _string_sequence(claim.get("evidence_ids"))
+        }
+        self.comparison_summary.setText(
+            "Current vs proposed inside the covered scope | "
+            f"Added {counts['added']} | Removed {counts['removed']} | "
+            f"Renamed {counts['renamed']} | Split {counts['split']} | "
+            f"Merged {counts['merged']} | Ungrouped {ungrouped_count} | "
+            f"Evidence records {len(evidence_ids)} | "
+            f"Details {min(self._comparison_total, MAX_REVIEW_ITEMS - 1)}/"
+            f"{self._comparison_total}"
+        )
+        self._update_fallback_summary()
+
+    def _update_fallback_summary(self) -> None:
+        rejected = sum(value == "rejected" for value in self._decisions.values())
+        if self._fallback_item is None:
+            self._fallback_item = QListWidgetItem()
+            self.comparison.addItem(self._fallback_item)
+        self._fallback_item.setText(
+            "Covered-scope deterministic fallbacks | "
+            f"{rejected} rejected group(s); untouched scopes stay in Technical map"
+        )
+
+
 class AcceptedStoryPresenter(QObject):
     """Project-open adapter that never invokes an organization provider."""
 
@@ -420,6 +731,9 @@ class AcceptedStoryPresenter(QObject):
     provenance_changed = Signal(str)
     level_changed = Signal(int)
     pending_draft_changed = Signal(object, object, object)
+    technical_map_requested = Signal()
+    accepted_map_requested = Signal()
+    selection_context_changed = Signal(object)
     ready = Signal()
 
     def __init__(
@@ -448,10 +762,12 @@ class AcceptedStoryPresenter(QObject):
         self._selected_arc: str | None = None
         self._selected_event: str | None = None
         self._active = False
+        self._technical_mode = False
         self._syncing_level = False
         self._load_generation = 0
         self._evidence_generation = 0
         self._search_generation = 0
+        self._arc_window_start: dict[str, int] = {}
         self.navigator.itemActivated.connect(self._navigator_activated)
         self.canvas.selection_changed.connect(self._selected)
         self.canvas.expansion_requested.connect(self._expanded)
@@ -460,6 +776,10 @@ class AcceptedStoryPresenter(QObject):
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def viewing_accepted(self) -> bool:
+        return self._active and not self._technical_mode
 
     @property
     def is_busy(self) -> bool:
@@ -471,9 +791,17 @@ class AcceptedStoryPresenter(QObject):
 
     @property
     def selected_target(self) -> tuple[str, str] | None:
+        if not self.viewing_accepted:
+            return None
         if self._selected_event is not None:
             return "event", self._selected_event
-        if self._selected_arc is not None:
+        if self._selected_arc is not None and (
+            self.canvas.rendered_item_count == 0
+            or (
+                self.canvas.semantic_level is SemanticLevel.OVERVIEW
+                and self.canvas.selected_node_id == self._selected_arc
+            )
+        ):
             return "arc", self._selected_arc
         return None
 
@@ -504,6 +832,37 @@ class AcceptedStoryPresenter(QObject):
         kind, identifier = target
         values = snapshot.arcs if kind == "arc" else snapshot.events
         return bool(next((item.hidden for item in values if item.id == identifier), False))
+
+    @property
+    def selected_approval_state(self) -> str | None:
+        snapshot = self._snapshot
+        target = self.selected_target
+        if snapshot is None or target is None:
+            return None
+        kind, identifier = target
+        values = snapshot.arcs if kind == "arc" else snapshot.events
+        return next(
+            (item.approval_state for item in values if item.id == identifier), None
+        )
+
+    def enter_technical_mode(self) -> None:
+        """Suspend accepted-map reactions while the deterministic M04 map is visible."""
+
+        if not self._active:
+            return
+        self._technical_mode = True
+        self._cancel_evidence()
+        self._cancel_search()
+        self.center_stack.setCurrentWidget(self.canvas_page)
+        self.provenance_changed.emit("Technical organization")
+        self.status_changed.emit("Technical map | all deterministic scopes remain available")
+        self.selection_context_changed.emit(None)
+
+    def enter_accepted_mode(self) -> None:
+        if not self._active:
+            return
+        self._technical_mode = False
+        self.show_overview()
 
     def correction_choices(
         self,
@@ -548,8 +907,10 @@ class AcceptedStoryPresenter(QObject):
         self._session = session
         self._snapshot = None
         self._active = False
+        self._technical_mode = False
         self._selected_arc = None
         self._selected_event = None
+        self._arc_window_start.clear()
         self.inspector.summary.clear()
         self.inspector.state.clear()
         self.inspector.evidence.clear()
@@ -579,6 +940,13 @@ class AcceptedStoryPresenter(QObject):
         task.finished.connect(lambda current=task: self._finish_load(current))
         self.busy_changed.emit(True)
         task.start()
+
+    def reload(self) -> None:
+        """Retry loading accepted organization for the current project."""
+
+        session = self._session
+        if session is not None:
+            self.set_project(session)
 
     def cancel(self) -> None:
         self._load_generation += 1
@@ -626,7 +994,7 @@ class AcceptedStoryPresenter(QObject):
         task.deleteLater()
         self.busy_changed.emit(self.is_busy)
 
-    def _populate_navigator(self) -> None:
+    def _populate_navigator_legacy(self) -> None:
         snapshot = self._snapshot
         if snapshot is None:
             return
@@ -651,14 +1019,76 @@ class AcceptedStoryPresenter(QObject):
             item.setData(Qt.ItemDataRole.UserRole, (kind, ""))
             self.navigator.addItem(item)
 
+    def _populate_navigator(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        self.navigator.clear()
+        overview = QListWidgetItem("Accepted overview")
+        overview.setData(Qt.ItemDataRole.UserRole, ("overview", ""))
+        self.navigator.addItem(overview)
+        visible_arcs = [arc for arc in snapshot.arcs if not arc.hidden]
+        for arc in visible_arcs[:MAX_ARCS]:
+            states = []
+            if arc.needs_review:
+                states.append("Needs review")
+            if arc.approval_state == "rejected":
+                states.append("Rejected")
+            suffix = " | " + ", ".join(states) if states else ""
+            item = QListWidgetItem(f"{arc.title}{suffix}")
+            item.setData(Qt.ItemDataRole.UserRole, ("arc", arc.id))
+            item.setData(
+                Qt.ItemDataRole.AccessibleTextRole, f"Accepted story arc {arc.title}{suffix}"
+            )
+            self.navigator.addItem(item)
+        technical = QListWidgetItem("Technical map / unorganized scopes")
+        technical.setData(Qt.ItemDataRole.UserRole, ("technical", ""))
+        technical.setData(
+            Qt.ItemDataRole.AccessibleTextRole,
+            "Open the deterministic technical map and all unorganized scopes",
+        )
+        self.navigator.addItem(technical)
+        hidden_items: list[tuple[str, str, str]] = [
+            ("arc", arc.id, arc.title) for arc in snapshot.arcs if arc.hidden
+        ]
+        hidden_items.extend(
+            ("event", event.id, event.title) for event in snapshot.events if event.hidden
+        )
+        # Keep room for three fixed rows, one truncation row, and two event-page rows.
+        hidden_limit = max(0, MAX_VISIBLE_ITEMS - self.navigator.count() - 6)
+        for kind, identifier, title in hidden_items[:hidden_limit]:
+            item = QListWidgetItem(f"View hidden {kind} | {title}")
+            item.setData(Qt.ItemDataRole.UserRole, (f"hidden-{kind}", identifier))
+            self.navigator.addItem(item)
+        if len(hidden_items) > hidden_limit:
+            truncation = QListWidgetItem(
+                f"Hidden items truncated | showing {hidden_limit} of {len(hidden_items)}"
+            )
+            truncation.setData(Qt.ItemDataRole.UserRole, ("hidden-truncated", ""))
+            self.navigator.addItem(truncation)
+        for title, kind in (
+            ("Characters", "characters"),
+            ("Outcomes", "outcomes"),
+            ("Saved filters", "filters"),
+        ):
+            item = QListWidgetItem(title)
+            item.setData(Qt.ItemDataRole.UserRole, (kind, ""))
+            self.navigator.addItem(item)
+
     def show_overview(self) -> None:
         snapshot = self._snapshot
         if snapshot is None or not snapshot.arcs:
             return
+        self._technical_mode = False
+        self._remove_event_page_rows()
         self._cancel_evidence()
         self._cancel_search()
-        arcs = snapshot.arcs[:MAX_ARCS]
+        arcs = tuple(arc for arc in snapshot.arcs if not arc.hidden)[:MAX_ARCS]
         arc_ids = {arc.id for arc in arcs}
+        filters_by_event = {
+            event_id: (frozenset(variables), frozenset(categories))
+            for event_id, variables, categories in snapshot.event_filters
+        }
         nodes = [
             GraphNodeSpec(
                 id=arc.id,
@@ -667,6 +1097,20 @@ class AcceptedStoryPresenter(QObject):
                 summary=_arc_overview_summary(arc, snapshot),
                 detail=f"{len(arc.event_ids)} events • {arc.origin}",
                 semantic_levels=frozenset({SemanticLevel.OVERVIEW}),
+                variables=frozenset(
+                    variable
+                    for event_id in arc.event_ids
+                    for variable in filters_by_event.get(
+                        event_id, (frozenset(), frozenset())
+                    )[0]
+                ),
+                categories=frozenset(
+                    category
+                    for event_id in arc.event_ids
+                    for category in filters_by_event.get(
+                        event_id, (frozenset(), frozenset())
+                    )[1]
+                ),
                 expandable=True,
                 expanded=arc.id == self._selected_arc,
             )
@@ -681,24 +1125,54 @@ class AcceptedStoryPresenter(QObject):
         self._set_canvas_level(SemanticLevel.OVERVIEW)
         self.center_stack.setCurrentWidget(self.canvas_page)
         self._selected_event = None
-        self.visible_count_changed.emit(self.canvas.rendered_item_count)
+        self._arc_window_start.clear()
+        self.visible_count_changed.emit(self.canvas.visible_item_count)
         self.provenance_changed.emit("Accepted story organization")
         self.level_changed.emit(1)
-        self.status_changed.emit("Story overview")
+        if arcs:
+            self.status_changed.emit("Accepted story overview")
+        else:
+            self.status_changed.emit(
+                "No visible accepted arcs | use a hidden item or Technical map"
+            )
+        self.selection_context_changed.emit(self.selected_target)
 
-    def show_arc(self, arc_id: str) -> None:
+    def show_arc(self, arc_id: str, *, focus_event_id: str | None = None) -> None:
         snapshot = self._snapshot
         if snapshot is None:
             return
         arc = next((item for item in snapshot.arcs if item.id == arc_id), None)
-        if arc is None:
+        if arc is None or arc.hidden:
             return
+        self._technical_mode = False
         self._cancel_evidence()
         self._cancel_search()
         event_by_id = {event.id: event for event in snapshot.events}
-        events = [event_by_id[event_id] for event_id in arc.event_ids if event_id in event_by_id]
-        events = events[:MAX_EVENTS]
+        all_events = [
+            event_by_id[event_id]
+            for event_id in arc.event_ids
+            if event_id in event_by_id and not event_by_id[event_id].hidden
+        ]
+        if focus_event_id is not None:
+            focus_index = next(
+                (
+                    index
+                    for index, event in enumerate(all_events)
+                    if event.id == focus_event_id
+                ),
+                None,
+            )
+            if focus_index is not None:
+                self._arc_window_start[arc_id] = (focus_index // MAX_EVENTS) * MAX_EVENTS
+        maximum_start = (
+            ((len(all_events) - 1) // MAX_EVENTS) * MAX_EVENTS if all_events else 0
+        )
+        start = min(self._arc_window_start.get(arc_id, 0), maximum_start)
+        self._arc_window_start[arc_id] = start
+        events = all_events[start : start + MAX_EVENTS]
+        self._update_event_page_rows(arc_id, start, len(all_events))
         event_ids = {event.id for event in events}
+        all_event_ids = {event.id for event in all_events}
         facts_by_event: dict[str, list[AttachedFact]] = {}
         for fact in snapshot.facts:
             facts_by_event.setdefault(fact.event_id, []).append(fact)
@@ -708,13 +1182,18 @@ class AcceptedStoryPresenter(QObject):
             if edge.source_id in event_ids and edge.target_id in event_ids
         ]
         outgoing_kinds: dict[str, set[str]] = {}
-        for edge in edges:
-            outgoing_kinds.setdefault(edge.source_id, set()).add(edge.kind)
+        for edge in snapshot.event_edges:
+            if edge.source_id in all_event_ids:
+                outgoing_kinds.setdefault(edge.source_id, set()).add(edge.kind)
         nodes = []
         layout_nodes = []
         enrichment_by_target = {
             (getattr(value, "target_kind", ""), getattr(value, "target_id", "")): value
             for value in snapshot.enrichments
+        }
+        filters_by_event = {
+            event_id: (frozenset(variables), frozenset(categories))
+            for event_id, variables, categories in snapshot.event_filters
         }
         for event in events:
             facts = facts_by_event.get(event.id, [])
@@ -730,6 +1209,9 @@ class AcceptedStoryPresenter(QObject):
             characters = tuple(getattr(enrichment, "characters", ()))
             outcomes = tuple(getattr(enrichment, "outcomes", ()))
             warnings = tuple(getattr(enrichment, "warnings", ()))
+            variables, categories = filters_by_event.get(
+                event.id, (frozenset(), frozenset())
+            )
             metadata = [
                 f"{len(event.beat_ids)} beats",
                 event.origin.title(),
@@ -751,6 +1233,8 @@ class AcceptedStoryPresenter(QObject):
                     frozenset({SemanticLevel.EVENTS}),
                     requirements,
                     effects,
+                    variables=variables,
+                    categories=categories,
                     evidence=evidence,
                     expandable=True,
                 )
@@ -777,24 +1261,59 @@ class AcceptedStoryPresenter(QObject):
         self._selected_arc = arc_id
         if self._selected_event not in event_ids:
             self._selected_event = None
-        self.visible_count_changed.emit(self.canvas.rendered_item_count)
+        self.visible_count_changed.emit(self.canvas.visible_item_count)
         self.provenance_changed.emit("Accepted story organization")
         self.level_changed.emit(2)
         self.inspector.summary.setText(arc.summary)
+        window_end = start + len(events)
+        review_state = "Needs review" if arc.needs_review else "Reviewed"
         self.inspector.details.setText(
-            f"{len(events)} visible events • {arc.origin.title()} • "
-            f"{'Needs review' if arc.needs_review else 'Reviewed'}"
+            f"Events {start + 1 if events else 0}-{window_end} of {len(all_events)} | "
+            f"{arc.origin.title()} | {review_state}"
         )
         self.status_changed.emit(arc.title)
+        self.selection_context_changed.emit(self.selected_target)
+
+    def _remove_event_page_rows(self) -> None:
+        for index in range(self.navigator.count() - 1, -1, -1):
+            item = self.navigator.item(index)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if (
+                isinstance(data, tuple)
+                and data
+                and data[0] in {"event-page-previous", "event-page-next"}
+            ):
+                self.navigator.takeItem(index)
+
+    def _update_event_page_rows(self, arc_id: str, start: int, total: int) -> None:
+        self._remove_event_page_rows()
+        if start > 0:
+            item = QListWidgetItem(f"Previous events | {max(1, start - MAX_EVENTS + 1)}-{start}")
+            item.setData(Qt.ItemDataRole.UserRole, ("event-page-previous", arc_id))
+            self.navigator.addItem(item)
+        if start + MAX_EVENTS < total:
+            stop = min(total, start + MAX_EVENTS * 2)
+            item = QListWidgetItem(f"Next events | {start + MAX_EVENTS + 1}-{stop}")
+            item.setData(Qt.ItemDataRole.UserRole, ("event-page-next", arc_id))
+            self.navigator.addItem(item)
+
+    def _page_arc(self, arc_id: str, delta: int) -> None:
+        self._arc_window_start[arc_id] = max(
+            0, self._arc_window_start.get(arc_id, 0) + delta * MAX_EVENTS
+        )
+        self.show_arc(arc_id)
 
     def search(self, query: str) -> bool:
         snapshot = self._snapshot
         term = query.strip().casefold()
-        if snapshot is None or not term:
+        if snapshot is None or not term or not self.viewing_accepted:
             return False
         self._cancel_search()
         for arc in snapshot.arcs:
             if term in f"{arc.title} {_arc_overview_summary(arc, snapshot)}".casefold():
+                if arc.hidden:
+                    self._show_hidden_target("arc", arc.id)
+                    return True
                 self.show_overview()
                 return self.canvas.focus_search_result(arc.id)
         character_map = dict(snapshot.event_characters)
@@ -802,14 +1321,17 @@ class AcceptedStoryPresenter(QObject):
             (getattr(value, "target_kind", ""), getattr(value, "target_id", "")): value
             for value in snapshot.enrichments
         }
+        facts_by_event: dict[str, list[str]] = {}
+        for fact in snapshot.facts:
+            facts_by_event.setdefault(fact.event_id, []).append(fact.expression)
+        claims_by_event: dict[str, list[str]] = {}
+        for claim in snapshot.claims:
+            if claim.event_id is not None:
+                claims_by_event.setdefault(claim.event_id, []).append(claim.text)
         for event in snapshot.events:
             enrichment = enrichment_by_target.get(("event", event.id))
-            facts = " ".join(
-                fact.expression for fact in snapshot.facts if fact.event_id == event.id
-            )
-            claims = " ".join(
-                claim.text for claim in snapshot.claims if claim.event_id == event.id
-            )
+            facts = " ".join(facts_by_event.get(event.id, ()))
+            claims = " ".join(claims_by_event.get(event.id, ()))
             enriched = " ".join(
                 (
                     *character_map.get(event.id, ()),
@@ -819,12 +1341,15 @@ class AcceptedStoryPresenter(QObject):
                 )
             )
             if term in f"{event.title} {event.summary} {facts} {claims} {enriched}".casefold():
+                if event.hidden:
+                    self._show_hidden_target("event", event.id)
+                    return True
                 parent_arc = next(
                     (candidate for candidate in snapshot.arcs if event.id in candidate.event_ids),
                     None,
                 )
                 if parent_arc is not None:
-                    self.show_arc(parent_arc.id)
+                    self.show_arc(parent_arc.id, focus_event_id=event.id)
                     return self.canvas.focus_search_result(event.id)
         session = self._session
         if session is None:
@@ -892,13 +1417,22 @@ class AcceptedStoryPresenter(QObject):
         if not isinstance(value, str) or self._snapshot is None:
             self.status_changed.emit("No accepted story result")
             return
+        event = next(
+            (event for event in self._snapshot.events if event.id == value), None
+        )
+        if event is not None and event.hidden:
+            self._show_hidden_target("event", event.id)
+            return
         parent_arc = next(
             (arc for arc in self._snapshot.arcs if value in arc.event_ids), None
         )
         if parent_arc is None:
             self.status_changed.emit("Result remains in technical organization")
             return
-        self.show_arc(parent_arc.id)
+        if parent_arc.hidden:
+            self._show_hidden_target("arc", parent_arc.id)
+            return
+        self.show_arc(parent_arc.id, focus_event_id=value)
         self.canvas.focus_search_result(value)
 
     def _search_failed(self, generation: int) -> None:
@@ -915,8 +1449,8 @@ class AcceptedStoryPresenter(QObject):
         snapshot = self._snapshot
         if snapshot is None:
             return
-        valid_arc_ids = {arc.id for arc in snapshot.arcs}
-        valid_event_ids = {event.id for event in snapshot.events}
+        valid_arc_ids = {arc.id for arc in snapshot.arcs if not arc.hidden}
+        valid_event_ids = {event.id for event in snapshot.events if not event.hidden}
         valid_arc = arc_id if arc_id in valid_arc_ids else ""
         valid_event = event_id if event_id in valid_event_ids else ""
         if valid_event:
@@ -938,7 +1472,7 @@ class AcceptedStoryPresenter(QObject):
         if not valid_arc:
             self.show_overview()
             return
-        self.show_arc(valid_arc)
+        self.show_arc(valid_arc, focus_event_id=valid_event or None)
         if valid_event:
             self._selected_event = valid_event
             self.canvas.restore_selection(valid_event)
@@ -948,10 +1482,10 @@ class AcceptedStoryPresenter(QObject):
     def show_evidence(self, event_id: str) -> None:
         snapshot = self._snapshot
         session = self._session
-        if snapshot is None or session is None:
+        if snapshot is None or session is None or not self.viewing_accepted:
             return
         event = next((item for item in snapshot.events if item.id == event_id), None)
-        if event is None:
+        if event is None or event.hidden:
             return
         self._selected_event = event_id
         self._cancel_search()
@@ -969,6 +1503,9 @@ class AcceptedStoryPresenter(QObject):
         task.succeeded.connect(
             lambda value, expected=generation: self._accept_evidence(expected, value)
         )
+        task.failed.connect(
+            lambda _error, expected=generation: self._evidence_failed(expected)
+        )
         task.finished.connect(lambda current=task: self._finish_evidence(current))
         self.busy_changed.emit(True)
         task.start()
@@ -977,13 +1514,19 @@ class AcceptedStoryPresenter(QObject):
         if generation == self._evidence_generation and self._session is not None:
             self._evidence_loaded(value)
 
+    def _evidence_failed(self, generation: int) -> None:
+        if generation == self._evidence_generation and self._session is not None:
+            self.error_occurred.emit(
+                "Exact evidence could not be loaded. Retry the selected event."
+            )
+
     @Slot(object)
     def _evidence_loaded(self, value: object) -> None:
-        if not isinstance(value, tuple):
+        if not isinstance(value, _EvidenceSlice):
             return
         self.evidence_timeline.clear()
         self.inspector.evidence.clear()
-        for record in value:
+        for record in value.records:
             if not isinstance(record, EvidenceRecord):
                 continue
             caption = (
@@ -1000,7 +1543,8 @@ class AcceptedStoryPresenter(QObject):
         self.center_stack.setCurrentWidget(self.evidence_timeline)
         self.level_changed.emit(3)
         self.visible_count_changed.emit(self.evidence_timeline.count())
-        self.status_changed.emit("Exact source evidence")
+        suffix = " | truncated at 240 records" if value.truncated else ""
+        self.status_changed.emit(f"Exact source evidence{suffix}")
         if self.evidence_timeline.count():
             self.evidence_timeline.setCurrentRow(0)
             self.evidence_timeline.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -1013,13 +1557,24 @@ class AcceptedStoryPresenter(QObject):
 
     @Slot(object)
     def _selected(self, value: object) -> None:
-        if not isinstance(value, str) or self._snapshot is None:
+        if value is None and self.viewing_accepted:
+            self._selected_event = None
+            if self.canvas.semantic_level is SemanticLevel.OVERVIEW:
+                self._selected_arc = None
+            self.selection_context_changed.emit(self.selected_target)
+            return
+        if (
+            not isinstance(value, str)
+            or self._snapshot is None
+            or not self.viewing_accepted
+        ):
             return
         arc = next((item for item in self._snapshot.arcs if item.id == value), None)
         if arc is not None:
             self._selected_arc = value
             self._selected_event = None
             self.inspector.summary.setText(arc.summary)
+            self.selection_context_changed.emit(self.selected_target)
             return
         event = next((item for item in self._snapshot.events if item.id == value), None)
         if event is None:
@@ -1030,10 +1585,14 @@ class AcceptedStoryPresenter(QObject):
         for fact in self._snapshot.facts:
             if fact.event_id == event.id:
                 label = "Requirement" if fact.fact_kind == "gate" else "Effect"
-                self.inspector.state.addItem(f"{label}  •  {fact.expression}")
+                _add_bounded_item(
+                    self.inspector.state, f"{label}  •  {fact.expression}"
+                )
         for claim in self._snapshot.claims:
             if claim.event_id == event.id:
-                self.inspector.state.addItem(f"Interpretation  •  {claim.text}")
+                _add_bounded_item(
+                    self.inspector.state, f"Interpretation  •  {claim.text}"
+                )
         details: list[str] = []
         enrichment = next(
             (
@@ -1046,9 +1605,9 @@ class AcceptedStoryPresenter(QObject):
         )
         if enrichment is not None:
             for outcome in getattr(enrichment, "outcomes", ()):
-                self.inspector.state.addItem(f"Outcome  •  {outcome}")
+                _add_bounded_item(self.inspector.state, f"Outcome  •  {outcome}")
             for warning in getattr(enrichment, "warnings", ()):
-                self.inspector.state.addItem(f"Warning  •  {warning}")
+                _add_bounded_item(self.inspector.state, f"Warning  •  {warning}")
             characters = tuple(getattr(enrichment, "characters", ()))
             if characters:
                 details.append(f"Characters: {', '.join(characters)}")
@@ -1063,9 +1622,12 @@ class AcceptedStoryPresenter(QObject):
             )
         )
         self.inspector.details.setText("  •  ".join(details))
+        self.selection_context_changed.emit(self.selected_target)
 
     @Slot(str, bool)
     def _expanded(self, identifier: str, expanded: bool) -> None:
+        if not self.viewing_accepted:
+            return
         if not expanded:
             self.show_overview()
         elif self._snapshot and any(arc.id == identifier for arc in self._snapshot.arcs):
@@ -1075,7 +1637,7 @@ class AcceptedStoryPresenter(QObject):
 
     @Slot(int)
     def _semantic_level_requested(self, value: int) -> None:
-        if self._syncing_level or not self._active or self._snapshot is None:
+        if self._syncing_level or not self.viewing_accepted or self._snapshot is None:
             return
         level = SemanticLevel(value)
         if level is SemanticLevel.OVERVIEW:
@@ -1083,18 +1645,35 @@ class AcceptedStoryPresenter(QObject):
             return
         if level is SemanticLevel.EVENTS:
             arc_id = self._selected_arc or (
-                self._snapshot.arcs[0].id if self._snapshot.arcs else None
+                next(
+                    (arc.id for arc in self._snapshot.arcs if not arc.hidden),
+                    None,
+                )
             )
             if arc_id is not None:
-                self.show_arc(arc_id)
+                self.show_arc(arc_id, focus_event_id=self._selected_event)
             return
         event_id = self._selected_event
         if event_id is None:
             arc = next(
                 (arc for arc in self._snapshot.arcs if arc.id == self._selected_arc),
-                self._snapshot.arcs[0] if self._snapshot.arcs else None,
+                next(
+                    (arc for arc in self._snapshot.arcs if not arc.hidden),
+                    None,
+                ),
             )
-            event_id = arc.event_ids[0] if arc is not None and arc.event_ids else None
+            event_id = (
+                next(
+                    (
+                        event.id
+                        for event in self._snapshot.events
+                        if event.id in arc.event_ids and not event.hidden
+                    ),
+                    None,
+                )
+                if arc is not None
+                else None
+            )
         if event_id is not None:
             self.show_evidence(event_id)
 
@@ -1109,9 +1688,46 @@ class AcceptedStoryPresenter(QObject):
     def _navigator_activated(self, item: QListWidgetItem) -> None:
         kind, identifier = cast(tuple[str, str], item.data(Qt.ItemDataRole.UserRole))
         if kind == "overview":
-            self.show_overview()
+            self.accepted_map_requested.emit()
         elif kind == "arc":
+            if self._technical_mode:
+                self.accepted_map_requested.emit()
             self.show_arc(identifier)
+        elif kind == "technical":
+            self.technical_map_requested.emit()
+        elif kind == "event-page-previous":
+            self._page_arc(identifier, -1)
+        elif kind == "event-page-next":
+            self._page_arc(identifier, 1)
+        elif kind in {"hidden-arc", "hidden-event"}:
+            self._show_hidden_target(kind.removeprefix("hidden-"), identifier)
+
+    def _show_hidden_target(self, kind: str, identifier: str) -> None:
+        snapshot = self._snapshot
+        if snapshot is None or kind not in {"arc", "event"}:
+            return
+        values = snapshot.arcs if kind == "arc" else snapshot.events
+        target = next((value for value in values if value.id == identifier), None)
+        if target is None or not target.hidden:
+            return
+        self._technical_mode = False
+        if kind == "arc":
+            self._selected_arc = identifier
+            self._selected_event = None
+        else:
+            self._selected_event = identifier
+            self._selected_arc = next(
+                (arc.id for arc in snapshot.arcs if identifier in arc.event_ids), None
+            )
+        self.canvas.set_slice((), (), preserve_navigation=True)
+        self.center_stack.setCurrentWidget(self.canvas_page)
+        self.inspector.summary.setText(target.summary)
+        self.inspector.details.setText(
+            f"Hidden accepted {kind} | use Unhide selected to restore it"
+        )
+        self.status_changed.emit(f"Hidden accepted {kind}: {target.title}")
+        self.visible_count_changed.emit(0)
+        self.selection_context_changed.emit(self.selected_target)
 
 
 class OrganizationUiController(QObject):
@@ -1173,22 +1789,12 @@ class OrganizationUiController(QObject):
             cancelled: Callable[[], bool], progress: Callable[[int, str], None]
         ) -> object:
             with Project.open(path) as project:
-                selected_scopes = tuple(scope_ids)
-                if not selected_scopes:
-                    overview = project.presentation_service().view(
-                        PresentationRequest(
-                            PresentationLevel.OVERVIEW,
-                            node_limit=12,
-                            edge_limit=24,
-                        )
-                    )
-                    selected_scopes = tuple(node.id for node in overview.nodes)
                 workflow = OrganizationWorkflow(
                     project,
                     self._provider_factory,
                 )
                 return workflow.organize(
-                    selected_scopes,
+                    tuple(scope_ids),
                     options,
                     progress=progress,
                     cancelled=cancelled,
@@ -1313,6 +1919,10 @@ def apply_story_palette(widget: QWidget, *, dark: bool) -> None:
 
     widget.setProperty("storyPaletteApplying", True)
     widget.setProperty("storyPaletteDark", dark)
+    raw_zoom = widget.property("applicationZoomPercent")
+    zoom = int(raw_zoom) if isinstance(raw_zoom, int) else 100
+    metadata_size = round(12 * zoom / 100)
+    title_size = round(24 * zoom / 100)
     palette = QPalette(widget.palette())
     if dark:
         palette.setColor(QPalette.ColorRole.Window, QColor("#111820"))
@@ -1333,16 +1943,18 @@ def apply_story_palette(widget: QWidget, *, dark: bool) -> None:
     palette.setColor(QPalette.ColorRole.Highlight, QColor("#0891B2"))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
     try:
-        widget.setPalette(palette)
         widget.setStyleSheet(
             "QWidget { font-family: 'Segoe UI'; }"
-            "#welcomeEyebrow { color: #0891B2; font-size: 12px; font-weight: 700; }"
-            "#welcomeTitle { font-size: 24px; font-weight: 650; }"
+            f"#welcomeEyebrow {{ color: #0891B2; font-size: {metadata_size}px; "
+            "font-weight: 700; }"
+            f"#welcomeTitle {{ font-size: {title_size}px; font-weight: 650; }}"
             "QTabBar::tab { min-height: 30px; padding: 4px 10px; }"
             "QPushButton { min-height: 30px; padding: 3px 12px; }"
             "QPushButton:focus, QListWidget:focus, QLineEdit:focus, QComboBox:focus {"
             " border: 2px solid #0891B2; }"
         )
+        # Stylesheet repolishing may restore its cached palette, so palette is applied last.
+        widget.setPalette(palette)
     finally:
         widget.setProperty("storyPaletteApplying", False)
 
@@ -1358,48 +1970,76 @@ def _safe_operation_error(error: object) -> str:
 def _load_snapshot(path: Path) -> StorySnapshot:
     with Project.open(path) as project:
         service = project.organization_service()
-        events = service.events()
+        arcs = service.arcs(include_hidden=True)
+        events = service.events(include_hidden=True)
         pending = service.drafts(status="pending")
         runs = service.runs()
+        pending_draft = pending[-1] if pending else None
+        matched_run = (
+            next(
+                (run for run in reversed(runs) if run.id == pending_draft.run_id),
+                None,
+            )
+            if pending_draft is not None
+            else (runs[-1] if runs else None)
+        )
         enrichment_reader = getattr(service, "enrichments", None)
         enrichments = tuple(enrichment_reader()) if callable(enrichment_reader) else ()
         return StorySnapshot(
-            service.arcs(),
+            arcs,
             events,
             service.event_edges(),
             service.arc_edges(),
             service.attached_facts(),
             service.claims(),
-            pending[-1] if pending else None,
-            runs[-1] if runs else None,
-            service.draft_reviews(pending[-1].id) if pending else (),
+            pending_draft,
+            matched_run,
+            service.draft_reviews(pending_draft.id) if pending_draft is not None else (),
             _event_characters(project, events),
             enrichments,
+            _event_filter_metadata(project, events),
         )
 
 
 def _load_evidence(
     path: Path, event: StoryEvent, cancelled: Callable[[], bool]
-) -> tuple[EvidenceRecord, ...]:
+) -> _EvidenceSlice:
     with PresentationService.open(path, cancelled=cancelled) as presentation:
         records: list[EvidenceRecord] = []
         seen: set[str] = set()
-        for beat_id in event.beat_ids:
+        truncated = False
+        for beat_index, beat_id in enumerate(event.beat_ids):
             if cancelled():
                 break
             after: str | None = None
             while True:
                 if cancelled():
-                    return tuple(records)
-                page = presentation.evidence(beat_id, after=after, limit=100)
+                    return _EvidenceSlice(tuple(records), truncated)
+                remaining = MAX_VISIBLE_ITEMS - len(records)
+                if remaining <= 0:
+                    truncated = True
+                    break
+                page = presentation.evidence(
+                    beat_id, after=after, limit=min(100, remaining)
+                )
                 for value in page.items:
                     if isinstance(value, EvidenceRecord) and value.id not in seen:
                         seen.add(value.id)
                         records.append(value)
+                        if len(records) == MAX_VISIBLE_ITEMS:
+                            break
+                if len(records) == MAX_VISIBLE_ITEMS:
+                    truncated = page.continuation.has_more or beat_index + 1 < len(event.beat_ids)
+                    break
                 if not page.continuation.has_more:
                     break
-                after = page.continuation.next_after
-        return tuple(records)
+                next_after = page.continuation.next_after
+                if next_after is None or next_after == after:
+                    break
+                after = next_after
+            if len(records) == MAX_VISIBLE_ITEMS:
+                break
+        return _EvidenceSlice(tuple(records), truncated)
 
 
 def _event_kind(event: StoryEvent, edge_kinds: set[str]) -> str:
@@ -1498,6 +2138,41 @@ def _event_characters(
     )
 
 
+def _event_filter_metadata(
+    project: Project, events: Sequence[StoryEvent]
+) -> tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]:
+    event_ids = sorted(event.id for event in events)
+    variables: dict[str, set[str]] = {}
+    categories: dict[str, set[str]] = {}
+    connection = project._require_open()
+    for start in range(0, len(event_ids), 500):
+        batch = event_ids[start : start + 500]
+        placeholders = ",".join("?" for _ in batch)
+        rows = connection.execute(
+            f"""SELECT m.event_id,f.variable,f.category
+                FROM story_event_members m
+                JOIN presentation_facts f ON f.node_id=m.beat_id
+                WHERE m.event_id IN ({placeholders})
+                  AND (f.variable IS NOT NULL OR f.category IS NOT NULL)
+                ORDER BY m.event_id,f.sort_key,f.fact_id""",
+            batch,
+        )
+        for row in rows:
+            event_id = str(row["event_id"])
+            if row["variable"] is not None:
+                variables.setdefault(event_id, set()).add(str(row["variable"]))
+            if row["category"] is not None:
+                categories.setdefault(event_id, set()).add(str(row["category"]))
+    return tuple(
+        (
+            event_id,
+            tuple(sorted(variables.get(event_id, set()))),
+            tuple(sorted(categories.get(event_id, set()))),
+        )
+        for event_id in sorted(set(variables) | set(categories))
+    )
+
+
 def _speaker_names(value: object) -> tuple[str, ...]:
     names: set[str] = set()
     if isinstance(value, dict):
@@ -1510,6 +2185,101 @@ def _speaker_names(value: object) -> tuple[str, ...]:
         for item in value:
             names.update(_speaker_names(item))
     return tuple(sorted(names))
+
+
+def _draft_scope(candidate: Mapping[str, object]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    scope = candidate.get("_scope")
+    if not isinstance(scope, Mapping):
+        return (), ()
+    return (
+        _string_sequence(scope.get("scope_ids")),
+        _string_sequence(scope.get("covered_beat_ids")),
+    )
+
+
+def _string_sequence(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
+def _bounded_text(value: object, maximum: int) -> str:
+    text = (
+        str(value)
+        .replace("\x00", "")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .strip()
+    )
+    if not text:
+        return "No bounded detail supplied"
+    return text if len(text) <= maximum else text[: maximum - 3] + "..."
+
+
+def _review_group_text(
+    kind: str,
+    identifier: str,
+    value: Mapping[str, object],
+    claims: Sequence[object],
+    decision: str | None,
+) -> str:
+    members = _string_sequence(
+        value.get("event_ids") if kind == "arc" else value.get("beat_ids")
+    )
+    target_key = "arc_id" if kind == "arc" else "event_id"
+    target_claims = [
+        claim
+        for claim in claims
+        if isinstance(claim, Mapping) and claim.get(target_key) == identifier
+    ]
+    evidence_ids = {
+        evidence
+        for claim in target_claims
+        for evidence in _string_sequence(claim.get("evidence_ids"))
+    }
+    outcomes = _string_sequence(value.get("outcomes"))
+    warnings = _string_sequence(value.get("warnings"))
+    state = decision.title() if decision is not None else "Decision pending"
+    return (
+        f"{kind.title()} | {_bounded_text(value.get('title', identifier), 80)} | {state}\n"
+        f"{_bounded_text(value.get('summary'), 160)} | Members {len(members)} | "
+        f"Claims {len(target_claims)} | Evidence {len(evidence_ids)} | "
+        f"Outcomes {len(outcomes)} | Warnings {len(warnings)}"
+    )
+
+
+def _split_merge_counts(
+    current_events: Sequence[StoryEvent], proposed_events: Sequence[Mapping[str, object]]
+) -> tuple[int, int]:
+    """Calculate membership changes in linear time over deterministic beat membership."""
+
+    current_by_beat = {
+        beat_id: index
+        for index, event in enumerate(current_events)
+        for beat_id in event.beat_ids
+    }
+    proposed_by_beat = {
+        beat_id: index
+        for index, event in enumerate(proposed_events)
+        for beat_id in _string_sequence(event.get("beat_ids"))
+    }
+    proposed_per_current: dict[int, set[int]] = {}
+    current_per_proposed: dict[int, set[int]] = {}
+    for beat_id, current_index in current_by_beat.items():
+        proposed_index = proposed_by_beat.get(beat_id)
+        if proposed_index is None:
+            continue
+        proposed_per_current.setdefault(current_index, set()).add(proposed_index)
+        current_per_proposed.setdefault(proposed_index, set()).add(current_index)
+    return (
+        sum(len(values) > 1 for values in proposed_per_current.values()),
+        sum(len(values) > 1 for values in current_per_proposed.values()),
+    )
+
+
+def _add_bounded_item(widget: QListWidget, text: str) -> None:
+    if widget.count() < MAX_VISIBLE_ITEMS:
+        widget.addItem(_bounded_text(text, 320))
 
 
 def _padded(widget: QWidget) -> QWidget:
