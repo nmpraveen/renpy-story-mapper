@@ -1665,15 +1665,17 @@ def _candidate_payload(
                 "origin": "ai",
                 "characters": [
                     character
-                    for character in event.characters
+                    for character in _ordered_unique(event.characters)
                     if character in event.allowed_character_names
                 ],
                 "importance": event.importance,
-                "outcomes": list(event.outcomes),
+                "outcomes": list(_ordered_unique(event.outcomes)),
                 "promoted_fact_ids": [
-                    fact for fact in event.fact_ids if fact in event.allowed_fact_ids
+                    fact
+                    for fact in _ordered_unique(event.fact_ids)
+                    if fact in event.allowed_fact_ids
                 ],
-                "warnings": list(event.warnings),
+                "warnings": list(_ordered_unique(event.warnings)),
             }
             for event in active_events
         ],
@@ -1686,7 +1688,7 @@ def _candidate_payload(
                 "origin": "ai",
                 "characters": [
                     character
-                    for character in arc.characters
+                    for character in _ordered_unique(arc.characters)
                     if character
                     in {
                         supported
@@ -1695,10 +1697,10 @@ def _candidate_payload(
                     }
                 ],
                 "importance": arc.importance,
-                "outcomes": list(arc.outcomes),
+                "outcomes": list(_ordered_unique(arc.outcomes)),
                 "promoted_fact_ids": [
                     fact
-                    for fact in arc.promoted_fact_ids
+                    for fact in _ordered_unique(arc.promoted_fact_ids)
                     if fact
                     in {
                         supported
@@ -1706,7 +1708,7 @@ def _candidate_payload(
                         for supported in events_by_id[event_id].allowed_fact_ids
                     }
                 ],
-                "warnings": list(arc.warnings),
+                "warnings": list(_ordered_unique(arc.warnings)),
             }
             for arc in arcs.groups
         ],

@@ -114,6 +114,53 @@ def test_candidate_payload_intersects_characters_with_exact_member_evidence() ->
     assert candidate["arcs"][0]["characters"] == ["mira"]  # type: ignore[index]
 
 
+def test_candidate_payload_stably_deduplicates_ai_enrichment_lists() -> None:
+    event = _EventCandidate(
+        id="event-a",
+        title="Merged event",
+        summary="Reconciliation can repeat valid enrichment values.",
+        beat_ids=("beat-a",),
+        characters=("mira", "mira"),
+        importance="major",
+        outcomes=("gate opens", "gate opens"),
+        fact_ids=("fact-a", "fact-a"),
+        claims=(),
+        warnings=("conditional", "conditional"),
+        allowed_character_names=("mira",),
+        allowed_fact_ids=("fact-a",),
+    )
+    arc = OrganizationGroup(
+        id="arc-a",
+        title="Merged arc",
+        summary="Arc enrichment is normalized by the same rule.",
+        member_ids=("event-a",),
+        characters=("mira", "mira"),
+        importance="major",
+        outcomes=("gate opens", "gate opens"),
+        promoted_fact_ids=("fact-a", "fact-a"),
+        claims=(),
+        warnings=("conditional", "conditional"),
+    )
+    arcs = OrganizationChunkResult(
+        OrganizationStage.ARCS,
+        (arc,),
+        (),
+        {"stage": "arcs", "groups": [], "ungrouped_ids": []},
+    )
+
+    candidate = _candidate_payload((event,), set(), arcs)
+    event_payload = candidate["events"][0]  # type: ignore[index]
+    arc_payload = candidate["arcs"][0]  # type: ignore[index]
+    assert event_payload["characters"] == ["mira"]
+    assert event_payload["outcomes"] == ["gate opens"]
+    assert event_payload["promoted_fact_ids"] == ["fact-a"]
+    assert event_payload["warnings"] == ["conditional"]
+    assert arc_payload["characters"] == ["mira"]
+    assert arc_payload["outcomes"] == ["gate opens"]
+    assert arc_payload["promoted_fact_ids"] == ["fact-a"]
+    assert arc_payload["warnings"] == ["conditional"]
+
+
 def test_stage_one_character_evidence_is_scoped_to_exact_group_members() -> None:
     request = OrganizationRequest(
         run_id="run",
