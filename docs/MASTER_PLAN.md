@@ -2,9 +2,8 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M06 are complete and merged. M06.5 implementation and verification are
-complete on its unmerged milestone PR. M07 remains approved in principle but must not begin until
-M06.5 is merged with explicit approval and M07 is separately approved to start.
+Status: M01 through M06.5 are complete and merged. M07 is the active approved milestone as of
+2026-07-12.
 
 ## 1. Product goal
 
@@ -243,10 +242,9 @@ patching are outside the active plan.
 
 ## 7. Milestones
 
-M01 through M06 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
+M01 through M06.5 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
 compiled-only large-game trial exposed source-recovery, branch-classification, AI-scale, and graph
-readability limits. M06.5 is active as a browser-interface bridge. M07 is planned but remains gated
-behind M06.5 completion and a separate explicit start approval.
+readability limits. The browser-interface bridge is merged and M07 is now active.
 
 ### M03 - Story state and durable projects
 
@@ -836,8 +834,7 @@ Completion evidence:
 
 ### M06.5 - Local Browser Interface Bridge
 
-Status: Complete on 2026-07-12; milestone PR is published and remains unmerged pending explicit
-approval.
+Status: Complete and merged through PR #10 at `e24509c` on 2026-07-12.
 
 Objective: make a locally served browser interface the primary Windows UI without changing the
 local/offline product boundary or implementing the M07 two-level route redesign and parallel AI
@@ -894,8 +891,7 @@ Explicit exclusions:
 
 ### M07 - Two-Level Route Map and Resumable Parallel AI
 
-Status: Planned and approved in principle; do not create its goal, branch, tasks, or implementation
-until M06.5 is complete and the user explicitly approves M07 start.
+Status: Active and explicitly approved on 2026-07-12.
 
 Objective: replace the three-level card hierarchy with the two-level Route Map and Detail/Evidence
 experience in Section 4, then make optional story enrichment scope-based, resumable, measurable,
@@ -1016,6 +1012,7 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review and explicitly approve the completed M06.5 milestone PR for merge. After it is merged and
-local `main` is synchronized, M07 may receive its own goal, branch, and worker tasks only after a
-separate explicit M07-start approval.
+Execute M07 on one milestone branch and PR. Integrate the deterministic two-level Route Map first,
+then the checkpointed parallel AI contracts, then the browser workflow. Complete Windows and
+Chrome verification, independent review, documentation, and the native infographic; publish one
+unmerged PR and stop for explicit approval.
