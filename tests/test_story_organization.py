@@ -1674,6 +1674,91 @@ def test_quotient_edges_and_m03_facts_are_derived_locally(tmp_path: Path) -> Non
         assert expressions["trust += 1"].start_line == 7
 
 
+def test_quotient_edges_cross_ungrouped_chains_without_losing_semantics(
+    tmp_path: Path,
+) -> None:
+    with _create(tmp_path) as project:
+        connection = project._require_open()
+        service = project.organization_service()
+        beat_ids = [
+            str(row[0])
+            for row in connection.execute(
+                """SELECT node_id FROM presentation_nodes WHERE level=3
+                   ORDER BY sort_key,node_id LIMIT 9"""
+            )
+        ]
+        assert len(beat_ids) == 9
+        now = storage.utc_now()
+        with storage.transaction(connection):
+            connection.execute("DELETE FROM story_event_members")
+            connection.execute("DELETE FROM story_events")
+            connection.executemany(
+                "INSERT INTO story_events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    (event_id, event_id, event_id, ordinal, "ai", 0, 0, "approved", 0, "g", now)
+                    for ordinal, event_id in enumerate(("event-a", "event-b", "event-c", "event-d"))
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO story_event_members VALUES (?,?,?)",
+                (
+                    ("event-a", beat_ids[0], 0),
+                    ("event-a", beat_ids[1], 1),
+                    ("event-b", beat_ids[5], 0),
+                    ("event-c", beat_ids[6], 0),
+                    ("event-d", beat_ids[7], 0),
+                ),
+            )
+            connection.execute(
+                "UPDATE presentation_nodes SET kind='ending' WHERE node_id=?", (beat_ids[7],)
+            )
+            connection.execute("DELETE FROM presentation_edges WHERE level=3")
+            edges = (
+                ("same-event", beat_ids[0], beat_ids[1], "fallthrough"),
+                ("to-chain", beat_ids[1], beat_ids[2], "fallthrough"),
+                ("condition", beat_ids[2], beat_ids[3], "condition"),
+                ("to-b", beat_ids[3], beat_ids[5], "jump"),
+                ("choice", beat_ids[2], beat_ids[4], "choice"),
+                ("to-c", beat_ids[4], beat_ids[6], "fallthrough"),
+                ("cycle", beat_ids[3], beat_ids[2], "fallthrough"),
+                ("return", beat_ids[5], beat_ids[4], "return"),
+                ("ending-chain", beat_ids[6], beat_ids[8], "fallthrough"),
+                ("ending-target", beat_ids[8], beat_ids[7], "jump"),
+            )
+            connection.executemany(
+                "INSERT INTO presentation_edges VALUES (?,3,?,?,?,?,?)",
+                (
+                    (
+                        edge_id,
+                        source_id,
+                        target_id,
+                        f"{ordinal:012d}",
+                        kind,
+                        storage.canonical_json({}),
+                    )
+                    for ordinal, (edge_id, source_id, target_id, kind) in enumerate(edges)
+                ),
+            )
+            service._derive_event_edges()
+
+        derived = {
+            (edge.source_id, edge.target_id, edge.kind): set(edge.transition_ids)
+            for edge in service.event_edges()
+        }
+        assert ("event-a", "event-a", "fallthrough") not in derived
+        assert {"same-event", "to-chain", "condition", "to-b"} <= derived[
+            ("event-a", "event-b", "condition")
+        ]
+        assert {"same-event", "to-chain", "choice", "to-c"} <= derived[
+            ("event-a", "event-c", "choice")
+        ]
+        assert {"return", "to-c"} <= derived[("event-b", "event-c", "return")]
+        assert {"ending-chain", "ending-target"} <= derived[
+            ("event-c", "event-d", "ending")
+        ]
+        assert all(source != target for source, target, _kind in derived)
+
+
 def test_durable_corrections_enforce_boundaries_contiguity_and_preserve_edges(
     tmp_path: Path,
 ) -> None:

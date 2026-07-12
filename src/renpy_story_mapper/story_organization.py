@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import uuid
+from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
@@ -29,6 +30,16 @@ _SUPPORTED_ORIGINS: Final = frozenset({"ai", "deterministic", "user"})
 _REQUIRED_STORY_KINDS: Final = frozenset(
     {"narrative", "dialogue", "narration", "choice", "condition"}
 )
+_QUOTIENT_KIND_PRIORITY: Final = {
+    "fallthrough": 0,
+    "call_continuation": 1,
+    "return": 2,
+    "call": 3,
+    "jump": 4,
+    "condition": 5,
+    "choice": 6,
+    "ending": 7,
+}
 
 
 @dataclass(frozen=True)
@@ -2375,19 +2386,68 @@ class StoryOrganizationService:
 
     def _derive_event_edges(self) -> None:
         self._connection.execute("DELETE FROM story_event_edges")
-        rows = self._connection.execute(
-            """SELECT sm.event_id AS source_event,tm.event_id AS target_event,e.kind,e.edge_id
-               FROM presentation_edges e
-               JOIN story_event_members sm ON sm.beat_id=e.source_id
-               JOIN story_event_members tm ON tm.beat_id=e.target_id
-               WHERE e.level=3 AND sm.event_id<>tm.event_id
-               ORDER BY sm.event_id,tm.event_id,e.kind,e.edge_id"""
+        member_rows = self._connection.execute(
+            """SELECT beat_id,event_id FROM story_event_members
+               ORDER BY event_id,ordinal,beat_id"""
         ).fetchall()
-        grouped: dict[tuple[str, str, str], list[str]] = {}
-        for row in rows:
-            key = (str(row["source_event"]), str(row["target_event"]), str(row["kind"]))
-            grouped.setdefault(key, []).append(str(row["edge_id"]))
-        for (source, target, kind), transition_ids in grouped.items():
+        event_for_beat = {str(row["beat_id"]): str(row["event_id"]) for row in member_rows}
+        members_by_event: dict[str, list[str]] = {}
+        for row in member_rows:
+            members_by_event.setdefault(str(row["event_id"]), []).append(str(row["beat_id"]))
+
+        edge_rows = self._connection.execute(
+            """SELECT edge_id,source_id,target_id,kind FROM presentation_edges
+               WHERE level=3 ORDER BY sort_key,edge_id"""
+        ).fetchall()
+        adjacency: dict[str, list[tuple[str, str, str]]] = {}
+        transition_order: dict[str, int] = {}
+        for ordinal, row in enumerate(edge_rows):
+            edge_id = str(row["edge_id"])
+            transition_order[edge_id] = ordinal
+            adjacency.setdefault(str(row["source_id"]), []).append(
+                (str(row["target_id"]), str(row["kind"]), edge_id)
+            )
+
+        ending_nodes = {
+            str(row["node_id"])
+            for row in self._connection.execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3 AND kind='ending'"
+            )
+        }
+        grouped: dict[tuple[str, str, str], set[str]] = {}
+        for source_event, member_ids in sorted(members_by_event.items()):
+            frontier: deque[tuple[str, str | None, frozenset[str]]] = deque(
+                (beat_id, None, frozenset()) for beat_id in member_ids
+            )
+            seen: dict[tuple[str, str | None], set[str]] = {
+                (beat_id, None): set() for beat_id in member_ids
+            }
+            while frontier:
+                node_id, path_kind, path_transitions = frontier.popleft()
+                for target_id, edge_kind, edge_id in adjacency.get(node_id, ()):
+                    next_kind = _dominant_quotient_kind(path_kind, edge_kind)
+                    if target_id in ending_nodes:
+                        next_kind = "ending"
+                    next_transitions = path_transitions | {edge_id}
+                    target_event = event_for_beat.get(target_id)
+                    if target_event is not None and target_event != source_event:
+                        grouped.setdefault(
+                            (source_event, target_event, next_kind), set()
+                        ).update(next_transitions)
+                        continue
+
+                    state = (target_id, next_kind)
+                    known = seen.setdefault(state, set())
+                    if next_transitions.issubset(known):
+                        continue
+                    known.update(next_transitions)
+                    frontier.append((target_id, next_kind, frozenset(known)))
+
+        for (source, target, kind), transition_id_set in sorted(grouped.items()):
+            transition_ids = sorted(
+                transition_id_set,
+                key=lambda identifier: (transition_order[identifier], identifier),
+            )
             self._connection.execute(
                 "INSERT INTO story_event_edges VALUES (?,?,?,?,?,?)",
                 (
@@ -2501,6 +2561,15 @@ class StoryOrganizationService:
 def _stable_id(prefix: str, *values: str) -> str:
     digest = hashlib.sha256(storage.canonical_json(list(values))).hexdigest()[:24]
     return f"{prefix}:{digest}"
+
+
+def _dominant_quotient_kind(current: str | None, candidate: str) -> str:
+    """Retain the strongest deterministic semantic carried by a collapsed path."""
+    if current is None:
+        return candidate
+    current_priority = _QUOTIENT_KIND_PRIORITY.get(current, 1)
+    candidate_priority = _QUOTIENT_KIND_PRIORITY.get(candidate, 1)
+    return candidate if candidate_priority > current_priority else current
 
 
 def _available_stable_id(prefix: str, values: Sequence[str], occupied: set[str]) -> str:
