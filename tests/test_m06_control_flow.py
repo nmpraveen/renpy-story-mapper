@@ -107,6 +107,18 @@ def test_calls_use_call_site_correct_return_sites_without_cross_product() -> Non
         and edge.target in {item["target"] for item in raw_returns}
         for edge in analysis.edges
     )
+    summaries = [edge for edge in analysis.edges if edge.role == FlowEdgeRole.CALL_SUMMARY]
+    call_returns = [edge for edge in analysis.edges if edge.role == FlowEdgeRole.CALL_RETURN]
+    assert all(
+        [item["kind"] for item in edge.evidence] == ["call", "call_continuation"]
+        for edge in summaries
+    )
+    assert all(
+        [item["kind"] for item in edge.evidence] == ["call_continuation"]
+        for edge in call_returns
+        if edge.call_site_id is not None
+    )
+    assert not any(item["kind"] == "return" for edge in summaries for item in edge.evidence)
     helper = next(item for item in analysis.procedures if item.label == "helper")
     assert helper.may_return and not helper.recursive
     helper_region = next(
@@ -272,6 +284,97 @@ def test_scc_records_self_loops_back_edges_exits_and_irreducibility() -> None:
     )
     self_loop = next(loop for loop in analysis.loops if loop.self_loop)
     assert self_loop.back_edge_ids
+
+
+def _split_chain_graph(split_count: int) -> dict[str, object]:
+    def source(line: int) -> dict[str, object]:
+        return {
+            "path": "split-chain.rpy",
+            "start": {"line": line, "column": 1},
+            "end": {"line": line, "column": 2},
+        }
+
+    nodes: list[dict[str, object]] = [
+        {
+            "id": "entry",
+            "kind": "label",
+            "label": "start",
+            "source": source(1),
+            "source_text": "label start:",
+            "metadata": {"name": "start"},
+        }
+    ]
+    nodes.extend(
+        {
+            "id": f"split_{index:04d}",
+            "kind": "if",
+            "label": "start",
+            "source": source(index + 2),
+            "source_text": "if branch:",
+        }
+        for index in range(split_count)
+    )
+    nodes.extend(
+        {
+            "id": f"terminal_{index:04d}",
+            "kind": "module_end",
+            "label": "start",
+            "source": source(split_count + index + 2),
+            "source_text": "return",
+        }
+        for index in range(split_count + 1)
+    )
+    edges: list[dict[str, object]] = [
+        {"source": "entry", "target": "split_0000", "kind": "label_entry"}
+    ]
+    for index in range(split_count):
+        split = f"split_{index:04d}"
+        continuation = (
+            f"split_{index + 1:04d}" if index + 1 < split_count else f"terminal_{split_count:04d}"
+        )
+        edges.extend(
+            [
+                {
+                    "source": split,
+                    "target": f"terminal_{index:04d}",
+                    "kind": "condition",
+                },
+                {"source": split, "target": continuation, "kind": "condition"},
+            ]
+        )
+    return {
+        "schema_version": 1,
+        "entry_label": "start",
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def test_persistent_split_chain_has_bounded_direct_membership() -> None:
+    graph = _split_chain_graph(200)
+    analysis = analyze_control_flow(graph, {"schema_version": 1, "transitions": []})
+    assert len(analysis.regions) == 200
+    assert sum(len(arm.node_ids) for arm in analysis.arms) <= len(analysis.nodes) * 8
+    assert len(analysis.ownership) <= len(analysis.nodes)
+    assert len({item.node_id for item in analysis.ownership}) == len(analysis.ownership)
+    assert all(
+        region.classification == RouteClassification.TERMINAL_SPLIT for region in analysis.regions
+    )
+
+
+def test_2000_node_split_chain_runtime_and_memory_are_bounded() -> None:
+    graph = _split_chain_graph(999)
+    tracemalloc.start()
+    before, _ = tracemalloc.get_traced_memory()
+    started = time.perf_counter()
+    analysis = analyze_control_flow(graph, {"schema_version": 1, "transitions": []})
+    elapsed = time.perf_counter() - started
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert len(analysis.nodes) == 2_000
+    assert sum(len(arm.node_ids) for arm in analysis.arms) <= len(analysis.nodes) * 8
+    assert elapsed < 2.0
+    assert peak - before < 128 * 1024 * 1024
 
 
 def test_scale_harness_approximately_10k_nodes_15k_edges() -> None:

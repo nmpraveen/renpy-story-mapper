@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -198,6 +198,7 @@ class ControlArm:
     unresolved: bool
     state_reads: tuple[StateRead, ...] = ()
     state_writes: tuple[StateWrite, ...] = ()
+    terminal_summary: str = "none"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -211,6 +212,7 @@ class ControlArm:
             "unresolved": self.unresolved,
             "state_reads": [item.to_dict() for item in self.state_reads],
             "state_writes": [item.to_dict() for item in self.state_writes],
+            "terminal_summary": self.terminal_summary,
         }
 
 
@@ -266,6 +268,13 @@ class ControlDiagnostic:
             "node_ids": list(self.node_ids),
             "message": self.message,
         }
+
+
+@dataclass(frozen=True)
+class _ReachabilitySummary:
+    terminal_node_ids: tuple[str, ...]
+    terminal_summary: str
+    unresolved: bool
 
 
 @dataclass(frozen=True)
@@ -352,6 +361,11 @@ def analyze_control_flow(
     loops, edges = _loops(nodes, edges, adjacency)
     adjacency = _adjacency(nodes, edges)
     ipdom, postdom_diagnostics = _post_dominators(nodes, adjacency, {item[0] for item in terminals})
+    reachability = (
+        _reachability_summaries(nodes, adjacency, terminals)
+        if any(node.kind in {"if", "menu"} for node in nodes)
+        else {}
+    )
     state_reads, state_writes = _state_lineage_facts(gates, effects, nodes)
     arms, regions = _regions(
         nodes,
@@ -362,8 +376,9 @@ def analyze_control_flow(
         ipdom,
         state_reads,
         state_writes,
+        reachability,
     )
-    regions = _region_parents(regions)
+    regions = _region_parents(regions, arms)
     ownership = _ownership(arms, regions)
     diagnostics = [*postdom_diagnostics]
     for loop in loops:
@@ -1167,6 +1182,63 @@ def _is_json_scalar(value: object) -> bool:
     return value is None or isinstance(value, str | int | float | bool)
 
 
+def _reachability_summaries(
+    nodes: Sequence[ControlNode],
+    adjacency: Mapping[str, Sequence[str]],
+    terminals: Sequence[tuple[str, str]],
+) -> dict[str, _ReachabilitySummary]:
+    """Summarize downstream terminals once over the SCC condensation DAG.
+
+    At most two representative terminal IDs are retained.  ``multiple`` records
+    that more than one concrete terminal is reachable without materializing the
+    complete transitive terminal set at every node.
+    """
+
+    components = _tarjan(adjacency)
+    component_of = {node: index for index, component in enumerate(components) for node in component}
+    successors: dict[int, set[int]] = {index: set() for index in range(len(components))}
+    predecessors: dict[int, set[int]] = {index: set() for index in range(len(components))}
+    for source, targets in adjacency.items():
+        source_component = component_of[source]
+        for target in targets:
+            target_component = component_of[target]
+            if source_component == target_component:
+                continue
+            successors[source_component].add(target_component)
+            predecessors[target_component].add(source_component)
+    indegree = {index: len(predecessors[index]) for index in successors}
+    pending = deque(sorted(index for index, degree in indegree.items() if degree == 0))
+    topological: list[int] = []
+    while pending:
+        component = pending.popleft()
+        topological.append(component)
+        for component_target in sorted(successors[component]):
+            indegree[component_target] -= 1
+            if indegree[component_target] == 0:
+                pending.append(component_target)
+    terminal_ids = {node for node, _kind in terminals}
+    unresolved_nodes = {node.id for node in nodes if node.kind in {"unresolved", "scope_boundary"}}
+    summaries: dict[int, _ReachabilitySummary] = {}
+    for component_index in reversed(topological):
+        direct = {node for node in components[component_index] if node in terminal_ids}
+        samples = set(direct)
+        multiple = len(direct) > 1
+        unresolved = any(node in unresolved_nodes for node in components[component_index])
+        for component_target in successors[component_index]:
+            child = summaries[component_target]
+            samples.update(child.terminal_node_ids)
+            multiple = multiple or child.terminal_summary == "multiple"
+            unresolved = unresolved or child.unresolved
+        if len(samples) > 2:
+            multiple = True
+        retained = tuple(sorted(samples)[:2])
+        summary_kind = (
+            "multiple" if multiple or len(samples) > 1 else ("unique" if samples else "none")
+        )
+        summaries[component_index] = _ReachabilitySummary(retained, summary_kind, unresolved)
+    return {node: summaries[component_of[node]] for node in adjacency}
+
+
 def _regions(
     nodes: Sequence[ControlNode],
     edges: Sequence[ControlEdge],
@@ -1176,6 +1248,7 @@ def _regions(
     ipdom: Mapping[str, str | None],
     state_reads: Mapping[str, tuple[StateRead, ...]],
     state_writes: Mapping[str, tuple[StateWrite, ...]],
+    reachability: Mapping[str, _ReachabilitySummary],
 ) -> tuple[list[ControlArm], list[ControlRegion]]:
     node_by_id = {node.id: node for node in nodes}
     edge_by_source: dict[str, list[ControlEdge]] = defaultdict(list)
@@ -1201,11 +1274,16 @@ def _regions(
         )
         region_arms: list[ControlArm] = []
         for ordinal, edge in enumerate(outgoing):
-            members = _arm_members(edge.target, merge, adjacency)
-            arm_terminals = tuple(sorted(members & terminal_ids))
-            unresolved = edge.role == FlowEdgeRole.UNRESOLVED or any(
-                node_by_id[node].kind in {"unresolved", "scope_boundary"} for node in members
+            members = _bounded_arm_members(
+                edge.target,
+                merge,
+                adjacency,
+                node_by_id,
+                terminal_ids,
             )
+            summary = reachability[edge.target]
+            arm_terminals = summary.terminal_node_ids
+            unresolved = edge.role == FlowEdgeRole.UNRESOLVED or summary.unresolved
             arm = ControlArm(
                 _stable_id("arm", region_id, str(ordinal), edge.id),
                 region_id,
@@ -1217,6 +1295,7 @@ def _regions(
                 unresolved,
                 tuple(sorted(read for node in members for read in state_reads.get(node, ()))),
                 tuple(sorted(write for node in members for write in state_writes.get(node, ()))),
+                summary.terminal_summary,
             )
             region_arms.append(arm)
         classification, reasons = _classify_region(
@@ -1367,13 +1446,25 @@ def _nearest_common_postdominator(
     return next((node for node in chains[0] if node in common), None)
 
 
-def _arm_members(entry: str, merge: str | None, adjacency: Mapping[str, Sequence[str]]) -> set[str]:
+def _bounded_arm_members(
+    entry: str,
+    merge: str | None,
+    adjacency: Mapping[str, Sequence[str]],
+    nodes: Mapping[str, ControlNode],
+    terminals: set[str],
+) -> set[str]:
+    """Return direct ownership, stopping before nested region expansion."""
+
     pending, seen = [entry], set()
     while pending:
         node = pending.pop()
         if node == merge or node in seen:
             continue
         seen.add(node)
+        if node in terminals:
+            continue
+        if nodes[node].kind in {"if", "menu"}:
+            continue
         pending.extend(adjacency.get(node, ()))
     return seen
 
@@ -1406,20 +1497,28 @@ def _classify_region(
                 "multi_scene_or_long_segment",
             )
         return RouteClassification.LOCAL_DETOUR, ("concrete_common_post_dominator",)
-    terminal_sets = {arm.terminal_node_ids for arm in arms}
-    if len(terminal_sets) > 1 and all(arm.terminal_node_ids for arm in arms):
+    terminal_sets = {(arm.terminal_summary, arm.terminal_node_ids) for arm in arms}
+    if all(arm.terminal_summary != "none" for arm in arms) and (
+        len(terminal_sets) > 1 or any(arm.terminal_summary == "multiple" for arm in arms)
+    ):
         return RouteClassification.TERMINAL_SPLIT, ("distinct_terminals",)
     return RouteClassification.PERSISTENT_ROUTE, ("no_concrete_common_post_dominator",)
 
 
-def _region_parents(regions: Sequence[ControlRegion]) -> list[ControlRegion]:
+def _region_parents(
+    regions: Sequence[ControlRegion], arms: Sequence[ControlArm]
+) -> list[ControlRegion]:
     result: list[ControlRegion] = []
+    boundary_parents: dict[str, set[str]] = defaultdict(set)
+    for arm in arms:
+        for node in arm.node_ids:
+            boundary_parents[node].add(arm.region_id)
+    region_by_id = {region.id: region for region in regions}
     for region in regions:
-        members = set(region.node_ids)
         parents = [
-            candidate
-            for candidate in regions
-            if candidate.id != region.id and members < set(candidate.node_ids)
+            region_by_id[parent_id]
+            for parent_id in boundary_parents[region.split_node_id]
+            if parent_id != region.id
         ]
         parent = min(parents, key=lambda item: (len(item.node_ids), item.id), default=None)
         result.append(replace(region, parent_region_id=parent.id if parent is not None else None))
@@ -1439,10 +1538,15 @@ def _ownership(
         for node in arm.node_ids:
             candidates[node].append((size, arm.region_id, arm.id))
     result: list[ControlOwnership] = []
+    split_owner = {region.split_node_id: region.id for region in regions}
     for node, values in candidates.items():
-        _, region_id, arm_id = min(
-            values,
-            key=lambda item: (item[0], item[1], item[2] is None, item[2] or ""),
-        )
+        own_region = split_owner.get(node)
+        if own_region is not None:
+            region_id, arm_id = own_region, None
+        else:
+            _, region_id, arm_id = min(
+                values,
+                key=lambda item: (item[0], item[1], item[2] is None, item[2] or ""),
+            )
         result.append(ControlOwnership(node, region_id, arm_id))
     return result
