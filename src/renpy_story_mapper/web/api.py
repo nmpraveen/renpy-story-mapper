@@ -8,11 +8,12 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from renpy_story_mapper.presentation import (
     MAX_RESULTS,
     PresentationLevel,
+    PresentationNode,
     PresentationRequest,
     PresentationService,
 )
@@ -130,6 +131,7 @@ class ProjectApi:
                     "settings": "/api/v1/settings",
                     "organization_start": "/api/v1/organization/consent",
                     "organization_draft": "/api/v1/organization/draft",
+                    "organization_review": "/api/v1/organization/review",
                     "organization_apply": "/api/v1/organization/apply",
                     "organization_discard": "/api/v1/organization/discard",
                     "diagnostics": "/api/v1/diagnostics",
@@ -186,6 +188,8 @@ class ProjectApi:
                 raise ValueError("explicit consent is required")
             scopes = string_tuple(body, "scope_ids")
             return self._start("organization", lambda cancelled: self._organize(scopes, cancelled))
+        if method == "POST" and path == "/api/v1/organization/review":
+            return self._review_draft(body)
         if method == "POST" and path == "/api/v1/organization/apply":
             return self._draft_action(body, apply=True)
         if method == "POST" and path == "/api/v1/organization/discard":
@@ -364,26 +368,7 @@ class ProjectApi:
         )
         with PresentationService.open(self._project()) as service:
             page = service.view(request, selected_id=optional_string(body, "selected_id"))
-        nodes = [
-            {
-                "id": node.id,
-                "title": node.name,
-                "summary": node.name,
-                "kind": node.kind,
-                "technical": node.technical,
-                "parent_id": node.parent_id,
-                "source": None
-                if node.source_path is None
-                else {
-                    "path": node.source_path,
-                    "start_line": node.start_line,
-                    "end_line": node.end_line,
-                },
-                "evidence_count": node.child_count,
-                "payload": json_value(node.payload),
-            }
-            for node in page.nodes
-        ]
+        nodes = [_story_view_node(node) for node in page.nodes]
         edges = [
             {
                 "id": edge.id,
@@ -442,11 +427,14 @@ class ProjectApi:
     def _organization(self) -> JsonValue:
         with Project.open(self._project()) as project:
             service = StoryOrganizationService(project)
-            drafts = service.drafts()
+            drafts = service.drafts(status="pending")
             return {
                 "id": drafts[0].id if drafts else None,
                 "runs": json_value(service.runs()),
                 "drafts": json_value(drafts),
+                "reviews": {
+                    draft.id: json_value(service.draft_reviews(draft.id)) for draft in drafts
+                },
                 "arcs": json_value(service.arcs()),
                 "events": json_value(service.events()),
                 "edges": json_value(service.event_edges()),
@@ -454,13 +442,56 @@ class ProjectApi:
 
     def _draft_action(self, body: dict[str, JsonValue], *, apply: bool) -> JsonValue:
         draft_id = require_string(body, "draft_id")
-        with Project.open(self._project()) as project:
-            service = StoryOrganizationService(project)
-            if apply:
-                service.apply_draft(draft_id)
-            else:
-                service.discard_draft(draft_id)
+        try:
+            with Project.open(self._project()) as project:
+                service = StoryOrganizationService(project)
+                if apply:
+                    service.apply_draft(draft_id)
+                else:
+                    service.discard_draft(draft_id)
+        except KeyError as exc:
+            raise ApiProblem(404, "draft_not_found", "The pending draft is unavailable.") from exc
+        except ValueError as exc:
+            code = "draft_review_incomplete" if apply else "draft_action_invalid"
+            raise ApiProblem(409, code, "The draft action cannot be completed safely.") from exc
         return {"draft_id": draft_id, "status": "applied" if apply else "discarded"}
+
+    def _review_draft(self, body: dict[str, JsonValue]) -> JsonValue:
+        draft_id = require_string(body, "draft_id")
+        target_kind = require_string(body, "target_kind", maximum=16)
+        target_id = require_string(body, "target_id")
+        decision = require_string(body, "decision", maximum=16)
+        review_kind: Literal["arc", "event"]
+        if target_kind == "arc":
+            review_kind = "arc"
+        elif target_kind == "event":
+            review_kind = "event"
+        else:
+            raise ValueError("invalid draft review")
+        review_decision: Literal["approved", "rejected"]
+        if decision == "approved":
+            review_decision = "approved"
+        elif decision == "rejected":
+            review_decision = "rejected"
+        else:
+            raise ValueError("invalid draft review")
+        try:
+            with Project.open(self._project()) as project:
+                StoryOrganizationService(project).review_draft_group(
+                    draft_id, review_kind, target_id, review_decision
+                )
+        except KeyError as exc:
+            raise ApiProblem(
+                404, "draft_group_not_found", "The pending draft group is unavailable."
+            ) from exc
+        except ValueError as exc:
+            raise ApiProblem(409, "draft_review_invalid", "The draft review is invalid.") from exc
+        return {
+            "draft_id": draft_id,
+            "target_kind": target_kind,
+            "target_id": target_id,
+            "decision": decision,
+        }
 
     def _organize(self, scope_ids: tuple[str, ...], cancelled: threading.Event) -> None:
         """Reuse the accepted M05 workflow; provider construction occurs only after consent."""
@@ -487,3 +518,25 @@ class ProjectApi:
             task = self._task
         if task is not None and task.kind == "organization":
             self._progress(task.id, task.kind, stage[:120], max(0, min(99, percent)))
+
+
+def _story_view_node(node: PresentationNode) -> dict[str, JsonValue]:
+    folded_kind = node.kind.casefold()
+    return {
+        "id": node.id,
+        "title": node.name,
+        "summary": node.name,
+        "kind": node.kind,
+        "technical": node.technical,
+        "unresolved": "unresolved" in folded_kind or "dynamic" in folded_kind,
+        "parent_id": node.parent_id,
+        "source": None
+        if node.source_path is None
+        else {
+            "path": node.source_path,
+            "start_line": node.start_line,
+            "end_line": node.end_line,
+        },
+        "evidence_count": node.child_count,
+        "payload": json_value(node.payload),
+    }
