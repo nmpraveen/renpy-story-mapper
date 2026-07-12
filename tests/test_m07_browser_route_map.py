@@ -48,7 +48,7 @@ def test_locked_api_routes_and_bodies_are_centralized() -> None:
     }
     for name, route in expected.items():
         assert f'{name}: "{route}"' in contract
-    assert "body: { offset, limit }" in api
+    assert "body: { offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit }" in api
     assert "body: { element_id: elementId }" in api
     assert "body: { run_id: runId, confirm_cloud: true, budgets }" in api
     assert "body: { assembly_id: assemblyId }" in api
@@ -108,8 +108,21 @@ def test_direct_detail_contains_exact_evidence_and_interpretation_links() -> Non
 def test_paging_filters_selection_and_physical_zoom_stay_on_route_map() -> None:
     app = _text("app.js")
     html = _text("index.html")
-    assert "loadRoutePage(state.page.next_offset)" in app
-    assert "Math.max(0, state.offset - ROUTE_PAGE_SIZE)" in app
+    contract = _text("contract.js")
+    mock = _text("mock-api.js")
+    assert "ROUTE_EDGE_PAGE_SIZE = 180" in contract
+    assert "edgeOffset: 0, cursorHistory: []" in app
+    assert "state.page?.edge_next_offset" in app
+    assert "state.page?.next_offset" in app
+    assert app.index("state.page?.edge_next_offset") < app.index("state.page?.next_offset")
+    assert "state.cursorHistory.push" in app and "state.cursorHistory.pop" in app
+    assert "CURSOR_HISTORY_LIMIT = 12" in app and "state.cursorHistory.shift()" in app
+    assert app.count("resetRoutePaging()") >= 3
+    assert "page.edge_offset" in app and "state.page?.page_edge_total" in app
+    assert "bounded line slice" in app
+    for field in ("edge_offset", "edge_limit", "edge_next_offset", "page_edge_total", "overflow"):
+        assert field in mock
+    assert "denseEdges = Array.from({ length: 195 }" in mock
     assert "state.selectedId" in app
     assert "include_technical" in app and "include_unresolved" in app
     assert 'id="zoomIn"' in html and 'id="zoomOut"' in html and 'id="fitMap"' in html
@@ -159,6 +172,8 @@ def test_acceptance_harness_loads_packaged_assets() -> None:
     assert "force-device-scale-factor=2" in source
     assert "provider_constructions" in source and '"remote_requests": 0' in source
     assert "EXERCISES" in source and '"paging"' in source and '"keyboard"' in source
+    assert '"0:0,0:180,0:0,0:180"' in source
+    assert '"Lines 181\\u2013195 of 195"' in source
     spec = importlib.util.spec_from_file_location("m07_browser_acceptance", HARNESS)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

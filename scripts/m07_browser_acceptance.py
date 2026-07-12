@@ -127,7 +127,7 @@ def _validate(markers: dict[str, str], state: str, contract: dict[str, object]) 
     if markers.get("remote-requests") != "0" or markers.get("provider-constructions") != "0":
         raise AssertionError("Open/render attempted remote or provider work")
     bodies = markers.get("request-bodies", "")
-    if "routeMap:limit+offset" not in bodies:
+    if "routeMap:edge_limit+edge_offset+limit+offset" not in bodies:
         raise AssertionError("Route Map did not use the locked paging body")
     if state == "detail-evidence" and "detail:element_id" not in bodies:
         raise AssertionError("Detail did not use the locked element body")
@@ -136,6 +136,15 @@ def _validate(markers: dict[str, str], state: str, contract: dict[str, object]) 
             raise AssertionError("Prepare did not use an empty body")
         if "startOrganization:budgets+confirm_cloud+run_id" not in bodies:
             raise AssertionError("Start did not use explicit cloud confirmation and budgets")
+    if state == "paging":
+        if markers.get("dense-second-reached") != "true" or markers.get("dense-returned") != "true":
+            raise AssertionError("Dense line paging did not reach the second slice and return")
+        if markers.get("route-cursors") != "0:0,0:180,0:0,0:180":
+            raise AssertionError("Dense line paging did not follow the visited cursor history")
+        if markers.get("edge-offset") != "180" or markers.get("history-depth") != "1":
+            raise AssertionError("Dense line paging did not retain its final cursor and history")
+        if "Lines 181\u2013195 of 195" not in markers.get("page-status", ""):
+            raise AssertionError("Dense line paging status does not expose the active line slice")
 
 
 def run(output: Path, *, browser: Path | None = None) -> dict[str, object]:
@@ -188,6 +197,7 @@ def run(output: Path, *, browser: Path | None = None) -> dict[str, object]:
                     "visible_items": int(markers["visible-items"]), "keyboard_selected": markers.get("keyboard-selected"),
                     "exact_evidence": markers.get("exact-evidence") == "true", "font": markers.get("font"),
                     "body_px": markers.get("body-px"), "request_bodies": markers.get("request-bodies"),
+                    "route_cursors": markers.get("route-cursors"), "page_status": markers.get("page-status"),
                 }
     finally:
         server.shutdown()

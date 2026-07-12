@@ -1,4 +1,6 @@
-import { ROUTE_PAGE_SIZE, assertDetail, assertOrganization, assertRoutePage } from "./contract.js";
+import {
+  ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE, assertDetail, assertOrganization, assertRoutePage,
+} from "./contract.js";
 
 const titles = [
   "Day 1 · Arrival", "Garden choice", "A quiet refusal", "Garden conversation", "Day 1 merge",
@@ -61,13 +63,27 @@ const allEdges = [
   edge("follow", 30, 31), edge("follow-choice", 31, 32),
 ];
 
-function page(offset, limit) {
+const denseEdges = Array.from({ length: 195 }, (_, index) => {
+  const source = (index % 29) + 1;
+  const options = index % 17 === 0 ? { technical: 2 } : {};
+  return edge(`dense-${index + 1}`, source, source + 1, index % 11 === 0 ? "local_detour" : "flow", options);
+});
+
+function page(offset, limit, edgeOffset, edgeLimit, dense = false) {
   const nodes = allNodes.slice(offset, offset + limit);
   const ids = new Set(nodes.map((node) => node.id));
-  const edges = allEdges.filter((item) => ids.has(item.source_id) || ids.has(item.target_id));
+  const pageEdges = (dense && offset === 0 ? denseEdges : allEdges).filter(
+    (item) => ids.has(item.source_id) || ids.has(item.target_id),
+  );
+  const edges = pageEdges.slice(edgeOffset, edgeOffset + edgeLimit);
+  const edgeNextOffset = edgeOffset + edges.length;
   return assertRoutePage({
-    level: "route_map", offset, limit, total_nodes: allNodes.length, nodes, edges,
+    level: "route_map", offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit,
+    total_nodes: allNodes.length, nodes, edges,
     next_offset: offset + nodes.length < allNodes.length ? offset + nodes.length : null,
+    edge_next_offset: edgeNextOffset < pageEdges.length ? edgeNextOffset : null,
+    page_edge_total: pageEdges.length,
+    overflow: pageEdges.length > edges.length ? { kind: "edge_slice", total: pageEdges.length } : null,
     coverage: { control_nodes: 97, visible_nodes: 32, technical_nodes: 5, unresolved_nodes: 1, corridor_count: 1 },
   });
 }
@@ -98,7 +114,7 @@ function detailFor(elementId) {
 }
 
 export class MockApi {
-  constructor() { this.calls = []; this.cancelled = false; this.started = false; this.polls = 0; }
+  constructor() { this.calls = []; this.cancelled = false; this.started = false; this.polls = 0; this.dense = new URLSearchParams(location.search).get("state") === "paging"; }
   record(name, payload = {}) { this.calls.push({ name, payload }); }
   async bootstrap() {
     this.record("bootstrap");
@@ -111,7 +127,10 @@ export class MockApi {
   async refresh() { this.record("refresh"); return { analysis: { state: "complete" } }; }
   async progress() { this.record("progress"); return { state: "complete", stage: "Route Map ready", percent: 100, elapsed_seconds: 8 }; }
   async cancelAnalysis() { this.record("cancelAnalysis"); return { state: "cancelled" }; }
-  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE) { this.record("routeMap", { offset, limit }); return page(offset, limit); }
+  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+    this.record("routeMap", { offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit });
+    return page(offset, limit, edgeOffset, edgeLimit, this.dense);
+  }
   async detail(elementId) { this.record("detail", { element_id: elementId }); return detailFor(elementId); }
   async organization() {
     this.record("organization"); this.polls += 1;

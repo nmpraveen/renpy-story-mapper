@@ -10,13 +10,16 @@ The only visible levels are `route_map` and `detail_evidence`. Stations and line
 same Detail/Evidence workspace directly. **Back to Route Map** is the sole level transition. Pan,
 zoom, fit, search, filters, and follow-on pages alter visual position or density only.
 
-The first page requests no more than 30 meaningful stations. The client rejects more than 30
-stations, 180 line segments, or 240 combined rendered items. Technical one-in/one-out work remains
+The first page requests no more than 30 meaningful stations. Dense pages use an independent line
+cursor: Next exhausts `edge_next_offset` slices for the current station page before advancing
+`next_offset`, and Previous follows a bounded history of cursors actually visited. The client
+rejects more than 30 stations, 180 line segments, or 240 combined rendered items. Status text
+reports both station and line ranges plus overflow. Technical one-in/one-out work remains
 line-corridor coverage and is not expanded into singleton cards.
 
 ## Locked M07 routes
 
-- `POST /api/v1/m07/route-map` with `{offset, limit}`
+- `POST /api/v1/m07/route-map` with `{offset, limit, edge_offset, edge_limit}`
 - `POST /api/v1/m07/detail` with `{element_id}`
 - `GET /api/v1/m07/organization`
 - `POST /api/v1/m07/organization/prepare` with `{}`

@@ -1,5 +1,6 @@
 import {
-  ENDPOINTS, ROUTE_PAGE_SIZE, assertDetail, assertOrganization, assertRoutePage,
+  ENDPOINTS, ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE,
+  assertDetail, assertOrganization, assertRoutePage,
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -45,8 +46,10 @@ export class LocalApi {
   diagnostics() { return this.request(ENDPOINTS.diagnostics); }
   shutdown() { return this.request(ENDPOINTS.shutdown, { method: "POST", body: {} }); }
 
-  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE) {
-    return assertRoutePage(await this.request(ENDPOINTS.routeMap, { method: "POST", body: { offset, limit } }));
+  async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+    return assertRoutePage(await this.request(ENDPOINTS.routeMap, {
+      method: "POST", body: { offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+    }));
   }
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));

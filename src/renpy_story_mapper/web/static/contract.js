@@ -1,6 +1,7 @@
 /** Packaged loopback API and rendering safety contract. */
 export const API_VERSION = "v1";
 export const ROUTE_PAGE_SIZE = 30;
+export const ROUTE_EDGE_PAGE_SIZE = 180;
 export const RENDER_LIMITS = Object.freeze({ nodes: 30, edges: 180, items: 240 });
 
 export const ENDPOINTS = Object.freeze({
@@ -33,6 +34,15 @@ export function assertRoutePage(page) {
   const edges = page.edges.length;
   if (nodes > RENDER_LIMITS.nodes || edges > RENDER_LIMITS.edges || nodes + edges > RENDER_LIMITS.items) {
     throw new RangeError("Route Map exceeds the packaged rendering boundary");
+  }
+  for (const key of ["edge_offset", "edge_limit", "page_edge_total"]) {
+    if (!Number.isInteger(page[key]) || page[key] < 0) throw new TypeError(`Invalid Route Map ${key}`);
+  }
+  if (page.edge_next_offset !== null && (!Number.isInteger(page.edge_next_offset) || page.edge_next_offset < 0)) {
+    throw new TypeError("Invalid Route Map edge_next_offset");
+  }
+  if (edges > page.edge_limit || page.edge_limit > RENDER_LIMITS.edges) {
+    throw new RangeError("Route Map edge slice exceeds the packaged rendering boundary");
   }
   if (page.level && page.level !== "route_map") throw new TypeError("Unexpected semantic level");
   return page;

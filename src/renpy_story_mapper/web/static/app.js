@@ -1,5 +1,5 @@
 import { LocalApi } from "./api.js";
-import { ROUTE_PAGE_SIZE } from "./contract.js";
+import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
 import { RouteGraph } from "./graph.js";
 import { MockApi } from "./mock-api.js";
 
@@ -8,9 +8,11 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const params = new URLSearchParams(location.search);
 const mockMode = params.get("mock") === "1";
 const api = mockMode ? new MockApi() : new LocalApi();
+const CURSOR_HISTORY_LIMIT = 12;
 
 const state = {
-  project: null, page: null, offset: 0, selectedId: null, detail: null, organization: null,
+  project: null, page: null, offset: 0, edgeOffset: 0, cursorHistory: [], selectedId: null,
+  detail: null, organization: null,
   prepared: null, assemblyId: null, settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -80,7 +82,7 @@ async function openSelection(selection, notify = false) {
     $("#projectName").textContent = state.project.name;
     $("#projectBadge").textContent = state.project.organization || "Technical map";
     if (["running", "pending"].includes(opened.analysis?.state || opened.task?.state)) { showPrimary("progress"); await pollAnalysis(); }
-    else { showPrimary("workspace"); showLevel("route_map"); await loadRoutePage(0); await loadOrganization(); }
+    else { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
     if (notify && mockMode) toast("Project opened locally");
   } catch (error) { toast(error.message); }
 }
@@ -95,7 +97,7 @@ async function pollAnalysis() {
     $("#progressPercent").textContent = `${percent}%`; const seconds = Number(progress.elapsed_seconds || 0); $("#progressElapsed").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
     if (progress.state === "running") await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 350));
   } while (progress.state === "running");
-  if (["complete", "completed"].includes(progress.state)) { showPrimary("workspace"); showLevel("route_map"); await loadRoutePage(0); await loadOrganization(); }
+  if (["complete", "completed"].includes(progress.state)) { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
   else if (progress.state === "cancelled") { showPrimary("welcome"); toast("Analysis cancelled safely"); }
   else toast(progress.error?.message || "Analysis stopped safely");
 }
@@ -108,12 +110,44 @@ function normalizedPage(page) {
   };
 }
 
-async function loadRoutePage(offset = state.offset) {
+async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.edgeOffset }) {
   try {
-    const page = normalizedPage(await api.routeMap(offset, ROUTE_PAGE_SIZE));
-    state.page = page; state.offset = Number(page.offset || 0);
+    const page = normalizedPage(await api.routeMap(
+      cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE,
+    ));
+    state.page = page;
+    state.offset = Number(page.offset || 0);
+    state.edgeOffset = Number(page.edge_offset || 0);
     renderMap();
   } catch (error) { $("#selectionStatus").textContent = "Route Map unavailable"; toast(error.message); }
+}
+
+async function resetRoutePaging() {
+  state.cursorHistory = [];
+  await loadRoutePage({ offset: 0, edgeOffset: 0 });
+}
+
+function nextCursor() {
+  if (state.page?.edge_next_offset !== null && state.page?.edge_next_offset !== undefined) {
+    return { offset: state.offset, edgeOffset: Number(state.page.edge_next_offset) };
+  }
+  if (state.page?.next_offset !== null && state.page?.next_offset !== undefined) {
+    return { offset: Number(state.page.next_offset), edgeOffset: 0 };
+  }
+  return null;
+}
+
+async function nextRoutePage() {
+  const target = nextCursor();
+  if (!target) return;
+  state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset });
+  if (state.cursorHistory.length > CURSOR_HISTORY_LIMIT) state.cursorHistory.shift();
+  await loadRoutePage(target);
+}
+
+async function previousRoutePage() {
+  const target = state.cursorHistory.pop();
+  if (target) await loadRoutePage(target);
 }
 
 function visiblePage() {
@@ -135,10 +169,15 @@ function renderMap() {
   graph.setData(nodes, edges, state.selectedId);
   state.selectedId = graph.selectedId;
   const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
-  $("#pageStatus").textContent = `Stations ${first}–${last} of ${total}`;
-  $("#previousPage").disabled = state.offset === 0;
-  $("#nextPage").disabled = state.page?.next_offset === null || state.page?.next_offset === undefined;
-  $("#visibleStatus").textContent = `${nodes.length} stations · ${edges.length} line segments`;
+  const edgeFirst = state.edgeOffset + 1;
+  const edgeLast = state.edgeOffset + (state.page?.edges.length || 0);
+  const edgeTotal = Number(state.page?.page_edge_total ?? edgeLast);
+  const dense = Boolean(state.page?.overflow) || edgeTotal > state.page?.edges.length;
+  const lineStatus = edgeTotal ? `Lines ${edgeFirst}–${edgeLast} of ${edgeTotal}` : "No lines";
+  $("#pageStatus").textContent = `Stations ${first}–${last} of ${total} · ${lineStatus}${dense ? " · bounded line slice" : ""}`;
+  $("#previousPage").disabled = state.cursorHistory.length === 0;
+  $("#nextPage").disabled = nextCursor() === null;
+  $("#visibleStatus").textContent = `${nodes.length} stations · ${edges.length} line segments${dense ? ` shown from ${edgeTotal}` : ""}`;
   const coverage = state.page?.coverage || {};
   $("#coverageSummary").replaceChildren(element("strong", "", "Technical coverage"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps · ${coverage.corridor_count ?? 0} corridor`));
   const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
@@ -243,13 +282,13 @@ async function showDiagnostics() {
 function bind() {
   $$('[data-open-kind]').forEach((button) => button.addEventListener("click", () => choose(button.dataset.openKind)));
   $("#homeButton").addEventListener("click", () => showPrimary("welcome"));
-  $("#refreshProject").addEventListener("click", async () => { await api.refresh(); await loadRoutePage(0); toast("Project refreshed locally"); });
+  $("#refreshProject").addEventListener("click", async () => { await api.refresh(); await resetRoutePaging(); toast("Project refreshed locally"); });
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
   $("#searchInput").addEventListener("input", renderMap);
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
-  $("#previousPage").addEventListener("click", () => loadRoutePage(Math.max(0, state.offset - ROUTE_PAGE_SIZE)));
-  $("#nextPage").addEventListener("click", () => { if (state.page?.next_offset != null) loadRoutePage(state.page.next_offset); });
+  $("#previousPage").addEventListener("click", previousRoutePage);
+  $("#nextPage").addEventListener("click", nextRoutePage);
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; });
   $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; });
   $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
@@ -272,7 +311,15 @@ async function acceptanceScenario() {
   if (scenario === "detail-evidence") await openDetail(state.page.edges[1]?.id || state.page.nodes[1].id);
   if (scenario === "coverage-progress") { state.prepared = await api.prepareOrganization(); state.organization = await api.startOrganization(state.prepared.run_id, state.prepared.budgets); renderOrganization(); }
   if (scenario === "review-partial") { state.prepared = await api.prepareOrganization(); await api.startOrganization(state.prepared.run_id, state.prepared.budgets); state.organization = await api.organization(); state.assemblyId = state.organization.assembly_id; renderOrganization(); showReview(); }
-  if (scenario === "paging") await loadRoutePage(30);
+  if (scenario === "paging") {
+    await nextRoutePage();
+    const reachedSecondEdgeSlice = state.offset === 0 && state.edgeOffset === ROUTE_EDGE_PAGE_SIZE;
+    await previousRoutePage();
+    const returnedToFirstEdgeSlice = state.offset === 0 && state.edgeOffset === 0;
+    await nextRoutePage();
+    document.documentElement.dataset.denseSecondReached = String(reachedSecondEdgeSlice);
+    document.documentElement.dataset.denseReturned = String(returnedToFirstEdgeSlice);
+  }
   if (scenario === "keyboard") { $("#mapViewport").focus(); $("#mapViewport").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); }
   const interactives = $$('button, input, [role="button"]');
   document.documentElement.dataset.levels = "route_map,detail_evidence"; document.documentElement.dataset.levelCount = "2";
@@ -282,6 +329,9 @@ async function acceptanceScenario() {
   document.documentElement.dataset.font = getComputedStyle(document.body).fontFamily; document.documentElement.dataset.bodyPx = getComputedStyle(document.body).fontSize;
   document.documentElement.dataset.remoteRequests = "0"; document.documentElement.dataset.providerConstructions = "0";
   document.documentElement.dataset.routeCalls = String(api.calls.filter((call) => call.name === "routeMap").length); document.documentElement.dataset.detailCalls = String(api.calls.filter((call) => call.name === "detail").length);
+  document.documentElement.dataset.nodeOffset = String(state.offset); document.documentElement.dataset.edgeOffset = String(state.edgeOffset); document.documentElement.dataset.historyDepth = String(state.cursorHistory.length);
+  document.documentElement.dataset.routeCursors = api.calls.filter((call) => call.name === "routeMap").map((call) => `${call.payload.offset}:${call.payload.edge_offset}`).join(",");
+  document.documentElement.dataset.pageStatus = $("#pageStatus").textContent;
   document.documentElement.dataset.prepareCalls = String(api.calls.filter((call) => call.name === "prepareOrganization").length); document.documentElement.dataset.startCalls = String(api.calls.filter((call) => call.name === "startOrganization").length);
   document.documentElement.dataset.requestBodies = api.calls.filter((call) => ["routeMap", "detail", "prepareOrganization", "startOrganization", "cancelOrganization", "applyAssembly"].includes(call.name)).map((call) => `${call.name}:${Object.keys(call.payload).sort().join("+")}`).join("|");
   document.documentElement.dataset.acceptanceReady = "true";
