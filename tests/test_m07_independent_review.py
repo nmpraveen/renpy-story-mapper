@@ -1,8 +1,4 @@
-"""Independent adversarial review coverage for the integrated M07 branch.
-
-Known production defects are strict xfails: they document a bounded reproduction while
-keeping the independent-review suite useful until production owners apply a fix.
-"""
+"""Independent adversarial review coverage for the integrated M07 branch."""
 
 from __future__ import annotations
 
@@ -111,10 +107,6 @@ def test_story_analysis_configuration_is_exactly_locked() -> None:
         SchedulerConfig(maximum_repairs=3)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="backend route-map payload uses 'lines' while packaged browser requires 'edges'",
-)
 def test_integrated_route_payload_satisfies_packaged_browser_contract(review_project: Path) -> None:
     api = _api(review_project)
     try:
@@ -129,10 +121,6 @@ def test_integrated_route_payload_satisfies_packaged_browser_contract(review_pro
     assert len(page["nodes"]) + len(page["edges"]) <= 240
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="route pagination returns every incident edge and can exceed the 240-item render cap",
-)
 def test_route_page_never_exceeds_the_hard_render_cap() -> None:
     nodes = tuple(
         RouteNode(
@@ -176,10 +164,6 @@ def test_route_page_never_exceeds_the_hard_render_cap() -> None:
     assert len(page["nodes"]) + len(page["edges"]) <= 240
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="browser organization view consumes a different status schema than the backend emits",
-)
 def test_integrated_organization_status_satisfies_browser_view_contract(
     review_project: Path,
 ) -> None:
@@ -197,10 +181,6 @@ def test_integrated_organization_status_satisfies_browser_view_contract(
     assert "assembly_id" in status
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="persistent route edges receive unrelated edge-lane IDs and lose route identity",
-)
 def test_persistent_route_edges_preserve_their_route_lane_identity() -> None:
     fixture = Path(__file__).parent / "fixtures" / "m06" / "control_regions.rpy"
     with fixture.open(encoding="utf-8") as stream:
