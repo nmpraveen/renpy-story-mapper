@@ -172,4 +172,4 @@ Closeout browser evidence is under
 - Independent review: `docs/milestones/M06.5/INDEPENDENT_REVIEW.md`
 - Completion report: this file
 - Native infographic: `docs/milestones/M06.5/INFOGRAPHIC.png`
-- Pull request: published during final closeout and left unmerged
+- Pull request: https://github.com/nmpraveen/renpy-story-mapper/pull/10 (unmerged)
