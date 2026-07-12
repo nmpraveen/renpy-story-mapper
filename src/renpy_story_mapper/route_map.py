@@ -17,6 +17,9 @@ from renpy_story_mapper.storage import canonical_json
 
 ROUTE_MAP_SCHEMA_VERSION = 1
 DEFAULT_INITIAL_NODE_LIMIT = 30
+MAX_ROUTE_PAGE_NODES = 30
+MAX_ROUTE_PAGE_EDGES = 180
+MAX_ROUTE_PAGE_ITEMS = 240
 
 
 class RouteNodeKind(StrEnum):
@@ -172,7 +175,8 @@ class RouteMap:
     def initial_node_ids(self) -> tuple[str, ...]:
         """Stable bounded first viewport; authoritative topology remains complete."""
 
-        return tuple(node.id for node in self.nodes[: self.initial_node_limit])
+        ordered = sorted(self.nodes, key=lambda node: (node.order, node.id))
+        return tuple(node.id for node in ordered[: self.initial_node_limit])
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -180,6 +184,11 @@ class RouteMap:
             "presentation_levels": ["route_map", "detail_evidence"],
             "initial_node_limit": self.initial_node_limit,
             "initial_node_ids": list(self.initial_node_ids),
+            "page_limits": {
+                "nodes": MAX_ROUTE_PAGE_NODES,
+                "edges": MAX_ROUTE_PAGE_EDGES,
+                "items": MAX_ROUTE_PAGE_ITEMS,
+            },
             "nodes": [item.to_dict() for item in self.nodes],
             "edges": [item.to_dict() for item in self.edges],
             "scopes": [item.to_dict() for item in self.scopes],
@@ -235,30 +244,102 @@ class RouteMap:
         raise KeyError(f"unknown route-map element: {element_id}")
 
     def page(
-        self, *, offset: int = 0, limit: int = DEFAULT_INITIAL_NODE_LIMIT
+        self,
+        *,
+        offset: int = 0,
+        limit: int = DEFAULT_INITIAL_NODE_LIMIT,
+        edge_offset: int = 0,
+        edge_limit: int = MAX_ROUTE_PAGE_EDGES,
     ) -> dict[str, object]:
-        """Return a deterministic follow-on slice without adding a semantic level."""
+        """Return a hard-bounded deterministic slice without hiding authoritative topology."""
 
-        if offset < 0:
-            raise ValueError("page offset cannot be negative")
-        if limit < 1 or limit > DEFAULT_INITIAL_NODE_LIMIT:
-            raise ValueError("page limit must be between 1 and 30")
-        page_nodes = self.nodes[offset : offset + limit]
-        node_ids = {node.id for node in page_nodes}
-        page_edges = tuple(
-            edge for edge in self.edges if edge.source_id in node_ids or edge.target_id in node_ids
+        return page_route_map_payload(
+            self.to_dict(),
+            offset=offset,
+            limit=limit,
+            edge_offset=edge_offset,
+            edge_limit=edge_limit,
         )
-        next_offset = offset + len(page_nodes)
-        return {
-            "level": "route_map",
-            "offset": offset,
-            "limit": limit,
-            "total_nodes": len(self.nodes),
-            "node_ids": [node.id for node in page_nodes],
-            "nodes": [node.to_dict() for node in page_nodes],
-            "edges": [edge.to_dict() for edge in page_edges],
-            "next_offset": next_offset if next_offset < len(self.nodes) else None,
-        }
+
+
+def page_route_map_payload(
+    route: Mapping[str, object],
+    *,
+    offset: int = 0,
+    limit: int = DEFAULT_INITIAL_NODE_LIMIT,
+    edge_offset: int = 0,
+    edge_limit: int = MAX_ROUTE_PAGE_EDGES,
+) -> dict[str, object]:
+    """Page a persisted authoritative route payload under browser hard limits."""
+
+    nodes = _records(route.get("nodes"), "route.nodes")
+    edges = _records(route.get("edges"), "route.edges")
+    ordered_nodes = tuple(sorted(nodes, key=_page_node_key))
+    ordered_edges = tuple(
+        sorted(
+            edges,
+            key=lambda edge: (
+                _text(edge, "source_id"),
+                _text(edge, "target_id"),
+                _text(edge, "id"),
+            ),
+        )
+    )
+    if offset < 0:
+        raise ValueError("page offset cannot be negative")
+    if limit < 1 or limit > MAX_ROUTE_PAGE_NODES:
+        raise ValueError("page limit must be between 1 and 30")
+    if edge_offset < 0:
+        raise ValueError("edge offset cannot be negative")
+    if edge_limit < 1 or edge_limit > MAX_ROUTE_PAGE_EDGES:
+        raise ValueError("edge limit must be between 1 and 180")
+    page_nodes = ordered_nodes[offset : offset + limit]
+    node_ids = {_text(node, "id") for node in page_nodes}
+    candidate_edges = tuple(
+        edge
+        for edge in ordered_edges
+        if edge.get("source_id") in node_ids or edge.get("target_id") in node_ids
+    )
+    item_edge_limit = min(edge_limit, MAX_ROUTE_PAGE_ITEMS - len(page_nodes))
+    page_edges = candidate_edges[edge_offset : edge_offset + item_edge_limit]
+    next_offset = offset + len(page_nodes)
+    edge_next_offset = edge_offset + len(page_edges)
+    nodes_remaining = max(0, len(ordered_nodes) - next_offset)
+    edges_remaining = max(0, len(candidate_edges) - edge_next_offset)
+    return {
+        "level": "route_map",
+        "offset": offset,
+        "limit": limit,
+        "edge_offset": edge_offset,
+        "edge_limit": edge_limit,
+        "total_nodes": len(ordered_nodes),
+        "total_edges": len(ordered_edges),
+        "page_edge_total": len(candidate_edges),
+        "node_ids": [_text(node, "id") for node in page_nodes],
+        "nodes": [dict(node) for node in page_nodes],
+        "edges": [dict(edge) for edge in page_edges],
+        "item_count": len(page_nodes) + len(page_edges),
+        "next_offset": next_offset if nodes_remaining else None,
+        "edge_next_offset": edge_next_offset if edges_remaining else None,
+        "overflow": {
+            "has_more_nodes": bool(nodes_remaining),
+            "has_more_edges": bool(edges_remaining),
+            "nodes_remaining": nodes_remaining,
+            "edges_remaining": edges_remaining,
+        },
+        "limits": {
+            "nodes": MAX_ROUTE_PAGE_NODES,
+            "edges": MAX_ROUTE_PAGE_EDGES,
+            "items": MAX_ROUTE_PAGE_ITEMS,
+        },
+    }
+
+
+def _page_node_key(node: Mapping[str, object]) -> tuple[int, str]:
+    order = node.get("order")
+    if not isinstance(order, int):
+        raise ValueError("route node order must be an integer")
+    return order, _text(node, "id")
 
 
 def project_route_map(
@@ -340,6 +421,7 @@ def project_route_map(
             arms_by_node[node_id].append(arm)
     route_nodes: list[RouteNode] = []
     control_to_route: dict[str, str] = {}
+    lane_by_control: dict[str, tuple[str, RouteLaneKind]] = {}
     for ordinal, control_id in enumerate(selected):
         raw = node_by_id[control_id]
         owned_regions = sorted(
@@ -347,6 +429,7 @@ def project_route_map(
         )
         kind = _node_kind(control_id, raw, owned_regions, terminal_by_node, loop_nodes)
         lane_id, lane_kind = _lane(control_id, regions, arms_by_node)
+        lane_by_control[control_id] = (lane_id, lane_kind)
         evidence_ids = tuple(
             sorted({_text(beat, "id") for beat in beat_by_control.get(control_id, [])})
         )
@@ -402,6 +485,7 @@ def project_route_map(
                             fact_effects,
                             regions,
                             beat_by_control,
+                            lane_by_control,
                         )
                     )
                 continue
@@ -594,6 +678,7 @@ def _route_edge(
     effects: Mapping[str, tuple[str, ...]],
     regions: Sequence[Mapping[str, object]],
     beat_by_control: Mapping[str, Sequence[Mapping[str, object]]],
+    lane_by_control: Mapping[str, tuple[str, RouteLaneKind]],
 ) -> RouteEdge:
     edge_ids = tuple(_text(edge, "id") for edge in edges)
     roles = tuple(_text(edge, "role") for edge in edges)
@@ -615,8 +700,19 @@ def _route_edge(
         )
     )
     proven_merge = any(region.get("merge_node_id") == target for region in regions)
-    role = "corridor" if len(edges) > 1 else roles[0]
-    lane_id = _stable_id("edge_lane", source, target, role)
+    persistent_lane = _persistent_edge_lane(source, target, lane_by_control)
+    role = _projected_edge_role(
+        source,
+        target,
+        roles,
+        regions,
+        persistent=persistent_lane is not None,
+    )
+    lane_id = (
+        persistent_lane
+        if persistent_lane is not None
+        else _stable_id("edge_lane", source, target, role)
+    )
     edge_id = _stable_id(
         "route_edge", control_to_route[source], control_to_route[target], *edge_ids
     )
@@ -634,6 +730,50 @@ def _route_edge(
         max(0, len(edges) - 1),
         proven_merge,
     )
+
+
+def _persistent_edge_lane(
+    source: str,
+    target: str,
+    lane_by_control: Mapping[str, tuple[str, RouteLaneKind]],
+) -> str | None:
+    source_lane, source_kind = lane_by_control[source]
+    target_lane, target_kind = lane_by_control[target]
+    if source_kind is RouteLaneKind.PERSISTENT and target_kind is RouteLaneKind.PERSISTENT:
+        return source_lane if source_lane != target_lane else target_lane
+    if target_kind is RouteLaneKind.PERSISTENT:
+        return target_lane
+    if source_kind is RouteLaneKind.PERSISTENT:
+        return source_lane
+    return None
+
+
+def _projected_edge_role(
+    source: str,
+    target: str,
+    roles: tuple[str, ...],
+    regions: Sequence[Mapping[str, object]],
+    *,
+    persistent: bool,
+) -> str:
+    if len(roles) == 1:
+        return roles[0]
+    if not persistent:
+        return "corridor"
+    candidates: list[tuple[int, str, str]] = []
+    for region in regions:
+        owned = {
+            _text(region, "split_node_id"),
+            *_strings(region.get("node_ids")),
+        }
+        merge = region.get("merge_node_id")
+        if isinstance(merge, str):
+            owned.add(merge)
+        if source in owned and target in owned:
+            candidates.append((len(owned), _text(region, "id"), _text(region, "classification")))
+    if candidates:
+        return min(candidates)[2]
+    return "persistent_route"
 
 
 def _edge_evidence(edge: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:

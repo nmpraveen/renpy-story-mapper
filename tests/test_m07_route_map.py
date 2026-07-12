@@ -5,11 +5,18 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.project import create_ingested_project
-from renpy_story_mapper.route_map import RouteLaneKind, RouteNodeKind, project_route_map
+from renpy_story_mapper.route_map import (
+    RouteLaneKind,
+    RouteNodeKind,
+    page_route_map_payload,
+    project_route_map,
+)
 from renpy_story_mapper.semantic import build_semantic_story
 
 FIXTURES = Path(__file__).parent / "fixtures" / "m06"
@@ -52,6 +59,29 @@ def test_persistent_routes_terminals_loops_calls_and_unresolved_are_visible() ->
     terminal_map = project_route_map(control, semantic)
     assert any(node.lane_kind is RouteLaneKind.PERSISTENT for node in terminal_map.nodes)
     assert any(node.kind is RouteNodeKind.TERMINAL for node in terminal_map.nodes)
+    nodes = {node.id: node for node in terminal_map.nodes}
+    persistent_edges = [
+        edge
+        for edge in terminal_map.edges
+        if nodes[edge.source_id].lane_kind is RouteLaneKind.PERSISTENT
+        or nodes[edge.target_id].lane_kind is RouteLaneKind.PERSISTENT
+    ]
+    assert persistent_edges
+    for edge in persistent_edges:
+        endpoint_lanes = {
+            node.lane_id
+            for node in (nodes[edge.source_id], nodes[edge.target_id])
+            if node.lane_kind is RouteLaneKind.PERSISTENT
+        }
+        assert edge.lane_id in endpoint_lanes
+        if edge.technical_hops:
+            assert edge.role == "terminal_split"
+
+    permuted = copy.deepcopy(control)
+    for key in ("nodes", "edges", "regions", "arms", "loops", "terminals"):
+        permuted[key] = list(reversed(permuted[key]))
+    reordered = project_route_map(permuted, semantic)
+    assert reordered.canonical_json() == terminal_map.canonical_json()
 
     semantic, control = _fixture("calls_loops.rpy", entry="loop_entry")
     loop_map = project_route_map(control, semantic)
@@ -169,6 +199,89 @@ def test_complete_topology_has_bounded_deterministic_pages_at_scale() -> None:
     assert route_map.coverage.control_nodes == count
     assert route_map.coverage.technical_nodes == 0
     assert route_map.nodes[-1].kind is RouteNodeKind.TERMINAL
+
+
+def test_dense_page_hard_bounds_edge_continuation_and_persisted_authority() -> None:
+    count = 30
+    nodes = [
+        {
+            "id": f"dense_{index:02d}",
+            "kind": "unresolved",
+            "label": "dense",
+            "hidden": False,
+            "synthetic": False,
+            "source": {
+                "path": "dense.rpy",
+                "start": {"line": index + 1, "column": 0},
+                "end": {"line": index + 1, "column": 1},
+            },
+        }
+        for index in range(count)
+    ]
+    pairs = [
+        (source, target) for source in range(count) for target in range(count) if source != target
+    ][:211]
+    edges = [
+        {
+            "id": f"dense_edge_{ordinal:03d}",
+            "source": f"dense_{source:02d}",
+            "target": f"dense_{target:02d}",
+            "role": "unresolved",
+            "semantic_roles": ["unresolved_behavior"],
+            "evidence": [],
+            "resolved": False,
+        }
+        for ordinal, (source, target) in enumerate(pairs)
+    ]
+    control = {
+        "schema_version": 1,
+        "nodes": nodes,
+        "edges": edges,
+        "regions": [],
+        "arms": [],
+        "loops": [],
+        "terminals": [],
+    }
+    semantic = {"schema_version": 1, "beats": []}
+    route_map = project_route_map(control, semantic)
+    authority = route_map.to_dict()
+    assert len(authority["nodes"]) == 30
+    assert len(authority["edges"]) == 211
+    assert authority["page_limits"] == {"nodes": 30, "edges": 180, "items": 240}
+
+    first = route_map.page()
+    assert len(first["nodes"]) == 30
+    assert len(first["edges"]) == 180
+    assert first["item_count"] == 210
+    assert first["edge_next_offset"] == 180
+    assert first["overflow"] == {
+        "has_more_nodes": False,
+        "has_more_edges": True,
+        "nodes_remaining": 0,
+        "edges_remaining": 31,
+    }
+    continuation = route_map.page(edge_offset=180)
+    assert continuation["node_ids"] == first["node_ids"]
+    assert len(continuation["edges"]) == 31
+    assert continuation["item_count"] == 61
+    assert continuation["edge_next_offset"] is None
+    assert route_map.page(edge_offset=180) == continuation
+    assert page_route_map_payload(authority) == first
+    assert page_route_map_payload(authority, edge_offset=180) == continuation
+
+    permuted = copy.deepcopy(control)
+    permuted["nodes"] = list(reversed(permuted["nodes"]))
+    permuted["edges"] = list(reversed(permuted["edges"]))
+    reordered = project_route_map(permuted, semantic)
+    assert reordered.page() == first
+    assert reordered.page(edge_offset=180) == continuation
+
+    with pytest.raises(ValueError, match="between 1 and 30"):
+        route_map.page(limit=31)
+    with pytest.raises(ValueError, match="between 1 and 180"):
+        route_map.page(edge_limit=181)
+    with pytest.raises(ValueError, match="cannot be negative"):
+        route_map.page(edge_offset=-1)
 
 
 def test_project_analysis_persists_route_map_and_pre_ai_scopes(tmp_path: Path) -> None:
