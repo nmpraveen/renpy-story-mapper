@@ -97,7 +97,7 @@ class ProjectApi:
         self.cancel()
         future = self._future
         if future is not None:
-            with suppress(BaseException):
+            with suppress(Exception):
                 future.result(timeout=5)
         self._executor.shutdown(wait=True, cancel_futures=True)
 
@@ -267,7 +267,7 @@ class ProjectApi:
             self._progress(task_id, kind, "complete", 100, state="completed", cancellable=False)
         except ProjectCancelledError:
             self._progress(task_id, kind, "cancelled", 100, state="cancelled", cancellable=False)
-        except BaseException:
+        except Exception:
             if cancelled.is_set():
                 self._progress(
                     task_id,

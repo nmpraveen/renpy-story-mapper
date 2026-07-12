@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -159,6 +160,35 @@ def test_rejects_traversal_and_oversized_body(running_server: LocalWebServer) ->
 def test_non_loopback_bind_refused() -> None:
     with pytest.raises(ValueError, match=r"127\.0\.0\.1"):
         LocalWebServer("0.0.0.0", 0, ProjectApi(FakeDialogs()))
+
+
+def test_shutdown_returns_with_persistent_keep_alive_client(tmp_path: Path) -> None:
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("ready", encoding="utf-8")
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        ProjectApi(FakeDialogs(), state_store=UserStateStore(tmp_path / "state.json")),
+        static_root=static,
+    )
+    server_thread = start_in_thread(server)
+    connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    connection.request("GET", "/", headers={"Host": f"127.0.0.1:{server.port}"})
+    response = connection.getresponse()
+    assert response.read() == b"ready"
+    assert response.getheader("Connection") == "close"
+
+    close_thread = threading.Thread(target=server.close_service)
+    close_thread.start()
+    try:
+        close_thread.join(timeout=1)
+        assert not close_thread.is_alive(), "shutdown waited for a keep-alive request thread"
+    finally:
+        connection.close()
+        close_thread.join(timeout=5)
+        if server_thread.is_alive():
+            server_thread.join(timeout=5)
 
 
 def test_open_view_evidence_and_no_provider_construction(

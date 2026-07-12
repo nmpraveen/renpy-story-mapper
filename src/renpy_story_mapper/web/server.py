@@ -32,7 +32,8 @@ API_PREFIX: Final = "/api/v1/"
 class LocalWebServer(ThreadingHTTPServer):
     """A single-launch service that owns its API backend and session secrets."""
 
-    daemon_threads = False
+    daemon_threads = True
+    block_on_close = False
     allow_reuse_address = False
 
     def __init__(
@@ -134,7 +135,7 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._json_error(HTTPStatus.BAD_REQUEST, "invalid_request", "The request is invalid.")
             return
-        except BaseException:
+        except Exception:
             LOGGER.exception("local API request failed")
             self._json_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -232,6 +233,7 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _security_headers(self) -> None:
+        self.send_header("Connection", "close")
         for name, value in SECURITY_HEADERS.items():
             self.send_header(name, value)
 
