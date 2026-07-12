@@ -2,7 +2,7 @@
 
 Date: 2026-07-12
 
-Status: Windows acceptance complete; one PR pending publication and must remain unmerged.
+Status: Complete; PR #9 is published and must remain unmerged until explicit user approval.
 
 Milestone branch: `codex/m06-safe-ingestion-route-semantics`
 
@@ -195,4 +195,4 @@ The canonical `scripts.rpa` was not accessed during M06.
 - Independent review: `docs/milestones/M06/INDEPENDENT_REVIEW.md`
 - Completion report: this file
 - Native infographic: `docs/milestones/M06/INFOGRAPHIC.png` (generated during final closeout)
-- Pull request: pending publication; must remain unmerged
+- Pull request: https://github.com/nmpraveen/renpy-story-mapper/pull/9 (unmerged)

@@ -3,7 +3,7 @@
 Last revised: 2026-07-12
 
 Status: M01 through M05 are complete. M06 implementation and Windows acceptance are complete on
-its unmerged milestone branch; its PR is pending final publication. M07 is approved in principle
+its unmerged milestone branch in PR #9. M07 is approved in principle
 but must not begin until M06 is merged with explicit approval and separately approved to start.
 
 ## 1. Product goal
@@ -724,8 +724,7 @@ Explicit exclusions and assumptions:
 
 ### M06 - Safe Source Recovery and Correct Route Semantics
 
-Status: Implementation and Windows acceptance complete on 2026-07-12; PR pending and must remain
-unmerged until explicit user approval.
+Status: Complete on 2026-07-12 in PR #9; the PR remains unmerged until explicit user approval.
 
 Objective: accept common modern Ren'Py source forms without modifying or executing the game, and
 prove whether alternatives are temporary detours, persistent routes, loops, or terminals before
@@ -956,5 +955,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Publish the single M06 PR and leave it unmerged. Present the completion report and native
-infographic, complete the M06 goal, and stop for explicit merge and M07-start approval.
+Leave M06 PR #9 unmerged. Present the completion report and native infographic, then stop for
+explicit merge and M07-start approval.

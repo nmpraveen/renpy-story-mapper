@@ -1,6 +1,8 @@
 # M06 Goal — Safe Source Recovery and Correct Route Semantics
 
-Status: Acceptance complete; PR publication and final goal closure pending
+Status: Complete
+
+Pull request: https://github.com/nmpraveen/renpy-story-mapper/pull/9 (unmerged)
 
 Base commit: `7b5deeeeeab35a358eb78b7b660d3d57c02717b2`
 
