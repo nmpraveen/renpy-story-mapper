@@ -322,21 +322,25 @@ class _UsageLedger:
             self._charged_tokens += maximum_tokens
             return maximum_tokens
 
-    def record(self, usage: ProviderAttemptUsage, reservation: int) -> bool:
-        """Record truthful usage and report whether it honored the admitted ceiling."""
+    def record(self, usage: ProviderAttemptUsage, reservation: int) -> tuple[bool, bool]:
+        """Record valid usage and report validity plus reservation compliance."""
 
         with self._lock:
-            self.input_tokens += usage.input_tokens or 0
-            self.output_tokens += usage.output_tokens or 0
             reported_tokens = (usage.input_tokens, usage.output_tokens)
             valid = all(value is None or value >= 0 for value in reported_tokens)
+            if not valid:
+                # Keep the full reservation charged. Malformed negative accounting must never
+                # replenish the budget or corrupt aggregate progress.
+                return False, False
+            self.input_tokens += usage.input_tokens or 0
+            self.output_tokens += usage.output_tokens or 0
             actual = (
                 reservation
                 if usage.input_tokens is None or usage.output_tokens is None
                 else usage.input_tokens + usage.output_tokens
             )
             self._charged_tokens += actual - reservation
-            return valid and actual <= reservation
+            return True, actual <= reservation
 
     def record_unreserved(self, usage: ProviderAttemptUsage) -> None:
         """Account for a provider attempt that bypassed scheduler admission."""
@@ -596,8 +600,9 @@ class ParallelOrganizationScheduler:
                 raise ProviderUnavailableError(
                     "The provider reported an attempt without scheduler admission."
                 )
-            honored_reservation = ledger.record(usage, reservations.popleft())
-            self._sink.attempt(scope.request.scope_id, usage)
+            valid_usage, honored_reservation = ledger.record(usage, reservations.popleft())
+            if valid_usage:
+                self._sink.attempt(scope.request.scope_id, usage)
             if not honored_reservation:
                 raise ProviderUnavailableError(
                     "The provider reported usage outside its admitted token ceiling."
