@@ -183,6 +183,48 @@ def test_negative_provider_usage_cannot_replenish_hard_token_admission() -> None
     assert outcome.progress.output_tokens >= 0
 
 
+def test_unadmitted_negative_usage_saturates_budget_without_persisting() -> None:
+    class Provider:
+        def __init__(self) -> None:
+            self.observer: Any = None
+
+        def set_attempt_gate(self, _gate: Any) -> None:
+            return
+
+        def set_attempt_observer(self, observer: Any) -> None:
+            self.observer = observer
+
+        def set_maximum_output_bytes(self, _maximum: int) -> None:
+            return
+
+        def status(self) -> Any:
+            raise AssertionError("not used")
+
+        def cancel(self) -> None:
+            return
+
+        def organize(self, _request: Any, _progress: Any, _cancelled: Any) -> Any:
+            self.observer(ProviderAttemptUsage(1, 1, "invalid", -10, 0))
+            raise AssertionError("the observer must reject unadmitted usage")
+
+    sink = InMemoryCheckpointSink()
+    outcome = ParallelOrganizationScheduler(
+        lambda _scope: Provider(),
+        sink,
+        SchedulerConfig(
+            initial_workers=1,
+            maximum_workers=1,
+            budget=BudgetPolicy(hard_calls=1, hard_tokens=100_000, hard_seconds=30),
+        ),
+    ).run((RouteScope(0, _request()),), consent_run_id="review-run")
+
+    assert outcome.progress.calls == 1
+    assert outcome.progress.input_tokens == 0
+    assert outcome.progress.output_tokens == 0
+    assert sink.attempts == []
+    assert outcome.envelopes[0].state.value == "failed"
+
+
 def test_transmission_guard_runs_before_every_provider_attempt() -> None:
     blocked = False
     guard_calls = 0

@@ -917,9 +917,25 @@ class CodexCliProvider:
         if isinstance(usage, dict):
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
-            if isinstance(input_tokens, int):
+            if input_tokens is not None and (
+                not isinstance(input_tokens, int)
+                or isinstance(input_tokens, bool)
+                or input_tokens < 0
+            ):
+                raise ProviderUnavailableError(
+                    "The organizer reported invalid input-token metadata."
+                )
+            if output_tokens is not None and (
+                not isinstance(output_tokens, int)
+                or isinstance(output_tokens, bool)
+                or output_tokens < 0
+            ):
+                raise ProviderUnavailableError(
+                    "The organizer reported invalid output-token metadata."
+                )
+            if isinstance(input_tokens, int) and not isinstance(input_tokens, bool):
                 self._input_tokens = input_tokens
-            if isinstance(output_tokens, int):
+            if isinstance(output_tokens, int) and not isinstance(output_tokens, bool):
                 self._output_tokens = output_tokens
         if "model" not in event:
             return

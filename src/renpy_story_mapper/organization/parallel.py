@@ -342,19 +342,27 @@ class _UsageLedger:
             self._charged_tokens += actual - reservation
             return True, actual <= reservation
 
-    def record_unreserved(self, usage: ProviderAttemptUsage) -> None:
-        """Account for a provider attempt that bypassed scheduler admission."""
+    def record_unreserved(self, usage: ProviderAttemptUsage) -> bool:
+        """Account fail-closed for a provider attempt that bypassed admission."""
 
         with self._lock:
             self.calls += 1
+            reported_tokens = (usage.input_tokens, usage.output_tokens)
+            valid = all(value is None or value >= 0 for value in reported_tokens)
+            hard_tokens = self._budget.hard_tokens
+            assert hard_tokens is not None
+            if not valid:
+                # A bypass plus malformed accounting is maximally unsafe. Saturate the hard
+                # budget and keep public totals non-negative.
+                self._charged_tokens = max(self._charged_tokens, hard_tokens)
+                return False
             self.input_tokens += usage.input_tokens or 0
             self.output_tokens += usage.output_tokens or 0
             if usage.input_tokens is None or usage.output_tokens is None:
-                hard_tokens = self._budget.hard_tokens
-                assert hard_tokens is not None
                 self._charged_tokens = max(self._charged_tokens, hard_tokens)
             else:
                 self._charged_tokens += usage.input_tokens + usage.output_tokens
+            return True
 
     def values(self) -> tuple[int, int, int]:
         with self._lock:
@@ -595,8 +603,8 @@ class ParallelOrganizationScheduler:
             nonlocal observed
             observed += 1
             if not reservations:
-                ledger.record_unreserved(usage)
-                self._sink.attempt(scope.request.scope_id, usage)
+                if ledger.record_unreserved(usage):
+                    self._sink.attempt(scope.request.scope_id, usage)
                 raise ProviderUnavailableError(
                     "The provider reported an attempt without scheduler admission."
                 )
