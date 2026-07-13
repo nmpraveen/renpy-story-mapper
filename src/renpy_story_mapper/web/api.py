@@ -811,9 +811,9 @@ def _budget_policy(
     hard_tokens = optional_bounded_int(body, "hard_tokens", minimum=1, maximum=40_000_000)
     hard_calls = optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000)
     if with_finite_defaults:
-        hard_seconds = 1_800 if hard_seconds is None else hard_seconds
+        hard_seconds = 900 if hard_seconds is None else hard_seconds
         hard_tokens = 2_000_000 if hard_tokens is None else hard_tokens
-        hard_calls = 1_000 if hard_calls is None else hard_calls
+        hard_calls = 48 if hard_calls is None else hard_calls
     return BudgetPolicy(
         soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
         hard_seconds=hard_seconds,

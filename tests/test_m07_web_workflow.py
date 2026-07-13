@@ -301,7 +301,13 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
         }
         assert prepared["scopes"] > 0
         assert prepared["cached"] == 0
-        assert "hard_tokens" in prepared["budgets"]
+        assert prepared["budgets"] == {
+            "soft_seconds": None,
+            "hard_seconds": 900,
+            "soft_tokens": None,
+            "hard_tokens": 2_000_000,
+            "hard_calls": 48,
+        }
         assert len(prepared["run_id"]) > 32
         assert constructed == []
 
@@ -892,12 +898,12 @@ def test_local_server_emits_packaged_route_and_organization_shapes(
         assert status == 200
         assert prepared["scopes"] > 0
         assert prepared["cached"] == 0
-        assert set(prepared["budgets"]) == {
-            "soft_seconds",
-            "hard_seconds",
-            "soft_tokens",
-            "hard_tokens",
-            "hard_calls",
+        assert prepared["budgets"] == {
+            "soft_seconds": None,
+            "hard_seconds": 900,
+            "soft_tokens": None,
+            "hard_tokens": 2_000_000,
+            "hard_calls": 48,
         }
         assert calls == []
 
