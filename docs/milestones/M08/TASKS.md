@@ -8,7 +8,7 @@ provider boundary.
 
 | Task ID | Title | Responsibility | Branch | Status |
 |---|---|---|---|---|
-| `019f5bc1-a8ad-7c33-abf1-80c2db682291` | Remove desktop product surface | Delete the legacy standalone graph application and make the local browser the sole documented/shipped product surface | `codex/m08-web-only-cleanup` | Active |
+| `019f5bc1-a8ad-7c33-abf1-80c2db682291` | Remove desktop product surface | Delete the legacy standalone graph application and make the local browser the sole documented/shipped product surface | `codex/m08-web-only-cleanup` | Delivered `f703061`, correction `a10de95`; integrated as `a22850d`, `9529597`; milestone verification pending |
 | `019f5bc1-a886-76d3-80e6-93db5308d8a3` | Build M08 evaluation core | Evaluation manifest, rubric, deterministic-versus-AI report contracts, non-live runner, fixtures, and tests | `codex/m08-ai-evaluation-core` | Active |
 | `019f5bcc-f66a-7d92-89e6-0a02eadc3bcc` | Add bounded AI windows | Exact narrative-window selection, hash-bound subset consent, bounded request assembly, resume/cache safety, and backend tests | `codex/m08-bounded-ai-windows` | Active |
 
