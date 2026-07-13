@@ -227,6 +227,15 @@ function evidenceExcerpt(record) {
   return provenance.join("\n") || choices.join("\n") || record.text || record.excerpt || record.source_text || "Evidence text unavailable";
 }
 
+function evidenceLineBasis(record, source) {
+  const basis = record.line_basis || source.line_basis || source.basis || record.basis;
+  if (!basis) return "Source basis unavailable";
+  const qualified = String(basis);
+  if (/^reconstructed(?:_|$)/i.test(qualified)) return `Reconstructed source · ${qualified}`;
+  if (/^physical(?:_|$)/i.test(qualified)) return `Physical source · ${qualified}`;
+  return `Qualified source · ${qualified}`;
+}
+
 async function openDetail(elementId) {
   try {
     const detail = await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
@@ -260,7 +269,8 @@ async function openDetail(elementId) {
       const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id;
       const source = record.source || record.location || {}; const start = source.start?.line ?? source.start_line ?? record.start_line ?? "?"; const endLine = source.end?.line ?? source.end_line ?? record.end_line; const end = endLine && endLine !== start ? `–${endLine}` : "";
       const excerpt = evidenceExcerpt(record);
-      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", excerpt), element("span", "source-line", `${source.path || record.path || "source unavailable"}:${start}${end} · ${source.basis || record.basis || "line"}`)); evidence.append(article);
+      const basis = evidenceLineBasis(record, source);
+      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", excerpt), element("span", "source-line", `${source.path || record.path || "source unavailable"}:${start}${end} · ${basis}`)); evidence.append(article);
     }
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();

@@ -82,6 +82,25 @@ def test_real_nested_evidence_and_non_authoritative_ai_review() -> None:
     assert not any(marker in contract for marker in ("Ã", "Â", "â"))
 
 
+def test_detail_evidence_preserves_and_labels_qualified_line_basis() -> None:
+    app = _text("app.js")
+    formatter = app[
+        app.index("function evidenceLineBasis") : app.index("async function openDetail")
+    ]
+    renderer = app[
+        app.index("async function openDetail") : app.index("function titleFor")
+    ]
+
+    assert formatter.index("record.line_basis") < formatter.index("source.line_basis")
+    assert formatter.index("source.line_basis") < formatter.index("source.basis")
+    assert "Reconstructed source · ${qualified}" in formatter
+    assert "Physical source · ${qualified}" in formatter
+    assert "Qualified source · ${qualified}" in formatter
+    assert 'return "Source basis unavailable"' in formatter
+    assert "evidenceLineBasis(record, source)" in renderer
+    assert 'record.basis || "line"' not in renderer
+
+
 def test_polling_waits_for_actual_terminal_status() -> None:
     app = _text("app.js")
     polling = app[
