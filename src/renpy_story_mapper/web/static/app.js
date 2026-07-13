@@ -270,7 +270,7 @@ async function openDetail(elementId) {
       const source = record.source || record.location || {}; const start = source.start?.line ?? source.start_line ?? record.start_line ?? "?"; const endLine = source.end?.line ?? source.end_line ?? record.end_line; const end = endLine && endLine !== start ? `–${endLine}` : "";
       const excerpt = evidenceExcerpt(record);
       const basis = evidenceLineBasis(record, source);
-      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", excerpt), element("span", "source-line", `${source.path || record.path || "source unavailable"}:${start}${end} · ${basis}`)); evidence.append(article);
+      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", excerpt), element("span", "source-line", `${source.path || record.source_path || record.path || "source unavailable"}:${start}${end} · ${basis}`)); evidence.append(article);
     }
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();

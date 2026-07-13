@@ -307,7 +307,11 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 )
             )
             detail_state = session.evaluate(
-                "({evidence:document.querySelectorAll('[data-evidence-id]').length,bodyPx:getComputedStyle(document.body).fontSize,width:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})"
+                "({evidence:document.querySelectorAll('[data-evidence-id]').length,"
+                "sourceLines:[...document.querySelectorAll('.source-line')].map(x=>x.textContent),"
+                "bodyPx:getComputedStyle(document.body).fontSize,"
+                "width:document.documentElement.scrollWidth,"
+                "client:document.documentElement.clientWidth})"
             )
             requests = [
                 event["params"]["request"]["url"]
@@ -355,6 +359,10 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 raise AssertionError("Initial rendering exceeded 240 items")
             if float(str(detail_state["bodyPx"]).removesuffix("px")) < 16:
                 raise AssertionError("Body text is smaller than 16px")
+            if any("source unavailable" in line for line in detail_state["sourceLines"]):
+                raise AssertionError(
+                    f"Qualified evidence source path was not rendered: {detail_state['sourceLines']}"
+                )
             return {
                 "zoom_percent": zoom,
                 "route_screenshot": route_shot.name,

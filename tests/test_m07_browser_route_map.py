@@ -98,6 +98,7 @@ def test_detail_evidence_preserves_and_labels_qualified_line_basis() -> None:
     assert "Qualified source · ${qualified}" in formatter
     assert 'return "Source basis unavailable"' in formatter
     assert "evidenceLineBasis(record, source)" in renderer
+    assert "source.path || record.source_path || record.path" in renderer
     assert 'record.basis || "line"' not in renderer
 
 
