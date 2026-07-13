@@ -37,6 +37,7 @@ from renpy_story_mapper.organization.errors import (
     OrganizationCancelledError,
     ProviderRateLimitError,
     ProviderTimeoutError,
+    ProviderUnavailableError,
 )
 from renpy_story_mapper.organization.validation import validate_result
 
@@ -117,6 +118,7 @@ class SchedulerConfig:
     prompt_version: str = "m07-v1"
     schema_version: str = "m07-v1"
     maximum_output_bytes_per_attempt: int = 64_000
+    maximum_provider_overhead_tokens_per_attempt: int = 16_384
 
     def __post_init__(self) -> None:
         if not 1 <= self.initial_workers <= self.maximum_workers <= 12:
@@ -133,6 +135,8 @@ class SchedulerConfig:
             raise ValueError("M07 analysis is locked to GPT-5.6 Luna, High, fast disabled.")
         if self.maximum_output_bytes_per_attempt <= 0:
             raise ValueError("The per-attempt output byte limit must be positive.")
+        if self.maximum_provider_overhead_tokens_per_attempt <= 0:
+            raise ValueError("The per-attempt provider token overhead must be positive.")
 
 
 @dataclass(frozen=True)
@@ -318,16 +322,35 @@ class _UsageLedger:
             self._charged_tokens += maximum_tokens
             return maximum_tokens
 
-    def record(self, usage: ProviderAttemptUsage, reservation: int) -> None:
+    def record(self, usage: ProviderAttemptUsage, reservation: int) -> bool:
+        """Record truthful usage and report whether it honored the admitted ceiling."""
+
         with self._lock:
             self.input_tokens += usage.input_tokens or 0
             self.output_tokens += usage.output_tokens or 0
+            reported_tokens = (usage.input_tokens, usage.output_tokens)
+            valid = all(value is None or value >= 0 for value in reported_tokens)
             actual = (
                 reservation
                 if usage.input_tokens is None or usage.output_tokens is None
                 else usage.input_tokens + usage.output_tokens
             )
             self._charged_tokens += actual - reservation
+            return valid and actual <= reservation
+
+    def record_unreserved(self, usage: ProviderAttemptUsage) -> None:
+        """Account for a provider attempt that bypassed scheduler admission."""
+
+        with self._lock:
+            self.calls += 1
+            self.input_tokens += usage.input_tokens or 0
+            self.output_tokens += usage.output_tokens or 0
+            if usage.input_tokens is None or usage.output_tokens is None:
+                hard_tokens = self._budget.hard_tokens
+                assert hard_tokens is not None
+                self._charged_tokens = max(self._charged_tokens, hard_tokens)
+            else:
+                self._charged_tokens += usage.input_tokens + usage.output_tokens
 
     def values(self) -> tuple[int, int, int]:
         with self._lock:
@@ -558,9 +581,7 @@ class ParallelOrganizationScheduler:
         reservations: deque[int] = deque()
 
         def reserve(prompt: bytes) -> bool:
-            reservation = ledger.reserve(
-                len(prompt) + self.config.maximum_output_bytes_per_attempt
-            )
+            reservation = ledger.reserve(self._attempt_token_ceiling(prompt))
             if reservation is None:
                 return False
             reservations.append(reservation)
@@ -570,14 +591,17 @@ class ParallelOrganizationScheduler:
             nonlocal observed
             observed += 1
             if not reservations:
-                reservation = ledger.reserve(
-                    self.config.maximum_output_bytes_per_attempt
+                ledger.record_unreserved(usage)
+                self._sink.attempt(scope.request.scope_id, usage)
+                raise ProviderUnavailableError(
+                    "The provider reported an attempt without scheduler admission."
                 )
-                if reservation is None:
-                    return
-                reservations.append(reservation)
-            ledger.record(usage, reservations.popleft())
+            honored_reservation = ledger.record(usage, reservations.popleft())
             self._sink.attempt(scope.request.scope_id, usage)
+            if not honored_reservation:
+                raise ProviderUnavailableError(
+                    "The provider reported usage outside its admitted token ceiling."
+                )
 
         observer_setter = getattr(provider, "set_attempt_observer", None)
         if callable(observer_setter):
@@ -635,6 +659,15 @@ class ParallelOrganizationScheduler:
                 )
             )
         return result
+
+    def _attempt_token_ceiling(self, prompt: bytes) -> int:
+        """Conservatively bound prompt, provider-added context, and bounded output."""
+
+        return (
+            len(prompt)
+            + self.config.maximum_provider_overhead_tokens_per_attempt
+            + self.config.maximum_output_bytes_per_attempt
+        )
 
     def _validate_scopes(self, scopes: tuple[RouteScope, ...]) -> None:
         seen: set[str] = set()

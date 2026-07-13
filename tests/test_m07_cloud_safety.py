@@ -342,6 +342,40 @@ def test_actual_usage_releases_conservative_token_reservations() -> None:
     assert result.progress.input_tokens + result.progress.output_tokens == 120
 
 
+def test_provider_usage_above_admitted_ceiling_is_persisted_and_fails_closed() -> None:
+    class ViolatingProvider(GatedProvider):
+        def organize(
+            self, request: Any, progress: Any, cancelled: Any
+        ) -> OrganizationChunkResult:
+            del progress, cancelled
+            assert self.gate is not None
+            prompt = serialize_organization_prompt(request, repair=False).encode("utf-8")
+            assert self.gate(prompt)
+            assert self.observer is not None
+            self.observer(ProviderAttemptUsage(1, 1, "validated", 50_000, 1))
+            return _result_for(request)
+
+    request = _request_with_text("safe")
+    sink = InMemoryCheckpointSink()
+    result = ParallelOrganizationScheduler(
+        lambda scope: ViolatingProvider(scope),
+        sink,
+        SchedulerConfig(
+            initial_workers=1,
+            maximum_output_bytes_per_attempt=1_000,
+            budget=BudgetPolicy(hard_calls=1, hard_tokens=1_000_000, hard_seconds=30),
+        ),
+    ).run((RouteScope(0, request),), consent_run_id="run-1")
+
+    assert result.envelopes[0].state is CheckpointState.FAILED
+    assert result.progress.input_tokens == 50_000
+    assert result.progress.output_tokens == 1
+    assert sink.attempts == [
+        ("scope-1", ProviderAttemptUsage(1, 1, "validated", 50_000, 1))
+    ]
+    assert any(event.error_code == "provider_error" for event in sink.events)
+
+
 def test_budget_policy_requires_finite_positive_hard_boundaries() -> None:
     defaults = BudgetPolicy(hard_seconds=None, hard_tokens=None, hard_calls=None)
     assert defaults.hard_seconds == 900
