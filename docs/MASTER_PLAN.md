@@ -966,7 +966,18 @@ Explicit exclusions:
 
 ### M08 - Web-Only AI Story Understanding Validation
 
-Status: Active on `codex/m08-web-ai-validation` as of 2026-07-13.
+Status: Complete on `codex/m08-web-ai-validation` as of 2026-07-13; the milestone PR is
+intentionally left unmerged for user review.
+
+Completion result: the packaged product is now browser-only. Evidence-grounded GPT-5.6 Luna
+organization is the default human-readable story layer after acceptance, with Technical Structure
+retained as the deterministic authority and fallback. Exact bounded consent, ownership-scoped
+claims, partial fallback, resumable checkpoints, honest current-run accounting, topology-complete
+pagination, two-level Detail / Evidence navigation, and zero-provider open/replay behavior are
+verified. Corrected live results accepted 51/53 complex-fixture scopes, 8/8 small `.rpy` scopes,
+0/5 compiled-only scopes with intentional technical fallback, and 1/4 bounded MsDenvers windows;
+all four retained 100% deterministic technical coverage and unchanged authority hashes. See
+`docs/milestones/M08/COMPLETION_REPORT.md` for commands, metrics, limitations, and review evidence.
 
 Objective: remove the obsolete standalone Windows graph application and prove, on controlled real
 story inputs, that evidence-grounded GPT-5.6 Luna organization produces a substantially more useful
