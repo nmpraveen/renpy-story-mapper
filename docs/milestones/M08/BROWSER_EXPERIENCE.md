@@ -13,6 +13,12 @@ The product has two visible levels:
    corrections and pins, evidence-backed claims, and relative qualified source lines. **Back to
    Route Map** is the only level transition.
 
+AI Story Map paging is topology-complete for each bounded event slice. **Next** first walks every
+incident-edge page for the same events with a slice-bound cursor, then advances to the next event
+slice and resets that cursor. **Previous** replays the exact bounded cursor history. Every crossing
+connection remains selectable through a labelled continuation portal backed by its real off-page
+endpoint. Technical Structure keeps its independent comparison paging contract.
+
 Organization is always bounded. **Use visible nodes** creates a provider-free exact narrative
 window preview. **Preview AI scope** prepares that selection with finite time, token, and call
 budgets. The consent dialog echoes all counts, boundary counts, IDs and hashes, recovered-source

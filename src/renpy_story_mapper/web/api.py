@@ -58,6 +58,7 @@ from renpy_story_mapper.web.contracts import (
     M08_AI_STORY_DETAIL_REQUEST_FIELDS,
     M08_AI_STORY_MAP_REQUEST_FIELDS,
     M08_API_ROUTES,
+    M08_COMPARISON_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -278,7 +279,7 @@ class ProjectApi:
             )
             return json_value(self._m08_ai_story_detail(body))
         if method == "POST" and path == M08_API_ROUTES["comparison"]:
-            exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
+            exact_fields(body, allowed=M08_COMPARISON_REQUEST_FIELDS)
             return json_value(self._m08_comparison(body))
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
@@ -953,6 +954,7 @@ class ProjectApi:
         node_limit = bounded_int(body, "node_limit", default=30, minimum=1, maximum=30)
         edge_offset = bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000)
         edge_limit = bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180)
+        edge_cursor = optional_string(body, "edge_cursor", maximum=80)
         result, _route, _facts = self._m08_query()
         if result.story_map is None:
             return result.to_dict()
@@ -961,6 +963,7 @@ class ProjectApi:
             node_limit=node_limit,
             edge_offset=edge_offset,
             edge_limit=edge_limit,
+            edge_cursor=edge_cursor,
         )
 
     def _m08_ai_story_detail(self, body: dict[str, JsonValue]) -> dict[str, object]:
@@ -1029,7 +1032,7 @@ class ProjectApi:
         return detail
 
     def _m08_comparison(self, body: dict[str, JsonValue]) -> dict[str, object]:
-        ai = self._m08_ai_story_page(body)
+        ai = self._m08_ai_story_page({**body, "edge_offset": 0})
         technical = self._m07_workflow().route_map(
             offset=bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000),
             limit=bounded_int(body, "node_limit", default=30, minimum=1, maximum=30),

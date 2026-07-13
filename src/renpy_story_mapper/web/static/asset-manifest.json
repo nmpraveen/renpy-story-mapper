@@ -2,11 +2,11 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "231b3cd4438f34a88aff7ee5d1c085e6e0674f5d1f11c47519f0499301be6baa",
-    "api.js": "773dd2332bb9d9ef31a0c5ca947f63fe41397055df837047ec4b81bc3e83fdf5",
-    "app.js": "570125dd94da995a571216556c1242164d5077a5895a9c3441e7aaedd67820df",
-    "contract.js": "0a5883c99b4a6cf906fc4e711188aa79d57c8b920a2040de4312024474ba0405",
-    "graph.js": "4b51843889b094ae409bd9786280044cf92fd727ee69db3c5c64bf6cbc16d68d",
+    "API_CONTRACT.md": "9821b31c9861eb7184e8ae7ed465c7658ee126c142ae80eb496150114034e904",
+    "api.js": "ab7736d0e9118dfc5abee486c022074367cd74d77aa1744f2704b2ef6db2e841",
+    "app.js": "3c07a9d186e5b45c9c592839c15975f48cdfcee41f2c62d99d6f7655dcfe1595",
+    "contract.js": "39c5e828e468975a4302df0c6a8f84278a255ad3ec6e8126d9d954a2c65f8f0a",
+    "graph.js": "7d7708a2959a7278ca6fab21d809727a73ea5bbd0708d3b49721e2d1a88468ce",
     "index.html": "50bbb8bcbc1943c84c820b43426446bfc5b5a12a4dcb7ec68e8cd25f0713adf2",
     "styles.css": "508cbfe7f0eb2679dad226ab989460292d3d8ddcdd2abe8eeea166be91aaba5e"
   }

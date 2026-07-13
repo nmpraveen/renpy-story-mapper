@@ -9,7 +9,7 @@ const CURSOR_HISTORY_LIMIT = 12;
 
 const state = {
   project: null, page: null, aiPage: null, technicalPage: null, mode: "technical",
-  offset: 0, edgeOffset: 0, cursorHistory: [], selectedId: null, detail: null,
+  offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
@@ -117,9 +117,10 @@ function normalizedPage(page, mode = state.mode) {
       return { ...node, kind, lane_id: lane.id, lane_kind: lane.kind, lane_label: lane.label, title: node.title || "Untitled story event", summary: node.summary || "" };
     });
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
-    const edges = page.edges.map((edge) => ({ ...edge, role: edge.presentation_role || "transition", lane_id: nodeById.get(edge.source_id)?.lane_id || nodeById.get(edge.target_id)?.lane_id || "ai-story-spine" }));
+    const continuationByEndpoint = new Map((page.continuation_endpoints || []).map((item) => [`${item.edge_id}:${item.endpoint}`, item]));
+    const edges = page.edges.map((edge) => ({ ...edge, role: edge.presentation_role || "transition", lane_id: nodeById.get(edge.source_id)?.lane_id || nodeById.get(edge.target_id)?.lane_id || "ai-story-spine", source_title: continuationByEndpoint.get(`${edge.id}:source`)?.title, target_title: continuationByEndpoint.get(`${edge.id}:target`)?.title }));
     const lanes = [...new Map(nodes.map((node) => [node.lane_id, { id: node.lane_id, kind: node.lane_kind, label: node.lane_label }])).values()];
-    return { ...page, nodes, edges, lanes, offset: page.page.node_offset, edge_offset: page.page.edge_offset, next_offset: page.page.next_node_offset, edge_next_offset: page.page.next_edge_offset, total_nodes: page.page.total_nodes, page_edge_total: page.page.total_edges, edge_limit: page.page.edge_limit };
+    return { ...page, nodes, edges, lanes, offset: page.page.node_offset, edge_offset: page.page.edge_offset, edge_cursor: page.page.edge_cursor, next_offset: page.page.next_node_offset, edge_next_offset: page.page.next_edge_offset, edge_next_cursor: page.page.next_edge_cursor, total_nodes: page.page.total_nodes, page_edge_total: page.page.incident_edge_total, edge_limit: page.page.edge_limit };
   }
   return {
     ...page,
@@ -141,10 +142,10 @@ async function loadComparison() {
   renderMap();
 }
 
-async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.edgeOffset }) {
+async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.edgeOffset, edgeCursor: state.edgeCursor }) {
   try {
     const raw = state.mode === "ai"
-      ? await api.aiStoryMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE)
+      ? await api.aiStoryMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE, cursor.edgeCursor ?? null)
       : await api.routeMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE);
     if (raw.status === "unavailable") { state.mode = "technical"; return loadRoutePage(cursor); }
     const page = normalizedPage(raw, state.mode);
@@ -152,13 +153,14 @@ async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.
     if (state.mode === "ai") state.aiPage = page; else state.technicalPage = page;
     state.offset = Number(page.offset || 0);
     state.edgeOffset = Number(page.edge_offset || 0);
+    state.edgeCursor = state.mode === "ai" ? page.edge_cursor ?? null : null;
     renderMap();
   } catch (error) { $("#selectionStatus").textContent = "Map unavailable"; toast(error.message); }
 }
 
 async function resetRoutePaging() {
   state.cursorHistory = [];
-  state.offset = 0; state.edgeOffset = 0; state.windowResolution = null; state.prepared = null;
+  state.offset = 0; state.edgeOffset = 0; state.edgeCursor = null; state.windowResolution = null; state.prepared = null;
   $("#scopePreview").textContent = "No story text is sent until an exact preview is confirmed.";
   try { await loadComparison(); } catch (error) { state.mode = "technical"; await loadRoutePage({ offset: 0, edgeOffset: 0 }); }
 }
@@ -166,14 +168,14 @@ async function resetRoutePaging() {
 function nextCursor() {
   const navigation = state.page?.global_navigation || state.page?.navigation || {};
   if (navigation.next && Number.isInteger(navigation.next.offset)) return { offset: navigation.next.offset, edgeOffset: navigation.next.edge_offset || 0 };
-  if (state.page?.edge_next_offset !== null && state.page?.edge_next_offset !== undefined) return { offset: state.offset, edgeOffset: Number(state.page.edge_next_offset) };
-  if (state.page?.next_offset !== null && state.page?.next_offset !== undefined) return { offset: Number(state.page.next_offset), edgeOffset: 0 };
+  if (state.page?.edge_next_offset !== null && state.page?.edge_next_offset !== undefined) return { offset: state.offset, edgeOffset: Number(state.page.edge_next_offset), edgeCursor: state.mode === "ai" ? state.page.edge_next_cursor : null };
+  if (state.page?.next_offset !== null && state.page?.next_offset !== undefined) return { offset: Number(state.page.next_offset), edgeOffset: 0, edgeCursor: null };
   return null;
 }
 
 async function nextRoutePage() {
   const target = nextCursor(); if (!target) return;
-  state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset });
+  state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset, edgeCursor: state.edgeCursor });
   if (state.cursorHistory.length > CURSOR_HISTORY_LIMIT) state.cursorHistory.shift();
   await loadRoutePage(target);
 }
@@ -235,7 +237,7 @@ function updateModeHeader() {
 
 async function switchMode(mode) {
   if (mode === "ai" && !state.aiPage) { toast("Apply a validated organization before using the AI Story Map"); return; }
-  state.mode = mode; state.page = mode === "ai" ? state.aiPage : state.technicalPage; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.selectedId = null;
+  state.mode = mode; state.page = mode === "ai" ? state.aiPage : state.technicalPage; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
   updateModeHeader(); renderMap();
 }
 

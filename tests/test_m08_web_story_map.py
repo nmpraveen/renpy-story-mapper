@@ -234,3 +234,37 @@ def test_unknown_fields_and_invalid_limits_fail_closed(
             api.dispatch("POST", M08_API_ROUTES[route], body)  # type: ignore[index]
     finally:
         api.close()
+
+
+def test_ai_paging_rejects_unbound_cursor_offsets_and_comparison_keeps_technical_contract(
+    m08_project: Path,
+) -> None:
+    _apply(m08_project)
+    api = _api(m08_project, [])
+    try:
+        with pytest.raises(ValueError, match="edge_cursor does not match"):
+            _page(api, edge_offset=1, edge_cursor="v1.1." + "0" * 64)
+        with pytest.raises(ValueError, match="node_offset"):
+            _page(api, node_offset=999)
+        with pytest.raises(ValueError, match="unsupported fields"):
+            api.dispatch(
+                "POST",
+                M08_API_ROUTES["comparison"],
+                {
+                    "node_offset": 0,
+                    "node_limit": 30,
+                    "edge_offset": 0,
+                    "edge_limit": 180,
+                    "edge_cursor": "v1.0." + "0" * 64,
+                },
+            )
+        comparison = api.dispatch(
+            "POST",
+            M08_API_ROUTES["comparison"],
+            {"node_offset": 0, "node_limit": 30, "edge_offset": 1, "edge_limit": 180},
+        )
+        assert isinstance(comparison, dict)
+        assert comparison["technical"]["edge_offset"] == 1
+        assert comparison["ai"]["page"]["edge_offset"] == 0
+    finally:
+        api.close()

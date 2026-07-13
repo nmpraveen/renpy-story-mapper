@@ -177,11 +177,42 @@ export function assertAIStoryMap(value) {
     if (!object(value.technical_fallback) || value.technical_fallback.available !== true) throw new TypeError("AI Story Map fallback is unavailable");
     return value;
   }
-  if (!Array.isArray(value.nodes) || !Array.isArray(value.edges) || !object(value.page) || !object(value.coverage)) throw new TypeError("AI Story Map page is incomplete");
+  if (!Array.isArray(value.nodes) || !Array.isArray(value.edges) || !Array.isArray(value.continuation_endpoints) || !object(value.page) || !object(value.coverage)) throw new TypeError("AI Story Map page is incomplete");
   if (value.nodes.length > RENDER_LIMITS.nodes || value.edges.length > RENDER_LIMITS.edges || value.nodes.length + value.edges.length > RENDER_LIMITS.items) throw new RangeError("AI Story Map exceeds the packaged rendering boundary");
   if (value.level !== "ai_story_map" || value.presentation_levels?.length !== 2) throw new TypeError("Unexpected AI Story Map semantic levels");
   digest(value.organization_hash, "AI Story Map organization_hash");
   digest(value.projection_hash, "AI Story Map projection_hash");
+  const page = value.page;
+  for (const key of ["node_offset", "node_limit", "edge_offset", "edge_limit", "incident_edge_total", "total_nodes", "total_edges"]) {
+    if (!Number.isInteger(page[key]) || page[key] < 0) throw new TypeError(`Invalid AI Story Map ${key}`);
+  }
+  if (page.edge_scope !== "incident_to_node_slice" || page.node_limit < 1 || page.node_limit > RENDER_LIMITS.nodes || page.edge_limit < 1 || page.edge_limit > RENDER_LIMITS.edges) throw new TypeError("Invalid AI Story Map incident-edge boundary");
+  if (value.edges.length > page.edge_limit || page.edge_offset + value.edges.length > page.incident_edge_total || page.incident_edge_total > page.total_edges) throw new RangeError("AI Story Map incident-edge slice is inconsistent");
+  const cursor = (token, offset, label) => {
+    if (typeof token !== "string" || !/^v1\.\d+\.[0-9a-f]{64}$/.test(token) || Number(token.split(".")[1]) !== offset) throw new TypeError(`Invalid AI Story Map ${label}`);
+  };
+  if (page.edge_offset === 0) {
+    if (page.edge_cursor !== null) throw new TypeError("Initial AI Story Map edge cursor must be null");
+  } else cursor(page.edge_cursor, page.edge_offset, "edge_cursor");
+  if ((page.next_edge_offset === null) !== (page.next_edge_cursor === null)) throw new TypeError("AI Story Map next edge cursor is incomplete");
+  if (page.next_edge_offset !== null) {
+    if (!Number.isInteger(page.next_edge_offset) || page.next_edge_offset !== page.edge_offset + value.edges.length || page.next_node_offset !== null) throw new TypeError("AI Story Map advances nodes before incident edges");
+    cursor(page.next_edge_cursor, page.next_edge_offset, "next_edge_cursor");
+  } else {
+    if (page.edge_offset + value.edges.length !== page.incident_edge_total) throw new TypeError("AI Story Map dropped incident edges");
+    if (page.next_node_offset !== null && (!Number.isInteger(page.next_node_offset) || page.next_node_offset <= page.node_offset)) throw new TypeError("Invalid AI Story Map next_node_offset");
+  }
+  const nodeIds = new Set(value.nodes.map((node) => node.id));
+  const edgeById = new Map(value.edges.map((edge) => [edge.id, edge]));
+  if (value.edges.some((edge) => !nodeIds.has(edge.source_id) && !nodeIds.has(edge.target_id))) throw new TypeError("AI Story Map returned an unrelated edge");
+  const expectedContinuations = value.edges.flatMap((edge) => [["source", edge.source_id], ["target", edge.target_id]].filter(([, nodeId]) => !nodeIds.has(nodeId)).map(([endpoint, nodeId]) => `${edge.id}:${endpoint}:${nodeId}`));
+  const actualContinuations = value.continuation_endpoints.map((item) => {
+    if (!object(item) || !["source", "target"].includes(item.endpoint) || typeof item.edge_id !== "string" || typeof item.node_id !== "string" || typeof item.title !== "string" || !Number.isInteger(item.order)) throw new TypeError("Invalid AI Story Map continuation endpoint");
+    const edge = edgeById.get(item.edge_id);
+    if (!edge || edge[`${item.endpoint}_id`] !== item.node_id) throw new TypeError("AI Story Map continuation endpoint is not authoritative");
+    return `${item.edge_id}:${item.endpoint}:${item.node_id}`;
+  });
+  if (!sameArray(actualContinuations, expectedContinuations)) throw new TypeError("AI Story Map continuation endpoints are incomplete");
   return value;
 }
 

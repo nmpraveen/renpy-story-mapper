@@ -124,6 +124,11 @@ def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> No
         "Network.requestWillBeSent",
         "provider_start_requests",
         "offenders",
+        "#nextPage",
+        "#previousPage",
+        "continuation-portal",
+        "AI Previous did not restore the exact initial page",
+        "AI Next was not deterministic with a continuation portal",
     ):
         assert marker in source
     spec = importlib.util.spec_from_file_location("m08_browser_acceptance", HARNESS)
@@ -132,3 +137,21 @@ def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> No
     spec.loader.exec_module(module)
     assert module.ZOOMS == (100, 200)
     assert module.VIEWPORTS == {100: (1440, 900), 200: (720, 450)}
+
+
+def test_ai_next_previous_use_exact_incident_cursor_history() -> None:
+    app = _text("app.js")
+    api = _text("api.js")
+    contract = _text("contract.js")
+    assert "edge_next_cursor" in app and "edgeCursor: state.edgeCursor" in app
+    assert 'edgeCursor: state.mode === "ai" ? state.page.edge_next_cursor : null' in app
+    assert "edgeCursor: null" in app
+    assert (
+        "state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset, "
+        "edgeCursor: state.edgeCursor })" in app
+    )
+    assert "const target = state.cursorHistory.pop()" in app
+    assert "body.edge_cursor = edgeCursor" in api
+    assert "incident_to_node_slice" in contract
+    assert "AI Story Map returned an unrelated edge" in contract
+    assert "AI Story Map continuation endpoints are incomplete" in contract

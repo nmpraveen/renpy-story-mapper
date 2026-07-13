@@ -119,9 +119,11 @@ export class LocalApi {
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
-  async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+  async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE, edgeCursor = null) {
+    const body = { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit };
+    if (edgeCursor !== null) body.edge_cursor = edgeCursor;
     return assertAIStoryMap(await this.request(ENDPOINTS.aiStoryMap, {
-      method: "POST", body: { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+      method: "POST", body,
     }));
   }
   async aiStoryDetail(elementId, cursors = {}) {

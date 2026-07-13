@@ -12,11 +12,24 @@ The projected boxes are real AI event groups and the projected connections are t
 quotient edges; the browser never renames technical nodes one by one or invents connectivity.
 
 - `POST /api/v1/m08/ai-story-map` accepts only
-  `{node_offset, node_limit, edge_offset, edge_limit}`. Limits are 30 nodes and 180 edges.
+  `{node_offset, node_limit, edge_offset, edge_limit, edge_cursor?}`. Limits are 30 nodes and 180
+  edges. `edge_offset` is scoped to the exact node slice, not the global projected edge list. The
+  initial incident-edge page uses offset zero with no cursor; every nonzero offset requires the
+  deterministic `edge_cursor` returned for that exact projection, node slice, edge offset, and
+  limit. Mismatched, stale, or tampered cursor/offset combinations are rejected.
 - `POST /api/v1/m08/ai-story-detail` accepts only `element_id` plus optional bounded technical and
   evidence cursors. Limits are 30 member nodes, 180 member edges, and 60 evidence records.
-- `POST /api/v1/m08/comparison` accepts the same page fields as AI Story Map and returns the AI and
-  Technical Structure pages under one exact `authority_hash` with `authority_unchanged: true`.
+- `POST /api/v1/m08/comparison` retains the four numeric page fields and returns the initial
+  incident-complete AI page plus the independently paged Technical Structure under one exact
+  `authority_hash` with `authority_unchanged: true`. Its numeric `edge_offset` applies to Technical
+  Structure only; subsequent AI incident pages use the direct AI endpoint's bound cursor.
+
+An available AI page contains only projected edges incident to at least one returned node, in the
+projection's stable order. `next_edge_cursor` exhausts that bounded incident set before
+`next_node_offset` becomes available. `continuation_endpoints` identifies the real off-page source
+or target for every crossing edge; the edge itself retains all deterministic roles, gates, effects,
+evidence, merge, loop, and ending truth. No response invents topology or exceeds 30 nodes and 180
+edges.
 
 Missing, stale, or invalid applied organization returns an explicit unavailable reason and a safe
 Technical Structure fallback reference. It never returns a project path, source root, provider

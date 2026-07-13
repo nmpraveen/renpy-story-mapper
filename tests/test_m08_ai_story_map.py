@@ -711,6 +711,109 @@ def test_map_and_detail_pages_have_hard_bounds() -> None:
         story.page(node_limit=31)
 
 
+def test_late_chain_page_contains_only_complete_stable_incident_topology() -> None:
+    nodes = [
+        _node(f"n{index:03d}", index, kind="terminal" if index == 240 else "milestone")
+        for index in range(300)
+    ]
+    edges = [
+        _edge(
+            f"e{index:03d}",
+            f"n{index:03d}",
+            f"n{index + 1:03d}",
+            role="choice" if index == 239 else "continuation",
+            gates=["gate_239"] if index == 239 else (),
+            effects=["effect_239"] if index == 239 else (),
+            evidence=["evidence_239"] if index == 239 else (),
+            proven_merge=index == 239,
+            technical_hops=2 if index == 239 else 0,
+        )
+        for index in range(299)
+    ]
+    edges.append(_edge("loop_220", "n220", "n220", role="loop", technical_hops=1))
+    route = _route(nodes, edges, evidence_ids=["evidence_239"])
+    story = project_ai_story_map(route, _singletons(route))
+
+    page = story.page(node_offset=210)
+    visible_ids = {item.id for item in story.nodes[210:240]}
+    expected = [
+        item
+        for item in story.edges
+        if item.source_id in visible_ids or item.target_id in visible_ids
+    ]
+
+    assert len(page["nodes"]) == 30
+    assert page["edges"] == [item.to_dict() for item in expected]
+    assert len(page["edges"]) == 32
+    assert page["page"]["edge_offset"] == 0
+    assert page["page"]["incident_edge_total"] == 32
+    assert page["page"]["next_edge_cursor"] is None
+    assert page["page"]["next_node_offset"] == 240
+    assert page == story.page(node_offset=210)
+    assert any(edge["gate_ids"] == ["gate_239"] for edge in page["edges"])
+    assert {"loop", "ending"}.issubset(
+        {str(edge["presentation_role"]) for edge in page["edges"]}
+    )
+    assert any(edge["proven_merge"] is True for edge in page["edges"])
+    continuation_pairs = {
+        (item["edge_id"], item["endpoint"], item["node_id"])
+        for item in page["continuation_endpoints"]
+    }
+    expected_pairs = {
+        (edge.id, endpoint, node_id)
+        for edge in expected
+        for endpoint, node_id in (("source", edge.source_id), ("target", edge.target_id))
+        if node_id not in visible_ids
+    }
+    assert continuation_pairs == expected_pairs
+
+
+def test_dense_incident_edges_page_with_slice_bound_cursor_before_nodes_advance() -> None:
+    nodes = [_node("center", 0), *[_node(f"leaf_{index:03d}", index + 1) for index in range(200)]]
+    edges = [
+        _edge(
+            f"spoke_{index:03d}",
+            "center",
+            f"leaf_{index:03d}",
+            role="choice" if index % 2 else "continuation",
+            gates=[f"gate_{index:03d}"],
+            effects=[f"effect_{index:03d}"],
+            proven_merge=index % 3 == 0,
+        )
+        for index in range(200)
+    ]
+    route = _route(nodes, edges)
+    story = project_ai_story_map(route, _singletons(route))
+
+    first = story.page(node_limit=1)
+    cursor = first["page"]["next_edge_cursor"]
+    assert isinstance(cursor, str)
+    assert len(first["edges"]) == 180
+    assert len(first["continuation_endpoints"]) == 180
+    assert first["page"]["incident_edge_total"] == 200
+    assert first["page"]["next_edge_offset"] == 180
+    assert first["page"]["next_node_offset"] is None
+
+    second = story.page(node_limit=1, edge_offset=180, edge_cursor=cursor)
+    assert len(second["edges"]) == 20
+    assert len(second["continuation_endpoints"]) == 20
+    assert second["page"]["next_edge_cursor"] is None
+    assert second["page"]["next_node_offset"] == 1
+    assert first["edges"] + second["edges"] == [item.to_dict() for item in story.edges]
+    assert second == story.page(node_limit=1, edge_offset=180, edge_cursor=cursor)
+
+    with pytest.raises(ValueError, match="does not match"):
+        story.page(node_limit=1, edge_offset=180, edge_cursor=f"{cursor[:-1]}0")
+    with pytest.raises(ValueError, match="does not match"):
+        story.page(node_offset=1, node_limit=1, edge_offset=180, edge_cursor=cursor)
+    with pytest.raises(ValueError, match="does not match"):
+        story.page(node_limit=1, edge_offset=181, edge_cursor=cursor)
+    with pytest.raises(ValueError, match="must be omitted"):
+        story.page(node_limit=1, edge_cursor=cursor)
+    with pytest.raises(ValueError, match="outside the projected node range"):
+        story.page(node_offset=len(story.nodes))
+
+
 def test_model_service_returns_only_current_applied_assembly(tmp_path: Path) -> None:
     route = _route([_node("n0", 0)], [])
     generation = hashlib.sha256(canonical_json(route)).hexdigest()

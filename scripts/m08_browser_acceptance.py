@@ -117,7 +117,11 @@ label hopeful_ending:
 label quiet_ending:
     "Avery leaves before dawn."
     return
-""",
+"""
+        + "\n".join(
+            f'''\nlabel pagination_{index:02d}:\n    "Avery records observatory note {index}."\n    {f"jump pagination_{index + 1:02d}" if index < 34 else "return"}\n'''
+            for index in range(35)
+        ),
         encoding="utf-8",
     )
     destination = root / "m08-browser.rsmproj"
@@ -187,10 +191,10 @@ def _persist_organization(project_path: Path, *, apply: bool, title: str) -> str
                         "organization_result": {
                             "groups": [
                                 {
-                                    "id": f"event_{scope_id}",
+                                    "id": f"event_{scope_id}_{index:03d}",
                                     "title": "The Observatory Choice",
                                     "summary": "Avery chooses honesty or a solitary search before the routes meet under the telescope.",
-                                    "member_ids": members,
+                                    "member_ids": [member],
                                     "characters": ["Avery", "Morgan"],
                                     "importance": "turning point",
                                     "outcomes": ["Trust and courage shape the final decision."],
@@ -198,6 +202,7 @@ def _persist_organization(project_path: Path, *, apply: bool, title: str) -> str
                                     "claims": [],
                                     "warnings": [],
                                 }
+                                for index, member in enumerate(members)
                             ],
                             "ungrouped_ids": [],
                         }
@@ -290,8 +295,25 @@ def _capture(
             ai_shot = output / f"ai-story-map-{zoom}.png"
             _screenshot(session, ai_shot)
             initial = session.evaluate(
-                "({badge:document.querySelector('#projectBadge').textContent,titles:[...document.querySelectorAll('.station-title')].map(x=>x.textContent),items:document.querySelectorAll('[data-element-id]').length})"
+                "({badge:document.querySelector('#projectBadge').textContent,titles:[...document.querySelectorAll('.station-title')].map(x=>x.textContent),ids:[...document.querySelectorAll('.station')].map(x=>x.dataset.elementId),status:document.querySelector('#pageStatus').textContent,items:document.querySelectorAll('[data-element-id]').length})"
             )
+            if document_next_disabled := session.evaluate("document.querySelector('#nextPage').disabled"):
+                raise AssertionError(f"AI pagination fixture did not expose Next: {document_next_disabled}")
+            session.evaluate("document.querySelector('#nextPage').click()")
+            session.wait("!document.querySelector('#previousPage').disabled && document.querySelector('#pageStatus').textContent !== " + json.dumps(initial["status"]))
+            forward = session.evaluate("({ids:[...document.querySelectorAll('.station')].map(x=>x.dataset.elementId),status:document.querySelector('#pageStatus').textContent,continuations:document.querySelectorAll('.continuation-portal').length})")
+            session.evaluate("document.querySelector('#previousPage').click()")
+            session.wait("document.querySelector('#pageStatus').textContent === " + json.dumps(initial["status"]))
+            restored = session.evaluate("({ids:[...document.querySelectorAll('.station')].map(x=>x.dataset.elementId),status:document.querySelector('#pageStatus').textContent})")
+            session.evaluate("document.querySelector('#nextPage').click()")
+            session.wait("document.querySelector('#pageStatus').textContent === " + json.dumps(forward["status"]))
+            repeated = session.evaluate("({ids:[...document.querySelectorAll('.station')].map(x=>x.dataset.elementId),status:document.querySelector('#pageStatus').textContent,continuations:document.querySelectorAll('.continuation-portal').length})")
+            session.evaluate("document.querySelector('#previousPage').click()")
+            session.wait("document.querySelector('#pageStatus').textContent === " + json.dumps(initial["status"]))
+            if restored != {"ids": initial["ids"], "status": initial["status"]}:
+                raise AssertionError(f"AI Previous did not restore the exact initial page: {restored}")
+            if repeated != forward or forward["continuations"] < 1:
+                raise AssertionError(f"AI Next was not deterministic with a continuation portal: {forward} / {repeated}")
             session.evaluate("document.querySelector('#technicalMapButton').click()")
             session.wait("document.querySelector('#technicalMapButton').getAttribute('aria-pressed') === 'true'")
             technical_shot = output / f"technical-comparison-{zoom}.png"
@@ -351,7 +373,9 @@ def _capture(
             session.evaluate("document.querySelector('#discardAssembly').click()")
             session.wait("!document.querySelector('#reviewDialog').open")
 
-            session.evaluate("document.querySelector('.station').click()")
+            session.evaluate(
+                "import('./app.js').then(({graph}) => { const node=graph.nodes.find(item=>Number(item.evidence_count)>0); if(!node) throw new Error('No evidence-backed AI event is visible'); document.querySelector(`[data-element-id=\"${node.id}\"]`).click(); })"
+            )
             session.wait("!document.querySelector('#detailView').hidden && document.querySelectorAll('[data-evidence-id]').length > 0")
             detail_shot = output / f"detail-evidence-{zoom}.png"
             _screenshot(session, detail_shot)
@@ -419,6 +443,7 @@ def _capture(
                 "default_view": initial["badge"],
                 "human_titles": initial["titles"],
                 "rendered_items": initial["items"],
+                "pagination": {"initial": initial["status"], "forward": forward, "restored": restored},
                 "keyboard_navigation": keyboard,
                 "provider_free_preview": preview,
                 "consent_complete": True,

@@ -75,6 +75,13 @@ M08_AI_STORY_MAP_REQUEST_FIELDS: Final = (
     "node_limit",
     "edge_offset",
     "edge_limit",
+    "edge_cursor",
+)
+M08_COMPARISON_REQUEST_FIELDS: Final = (
+    "node_offset",
+    "node_limit",
+    "edge_offset",
+    "edge_limit",
 )
 M08_AI_STORY_DETAIL_REQUEST_FIELDS: Final = (
     "element_id",

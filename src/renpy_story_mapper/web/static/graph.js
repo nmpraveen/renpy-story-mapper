@@ -139,7 +139,7 @@ export class RouteGraph {
       button.tabIndex = -1;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
-      const continuation = missingSource ? `Continues from ${edge.source_id} on another page` : missingTarget ? `Continues to ${edge.target_id} on another page` : "Route segment";
+      const continuation = missingSource ? `Continues from ${edge.source_title || edge.source_id} on another page` : missingTarget ? `Continues to ${edge.target_title || edge.target_id} on another page` : "Route segment";
       const detail = [edge.role || edge.presentation_role, edge.gate_ids?.length ? `${edge.gate_ids.length} gate` : "", edge.effect_ids?.length ? `${edge.effect_ids.length} effect` : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
       button.setAttribute("aria-label", `${continuation}: ${detail || "flow"}. Open Detail and Evidence.`);
       button.textContent = missingSource ? "←" : missingTarget ? "→" : edge.gate_ids?.length ? "G" : edge.effect_ids?.length ? "+" : edge.technical_hops ? String(edge.technical_hops) : "·";

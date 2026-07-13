@@ -250,6 +250,7 @@ class AIStoryMap:
         node_limit: int = DEFAULT_STORY_NODE_LIMIT,
         edge_offset: int = 0,
         edge_limit: int = MAX_STORY_EDGE_LIMIT,
+        edge_cursor: str | None = None,
     ) -> dict[str, object]:
         if node_offset < 0 or edge_offset < 0:
             raise ValueError("page offsets cannot be negative")
@@ -257,10 +258,36 @@ class AIStoryMap:
             raise ValueError("node_limit must be between 1 and 30")
         if not 1 <= edge_limit <= MAX_STORY_EDGE_LIMIT:
             raise ValueError("edge_limit must be between 1 and 180")
+        if node_offset > len(self.nodes) or (self.nodes and node_offset == len(self.nodes)):
+            raise ValueError("node_offset is outside the projected node range")
         nodes = self.nodes[node_offset : node_offset + node_limit]
-        edges = self.edges[edge_offset : edge_offset + edge_limit]
+        node_ids = {item.id for item in nodes}
+        incident_edges = tuple(
+            item
+            for item in self.edges
+            if item.source_id in node_ids or item.target_id in node_ids
+        )
+        if edge_offset == 0:
+            if edge_cursor is not None:
+                raise ValueError("edge_cursor must be omitted for the initial incident-edge page")
+        else:
+            expected_cursor = self._incident_edge_cursor(
+                nodes=nodes,
+                node_offset=node_offset,
+                node_limit=node_limit,
+                edge_offset=edge_offset,
+                edge_limit=edge_limit,
+                incident_edges=incident_edges,
+            )
+            if edge_cursor != expected_cursor:
+                raise ValueError("edge_cursor does not match the exact node slice and edge offset")
+            if edge_offset >= len(incident_edges):
+                raise ValueError("edge_offset is outside the incident-edge range")
+        edges = incident_edges[edge_offset : edge_offset + edge_limit]
         next_node = node_offset + len(nodes)
         next_edge = edge_offset + len(edges)
+        has_more_edges = next_edge < len(incident_edges)
+        continuation_endpoints = self._continuation_endpoints(nodes=nodes, edges=edges)
         return {
             "schema_version": AI_STORY_MAP_SCHEMA_VERSION,
             "status": AIStoryMapStatus.AVAILABLE.value,
@@ -272,18 +299,86 @@ class AIStoryMap:
             "assembly_id": self.assembly_id,
             "nodes": [item.to_dict() for item in nodes],
             "edges": [item.to_dict() for item in edges],
+            "continuation_endpoints": continuation_endpoints,
             "coverage": self.coverage.to_dict(),
             "page": {
                 "node_offset": node_offset,
                 "node_limit": node_limit,
-                "next_node_offset": next_node if next_node < len(self.nodes) else None,
+                "next_node_offset": (
+                    next_node if not has_more_edges and next_node < len(self.nodes) else None
+                ),
                 "edge_offset": edge_offset,
                 "edge_limit": edge_limit,
-                "next_edge_offset": next_edge if next_edge < len(self.edges) else None,
+                "edge_cursor": edge_cursor,
+                "next_edge_offset": next_edge if has_more_edges else None,
+                "next_edge_cursor": (
+                    self._incident_edge_cursor(
+                        nodes=nodes,
+                        node_offset=node_offset,
+                        node_limit=node_limit,
+                        edge_offset=next_edge,
+                        edge_limit=edge_limit,
+                        incident_edges=incident_edges,
+                    )
+                    if has_more_edges
+                    else None
+                ),
+                "edge_scope": "incident_to_node_slice",
+                "incident_edge_total": len(incident_edges),
                 "total_nodes": len(self.nodes),
                 "total_edges": len(self.edges),
             },
         }
+
+    def _incident_edge_cursor(
+        self,
+        *,
+        nodes: Sequence[AIStoryNode],
+        node_offset: int,
+        node_limit: int,
+        edge_offset: int,
+        edge_limit: int,
+        incident_edges: Sequence[AIStoryEdge],
+    ) -> str:
+        binding = {
+            "schema_version": AI_STORY_MAP_SCHEMA_VERSION,
+            "kind": "ai_story_incident_edges",
+            "projection_hash": self.projection_hash,
+            "node_offset": node_offset,
+            "node_limit": node_limit,
+            "node_ids": [item.id for item in nodes],
+            "edge_offset": edge_offset,
+            "edge_limit": edge_limit,
+            "incident_edge_ids": [item.id for item in incident_edges],
+        }
+        digest = hashlib.sha256(canonical_json(binding)).hexdigest()
+        return f"v1.{edge_offset}.{digest}"
+
+    def _continuation_endpoints(
+        self,
+        *,
+        nodes: Sequence[AIStoryNode],
+        edges: Sequence[AIStoryEdge],
+    ) -> list[dict[str, object]]:
+        visible_ids = {item.id for item in nodes}
+        nodes_by_id = {item.id: item for item in self.nodes}
+        result: list[dict[str, object]] = []
+        for edge in edges:
+            for endpoint, node_id in (("source", edge.source_id), ("target", edge.target_id)):
+                if node_id in visible_ids:
+                    continue
+                node = nodes_by_id[node_id]
+                result.append(
+                    {
+                        "edge_id": edge.id,
+                        "endpoint": endpoint,
+                        "node_id": node.id,
+                        "title": node.title,
+                        "presentation_role": node.presentation_role.value,
+                        "order": node.order,
+                    }
+                )
+        return result
 
     def detail(
         self,
