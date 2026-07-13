@@ -24,19 +24,19 @@ from renpy_story_mapper.bounded_window import (
     BoundedWindowError,
     build_bounded_narrative_window,
 )
-from renpy_story_mapper.m07_model import CheckpointStatus
+from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
 from renpy_story_mapper.m07_workflow import (
     M07WorkflowService,
     PreparedRunError,
     ProviderFactory,
     validate_persisted_assembly,
 )
-from renpy_story_mapper.organization.errors import InvalidProviderOutputError
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
     OrganizationProvider,
 )
+from renpy_story_mapper.organization.errors import InvalidProviderOutputError
 from renpy_story_mapper.organization.parallel import BudgetPolicy, ProgressSnapshot, RouteScope
 from renpy_story_mapper.presentation import (
     MAX_RESULTS,
@@ -765,7 +765,7 @@ class ProjectApi:
                     "payload": None,
                     "payload_hash": "invalid",
                 }
-            if assembly is not None and not isinstance(assembly, Mapping):
+            if isinstance(assembly, Assembly):
                 try:
                     validate_persisted_assembly(
                         project,
