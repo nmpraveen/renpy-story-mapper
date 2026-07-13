@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-13
 
-Status: M01 through M07.1 are complete and merged. M08 is active on
-`codex/m08-web-ai-validation` as of 2026-07-13.
+Status: M01 through M08 are complete and merged. M09 is active on
+`codex/m09-static-story-metadata` as of 2026-07-13.
 
 ## 1. Product goal
 
@@ -966,8 +966,8 @@ Explicit exclusions:
 
 ### M08 - Web-Only AI Story Understanding Validation
 
-Status: Complete on `codex/m08-web-ai-validation` as of 2026-07-13; the milestone PR is
-intentionally left unmerged for user review.
+Status: Complete and merged through PR #13 at `0ed8d72` on 2026-07-13. Follow-up launcher and
+Route Map allocation fixes were merged through PRs #14 and #15.
 
 Completion result: the packaged product is now browser-only. Evidence-grounded GPT-5.6 Luna
 organization is the default human-readable story layer after acceptance, with Technical Structure
@@ -1059,6 +1059,47 @@ Explicit exclusions:
 - The official walkthrough is evaluation evidence only and is never required for analyzing an
   arbitrary game.
 
+### M09 - Static Story Metadata Enrichment
+
+Status: Active on `codex/m09-static-story-metadata` as of 2026-07-13.
+
+Objective: improve the human readability of recovered games by statically extracting a narrow set
+of names and categories from companion Ren'Py modules, without executing creator code or changing
+the authoritative story graph.
+
+Locked deliverables:
+
+- Keep `scripts.rpa` and the selected story modules authoritative for chronology and connectivity.
+- Discover only relevant companion `.rpy`/`.rpyc` modules and statically extract supported literal
+  character aliases, default state declarations, variable display meanings/categories, and
+  optional human scene titles.
+- Persist source provenance and apply metadata to existing speaker, state-variable, and
+  presentation labels. User edits continue to take precedence over extracted hints.
+- Mark gallery/replay sources as secondary and never merge their labels into canonical routes.
+- Exclude images, audio, fonts, shaders, cache bytecode, and unrelated UI code.
+- Verify the behavior with synthetic fixtures and a read-only MsDenvers folder check; no cloud AI
+  call is required or permitted by this milestone.
+
+Acceptance criteria:
+
+- No game or Ren'Py Python executes, no source/game file is modified, and dynamic or ambiguous
+  metadata constructs are skipped with bounded diagnostics.
+- Every accepted metadata item retains locator, fingerprint, line basis, and exact source span.
+- Graph, route, gate, effect, and evidence authority remain byte-equivalent before and after
+  enrichment; replay/gallery labels do not become canonical story routes.
+- Metadata persists across reopen and refresh, and changed companion inputs invalidate only their
+  metadata.
+- The browser displays improved readable speaker/state/scene labels without provider or remote
+  calls.
+- Windows CPython 3.12 pytest, Ruff, strict mypy, `pip check`, milestone end-to-end/browser checks,
+  and independent review pass with no unresolved P0-P2 issue.
+- Required M09 artifacts and one unmerged M09 pull request are complete.
+
+Explicit exclusions:
+
+- No AI-provider work, live story analysis, LM Studio, media ingestion, thumbnails, generalized
+  Python evaluation, hosted deployment, installer, game editing, or replay chronology.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -1145,5 +1186,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Complete M08 on one unmerged pull request, present its report and native infographic, and wait for
+Complete M09 on one unmerged pull request, present its report and native infographic, and wait for
 explicit approval before any later milestone.
