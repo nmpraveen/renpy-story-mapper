@@ -6,8 +6,8 @@ Branch: `codex/m09-static-story-metadata`
 
 Baseline: `d8ec4d258cff28d66aecfd951e5a831e1e9818a1`
 
-PR state: one M09 pull request will be opened from this branch and intentionally left unmerged for
-user review.
+PR state: [PR #16](https://github.com/nmpraveen/renpy-story-mapper/pull/16) is open and intentionally
+left unmerged for user review.
 
 ## Outcome
 

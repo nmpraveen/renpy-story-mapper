@@ -1061,8 +1061,8 @@ Explicit exclusions:
 
 ### M09 - Static Story Metadata Enrichment
 
-Status: Complete on `codex/m09-static-story-metadata` as of 2026-07-13; the single M09 pull
-request is intentionally left unmerged for user review.
+Status: Complete on `codex/m09-static-story-metadata` as of 2026-07-13; PR #16 is intentionally
+left unmerged for user review.
 
 Completion result: selecting a game folder with exact `scripts.rpa` now keeps that archive as the
 sole chronology/connectivity authority while exact `extras.rpa` is recovered into a quarantined
