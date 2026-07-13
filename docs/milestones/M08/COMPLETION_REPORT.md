@@ -6,7 +6,8 @@ Branch: `codex/m08-web-ai-validation`
 
 Baseline: `32e9a3c4a41c0eb4acc9b13af966f4b727319d46`
 
-PR state: one M08 pull request will be opened and intentionally left unmerged.
+PR state: [PR #13](https://github.com/nmpraveen/renpy-story-mapper/pull/13) is open and intentionally
+left unmerged for user review.
 
 ## Outcome
 
@@ -177,11 +178,11 @@ read-only review.
 
 ## Commit summary
 
-Implementation, integration, documentation, and independent review are represented by the milestone
-range `32e9a3c4a41c0eb4acc9b13af966f4b727319d46..1bdb295`, including browser-only cleanup,
+The independently reviewed implementation and artifact tree is represented by the milestone range
+`32e9a3c4a41c0eb4acc9b13af966f4b727319d46..1bdb295`, including browser-only cleanup,
 evaluation, bounded windows, web consent, projection, browser experience, evidence ownership,
-topology paging, honest accounting, final browser evidence fixtures, the native infographic, and
-the completed corrective re-review.
+topology paging, honest accounting, final browser evidence fixtures, and the native infographic.
+Later documentation-only commits record the final review verdict and PR URL.
 
 ## Required artifacts
 
