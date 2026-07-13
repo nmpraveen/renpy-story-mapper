@@ -94,9 +94,11 @@ def test_completion_order_equivalence_partial_assembly_corrections_and_pins(
                     CheckpointStatus.VALIDATED,
                     result={"ordinal": ordinal, "title": chr(65 + ordinal)},
                 )
-            service.set_override("scope_1", correction={"title": "Corrected"}, pinned=True)
+            service.set_override(
+                "scope_1", generation="same", correction={"title": "Corrected"}, pinned=True
+            )
             assembly = service.assemble(generation="same")
-            applied = service.apply(assembly.assembly_id)
+            applied = service.apply(assembly.assembly_id, generation="same")
             hashes.append(applied.payload_hash)
             payloads.append(applied.payload)
     assert hashes[0] == hashes[1]

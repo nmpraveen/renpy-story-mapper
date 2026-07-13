@@ -12,9 +12,11 @@ from typing import Any
 
 import pytest
 
+from renpy_story_mapper import storage
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     CodexMode,
+    InterpretationClaim,
     OrganizationChunkResult,
     OrganizationGroup,
     ProviderExecutionMetadata,
@@ -173,6 +175,13 @@ def test_route_paging_detail_evidence_and_path_redaction(m07_project: Path) -> N
         assert detail["predecessor_ids"] and detail["successor_ids"]
         assert "gates" in detail and "effects" in detail
         assert detail["evidence"]
+        for record in detail["evidence"]:
+            source = record["source"]
+            if isinstance(source, dict):
+                assert record["start_line"] == source["start"]["line"]
+                assert record["end_line"] == source["end"]["line"]
+                assert record["line_basis"]
+                assert record["provenance"] is not None
         assert str(m07_project.parent) not in str(detail)
     finally:
         api.close()
@@ -300,13 +309,21 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
             api.dispatch(
                 "POST",
                 M07_API_ROUTES["start"],
-                {"run_id": prepared["run_id"], "confirm_cloud": False},
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": False,
+                    "budgets": prepared["budgets"],
+                },
             )
         with pytest.raises(ValueError, match="stale"):
             api.dispatch(
                 "POST",
                 M07_API_ROUTES["start"],
-                {"run_id": "m07_stale", "confirm_cloud": True},
+                {
+                    "run_id": "m07_stale",
+                    "confirm_cloud": True,
+                    "budgets": prepared["budgets"],
+                },
             )
         assert constructed == []
     finally:
@@ -328,7 +345,11 @@ def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: 
         started = api.dispatch(
             "POST",
             M07_API_ROUTES["start"],
-            {"run_id": prepared["run_id"], "confirm_cloud": True},
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
         )
         assert isinstance(started, dict)
         assert started["status"] == "running"
@@ -372,7 +393,11 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
     first.dispatch(
         "POST",
         M07_API_ROUTES["start"],
-        {"run_id": prepared["run_id"], "confirm_cloud": True},
+        {
+            "run_id": prepared["run_id"],
+            "confirm_cloud": True,
+            "budgets": prepared["budgets"],
+        },
     )
     assert _wait(first)["state"] == "completed"
     first.close()
@@ -385,7 +410,11 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
         second.dispatch(
             "POST",
             M07_API_ROUTES["start"],
-            {"run_id": prepared["run_id"], "confirm_cloud": True},
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
         )
         assert _wait(second)["state"] == "completed"
         assert len(calls) == first_count
@@ -422,7 +451,11 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
         api.dispatch(
             "POST",
             M07_API_ROUTES["start"],
-            {"run_id": prepared["run_id"], "confirm_cloud": True},
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
         )
         assert blocking.wait(timeout=3)
         cancelling = api.dispatch("POST", M07_API_ROUTES["cancel"], {})
@@ -440,14 +473,22 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
             api.dispatch(
                 "POST",
                 M07_API_ROUTES["start"],
-                {"run_id": prepared["run_id"], "confirm_cloud": True},
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "budgets": prepared["budgets"],
+                },
             )
         use_blocking = False
         resumed = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
         api.dispatch(
             "POST",
             M07_API_ROUTES["start"],
-            {"run_id": resumed["run_id"], "confirm_cloud": True},
+            {
+                "run_id": resumed["run_id"],
+                "confirm_cloud": True,
+                "budgets": resumed["budgets"],
+            },
         )
         assert _wait(api)["state"] == "completed"
         status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
@@ -475,13 +516,289 @@ def test_malformed_inputs_and_unknown_ids_are_sanitized(m07_project: Path) -> No
 def test_contract_constants_are_exact() -> None:
     assert M07_API_ROUTES == {
         "route_map": "/api/v1/m07/route-map",
+        "route_search": "/api/v1/m07/route-search",
         "detail": "/api/v1/m07/detail",
         "organization": "/api/v1/m07/organization",
         "prepare": "/api/v1/m07/organization/prepare",
         "start": "/api/v1/m07/organization/start",
         "cancel": "/api/v1/m07/organization/cancel",
+        "source_acknowledge": "/api/v1/m07/source-coverage/acknowledge",
+        "scope_override": "/api/v1/m07/scope/override",
         "assembly_apply": "/api/v1/m07/assembly/apply",
     }
+
+
+def test_source_coverage_block_acknowledgement_and_last_moment_guard(
+    m07_project: Path,
+) -> None:
+    calls: list[tuple[int, str]] = []
+    api = _api(m07_project, calls)
+    try:
+        with Project.open(m07_project) as project:
+            project._require_open().execute(
+                """INSERT OR REPLACE INTO source_coverage(
+                   singleton,complete,partial_allowed,ai_transmission_blocked,
+                   acknowledged,warning,updated_utc) VALUES (1,0,1,1,0,?,?)""",
+                ("Recovered sources are incomplete.", storage.utc_now()),
+            )
+        with pytest.raises(ValueError, match="blocked"):
+            api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+
+        status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        coverage = status["source_coverage"]
+        with pytest.raises(ValueError, match="stale"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["source_acknowledge"],
+                {"acknowledge": True, "coverage_token": "0" * 64},
+            )
+        acknowledged = api.dispatch(
+            "POST",
+            M07_API_ROUTES["source_acknowledge"],
+            {"acknowledge": True, "coverage_token": coverage["coverage_token"]},
+        )
+        assert acknowledged["acknowledged"] is True
+        assert acknowledged["ai_transmission_blocked"] is False
+
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+        with Project.open(m07_project) as project:
+            project._require_open().execute(
+                """UPDATE source_coverage SET acknowledged=0,ai_transmission_blocked=1,
+                   updated_utc=? WHERE singleton=1""",
+                (storage.utc_now(),),
+            )
+        with pytest.raises(ValueError, match="blocked"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "budgets": prepared["budgets"],
+                },
+            )
+        assert calls == []
+    finally:
+        api.close()
+
+
+def test_start_budget_and_route_generation_are_exact_and_single_use(
+    m07_project: Path,
+) -> None:
+    calls: list[tuple[int, str]] = []
+    api = _api(m07_project, calls)
+    try:
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+        mismatched = dict(prepared["budgets"])
+        mismatched["hard_calls"] = int(mismatched["hard_calls"]) - 1
+        with pytest.raises(ValueError, match="does not match"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "budgets": mismatched,
+                },
+            )
+        with pytest.raises(ValueError, match="stale"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "budgets": prepared["budgets"],
+                },
+            )
+
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+        with Project.open(m07_project) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            assert isinstance(route, dict)
+            route["schema_version"] = 2
+            project.write_payloads(
+                [
+                    PayloadRecord(
+                        "m07_route_map",
+                        "authoritative",
+                        route,
+                        tuple(item.path for item in project.sources()),
+                    )
+                ]
+            )
+        with pytest.raises(ValueError, match="changed after preparation"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "budgets": prepared["budgets"],
+                },
+            )
+        assert calls == []
+    finally:
+        api.close()
+
+
+def test_route_search_cursor_is_bounded_and_query_generation_bound(m07_project: Path) -> None:
+    api = _api(m07_project, [])
+    try:
+        route = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        title = route["nodes"][0]["title"]
+        query = str(title).split()[0]
+        result = api.dispatch(
+            "POST", M07_API_ROUTES["route_search"], {"query": query, "limit": 1}
+        )
+        assert len(result["items"]) <= 1
+        assert result["total_matches"] >= len(result["items"])
+        cursor = result["continuation"] or "m07s_stale_cursor_1"
+        with pytest.raises(ValueError, match="mismatched"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["route_search"],
+                {"query": query + "x", "after": cursor, "limit": 1},
+            )
+    finally:
+        api.close()
+
+
+def test_applied_overlay_and_draft_are_rejected_after_route_refresh(m07_project: Path) -> None:
+    calls: list[tuple[int, str]] = []
+    api = _api(m07_project, calls)
+    try:
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {"hard_calls": 1})
+        api.dispatch(
+            "POST",
+            M07_API_ROUTES["start"],
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
+        )
+        assert _wait(api)["state"] == "completed"
+        status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assembly_id = status["assembly_id"]
+        api.dispatch(
+            "POST", M07_API_ROUTES["assembly_apply"], {"assembly_id": assembly_id}
+        )
+
+        with Project.open(m07_project) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            assert isinstance(route, dict)
+            route["schema_version"] = 2
+            project.write_payloads(
+                [
+                    PayloadRecord(
+                        "m07_route_map",
+                        "authoritative",
+                        route,
+                        tuple(item.path for item in project.sources()),
+                    )
+                ]
+            )
+        refreshed = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        assert refreshed["applied_assembly"] is None
+        assert refreshed["organization_coverage"]["total"] == 0
+        with pytest.raises(Exception) as stale:
+            api.dispatch(
+                "POST", M07_API_ROUTES["assembly_apply"], {"assembly_id": assembly_id}
+            )
+        assert getattr(stale.value, "status", None) == 409
+        after = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert after["assemblies"] == []
+    finally:
+        api.close()
+
+
+def test_applied_detail_exposes_evidence_claims_corrections_and_pins(
+    m07_project: Path,
+) -> None:
+    calls: list[tuple[int, str]] = []
+
+    class ClaimProvider(_MockProvider):
+        def organize(self, request: Any, progress: Any, cancelled: Any) -> OrganizationChunkResult:
+            base = super().organize(request, progress, cancelled)
+            evidence_ids = tuple(sorted(request.constraints.evidence_ids))
+            claims = (
+                (InterpretationClaim("Evidence-backed route claim.", (evidence_ids[0],)),)
+                if evidence_ids
+                else ()
+            )
+            group = base.groups[0]
+            replaced = OrganizationGroup(
+                group.id,
+                group.title,
+                group.summary,
+                group.member_ids,
+                group.characters,
+                group.importance,
+                group.outcomes,
+                group.promoted_fact_ids,
+                claims,
+                group.warnings,
+            )
+            raw = dict(base.raw_normalized)
+            groups = list(raw["groups"])
+            groups[0] = {**groups[0], "claims": [
+                {"text": claim.text, "evidence_ids": list(claim.evidence_ids)}
+                for claim in claims
+            ]}
+            raw["groups"] = groups
+            return OrganizationChunkResult(
+                base.stage,
+                (replaced,),
+                base.ungrouped_ids,
+                raw,
+                metadata=base.metadata,
+            )
+
+    api = ProjectApi(_Dialogs(), m07_provider_factory=lambda scope: ClaimProvider(scope, calls))
+    api._project_path = m07_project
+    try:
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+        api.dispatch(
+            "POST",
+            M07_API_ROUTES["start"],
+            {
+                "run_id": prepared["run_id"],
+                "confirm_cloud": True,
+                "budgets": prepared["budgets"],
+            },
+        )
+        assert _wait(api)["state"] == "completed"
+        assembly = api.dispatch(
+            "POST",
+            M07_API_ROUTES["scope_override"],
+            {
+                "scope_id": prepared["scope_ids"][0],
+                "authority_hash": prepared["authority_hash"],
+                "correction": {"title": "Pinned corrected title"},
+                "pinned": True,
+            },
+        )
+        api.dispatch(
+            "POST",
+            M07_API_ROUTES["assembly_apply"],
+            {"assembly_id": assembly["assembly_id"]},
+        )
+        with Project.open(m07_project) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            assert isinstance(route, dict)
+            first_scope = next(
+                item for item in route["scopes"] if item["id"] == prepared["scope_ids"][0]
+            )
+            node_id = first_scope["node_ids"][0]
+        detail = api.dispatch("POST", M07_API_ROUTES["detail"], {"element_id": node_id})
+        interpretation = detail["element"]["interpretation"]
+        assert detail["element"]["title"] == "Pinned corrected title"
+        assert interpretation["pinned"] is True
+        assert interpretation["correction"] == {"title": "Pinned corrected title"}
+        assert all(claim["evidence_ids"] for claim in interpretation["claims"])
+    finally:
+        api.close()
 
 
 def test_durable_status_reopens_without_constructing_provider(m07_project: Path) -> None:

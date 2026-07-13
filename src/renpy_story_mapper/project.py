@@ -382,20 +382,24 @@ class Project:
         row = (
             self._require_open()
             .execute(
-                """SELECT complete, partial_allowed, ai_transmission_blocked, acknowledged, warning
+                """SELECT complete, partial_allowed, ai_transmission_blocked, acknowledged, warning,
+                          updated_utc
                FROM source_coverage WHERE singleton=1"""
             )
             .fetchone()
         )
         if row is None:
             return {}
-        return {
+        result: dict[str, object] = {
             "complete": bool(row["complete"]),
             "partial_allowed": bool(row["partial_allowed"]),
             "ai_transmission_blocked": bool(row["ai_transmission_blocked"]),
             "acknowledged": bool(row["acknowledged"]),
             "warning": row["warning"],
         }
+        token_payload = {**result, "updated_utc": str(row["updated_utc"])}
+        result["coverage_token"] = hashlib.sha256(storage.canonical_json(token_payload)).hexdigest()
+        return result
 
     def recovery_results(self) -> tuple[dict[str, object], ...]:
         rows = self._require_open().execute(
@@ -420,16 +424,21 @@ class Project:
             for row in rows
         )
 
-    def acknowledge_incomplete_source_coverage(self) -> None:
+    def acknowledge_incomplete_source_coverage(self, *, coverage_token: str | None = None) -> None:
         """Record acknowledgement without silently clearing the persistent warning."""
 
         connection = self._require_open()
         with storage.transaction(connection):
+            coverage = self.source_coverage()
             row = connection.execute(
-                "SELECT complete FROM source_coverage WHERE singleton=1"
+                "SELECT complete,ai_transmission_blocked FROM source_coverage WHERE singleton=1"
             ).fetchone()
             if row is None or bool(row["complete"]):
                 raise ValueError("project does not have incomplete source coverage")
+            if not bool(row["ai_transmission_blocked"]):
+                raise ValueError("incomplete source coverage was already acknowledged")
+            if coverage_token is not None and coverage.get("coverage_token") != coverage_token:
+                raise ValueError("source coverage acknowledgement is stale")
             connection.execute(
                 """UPDATE source_coverage
                    SET acknowledged=1, ai_transmission_blocked=0, updated_utc=?

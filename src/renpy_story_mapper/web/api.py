@@ -37,6 +37,7 @@ from renpy_story_mapper.web.contracts import (
     boolean,
     bounded_int,
     json_value,
+    object_value,
     optional_bounded_int,
     optional_string,
     require_string,
@@ -207,6 +208,14 @@ class ProjectApi:
                     ),
                 )
             )
+        if method == "POST" and path == M07_API_ROUTES["route_search"]:
+            return json_value(
+                self._m07_workflow().search_route(
+                    require_string(body, "query", maximum=256),
+                    after=optional_string(body, "after"),
+                    limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                )
+            )
         if method == "POST" and path == M07_API_ROUTES["detail"]:
             try:
                 return json_value(self._m07_workflow().detail(require_string(body, "element_id")))
@@ -225,24 +234,18 @@ class ProjectApi:
                 and task.state in {"running", "cancelled", "failed"}
                 else None
             )
-            return json_value(
-                self._m07_workflow().status(
-                    stage=stage,
-                    status_override=status_override,
-                )
+            response = self._m07_workflow().status(
+                stage=stage,
+                status_override=status_override,
             )
+            response["refresh"] = (
+                json_value(task)
+                if task is not None and task.kind == "refresh"
+                else None
+            )
+            return json_value(response)
         if method == "POST" and path == M07_API_ROUTES["prepare"]:
-            budget = BudgetPolicy(
-                soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
-                hard_seconds=optional_bounded_int(body, "hard_seconds", minimum=1, maximum=7_200),
-                soft_tokens=optional_bounded_int(
-                    body, "soft_tokens", minimum=1, maximum=20_000_000
-                ),
-                hard_tokens=optional_bounded_int(
-                    body, "hard_tokens", minimum=1, maximum=40_000_000
-                ),
-                hard_calls=optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000),
-            )
+            budget = _budget_policy(body, with_finite_defaults=True)
             _validate_budget_order(budget)
             return json_value(
                 self._m07_workflow().prepare(
@@ -252,9 +255,14 @@ class ProjectApi:
             )
         if method == "POST" and path == M07_API_ROUTES["start"]:
             workflow = self._m07_workflow()
+            start_budget = _budget_policy(
+                object_value(body, "budgets"), with_finite_defaults=False
+            )
+            _validate_budget_order(start_budget)
             prepared = workflow.authorize_start(
                 require_string(body, "run_id"),
                 confirm_cloud=boolean(body, "confirm_cloud"),
+                budget=start_budget,
             )
 
             def run_m07(cancelled: threading.Event) -> None:
@@ -283,6 +291,24 @@ class ProjectApi:
                     status_override="running",
                 )
             )
+        if method == "POST" and path == M07_API_ROUTES["source_acknowledge"]:
+            if not boolean(body, "acknowledge"):
+                raise ValueError("explicit recovered-source acknowledgement is required")
+            return json_value(
+                self._m07_workflow().acknowledge_recovered_sources(
+                    coverage_token=require_string(body, "coverage_token")
+                )
+            )
+        if method == "POST" and path == M07_API_ROUTES["scope_override"]:
+            correction = object_value(body, "correction")
+            return json_value(
+                self._m07_workflow().set_override(
+                    require_string(body, "scope_id"),
+                    generation=require_string(body, "authority_hash"),
+                    correction=correction,
+                    pinned=boolean(body, "pinned"),
+                )
+            )
         if method == "POST" and path == M07_API_ROUTES["assembly_apply"]:
             try:
                 workflow = self._m07_workflow()
@@ -291,6 +317,10 @@ class ProjectApi:
             except KeyError as exc:
                 raise ApiProblem(
                     404, "m07_assembly_not_found", "The assembly is unavailable."
+                ) from exc
+            except ValueError as exc:
+                raise ApiProblem(
+                    409, "m07_assembly_stale", "The assembly is stale for this route map."
                 ) from exc
             response = workflow.status(stage="applied", status_override="applied")
             response["assembly_id"] = assembly_id
@@ -772,6 +802,27 @@ def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     from renpy_story_mapper.organization import CodexCliProvider, CodexMode
 
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+
+def _budget_policy(
+    body: dict[str, JsonValue], *, with_finite_defaults: bool
+) -> BudgetPolicy:
+    hard_seconds = optional_bounded_int(body, "hard_seconds", minimum=1, maximum=7_200)
+    hard_tokens = optional_bounded_int(body, "hard_tokens", minimum=1, maximum=40_000_000)
+    hard_calls = optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000)
+    if with_finite_defaults:
+        hard_seconds = 1_800 if hard_seconds is None else hard_seconds
+        hard_tokens = 2_000_000 if hard_tokens is None else hard_tokens
+        hard_calls = 1_000 if hard_calls is None else hard_calls
+    return BudgetPolicy(
+        soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
+        hard_seconds=hard_seconds,
+        soft_tokens=optional_bounded_int(
+            body, "soft_tokens", minimum=1, maximum=20_000_000
+        ),
+        hard_tokens=hard_tokens,
+        hard_calls=hard_calls,
+    )
 
 
 def _validate_budget_order(budget: BudgetPolicy) -> None:

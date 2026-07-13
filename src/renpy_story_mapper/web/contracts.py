@@ -14,11 +14,14 @@ JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 # backend routing knowledge.
 M07_API_ROUTES: Final[dict[str, str]] = {
     "route_map": "/api/v1/m07/route-map",
+    "route_search": "/api/v1/m07/route-search",
     "detail": "/api/v1/m07/detail",
     "organization": "/api/v1/m07/organization",
     "prepare": "/api/v1/m07/organization/prepare",
     "start": "/api/v1/m07/organization/start",
     "cancel": "/api/v1/m07/organization/cancel",
+    "source_acknowledge": "/api/v1/m07/source-coverage/acknowledge",
+    "scope_override": "/api/v1/m07/scope/override",
     "assembly_apply": "/api/v1/m07/assembly/apply",
 }
 M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit", "edge_offset", "edge_limit")
@@ -32,6 +35,14 @@ M07_PREPARE_REQUEST_FIELDS: Final = (
     "hard_calls",
 )
 M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud", "budgets")
+M07_ROUTE_SEARCH_REQUEST_FIELDS: Final = ("query", "after", "limit")
+M07_SOURCE_ACKNOWLEDGE_REQUEST_FIELDS: Final = ("coverage_token", "acknowledge")
+M07_SCOPE_OVERRIDE_REQUEST_FIELDS: Final = (
+    "scope_id",
+    "authority_hash",
+    "correction",
+    "pinned",
+)
 M07_ASSEMBLY_APPLY_REQUEST_FIELDS: Final = ("assembly_id",)
 
 
@@ -130,4 +141,11 @@ def boolean(body: dict[str, JsonValue], name: str, *, default: bool = False) -> 
     value = body.get(name, default)
     if not isinstance(value, bool):
         raise ValueError(f"{name} must be a boolean")
+    return value
+
+
+def object_value(body: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
+    value = body.get(name)
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be an object")
     return value

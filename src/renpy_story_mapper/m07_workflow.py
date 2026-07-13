@@ -68,8 +68,11 @@ class PreparedRun:
 class _ValidatingProvider:
     """Keep even injected providers inside the exact-ID validation boundary."""
 
-    def __init__(self, provider: OrganizationProvider) -> None:
+    def __init__(
+        self, provider: OrganizationProvider, transmission_guard: Callable[[], None]
+    ) -> None:
         self._provider = provider
+        self._transmission_guard = transmission_guard
 
     def status(self) -> ProviderStatus:
         return self._provider.status()
@@ -80,6 +83,8 @@ class _ValidatingProvider:
         progress: ProviderProgressCallback,
         cancelled: CancelledCallback,
     ) -> OrganizationChunkResult:
+        # Deliberately the last local check before control crosses into a provider.
+        self._transmission_guard()
         result = self._provider.organize(
             request,
             progress,
@@ -140,7 +145,9 @@ class M07WorkflowService:
         self._lock = threading.RLock()
         self._prepared: PreparedRun | None = None
         self._last_progress: ProgressSnapshot | None = None
+        self._last_progress_generation: str | None = None
         self._last_budget: BudgetPolicy | None = None
+        self._last_budget_generation: str | None = None
 
     def route_map(
         self,
@@ -152,8 +159,9 @@ class M07WorkflowService:
     ) -> dict[str, object]:
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
-            overlay, applied = _applied_overlay(project)
-            coverage = project.m07_model_service().coverage().to_dict()
+            generation = _authority_hash(route)
+            overlay, applied = _applied_overlay(project, generation=generation)
+            coverage = project.m07_model_service().coverage(generation=generation).to_dict()
         page = page_route_map_payload(
             route,
             offset=offset,
@@ -174,7 +182,7 @@ class M07WorkflowService:
         result = {
             **page,
             "schema_version": route.get("schema_version", 1),
-            "authority_hash": hashlib.sha256(storage.canonical_json(route)).hexdigest(),
+            "authority_hash": generation,
             "totals": {
                 "nodes": page["total_nodes"],
                 "edges": page["total_edges"],
@@ -193,8 +201,10 @@ class M07WorkflowService:
     def detail(self, element_id: str) -> dict[str, object]:
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
-            overlay, _applied = _applied_overlay(project)
+            generation = _authority_hash(route)
+            overlay, _applied = _applied_overlay(project, generation=generation)
             facts = _facts_by_id(project)
+            provenance = _provenance_by_path(project)
         nodes = _records(route.get("nodes"), "nodes")
         edges = _records(route.get("edges"), "edges")
         evidence_by_id = {
@@ -230,7 +240,9 @@ class M07WorkflowService:
                 "gates": [facts[item] for item in node_gate_ids if item in facts],
                 "effects": [facts[item] for item in node_effect_ids if item in facts],
                 "evidence": [
-                    evidence_by_id[item] for item in evidence_ids if item in evidence_by_id
+                    _detail_evidence(evidence_by_id[item], provenance)
+                    for item in evidence_ids
+                    if item in evidence_by_id
                 ],
                 "back_target": "route_map",
             }
@@ -249,7 +261,11 @@ class M07WorkflowService:
             "local_path": [edge.get("source_id"), element_id, edge.get("target_id")],
             "gates": [facts[item] for item in gate_ids if item in facts],
             "effects": [facts[item] for item in effect_ids if item in facts],
-            "evidence": [evidence_by_id[item] for item in evidence_ids if item in evidence_by_id],
+            "evidence": [
+                _detail_evidence(evidence_by_id[item], provenance)
+                for item in evidence_ids
+                if item in evidence_by_id
+            ],
             "back_target": "route_map",
         }
         return cast(dict[str, object], _sanitize(result))
@@ -263,18 +279,22 @@ class M07WorkflowService:
         # This method intentionally does not touch the provider factory.
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
-            checkpoints = project.m07_model_service().checkpoints()
+            _require_ai_transmission_allowed(project)
+            generation = _authority_hash(route)
+            checkpoints = project.m07_model_service().checkpoints(generation=generation)
         deterministic = _deterministic_scopes(route)
         available = {item.id for item in deterministic}
         selected = tuple(scope_ids) if scope_ids else tuple(item.id for item in deterministic)
         if not selected or len(set(selected)) != len(selected) or set(selected) != available:
             raise ValueError("scope_ids must name the complete current deterministic route scope")
         run_id = f"m07_{secrets.token_urlsafe(32)}"
+        _require_finite_budget(budget)
         config = SchedulerConfig(budget=budget)
-        prepared = PreparedRun(run_id, _authority_hash(route), selected, config)
+        prepared = PreparedRun(run_id, generation, selected, config)
         with self._lock:
             self._prepared = prepared
             self._last_budget = budget
+            self._last_budget_generation = generation
         cached = sum(
             item.status in {CheckpointStatus.CACHED, CheckpointStatus.VALIDATED}
             for item in checkpoints
@@ -290,6 +310,7 @@ class M07WorkflowService:
                 "fast_mode": False,
             },
             "budgets": _budget_dict(budget),
+            "authority_hash": generation,
             "requires_confirm_cloud": True,
         }
 
@@ -298,23 +319,33 @@ class M07WorkflowService:
         run_id: str,
         *,
         confirm_cloud: bool,
+        budget: BudgetPolicy,
         cancelled: Callable[[], bool],
         progress: ProgressCallback | None = None,
     ) -> dict[str, object]:
-        prepared = self.authorize_start(run_id, confirm_cloud=confirm_cloud)
+        prepared = self.authorize_start(
+            run_id, confirm_cloud=confirm_cloud, budget=budget
+        )
         return self.run_prepared(prepared, cancelled=cancelled, progress=progress)
 
-    def authorize_start(self, run_id: str, *, confirm_cloud: bool) -> PreparedRun:
+    def authorize_start(
+        self, run_id: str, *, confirm_cloud: bool, budget: BudgetPolicy
+    ) -> PreparedRun:
         """Consume exact fresh consent synchronously, before a background task is accepted."""
 
         if not confirm_cloud:
             raise PreparedRunError("fresh cloud confirmation is required")
         with self._lock:
             prepared = self._prepared
-            # Consent is single-use and is consumed immediately before any possible transmission.
+            if prepared is None or not secrets.compare_digest(prepared.run_id, run_id):
+                raise PreparedRunError("the prepared run is missing or stale")
+            # Exact consent becomes single-use only after its own opaque run ID is presented.
             self._prepared = None
-        if prepared is None or not secrets.compare_digest(prepared.run_id, run_id):
-            raise PreparedRunError("the prepared run is missing or stale")
+        if _budget_dict(budget) != _budget_dict(prepared.config.budget):
+            raise PreparedRunError("the start budget does not match the prepared run")
+        with Project.open(self._project_path) as project:
+            route = _route_payload(project)
+            _validate_prepared_authority(project, route, prepared)
         return prepared
 
     def run_prepared(
@@ -329,8 +360,7 @@ class M07WorkflowService:
         run_id = prepared.run_id
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
-            if _authority_hash(route) != prepared.authority_hash:
-                raise PreparedRunError("the deterministic route scope changed after preparation")
+            _validate_prepared_authority(project, route, prepared)
             deterministic = _deterministic_scopes(route)
             scopes = _organization_scopes(route, deterministic, run_id, _facts_by_id(project))
             sink = _WorkflowCheckpointSink(
@@ -343,12 +373,19 @@ class M07WorkflowService:
 
             def provider_factory(scope: RouteScope) -> OrganizationProvider:
                 return cast(
-                    OrganizationProvider, _ValidatingProvider(self._provider_factory(scope))
+                    OrganizationProvider,
+                    _ValidatingProvider(
+                        self._provider_factory(scope),
+                        lambda: _guard_provider_transmission(
+                            self._project_path, prepared
+                        ),
+                    ),
                 )
 
             def on_progress(snapshot: ProgressSnapshot) -> None:
                 with self._lock:
                     self._last_progress = snapshot
+                    self._last_progress_generation = prepared.authority_hash
                 if progress is not None:
                     progress(snapshot)
 
@@ -372,18 +409,27 @@ class M07WorkflowService:
         status_override: str | None = None,
     ) -> dict[str, object]:
         with Project.open(self._project_path) as project:
+            route = _route_payload(project)
+            generation = _authority_hash(route)
             model = project.m07_model_service()
-            checkpoints = model.checkpoints()
-            coverage = model.coverage().to_dict()
-            assemblies = _assembly_metadata(project)
+            checkpoints = model.checkpoints(generation=generation)
+            coverage = model.coverage(generation=generation).to_dict()
+            assemblies = _assembly_metadata(project, generation=generation)
+            source_coverage = project.source_coverage()
             attempt_row = (
                 project._require_open()
                 .execute("SELECT COALESCE(AVG(elapsed_ms),0) average_ms FROM m07_provider_attempts")
                 .fetchone()
             )
         with self._lock:
-            progress = self._last_progress
-            budget = self._last_budget
+            progress = (
+                self._last_progress
+                if self._last_progress_generation == generation
+                else None
+            )
+            budget = (
+                self._last_budget if self._last_budget_generation == generation else None
+            )
         pending = _count(coverage["pending"]) + _count(coverage["cached_or_in_flight"])
         average = 0.0 if attempt_row is None else float(attempt_row["average_ms"]) / 1000
         derived_eta = None if not average or not pending else average * pending / 8
@@ -438,15 +484,96 @@ class M07WorkflowService:
             "worker_peak": 0 if progress is None else progress.peak_workers,
             "assembly_id": None if reviewable is None else reviewable["assembly_id"],
             "assemblies": assemblies,
+            "authority_hash": generation,
+            "source_coverage": source_coverage,
         }
 
     def apply(self, assembly_id: str) -> dict[str, object]:
         try:
             with Project.open(self._project_path) as project:
-                assembly = project.m07_model_service().apply(assembly_id)
+                generation = _authority_hash(_route_payload(project))
+                assembly = project.m07_model_service().apply(
+                    assembly_id, generation=generation
+                )
         except KeyError as exc:
             raise KeyError("assembly not found") from exc
         return assembly.to_dict()
+
+    def acknowledge_recovered_sources(self, *, coverage_token: str) -> dict[str, object]:
+        """Acknowledge only the exact currently persisted incomplete-recovery snapshot."""
+
+        with Project.open(self._project_path) as project:
+            project.acknowledge_incomplete_source_coverage(coverage_token=coverage_token)
+            return project.source_coverage()
+
+    def set_override(
+        self,
+        scope_id: str,
+        *,
+        generation: str,
+        correction: Mapping[str, object],
+        pinned: bool,
+    ) -> dict[str, object]:
+        with Project.open(self._project_path) as project:
+            current = _authority_hash(_route_payload(project))
+            if generation != current:
+                raise PreparedRunError("the route scope generation is stale")
+            if set(correction) - {"title", "summary"} or any(
+                not isinstance(value, str) or not value.strip() or len(value) > 5_000
+                for value in correction.values()
+            ):
+                raise ValueError("correction supports only non-empty title and summary strings")
+            model = project.m07_model_service()
+            model.set_override(
+                scope_id,
+                generation=generation,
+                correction=correction,
+                pinned=pinned,
+            )
+            return model.assemble(generation=generation, allow_partial=True).to_dict()
+
+    def search_route(
+        self, query: str, *, after: str | None = None, limit: int = 30
+    ) -> dict[str, object]:
+        """Search all authoritative route nodes with a generation-bound bounded cursor."""
+
+        if not query.strip():
+            raise ValueError("route query cannot be empty")
+        if not 1 <= limit <= 30:
+            raise ValueError("route search limit must be between 1 and 30")
+        with Project.open(self._project_path) as project:
+            route = _route_payload(project)
+        generation = _authority_hash(route)
+        normalized = query.casefold().strip()
+        offset = _decode_search_cursor(after, generation=generation, query=normalized)
+        matches = [
+            item
+            for item in sorted(
+                _records(route.get("nodes"), "nodes"), key=lambda value: (
+                    _integer(value.get("order"), "node order"),
+                    _string(value.get("id"), "node id"),
+                )
+            )
+            if normalized
+            in " ".join(
+                str(item.get(name, "")) for name in ("id", "title", "kind", "lane_id")
+            ).casefold()
+        ]
+        items = matches[offset : offset + limit]
+        next_offset = offset + len(items)
+        return {
+            "query": query,
+            "authority_hash": generation,
+            "items": [_sanitize(item) for item in items],
+            "continuation": (
+                _encode_search_cursor(next_offset, generation=generation, query=normalized)
+                if next_offset < len(matches)
+                else None
+            ),
+            "has_more": next_offset < len(matches),
+            "total_matches": len(matches),
+            "limit": limit,
+        }
 
 
 def _route_payload(project: Project) -> dict[str, object]:
@@ -585,23 +712,30 @@ def _facts_by_id(project: Project) -> dict[str, dict[str, object]]:
     return result
 
 
-def _applied_overlay(project: Project) -> tuple[dict[str, tuple[str, str]], object | None]:
+def _applied_overlay(
+    project: Project, *, generation: str
+) -> tuple[dict[str, dict[str, object]], object | None]:
     row = (
         project._require_open()
         .execute(
             """SELECT assembly_id,payload_hash,payload_json FROM m07_assemblies
-           WHERE status='applied' ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1"""
+           WHERE status='applied' AND generation=?
+           ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1""",
+            (generation,),
         )
         .fetchone()
     )
     if row is None:
         return {}, None
     payload = storage.decode_json(row["payload_json"])
-    overlay: dict[str, tuple[str, str]] = {}
+    overlay: dict[str, dict[str, object]] = {}
     if isinstance(payload, dict) and isinstance(payload.get("items"), list):
         for item in payload["items"]:
             if not isinstance(item, dict) or not isinstance(item.get("result"), dict):
                 continue
+            correction = item.get("correction")
+            correction = correction if isinstance(correction, dict) else {}
+            pinned = bool(item.get("pinned", False))
             encoded = item["result"].get("organization_result")
             if not isinstance(encoded, dict) or not isinstance(encoded.get("groups"), list):
                 continue
@@ -617,7 +751,14 @@ def _applied_overlay(project: Project) -> tuple[dict[str, tuple[str, str]], obje
                 ):
                     for member in members:
                         if isinstance(member, str):
-                            overlay[member] = (title, summary)
+                            overlay[member] = {
+                                "title": correction.get("title", title),
+                                "summary": correction.get("summary", summary),
+                                "claims": group.get("claims", []),
+                                "correction": correction,
+                                "pinned": pinned,
+                                "scope_id": item.get("scope_id"),
+                            }
     return overlay, {
         "assembly_id": str(row["assembly_id"]),
         "payload_hash": str(row["payload_hash"]),
@@ -625,23 +766,29 @@ def _applied_overlay(project: Project) -> tuple[dict[str, tuple[str, str]], obje
 
 
 def _overlay_node(
-    item: Mapping[str, object], overlay: Mapping[str, tuple[str, str]]
+    item: Mapping[str, object], overlay: Mapping[str, Mapping[str, object]]
 ) -> dict[str, object]:
     result = dict(item)
     node_id = item.get("id")
     if isinstance(node_id, str) and node_id in overlay:
-        result["title"], result["summary"] = overlay[node_id]
+        interpretation = overlay[node_id]
+        result["title"] = interpretation["title"]
+        result["summary"] = interpretation["summary"]
         result["organization"] = "ai_interpretation"
+        result["interpretation"] = dict(interpretation)
     else:
         result["summary"] = str(result.get("title", ""))
         result["organization"] = "technical"
+        result["interpretation"] = None
     return result
 
 
-def _assembly_metadata(project: Project) -> list[dict[str, object]]:
+def _assembly_metadata(project: Project, *, generation: str) -> list[dict[str, object]]:
     rows = project._require_open().execute(
         """SELECT assembly_id,generation,status,payload_hash,coverage_json,created_utc,applied_utc
-           FROM m07_assemblies ORDER BY created_utc DESC,assembly_id DESC"""
+           FROM m07_assemblies WHERE generation=? AND status<>'superseded'
+           ORDER BY created_utc DESC,assembly_id DESC""",
+        (generation,),
     )
     return [
         {
@@ -655,6 +802,98 @@ def _assembly_metadata(project: Project) -> list[dict[str, object]]:
         }
         for row in rows
     ]
+
+
+def _require_ai_transmission_allowed(project: Project) -> None:
+    coverage = project.source_coverage()
+    if coverage.get("ai_transmission_blocked") is True:
+        raise PreparedRunError(
+            "AI transmission is blocked until recovered-source coverage is acknowledged"
+        )
+
+
+def _validate_prepared_authority(
+    project: Project, route: Mapping[str, object], prepared: PreparedRun
+) -> None:
+    _require_ai_transmission_allowed(project)
+    if _authority_hash(route) != prepared.authority_hash:
+        raise PreparedRunError("the deterministic route scope changed after preparation")
+    current_scope_ids = tuple(item.id for item in _deterministic_scopes(route))
+    if current_scope_ids != prepared.scope_ids:
+        raise PreparedRunError("the deterministic route scope set changed after preparation")
+
+
+def _guard_provider_transmission(project_path: Path, prepared: PreparedRun) -> None:
+    with Project.open(project_path) as project:
+        _validate_prepared_authority(project, _route_payload(project), prepared)
+
+
+def _require_finite_budget(budget: BudgetPolicy) -> None:
+    if budget.hard_seconds is None or budget.hard_tokens is None or budget.hard_calls is None:
+        raise ValueError("finite hard_seconds, hard_tokens, and hard_calls are required")
+
+
+def _provenance_by_path(project: Project) -> dict[str, Mapping[str, object]]:
+    return {
+        str(item["source_path"]): item
+        for item in project.source_derivations()
+        if isinstance(item.get("source_path"), str)
+    }
+
+
+def _detail_evidence(
+    evidence: Mapping[str, object], provenance: Mapping[str, Mapping[str, object]]
+) -> dict[str, object]:
+    result = dict(evidence)
+    source = evidence.get("source")
+    if not isinstance(source, Mapping):
+        return result
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    if (
+        not isinstance(path, str)
+        or not isinstance(start, Mapping)
+        or not isinstance(end, Mapping)
+        or not isinstance(start.get("line"), int)
+        or isinstance(start.get("line"), bool)
+        or not isinstance(end.get("line"), int)
+        or isinstance(end.get("line"), bool)
+    ):
+        raise storage.ProjectCorruptError("route evidence has invalid nested source lines")
+    derivation = provenance.get(path)
+    result.update(
+        {
+            "source_path": path,
+            "start_line": int(start["line"]),
+            "end_line": int(end["line"]),
+            "line_basis": (
+                derivation.get("line_basis") if derivation is not None else "physical_source"
+            ),
+            "provenance": None if derivation is None else dict(derivation),
+        }
+    )
+    return result
+
+
+def _encode_search_cursor(offset: int, *, generation: str, query: str) -> str:
+    query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
+    return f"m07s_{generation[:16]}_{query_hash}_{offset}"
+
+
+def _decode_search_cursor(after: str | None, *, generation: str, query: str) -> int:
+    if after is None:
+        return 0
+    prefix = _encode_search_cursor(0, generation=generation, query=query).rsplit("_", 1)[0]
+    if not after.startswith(prefix + "_"):
+        raise ValueError("route search continuation is stale or mismatched")
+    raw_offset = after[len(prefix) + 1 :]
+    if not raw_offset.isascii() or not raw_offset.isdigit():
+        raise ValueError("route search continuation is invalid")
+    offset = int(raw_offset)
+    if offset < 0 or offset > 2_000_000:
+        raise ValueError("route search continuation is invalid")
+    return offset
 
 
 def _budget_dict(budget: BudgetPolicy) -> dict[str, object]:
@@ -750,7 +989,9 @@ def _sanitize(value: object, *, key: str = "") -> object:
 
 
 def _is_path_key(key: str) -> bool:
-    return key in {"path", "file", "source_file", "executable"} or key.endswith(("_path", "_file"))
+    return key in {"path", "file", "source_file", "executable", "locator"} or key.endswith(
+        ("_path", "_file")
+    )
 
 
 def _records(value: object, name: str) -> list[dict[str, object]]:
