@@ -7,6 +7,7 @@ from renpy_story_mapper.ingestion.contracts import (
     IngestionSource,
     InputKind,
     RecoveryFailure,
+    SourceCandidate,
     SourceProvenance,
 )
 from renpy_story_mapper.ingestion.service import ingest_input, inspect_input
@@ -18,6 +19,7 @@ __all__ = [
     "IngestionSource",
     "InputKind",
     "RecoveryFailure",
+    "SourceCandidate",
     "SourceProvenance",
     "ingest_input",
     "inspect_input",

@@ -69,6 +69,7 @@ class IngestionPlan:
     selected: tuple[SourceCandidate, ...]
     existing_project: Path | None = None
     warnings: tuple[str, ...] = ()
+    secondary_candidates: tuple[SourceCandidate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,8 @@ class IngestionResult:
     ai_transmission_blocked: bool
     warnings: tuple[str, ...] = ()
     recovery_failures: tuple[RecoveryFailure, ...] = ()
+    secondary_sources: tuple[IngestionSource, ...] = ()
+    secondary_recovery_failures: tuple[RecoveryFailure, ...] = ()
 
     @property
     def content_by_path(self) -> dict[str, bytes]:

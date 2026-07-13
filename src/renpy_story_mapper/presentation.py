@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -128,6 +128,7 @@ class FactRecord:
     start_line: int
     end_line: int
     payload: object
+    variable_display_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,9 @@ class StateVariableRecord:
     display_name: str
     category: str
     user_override: bool
+    default_value: object = None
+    default_declared: bool = False
+    metadata_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -749,7 +753,10 @@ class PresentationService:
                        COALESCE(json_extract(v.value,'$.display_name'),
                                 json_extract(v.value,'$.original_name')) AS display_name,
                        COALESCE(json_extract(v.value,'$.category'),'uncategorized') AS category,
-                       COALESCE(json_extract(v.value,'$.user_override'),0) AS user_override
+                       COALESCE(json_extract(v.value,'$.user_override'),0) AS user_override,
+                       json_extract(v.value,'$.default_value') AS default_value,
+                       COALESCE(json_extract(v.value,'$.default_declared'),0) AS default_declared,
+                       json_extract(v.value,'$.metadata_source') AS metadata_source
                 FROM payloads p, json_each(CAST(p.payload_json AS TEXT)) v
                 WHERE {' AND '.join(clauses)}
                 ORDER BY original_name LIMIT ?""",
@@ -763,6 +770,9 @@ class PresentationService:
                 str(row["display_name"]),
                 str(row["category"]),
                 bool(row["user_override"]),
+                row["default_value"],
+                bool(row["default_declared"]),
+                None if row["metadata_source"] is None else str(row["metadata_source"]),
             )
             for row in rows
         )
@@ -864,6 +874,7 @@ def rebuild_presentation_index(
         for statement in statements:
             _cancel(cancelled)
             connection.execute(statement)
+        _apply_story_metadata_to_presentation(project)
         connection.execute(
             "INSERT INTO presentation_index_state(singleton, generation) VALUES (1, ?)",
             (generation,),
@@ -1012,6 +1023,150 @@ def _facts_insert_sql(collection: str, kind: str) -> str:
     WHERE p.collection='{collection}'"""
 
 
+def _apply_story_metadata_to_presentation(project: Project) -> None:
+    """Apply only exact advisory matches to the derived presentation index."""
+
+    raw = project.payload("story_metadata", "authoritative")
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != 1:
+        return
+    connection = project._require_open()
+    aliases = _metadata_text_map(raw.get("characters"), "alias", "display_name")
+    titles = _metadata_text_map(raw.get("scene_titles"), "key", "title")
+    title_sources = _metadata_text_map(raw.get("scene_titles"), "key", "source")
+
+    for row in connection.execute(
+        "SELECT node_id,label,payload_json FROM presentation_nodes WHERE level=1"
+    ).fetchall():
+        node_id = str(row["node_id"])
+        label = str(row["label"])
+        if label not in titles:
+            continue
+        key = label
+        payload = storage.decode_json(row["payload_json"])
+        if not isinstance(payload, dict):
+            continue
+        enriched = dict(payload)
+        enriched["metadata_title"] = {
+            "key": key,
+            "title": titles[key],
+            "source": title_sources.get(key),
+        }
+        connection.execute(
+            "UPDATE presentation_nodes SET label=?,payload_json=? WHERE node_id=?",
+            (titles[key], storage.canonical_json(enriched), node_id),
+        )
+
+    character_search: set[tuple[str, str]] = set()
+    for row in connection.execute(
+        "SELECT node_id,payload_json FROM presentation_nodes WHERE level=3"
+    ).fetchall():
+        payload = storage.decode_json(row["payload_json"])
+        if not isinstance(payload, dict) or not isinstance(payload.get("content"), list):
+            continue
+        changed = False
+        content: list[object] = []
+        for raw_item in payload["content"]:
+            if not isinstance(raw_item, dict):
+                content.append(raw_item)
+                continue
+            item = dict(raw_item)
+            speaker = item.get("speaker")
+            display_name = aliases.get(speaker) if isinstance(speaker, str) else None
+            if display_name is not None:
+                item["speaker_display_name"] = display_name
+                character_search.add((str(row["node_id"]), display_name))
+                changed = True
+            content.append(item)
+        if changed:
+            enriched = dict(payload)
+            enriched["content"] = content
+            connection.execute(
+                "UPDATE presentation_nodes SET payload_json=? WHERE node_id=?",
+                (storage.canonical_json(enriched), str(row["node_id"])),
+            )
+
+    connection.execute(
+        """UPDATE presentation_evidence
+           SET payload_json=(SELECT n.payload_json FROM presentation_nodes n
+                             WHERE n.node_id=presentation_evidence.node_id)
+           WHERE node_id IN (SELECT node_id FROM presentation_nodes WHERE level=3)"""
+    )
+
+    registry = project.payload("state_registry", "authoritative")
+    display_names = {
+        str(value["original_name"]): str(value["display_name"])
+        for value in registry
+        if isinstance(value, dict)
+        and isinstance(value.get("original_name"), str)
+        and isinstance(value.get("display_name"), str)
+    } if isinstance(registry, list) else {}
+    variable_search: set[tuple[str, str]] = set()
+    for row in connection.execute(
+        """SELECT fact_id,node_id,variable,payload_json FROM presentation_facts
+           WHERE variable IS NOT NULL"""
+    ).fetchall():
+        display_name = display_names.get(str(row["variable"]))
+        payload = storage.decode_json(row["payload_json"])
+        if display_name is None or not isinstance(payload, dict):
+            continue
+        enriched = dict(payload)
+        enriched["variable_display_name"] = display_name
+        connection.execute(
+            "UPDATE presentation_facts SET payload_json=? WHERE fact_id=?",
+            (storage.canonical_json(enriched), str(row["fact_id"])),
+        )
+        variable_search.add(
+            (
+                str(row["node_id"] if row["node_id"] is not None else row["fact_id"]),
+                display_name,
+            )
+        )
+
+    connection.execute(
+        """DELETE FROM presentation_search
+           WHERE field IN ('label','event_title','character','variable_display_name')"""
+    )
+    connection.execute(
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+           SELECT n.node_id,CASE WHEN n.level=1 THEN 'label' ELSE 'event_title' END,
+                  COALESCE(o.display_name,n.label),lower(COALESCE(o.display_name,n.label))
+           FROM presentation_nodes n LEFT JOIN presentation_overrides o ON o.node_id=n.node_id
+           WHERE n.level IN (1,2)"""
+    )
+    connection.executemany(
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+           VALUES (?,'character',?,?)""",
+        ((node_id, name, name.casefold()) for node_id, name in sorted(character_search)),
+    )
+    connection.executemany(
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+           VALUES (?,'variable_display_name',?,?)""",
+        ((node_id, name, name.casefold()) for node_id, name in sorted(variable_search)),
+    )
+
+
+def _metadata_text_map(
+    value: object, key_field: str, value_field: str
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    duplicates: set[str] = set()
+    if not isinstance(value, list):
+        return result
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        key = raw.get(key_field)
+        text = raw.get(value_field)
+        if not isinstance(key, str) or not key or not isinstance(text, str) or not text:
+            continue
+        if key in result or key in duplicates:
+            result.pop(key, None)
+            duplicates.add(key)
+            continue
+        result[key] = text
+    return result
+
+
 def _node_from_row(row: sqlite3.Row) -> PresentationNode:
     child_count = int(row["child_count"])
     return PresentationNode(
@@ -1033,12 +1188,18 @@ def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
 
 
 def _fact_from_row(row: sqlite3.Row) -> FactRecord:
+    payload = storage.decode_json(row["payload_json"])
+    display_name = (
+        str(payload["variable_display_name"])
+        if isinstance(payload, dict) and isinstance(payload.get("variable_display_name"), str)
+        else None
+    )
     return FactRecord(
         str(row["fact_id"]), None if row["node_id"] is None else str(row["node_id"]),
         str(row["fact_kind"]), None if row["variable"] is None else str(row["variable"]),
         None if row["category"] is None else str(row["category"]), str(row["status"]),
         str(row["expression"]), str(row["source_path"]), int(row["start_line"]),
-        int(row["end_line"]), storage.decode_json(row["payload_json"]),
+        int(row["end_line"]), payload, display_name,
     )
 
 
@@ -1057,7 +1218,9 @@ def _presentation_generation(connection: sqlite3.Connection) -> str:
 
     rows = connection.execute(
         """SELECT collection, record_key, payload_hash FROM payloads
-        WHERE collection IN ('m02_semantic', 'gates', 'effects', 'state_registry')
+        WHERE collection IN (
+          'm02_semantic', 'gates', 'effects', 'state_registry', 'story_metadata'
+        )
         ORDER BY collection, record_key"""
     )
     digest = hashlib.sha256()

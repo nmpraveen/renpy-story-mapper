@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from renpy_story_mapper import storage
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
@@ -43,8 +44,16 @@ from renpy_story_mapper.project import (
 from renpy_story_mapper.route_map import RouteMap, project_route_map
 from renpy_story_mapper.rpa import RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
-from renpy_story_mapper.state import FactStatus, StateAnalysis, StateEvidence, extract_state
+from renpy_story_mapper.state import (
+    FactStatus,
+    StateAnalysis,
+    StateEvidence,
+    default_display_name,
+    extract_state,
+    infer_state_category,
+)
 from renpy_story_mapper.storage import ProjectOperationCancelled, canonical_json
+from renpy_story_mapper.story_metadata import StoryMetadataLimitError, extract_story_metadata
 
 CancelCheck = Callable[[], bool] | None
 
@@ -75,13 +84,24 @@ def create_input_project(
         },
     )
     try:
-        metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+        all_sources = (*result.sources, *result.secondary_sources)
+        fingerprints = tuple(
+            SourceFingerprint.from_bytes(
+                source.path,
+                source.content,
+                metadata=source.provenance.to_dict(),
+            )
+            for source in all_sources
+        )
+        story_metadata = _input_story_metadata(result, cancel_check)
         _refresh_open_project(
             project,
             result.content_by_path,
             entry_label=entry_label,
             cancel_check=cancel_check,
-            source_metadata=metadata,
+            source_fingerprints=fingerprints,
+            story_metadata=story_metadata,
+            story_metadata_source_paths=tuple(source.path for source in all_sources),
         )
         project.replace_ingestion_provenance(result)
         return project
@@ -118,13 +138,24 @@ def refresh_input_project(
         staged = Project.open(temporary)
         try:
             entry_label = str(staged.metadata().get("entry_label", "start"))
-            metadata = {source.path: source.provenance.to_dict() for source in result.sources}
+            all_sources = (*result.sources, *result.secondary_sources)
+            fingerprints = tuple(
+                SourceFingerprint.from_bytes(
+                    source.path,
+                    source.content,
+                    metadata=source.provenance.to_dict(),
+                )
+                for source in all_sources
+            )
+            story_metadata = _input_story_metadata(result, cancel_check)
             report = _refresh_open_project(
                 staged,
                 result.content_by_path,
                 entry_label=entry_label,
                 cancel_check=cancel_check,
-                source_metadata=metadata,
+                source_fingerprints=fingerprints,
+                story_metadata=story_metadata,
+                story_metadata_source_paths=tuple(source.path for source in all_sources),
             )
             staged.replace_ingestion_provenance(result)
             staged.set_metadata({"source_coverage_complete": result.complete})
@@ -317,6 +348,81 @@ def project_snapshot(project: Project) -> dict[str, object]:
     }
 
 
+def persist_story_metadata(
+    project: Project,
+    payload: Mapping[str, object],
+    *,
+    source_paths: Sequence[str],
+    cancel_check: CancelCheck = None,
+) -> bool:
+    """Persist deterministic advisory metadata and refresh only its derived presentation.
+
+    The caller supplies logical source paths that already exist in the project source inventory.
+    ``True`` means either the metadata payload/dependencies or merged state registry changed.
+    """
+
+    value = _validated_story_metadata(payload)
+    dependencies = tuple(sorted(set(source_paths)))
+    if len(dependencies) != len(source_paths):
+        raise ValueError("story metadata source_paths must be unique")
+    _check_cancelled(cancel_check)
+
+    previous_metadata = project.payload("story_metadata", "authoritative")
+    previous_registry = project.payload("state_registry", "authoritative")
+    registry = _story_metadata_state_registry(previous_registry, value)
+    metadata_changed = previous_metadata != value or _payload_source_paths(
+        project, "story_metadata", "authoritative"
+    ) != dependencies
+    registry_changed = previous_registry != registry
+    if not metadata_changed and not registry_changed:
+        return False
+
+    records: list[PayloadRecord] = []
+    if metadata_changed:
+        records.append(PayloadRecord("story_metadata", "authoritative", value, dependencies))
+    if registry_changed:
+        registry_dependencies = _payload_source_paths(
+            project, "state_registry", "authoritative"
+        )
+        records.append(
+            PayloadRecord(
+                "state_registry", "authoritative", registry, registry_dependencies
+            )
+        )
+    project.write_payloads(records, cancelled=cancel_check)
+    from renpy_story_mapper.presentation import rebuild_presentation_index
+
+    rebuild_presentation_index(project, cancelled=cancel_check)
+    return True
+
+
+def _input_story_metadata(result: object, cancel_check: CancelCheck) -> dict[str, object]:
+    from renpy_story_mapper.ingestion.contracts import IngestionResult
+
+    if not isinstance(result, IngestionResult):
+        raise TypeError("result must be an IngestionResult")
+    try:
+        return extract_story_metadata(
+            result.sources,
+            result.secondary_sources,
+            cancel_check=cancel_check,
+        )
+    except StoryMetadataLimitError as exc:
+        return {
+            "schema_version": 1,
+            "characters": [],
+            "state_hints": [],
+            "scene_titles": [],
+            "sources": [],
+            "diagnostics": [
+                {
+                    "code": "metadata_limits_exceeded",
+                    "message": " ".join(str(exc).split())[:500],
+                }
+            ],
+        }
+
+
 def _refresh_open_project(
     project: Project,
     content_by_path: Mapping[str, bytes],
@@ -324,23 +430,32 @@ def _refresh_open_project(
     entry_label: str,
     cancel_check: CancelCheck,
     source_metadata: Mapping[str, object] | None = None,
+    source_fingerprints: Sequence[SourceFingerprint] | None = None,
+    story_metadata: Mapping[str, object] | None = None,
+    story_metadata_source_paths: Sequence[str] = (),
 ) -> RefreshReport:
     previous_dependencies = _stored_dependencies(project)
     previous_registry = project.payload("state_registry", "authoritative")
-    fingerprints = tuple(
-        SourceFingerprint.from_bytes(
-            path,
-            content_by_path[path],
-            metadata=(
-                cast(Mapping[str, object], source_metadata[path])
-                if source_metadata is not None
-                else None
-            ),
+    previous_story_metadata = project.payload("story_metadata", "authoritative")
+    fingerprints = (
+        tuple(source_fingerprints)
+        if source_fingerprints is not None
+        else tuple(
+            SourceFingerprint.from_bytes(
+                path,
+                content_by_path[path],
+                metadata=(
+                    cast(Mapping[str, object], source_metadata[path])
+                    if source_metadata is not None
+                    else None
+                ),
+            )
+            for path in sorted(content_by_path)
         )
-        for path in sorted(content_by_path)
     )
     refresh = project.refresh_sources(fingerprints, cancelled=cancel_check)
-    parsed_paths = set(refresh.changed)
+    canonical_paths = set(content_by_path)
+    parsed_paths = set(refresh.changed) & canonical_paths
     modules: dict[str, ScriptModule] = {}
     for path in sorted(content_by_path):
         _check_cancelled(cancel_check)
@@ -374,6 +489,11 @@ def _refresh_open_project(
     ).to_dict()
     route_map = project_route_map(control_flow, semantic, state.requirements, state.effects)
 
+    effective_story_metadata = (
+        _validated_story_metadata(story_metadata)
+        if story_metadata is not None
+        else previous_story_metadata
+    )
     records = _analysis_records(
         modules,
         dependencies,
@@ -384,7 +504,20 @@ def _refresh_open_project(
         state,
         parsed_paths,
         previous_registry,
+        effective_story_metadata,
     )
+    if story_metadata is not None:
+        metadata_dependencies = tuple(sorted(set(story_metadata_source_paths)))
+        if len(metadata_dependencies) != len(story_metadata_source_paths):
+            raise ValueError("story metadata source paths must be unique")
+        records.append(
+            PayloadRecord(
+                "story_metadata",
+                "authoritative",
+                effective_story_metadata,
+                metadata_dependencies,
+            )
+        )
     project.write_payloads(records, cancelled=cancel_check)
     project.m07_model_service().register_scopes(
         route_map.scopes, generation=route_map.authority_hash
@@ -393,7 +526,7 @@ def _refresh_open_project(
 
     rebuild_presentation_index(project, cancelled=cancel_check)
     project.organization_service().reconcile_after_refresh()
-    reused = set(refresh.unchanged) - parsed_paths
+    reused = (set(refresh.unchanged) & canonical_paths) - parsed_paths
     return RefreshReport(
         tuple(sorted(parsed_paths)),
         tuple(sorted(reused)),
@@ -412,6 +545,7 @@ def _analysis_records(
     state: StateAnalysis,
     parsed_paths: set[str],
     previous_registry: object,
+    story_metadata: object,
 ) -> list[PayloadRecord]:
     all_paths = tuple(sorted(modules))
     records: list[PayloadRecord] = []
@@ -466,6 +600,7 @@ def _analysis_records(
             records.append(PayloadRecord("unresolved", path, ordered, (path,)))
     variables = [_state_variable_value(item.to_dict()) for item in state.variables]
     variables = _merge_state_variable_metadata(variables, previous_registry)
+    variables = _story_metadata_state_registry(variables, story_metadata)
     records.append(PayloadRecord("state_registry", "authoritative", variables, all_paths))
     return records
 
@@ -512,6 +647,198 @@ def _merge_state_variable_metadata(
             if field in old:
                 value[field] = old[field]
     return inferred
+
+
+def _validated_story_metadata(payload: Mapping[str, object]) -> dict[str, object]:
+    if payload.get("schema_version") != 1 or isinstance(payload.get("schema_version"), bool):
+        raise ValueError("story metadata schema_version must be 1")
+    result = dict(payload)
+    for collection in ("characters", "state_hints", "scene_titles", "sources", "diagnostics"):
+        raw_items = payload.get(collection)
+        if not isinstance(raw_items, list):
+            raise ValueError(f"story metadata {collection} must be an array")
+        items: list[dict[str, object]] = []
+        for index, raw in enumerate(raw_items):
+            if not isinstance(raw, Mapping):
+                raise ValueError(f"story metadata {collection}[{index}] must be an object")
+            items.append(dict(raw))
+        result[collection] = items
+
+    aliases: set[str] = set()
+    for index, item in enumerate(cast(list[dict[str, object]], result["characters"])):
+        alias = _metadata_text(item, "alias", f"characters[{index}]")
+        _metadata_text(item, "display_name", f"characters[{index}]")
+        _validated_metadata_source(item.get("source"), f"characters[{index}].source", True)
+        if alias in aliases:
+            raise ValueError(f"story metadata characters contains duplicate alias {alias!r}")
+        aliases.add(alias)
+
+    hint_keys: set[tuple[str, str]] = set()
+    for index, item in enumerate(cast(list[dict[str, object]], result["state_hints"])):
+        name = _metadata_text(item, "name", f"state_hints[{index}]")
+        kind = _metadata_text(item, "kind", f"state_hints[{index}]")
+        if kind == "default":
+            if "default" not in item:
+                raise ValueError(f"story metadata state_hints[{index}].default is required")
+            storage.canonical_json(item["default"])
+        elif kind in {"display_label", "semantic_label"}:
+            _metadata_text(item, "display_name", f"state_hints[{index}]")
+            if kind == "semantic_label":
+                _metadata_text(item, "category", f"state_hints[{index}]")
+        else:
+            raise ValueError(f"story metadata state_hints[{index}].kind is unsupported")
+        _validated_metadata_source(item.get("source"), f"state_hints[{index}].source", True)
+        identity = (name, kind)
+        if identity in hint_keys:
+            raise ValueError(
+                f"story metadata state_hints contains duplicate {kind} for {name!r}"
+            )
+        hint_keys.add(identity)
+
+    for index, item in enumerate(cast(list[dict[str, object]], result["scene_titles"])):
+        _metadata_text(item, "title", f"scene_titles[{index}]")
+        _metadata_text(item, "collection", f"scene_titles[{index}]")
+        _validated_metadata_source(item.get("source"), f"scene_titles[{index}].source", True)
+        if "key" in item:
+            _metadata_text(item, "key", f"scene_titles[{index}]")
+
+    for index, item in enumerate(cast(list[dict[str, object]], result["sources"])):
+        _validated_metadata_source(item, f"sources[{index}]", False)
+    return result
+
+
+def _metadata_text(value: Mapping[str, object], field: str, context: str) -> str:
+    text = value.get(field)
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"story metadata {context}.{field} must be non-empty text")
+    return text
+
+
+def _validated_metadata_source(value: object, context: str, require_span: bool) -> None:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"story metadata {context} must be an object")
+    for field in ("path", "role", "locator", "fingerprint", "line_basis"):
+        _metadata_text(value, field, context)
+    if require_span and not isinstance(value.get("span"), Mapping):
+        raise ValueError(f"story metadata {context}.span must be an object")
+
+
+def _story_metadata_state_registry(registry: object, metadata: object) -> list[dict[str, object]]:
+    values: list[dict[str, object]] = []
+    if isinstance(registry, list):
+        for raw in registry:
+            if not isinstance(raw, dict) or not isinstance(raw.get("original_name"), str):
+                raise storage.ProjectCorruptError("state registry contains an invalid record")
+            value = dict(raw)
+            if not bool(value.get("user_override")):
+                if value.get("display_name") == value.get("metadata_display_name"):
+                    value["display_name"] = default_display_name(cast(str, value["original_name"]))
+                if value.get("category") == value.get("metadata_category"):
+                    value["category"] = infer_state_category(
+                        cast(str, value["original_name"])
+                    ).value
+            for field in (
+                "metadata_display_name",
+                "metadata_category",
+                "metadata_source",
+                "default_value",
+                "default_declared",
+            ):
+                value.pop(field, None)
+            values.append(value)
+
+    hints = _metadata_state_hints(metadata)
+
+    merged: list[dict[str, object]] = []
+    by_name: dict[str, dict[str, object]] = {
+        cast(str, value["original_name"]): value for value in values
+    }
+    for name, hint in hints.items():
+        state_record = by_name.get(name)
+        if state_record is None:
+            state_record = {
+                "original_name": name,
+                "display_name": default_display_name(name),
+                "category": infer_state_category(name).value,
+                "evidence": [],
+                "id": _stable_record_id("state_variable", {"original_name": name}),
+                "metadata_only": True,
+            }
+            values.append(state_record)
+            by_name[name] = state_record
+        display_name = hint.get("display_name")
+        category = hint.get("category")
+        if (
+            isinstance(display_name, str)
+            and isinstance(category, str)
+            and not bool(state_record.get("user_override"))
+        ):
+            state_record["display_name"] = display_name
+            state_record["category"] = category
+        if isinstance(display_name, str) and isinstance(category, str):
+            state_record["metadata_display_name"] = display_name
+            state_record["metadata_category"] = category
+        state_record["metadata_source"] = hint["source"]
+        if "default_value" in hint:
+            state_record["default_value"] = hint["default_value"]
+            state_record["default_declared"] = True
+
+    for value in values:
+        name = cast(str, value["original_name"])
+        if value.get("metadata_only") and name not in hints:
+            continue
+        merged.append(value)
+    merged.sort(key=lambda item: cast(str, item["original_name"]))
+    return merged
+
+
+def _metadata_state_hints(metadata: object) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    if not isinstance(metadata, Mapping) or not isinstance(metadata.get("state_hints"), list):
+        return result
+    for raw in cast(list[object], metadata["state_hints"]):
+        if not isinstance(raw, Mapping):
+            continue
+        name = raw.get("name")
+        kind = raw.get("kind")
+        source = raw.get("source")
+        if (
+            not isinstance(name, str)
+            or not isinstance(kind, str)
+            or not isinstance(source, Mapping)
+        ):
+            continue
+        hint = result.setdefault(name, {})
+        if kind == "default" and "default" in raw:
+            hint["default_value"] = raw["default"]
+            hint.setdefault("source", _metadata_source_path(source))
+        elif kind in {"display_label", "semantic_label"} and isinstance(
+            raw.get("display_name"), str
+        ):
+            display_name = cast(str, raw["display_name"])
+            if kind == "semantic_label" or "display_name" not in hint:
+                hint["display_name"] = display_name
+                hint["category"] = (
+                    cast(str, raw["category"])
+                    if kind == "semantic_label" and isinstance(raw.get("category"), str)
+                    else infer_state_category(f"{name}_{display_name}").value
+                )
+                hint["source"] = _metadata_source_path(source)
+    return result
+
+
+def _metadata_source_path(source: Mapping[str, object]) -> str:
+    path = source.get("path")
+    return path if isinstance(path, str) else "metadata"
+
+
+def _payload_source_paths(project: Project, collection: str, key: str) -> tuple[str, ...]:
+    rows = project._require_open().execute(
+        """SELECT source_path FROM payload_dependencies
+           WHERE collection=? AND record_key=? ORDER BY source_path""",
+        (collection, key),
+    )
+    return tuple(str(row[0]) for row in rows)
 
 
 def _semantic_unresolved_by_path(

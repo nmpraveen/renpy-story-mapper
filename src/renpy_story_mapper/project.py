@@ -233,15 +233,16 @@ class Project:
         """Atomically persist schema-v5 derivations, recovery results, and coverage."""
 
         connection = self._require_open()
+        all_sources = (*result.sources, *result.secondary_sources)
         known = {source.path for source in self.sources()}
-        incoming = {source.path for source in result.sources}
+        incoming = {source.path for source in all_sources}
         if incoming != known:
             raise ValueError("ingestion provenance must exactly cover current project sources")
         now = storage.utc_now()
         with storage.transaction(connection):
             connection.execute("DELETE FROM source_derivations")
             connection.execute("DELETE FROM recovery_results")
-            for source in result.sources:
+            for source in all_sources:
                 provenance = source.provenance
                 identity = storage.canonical_json(
                     {"source_path": source.path, **provenance.to_dict()}
@@ -298,7 +299,7 @@ class Project:
                             now,
                         ),
                     )
-            for failure in result.recovery_failures:
+            for failure in (*result.recovery_failures, *result.secondary_recovery_failures):
                 identity = storage.canonical_json(
                     {
                         "logical_path": failure.logical_path,
@@ -707,17 +708,25 @@ class Project:
             variables.append(value)
         if not found:
             raise KeyError(f"state variable does not exist: {original_name}")
+        connection = self._require_open()
         self.write_payloads(
             [
                 PayloadRecord(
                     "state_registry",
                     "authoritative",
                     variables,
-                    tuple(source.path for source in self.sources()),
+                    tuple(
+                        str(row[0])
+                        for row in connection.execute(
+                            """SELECT source_path FROM payload_dependencies
+                               WHERE collection='state_registry'
+                                 AND record_key='authoritative'
+                               ORDER BY source_path"""
+                        )
+                    ),
                 )
             ]
         )
-        connection = self._require_open()
         with storage.transaction(connection):
             if category is not None:
                 connection.execute(
