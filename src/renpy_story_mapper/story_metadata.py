@@ -16,6 +16,9 @@ STORY_METADATA_SCHEMA_VERSION = 1
 _DEFINE = re.compile(r"^(\s*)define\s+([A-Za-z_]\w*)\s*=\s*(.+)$")
 _DEFAULT = re.compile(r"^(\s*)default\s+([A-Za-z_]\w*)\s*=\s*(.+)$")
 _TEXT = re.compile(r"^(\s*)text\s+(.+?)\s*$")
+_LEADING_STRING = re.compile(
+    r"^(?P<literal>[rRuUbBfF]*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))(?:\s+.*)?$"
+)
 _DISPLAY_VARIABLE = re.compile(r"^\[([A-Za-z_]\w*)\]$")
 _MEMORY_CONSTRUCTORS = {
     "memory",
@@ -23,6 +26,15 @@ _MEMORY_CONSTRUCTORS = {
     "memory_item",
     "memoryentry",
     "memoryitem",
+    "memorias",
+}
+_CHARACTER_STATE_KEYWORDS = {
+    "points": ("points", "relationship"),
+    "romance_points": ("romance", "relationship"),
+    "sexuality_points": ("sexuality", "relationship"),
+    "dom_points": ("domination", "relationship"),
+    "sub_points": ("submission", "relationship"),
+    "trait": ("trait", "skill"),
 }
 _NOT_LITERAL = object()
 
@@ -139,10 +151,10 @@ def extract_story_metadata(
                 expression = _expression(define.group(3))
                 if _character_call(expression):
                     display_name = _character_name(expression)
-                    if display_name is None:
+                    if display_name is None or not display_name.strip():
                         diagnostics.add(
                             "dynamic_character_name",
-                            "Character name is not one unambiguous literal string",
+                            "Character name is not one non-empty unambiguous literal string",
                             evidence,
                         )
                     else:
@@ -186,7 +198,8 @@ def extract_story_metadata(
 
             text = _TEXT.match(line)
             if text is not None:
-                expression = _expression(text.group(2))
+                literal = _LEADING_STRING.match(text.group(2))
+                expression = _expression(literal.group("literal")) if literal is not None else None
                 if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
                     screen_texts.append(_ScreenText(expression.value, line_number, evidence))
                 else:
@@ -216,6 +229,18 @@ def extract_story_metadata(
                     scene_titles.append(record)
                     record_count = _count(record_count, configured)
 
+            for variable, display_name, category in _character_state_hints(line):
+                state_hints.append(
+                    {
+                        "name": variable,
+                        "kind": "semantic_label",
+                        "display_name": display_name,
+                        "category": category,
+                        "source": evidence,
+                    }
+                )
+                record_count = _count(record_count, configured)
+
         position = 0
         while position + 1 < len(screen_texts):
             _check_cancelled(cancel_check)
@@ -242,15 +267,28 @@ def extract_story_metadata(
             record_count = _count(record_count, configured)
             position += 2
 
+    characters = _unambiguous_records(
+        characters,
+        ("alias",),
+        diagnostics,
+        "ambiguous_character_alias",
+        "conflicting character aliases were omitted",
+    )
+    state_hints = _unambiguous_records(
+        state_hints,
+        ("name", "kind"),
+        diagnostics,
+        "ambiguous_state_hint",
+        "conflicting state metadata hints were omitted",
+    )
     payload: dict[str, object] = {
         "schema_version": STORY_METADATA_SCHEMA_VERSION,
         "characters": sorted(characters, key=_sort_key),
         "state_hints": sorted(state_hints, key=_sort_key),
+        "scene_titles": sorted(scene_titles, key=_sort_key),
         "sources": source_records,
         "diagnostics": sorted(diagnostics.result(), key=_sort_key),
     }
-    if scene_titles:
-        payload["scene_titles"] = sorted(scene_titles, key=_sort_key)
     return payload
 
 
@@ -398,6 +436,40 @@ def _memory_statement(line: str) -> tuple[str | None, str | None, str] | None:
     return title, thumbnail, collection
 
 
+def _character_state_hints(line: str) -> tuple[tuple[str, str, str], ...]:
+    stripped = line.strip().removesuffix(",")
+    if "Character(" not in stripped or "=" not in stripped:
+        return ()
+    expression = _expression(stripped)
+    if expression is None:
+        return ()
+    calls = [node for node in ast.walk(expression) if isinstance(node, ast.Call)]
+    for call in calls:
+        name = _name(call.func)
+        if name is None or not name.rsplit(".", 1)[-1].endswith("Character"):
+            continue
+        if not call.args:
+            continue
+        character = _literal_string(call.args[0])
+        if character is None or not character.strip():
+            continue
+        result: list[tuple[str, str, str]] = []
+        for keyword in call.keywords:
+            if keyword.arg not in _CHARACTER_STATE_KEYWORDS or not isinstance(
+                keyword.value, ast.Name
+            ):
+                continue
+            label, category = _CHARACTER_STATE_KEYWORDS[keyword.arg]
+            display_name = (
+                label.capitalize()
+                if keyword.arg in {"dom_points", "sub_points"}
+                else f"{character.title()} {label}"
+            )
+            result.append((keyword.value.id, display_name, category))
+        return tuple(result)
+    return ()
+
+
 def _memory_call(value: ast.Call) -> bool:
     name = _name(value.func)
     return name is not None and name.rsplit(".", 1)[-1].casefold() in _MEMORY_CONSTRUCTORS
@@ -463,6 +535,32 @@ def _count(current: int, limits: StoryMetadataLimits) -> int:
     if current > limits.max_records:
         raise StoryMetadataLimitError("metadata record count exceeds configured limit")
     return current
+
+
+def _unambiguous_records(
+    records: list[dict[str, object]],
+    identity_fields: tuple[str, ...],
+    diagnostics: _Diagnostics,
+    code: str,
+    message: str,
+) -> list[dict[str, object]]:
+    groups: dict[tuple[object, ...], list[dict[str, object]]] = {}
+    for record in records:
+        groups.setdefault(tuple(record[field] for field in identity_fields), []).append(record)
+    result: list[dict[str, object]] = []
+    for identity in sorted(groups, key=lambda value: repr(value)):
+        group = groups[identity]
+        signatures = {
+            _sort_key({key: value for key, value in record.items() if key != "source"})
+            for record in group
+        }
+        if len(signatures) == 1:
+            result.append(min(group, key=_sort_key))
+            continue
+        source = group[0].get("source")
+        if isinstance(source, dict):
+            diagnostics.add(code, message, source)
+    return result
 
 
 def _sort_key(value: dict[str, object]) -> str:

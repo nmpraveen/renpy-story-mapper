@@ -83,10 +83,13 @@ def inspect_input(
             archives.append(archive)
         archives.sort(key=lambda item: item.as_posix().casefold())
         archive_names = {archive.name.casefold() for archive in archives}
-        quarantine_extras = {"scripts.rpa", "extras.rpa"}.issubset(archive_names)
+        scripts_authoritative = "scripts.rpa" in archive_names
         for archive in archives:
+            archive_name = archive.name.casefold()
+            if scripts_authoritative and archive_name not in {"scripts.rpa", "extras.rpa"}:
+                continue
             archive_candidates = _archive_candidates(archive, configured, cancel_check)
-            if quarantine_extras and archive.name.casefold() == "extras.rpa":
+            if scripts_authoritative and archive_name == "extras.rpa":
                 secondary_candidates.extend(archive_candidates)
             else:
                 candidates.extend(archive_candidates)

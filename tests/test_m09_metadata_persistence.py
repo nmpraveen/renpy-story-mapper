@@ -33,31 +33,62 @@ def _project(tmp_path: Path) -> Path:
 
 
 def _metadata(*, lust_name: str = "Wanda LUST") -> dict[str, object]:
+    def source(path: str) -> dict[str, object]:
+        return {
+            "path": path,
+            "role": "canonical",
+            "locator": path,
+            "fingerprint": "a" * 64,
+            "line_basis": "reconstructed_source",
+            "span": {
+                "start": {"line": 1, "column": 1},
+                "end": {"line": 1, "column": 10},
+            },
+        }
+
     return {
         "schema_version": 1,
         "characters": [
-            {"alias": "w", "display_name": "Wanda", "source": "characters.rpyc"}
+            {"alias": "w", "display_name": "Wanda", "source": source("characters.rpy")}
         ],
         "state_hints": [
             {
-                "variable": "lust",
-                "display_name": lust_name,
-                "category": "relationship",
-                "default_value": 0,
-                "source": "wanda_attributes.rpyc",
+                "name": "lust",
+                "kind": "default",
+                "default": 0,
+                "source": source("wanda_attributes.rpy"),
             },
             {
-                "variable": "gen",
+                "name": "lust",
+                "kind": "display_label",
+                "display_name": lust_name,
+                "source": source("character_screen.rpy"),
+            },
+            {
+                "name": "gen",
+                "kind": "default",
+                "default": 0,
+                "source": source("wanda_attributes.rpy"),
+            },
+            {
+                "name": "gen",
+                "kind": "display_label",
                 "display_name": "Gene points",
-                "category": "relationship",
-                "default_value": 0,
-                "source": "character_screen.rpyc",
+                "source": source("character_screen.rpy"),
             },
         ],
         "scene_titles": [
-            {"key": "start", "title": "Opening Memory", "source": "extras_core.rpyc"}
+            {
+                "key": "start",
+                "title": "Opening Memory",
+                "collection": "memories",
+                "source": source("extras_core.rpy"),
+            }
         ],
-        "sources": ["characters.rpyc", "wanda_attributes.rpyc", "extras_core.rpyc"],
+        "sources": [
+            {key: value for key, value in source(path).items() if key != "span"}
+            for path in ("characters.rpy", "wanda_attributes.rpy", "extras_core.rpy")
+        ],
         "diagnostics": [],
     }
 
@@ -119,6 +150,7 @@ def test_metadata_persists_without_changing_graph_authority_and_enriches_surface
         narrative = next(node for node in beats if node.kind == "narrative")
         assert narrative.payload["content"][0]["speaker_display_name"] == "Wanda"  # type: ignore[index]
         assert service.search("Wanda", fields=("character",)).items
+        assert service.search("Wanda LUST", fields=("variable_display_name",)).items
         variables = {item.original_name: item for item in service.state_variables().items}  # type: ignore[attr-defined]
         assert variables["lust"].display_name == "Wanda LUST"
         assert variables["lust"].default_declared is True
@@ -138,7 +170,7 @@ def test_user_override_wins_refresh_and_removed_metadata_is_reversible(tmp_path:
 
     refresh_project(path, tmp_path / "game")
     changed = _metadata(lust_name="Replacement")
-    changed["state_hints"] = [changed["state_hints"][0]]  # type: ignore[index]
+    changed["state_hints"] = changed["state_hints"][:2]  # type: ignore[index]
     with Project.open(path) as project:
         persist_story_metadata(project, changed, source_paths=("story.rpy",))
         state_page = project.presentation_service().state_variables()
@@ -199,9 +231,10 @@ def test_changed_metadata_dependency_invalidates_only_advisory_payload(tmp_path:
 def test_metadata_validation_is_narrow_and_fail_closed(tmp_path: Path) -> None:
     path = _project(tmp_path)
     invalid = _metadata()
+    source = invalid["characters"][0]["source"]  # type: ignore[index]
     invalid["characters"] = [
-        {"alias": "w", "display_name": "Wanda", "source": "one"},
-        {"alias": "w", "display_name": "Other", "source": "two"},
+        {"alias": "w", "display_name": "Wanda", "source": source},
+        {"alias": "w", "display_name": "Other", "source": source},
     ]
     with Project.open(path) as project:
         with pytest.raises(ValueError, match="duplicate alias"):

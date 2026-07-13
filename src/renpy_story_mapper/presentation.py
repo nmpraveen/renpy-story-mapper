@@ -1100,8 +1100,10 @@ def _apply_story_metadata_to_presentation(project: Project) -> None:
         and isinstance(value.get("original_name"), str)
         and isinstance(value.get("display_name"), str)
     } if isinstance(registry, list) else {}
+    variable_search: set[tuple[str, str]] = set()
     for row in connection.execute(
-        "SELECT fact_id,variable,payload_json FROM presentation_facts WHERE variable IS NOT NULL"
+        """SELECT fact_id,node_id,variable,payload_json FROM presentation_facts
+           WHERE variable IS NOT NULL"""
     ).fetchall():
         display_name = display_names.get(str(row["variable"]))
         payload = storage.decode_json(row["payload_json"])
@@ -1113,9 +1115,16 @@ def _apply_story_metadata_to_presentation(project: Project) -> None:
             "UPDATE presentation_facts SET payload_json=? WHERE fact_id=?",
             (storage.canonical_json(enriched), str(row["fact_id"])),
         )
+        variable_search.add(
+            (
+                str(row["node_id"] if row["node_id"] is not None else row["fact_id"]),
+                display_name,
+            )
+        )
 
     connection.execute(
-        "DELETE FROM presentation_search WHERE field IN ('label','event_title','character')"
+        """DELETE FROM presentation_search
+           WHERE field IN ('label','event_title','character','variable_display_name')"""
     )
     connection.execute(
         """INSERT INTO presentation_search(node_id,field,text,normalized)
@@ -1128,6 +1137,11 @@ def _apply_story_metadata_to_presentation(project: Project) -> None:
         """INSERT INTO presentation_search(node_id,field,text,normalized)
            VALUES (?,'character',?,?)""",
         ((node_id, name, name.casefold()) for node_id, name in sorted(character_search)),
+    )
+    connection.executemany(
+        """INSERT INTO presentation_search(node_id,field,text,normalized)
+           VALUES (?,'variable_display_name',?,?)""",
+        ((node_id, name, name.casefold()) for node_id, name in sorted(variable_search)),
     )
 
 

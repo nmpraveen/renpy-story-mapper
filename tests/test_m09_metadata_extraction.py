@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from ingestion_fixtures import make_modern_rpyc, make_rpa
-from renpy_story_mapper import storage
+from renpy_story_mapper import project_analysis, storage
 from renpy_story_mapper.ingestion import IngestionOptions, ingest_input, inspect_input
 from renpy_story_mapper.ingestion.contracts import (
     IngestionSource,
@@ -14,6 +14,8 @@ from renpy_story_mapper.ingestion.contracts import (
     SourceTier,
 )
 from renpy_story_mapper.ingestion.errors import IngestionError
+from renpy_story_mapper.project import Project
+from renpy_story_mapper.project_analysis import create_input_project, refresh_input_project
 from renpy_story_mapper.story_metadata import (
     StoryMetadataLimitError,
     StoryMetadataLimits,
@@ -71,11 +73,17 @@ def test_exact_extras_coexistence_quarantines_replay_and_recovers_separately(
         },
     )
 
+    make_rpa(
+        game / "images.rpa",
+        {"accidental_story.rpy": b"label must_not_be_discovered:\n    return\n"},
+    )
+
     before = {
         path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in game.glob("*.rpa")
     }
     plan = inspect_input(game, _options(tmp_path))
     assert [candidate.logical_path for candidate in plan.selected] == ["game/story.rpy"]
+    assert all("images.rpa" not in candidate.locator for candidate in plan.candidates)
     assert {candidate.logical_path for candidate in plan.secondary_candidates} == {
         "game/extras/replay.rpyc",
         "game/scripts/character_screen.rpy",
@@ -115,6 +123,73 @@ def test_quarantine_rule_does_not_change_direct_or_noncoexisting_archive_behavio
     folder_result = ingest_input(game, _options(tmp_path / "only-extras"))
     assert [source.path for source in folder_result.sources] == ["game/extras/replay.rpy"]
     assert folder_result.secondary_sources == ()
+
+
+def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    game.mkdir()
+    make_rpa(
+        game / "scripts.rpa",
+        {
+            "story.rpy": (
+                b'define w = Character("Wanda")\n'
+                b"default lust = 0\n"
+                b'label start:\n    w "Hello."\n    $ lust += 1\n    return\n'
+            )
+        },
+    )
+    make_rpa(
+        game / "extras.rpa",
+        {
+            "extras/replay.rpy": b"label replay_memory:\n    return\n",
+            "scripts/character_screen.rpy": b'text "Wanda LUST"\ntext "[lust]"\n',
+        },
+    )
+    project_path = tmp_path / "story.rsmproj"
+    create_input_project(project_path, game, options=_options(tmp_path)).close()
+
+    with Project.open(project_path) as project:
+        assert {source.path for source in project.sources()} == {
+            "game/story.rpy",
+            "game/extras/replay.rpy",
+            "game/scripts/character_screen.rpy",
+        }
+        graph = storage.canonical_json(project.payload("m01_graph", "authoritative"))
+        assert b"replay_memory" not in graph
+        metadata = project.payload("story_metadata", "authoritative")
+        assert isinstance(metadata, dict)
+        assert {item["alias"] for item in metadata["characters"]} == {"w"}
+        variables = {
+            item.original_name: item
+            for item in project.presentation_service().state_variables().items
+        }
+        assert variables["lust"].display_name == "Wanda LUST"
+        assert variables["lust"].default_declared
+
+    refresh = refresh_input_project(
+        project_path,
+        game,
+        options=_options(tmp_path),
+    )
+    assert refresh.parsed_sources == ()
+
+
+def test_metadata_limit_falls_back_without_blocking_story_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    story = tmp_path / "story.rpy"
+    story.write_text("label start:\n    return\n", encoding="utf-8")
+
+    def limited(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise StoryMetadataLimitError("bounded metadata limit")
+
+    monkeypatch.setattr(project_analysis, "extract_story_metadata", limited)
+    path = tmp_path / "story.rsmproj"
+    create_input_project(path, story, options=_options(tmp_path)).close()
+    with Project.open(path) as project:
+        assert project.payload("m01_graph", "authoritative") is not None
+        metadata = project.payload("story_metadata", "authoritative")
+        assert metadata["diagnostics"][0]["code"] == "metadata_limits_exceeded"
 
 
 def test_secondary_inventory_obeys_source_limit(tmp_path: Path) -> None:
@@ -212,10 +287,41 @@ def test_literal_metadata_has_deterministic_provenance_and_exact_spans(tmp_path:
     }
 
 
+def test_screen_properties_and_literal_memorias_constructor_are_supported() -> None:
+    payload = extract_story_metadata(
+        [
+            _source(
+                "game/character_screen.rpy",
+                'text "Domination" xpos 150 ypos 210\n'
+                'text "[wanda_dom]" xpos 360 ypos 210\n'
+                '("gene", MsDenversCharacter("GENE", "profile", points=gen, '
+                'trait=gene_char_trait))\n'
+                'lista_memorias.append(memorias("First Memory", "thumb.jpg", "no", True))\n',
+                locator="extras.rpa!/scripts/character_screen.rpyc",
+            )
+        ]
+    )
+    display = next(
+        item for item in payload["state_hints"] if item["kind"] == "display_label"
+    )
+    assert (display["name"], display["display_name"]) == ("wanda_dom", "Domination")
+    semantic = {
+        item["name"]: (item["display_name"], item["category"])
+        for item in payload["state_hints"]
+        if item["kind"] == "semantic_label"
+    }
+    assert semantic == {
+        "gen": ("Gene points", "relationship"),
+        "gene_char_trait": ("Gene trait", "skill"),
+    }
+    assert payload["scene_titles"][0]["title"] == "First Memory"
+
+
 def test_dynamic_and_malformed_constructs_are_skipped_without_execution(tmp_path: Path) -> None:
     marker = tmp_path / "must-not-exist"
     content = (
         "define unsafe = Character(get_name())\n"
+        'define empty = Character("")\n'
         f'default danger = __import__("pathlib").Path({str(marker)!r}).write_text("bad")\n'
         "text make_label()\n"
         'text "[computed + 1]"\n'
@@ -227,12 +333,35 @@ def test_dynamic_and_malformed_constructs_are_skipped_without_execution(tmp_path
     )
     assert payload["characters"] == []
     assert payload["state_hints"] == []
-    assert "scene_titles" not in payload
+    assert payload["scene_titles"] == []
     assert not marker.exists()
     codes = {item["code"] for item in payload["diagnostics"]}  # type: ignore[index]
     assert {"dynamic_character_name", "dynamic_default", "dynamic_screen_text"} <= codes
     assert "dynamic_scene_title" in codes
     assert "unsupported_character_definition" in codes
+
+
+def test_repeated_metadata_is_deduplicated_and_conflicts_fail_closed() -> None:
+    payload = extract_story_metadata(
+        [
+            _source(
+                "game/characters.rpy",
+                'define w = Character("Wanda")\ndefine x = Character("One")\n',
+                locator="scripts.rpa!/characters.rpy",
+            ),
+            _source(
+                "game/more_characters.rpy",
+                'define w = Character("Wanda")\ndefine x = Character("Two")\n',
+                locator="scripts.rpa!/more_characters.rpy",
+            ),
+        ]
+    )
+    assert [(item["alias"], item["display_name"]) for item in payload["characters"]] == [
+        ("w", "Wanda")
+    ]
+    assert any(
+        item["code"] == "ambiguous_character_alias" for item in payload["diagnostics"]
+    )
 
 
 def test_extractor_limits_cancellation_invalid_utf8_and_bounded_diagnostics() -> None:
