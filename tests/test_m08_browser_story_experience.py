@@ -105,6 +105,15 @@ def test_editorial_cartography_is_local_restrained_and_free_of_mojibake() -> Non
     assert ".card-grid" not in css
 
 
+def test_route_map_keeps_flexible_row_when_fallback_notice_is_hidden() -> None:
+    css = _text("styles.css")
+    assert 'grid-template-areas: "commandbar" "fallback" "map" "organization"' in css
+    assert "grid-area: commandbar" in css
+    assert "grid-area: fallback" in css
+    assert "grid-area: map" in css
+    assert "grid-area: organization" in css
+
+
 def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> None:
     source = HARNESS.read_text(encoding="utf-8")
     for marker in (
@@ -129,6 +138,7 @@ def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> No
         "continuation-portal",
         "AI Previous did not restore the exact initial page",
         "AI Next was not deterministic with a continuation portal",
+        "Route Map did not retain the flexible viewport row",
     ):
         assert marker in source
     spec = importlib.util.spec_from_file_location("m08_browser_acceptance", HARNESS)

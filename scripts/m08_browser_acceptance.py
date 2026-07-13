@@ -336,6 +336,16 @@ def _capture(
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait("document.querySelectorAll('.station').length > 0 && document.querySelector('#aiMapButton').getAttribute('aria-pressed') === 'true'")
+            map_allocation = session.evaluate(
+                "(() => { const map=document.querySelector('#mapViewport').getBoundingClientRect(); const layout=document.querySelector('.map-layout').getBoundingClientRect(); const organization=document.querySelector('#organizationPanel').getBoundingClientRect(); return {mapViewportHeight:Math.round(map.height),mapLayoutHeight:Math.round(layout.height),organizationHeight:Math.round(organization.height)}; })()"
+            )
+            if zoom == 100 and map_allocation["mapViewportHeight"] <= (
+                map_allocation["organizationHeight"] * 2
+            ):
+                raise AssertionError(
+                    "Route Map did not retain the flexible viewport row: "
+                    f"{map_allocation}"
+                )
 
             ai_shot = output / f"ai-story-map-{zoom}.png"
             _screenshot(session, ai_shot)
@@ -496,6 +506,7 @@ def _capture(
                 "cancel_resume": True,
                 "detail": detail,
                 "layout": layout,
+                "map_allocation": map_allocation,
                 "request_count": len(requests),
                 "remote_requests": 0,
                 "provider_start_requests": 0,
