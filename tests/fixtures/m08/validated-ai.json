@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "scope_id": "complex-fixture",
+  "run_id": "mock-fresh-resumed",
+  "status": "complete",
+  "authority": {
+    "element_ids": ["start", "harbor_arrival", "market_rounds", "lighthouse_route", "archive_route", "shared_council", "final_confrontation", "ending_good", "ending_bad", "ending_neutral", "ending_secret"],
+    "edges": [
+      {"id": "edge:start-harbor", "source_id": "start", "target_id": "harbor_arrival"},
+      {"id": "edge:harbor-market", "source_id": "harbor_arrival", "target_id": "market_rounds"},
+      {"id": "edge:harbor-light", "source_id": "harbor_arrival", "target_id": "lighthouse_route"},
+      {"id": "edge:harbor-archive", "source_id": "harbor_arrival", "target_id": "archive_route"},
+      {"id": "edge:market-loop", "source_id": "market_rounds", "target_id": "market_rounds"},
+      {"id": "edge:light-council", "source_id": "lighthouse_route", "target_id": "shared_council"},
+      {"id": "edge:archive-council", "source_id": "archive_route", "target_id": "shared_council"},
+      {"id": "edge:council-final", "source_id": "shared_council", "target_id": "final_confrontation"},
+      {"id": "edge:final-good", "source_id": "final_confrontation", "target_id": "ending_good"},
+      {"id": "edge:final-bad", "source_id": "final_confrontation", "target_id": "ending_bad"},
+      {"id": "edge:final-neutral", "source_id": "final_confrontation", "target_id": "ending_neutral"},
+      {"id": "edge:final-secret", "source_id": "final_confrontation", "target_id": "ending_secret"}
+    ],
+    "fact_ids": ["fact:trust", "fact:route", "fact:market-rounds"],
+    "evidence": [
+      {"id": "ev:start", "subject_ids": ["start", "edge:start-harbor"]},
+      {"id": "ev:harbor", "subject_ids": ["harbor_arrival", "fact:trust"]},
+      {"id": "ev:market", "subject_ids": ["market_rounds", "edge:harbor-market", "fact:market-rounds"]},
+      {"id": "ev:market-loop", "subject_ids": ["market_rounds", "edge:market-loop", "fact:market-rounds"]},
+      {"id": "ev:light", "subject_ids": ["lighthouse_route", "edge:harbor-light", "fact:route"]},
+      {"id": "ev:archive", "subject_ids": ["archive_route", "edge:harbor-archive", "fact:route"]},
+      {"id": "ev:council", "subject_ids": ["shared_council", "edge:light-council", "edge:archive-council"]},
+      {"id": "ev:final", "subject_ids": ["final_confrontation", "edge:council-final"]},
+      {"id": "ev:good", "subject_ids": ["ending_good", "edge:final-good"]},
+      {"id": "ev:bad", "subject_ids": ["ending_bad", "edge:final-bad"]},
+      {"id": "ev:neutral", "subject_ids": ["ending_neutral", "edge:final-neutral"]},
+      {"id": "ev:secret", "subject_ids": ["ending_secret", "edge:final-secret", "fact:trust"]}
+    ]
+  },
+  "groups": [
+    {"id": "event:arrival", "title": "Arrival and First Commitment", "summary": "The opening establishes the harbor problem and the first relationship choices.", "member_ids": ["start", "harbor_arrival"], "claims": [{"text": "The opening leads into choices that begin shaping trust.", "evidence_ids": ["ev:start", "ev:harbor"]}]},
+    {"id": "event:market", "title": "Preparation Loop", "summary": "A bounded market detour gathers resources before returning to a main route.", "member_ids": ["market_rounds"], "claims": [{"text": "The detour can repeat but has a deterministic exit.", "evidence_ids": ["ev:market-loop"]}]},
+    {"id": "event:lighthouse", "title": "Lighthouse Route", "summary": "One persistent route focuses on repairing the beacon and earning support.", "member_ids": ["lighthouse_route"], "claims": [{"text": "This route represents a sustained commitment.", "evidence_ids": ["ev:light"]}]},
+    {"id": "event:archive", "title": "Archive Route", "summary": "The alternative route pursues records and hidden knowledge.", "member_ids": ["archive_route"], "claims": [{"text": "This route changes how the central problem is approached.", "evidence_ids": ["ev:archive"]}]},
+    {"id": "event:finale", "title": "Shared Council and Finale", "summary": "Both routes share a council detour, reconverge, and face the final decision.", "member_ids": ["shared_council", "final_confrontation"], "claims": [{"text": "The shared council feeds a common finale.", "evidence_ids": ["ev:council", "ev:final"]}]},
+    {"id": "event:good", "title": "Good Ending", "summary": "The successful resolution closes the main conflict.", "member_ids": ["ending_good"], "claims": [{"text": "This is a terminal outcome.", "evidence_ids": ["ev:good"]}]},
+    {"id": "event:bad", "title": "Bad Ending", "summary": "The failed resolution leaves the central problem unresolved.", "member_ids": ["ending_bad"], "claims": [{"text": "This is a terminal outcome.", "evidence_ids": ["ev:bad"]}]},
+    {"id": "event:neutral", "title": "Neutral Ending", "summary": "A limited resolution closes the route without full success.", "member_ids": ["ending_neutral"], "claims": [{"text": "This is a terminal outcome.", "evidence_ids": ["ev:neutral"]}]},
+    {"id": "event:secret", "title": "Secret Ending", "summary": "Earlier relationship and discovery choices unlock a hidden resolution.", "member_ids": ["ending_secret"], "claims": [{"text": "Earlier trust contributes to this terminal outcome.", "evidence_ids": ["ev:secret"]}]}
+  ],
+  "annotations": [
+    {"feature": "character_development", "subject_ids": ["harbor_arrival", "lighthouse_route", "archive_route"], "edge_ids": [], "fact_ids": ["fact:trust"], "evidence_ids": ["ev:harbor", "ev:light", "ev:archive"]},
+    {"feature": "route_meaning", "subject_ids": ["lighthouse_route", "archive_route"], "edge_ids": ["edge:harbor-light", "edge:harbor-archive"], "fact_ids": ["fact:route"], "evidence_ids": ["ev:light", "ev:archive"]},
+    {"feature": "temporary_detours", "subject_ids": ["market_rounds", "shared_council"], "edge_ids": ["edge:harbor-market", "edge:light-council", "edge:archive-council"], "fact_ids": [], "evidence_ids": ["ev:market", "ev:council"]},
+    {"feature": "persistent_routes", "subject_ids": ["lighthouse_route", "archive_route"], "edge_ids": [], "fact_ids": ["fact:route"], "evidence_ids": ["ev:light", "ev:archive"]},
+    {"feature": "loops", "subject_ids": ["market_rounds"], "edge_ids": ["edge:market-loop"], "fact_ids": ["fact:market-rounds"], "evidence_ids": ["ev:market-loop"]},
+    {"feature": "endings", "subject_ids": ["ending_good", "ending_bad", "ending_neutral", "ending_secret"], "edge_ids": ["edge:final-good", "edge:final-bad", "edge:final-neutral", "edge:final-secret"], "fact_ids": [], "evidence_ids": ["ev:good", "ev:bad", "ev:neutral", "ev:secret"]}
+  ],
+  "coverage": {
+    "eligible_ids": ["start", "harbor_arrival", "market_rounds", "lighthouse_route", "archive_route", "shared_council", "final_confrontation", "ending_good", "ending_bad", "ending_neutral", "ending_secret"],
+    "covered_ids": ["start", "harbor_arrival", "market_rounds", "lighthouse_route", "archive_route", "shared_council", "final_confrontation", "ending_good", "ending_bad", "ending_neutral", "ending_secret"],
+    "fallback_ids": [],
+    "ai_ratio": 1.0,
+    "technical_ratio": 1.0
+  },
+  "accounting": {"attempts": 5, "calls": 4, "input_tokens": 4200, "output_tokens": 1600, "elapsed_ms": 1200, "cache_hits": 1, "cache_misses": 4, "resumed_scopes": 1, "cancelled_attempts": 1, "replay": false},
+  "provider": {"invoked": true, "model": "gpt-5.6-luna", "reasoning": "high", "fast_mode": false},
+  "provenance": {"artifact_kind": "mocked_validated", "walkthrough_used_for_generation": false, "walkthrough_text_embedded": false, "external_story_text_embedded": false}
+}

@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "id": "m08-story-understanding-v1",
+  "safety": {
+    "provider_invocation_default_forbidden": true,
+    "external_text_forbidden": true,
+    "absolute_paths_forbidden": true,
+    "walkthrough_is_evaluation_only": true
+  },
+  "provider_policy": {
+    "model": "gpt-5.6-luna",
+    "reasoning": "high",
+    "fast_mode": false,
+    "invocation_default": "forbidden"
+  },
+  "rubric": {
+    "pass_score": 0.85,
+    "max_title_chars": 80,
+    "max_summary_chars": 320
+  },
+  "scopes": [
+    {
+      "id": "complex-fixture",
+      "label": "Checked-in complex branching fixture",
+      "input": {
+        "source_kind": "rpy",
+        "external": false,
+        "repository_path": "tests/fixtures/m05/complex_branching/complex_story.rpy",
+        "input_sha256": "383cdc77af981acf27f80c54d018060c126e6824f7bf29c2d6ec9a9a73fae650",
+        "path_slot": null,
+        "fingerprint_slot": null
+      },
+      "bounds": {
+        "entry_label": "start",
+        "scope_ids": ["fixture:complex:complete"],
+        "max_source_files": 1,
+        "max_labels": 11,
+        "window": {
+          "window_id": "complex-fixture:all",
+          "parent_scope_id": "fixture:complex:complete",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": ["start", "harbor_arrival", "market_rounds", "lighthouse_route", "archive_route", "shared_council", "final_confrontation", "ending_good", "ending_bad", "ending_neutral", "ending_secret"],
+          "expected_evidence_ids": ["ev:start", "ev:harbor", "ev:market", "ev:market-loop", "ev:light", "ev:archive", "ev:council", "ev:final", "ev:good", "ev:bad", "ev:neutral", "ev:secret"],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": "76e62d11a1e94ba288904abdce8070daa306b70a7691a5068b88a1f465c04c31",
+          "id_set_slot": null,
+          "id_set_fingerprint_slot": null,
+          "max_nodes": 11,
+          "max_evidence": 12,
+          "require_strict_subset": false
+        }
+      },
+      "expectations": {
+        "eligible_ids": [
+          "start",
+          "harbor_arrival",
+          "market_rounds",
+          "lighthouse_route",
+          "archive_route",
+          "shared_council",
+          "final_confrontation",
+          "ending_good",
+          "ending_bad",
+          "ending_neutral",
+          "ending_secret"
+        ],
+        "scene_boundaries": [
+          ["start", "harbor_arrival"],
+          ["market_rounds"],
+          ["lighthouse_route"],
+          ["archive_route"],
+          ["shared_council", "final_confrontation"],
+          ["ending_good"],
+          ["ending_bad"],
+          ["ending_neutral"],
+          ["ending_secret"]
+        ],
+        "meaningful_event_ids": [
+          "harbor_arrival",
+          "market_rounds",
+          "lighthouse_route",
+          "archive_route",
+          "shared_council",
+          "final_confrontation",
+          "ending_good",
+          "ending_bad",
+          "ending_neutral",
+          "ending_secret"
+        ],
+        "feature_subjects": {
+          "character_development": ["harbor_arrival", "lighthouse_route", "archive_route"],
+          "route_meaning": ["lighthouse_route", "archive_route"],
+          "temporary_detours": ["market_rounds", "shared_council"],
+          "persistent_routes": ["lighthouse_route", "archive_route"],
+          "loops": ["market_rounds"],
+          "endings": ["ending_good", "ending_bad", "ending_neutral", "ending_secret"]
+        }
+      },
+      "budget": {"max_calls": 12, "max_tokens": 250000, "max_elapsed_ms": 900000}
+    },
+    {
+      "id": "small-real-rpy",
+      "label": "User-supplied small real source",
+      "input": {
+        "source_kind": "rpy",
+        "external": true,
+        "repository_path": null,
+        "input_sha256": null,
+        "path_slot": "M08_SMALL_REAL_RPY",
+        "fingerprint_slot": "M08_SMALL_REAL_RPY_SHA256"
+      },
+      "bounds": {
+        "entry_label": "start",
+        "scope_ids": ["small-real:opening-to-first-ending"],
+        "max_source_files": 1,
+        "max_labels": 16,
+        "window": {
+          "window_id": "small-real:opening-to-first-ending",
+          "parent_scope_id": "$slot:M08_SMALL_REAL_PARENT_SCOPE_ID",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_SMALL_REAL_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_SMALL_REAL_WINDOW_IDS_SHA256",
+          "max_nodes": 16,
+          "max_evidence": 256,
+          "require_strict_subset": false
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["sr:opening", "sr:fork", "sr:route-a", "sr:route-b", "sr:ending"],
+        "scene_boundaries": [["sr:opening"], ["sr:fork"], ["sr:route-a"], ["sr:route-b"], ["sr:ending"]],
+        "meaningful_event_ids": ["sr:fork", "sr:route-a", "sr:route-b", "sr:ending"],
+        "feature_subjects": {
+          "character_development": ["sr:route-a", "sr:route-b"],
+          "route_meaning": ["sr:route-a", "sr:route-b"],
+          "temporary_detours": [],
+          "persistent_routes": ["sr:route-a", "sr:route-b"],
+          "loops": [],
+          "endings": ["sr:ending"]
+        }
+      },
+      "budget": {"max_calls": 8, "max_tokens": 120000, "max_elapsed_ms": 600000}
+    },
+    {
+      "id": "small-recovered-rpyc",
+      "label": "User-supplied small recovered source",
+      "input": {
+        "source_kind": "rpyc",
+        "external": true,
+        "repository_path": null,
+        "input_sha256": null,
+        "path_slot": "M08_SMALL_RECOVERED_RPYC",
+        "fingerprint_slot": "M08_SMALL_RECOVERED_RPYC_SHA256"
+      },
+      "bounds": {
+        "entry_label": "start",
+        "scope_ids": ["recovered:opening-to-first-ending"],
+        "max_source_files": 1,
+        "max_labels": 16,
+        "window": {
+          "window_id": "recovered:opening-to-first-ending",
+          "parent_scope_id": "$slot:M08_RECOVERED_PARENT_SCOPE_ID",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_RECOVERED_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_RECOVERED_WINDOW_IDS_SHA256",
+          "max_nodes": 16,
+          "max_evidence": 256,
+          "require_strict_subset": false
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["rc:opening", "rc:fork", "rc:route", "rc:ending"],
+        "scene_boundaries": [["rc:opening"], ["rc:fork"], ["rc:route"], ["rc:ending"]],
+        "meaningful_event_ids": ["rc:fork", "rc:route", "rc:ending"],
+        "feature_subjects": {
+          "character_development": ["rc:route"],
+          "route_meaning": ["rc:route"],
+          "temporary_detours": [],
+          "persistent_routes": ["rc:route"],
+          "loops": [],
+          "endings": ["rc:ending"]
+        }
+      },
+      "budget": {"max_calls": 8, "max_tokens": 120000, "max_elapsed_ms": 600000}
+    },
+    {
+      "id": "msdenvers-opening-window",
+      "label": "User-supplied bounded MsDenvers opening window",
+      "input": {"source_kind": "bounded_external", "external": true, "repository_path": null, "input_sha256": null, "path_slot": "M08_MSDENVERS_GAME_ROOT", "fingerprint_slot": "M08_MSDENVERS_SCOPE_FINGERPRINTS"},
+      "bounds": {
+        "entry_label": null,
+        "scope_ids": ["msd:opening-window"],
+        "max_source_files": 2,
+        "max_labels": 24,
+        "window": {
+          "window_id": "msd:opening-window",
+          "parent_scope_id": "route_scope_13004aa8febf656c5f04",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_MSD_OPENING_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_MSD_OPENING_WINDOW_IDS_SHA256",
+          "max_nodes": 24,
+          "max_evidence": 256,
+          "require_strict_subset": true
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["$slot:M08_MSD_OPENING_EXPECTED_NODE_IDS"],
+        "scene_boundaries": [["$slot:M08_MSD_OPENING_SCENE_BOUNDARIES"]],
+        "meaningful_event_ids": ["$slot:M08_MSD_OPENING_MEANINGFUL_IDS"],
+        "feature_subjects": {"character_development": ["$slot:M08_MSD_OPENING_CHARACTER_IDS"], "route_meaning": [], "temporary_detours": [], "persistent_routes": [], "loops": [], "endings": []}
+      },
+      "budget": {"max_calls": 6, "max_tokens": 100000, "max_elapsed_ms": 300000}
+    },
+    {
+      "id": "msdenvers-temporary-detour-window",
+      "label": "User-supplied bounded MsDenvers temporary-detour window",
+      "input": {"source_kind": "bounded_external", "external": true, "repository_path": null, "input_sha256": null, "path_slot": "M08_MSDENVERS_GAME_ROOT", "fingerprint_slot": "M08_MSDENVERS_SCOPE_FINGERPRINTS"},
+      "bounds": {
+        "entry_label": null,
+        "scope_ids": ["msd:temporary-detour-window"],
+        "max_source_files": 2,
+        "max_labels": 24,
+        "window": {
+          "window_id": "msd:temporary-detour-window",
+          "parent_scope_id": "route_scope_13004aa8febf656c5f04",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_MSD_DETOUR_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_MSD_DETOUR_WINDOW_IDS_SHA256",
+          "max_nodes": 24,
+          "max_evidence": 256,
+          "require_strict_subset": true
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["$slot:M08_MSD_DETOUR_EXPECTED_NODE_IDS"],
+        "scene_boundaries": [["$slot:M08_MSD_DETOUR_SCENE_BOUNDARIES"]],
+        "meaningful_event_ids": ["$slot:M08_MSD_DETOUR_MEANINGFUL_IDS"],
+        "feature_subjects": {"character_development": [], "route_meaning": [], "temporary_detours": ["$slot:M08_MSD_DETOUR_FEATURE_IDS"], "persistent_routes": [], "loops": ["$slot:M08_MSD_DETOUR_LOOP_IDS"], "endings": []}
+      },
+      "budget": {"max_calls": 6, "max_tokens": 100000, "max_elapsed_ms": 300000}
+    },
+    {
+      "id": "msdenvers-persistent-route-window",
+      "label": "User-supplied bounded MsDenvers persistent-route window",
+      "input": {"source_kind": "bounded_external", "external": true, "repository_path": null, "input_sha256": null, "path_slot": "M08_MSDENVERS_GAME_ROOT", "fingerprint_slot": "M08_MSDENVERS_SCOPE_FINGERPRINTS"},
+      "bounds": {
+        "entry_label": null,
+        "scope_ids": ["msd:persistent-route-window"],
+        "max_source_files": 2,
+        "max_labels": 24,
+        "window": {
+          "window_id": "msd:persistent-route-window",
+          "parent_scope_id": "route_scope_13004aa8febf656c5f04",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_MSD_ROUTE_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_MSD_ROUTE_WINDOW_IDS_SHA256",
+          "max_nodes": 24,
+          "max_evidence": 256,
+          "require_strict_subset": true
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["$slot:M08_MSD_ROUTE_EXPECTED_NODE_IDS"],
+        "scene_boundaries": [["$slot:M08_MSD_ROUTE_SCENE_BOUNDARIES"]],
+        "meaningful_event_ids": ["$slot:M08_MSD_ROUTE_MEANINGFUL_IDS"],
+        "feature_subjects": {"character_development": ["$slot:M08_MSD_ROUTE_CHARACTER_IDS"], "route_meaning": ["$slot:M08_MSD_ROUTE_MEANING_IDS"], "temporary_detours": [], "persistent_routes": ["$slot:M08_MSD_ROUTE_FEATURE_IDS"], "loops": [], "endings": []}
+      },
+      "budget": {"max_calls": 6, "max_tokens": 100000, "max_elapsed_ms": 300000}
+    },
+    {
+      "id": "msdenvers-ending-window",
+      "label": "User-supplied bounded MsDenvers ending window",
+      "input": {"source_kind": "bounded_external", "external": true, "repository_path": null, "input_sha256": null, "path_slot": "M08_MSDENVERS_GAME_ROOT", "fingerprint_slot": "M08_MSDENVERS_SCOPE_FINGERPRINTS"},
+      "bounds": {
+        "entry_label": null,
+        "scope_ids": ["msd:ending-window"],
+        "max_source_files": 2,
+        "max_labels": 24,
+        "window": {
+          "window_id": "msd:ending-window",
+          "parent_scope_id": "route_scope_13004aa8febf656c5f04",
+          "selection_mode": "bounded_window",
+          "expected_node_ids": [],
+          "expected_evidence_ids": [],
+          "boundary_before_node_ids": [],
+          "boundary_after_node_ids": [],
+          "id_set_sha256": null,
+          "id_set_slot": "M08_MSD_ENDING_WINDOW_IDS_JSON",
+          "id_set_fingerprint_slot": "M08_MSD_ENDING_WINDOW_IDS_SHA256",
+          "max_nodes": 24,
+          "max_evidence": 256,
+          "require_strict_subset": true
+        }
+      },
+      "expectations": {
+        "eligible_ids": ["$slot:M08_MSD_ENDING_EXPECTED_NODE_IDS"],
+        "scene_boundaries": [["$slot:M08_MSD_ENDING_SCENE_BOUNDARIES"]],
+        "meaningful_event_ids": ["$slot:M08_MSD_ENDING_MEANINGFUL_IDS"],
+        "feature_subjects": {"character_development": [], "route_meaning": ["$slot:M08_MSD_ENDING_ROUTE_IDS"], "temporary_detours": [], "persistent_routes": [], "loops": [], "endings": ["$slot:M08_MSD_ENDING_FEATURE_IDS"]}
+      },
+      "budget": {"max_calls": 6, "max_tokens": 100000, "max_elapsed_ms": 300000}
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "base_candidate": "validated-ai.json",
+  "expected_decision": "rejected",
+  "cases": [
+    {"id": "invented_member", "mutation": "replace_final_member_with_unknown_id"},
+    {"id": "invented_edge", "mutation": "add_unknown_edge_to_annotation"},
+    {"id": "invented_fact", "mutation": "add_unknown_fact_to_annotation"},
+    {"id": "missing_evidence", "mutation": "replace_claim_evidence_with_unknown_id"},
+    {"id": "changed_authority", "mutation": "append_unknown_fact_to_authority"},
+    {"id": "misleading_complete", "mutation": "remove_coverage_without_changing_status"},
+    {"id": "walkthrough_dependency", "mutation": "mark_walkthrough_as_generation_input"}
+  ]
+}

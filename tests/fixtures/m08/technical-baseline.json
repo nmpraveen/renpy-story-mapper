@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "scope_id": "complex-fixture",
+  "window": {
+    "window_id": "complex-fixture:all",
+    "parent_scope_id": "fixture:complex:complete",
+    "selection_mode": "bounded_window",
+    "node_ids": ["start", "harbor_arrival", "market_rounds", "lighthouse_route", "archive_route", "shared_council", "final_confrontation", "ending_good", "ending_bad", "ending_neutral", "ending_secret"],
+    "evidence_ids": ["ev:start", "ev:harbor", "ev:market", "ev:market-loop", "ev:light", "ev:archive", "ev:council", "ev:final", "ev:good", "ev:bad", "ev:neutral", "ev:secret"],
+    "boundary_before_node_ids": [],
+    "boundary_after_node_ids": [],
+    "parent_scope_node_count": 11,
+    "parent_scope_evidence_count": 12
+  },
+  "authority": {
+    "element_ids": [
+      "start",
+      "harbor_arrival",
+      "market_rounds",
+      "lighthouse_route",
+      "archive_route",
+      "shared_council",
+      "final_confrontation",
+      "ending_good",
+      "ending_bad",
+      "ending_neutral",
+      "ending_secret"
+    ],
+    "edges": [
+      {"id": "edge:start-harbor", "source_id": "start", "target_id": "harbor_arrival"},
+      {"id": "edge:harbor-market", "source_id": "harbor_arrival", "target_id": "market_rounds"},
+      {"id": "edge:harbor-light", "source_id": "harbor_arrival", "target_id": "lighthouse_route"},
+      {"id": "edge:harbor-archive", "source_id": "harbor_arrival", "target_id": "archive_route"},
+      {"id": "edge:market-loop", "source_id": "market_rounds", "target_id": "market_rounds"},
+      {"id": "edge:light-council", "source_id": "lighthouse_route", "target_id": "shared_council"},
+      {"id": "edge:archive-council", "source_id": "archive_route", "target_id": "shared_council"},
+      {"id": "edge:council-final", "source_id": "shared_council", "target_id": "final_confrontation"},
+      {"id": "edge:final-good", "source_id": "final_confrontation", "target_id": "ending_good"},
+      {"id": "edge:final-bad", "source_id": "final_confrontation", "target_id": "ending_bad"},
+      {"id": "edge:final-neutral", "source_id": "final_confrontation", "target_id": "ending_neutral"},
+      {"id": "edge:final-secret", "source_id": "final_confrontation", "target_id": "ending_secret"}
+    ],
+    "fact_ids": ["fact:trust", "fact:route", "fact:market-rounds"],
+    "evidence": [
+      {"id": "ev:start", "subject_ids": ["start", "edge:start-harbor"]},
+      {"id": "ev:harbor", "subject_ids": ["harbor_arrival", "fact:trust"]},
+      {"id": "ev:market", "subject_ids": ["market_rounds", "edge:harbor-market", "fact:market-rounds"]},
+      {"id": "ev:market-loop", "subject_ids": ["market_rounds", "edge:market-loop", "fact:market-rounds"]},
+      {"id": "ev:light", "subject_ids": ["lighthouse_route", "edge:harbor-light", "fact:route"]},
+      {"id": "ev:archive", "subject_ids": ["archive_route", "edge:harbor-archive", "fact:route"]},
+      {"id": "ev:council", "subject_ids": ["shared_council", "edge:light-council", "edge:archive-council"]},
+      {"id": "ev:final", "subject_ids": ["final_confrontation", "edge:council-final"]},
+      {"id": "ev:good", "subject_ids": ["ending_good", "edge:final-good"]},
+      {"id": "ev:bad", "subject_ids": ["ending_bad", "edge:final-bad"]},
+      {"id": "ev:neutral", "subject_ids": ["ending_neutral", "edge:final-neutral"]},
+      {"id": "ev:secret", "subject_ids": ["ending_secret", "edge:final-secret", "fact:trust"]}
+    ]
+  }
+}
