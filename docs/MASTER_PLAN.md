@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-13
 
-Status: M01 through M08 are complete and merged. M09 is active on
-`codex/m09-static-story-metadata` as of 2026-07-13.
+Status: M01 through M08 are complete and merged. M09 is complete on
+`codex/m09-static-story-metadata` and awaiting user review/merge as of 2026-07-13.
 
 ## 1. Product goal
 
@@ -240,7 +240,7 @@ patching are outside the active plan.
 
 ## 7. Milestones
 
-M01 through M07.1 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
+M01 through M09 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
 compiled-only large-game trial exposed source-recovery, branch-classification, AI-scale, and graph
 readability limits. On 2026-07-13 the user approved M08 to make the product browser-only and to
 validate AI as the required human-readable story stage.
@@ -1061,7 +1061,20 @@ Explicit exclusions:
 
 ### M09 - Static Story Metadata Enrichment
 
-Status: Active on `codex/m09-static-story-metadata` as of 2026-07-13.
+Status: Complete on `codex/m09-static-story-metadata` as of 2026-07-13; the single M09 pull
+request is intentionally left unmerged for user review.
+
+Completion result: selecting a game folder with exact `scripts.rpa` now keeps that archive as the
+sole chronology/connectivity authority while exact `extras.rpa` is recovered into a quarantined
+metadata-only lane. Literal character aliases, scalar defaults, supported variable meanings, and
+optional exact-key titles are persisted with provenance and projected onto the shipped browser
+Route Map/Detail responses without changing graph or route authority. Loose replay modules and
+media archives do not enter canonical story analysis. The final read-only MsDenvers run found 84
+usable aliases, 109 declared defaults, 15 readable state labels, and 13 optional titles across 52
+canonical and 5 secondary sources; its authority hash remained unchanged, its archives remained
+byte/timestamp identical, and no AI or game Python ran. See
+`docs/milestones/M09/COMPLETION_REPORT.md` for exact commands, metrics, review corrections, and
+limitations.
 
 Objective: improve the human readability of recovered games by statically extracting a narrow set
 of names and categories from companion Ren'Py modules, without executing creator code or changing
