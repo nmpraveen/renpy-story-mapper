@@ -302,9 +302,9 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
         assert prepared["scopes"] > 0
         assert prepared["cached"] == 0
         assert prepared["budgets"] == {
-            "soft_seconds": None,
+            "soft_seconds": 600,
             "hard_seconds": 900,
-            "soft_tokens": None,
+            "soft_tokens": 1_500_000,
             "hard_tokens": 2_000_000,
             "hard_calls": 48,
         }
@@ -899,9 +899,9 @@ def test_local_server_emits_packaged_route_and_organization_shapes(
         assert prepared["scopes"] > 0
         assert prepared["cached"] == 0
         assert prepared["budgets"] == {
-            "soft_seconds": None,
+            "soft_seconds": 600,
             "hard_seconds": 900,
-            "soft_tokens": None,
+            "soft_tokens": 1_500_000,
             "hard_tokens": 2_000_000,
             "hard_calls": 48,
         }

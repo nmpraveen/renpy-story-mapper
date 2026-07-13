@@ -898,12 +898,21 @@ def _decode_search_cursor(after: str | None, *, generation: str, query: str) -> 
 
 def _budget_dict(budget: BudgetPolicy) -> dict[str, object]:
     return {
-        "soft_seconds": budget.soft_seconds,
-        "hard_seconds": budget.hard_seconds,
+        "soft_seconds": _integral_seconds(budget.soft_seconds, "soft_seconds"),
+        "hard_seconds": _integral_seconds(budget.hard_seconds, "hard_seconds"),
         "soft_tokens": budget.soft_tokens,
         "hard_tokens": budget.hard_tokens,
         "hard_calls": budget.hard_calls,
     }
+
+
+def _integral_seconds(value: float | None, name: str) -> int | None:
+    if value is None:
+        return None
+    result = int(value)
+    if result != value:
+        raise ValueError(f"{name} must be an integral number of seconds")
+    return result
 
 
 def _token_budget(budget: BudgetPolicy | None) -> int:
