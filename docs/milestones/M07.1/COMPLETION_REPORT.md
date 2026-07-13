@@ -5,6 +5,8 @@ Branch: `codex/m07-1-safety-real-project-closure`
 Baseline: `4c421a10364d2c75d8437b2775cbb57ef28d80fc`  
 Status: Complete; one pull request remains intentionally unmerged.
 
+Pull request: `#12` — `https://github.com/nmpraveen/renpy-story-mapper/pull/12`.
+
 ## Outcome
 
 M07.1 closes the correctness, privacy, and real-browser gaps found after M07 without changing the

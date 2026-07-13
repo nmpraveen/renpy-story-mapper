@@ -3,7 +3,7 @@
 Last revised: 2026-07-12
 
 Status: M01 through M07 are complete and merged. M07.1 is complete on its milestone branch and
-awaiting review of its unmerged pull request as of 2026-07-12.
+awaiting review of unmerged pull request #12 as of 2026-07-12.
 
 ## 1. Product goal
 
@@ -929,7 +929,7 @@ technical coverage.
 ### M07.1 - Safety and Real-Project Closure
 
 Status: Complete on `codex/m07-1-safety-real-project-closure` as of 2026-07-12; Windows acceptance
-passed and the milestone pull request is intentionally unmerged pending user review.
+passed and milestone pull request #12 is intentionally unmerged pending user review.
 
 Objective: close the correctness and real-browser gaps found after M07 without broadening the
 product, deleting the legacy fallback, or weakening deterministic authority.
