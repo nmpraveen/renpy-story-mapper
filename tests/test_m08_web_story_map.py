@@ -11,6 +11,13 @@ import pytest
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.m07_model import CheckpointStatus
+from renpy_story_mapper.organization.contracts import (
+    InterpretationClaim,
+    OrganizationChunkResult,
+    OrganizationGroup,
+    OrganizationStage,
+)
+from renpy_story_mapper.organization.persistence import encode_organization_result
 from renpy_story_mapper.project import PayloadRecord, Project, create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.contracts import M08_API_ROUTES
@@ -70,31 +77,69 @@ def _apply(project_path: Path) -> tuple[str, str]:
             assert isinstance(scope, dict)
             scope_id = str(scope["id"])
             members = [str(item) for item in scope["node_ids"]]
+            nodes_by_id = {
+                str(item["id"]): item
+                for item in route["nodes"]
+                if isinstance(item, dict)
+            }
+            evidence_ids = tuple(
+                dict.fromkeys(
+                    evidence_id
+                    for member_id in members
+                    for evidence_id in nodes_by_id[member_id]["evidence_ids"]
+                    if isinstance(evidence_id, str)
+                )
+            )
+            raw_group = {
+                "id": f"story_{scope_id}",
+                "title": "A Choice of Trust",
+                "summary": "Avery decides whether to confide before the routes meet again.",
+                "member_ids": members,
+                "characters": [],
+                "importance": "major",
+                "outcomes": ["Trust changes or the secret remains."],
+                "promoted_fact_ids": [],
+                "claims": [
+                    {
+                        "text": "The selected route events form one evidence-backed choice.",
+                        "evidence_ids": list(evidence_ids),
+                    }
+                ],
+                "warnings": [],
+            }
+            result = OrganizationChunkResult(
+                stage=OrganizationStage.EVENTS,
+                groups=(
+                    OrganizationGroup(
+                        id=f"story_{scope_id}",
+                        title="A Choice of Trust",
+                        summary="Avery decides whether to confide before the routes meet again.",
+                        member_ids=tuple(members),
+                        characters=(),
+                        importance="major",
+                        outcomes=("Trust changes or the secret remains.",),
+                        promoted_fact_ids=(),
+                        claims=(
+                            InterpretationClaim(
+                                "The selected route events form one evidence-backed choice.",
+                                evidence_ids,
+                            ),
+                        ),
+                        warnings=(),
+                    ),
+                ),
+                ungrouped_ids=(),
+                raw_normalized={
+                    "stage": "events",
+                    "groups": [raw_group],
+                    "ungrouped_ids": [],
+                },
+            )
             service.transition(scope_id, CheckpointStatus.IN_FLIGHT)
             service.transition(
                 scope_id,
                 CheckpointStatus.VALIDATED,
-                result={
-                    "organization_result": {
-                        "groups": [
-                            {
-                                "id": f"story_{scope_id}",
-                                "title": "A Choice of Trust",
-                                "summary": (
-                                    "Avery decides whether to confide before the routes meet again."
-                                ),
-                                "member_ids": members,
-                                "characters": ["Avery"],
-                                "importance": "major",
-                                "outcomes": ["Trust changes or the secret remains."],
-                                "promoted_fact_ids": [],
-                                "claims": [],
-                                "warnings": [],
-                            }
-                        ],
-                        "ungrouped_ids": [],
-                    }
-                },
+                result={"organization_result": encode_organization_result(result)},
             )
         draft = service.assemble(generation=generation)
         service.apply(draft.assembly_id, generation=generation)
@@ -129,6 +174,51 @@ def test_missing_applied_map_falls_back_without_provider_or_paths(m08_project: P
     encoded = json.dumps(value)
     assert str(m08_project.parent) not in encoded
     assert "provider" not in encoded.casefold()
+
+
+def test_pre_fix_invalid_applied_assembly_cannot_render_ai_story_map(
+    m08_project: Path,
+) -> None:
+    _generation, assembly_id = _apply(m08_project)
+    with Project.open(m08_project) as project:
+        connection = project._require_open()
+        row = connection.execute(
+            "SELECT payload_json FROM m07_assemblies WHERE assembly_id=?", (assembly_id,)
+        ).fetchone()
+        assert row is not None
+        payload = storage.decode_json(row["payload_json"])
+        assert isinstance(payload, dict)
+        items = payload["items"]
+        assert isinstance(items, list)
+        for item in items:
+            assert isinstance(item, dict)
+            wrapper = item["result"]
+            assert isinstance(wrapper, dict)
+            encoded = wrapper["organization_result"]
+            assert isinstance(encoded, dict)
+            groups = encoded["groups"]
+            raw = encoded["raw_normalized"]
+            assert isinstance(groups, list) and isinstance(groups[0], dict)
+            assert isinstance(raw, dict) and isinstance(raw["groups"], list)
+            groups[0]["claims"] = []
+            raw["groups"][0]["claims"] = []
+        payload_json = storage.canonical_json(payload)
+        with storage.transaction(connection):
+            connection.execute(
+                "UPDATE m07_assemblies SET payload_json=?,payload_hash=? WHERE assembly_id=?",
+                (payload_json, hashlib.sha256(payload_json).hexdigest(), assembly_id),
+            )
+
+    constructions: list[str] = []
+    api = _api(m08_project, constructions)
+    try:
+        value = _page(api)
+    finally:
+        api.close()
+
+    assert value["status"] == "unavailable"
+    assert value["reason"] == "invalid_applied_organization"
+    assert constructions == []
 
 
 def test_available_page_detail_and_comparison_are_exact_and_bounded(

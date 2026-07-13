@@ -684,7 +684,7 @@ class M07WorkflowService:
             with Project.open(self._project_path) as project:
                 route = _route_payload(project)
                 generation = _authority_hash(route)
-                _validate_persisted_assembly(
+                validate_persisted_assembly(
                     project,
                     route=route,
                     generation=generation,
@@ -999,7 +999,7 @@ def _facts_by_id(project: Project) -> dict[str, dict[str, object]]:
     return result
 
 
-def _validate_persisted_assembly(
+def validate_persisted_assembly(
     project: Project,
     *,
     route: Mapping[str, object],
@@ -1086,7 +1086,7 @@ def _applied_overlay(
     if row is None:
         return {}, None
     try:
-        _validate_persisted_assembly(
+        validate_persisted_assembly(
             project,
             route=_route_payload(project),
             generation=generation,

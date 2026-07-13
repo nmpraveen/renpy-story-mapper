@@ -29,7 +29,9 @@ from renpy_story_mapper.m07_workflow import (
     M07WorkflowService,
     PreparedRunError,
     ProviderFactory,
+    validate_persisted_assembly,
 )
+from renpy_story_mapper.organization.errors import InvalidProviderOutputError
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -763,6 +765,28 @@ class ProjectApi:
                     "payload": None,
                     "payload_hash": "invalid",
                 }
+            if assembly is not None and not isinstance(assembly, Mapping):
+                try:
+                    validate_persisted_assembly(
+                        project,
+                        route=typed_route,
+                        generation=generation,
+                        assembly_id=assembly.assembly_id,
+                    )
+                except (
+                    InvalidProviderOutputError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    storage.ProjectCorruptError,
+                ):
+                    assembly = {
+                        "assembly_id": "invalid",
+                        "generation": generation,
+                        "status": "applied",
+                        "payload": None,
+                        "payload_hash": "invalid",
+                    }
             if assembly is None:
                 row = (
                     project._require_open()
