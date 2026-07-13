@@ -64,6 +64,7 @@ def inspect_input(
 
     source_root: Path | None = None
     candidates: list[SourceCandidate] = []
+    secondary_candidates: list[SourceCandidate] = []
     if resolved.is_dir():
         source_root = _resolve_game_root(resolved)
         kind = InputKind.GAME_FOLDER
@@ -81,8 +82,14 @@ def inspect_input(
                 ) from exc
             archives.append(archive)
         archives.sort(key=lambda item: item.as_posix().casefold())
+        archive_names = {archive.name.casefold() for archive in archives}
+        quarantine_extras = {"scripts.rpa", "extras.rpa"}.issubset(archive_names)
         for archive in archives:
-            candidates.extend(_archive_candidates(archive, configured, cancel_check))
+            archive_candidates = _archive_candidates(archive, configured, cancel_check)
+            if quarantine_extras and archive.name.casefold() == "extras.rpa":
+                secondary_candidates.extend(archive_candidates)
+            else:
+                candidates.extend(archive_candidates)
     elif resolved.is_file():
         suffix = resolved.suffix.casefold()
         if suffix == ".rpa":
@@ -97,9 +104,10 @@ def inspect_input(
             )
     else:
         raise IngestionError(f"input is not a regular file or directory: {resolved}")
-    if len(candidates) > configured.max_sources:
+    if len(candidates) + len(secondary_candidates) > configured.max_sources:
         raise IngestionError("source inventory exceeds configured source-count limit")
     selected = _select_sources(candidates)
+    secondary_selected = _select_sources(secondary_candidates)
     if not selected:
         raise IngestionError("input contains no .rpy or .rpyc story sources")
     return IngestionPlan(
@@ -109,6 +117,7 @@ def inspect_input(
         source_root,
         tuple(sorted(candidates, key=_candidate_sort_key)),
         selected,
+        secondary_candidates=secondary_selected,
     )
 
 
@@ -125,60 +134,74 @@ def ingest_input(
         return IngestionResult(plan, (), True, False)
     _validate_cache_location(plan, configured)
     sources: list[IngestionSource] = []
+    secondary_sources: list[IngestionSource] = []
     warnings: list[str] = []
     recovery_failures: list[RecoveryFailure] = []
+    secondary_recovery_failures: list[RecoveryFailure] = []
     complete = True
     total_output = 0
     archive_fingerprints: dict[Path, object] = {}
-    for candidate in plan.selected:
-        _check_cancelled(cancel_check)
-        if (
-            candidate.archive_entry is not None
-            and candidate.container_path not in archive_fingerprints
-        ):
-            archive_fingerprints[candidate.container_path] = fingerprint_file(
-                candidate.container_path
-            )
-        content = _read_candidate(candidate, configured.max_input_bytes)
-        if hashlib.sha256(content).hexdigest() != candidate.input_hash:
-            raise IngestionError(f"source changed during ingestion: {candidate.locator}")
-        if candidate.tier in {SourceTier.LOOSE_RECOVERED, SourceTier.ARCHIVED_RECOVERED}:
-            try:
-                output, provenance = recover_compiled(candidate, content, configured, cancel_check)
-            except RecoveryError as exc:
-                if not configured.allow_partial_recovery:
-                    raise
-                complete = False
-                sanitized = " ".join(str(exc).replace("\x00", "").split())[:500]
-                warnings.append(f"Recovery omitted {candidate.logical_path}: {sanitized}")
-                recovery_failures.append(
-                    RecoveryFailure(
-                        candidate.logical_path,
-                        candidate.locator,
-                        candidate.input_hash,
-                        type(exc).__name__,
-                        sanitized,
-                    )
+    materialization_groups = (
+        (plan.selected, sources, recovery_failures, False),
+        (plan.secondary_candidates, secondary_sources, secondary_recovery_failures, True),
+    )
+    for candidates, destination, failures, is_secondary in materialization_groups:
+        for candidate in candidates:
+            _check_cancelled(cancel_check)
+            if (
+                candidate.archive_entry is not None
+                and candidate.container_path not in archive_fingerprints
+            ):
+                archive_fingerprints[candidate.container_path] = fingerprint_file(
+                    candidate.container_path
                 )
-                continue
-        else:
-            output = content
-            provenance = SourceProvenance(
-                source_kind="original",
-                locator=candidate.locator,
-                tier=candidate.tier,
-                input_sha256=candidate.input_hash,
-                output_sha256=candidate.input_hash,
-                line_basis="physical_original_source",
-            )
-        total_output += len(output)
-        if total_output > configured.max_total_output_bytes:
-            raise IngestionError("selected source output exceeds aggregate byte limit")
-        output_path = str(PurePosixPath(candidate.logical_path).with_suffix(".rpy"))
-        sources.append(IngestionSource(output_path, output, provenance))
-        if not provenance.complete:
-            complete = False
-            warnings.extend(provenance.warnings)
+            content = _read_candidate(candidate, configured.max_input_bytes)
+            if hashlib.sha256(content).hexdigest() != candidate.input_hash:
+                raise IngestionError(f"source changed during ingestion: {candidate.locator}")
+            if candidate.tier in {
+                SourceTier.LOOSE_RECOVERED,
+                SourceTier.ARCHIVED_RECOVERED,
+            }:
+                try:
+                    output, provenance = recover_compiled(
+                        candidate, content, configured, cancel_check
+                    )
+                except RecoveryError as exc:
+                    if not configured.allow_partial_recovery:
+                        raise
+                    if not is_secondary:
+                        complete = False
+                    sanitized = " ".join(str(exc).replace("\x00", "").split())[:500]
+                    qualifier = "Secondary recovery" if is_secondary else "Recovery"
+                    warnings.append(f"{qualifier} omitted {candidate.logical_path}: {sanitized}")
+                    failures.append(
+                        RecoveryFailure(
+                            candidate.logical_path,
+                            candidate.locator,
+                            candidate.input_hash,
+                            type(exc).__name__,
+                            sanitized,
+                        )
+                    )
+                    continue
+            else:
+                output = content
+                provenance = SourceProvenance(
+                    source_kind="original",
+                    locator=candidate.locator,
+                    tier=candidate.tier,
+                    input_sha256=candidate.input_hash,
+                    output_sha256=candidate.input_hash,
+                    line_basis="physical_original_source",
+                )
+            total_output += len(output)
+            if total_output > configured.max_total_output_bytes:
+                raise IngestionError("selected source output exceeds aggregate byte limit")
+            output_path = str(PurePosixPath(candidate.logical_path).with_suffix(".rpy"))
+            destination.append(IngestionSource(output_path, output, provenance))
+            if not provenance.complete and not is_secondary:
+                complete = False
+                warnings.extend(provenance.warnings)
     for archive_path, before in archive_fingerprints.items():
         if fingerprint_file(archive_path) != before:
             raise IngestionError(f"archive changed during ingestion: {archive_path}")
@@ -196,6 +219,8 @@ def ingest_input(
         not complete,
         tuple(dict.fromkeys(warnings)),
         tuple(recovery_failures),
+        tuple(sorted(secondary_sources, key=lambda item: item.path.casefold())),
+        tuple(secondary_recovery_failures),
     )
 
 
