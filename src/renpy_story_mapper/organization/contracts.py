@@ -75,6 +75,16 @@ class BeatRecord:
 
 
 @dataclass(frozen=True)
+class EdgeEvidenceOwnership:
+    """Exact evidence and facts carried by one deterministic directed edge."""
+
+    source_id: str
+    target_id: str
+    evidence_ids: tuple[str, ...] = ()
+    fact_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class OrganizationConstraints:
     ordered_member_ids: tuple[str, ...]
     required_member_ids: frozenset[str]
@@ -82,6 +92,11 @@ class OrganizationConstraints:
     fact_ids: frozenset[str] = frozenset()
     evidence_ids: frozenset[str] = frozenset()
     character_names: frozenset[str] = frozenset()
+    member_evidence_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    member_fact_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    fact_evidence_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    member_character_names: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    edge_ownership: tuple[EdgeEvidenceOwnership, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -240,6 +255,13 @@ def serialize_organization_prompt(request: OrganizationRequest, *, repair: bool)
                 "text": "non-empty string, at most 320 characters",
                 "evidence_ids": "non-empty array of unique allowed evidence ID strings",
             },
+            "evidence_ownership": (
+                "Every group must contain one or more claims. Every claim evidence ID must be "
+                "owned by a member in that group, by an edge whose source and target are both "
+                "members in that group, or by a promoted fact owned by those members/internal "
+                "edges. Collectively, cited evidence must support every group member. Boundary "
+                "and context-only evidence never supports a group."
+            ),
             "coverage": (
                 "Place every ID in contract.required_member_ids exactly once in "
                 "group.member_ids or ungrouped_ids. Never put a context-only ID in either "

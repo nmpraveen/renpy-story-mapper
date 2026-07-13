@@ -60,6 +60,23 @@ class _MockProvider:
         assert not cancelled()
         self._calls.append((threading.get_ident(), request.scope_id))
         members = tuple(request.constraints.ordered_member_ids)
+        cited_evidence = tuple(
+            dict.fromkeys(
+                [
+                    evidence_id
+                    for member_id, evidence_ids in request.constraints.member_evidence_ids
+                    if member_id in members
+                    for evidence_id in evidence_ids
+                ]
+                + [
+                    evidence_id
+                    for edge in request.constraints.edge_ownership
+                    if edge.source_id in members and edge.target_id in members
+                    for evidence_id in edge.evidence_ids
+                ]
+            )
+        )
+        claims = (InterpretationClaim("Evidence-bounded claim.", cited_evidence),)
         group = OrganizationGroup(
             id=f"group_{request.scope_id}",
             title=f"Named {request.scope_id}",
@@ -69,7 +86,7 @@ class _MockProvider:
             importance="supporting",
             outcomes=(),
             promoted_fact_ids=(),
-            claims=(),
+            claims=claims,
             warnings=(),
         )
         raw = {
@@ -84,7 +101,12 @@ class _MockProvider:
                     "importance": "supporting",
                     "outcomes": [],
                     "promoted_fact_ids": [],
-                    "claims": [],
+                    "claims": [
+                        {
+                            "text": claims[0].text,
+                            "evidence_ids": list(claims[0].evidence_ids),
+                        }
+                    ],
                     "warnings": [],
                 }
             ],

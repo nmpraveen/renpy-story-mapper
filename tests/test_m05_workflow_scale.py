@@ -325,7 +325,7 @@ class _LocalSyntheticProvider:
                     "importance": "supporting",
                     "outcomes": [],
                     "promoted_fact_ids": [],
-                    "claims": [],
+                    "claims": _claims_for_members(request, members),
                     "warnings": [],
                 }
             )
@@ -601,6 +601,7 @@ def test_collection_batches_canonical_scale_parents_and_preserves_chronology() -
 
 
 def _candidate(index: int, *, outcomes: int = 5) -> _EventCandidate:
+    evidence_id = f"evidence-{index:04d}"
     return _EventCandidate(
         f"event-{index:04d}",
         f"Event {index}",
@@ -610,9 +611,24 @@ def _candidate(index: int, *, outcomes: int = 5) -> _EventCandidate:
         "supporting",
         tuple(f"{value:02d}-" + "O" * 317 for value in range(outcomes)),
         (),
+        (("Grounded event.", (evidence_id,)),),
         (),
-        (),
+        allowed_evidence_ids=(evidence_id,),
     )
+
+
+def _claims_for_members(
+    request: OrganizationRequest, members: list[str]
+) -> list[dict[str, object]]:
+    evidence_ids = list(
+        dict.fromkeys(
+            evidence_id
+            for member_id, owned in request.constraints.member_evidence_ids
+            if member_id in members
+            for evidence_id in owned
+        )
+    )
+    return [{"text": "Grounded synthetic organization.", "evidence_ids": evidence_ids}]
 
 
 def _grouped_result(
@@ -636,7 +652,7 @@ def _grouped_result(
                     "importance": "supporting",
                     "outcomes": [],
                     "promoted_fact_ids": [],
-                    "claims": [],
+                    "claims": _claims_for_members(request, membership),
                     "warnings": [],
                 }
                 for index, membership in enumerate(groups)
@@ -669,7 +685,12 @@ def _stage_one_chunk(
                 }
             ],
         },
-        OrganizationConstraints((beat_id,), frozenset({beat_id})),
+        OrganizationConstraints(
+            (beat_id,),
+            frozenset({beat_id}),
+            evidence_ids=frozenset({f"evidence-{index}"}),
+            member_evidence_ids=((beat_id, (f"evidence-{index}",)),),
+        ),
     )
     result = validate_result(
         {
@@ -684,7 +705,12 @@ def _stage_one_chunk(
                     "importance": "supporting",
                     "outcomes": [],
                     "promoted_fact_ids": [],
-                    "claims": [],
+                    "claims": [
+                        {
+                            "text": "Grounded Stage-1 event.",
+                            "evidence_ids": [f"evidence-{index}"],
+                        }
+                    ],
                     "warnings": [],
                 }
             ],

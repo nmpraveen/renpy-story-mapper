@@ -11,6 +11,7 @@ from itertools import pairwise
 from renpy_story_mapper.organization.contracts import (
     MAX_PROMPT_CHARS,
     BeatRecord,
+    EdgeEvidenceOwnership,
     FactRecord,
     OrganizationConstraints,
     OrganizationRequest,
@@ -307,6 +308,19 @@ def _event_request(
             fact_ids=used_fact_ids,
             evidence_ids=used_evidence_ids,
             character_names=characters,
+            member_evidence_ids=tuple(
+                (beat.id, tuple(beat.evidence_ids)) for beat in draft.beats
+            ),
+            member_fact_ids=tuple(
+                (beat.id, tuple(beat.fact_ids)) for beat in draft.beats
+            ),
+            fact_evidence_ids=tuple(
+                (fact_id, tuple(fact_by_id[fact_id].evidence_ids))
+                for fact_id in sorted(used_fact_ids)
+            ),
+            member_character_names=tuple(
+                (beat.id, tuple(_beat_speakers(beat))) for beat in draft.beats
+            ),
         ),
     )
     return request
@@ -420,6 +434,28 @@ def _normalized_event_partition_request(
             fact_ids=fact_ids,
             evidence_ids=evidence_ids,
             character_names=character_names,
+            member_evidence_ids=_filter_ownership_pairs(
+                request.constraints.member_evidence_ids, assigned, evidence_ids
+            ),
+            member_fact_ids=_filter_ownership_pairs(
+                request.constraints.member_fact_ids, assigned, fact_ids
+            ),
+            fact_evidence_ids=_filter_ownership_pairs(
+                request.constraints.fact_evidence_ids, fact_ids, evidence_ids
+            ),
+            member_character_names=_filter_ownership_pairs(
+                request.constraints.member_character_names, assigned, character_names
+            ),
+            edge_ownership=tuple(
+                EdgeEvidenceOwnership(
+                    edge.source_id,
+                    edge.target_id,
+                    tuple(item for item in edge.evidence_ids if item in evidence_ids),
+                    tuple(item for item in edge.fact_ids if item in fact_ids),
+                )
+                for edge in request.constraints.edge_ownership
+                if edge.source_id in assigned or edge.target_id in assigned
+            ),
         ),
     )
 
@@ -475,6 +511,44 @@ def _route_partition_request(
             fact_ids=frozenset(_record_id(item) for item in facts),
             evidence_ids=frozenset(_record_id(item) for item in evidence),
             character_names=request.constraints.character_names,
+            member_evidence_ids=_filter_ownership_pairs(
+                request.constraints.member_evidence_ids,
+                assigned,
+                frozenset(_record_id(item) for item in evidence),
+            ),
+            member_fact_ids=_filter_ownership_pairs(
+                request.constraints.member_fact_ids,
+                assigned,
+                frozenset(_record_id(item) for item in facts),
+            ),
+            fact_evidence_ids=_filter_ownership_pairs(
+                request.constraints.fact_evidence_ids,
+                frozenset(_record_id(item) for item in facts),
+                frozenset(_record_id(item) for item in evidence),
+            ),
+            member_character_names=_filter_ownership_pairs(
+                request.constraints.member_character_names,
+                assigned,
+                request.constraints.character_names,
+            ),
+            edge_ownership=tuple(
+                EdgeEvidenceOwnership(
+                    edge.source_id,
+                    edge.target_id,
+                    tuple(
+                        item
+                        for item in edge.evidence_ids
+                        if item in {_record_id(record) for record in evidence}
+                    ),
+                    tuple(
+                        item
+                        for item in edge.fact_ids
+                        if item in {_record_id(record) for record in facts}
+                    ),
+                )
+                for edge in request.constraints.edge_ownership
+                if edge.source_id in assigned or edge.target_id in assigned
+            ),
         ),
     )
 
@@ -522,6 +596,18 @@ def _referenced_ids(
     for value in values:
         visit(value)
     return frozenset(found)
+
+
+def _filter_ownership_pairs(
+    entries: tuple[tuple[str, tuple[str, ...]], ...],
+    keys: frozenset[str],
+    values: frozenset[str],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return tuple(
+        (key, tuple(value for value in owned if value in values))
+        for key, owned in entries
+        if key in keys
+    )
 
 
 def _event_payload(
@@ -685,6 +771,29 @@ def build_reconciliation_request(
     normalized_ids = tuple(str(event["id"]) for event in normalized_events)
     if normalized_ids != ordered_event_ids:
         raise ValueError("Stage 2 event IDs must exactly match deterministic order.")
+    member_evidence_ids = tuple(
+        (
+            str(event["id"]),
+            tuple(_string_list(event.get("evidence_ids", []), "event.evidence_ids")),
+        )
+        for event in normalized_events
+    )
+    member_fact_ids = tuple(
+        (
+            str(event["id"]),
+            tuple(
+                _string_list(event.get("promoted_fact_ids", []), "event.promoted_fact_ids")
+            ),
+        )
+        for event in normalized_events
+    )
+    member_character_names = tuple(
+        (
+            str(event["id"]),
+            tuple(_string_list(event.get("characters", []), "event.characters")),
+        )
+        for event in normalized_events
+    )
     request = OrganizationRequest(
         run_id=run_id,
         chunk_id=chunk_id,
@@ -696,6 +805,12 @@ def build_reconciliation_request(
             required_member_ids=frozenset(ordered_event_ids),
             fact_ids=fact_ids,
             evidence_ids=evidence_ids,
+            character_names=frozenset(
+                character for _member, values in member_character_names for character in values
+            ),
+            member_evidence_ids=member_evidence_ids,
+            member_fact_ids=member_fact_ids,
+            member_character_names=member_character_names,
         ),
     )
     _ensure_request_prompts_fit(request)
@@ -757,6 +872,27 @@ def build_arc_request(
             fact_ids=fact_ids,
             evidence_ids=evidence_ids,
             character_names=characters,
+            member_evidence_ids=tuple(
+                (
+                    str(event["id"]),
+                    tuple(_string_list(event["evidence_ids"], "event.evidence_ids")),
+                )
+                for event in normalized_events
+            ),
+            member_fact_ids=tuple(
+                (
+                    str(event["id"]),
+                    tuple(_string_list(event["major_fact_ids"], "event.major_fact_ids")),
+                )
+                for event in normalized_events
+            ),
+            member_character_names=tuple(
+                (
+                    str(event["id"]),
+                    tuple(_string_list(event["characters"], "event.characters")),
+                )
+                for event in normalized_events
+            ),
         ),
     )
     _ensure_request_prompts_fit(request)

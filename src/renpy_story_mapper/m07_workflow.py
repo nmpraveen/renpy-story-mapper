@@ -31,6 +31,7 @@ from renpy_story_mapper.organization.contracts import (
     M05_REASONING_PROFILE,
     AttemptGate,
     CancelledCallback,
+    EdgeEvidenceOwnership,
     OrganizationChunkResult,
     OrganizationConstraints,
     OrganizationGroup,
@@ -55,7 +56,10 @@ from renpy_story_mapper.organization.parallel import (
     RouteScope,
     SchedulerConfig,
 )
-from renpy_story_mapper.organization.persistence import PersistentCheckpointSink
+from renpy_story_mapper.organization.persistence import (
+    PersistentCheckpointSink,
+    decode_organization_result,
+)
 from renpy_story_mapper.organization.validation import validate_result
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.route_map import (
@@ -678,7 +682,14 @@ class M07WorkflowService:
     def apply(self, assembly_id: str) -> dict[str, object]:
         try:
             with Project.open(self._project_path) as project:
-                generation = _authority_hash(_route_payload(project))
+                route = _route_payload(project)
+                generation = _authority_hash(route)
+                _validate_persisted_assembly(
+                    project,
+                    route=route,
+                    generation=generation,
+                    assembly_id=assembly_id,
+                )
                 assembly = project.m07_model_service().apply(
                     assembly_id, generation=generation
                 )
@@ -827,12 +838,16 @@ def _organization_scopes(
         _require_all_ids(scope.edge_ids, edges, f"scope {scope.id} edge")
         _require_all_ids(scope.evidence_ids, evidence, f"scope {scope.id} evidence")
         window = windows.get(scope.id)
-        scope_nodes = [_sanitize(nodes[item]) for item in scope.node_ids]
-        scope_edges = [_sanitize(edges[item]) for item in scope.edge_ids]
+        scope_nodes = [
+            cast(dict[str, object], _sanitize(nodes[item])) for item in scope.node_ids
+        ]
+        scope_edges = [
+            cast(dict[str, object], _sanitize(edges[item])) for item in scope.edge_ids
+        ]
         scope_evidence = [_sanitize(evidence[item]) for item in scope.evidence_ids]
         if window is None:
-            boundary_nodes: list[object] = []
-            boundary_edges: list[object] = []
+            boundary_nodes: list[dict[str, object]] = []
+            boundary_edges: list[dict[str, object]] = []
             context_member_ids: frozenset[str] = frozenset()
             fact_ids = frozenset(
                 item
@@ -845,8 +860,14 @@ def _organization_scopes(
         else:
             _require_all_ids(window.boundary_node_ids, nodes, f"window {window.id} boundary node")
             _require_all_ids(window.boundary_edge_ids, edges, f"window {window.id} boundary edge")
-            boundary_nodes = [_sanitize(nodes[item]) for item in window.boundary_node_ids]
-            boundary_edges = [_sanitize(edges[item]) for item in window.boundary_edge_ids]
+            boundary_nodes = [
+                cast(dict[str, object], _sanitize(nodes[item]))
+                for item in window.boundary_node_ids
+            ]
+            boundary_edges = [
+                cast(dict[str, object], _sanitize(edges[item]))
+                for item in window.boundary_edge_ids
+            ]
             context_member_ids = frozenset(window.boundary_node_ids)
             fact_ids = frozenset(window.fact_ids)
             window_contract = window.to_dict()
@@ -856,6 +877,7 @@ def _organization_scopes(
                 f"scope {scope.id} exceeds bounded facts limit "
                 f"({len(fact_ids)} > {MAX_WINDOW_FACTS})"
             )
+        ownership_edges = (*scope_edges, *boundary_edges)
         request = OrganizationRequest(
             run_id=run_id,
             chunk_id=f"chunk_{scope.id}",
@@ -887,6 +909,39 @@ def _organization_scopes(
                 context_member_ids=context_member_ids,
                 fact_ids=fact_ids,
                 evidence_ids=frozenset(scope.evidence_ids),
+                member_evidence_ids=tuple(
+                    (
+                        _string(node.get("id"), "node id"),
+                        _strings(node.get("evidence_ids")),
+                    )
+                    for node in scope_nodes
+                ),
+                fact_evidence_ids=tuple(
+                    (
+                        fact_id,
+                        tuple(
+                            evidence_id
+                            for evidence_id in _strings(facts[fact_id].get("evidence_ids"))
+                            if evidence_id in scope.evidence_ids
+                        ),
+                    )
+                    for fact_id in sorted(fact_ids)
+                ),
+                edge_ownership=tuple(
+                    EdgeEvidenceOwnership(
+                        _string(edge.get("source_id"), "edge source id"),
+                        _string(edge.get("target_id"), "edge target id"),
+                        _strings(edge.get("evidence_ids")),
+                        tuple(
+                            dict.fromkeys(
+                                fact_id
+                                for key in ("gate_ids", "effect_ids")
+                                for fact_id in _strings(edge.get(key))
+                            )
+                        ),
+                    )
+                    for edge in ownership_edges
+                ),
             ),
             cloud_consent_run_id=run_id,
             model=M05_CLOUD_MODEL,
@@ -944,6 +999,77 @@ def _facts_by_id(project: Project) -> dict[str, dict[str, object]]:
     return result
 
 
+def _validate_persisted_assembly(
+    project: Project,
+    *,
+    route: Mapping[str, object],
+    generation: str,
+    assembly_id: str,
+) -> None:
+    """Revalidate persisted AI results against current deterministic ownership before apply."""
+
+    connection = project._require_open()
+    row = connection.execute(
+        "SELECT generation,status,payload_json FROM m07_assemblies WHERE assembly_id=?",
+        (assembly_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(assembly_id)
+    if str(row["generation"]) != generation or str(row["status"]) == "superseded":
+        raise ValueError("the assembly is stale for the current route generation")
+    payload = storage.decode_json(row["payload_json"])
+    if not isinstance(payload, dict) or payload.get("generation") != generation:
+        raise storage.ProjectCorruptError("M07 assembly generation does not match payload")
+    items = payload.get("items")
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise storage.ProjectCorruptError("M07 assembly items are invalid")
+
+    deterministic: list[DeterministicRouteScope] = []
+    for scope_row in connection.execute(
+        "SELECT scope_json FROM m07_scope_checkpoints WHERE generation=? ORDER BY ordinal,scope_id",
+        (generation,),
+    ):
+        scope = storage.decode_json(scope_row["scope_json"])
+        if not isinstance(scope, dict):
+            raise storage.ProjectCorruptError("M07 persisted scope is invalid")
+        deterministic.append(
+            DeterministicRouteScope(
+                id=_string(scope.get("id"), "scope id"),
+                ordinal=_integer(scope.get("ordinal"), "scope ordinal"),
+                lane_id=_string(scope.get("lane_id"), "scope lane"),
+                node_ids=_strings(scope.get("node_ids")),
+                edge_ids=_strings(scope.get("edge_ids")),
+                evidence_ids=_strings(scope.get("evidence_ids")),
+                input_hash=_digest(scope.get("input_hash"), "scope input hash"),
+            )
+        )
+    requests = {
+        scope.request.scope_id: scope.request
+        for scope in _organization_scopes(
+            route,
+            deterministic,
+            f"persisted-revalidation:{assembly_id}",
+            _facts_by_id(project),
+        )
+    }
+    for item in cast(list[dict[str, object]], items):
+        if item.get("status") != CheckpointStatus.VALIDATED.value:
+            continue
+        scope_id = _string(item.get("scope_id"), "assembly scope id")
+        request = requests.get(scope_id)
+        if request is None:
+            raise InvalidProviderOutputError(
+                "The persisted organization references an unknown deterministic scope."
+            )
+        result_wrapper = item.get("result")
+        if not isinstance(result_wrapper, dict):
+            raise InvalidProviderOutputError(
+                "The persisted validated organization has no result."
+            )
+        result = decode_organization_result(result_wrapper.get("organization_result"))
+        validate_result(result.raw_normalized, request)
+
+
 def _applied_overlay(
     project: Project, *, generation: str
 ) -> tuple[dict[str, dict[str, object]], object | None]:
@@ -958,6 +1084,21 @@ def _applied_overlay(
         .fetchone()
     )
     if row is None:
+        return {}, None
+    try:
+        _validate_persisted_assembly(
+            project,
+            route=_route_payload(project),
+            generation=generation,
+            assembly_id=str(row["assembly_id"]),
+        )
+    except (
+        InvalidProviderOutputError,
+        KeyError,
+        TypeError,
+        ValueError,
+        storage.ProjectCorruptError,
+    ):
         return {}, None
     payload = storage.decode_json(row["payload_json"])
     overlay: dict[str, dict[str, object]] = {}

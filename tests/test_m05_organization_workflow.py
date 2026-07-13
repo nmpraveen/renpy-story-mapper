@@ -362,6 +362,31 @@ def _validated_result(request: OrganizationRequest, members: list[str]) -> Any:
         memberships = [[member] for member in members]
     else:
         memberships = [members] if members else []
+
+    def claims(membership: list[str]) -> list[dict[str, object]]:
+        evidence_ids = list(
+            dict.fromkeys(
+                [
+                    evidence_id
+                    for member_id, owned in request.constraints.member_evidence_ids
+                    if member_id in membership
+                    for evidence_id in owned
+                ]
+                + [
+                    evidence_id
+                    for edge in request.constraints.edge_ownership
+                    if edge.source_id in membership and edge.target_id in membership
+                    for evidence_id in edge.evidence_ids
+                ]
+            )
+        )
+        return [
+            {
+                "text": "Synthetic evidence-backed organization.",
+                "evidence_ids": evidence_ids,
+            }
+        ]
+
     payload = {
         "stage": request.stage.value,
         "groups": [
@@ -374,7 +399,7 @@ def _validated_result(request: OrganizationRequest, members: list[str]) -> Any:
                 "importance": "supporting",
                 "outcomes": [],
                 "promoted_fact_ids": [],
-                "claims": [],
+                "claims": claims(membership),
                 "warnings": [],
             }
             for index, membership in enumerate(memberships)
@@ -833,8 +858,9 @@ def test_arc_stage_batches_large_event_sets_and_reconciles_membership() -> None:
             "supporting",
             (),
             (),
+            (("Grounded event.", (f"evidence-{index:03d}",)),),
             (),
-            (),
+            allowed_evidence_ids=(f"evidence-{index:03d}",),
         )
         for index in range(121)
     ]
@@ -863,8 +889,9 @@ def test_arc_stage_recursively_bounds_second_level_reconciliation() -> None:
             "supporting",
             (),
             (),
+            (("Grounded event.", ("e",)),),
             (),
-            (),
+            allowed_evidence_ids=("e",),
         )
         for index in range(2_401)
     ]
@@ -898,8 +925,9 @@ def test_single_arc_batch_recurses_until_overview_is_at_most_twelve_groups() -> 
             "supporting",
             (),
             (),
+            (("Grounded event.", (f"evidence-{index:03d}",)),),
             (),
-            (),
+            allowed_evidence_ids=(f"evidence-{index:03d}",),
         )
         for index in range(30)
     ]
@@ -943,8 +971,9 @@ def test_arc_reconciliation_no_progress_falls_back_without_hidden_extra_arcs() -
             "supporting",
             (),
             (),
+            (("Grounded event.", (f"evidence-{index:03d}",)),),
             (),
-            (),
+            allowed_evidence_ids=(f"evidence-{index:03d}",),
         )
         for index in range(20)
     ]
@@ -979,8 +1008,9 @@ def test_all_ungrouped_arc_batches_remain_explicit_fallback() -> None:
             "supporting",
             (),
             (),
+            (("Grounded event.", (f"evidence-{index:03d}",)),),
             (),
-            (),
+            allowed_evidence_ids=(f"evidence-{index:03d}",),
         )
         for index in range(121)
     ]

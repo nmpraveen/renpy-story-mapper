@@ -285,6 +285,19 @@ def normalized_cache_identity(request: OrganizationRequest, config: SchedulerCon
         "fact_ids": sorted(constraints.fact_ids),
         "evidence_ids": sorted(constraints.evidence_ids),
         "character_names": sorted(constraints.character_names),
+        "member_evidence_ids": constraints.member_evidence_ids,
+        "member_fact_ids": constraints.member_fact_ids,
+        "fact_evidence_ids": constraints.fact_evidence_ids,
+        "member_character_names": constraints.member_character_names,
+        "edge_ownership": [
+            {
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "evidence_ids": edge.evidence_ids,
+                "fact_ids": edge.fact_ids,
+            }
+            for edge in constraints.edge_ownership
+        ],
     }
     encoded = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

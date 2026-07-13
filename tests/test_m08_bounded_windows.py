@@ -21,13 +21,17 @@ from renpy_story_mapper.m07_workflow import M07WorkflowService, PreparedRunError
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     CodexMode,
+    InterpretationClaim,
     OrganizationChunkResult,
     OrganizationGroup,
     ProviderExecutionMetadata,
     ProviderState,
     ProviderStatus,
 )
-from renpy_story_mapper.organization.errors import OrganizationCancelledError
+from renpy_story_mapper.organization.errors import (
+    InvalidProviderOutputError,
+    OrganizationCancelledError,
+)
 from renpy_story_mapper.organization.parallel import BudgetPolicy, RouteScope
 from renpy_story_mapper.project import PayloadRecord, Project, create_ingested_project
 
@@ -259,6 +263,13 @@ class _Provider:
         assert not cancelled()
         self._requests.append(request)
         members = tuple(request.constraints.ordered_member_ids)
+        cited_evidence = tuple(
+            evidence_id
+            for member_id, evidence_ids in request.constraints.member_evidence_ids
+            if member_id in members
+            for evidence_id in evidence_ids
+        )
+        claims = (InterpretationClaim("Exact bounded interpretation.", cited_evidence),)
         group = OrganizationGroup(
             id=f"group-{request.scope_id}",
             title="Bounded interpretation",
@@ -268,7 +279,7 @@ class _Provider:
             importance="supporting",
             outcomes=(),
             promoted_fact_ids=(),
-            claims=(),
+            claims=claims,
             warnings=(),
         )
         raw = {
@@ -283,7 +294,12 @@ class _Provider:
                     "importance": "supporting",
                     "outcomes": [],
                     "promoted_fact_ids": [],
-                    "claims": [],
+                    "claims": [
+                        {
+                            "text": claims[0].text,
+                            "evidence_ids": list(claims[0].evidence_ids),
+                        }
+                    ],
                     "warnings": [],
                 }
             ],
@@ -546,3 +562,62 @@ def test_cancelled_companion_window_retries_without_replaying_validated_partial(
     assert [request.scope_id for request in requests] == [first.id, second.id]
     assert constructions.count(first.id) == 1
     assert constructions.count(second.id) == 2
+
+
+def test_pref_fix_persisted_empty_claims_cannot_apply_or_render(
+    bounded_project: Path,
+) -> None:
+    requests: list[Any] = []
+    service = M07WorkflowService(
+        bounded_project,
+        lambda scope: _Provider(scope, requests),
+    )
+    budget = BudgetPolicy(hard_calls=2, hard_tokens=100_000, hard_seconds=30)
+    prepared = service.prepare(scope_ids=("scope-entry",), budget=budget)
+    completed = service.run_prepared(
+        _strict_authorize(service, prepared, budget), cancelled=lambda: False
+    )
+    assembly = completed["assembly"]
+    assert isinstance(assembly, dict)
+    assembly_id = str(assembly["assembly_id"])
+    generation = str(assembly["generation"])
+
+    with Project.open(bounded_project) as project:
+        connection = project._require_open()
+        row = connection.execute(
+            "SELECT payload_json FROM m07_assemblies WHERE assembly_id=?", (assembly_id,)
+        ).fetchone()
+        assert row is not None
+        payload = storage.decode_json(row["payload_json"])
+        assert isinstance(payload, dict)
+        items = payload["items"]
+        assert isinstance(items, list) and isinstance(items[0], dict)
+        wrapper = items[0]["result"]
+        assert isinstance(wrapper, dict)
+        encoded = wrapper["organization_result"]
+        assert isinstance(encoded, dict)
+        groups = encoded["groups"]
+        raw = encoded["raw_normalized"]
+        assert isinstance(groups, list) and isinstance(groups[0], dict)
+        assert isinstance(raw, dict) and isinstance(raw["groups"], list)
+        groups[0]["claims"] = []
+        raw["groups"][0]["claims"] = []
+        payload_json = storage.canonical_json(payload)
+        with storage.transaction(connection):
+            connection.execute(
+                "UPDATE m07_assemblies SET payload_json=?,payload_hash=? WHERE assembly_id=?",
+                (
+                    payload_json,
+                    hashlib.sha256(payload_json).hexdigest(),
+                    assembly_id,
+                ),
+            )
+
+    with pytest.raises(InvalidProviderOutputError, match="evidence-backed claims"):
+        service.apply(assembly_id)
+
+    # Simulate a pre-upgrade assembly that was already applied without this guardrail.
+    with Project.open(bounded_project) as project:
+        project.m07_model_service().apply(assembly_id, generation=generation)
+    rendered = service.route_map()
+    assert rendered["applied_assembly"] is None

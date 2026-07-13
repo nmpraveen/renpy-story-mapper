@@ -51,6 +51,8 @@ def _request(scope_id: str, *, run_id: str = "run-1") -> OrganizationRequest:
             required_member_ids=frozenset({"beat-1"}),
             evidence_ids=frozenset({"evidence-1"}),
             character_names=frozenset({"Ava"}),
+            member_evidence_ids=(("beat-1", ("evidence-1",)),),
+            member_character_names=(("beat-1", ("Ava",)),),
         ),
         cloud_consent_run_id=run_id,
         model=M05_CLOUD_MODEL,
