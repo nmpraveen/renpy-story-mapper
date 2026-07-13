@@ -1365,6 +1365,7 @@ def _story_display_context(project: Project) -> StoryDisplayContext:
     aliases: dict[str, str] = {}
     state_names: dict[str, tuple[str, str]] = {}
     scene_titles: dict[str, str] = {}
+    ambiguous_scene_titles: set[str] = set()
     control_labels: dict[str, str] = {}
 
     metadata = project.payload("story_metadata", "authoritative")
@@ -1384,7 +1385,11 @@ def _story_display_context(project: Project) -> StoryDisplayContext:
                     continue
                 key, title = item.get("key"), item.get("title")
                 if isinstance(key, str) and isinstance(title, str):
-                    scene_titles[key] = title
+                    if key in scene_titles or key in ambiguous_scene_titles:
+                        scene_titles.pop(key, None)
+                        ambiguous_scene_titles.add(key)
+                    else:
+                        scene_titles[key] = title
 
     registry = project.payload("state_registry", "authoritative")
     if isinstance(registry, list):

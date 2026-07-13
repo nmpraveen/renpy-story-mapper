@@ -250,6 +250,38 @@ def test_packaged_browser_consumes_metadata_display_fields() -> None:
     assert 'addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue")' in app
 
 
+def test_browser_scene_title_is_fail_closed_for_duplicate_keys(tmp_path: Path) -> None:
+    path = _project(tmp_path)
+    metadata = _metadata()
+    first = metadata["scene_titles"][0]  # type: ignore[index]
+    metadata["scene_titles"] = [first, {**first, "title": "Second Memory"}]
+    with Project.open(path) as project:
+        project.write_payloads(
+            (PayloadRecord("story_metadata", "authoritative", metadata, ("story.rpy",)),)
+        )
+        control = project.payload("m06_control_flow", "authoritative")
+        route = project.payload("m07_route_map", "authoritative")
+        assert isinstance(control, dict) and isinstance(route, dict)
+        start_control_id = next(
+            item["id"]
+            for item in control["nodes"]
+            if item.get("kind") == "label" and item.get("label") == "start"
+        )
+        expected = next(
+            item["title"] for item in route["nodes"] if item["control_node_id"] == start_control_id
+        )
+
+    api = ProjectApi(_NoDialogs(), m07_provider_factory=lambda _scope: None)  # type: ignore[arg-type]
+    api._project_path = path
+    try:
+        page = api.dispatch("POST", M07_API_ROUTES["route_map"], {"limit": 30})
+    finally:
+        api.close()
+    node = next(item for item in page["nodes"] if item["control_node_id"] == start_control_id)
+    assert node["title"] == expected
+    assert "scene_title_key" not in node
+
+
 def test_changed_metadata_dependency_invalidates_only_advisory_payload(tmp_path: Path) -> None:
     path = _project(tmp_path)
     with Project.open(path) as project:
