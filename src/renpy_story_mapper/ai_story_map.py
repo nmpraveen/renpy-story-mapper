@@ -179,13 +179,9 @@ class AIStoryEdge:
             "evidence_ids": list(evidence),
             "evidence_count": len(self.evidence_ids),
             "continuation": self.continuation,
-            "continuation_route_edge_ids": list(
-                _bounded_ids(self.continuation_route_edge_ids)
-            ),
+            "continuation_route_edge_ids": list(_bounded_ids(self.continuation_route_edge_ids)),
             "proven_merge": self.proven_merge,
-            "proven_merge_route_edge_ids": list(
-                _bounded_ids(self.proven_merge_route_edge_ids)
-            ),
+            "proven_merge_route_edge_ids": list(_bounded_ids(self.proven_merge_route_edge_ids)),
             "technical_hops": self.technical_hops,
         }
 
@@ -341,12 +337,8 @@ class AIStoryMap:
         unique_evidence = tuple(dict.fromkeys(evidence_ids))
         page_ids = unique_evidence[evidence_offset : evidence_offset + evidence_limit]
         next_evidence = evidence_offset + len(page_ids)
-        route_node_page = route_node_ids[
-            route_node_offset : route_node_offset + route_node_limit
-        ]
-        route_edge_page = route_edge_ids[
-            route_edge_offset : route_edge_offset + route_edge_limit
-        ]
+        route_node_page = route_node_ids[route_node_offset : route_node_offset + route_node_limit]
+        route_edge_page = route_edge_ids[route_edge_offset : route_edge_offset + route_edge_limit]
         next_node = route_node_offset + len(route_node_page)
         next_edge = route_edge_offset + len(route_edge_page)
         return {
@@ -372,15 +364,11 @@ class AIStoryMap:
             "technical_page": {
                 "route_node_offset": route_node_offset,
                 "route_node_limit": route_node_limit,
-                "next_route_node_offset": (
-                    next_node if next_node < len(route_node_ids) else None
-                ),
+                "next_route_node_offset": (next_node if next_node < len(route_node_ids) else None),
                 "total_route_nodes": len(route_node_ids),
                 "route_edge_offset": route_edge_offset,
                 "route_edge_limit": route_edge_limit,
-                "next_route_edge_offset": (
-                    next_edge if next_edge < len(route_edge_ids) else None
-                ),
+                "next_route_edge_offset": (next_edge if next_edge < len(route_edge_ids) else None),
                 "total_route_edges": len(route_edge_ids),
             },
             "claims": claims,
@@ -526,17 +514,28 @@ def project_ai_story_map(
         for fact_id in _string_tuple(edge.get(key), f"edge.{key}")
     }
     items = _records(payload.get("items"), "organization.items")
+    if not items:
+        raise ValueError("organization assembly must contain at least one item")
     item_scope_ids = [_required_text(item, "scope_id") for item in items]
-    if len(item_scope_ids) != len(set(item_scope_ids)) or set(item_scope_ids) != set(scopes):
-        raise ValueError("organization items must cover each current scope exactly once")
+    if len(item_scope_ids) != len(set(item_scope_ids)):
+        raise ValueError("organization items must have unique scope IDs")
+    if any(
+        scope_id not in scopes and not _is_bounded_window_id(scope_id)
+        for scope_id in item_scope_ids
+    ):
+        raise ValueError("organization item references an unknown scope")
     owner: dict[str, str] = {}
     mutable_nodes: list[_MutableStoryNode] = []
+    bounded_group_intervals: list[tuple[tuple[int, str], tuple[int, str]]] = []
 
     for item in sorted(items, key=_item_order):
         scope_id = _required_text(item, "scope_id")
-        if scope_id not in scopes:
-            raise ValueError("organization item references an unknown scope")
-        scope_members = set(_string_tuple(scopes[scope_id].get("node_ids"), "scope.node_ids"))
+        bounded_window = scope_id not in scopes
+        scope_members = (
+            set(route_nodes)
+            if bounded_window
+            else set(_string_tuple(scopes[scope_id].get("node_ids"), "scope.node_ids"))
+        )
         status = _required_text(item, "status")
         if status not in {item.value for item in CheckpointStatus}:
             raise ValueError("organization item has an unknown checkpoint status")
@@ -546,18 +545,25 @@ def project_ai_story_map(
         pinned = _required_bool(item.get("pinned", False), "item.pinned")
         window_ids = _window_ids(item, scope_id)
         grouped: set[str] = set()
+        fallback_members: set[str] = set()
         if status == "validated":
             result = _mapping(item.get("result"), "item.result")
             organization = _mapping(result.get("organization_result"), "organization_result")
-            for group in _records(organization.get("groups"), "organization.groups"):
-                members = _string_tuple(group.get("member_ids"), "group.member_ids")
-                if not members or set(members) - scope_members or grouped.intersection(members):
-                    raise ValueError("validated group membership is invalid for its scope")
-                grouped.update(members)
+            groups, ungrouped, grouped = _organization_membership(
+                organization, scope_members, route_nodes
+            )
+            if bounded_window and not grouped:
+                raise ValueError("validated bounded window has no route-node membership")
+            if not bounded_window and grouped != scope_members:
+                raise ValueError("validated organization does not cover its complete scope")
+            for group, members in groups:
                 node_id = _stable_id(
                     "ai_story_node", scope_id, _required_text(group, "id"), *members
                 )
                 _claim_owner(owner, members, node_id)
+                if bounded_window:
+                    member_orders = [_route_order(route_nodes[member]) for member in members]
+                    bounded_group_intervals.append((member_orders[0], member_orders[-1]))
                 claims = _claims(group.get("claims"), evidence)
                 promoted_facts = _string_tuple(
                     group.get("promoted_fact_ids"), "group.promoted_fact_ids"
@@ -577,7 +583,9 @@ def project_ai_story_map(
                         claims=claims,
                         fact_ids=promoted_facts,
                         members=members,
-                        scope_ids=(scope_id,),
+                        scope_ids=(
+                            _member_scope_ids(members, scopes) if bounded_window else (scope_id,)
+                        ),
                         window_ids=window_ids,
                         source_kind=AIStorySourceKind.AI,
                         pinned=pinned,
@@ -586,28 +594,39 @@ def project_ai_story_map(
                         warnings=_string_tuple(group.get("warnings"), "group.warnings"),
                     )
                 )
-            ungrouped = _string_tuple(organization.get("ungrouped_ids"), "ungrouped_ids")
-            if set(ungrouped) - scope_members or grouped.intersection(ungrouped):
-                raise ValueError("ungrouped membership is invalid for its scope")
             for member in sorted(ungrouped, key=lambda value: _route_order(route_nodes[value])):
                 _add_fallback_node(
                     mutable_nodes,
                     owner,
                     member,
                     route_nodes[member],
-                    scope_id,
+                    _member_scope_id(member, scopes) if bounded_window else scope_id,
                     window_ids,
                 )
-            grouped.update(ungrouped)
-            if grouped != scope_members:
-                raise ValueError("validated organization does not cover its complete scope")
+        elif bounded_window and status == "fallback":
+            result = _mapping(item.get("result"), "item.result")
+            organization = _mapping(result.get("organization_result"), "organization_result")
+            _, _, grouped = _organization_membership(organization, scope_members, route_nodes)
+            if not grouped:
+                raise ValueError("fallback bounded window has no route-node membership")
+            fallback_members.update(grouped)
+        elif not bounded_window:
+            fallback_members.update(scope_members)
         uncovered = sorted(
-            scope_members - grouped, key=lambda value: _route_order(route_nodes[value])
+            fallback_members,
+            key=lambda value: _route_order(route_nodes[value]),
         )
         for member in uncovered:
             _add_fallback_node(
-                mutable_nodes, owner, member, route_nodes[member], scope_id, window_ids
+                mutable_nodes,
+                owner,
+                member,
+                route_nodes[member],
+                _member_scope_id(member, scopes) if bounded_window else scope_id,
+                window_ids,
             )
+
+    _require_non_crossing_intervals(bounded_group_intervals)
 
     for member in sorted(route_nodes, key=lambda value: _route_order(route_nodes[value])):
         if member not in owner:
@@ -653,12 +672,8 @@ def project_ai_story_map(
 
     for mutable_node in mutable_nodes:
         member_set = set(mutable_node.members)
-        entries_by_owner[mutable_node.id].update(
-            member_set - incoming_by_owner[mutable_node.id]
-        )
-        exits_by_owner[mutable_node.id].update(
-            member_set - outgoing_by_owner[mutable_node.id]
-        )
+        entries_by_owner[mutable_node.id].update(member_set - incoming_by_owner[mutable_node.id])
+        exits_by_owner[mutable_node.id].update(member_set - outgoing_by_owner[mutable_node.id])
 
     final_nodes = tuple(
         sorted(
@@ -843,8 +858,7 @@ def _coalesced_edge(
         {_required_text(item, "target_id") for item in ordered}, route_nodes
     )
     proven_merge = any(
-        _required_bool(item.get("proven_merge", False), "edge.proven_merge")
-        for item in ordered
+        _required_bool(item.get("proven_merge", False), "edge.proven_merge") for item in ordered
     )
     role = _edge_presentation_role(source, target, source_nodes, target_nodes, proven_merge)
     continuation_roles = {"continuation", "corridor", "fallthrough", "next", "call_return"}
@@ -866,12 +880,7 @@ def _coalesced_edge(
         min(_route_order(node)[0] for node in source_nodes),
         any(_required_text(node, "kind") == "terminal" for node in target_nodes),
         tuple(
-            sorted(
-                {
-                    _required_text(node, "lane_kind")
-                    for node in (*source_nodes, *target_nodes)
-                }
-            )
+            sorted({_required_text(node, "lane_kind") for node in (*source_nodes, *target_nodes)})
         ),
         entry_ids,
         exit_ids,
@@ -888,8 +897,7 @@ def _coalesced_edge(
         proven_merge,
         merge_edge_ids,
         sum(
-            _required_int(item.get("technical_hops", 0), "edge.technical_hops")
-            for item in ordered
+            _required_int(item.get("technical_hops", 0), "edge.technical_hops") for item in ordered
         ),
     )
 
@@ -920,9 +928,7 @@ def _edge_presentation_role(
     target_kinds = {_required_text(item, "kind") for item in targets}
     if "terminal" in target_kinds:
         return AIStoryPresentationRole.ENDING
-    lane_kinds = {
-        _required_text(item, "lane_kind") for item in (*sources, *targets)
-    }
+    lane_kinds = {_required_text(item, "lane_kind") for item in (*sources, *targets)}
     if "detour" in lane_kinds and (proven_merge or "persistent" not in lane_kinds):
         return AIStoryPresentationRole.DETOUR_ANNOTATION
     if "persistent" in lane_kinds:
@@ -969,6 +975,81 @@ def _claims(
     return tuple(result)
 
 
+def _is_bounded_window_id(scope_id: str) -> bool:
+    prefix = "bounded_window_"
+    digest = scope_id.removeprefix(prefix)
+    return (
+        scope_id.startswith(prefix)
+        and len(digest) == 20
+        and all(character in "0123456789abcdef" for character in digest)
+    )
+
+
+def _organization_membership(
+    organization: Mapping[str, object],
+    allowed_members: set[str],
+    route_nodes: Mapping[str, Mapping[str, object]],
+) -> tuple[
+    tuple[tuple[Mapping[str, object], tuple[str, ...]], ...],
+    tuple[str, ...],
+    set[str],
+]:
+    groups: list[tuple[Mapping[str, object], tuple[str, ...]]] = []
+    group_ids: set[str] = set()
+    grouped: set[str] = set()
+    prior_group_max: tuple[int, str] | None = None
+    for group in _records(organization.get("groups"), "organization.groups"):
+        group_id = _required_text(group, "id")
+        if group_id in group_ids:
+            raise ValueError("organization groups must have unique IDs")
+        group_ids.add(group_id)
+        members = _string_tuple(group.get("member_ids"), "group.member_ids")
+        member_set = set(members)
+        if not members or member_set - allowed_members or grouped.intersection(member_set):
+            raise ValueError("validated group membership is invalid for its scope")
+        member_orders = [_route_order(route_nodes[member]) for member in members]
+        if member_orders != sorted(member_orders) or (
+            prior_group_max is not None and member_orders[0] <= prior_group_max
+        ):
+            raise ValueError("organization group membership crosses deterministic order")
+        prior_group_max = member_orders[-1]
+        grouped.update(member_set)
+        groups.append((group, members))
+    ungrouped = _string_tuple(organization.get("ungrouped_ids"), "ungrouped_ids")
+    if set(ungrouped) - allowed_members or grouped.intersection(ungrouped):
+        raise ValueError("ungrouped membership is invalid for its scope")
+    covered = grouped.union(ungrouped)
+    return tuple(groups), ungrouped, covered
+
+
+def _member_scope_ids(
+    members: Sequence[str], scopes: Mapping[str, Mapping[str, object]]
+) -> tuple[str, ...]:
+    member_set = set(members)
+    result = tuple(
+        sorted(
+            scope_id
+            for scope_id, scope in scopes.items()
+            if member_set.intersection(_string_tuple(scope.get("node_ids"), "scope.node_ids"))
+        )
+    )
+    return result or ("unscoped",)
+
+
+def _member_scope_id(member: str, scopes: Mapping[str, Mapping[str, object]]) -> str:
+    return _member_scope_ids((member,), scopes)[0]
+
+
+def _require_non_crossing_intervals(
+    intervals: Sequence[tuple[tuple[int, str], tuple[int, str]]],
+) -> None:
+    prior_end: tuple[int, str] | None = None
+    for start, end in sorted(intervals):
+        if prior_end is not None and start <= prior_end:
+            raise ValueError("bounded-window groups cross deterministic order")
+        prior_end = end
+
+
 def _window_ids(item: Mapping[str, object], scope_id: str) -> tuple[str, ...]:
     explicit = item.get("window_ids")
     if explicit is not None:
@@ -977,9 +1058,7 @@ def _window_ids(item: Mapping[str, object], scope_id: str) -> tuple[str, ...]:
     return (window,) if isinstance(window, str) and window else (scope_id,)
 
 
-def _corrected_text(
-    correction: Mapping[str, object], key: str, group: Mapping[str, object]
-) -> str:
+def _corrected_text(correction: Mapping[str, object], key: str, group: Mapping[str, object]) -> str:
     value = correction.get(key, group.get(key))
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} must be non-empty text")

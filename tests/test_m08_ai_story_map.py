@@ -161,7 +161,7 @@ def _item(
     pinned: bool = False,
 ) -> dict[str, object]:
     result: object = None
-    if status == "validated":
+    if status in {"validated", "fallback"}:
         result = {
             "organization_result": {
                 "stage": "events",
@@ -266,8 +266,7 @@ def test_choice_rejoin_preserves_genuine_routes_until_merge() -> None:
     merge_edges = [edge for edge in story.edges if edge.proven_merge]
     assert len(merge_edges) == 2
     assert all(
-        edge.presentation_role is AIStoryPresentationRole.PERSISTENT_ROUTE
-        for edge in story.edges
+        edge.presentation_role is AIStoryPresentationRole.PERSISTENT_ROUTE for edge in story.edges
     )
     browser_edges = story.to_dict()["edges"]
     assert all("lane_ids" not in edge and edge["lane_roles"] for edge in browser_edges)
@@ -294,8 +293,7 @@ def test_temporary_variation_is_a_detour_annotation() -> None:
     aside = next(node for node in story.nodes if node.member_route_node_ids == ("aside",))
     assert aside.presentation_role is AIStoryPresentationRole.DETOUR_ANNOTATION
     assert all(
-        edge.presentation_role is AIStoryPresentationRole.DETOUR_ANNOTATION
-        for edge in story.edges
+        edge.presentation_role is AIStoryPresentationRole.DETOUR_ANNOTATION for edge in story.edges
     )
 
 
@@ -375,9 +373,7 @@ def test_partial_applied_organization_uses_honest_technical_fallback() -> None:
     story = project_ai_story_map(route, assembly)
 
     sources = {
-        member: node.source_kind
-        for node in story.nodes
-        for member in node.member_route_node_ids
+        member: node.source_kind for node in story.nodes for member in node.member_route_node_ids
     }
     assert sources == {
         "ai": AIStorySourceKind.AI,
@@ -389,6 +385,205 @@ def test_partial_applied_organization_uses_honest_technical_fallback() -> None:
     fallback = next(node for node in story.nodes if node.member_route_node_ids == ("failed",))
     assert fallback.importance == "technical"
     assert fallback.claims == ()
+
+
+def test_selected_route_scope_can_leave_other_scopes_as_technical_fallback() -> None:
+    route = _route(
+        [_node("selected", 0), _node("outside", 1)],
+        [_edge("continue", "selected", "outside")],
+        scopes={"scope_selected": ["selected"], "scope_outside": ["outside"]},
+    )
+    assembly = _assembly(
+        route,
+        [_item("scope_selected", 0, groups=[_group("selected_event", ["selected"])])],
+    )
+
+    story = project_ai_story_map(route, assembly)
+
+    assert [node.source_kind for node in story.nodes] == [
+        AIStorySourceKind.AI,
+        AIStorySourceKind.TECHNICAL_FALLBACK,
+    ]
+    assert story.edges[0].member_route_edge_ids == ("continue",)
+
+
+def test_mixed_bounded_windows_project_ai_and_preserve_all_other_authority() -> None:
+    validated_window = f"bounded_window_{'a' * 20}"
+    fallback_window = f"bounded_window_{'b' * 20}"
+    route = _route(
+        [
+            _node("before", 0),
+            _node("ai_start", 1),
+            _node("ai_finish", 2),
+            _node("fallback", 3, lane="route", lane_kind="persistent"),
+            _node("ending", 4, kind="terminal"),
+        ],
+        [
+            _edge("enter", "before", "ai_start", gates=["gate"], evidence=["ev_enter"]),
+            _edge(
+                "inside",
+                "ai_start",
+                "ai_finish",
+                effects=["effect"],
+                evidence=["ev_inside"],
+            ),
+            _edge(
+                "merge",
+                "ai_finish",
+                "fallback",
+                lane="route",
+                proven_merge=True,
+            ),
+            _edge("finish", "fallback", "ending", lane="route"),
+        ],
+        scopes={
+            "scope_opening": ["before", "ai_start"],
+            "scope_route": ["ai_finish", "fallback", "ending"],
+        },
+        evidence_ids=["ev_enter", "ev_inside"],
+    )
+    assembly = _assembly(
+        route,
+        [
+            _item(
+                validated_window,
+                0,
+                groups=[_group("story_event", ["ai_start", "ai_finish"])],
+            ),
+            _item(
+                fallback_window,
+                1,
+                status="fallback",
+                groups=[_group("technical_window", ["fallback"])],
+            ),
+        ],
+    )
+
+    result = query_ai_story_map(route, assembly)
+
+    assert result.status is AIStoryMapStatus.AVAILABLE
+    assert result.story_map is not None
+    story = result.story_map
+    sources = {
+        member: node.source_kind for node in story.nodes for member in node.member_route_node_ids
+    }
+    assert sources == {
+        "before": AIStorySourceKind.TECHNICAL_FALLBACK,
+        "ai_start": AIStorySourceKind.AI,
+        "ai_finish": AIStorySourceKind.AI,
+        "fallback": AIStorySourceKind.TECHNICAL_FALLBACK,
+        "ending": AIStorySourceKind.TECHNICAL_FALLBACK,
+    }
+    ai_node = next(node for node in story.nodes if node.source_kind is AIStorySourceKind.AI)
+    assert ai_node.scope_ids == ("scope_opening", "scope_route")
+    assert ai_node.window_ids == (validated_window,)
+    assert ai_node.internal_route_edge_ids == ("inside",)
+    assert ai_node.fact_ids == ("effect",)
+    technical_window_node = next(
+        node for node in story.nodes if node.member_route_node_ids == ("fallback",)
+    )
+    assert technical_window_node.source_kind is AIStorySourceKind.TECHNICAL_FALLBACK
+    assert technical_window_node.window_ids == (fallback_window,)
+    projected_edge_ids = {edge_id for edge in story.edges for edge_id in edge.member_route_edge_ids}
+    internal_edge_ids = {
+        edge_id for node in story.nodes for edge_id in node.internal_route_edge_ids
+    }
+    assert projected_edge_ids | internal_edge_ids == {"enter", "inside", "merge", "finish"}
+    enter = next(edge for edge in story.edges if edge.member_route_edge_ids == ("enter",))
+    merge = next(edge for edge in story.edges if edge.member_route_edge_ids == ("merge",))
+    finish = next(edge for edge in story.edges if edge.member_route_edge_ids == ("finish",))
+    assert enter.gate_ids == ("gate",)
+    assert enter.evidence_ids == ("ev_enter",)
+    assert merge.proven_merge is True
+    assert merge.lane_roles == ("persistent", "spine")
+    assert finish.presentation_role is AIStoryPresentationRole.ENDING
+    assert finish.terminal is True
+    assert story.coverage.ai_owned_route_nodes == 2
+    assert story.coverage.technical_fallback_route_nodes == 3
+
+
+def test_fallback_only_bounded_window_never_becomes_ai() -> None:
+    window_id = f"bounded_window_{'c' * 20}"
+    route = _route(
+        [_node("outside", 0), _node("window_a", 1), _node("window_b", 2)],
+        [_edge("first", "outside", "window_a"), _edge("second", "window_a", "window_b")],
+    )
+    assembly = _assembly(
+        route,
+        [
+            _item(
+                window_id,
+                0,
+                status="fallback",
+                groups=[_group("technical", ["window_a", "window_b"])],
+            )
+        ],
+    )
+
+    story = project_ai_story_map(route, assembly)
+
+    assert all(node.source_kind is AIStorySourceKind.TECHNICAL_FALLBACK for node in story.nodes)
+    assert story.coverage.ai_owned_route_nodes == 0
+    assert story.coverage.technical_fallback_route_nodes == 3
+    window_nodes = [node for node in story.nodes if node.window_ids == (window_id,)]
+    assert {node.member_route_node_ids for node in window_nodes} == {("window_a",), ("window_b",)}
+
+
+@pytest.mark.parametrize("invalid_kind", ["overlap", "unknown"])
+def test_bounded_window_rejects_overlap_and_unknown_members(invalid_kind: str) -> None:
+    route = _route([_node("n0", 0), _node("n1", 1), _node("n2", 2)], [])
+    first_window = f"bounded_window_{'d' * 20}"
+    second_window = f"bounded_window_{'e' * 20}"
+    second_member = "n1" if invalid_kind == "overlap" else "unknown"
+    assembly = _assembly(
+        route,
+        [
+            _item(first_window, 0, groups=[_group("first", ["n0", "n1"])]),
+            _item(second_window, 1, groups=[_group("second", [second_member])]),
+        ],
+    )
+
+    result = query_ai_story_map(route, assembly)
+
+    assert result.status is AIStoryMapStatus.UNAVAILABLE
+    assert result.reason is AIStoryMapUnavailableReason.INVALID_APPLIED_ORGANIZATION
+
+
+def test_bounded_window_rejects_groups_that_cross_deterministic_order() -> None:
+    route = _route([_node("n0", 0), _node("n1", 1), _node("n2", 2), _node("n3", 3)], [])
+    assembly = _assembly(
+        route,
+        [
+            _item(
+                f"bounded_window_{'f' * 20}",
+                0,
+                groups=[_group("outer", ["n0", "n2"])],
+            ),
+            _item(
+                f"bounded_window_{'0' * 20}",
+                1,
+                groups=[_group("inner", ["n1", "n3"])],
+            ),
+        ],
+    )
+
+    result = query_ai_story_map(route, assembly)
+
+    assert result.status is AIStoryMapStatus.UNAVAILABLE
+    assert result.reason is AIStoryMapUnavailableReason.INVALID_APPLIED_ORGANIZATION
+
+
+def test_full_route_scope_still_requires_exact_member_coverage() -> None:
+    route = _route([_node("n0", 0), _node("n1", 1)], [])
+    assembly = _assembly(
+        route,
+        [_item("scope_main", 0, groups=[_group("incomplete", ["n0"])])],
+    )
+
+    result = query_ai_story_map(route, assembly)
+
+    assert result.status is AIStoryMapStatus.UNAVAILABLE
+    assert result.reason is AIStoryMapUnavailableReason.INVALID_APPLIED_ORGANIZATION
 
 
 def test_stale_draft_and_invalid_applied_contracts_are_explicit() -> None:
@@ -470,9 +665,7 @@ def test_detail_resolves_claims_facts_internal_edges_and_all_evidence() -> None:
 
     assert detail["member_route_node_ids"] == ["n0", "n1"]
     assert detail["member_route_edge_ids"] == ["internal"]
-    assert detail["claims"] == [
-        {"text": "A supported claim", "evidence_ids": ["ev_claim"]}
-    ]
+    assert detail["claims"] == [{"text": "A supported claim", "evidence_ids": ["ev_claim"]}]
     assert set(detail["fact_ids"]) == {"fact_gate", "fact_effect"}
     assert {item["id"] for item in detail["facts"]} == {"fact_gate", "fact_effect"}
     assert set(detail["evidence_ids"]) == {"ev_node", "ev_edge", "ev_claim"}
@@ -504,9 +697,7 @@ def test_map_and_detail_pages_have_hard_bounds() -> None:
     nodes = [_node(f"n{index:02d}", index) for index in range(65)]
     route = _route(nodes, [])
     group = _group("large", [f"n{index:02d}" for index in range(65)])
-    story = project_ai_story_map(
-        route, _assembly(route, [_item("scope_main", 0, groups=[group])])
-    )
+    story = project_ai_story_map(route, _assembly(route, [_item("scope_main", 0, groups=[group])]))
 
     broad_node = story.to_dict()["nodes"][0]
     assert len(broad_node["member_route_node_ids"]) == 60
