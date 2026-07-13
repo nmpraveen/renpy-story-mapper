@@ -19,21 +19,27 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Protocol
 
+from renpy_story_mapper.organization.chunking import partition_organization_request
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
     CodexMode,
     OrganizationChunkResult,
+    OrganizationGroup,
     OrganizationProvider,
     OrganizationRequest,
     ProviderAttemptUsage,
+    ProviderExecutionMetadata,
+    serialize_organization_prompt,
 )
 from renpy_story_mapper.organization.errors import (
     InvalidProviderOutputError,
     OrganizationCancelledError,
     ProviderRateLimitError,
     ProviderTimeoutError,
+    ProviderUnavailableError,
 )
+from renpy_story_mapper.organization.validation import validate_result
 
 
 class CheckpointState(StrEnum):
@@ -57,10 +63,42 @@ class RouteScope:
 @dataclass(frozen=True)
 class BudgetPolicy:
     soft_seconds: float | None = None
-    hard_seconds: float | None = None
+    hard_seconds: float | None = 900.0
     soft_tokens: int | None = None
-    hard_tokens: int | None = None
-    hard_calls: int | None = None
+    hard_tokens: int | None = 2_000_000
+    hard_calls: int | None = 32
+
+    def __post_init__(self) -> None:
+        if self.hard_seconds is None:
+            object.__setattr__(self, "hard_seconds", 900.0)
+        if self.hard_tokens is None:
+            object.__setattr__(self, "hard_tokens", 2_000_000)
+        if self.hard_calls is None:
+            object.__setattr__(self, "hard_calls", 32)
+        assert self.hard_seconds is not None
+        assert self.hard_tokens is not None
+        assert self.hard_calls is not None
+        if self.soft_seconds is None:
+            object.__setattr__(self, "soft_seconds", min(600.0, self.hard_seconds * 2 / 3))
+        if self.soft_tokens is None:
+            object.__setattr__(
+                self,
+                "soft_tokens",
+                min(1_500_000, max(1, self.hard_tokens * 3 // 4)),
+            )
+        for name, value in (
+            ("soft_seconds", self.soft_seconds),
+            ("hard_seconds", self.hard_seconds),
+            ("soft_tokens", self.soft_tokens),
+            ("hard_tokens", self.hard_tokens),
+            ("hard_calls", self.hard_calls),
+        ):
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be positive when configured.")
+        if self.soft_seconds is not None and self.soft_seconds > self.hard_seconds:
+            raise ValueError("The soft elapsed-time budget cannot exceed the hard budget.")
+        if self.soft_tokens is not None and self.soft_tokens > self.hard_tokens:
+            raise ValueError("The soft token budget cannot exceed the hard budget.")
 
 
 @dataclass(frozen=True)
@@ -79,6 +117,8 @@ class SchedulerConfig:
     fast_mode: bool = False
     prompt_version: str = "m07-v1"
     schema_version: str = "m07-v1"
+    maximum_output_bytes_per_attempt: int = 64_000
+    maximum_provider_overhead_tokens_per_attempt: int = 16_384
 
     def __post_init__(self) -> None:
         if not 1 <= self.initial_workers <= self.maximum_workers <= 12:
@@ -93,6 +133,10 @@ class SchedulerConfig:
             or self.fast_mode
         ):
             raise ValueError("M07 analysis is locked to GPT-5.6 Luna, High, fast disabled.")
+        if self.maximum_output_bytes_per_attempt <= 0:
+            raise ValueError("The per-attempt output byte limit must be positive.")
+        if self.maximum_provider_overhead_tokens_per_attempt <= 0:
+            raise ValueError("The per-attempt provider token overhead must be positive.")
 
 
 @dataclass(frozen=True)
@@ -152,6 +196,7 @@ class CheckpointSink(Protocol):
         message: str | None = None,
     ) -> None: ...
     def attempt(self, scope_id: str, usage: ProviderAttemptUsage) -> None: ...
+    def flush_attempts(self) -> None: ...
     def publish(self, envelope: ScopeEnvelope) -> None: ...
     def cache(self, identity: str, result: OrganizationChunkResult) -> None: ...
     def assemble(self, envelopes: Iterable[ScopeEnvelope]) -> tuple[ScopeEnvelope, ...]: ...
@@ -203,6 +248,9 @@ class InMemoryCheckpointSink:
         with self._lock:
             self.attempts.append((scope_id, usage))
 
+    def flush_attempts(self) -> None:
+        return
+
     def publish(self, envelope: ScopeEnvelope) -> None:
         with self._lock:
             self.checkpoints[envelope.scope_id] = envelope
@@ -220,6 +268,8 @@ class InMemoryCheckpointSink:
 def normalized_cache_identity(request: OrganizationRequest, config: SchedulerConfig) -> str:
     """Hash semantic input while excluding run/chunk/scope routing identifiers."""
     constraints = request.constraints
+    payload = dict(request.payload)
+    payload.pop("route_scope_id", None)
     material = {
         "provider_mode": config.provider_mode.value,
         "model": config.model,
@@ -228,7 +278,7 @@ def normalized_cache_identity(request: OrganizationRequest, config: SchedulerCon
         "prompt_version": config.prompt_version,
         "schema_version": config.schema_version,
         "stage": request.stage.value,
-        "payload": request.payload,
+        "payload": payload,
         "ordered_member_ids": constraints.ordered_member_ids,
         "required_member_ids": sorted(constraints.required_member_ids),
         "context_member_ids": sorted(constraints.context_member_ids),
@@ -241,21 +291,86 @@ def normalized_cache_identity(request: OrganizationRequest, config: SchedulerCon
 
 
 class _UsageLedger:
-    def __init__(self) -> None:
+    def __init__(self, budget: BudgetPolicy, started: float) -> None:
         self._lock = threading.Lock()
+        self._budget = budget
+        self._started = started
         self.calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self._charged_tokens = 0
 
-    def record(self, usage: ProviderAttemptUsage) -> None:
+    def reserve(self, maximum_tokens: int) -> int | None:
+        """Atomically reserve one call and a conservative token ceiling."""
+
+        if maximum_tokens <= 0:
+            raise ValueError("Attempt token reservations must be positive.")
         with self._lock:
+            hard_seconds = self._budget.hard_seconds
+            hard_calls = self._budget.hard_calls
+            hard_tokens = self._budget.hard_tokens
+            assert hard_seconds is not None
+            assert hard_calls is not None
+            assert hard_tokens is not None
+            if time.monotonic() - self._started >= hard_seconds:
+                return None
+            if self.calls >= hard_calls:
+                return None
+            if self._charged_tokens + maximum_tokens > hard_tokens:
+                return None
             self.calls += 1
+            self._charged_tokens += maximum_tokens
+            return maximum_tokens
+
+    def record(self, usage: ProviderAttemptUsage, reservation: int) -> tuple[bool, bool]:
+        """Record valid usage and report validity plus reservation compliance."""
+
+        with self._lock:
+            reported_tokens = (usage.input_tokens, usage.output_tokens)
+            valid = all(value is None or value >= 0 for value in reported_tokens)
+            if not valid:
+                # Keep the full reservation charged. Malformed negative accounting must never
+                # replenish the budget or corrupt aggregate progress.
+                return False, False
             self.input_tokens += usage.input_tokens or 0
             self.output_tokens += usage.output_tokens or 0
+            actual = (
+                reservation
+                if usage.input_tokens is None or usage.output_tokens is None
+                else usage.input_tokens + usage.output_tokens
+            )
+            self._charged_tokens += actual - reservation
+            return True, actual <= reservation
+
+    def record_unreserved(self, usage: ProviderAttemptUsage) -> bool:
+        """Account fail-closed for a provider attempt that bypassed admission."""
+
+        with self._lock:
+            self.calls += 1
+            reported_tokens = (usage.input_tokens, usage.output_tokens)
+            valid = all(value is None or value >= 0 for value in reported_tokens)
+            hard_tokens = self._budget.hard_tokens
+            assert hard_tokens is not None
+            if not valid:
+                # A bypass plus malformed accounting is maximally unsafe. Saturate the hard
+                # budget and keep public totals non-negative.
+                self._charged_tokens = max(self._charged_tokens, hard_tokens)
+                return False
+            self.input_tokens += usage.input_tokens or 0
+            self.output_tokens += usage.output_tokens or 0
+            if usage.input_tokens is None or usage.output_tokens is None:
+                self._charged_tokens = max(self._charged_tokens, hard_tokens)
+            else:
+                self._charged_tokens += usage.input_tokens + usage.output_tokens
+            return True
 
     def values(self) -> tuple[int, int, int]:
         with self._lock:
             return self.calls, self.input_tokens, self.output_tokens
+
+    def charged_tokens(self) -> int:
+        with self._lock:
+            return self._charged_tokens
 
 
 ProviderFactory = Callable[[RouteScope], OrganizationProvider]
@@ -287,7 +402,7 @@ class ParallelOrganizationScheduler:
         ordered = tuple(sorted(scopes, key=lambda item: (item.ordinal, item.request.scope_id)))
         self._validate_scopes(ordered)
         started = time.monotonic()
-        ledger = _UsageLedger()
+        ledger = _UsageLedger(self.config.budget, started)
         completed: dict[str, ScopeEnvelope] = {}
         pending: deque[tuple[RouteScope, str]] = deque()
         latencies: list[float] = []
@@ -302,11 +417,13 @@ class ParallelOrganizationScheduler:
                 saved is not None
                 and saved.state is CheckpointState.VALIDATED
                 and saved.cache_identity == identity
+                and saved.result is not None
+                and self._result_valid_for_request(saved.result, scope.request)
             ):
                 completed[scope.request.scope_id] = saved
                 continue
             cached = self._sink.cached(identity)
-            if cached is not None:
+            if cached is not None and self._result_valid_for_request(cached, scope.request):
                 self._sink.event(scope, CheckpointState.CACHED_OR_IN_FLIGHT, identity)
                 envelope = ScopeEnvelope(
                     scope.ordinal,
@@ -353,6 +470,7 @@ class ParallelOrganizationScheduler:
                         break
                     continue
                 done, _ = wait(tuple(futures), return_when=FIRST_COMPLETED, timeout=0.05)
+                self._sink.flush_attempts()
                 if not done:
                     self._emit_progress(
                         ordered,
@@ -472,12 +590,31 @@ class ParallelOrganizationScheduler:
     ) -> OrganizationChunkResult:
         provider = self._provider_factory(scope)
         observed = 0
+        reservations: deque[int] = deque()
+
+        def reserve(prompt: bytes) -> bool:
+            reservation = ledger.reserve(self._attempt_token_ceiling(prompt))
+            if reservation is None:
+                return False
+            reservations.append(reservation)
+            return True
 
         def observe(usage: ProviderAttemptUsage) -> None:
             nonlocal observed
             observed += 1
-            ledger.record(usage)
-            self._sink.attempt(scope.request.scope_id, usage)
+            if not reservations:
+                if ledger.record_unreserved(usage):
+                    self._sink.attempt(scope.request.scope_id, usage)
+                raise ProviderUnavailableError(
+                    "The provider reported an attempt without scheduler admission."
+                )
+            valid_usage, honored_reservation = ledger.record(usage, reservations.popleft())
+            if valid_usage:
+                self._sink.attempt(scope.request.scope_id, usage)
+            if not honored_reservation:
+                raise ProviderUnavailableError(
+                    "The provider reported usage outside its admitted token ceiling."
+                )
 
         observer_setter = getattr(provider, "set_attempt_observer", None)
         if callable(observer_setter):
@@ -485,15 +622,36 @@ class ParallelOrganizationScheduler:
         semaphore_setter = getattr(provider, "set_repair_semaphore", None)
         if callable(semaphore_setter):
             semaphore_setter(self._repair_semaphore)
+        gate_setter = getattr(provider, "set_attempt_gate", None)
+        if callable(gate_setter):
+            gate_setter(reserve)
+            has_attempt_gate = True
+        else:
+            has_attempt_gate = False
+        output_limit_setter = getattr(provider, "set_maximum_output_bytes", None)
+        if callable(output_limit_setter):
+            output_limit_setter(self.config.maximum_output_bytes_per_attempt)
         launched = time.monotonic()
         try:
-            result = provider.organize(
-                scope.request,
-                lambda _percent, _status: None,
-                lambda: cancelled() or self._hard_budget_reached(run_started, ledger),
-            )
+            results: list[OrganizationChunkResult] = []
+            for request in partition_organization_request(scope.request):
+                if not has_attempt_gate:
+                    prompt = serialize_organization_prompt(request, repair=False).encode("utf-8")
+                    if not reserve(prompt):
+                        raise OrganizationCancelledError(
+                            "The aggregate provider budget stopped transmission."
+                        )
+                results.append(
+                    provider.organize(
+                        request,
+                        lambda _percent, _status: None,
+                        lambda: cancelled()
+                        or self._hard_budget_reached(run_started, ledger),
+                    )
+                )
+            result = _merge_partition_results(scope.request, results)
         except Exception:
-            if observed == 0:
+            if observed == 0 and reservations:
                 observe(
                     ProviderAttemptUsage(
                         attempt=1,
@@ -515,6 +673,15 @@ class ParallelOrganizationScheduler:
             )
         return result
 
+    def _attempt_token_ceiling(self, prompt: bytes) -> int:
+        """Conservatively bound prompt, provider-added context, and bounded output."""
+
+        return (
+            len(prompt)
+            + self.config.maximum_provider_overhead_tokens_per_attempt
+            + self.config.maximum_output_bytes_per_attempt
+        )
+
     def _validate_scopes(self, scopes: tuple[RouteScope, ...]) -> None:
         seen: set[str] = set()
         for scope in scopes:
@@ -526,6 +693,16 @@ class ParallelOrganizationScheduler:
                 raise ValueError(
                     "Every analysis scope requires exact GPT-5.6 Luna selection."
                 )
+
+    @staticmethod
+    def _result_valid_for_request(
+        result: OrganizationChunkResult, request: OrganizationRequest
+    ) -> bool:
+        try:
+            validate_result(_result_payload(result), request)
+        except InvalidProviderOutputError:
+            return False
+        return True
 
     @staticmethod
     def _validate_transmission_consent(
@@ -554,12 +731,12 @@ class ParallelOrganizationScheduler:
         )
 
     def _can_start(self, ledger: _UsageLedger, in_flight: int) -> bool:
-        calls, input_tokens, output_tokens = ledger.values()
+        calls, _input_tokens, _output_tokens = ledger.values()
         budget = self.config.budget
         if budget.hard_calls is not None and calls + in_flight >= budget.hard_calls:
             return False
         return not (
-            budget.hard_tokens is not None and input_tokens + output_tokens >= budget.hard_tokens
+            budget.hard_tokens is not None and ledger.charged_tokens() >= budget.hard_tokens
         )
 
     def _stop_reason(
@@ -572,7 +749,7 @@ class ParallelOrganizationScheduler:
         budget = self.config.budget
         if budget.hard_seconds is not None and elapsed >= budget.hard_seconds:
             return "hard_time_budget"
-        if budget.hard_tokens is not None and total_tokens >= budget.hard_tokens:
+        if budget.hard_tokens is not None and ledger.charged_tokens() >= budget.hard_tokens:
             return "hard_token_budget"
         if budget.hard_calls is not None and calls >= budget.hard_calls:
             return "hard_call_budget"
@@ -583,16 +760,11 @@ class ParallelOrganizationScheduler:
         return None
 
     def _hard_budget_reached(self, started: float, ledger: _UsageLedger) -> bool:
-        calls, input_tokens, output_tokens = ledger.values()
+        del ledger
         budget = self.config.budget
-        return any(
-            (
-                budget.hard_seconds is not None
-                and time.monotonic() - started >= budget.hard_seconds,
-                budget.hard_tokens is not None
-                and input_tokens + output_tokens >= budget.hard_tokens,
-                budget.hard_calls is not None and calls >= budget.hard_calls,
-            )
+        return bool(
+            budget.hard_seconds is not None
+            and time.monotonic() - started >= budget.hard_seconds
         )
 
     def _commit(self, scope: RouteScope, envelope: ScopeEnvelope) -> None:
@@ -660,6 +832,102 @@ class ParallelOrganizationScheduler:
             partial=validated + fallback < total or fallback > 0,
             peak_workers=peak_workers,
         )
+
+
+def _merge_partition_results(
+    request: OrganizationRequest, results: list[OrganizationChunkResult]
+) -> OrganizationChunkResult:
+    if not results:
+        raise InvalidProviderOutputError("No organization partition produced a result.")
+    if len(results) == 1:
+        return results[0]
+    groups = tuple(
+        replace(group, id=_partition_group_id(index, group.id))
+        for index, result in enumerate(results, start=1)
+        for group in result.groups
+    )
+    ungrouped = tuple(member for result in results for member in result.ungrouped_ids)
+    raw: dict[str, object] = {
+        "stage": request.stage.value,
+        "groups": [_group_payload(group) for group in groups],
+        "ungrouped_ids": list(ungrouped),
+    }
+    validated = validate_result(raw, request)
+    metadata = _merge_metadata(results, raw)
+    return replace(
+        validated,
+        attempts=sum(result.attempts for result in results),
+        metadata=metadata,
+    )
+
+
+def _partition_group_id(partition: int, group_id: str) -> str:
+    prefix = f"p{partition}_"
+    if len(prefix) + len(group_id) <= 80:
+        return prefix + group_id
+    digest = hashlib.sha256(group_id.encode("utf-8")).hexdigest()[:10]
+    return f"{prefix}{group_id[: 80 - len(prefix) - len(digest) - 1]}_{digest}"
+
+
+def _group_payload(item: OrganizationGroup) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "title": item.title,
+        "summary": item.summary,
+        "member_ids": list(item.member_ids),
+        "characters": list(item.characters),
+        "importance": item.importance,
+        "outcomes": list(item.outcomes),
+        "promoted_fact_ids": list(item.promoted_fact_ids),
+        "claims": [
+            {"text": claim.text, "evidence_ids": list(claim.evidence_ids)}
+            for claim in item.claims
+        ],
+        "warnings": list(item.warnings),
+    }
+
+
+def _result_payload(result: OrganizationChunkResult) -> dict[str, object]:
+    return {
+        "stage": result.stage.value,
+        "groups": [_group_payload(group) for group in result.groups],
+        "ungrouped_ids": list(result.ungrouped_ids),
+    }
+
+
+def _merge_metadata(
+    results: list[OrganizationChunkResult], raw: dict[str, object]
+) -> ProviderExecutionMetadata | None:
+    metadata = [result.metadata for result in results]
+    if any(item is None for item in metadata):
+        return None
+    complete = [item for item in metadata if item is not None]
+    first = complete[0]
+    input_tokens = (
+        sum(item.input_tokens for item in complete if item.input_tokens is not None)
+        if all(item.input_tokens is not None for item in complete)
+        else None
+    )
+    output_tokens = (
+        sum(item.output_tokens for item in complete if item.output_tokens is not None)
+        if all(item.output_tokens is not None for item in complete)
+        else None
+    )
+    input_material = "".join(item.input_hash for item in complete).encode("ascii")
+    output_material = json.dumps(
+        raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return ProviderExecutionMetadata(
+        provider_mode=first.provider_mode,
+        model_identifier=first.model_identifier,
+        cli_version=first.cli_version,
+        elapsed_ms=sum(item.elapsed_ms for item in complete),
+        input_hash=hashlib.sha256(input_material).hexdigest(),
+        output_hash=hashlib.sha256(output_material).hexdigest(),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        context_window_tokens=first.context_window_tokens,
+    )
 
 
 def _sanitized_failure(

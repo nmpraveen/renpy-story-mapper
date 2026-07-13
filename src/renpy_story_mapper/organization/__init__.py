@@ -1,7 +1,10 @@
 """Secure, provider-neutral story organization contracts."""
 
 from renpy_story_mapper.organization.cache import OrganizationCacheKey, build_cache_key
-from renpy_story_mapper.organization.chunking import build_event_chunks
+from renpy_story_mapper.organization.chunking import (
+    build_event_chunks,
+    partition_organization_request,
+)
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -15,6 +18,8 @@ from renpy_story_mapper.organization.contracts import (
     ProviderAttemptUsage,
     ProviderExecutionMetadata,
     ProviderStatus,
+    organization_prompts_fit,
+    serialized_prompt_chars,
 )
 from renpy_story_mapper.organization.parallel import (
     BudgetPolicy,
@@ -64,5 +69,8 @@ __all__ = [
     "decode_organization_result",
     "encode_organization_result",
     "normalized_cache_identity",
+    "organization_prompts_fit",
+    "partition_organization_request",
+    "serialized_prompt_chars",
     "validate_result",
 ]

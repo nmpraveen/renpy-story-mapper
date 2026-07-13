@@ -78,6 +78,7 @@ def normalized_cache_key(
 class ScopeCheckpoint:
     scope_id: str
     ordinal: int
+    generation: str
     input_hash: str
     status: CheckpointStatus
     result: object | None
@@ -92,6 +93,7 @@ class ScopeCheckpoint:
         return {
             "scope_id": self.scope_id,
             "ordinal": self.ordinal,
+            "generation": self.generation,
             "input_hash": self.input_hash,
             "status": self.status.value,
             "result": self.result,
@@ -188,8 +190,22 @@ class M07ModelService:
         ordered = sorted(scopes, key=lambda item: (item.ordinal, item.id))
         if len({scope.id for scope in ordered}) != len(ordered):
             raise ValueError("scope IDs must be unique")
+        if not generation:
+            raise ValueError("generation cannot be empty")
         with storage.transaction(connection):
             now = storage.utc_now()
+            previous_generations = {
+                str(row["generation"])
+                for row in connection.execute(
+                    "SELECT DISTINCT generation FROM m07_scope_checkpoints"
+                )
+            }
+            if previous_generations - {generation}:
+                connection.execute(
+                    """UPDATE m07_assemblies SET status='superseded'
+                       WHERE generation<>? AND status IN ('draft','applied')""",
+                    (generation,),
+                )
             keep = {scope.id for scope in ordered}
             for scope in ordered:
                 scope_json = storage.canonical_json(scope.to_dict())
@@ -230,9 +246,18 @@ class M07ModelService:
                 ((scope_id,) for scope_id in stale),
             )
 
-    def checkpoints(self) -> tuple[ScopeCheckpoint, ...]:
-        rows = self._project._require_open().execute(
-            "SELECT * FROM m07_scope_checkpoints ORDER BY ordinal,scope_id"
+    def checkpoints(self, *, generation: str | None = None) -> tuple[ScopeCheckpoint, ...]:
+        connection = self._project._require_open()
+        rows = (
+            connection.execute(
+                "SELECT * FROM m07_scope_checkpoints ORDER BY ordinal,scope_id"
+            )
+            if generation is None
+            else connection.execute(
+                """SELECT * FROM m07_scope_checkpoints WHERE generation=?
+                   ORDER BY ordinal,scope_id""",
+                (generation,),
+            )
         )
         return tuple(_checkpoint(row) for row in rows)
 
@@ -322,7 +347,9 @@ class M07ModelService:
                 ),
             )
 
-    def coverage(self) -> CoverageSnapshot:
+    def coverage(self, *, generation: str | None = None) -> CoverageSnapshot:
+        where = "" if generation is None else " WHERE generation=?"
+        parameters: tuple[object, ...] = () if generation is None else (generation,)
         row = (
             self._project._require_open()
             .execute(
@@ -333,6 +360,8 @@ class M07ModelService:
                SUM(status='failed') failed,SUM(status='cancelled') cancelled,
                COALESCE(SUM(calls),0) calls,COALESCE(SUM(input_tokens),0) input_tokens,
                COALESCE(SUM(output_tokens),0) output_tokens FROM m07_scope_checkpoints"""
+                + where,
+                parameters,
             )
             .fetchone()
         )
@@ -340,11 +369,29 @@ class M07ModelService:
         return CoverageSnapshot(*(int(row[index] or 0) for index in range(len(row))))
 
     def set_override(
-        self, scope_id: str, *, correction: Mapping[str, object] | None = None, pinned: bool = False
+        self,
+        scope_id: str,
+        *,
+        generation: str,
+        correction: Mapping[str, object] | None = None,
+        pinned: bool = False,
     ) -> None:
         connection = self._project._require_open()
-        payload = storage.canonical_json({} if correction is None else dict(correction))
         with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT generation FROM m07_scope_checkpoints WHERE scope_id=?", (scope_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown route scope: {scope_id}")
+            current_generation = str(row["generation"])
+            if current_generation != generation:
+                raise ValueError("the route scope generation is stale")
+            payload = storage.canonical_json(
+                {
+                    "generation": generation,
+                    "correction": {} if correction is None else dict(correction),
+                }
+            )
             connection.execute(
                 """INSERT INTO m07_scope_overrides(scope_id,correction_json,pinned,updated_utc)
                    VALUES (?,?,?,?) ON CONFLICT(scope_id) DO UPDATE SET
@@ -361,9 +408,13 @@ class M07ModelService:
             checkpoints = tuple(
                 _checkpoint(row)
                 for row in connection.execute(
-                    "SELECT * FROM m07_scope_checkpoints ORDER BY ordinal,scope_id"
+                    """SELECT * FROM m07_scope_checkpoints WHERE generation=?
+                       ORDER BY ordinal,scope_id""",
+                    (generation,),
                 )
             )
+            if not checkpoints:
+                raise ValueError("assembly generation has no current scopes")
             incomplete = [
                 item
                 for item in checkpoints
@@ -371,13 +422,15 @@ class M07ModelService:
             ]
             if incomplete and not allow_partial:
                 raise ValueError("assembly has incomplete scopes")
-            overrides = {
-                str(row["scope_id"]): (
-                    storage.decode_json(row["correction_json"]),
-                    bool(row["pinned"]),
-                )
-                for row in connection.execute("SELECT * FROM m07_scope_overrides")
-            }
+            overrides: dict[str, tuple[object, bool]] = {}
+            for row in connection.execute("SELECT * FROM m07_scope_overrides"):
+                encoded = storage.decode_json(row["correction_json"])
+                if not isinstance(encoded, dict) or encoded.get("generation") != generation:
+                    continue
+                correction = encoded.get("correction")
+                if not isinstance(correction, dict):
+                    raise storage.ProjectCorruptError("M07 scope correction is invalid")
+                overrides[str(row["scope_id"])] = (correction, bool(row["pinned"]))
             items: list[dict[str, object]] = []
             for item in checkpoints:
                 correction, pinned = overrides.get(item.scope_id, ({}, False))
@@ -391,7 +444,7 @@ class M07ModelService:
                         "pinned": pinned,
                     }
                 )
-            coverage = self.coverage()
+            coverage = self.coverage(generation=generation)
             payload: dict[str, object] = {
                 "schema_version": 1,
                 "generation": generation,
@@ -419,7 +472,22 @@ class M07ModelService:
             )
             return Assembly(assembly_id, generation, "draft", payload, payload_hash, coverage)
 
-    def apply(self, assembly_id: str) -> Assembly:
+    def current_draft(self, *, generation: str) -> Assembly | None:
+        row = (
+            self._project._require_open()
+            .execute(
+                """SELECT * FROM m07_assemblies
+                   WHERE generation=? AND status='draft'
+                   ORDER BY created_utc DESC,assembly_id DESC LIMIT 1""",
+                (generation,),
+            )
+            .fetchone()
+        )
+        return None if row is None else _assembly(row)
+
+    def discard(self, assembly_id: str, *, generation: str) -> Assembly:
+        """Atomically supersede one exact current-generation draft and nothing else."""
+
         connection = self._project._require_open()
         with storage.transaction(connection):
             row = connection.execute(
@@ -427,8 +495,32 @@ class M07ModelService:
             ).fetchone()
             if row is None:
                 raise KeyError(f"unknown assembly: {assembly_id}")
+            if str(row["generation"]) != generation or str(row["status"]) != "draft":
+                raise ValueError("the assembly is not a current draft")
             connection.execute(
-                "UPDATE m07_assemblies SET status='superseded' WHERE status='applied'"
+                "UPDATE m07_assemblies SET status='superseded' WHERE assembly_id=?",
+                (assembly_id,),
+            )
+            return _assembly(row, status="superseded")
+
+    def apply(self, assembly_id: str, *, generation: str) -> Assembly:
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT * FROM m07_assemblies WHERE assembly_id=?", (assembly_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown assembly: {assembly_id}")
+            current_generation = str(row["generation"])
+            if current_generation != generation or str(row["status"]) == "superseded":
+                raise ValueError("the assembly is stale for the current route generation")
+            payload = storage.decode_json(row["payload_json"])
+            if not isinstance(payload, dict) or payload.get("generation") != generation:
+                raise storage.ProjectCorruptError("M07 assembly generation does not match payload")
+            connection.execute(
+                """UPDATE m07_assemblies SET status='superseded'
+                   WHERE generation=? AND status='applied' AND assembly_id<>?""",
+                (generation, assembly_id),
             )
             connection.execute(
                 "UPDATE m07_assemblies SET status='applied',applied_utc=? WHERE assembly_id=?",
@@ -442,6 +534,7 @@ def _checkpoint(row: sqlite3.Row) -> ScopeCheckpoint:
     return ScopeCheckpoint(
         str(row["scope_id"]),
         int(row["ordinal"]),
+        str(row["generation"]),
         str(row["input_hash"]),
         CheckpointStatus(str(row["status"])),
         None if raw is None else storage.decode_json(raw),

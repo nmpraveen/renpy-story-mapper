@@ -22,6 +22,7 @@ export const ENDPOINTS = Object.freeze({
   organizationStart: "/api/v1/m07/organization/start",
   organizationCancel: "/api/v1/m07/organization/cancel",
   assemblyApply: "/api/v1/m07/assembly/apply",
+  assemblyDiscard: "/api/v1/m07/assembly/discard",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);

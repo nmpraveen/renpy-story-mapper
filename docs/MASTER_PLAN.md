@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-12
 
-Status: M01 through M06.5 are complete and merged. M07 is complete on its milestone branch and
-awaiting review of its unmerged pull request as of 2026-07-12.
+Status: M01 through M07 are complete and merged. M07.1 is complete on its milestone branch and
+awaiting review of unmerged pull request #12 as of 2026-07-12.
 
 ## 1. Product goal
 
@@ -891,8 +891,7 @@ Explicit exclusions:
 
 ### M07 - Two-Level Route Map and Resumable Parallel AI
 
-Status: Complete on `codex/m07-two-level-route-map` as of 2026-07-12; the milestone pull request
-remains unmerged pending explicit user approval.
+Status: Complete and merged through PR #11 at `4c421a1` on 2026-07-12.
 
 Objective: replace the three-level card hierarchy with the two-level Route Map and Detail/Evidence
 experience in Section 4, then make optional story enrichment scope-based, resumable, measurable,
@@ -926,6 +925,46 @@ M07 acceptance will include deterministic completion-order tests, cancellation/r
 cache replay, throttling and budget controls, native Windows UI testing at 100% and 200%, font and
 accessibility checks, direct evidence traversal, bounded node density, and explicit AI-versus-
 technical coverage.
+
+### M07.1 - Safety and Real-Project Closure
+
+Status: Complete on `codex/m07-1-safety-real-project-closure` as of 2026-07-12; Windows acceptance
+passed and milestone pull request #12 is intentionally unmerged pending user review.
+
+Objective: close the correctness and real-browser gaps found after M07 without broadening the
+product, deleting the legacy fallback, or weakening deterministic authority.
+
+Locked deliverables:
+
+- Enforce recovered-source cloud-transmission blocking both when preparing organization and
+  immediately before every provider call. A browser acknowledgement must be explicit, narrowly
+  scoped, persisted, and revalidated.
+- Bind conservative aggregate call, token, and elapsed-time budgets plus single-use consent to the
+  exact prepared generation and scope set. Provider work must not begin when that binding is stale,
+  incomplete, or absent.
+- Deterministically partition every normal and repair request below the provider's 48,000-character
+  request boundary using the actual serialized prompt, including the M07 route fixture. Preserve
+  validated work across cancellation and resume, and persist accounting after each attempt.
+- Make accepted AI assemblies generation-safe. Refresh must invalidate or reject stale drafts and
+  overlays, and the product must retain and display evidence-backed claims, corrections, and pins.
+- Align the browser with the real evidence/detail API schema so exact qualified source lines and
+  provenance display correctly.
+- Replace hard-coded route rows with arbitrary deterministic lane geometry. Preserve fork, merge,
+  loop, terminal, gate, and cross-page continuation truth without inventing or silently dropping
+  edges.
+- Report asynchronous refresh success only after the backend operation finishes.
+- Add a live Chrome acceptance path through the loopback server and real `ProjectApi` against a
+  temporary SQLite project. Opening and navigating must make no provider or remote call. Production
+  assets must not depend on a mock-project mode.
+- Complete independent defect review, Windows acceptance, milestone documentation, and a native
+  infographic on one unmerged pull request.
+
+Explicit exclusions:
+
+- No live full-game Luna rerun, LM Studio work, installer, hosted service, analyzer rewrite, legacy
+  desktop deletion, storage consolidation, source-recovery expansion, or canonical archive access.
+- No visual simplification that hides deterministic gates, effects, unresolved behavior, or source
+  evidence.
 
 ## 8. Product completion definition
 
@@ -1013,5 +1052,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review the completed M07 report, native infographic, browser evidence, and unmerged pull request.
-Do not begin another milestone until the user explicitly approves it.
+Review the unmerged M07.1 pull request, completion report, and native infographic. Do not merge or
+begin any later milestone without explicit approval.

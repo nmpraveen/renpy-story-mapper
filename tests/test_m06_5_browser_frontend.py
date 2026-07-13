@@ -27,13 +27,12 @@ def test_assets_are_local_and_csp_compatible() -> None:
         "api.js",
         "contract.js",
         "graph.js",
-        "mock-api.js",
     )
     assets = "\n".join(_text(name) for name in names)
     assert "Content-Security-Policy" in html
     assert "script-src 'self'" in html
     assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
-    assert "<script type=\"module\" src=\"./app.js\"></script>" in html
+    assert '<script type="module" src="./app.js"></script>' in html
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>\s*\S", html, re.IGNORECASE)
     assert "eval(" not in assets
     assert "new Function" not in assets
@@ -41,7 +40,7 @@ def test_assets_are_local_and_csp_compatible() -> None:
 
 
 def test_dom_rendering_is_xss_safe_and_has_no_html_sinks() -> None:
-    javascript = "\n".join(_text(name) for name in ("app.js", "graph.js", "mock-api.js"))
+    javascript = "\n".join(_text(name) for name in ("app.js", "graph.js"))
     assert ".textContent" in javascript
     assert "createElement(" in javascript
     assert ".innerHTML" not in javascript
@@ -53,7 +52,7 @@ def test_dom_rendering_is_xss_safe_and_has_no_html_sinks() -> None:
 def test_routes_are_versioned_and_centralized() -> None:
     contract = _text("contract.js")
     assert contract.count('"/api/v1/') >= 17
-    for name in ("app.js", "api.js", "graph.js", "mock-api.js"):
+    for name in ("app.js", "api.js", "graph.js"):
         assert '"/api/v1/' not in _text(name)
     routes = (
         "m07/route-map",
@@ -106,42 +105,37 @@ def test_organization_is_never_implicit() -> None:
 def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     app = _text("app.js")
     api = _text("api.js")
-    mock = _text("mock-api.js")
     html = _text("index.html")
     assert "source.selection_id || source.id" in app
     assert "destination.selection_id || destination.id" in app
-    assert 'selection_id: "opaque-project-save"' in mock
+    assert not (STATIC / "mock-api.js").exists()
     assert "refresh()" in api and "ENDPOINTS.projectsRefresh" in api
     assert 'id="refreshProject"' in html and ">Refresh</button>" in html
     assert '$("#refreshProject").addEventListener("click", async () =>' in app
-    assert "await api.refresh()" in app and "await resetRoutePaging()" in app
-    reset = app[
-        app.index("async function resetRoutePaging()") : app.index("function nextCursor()")
-    ]
+    assert "await api.refresh()" in app and "const completed = await pollAnalysis()" in app
+    reset = app[app.index("async function resetRoutePaging()") : app.index("function nextCursor()")]
     assert "state.cursorHistory = []" in reset
     assert "await loadRoutePage({ offset: 0, edgeOffset: 0 })" in reset
 
 
 def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
     app = _text("app.js")
-    mock = _text("mock-api.js")
     assert "if (!state.settings.include_unresolved && node.unresolved)" in app
     assert "payload.unresolved" not in app
-    assert "unresolved: index === 24" in mock
 
 
 def test_production_review_shape_decisions_and_pagination_are_explicit() -> None:
     app = _text("app.js")
     api = _text("api.js")
-    mock = _text("mock-api.js")
     html = _text("index.html")
     assert "state.organization?.coverage" in app
     assert "value.assembly_id" in app
     assert "assembly_id: assemblyId" in api
     assert "ENDPOINTS.assemblyApply" in api
+    assert "ENDPOINTS.assemblyDiscard" in api
     assert "api.applyAssembly" in app
+    assert "api.discardAssembly" in app
     assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
-    assert "assembly_id: assemblyId" in mock
 
 
 def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
@@ -150,8 +144,9 @@ def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
     assert "@media (max-width: 780px)" in css
     assert "@media (max-width: 480px)" in css
     assert "minmax(0, 1fr)" in css
-    assert '"route-map"' in acceptance and '"detail-evidence"' in acceptance
-    assert "720,450" in acceptance and "1440,900" in acceptance
+    assert 'f"route-map-{zoom}.png"' in acceptance
+    assert 'f"detail-evidence-{zoom}.png"' in acceptance
+    assert '"width": 720 if zoom == 200 else 1440' in acceptance
     assert "--force-device-scale-factor=2" in acceptance
 
 
@@ -162,7 +157,5 @@ def test_asset_manifest_hashes_are_deterministic() -> None:
     for name, expected in manifest["assets"].items():
         raw = (STATIC / name).read_bytes()
         assert _canonical_text_hash(raw) == expected
-        simulated_windows = raw.decode("utf-8").replace("\r\n", "\n").replace(
-            "\n", "\r\n"
-        )
+        simulated_windows = raw.decode("utf-8").replace("\r\n", "\n").replace("\n", "\r\n")
         assert _canonical_text_hash(simulated_windows.encode()) == expected

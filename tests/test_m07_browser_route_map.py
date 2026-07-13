@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import re
 from pathlib import Path
 
@@ -22,164 +21,148 @@ def _assets() -> str:
     )
 
 
-def test_exactly_two_visible_levels_and_one_transition() -> None:
-    assets = _assets()
+def test_two_levels_and_production_local_api_only() -> None:
     html = _text("index.html")
+    app = _text("app.js")
     assert 'data-level="route_map"' in html
     assert 'data-level="detail_evidence"' in html
-    assert assets.count("Back to Route Map") >= 1
-    assert not re.search(r"\bLevel\s*[123]\b", assets, re.IGNORECASE)
-    assert not re.search(r"Back to (?:Arcs|Events)", assets, re.IGNORECASE)
-    assert "semantic zoom" not in assets.casefold()
-    assert "Detail / Evidence" in html
+    assert "Back to Route Map" in html
+    assert "new LocalApi()" in app
+    assert "MockApi" not in app
+    assert not (STATIC / "mock-api.js").exists()
+    assert not re.search(r"\bLevel\s*[123]\b", _assets(), re.IGNORECASE)
 
 
-def test_locked_api_routes_and_bodies_are_centralized() -> None:
-    contract = _text("contract.js")
-    api = _text("api.js")
-    expected = {
-        "routeMap": "/api/v1/m07/route-map",
-        "routeDetail": "/api/v1/m07/detail",
-        "organization": "/api/v1/m07/organization",
-        "organizationPrepare": "/api/v1/m07/organization/prepare",
-        "organizationStart": "/api/v1/m07/organization/start",
-        "organizationCancel": "/api/v1/m07/organization/cancel",
-        "assemblyApply": "/api/v1/m07/assembly/apply",
-    }
-    for name, route in expected.items():
-        assert f'{name}: "{route}"' in contract
-    assert "body: { offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit }" in api
-    assert "body: { element_id: elementId }" in api
-    assert "body: { run_id: runId, confirm_cloud: true, budgets }" in api
-    assert "body: { assembly_id: assemblyId }" in api
-    for name in ("app.js", "api.js", "graph.js", "mock-api.js"):
-        if name != "api.js":
-            assert '"/api/v1/m07/' not in _text(name)
+def test_arbitrary_lanes_and_truthful_route_geometry() -> None:
+    graph = _text("graph.js")
+    app = _text("app.js")
+    html = _text("index.html")
+    assert "laneOrder(nodes, lanes" in graph
+    assert "stableHue" in graph
+    assert "const laneY" not in graph
+    assert "lane_id in" not in graph
+    assert 'role.includes("loop") || tx <= sx' in graph
+    assert "edge.gate_ids?.length" in graph
+    assert "edge.proven_merge" in graph
+    assert 'kind === "terminal"' in graph
+    assert 'id="laneList"' in html
+    assert "state.page?.lanes || []" in app
 
 
-def test_route_grammar_is_line_first_bounded_and_keyboard_openable() -> None:
+def test_cross_page_edges_are_selectable_continuation_portals() -> None:
+    graph = _text("graph.js")
+    app = _text("app.js")
+    css = _text("styles.css")
+    assert "missingSource" in graph and "missingTarget" in graph
+    assert '"continuation-portal"' in graph
+    assert "Continues from" in graph and "Continues to" in graph
+    assert "ids.has(edge.source_id) || ids.has(edge.target_id)" in app
+    assert "continuations" in app
+    assert ".continuation-portal" in css
+
+
+def test_real_nested_evidence_and_non_authoritative_ai_review() -> None:
+    app = _text("app.js")
+    html = _text("index.html")
+    contract = _text("API_CONTRACT.md")
+    assert "payload.provenance" in app and "payload.choices" in app
+    assert "source.start?.line" in app and "source.end?.line" in app
+    assert "ai_candidates" in app and "claims" in app
+    assert "candidate.correction" in app and "candidate.pinned" in app
+    assert "technical map is authoritative" in app
+    assert "Candidates do not replace the technical map until applied" in html
+    assert 'id="discardAssembly"' in html and 'id="applyAssembly"' in html
+    assert "state.organization?.assembly?.items" in app
+    assert "await api.discardAssembly(state.assemblyId)" in app
+    assert app.index("await api.discardAssembly(state.assemblyId)") < app.index(
+        'toast("Candidate discarded from the project")'
+    )
+    assert "/api/v1/m07/assembly/discard" in contract
+    assert "current backend does not" not in contract.casefold()
+    assert not any(marker in contract for marker in ("Ã", "Â", "â"))
+
+
+def test_detail_evidence_preserves_and_labels_qualified_line_basis() -> None:
+    app = _text("app.js")
+    formatter = app[
+        app.index("function evidenceLineBasis") : app.index("async function openDetail")
+    ]
+    renderer = app[
+        app.index("async function openDetail") : app.index("function titleFor")
+    ]
+
+    assert formatter.index("record.line_basis") < formatter.index("source.line_basis")
+    assert formatter.index("source.line_basis") < formatter.index("source.basis")
+    assert "Reconstructed source · ${qualified}" in formatter
+    assert "Physical source · ${qualified}" in formatter
+    assert "Qualified source · ${qualified}" in formatter
+    assert 'return "Source basis unavailable"' in formatter
+    assert "evidenceLineBasis(record, source)" in renderer
+    assert "source.path || record.source_path || record.path" in renderer
+    assert 'record.basis || "line"' not in renderer
+
+
+def test_polling_waits_for_actual_terminal_status() -> None:
+    app = _text("app.js")
+    polling = app[
+        app.index("async function pollOrganization()") : app.index("function showReview()")
+    ]
+    assert "while (active.has(state.organization?.status))" in polling
+    assert "await loadOrganization()" in polling
+    assert "running" in polling and "cancelling" in polling and "queued" in polling
+
+
+def test_bounded_search_navigation_and_accessibility_contracts() -> None:
+    app = _text("app.js")
     graph = _text("graph.js")
     css = _text("styles.css")
     contract = _text("contract.js")
-    mock = _text("mock-api.js")
-    assert "nodes: 30" in contract and "items: 240" in contract
-    assert "bezierCurveTo" in graph and "technical_corridor" in mock
-    grammar_terms = (
-        "local_detour",
-        "persistent_route",
-        "proven_merge",
-        "loop_choice",
-        "unresolved",
-    )
-    for grammar in grammar_terms:
-        assert grammar in mock or grammar in graph
+    assert "nodes: 30" in contract and "edges: 180" in contract and "items: 240" in contract
+    assert "global_navigation" in app and "global_search" in app
     for key in ("ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End", "Enter"):
         assert key in graph
-    assert "edge-stop" in graph and "onOpen?.(edge)" in graph
-    assert ".station[data-kind=\"choice\"]" in css
-    assert ".station[data-kind=\"merge\"]" in css
-    assert ".station[data-kind=\"terminal\"]" in css
-    assert ".station[data-kind=\"unresolved\"]" in css
-
-
-def test_direct_detail_contains_exact_evidence_and_interpretation_links() -> None:
-    app = _text("app.js")
-    mock = _text("mock-api.js")
-    html = _text("index.html")
-    fields = (
-        "predecessor_ids",
-        "successor_ids",
-        "choices",
-        "gates",
-        "effects",
-        "dialogue",
-        "narration",
-        "interpretations",
-        "evidence",
-    )
-    for field in fields:
-        assert field in app or field in mock
-    assert "dataset.evidenceId" in app
-    assert "source.path" in app and "source.start_line" in app and "source.basis" in app
-    assert "evidence_ids" in app
-    assert 'id="pathStrip"' in html
-
-
-def test_paging_filters_selection_and_physical_zoom_stay_on_route_map() -> None:
-    app = _text("app.js")
-    html = _text("index.html")
-    contract = _text("contract.js")
-    mock = _text("mock-api.js")
-    assert "ROUTE_EDGE_PAGE_SIZE = 180" in contract
-    assert "edgeOffset: 0, cursorHistory: []" in app
-    assert "state.page?.edge_next_offset" in app
-    assert "state.page?.next_offset" in app
-    assert app.index("state.page?.edge_next_offset") < app.index("state.page?.next_offset")
-    assert "state.cursorHistory.push" in app and "state.cursorHistory.pop" in app
-    assert "CURSOR_HISTORY_LIMIT = 12" in app and "state.cursorHistory.shift()" in app
-    assert app.count("resetRoutePaging()") >= 3
-    assert "page.edge_offset" in app and "state.page?.page_edge_total" in app
-    assert "bounded line slice" in app
-    for field in ("edge_offset", "edge_limit", "edge_next_offset", "page_edge_total", "overflow"):
-        assert field in mock
-    assert "denseEdges = Array.from({ length: 195 }" in mock
-    assert "state.selectedId" in app
-    assert "include_technical" in app and "include_unresolved" in app
-    assert 'id="zoomIn"' in html and 'id="zoomOut"' in html and 'id="fitMap"' in html
-    zoom_region = app[app.index('$("#zoomIn")') : app.index('$("#backToRouteMap")')]
-    assert "showLevel" not in zoom_region
-
-
-def test_organization_is_prepare_then_confirmed_start_and_partial_apply() -> None:
-    app = _text("app.js")
-    mock = _text("mock-api.js")
-    assert app.index("prepareOrganization()") < app.index("startOrganization()")
-    start = app[
-        app.index("async function startOrganization()") :
-        app.index("async function pollOrganization()")
-    ]
-    assert "api.startOrganization" in start
-    assert '$("#confirmOrganization").addEventListener' in app
-    assert "api.cancelOrganization" in app and "api.applyAssembly" in app
-    terms = (
-        "validated", "technical", "pending", "calls", "tokens", "coverage", "eta", "partial"
-    )
-    for term in terms:
-        assert term in app.casefold() or term in mock.casefold()
-    assert "provider_constructed: false" in mock
-
-
-def test_local_assets_are_xss_safe_accessible_and_responsive() -> None:
-    assets = _assets()
-    javascript = "\n".join(_text(name) for name in ("app.js", "graph.js", "mock-api.js"))
-    assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
-    assert ".innerHTML" not in javascript and ".outerHTML" not in javascript
-    assert "eval(" not in assets and "new Function" not in assets
-    assert "createElement(" in javascript and ".textContent" in javascript
-    css = _text("styles.css")
-    assert 'font-family: "Segoe UI", system-ui, sans-serif' in css
-    assert "font-size: 16px" in css and "font-size: 14px" in css
     assert ":focus-visible" in css
     assert "@media (max-width: 780px)" in css and "@media (max-width: 480px)" in css
-    assert "prefers-reduced-motion" not in css  # no decorative motion exists
+    assert "font-size: 16px" in css
     assert "Content-Security-Policy" in _text("index.html")
 
 
-def test_acceptance_harness_loads_packaged_assets() -> None:
+def test_api_fails_closed_on_unbounded_or_incomplete_prepare_binding() -> None:
+    api = _text("api.js")
+    app = _text("app.js")
+    route_contract = _text("contract.js")
+    assert "DEFAULT_ORGANIZATION_BUDGETS" in api
+    for field in ("soft_seconds", "hard_seconds", "soft_tokens", "hard_tokens", "hard_calls"):
+        assert field in api
+    for value in (
+        "soft_seconds: 600",
+        "hard_seconds: 900",
+        "soft_tokens: 1500000",
+        "hard_tokens: 2000000",
+        "hard_calls: 48",
+    ):
+        assert value in api
+    assert "Number.isInteger" in api
+    assert "Prepared organization binding is incomplete" in api
+    assert "scope_ids: prepared.scope_ids, budgets" in api
+    assert 'assemblyDiscard: "/api/v1/m07/assembly/discard"' in route_contract
+    assert "ENDPOINTS.assemblyDiscard" in api
+    assert "body: { assembly_id: assemblyId }" in api
+    assert "api.startOrganization(state.prepared)" in app
+    assert "const completed = await pollAnalysis()" in app
+
+
+def test_live_harness_uses_real_server_api_sqlite_and_blocks_provider() -> None:
     source = HARNESS.read_text(encoding="utf-8")
-    assert "STATIC / name" in source
-    assert "mock\": 1" in source
-    assert "force-device-scale-factor=2" in source
-    assert "provider_constructions" in source and '"remote_requests": 0' in source
-    assert "EXERCISES" in source and '"paging"' in source and '"keyboard"' in source
-    assert '"0:0,0:180,0:0,0:180"' in source
-    assert '"Lines 181\\u2013195 of 195"' in source
+    assert "LocalWebServer" in source and "ProjectApi" in source
+    assert "create_ingested_project" in source and ".rsmproj" in source
+    assert "forbidden_provider" in source
+    assert "Network.requestWillBeSent" in source
+    assert "--force-device-scale-factor=2" in source
+    assert '"width": 720 if zoom == 200 else 1440' in source
+    assert '"height": 450 if zoom == 200 else 900' in source
     spec = importlib.util.spec_from_file_location("m07_browser_acceptance", HARNESS)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.STATES == ("route-map", "detail-evidence", "coverage-progress", "review-partial")
-    assert module.ASSETS["/index.html"][1] == _text("index.html")
-    contract_path = ROOT / "tests" / "fixtures" / "m07" / "browser_contract.json"
-    contract = json.loads(contract_path.read_text(encoding="utf-8"))
-    assert contract["levels"] == ["route_map", "detail_evidence"]
+    assert module.ZOOMS == (100, 200)

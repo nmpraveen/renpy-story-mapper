@@ -1,13 +1,10 @@
 import { LocalApi } from "./api.js";
 import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
 import { RouteGraph } from "./graph.js";
-import { MockApi } from "./mock-api.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const params = new URLSearchParams(location.search);
-const mockMode = params.get("mock") === "1";
-const api = mockMode ? new MockApi() : new LocalApi();
+const api = new LocalApi();
 const CURSOR_HISTORY_LIMIT = 12;
 
 const state = {
@@ -54,7 +51,7 @@ function renderRecent(projects) {
   for (const project of projects) {
     const button = element("button", "recent-card"); button.type = "button";
     button.append(element("span", "recent-type", project.source_type || "Project"), element("strong", "", project.name || "Saved project"), element("span", "recent-meta", `${project.last_opened || "Saved locally"} · ${project.organization || "Technical map"}`));
-    button.addEventListener("click", () => openSelection({ id: project.id, display_name: project.name }, true));
+    button.addEventListener("click", () => openSelection({ id: project.selection_id || project.id, display_name: project.name }, true));
     host.append(button);
   }
   if (!projects.length) host.append(element("p", "muted", "No recent projects."));
@@ -79,11 +76,12 @@ async function openSelection(selection, notify = false) {
   try {
     const opened = await api.open(selection.selection_id || selection.id);
     state.project = opened.project || { name: selection.display_name || "Story", organization: "Technical map" };
+    if (state.project.name === "Opening") state.project.name = selection.display_name || "Story";
     $("#projectName").textContent = state.project.name;
     $("#projectBadge").textContent = state.project.organization || "Technical map";
     if (["running", "pending"].includes(opened.analysis?.state || opened.task?.state)) { showPrimary("progress"); await pollAnalysis(); }
     else { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
-    if (notify && mockMode) toast("Project opened locally");
+    if (notify) toast("Project opened locally");
   } catch (error) { toast(error.message); }
 }
 
@@ -95,11 +93,12 @@ async function pollAnalysis() {
     $("#progressStage").textContent = String(progress.stage || "Preparing").replaceAll("_", " ");
     $("#progressBar").style.width = `${percent}%`; $(".progress-track").setAttribute("aria-valuenow", String(percent));
     $("#progressPercent").textContent = `${percent}%`; const seconds = Number(progress.elapsed_seconds || 0); $("#progressElapsed").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-    if (progress.state === "running") await new Promise((resolve) => setTimeout(resolve, mockMode ? 10 : 350));
+    if (progress.state === "running") await new Promise((resolve) => setTimeout(resolve, 350));
   } while (progress.state === "running");
   if (["complete", "completed"].includes(progress.state)) { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
   else if (progress.state === "cancelled") { showPrimary("welcome"); toast("Analysis cancelled safely"); }
   else toast(progress.error?.message || "Analysis stopped safely");
+  return progress;
 }
 
 function normalizedPage(page) {
@@ -128,6 +127,10 @@ async function resetRoutePaging() {
 }
 
 function nextCursor() {
+  const navigation = state.page?.global_navigation || state.page?.navigation || {};
+  if (navigation.next && Number.isInteger(navigation.next.offset)) {
+    return { offset: navigation.next.offset, edgeOffset: navigation.next.edge_offset || 0 };
+  }
   if (state.page?.edge_next_offset !== null && state.page?.edge_next_offset !== undefined) {
     return { offset: state.offset, edgeOffset: Number(state.page.edge_next_offset) };
   }
@@ -152,21 +155,39 @@ async function previousRoutePage() {
 
 function visiblePage() {
   const query = $("#searchInput").value.trim().toLocaleLowerCase();
+  const globalSearch = state.page?.global_search || state.page?.search;
+  const matchedIds = query && globalSearch?.query === query && Array.isArray(globalSearch.element_ids) ? new Set(globalSearch.element_ids) : null;
   const visibleNodes = (state.page?.nodes || []).filter((node) => {
     if (!state.settings.include_unresolved && node.unresolved) return false;
-    return !query || `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query);
+    return !query || matchedIds?.has(node.id) || `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query);
   });
   const ids = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = (state.page?.edges || []).filter((edge) => {
-    if (!state.settings.include_technical && Number(edge.technical_hops || 0) > 0) return false;
-    return ids.has(edge.source_id) && ids.has(edge.target_id);
+    const continuation = !ids.has(edge.source_id) || !ids.has(edge.target_id);
+    if (!continuation && !state.settings.include_technical && Number(edge.technical_hops || 0) > 0) return false;
+    return ids.has(edge.source_id) || ids.has(edge.target_id);
   });
   return { nodes: visibleNodes, edges: visibleEdges };
 }
 
+function renderLanes(nodes) {
+  const host = $("#laneList"); host.replaceChildren();
+  const metadata = new Map((state.page?.lanes || []).map((lane) => [lane.id, lane]));
+  for (const node of nodes) if (!metadata.has(node.lane_id)) metadata.set(node.lane_id, { id: node.lane_id, kind: node.lane_kind });
+  for (const lane of metadata.values()) {
+    const row = element("div", "line-key");
+    const swatch = element("i", "swatch");
+    let hash = 2166136261; for (const character of String(lane.id)) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+    swatch.style.setProperty("--lane-hue", String(Math.abs(hash) % 360));
+    row.append(swatch, element("span", "", `${lane.id} · ${String(lane.kind || "route").replaceAll("_", " ")}`));
+    host.append(row);
+  }
+}
+
 function renderMap() {
   const { nodes, edges } = visiblePage();
-  graph.setData(nodes, edges, state.selectedId);
+  graph.setData(nodes, edges, state.selectedId, state.page?.lanes || []);
+  renderLanes(nodes);
   state.selectedId = graph.selectedId;
   const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
   const edgeFirst = state.edgeOffset + 1;
@@ -177,7 +198,9 @@ function renderMap() {
   $("#pageStatus").textContent = `Stations ${first}–${last} of ${total} · ${lineStatus}${dense ? " · bounded line slice" : ""}`;
   $("#previousPage").disabled = state.cursorHistory.length === 0;
   $("#nextPage").disabled = nextCursor() === null;
-  $("#visibleStatus").textContent = `${nodes.length} stations · ${edges.length} line segments${dense ? ` shown from ${edgeTotal}` : ""}`;
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
+  $("#visibleStatus").textContent = `${nodes.length} stations · ${edges.length} line segments${continuations ? ` · ${continuations} continuations` : ""}${dense ? ` shown from ${edgeTotal}` : ""}`;
   const coverage = state.page?.coverage || {};
   $("#coverageSummary").replaceChildren(element("strong", "", "Technical coverage"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps · ${coverage.corridor_count ?? 0} corridor`));
   const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
@@ -197,6 +220,22 @@ function addFactGroup(host, title, items, type) {
   section.append(list); host.append(section);
 }
 
+function evidenceExcerpt(record) {
+  const payload = record.payload || {};
+  const provenance = Array.isArray(payload.provenance) ? payload.provenance.map((item) => item.source_text).filter(Boolean) : [];
+  const choices = Array.isArray(payload.choices) ? payload.choices.map((item) => item.condition ? `“${item.caption}” if ${item.condition}` : `“${item.caption}”`) : [];
+  return provenance.join("\n") || choices.join("\n") || record.text || record.excerpt || record.source_text || "Evidence text unavailable";
+}
+
+function evidenceLineBasis(record, source) {
+  const basis = record.line_basis || source.line_basis || source.basis || record.basis;
+  if (!basis) return "Source basis unavailable";
+  const qualified = String(basis);
+  if (/^reconstructed(?:_|$)/i.test(qualified)) return `Reconstructed source · ${qualified}`;
+  if (/^physical(?:_|$)/i.test(qualified)) return `Physical source · ${qualified}`;
+  return `Qualified source · ${qualified}`;
+}
+
 async function openDetail(elementId) {
   try {
     const detail = await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
@@ -210,13 +249,28 @@ async function openDetail(elementId) {
     const facts = $("#detailFacts"); facts.replaceChildren();
     addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements, "gate"); addFactGroup(facts, "Effects", detail.effects, "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
     const interpretations = $("#interpretations"); interpretations.replaceChildren();
-    for (const claim of detail.interpretations || []) { const article = element("article", "interpretation"); article.append(element("strong", "", claim.label || "Interpretation"), element("p", "", claim.text || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ")}`)); interpretations.append(article); }
-    if (!interpretations.children.length) interpretations.append(element("p", "muted", "No AI interpretation is attached."));
+    const candidates = detail.ai_candidates || detail.candidates || selected.ai_candidates || [];
+    const claims = detail.claims || candidates.flatMap((candidate) => candidate.claims || []);
+    for (const candidate of candidates) {
+      const article = element("article", "interpretation candidate");
+      article.append(element("strong", "", candidate.title || candidate.label || "Candidate"), element("p", "", candidate.summary || candidate.text || ""));
+      if (candidate.correction) article.append(element("span", "correction", `Correction: ${candidate.correction.title || candidate.correction.text || "provided"}`));
+      if (candidate.pinned) article.append(element("span", "pin", "Pinned by reviewer"));
+      interpretations.append(article);
+    }
+    for (const claim of claims) {
+      const article = element("article", "interpretation claim");
+      article.append(element("strong", "", claim.label || "Claim"), element("p", "", claim.text || claim.claim || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ") || "not supplied"}`));
+      interpretations.append(article);
+    }
+    if (!interpretations.children.length) interpretations.append(element("p", "muted", "No AI candidate is attached. The technical map is authoritative."));
     const evidence = $("#evidenceList"); evidence.replaceChildren();
     for (const record of detail.evidence) {
       const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id;
-      const source = record.source || {}; const start = source.start_line ?? "?"; const end = source.end_line && source.end_line !== start ? `–${source.end_line}` : "";
-      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", record.text || ""), element("span", "source-line", `${source.path || "source unavailable"}:${start}${end} · ${source.basis || "line"}`)); evidence.append(article);
+      const source = record.source || record.location || {}; const start = source.start?.line ?? source.start_line ?? record.start_line ?? "?"; const endLine = source.end?.line ?? source.end_line ?? record.end_line; const end = endLine && endLine !== start ? `–${endLine}` : "";
+      const excerpt = evidenceExcerpt(record);
+      const basis = evidenceLineBasis(record, source);
+      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", excerpt), element("span", "source-line", `${source.path || record.source_path || record.path || "source unavailable"}:${start}${end} · ${basis}`)); evidence.append(article);
     }
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();
@@ -242,7 +296,7 @@ function renderOrganization() {
   $("#cancelOrganization").hidden = value.status !== "running";
   $("#resumeOrganization").hidden = !["cancelled", "partial"].includes(value.status);
   $("#reviewPartial").hidden = !value.assembly_id;
-  if (value.assembly_id) state.assemblyId = value.assembly_id;
+  state.assemblyId = value.assembly_id || null;
 }
 
 async function prepareOrganization() {
@@ -258,20 +312,36 @@ async function prepareOrganization() {
 async function startOrganization() {
   if (!state.prepared?.run_id) { toast("Prepared run is unavailable"); return; }
   try {
-    state.organization = await api.startOrganization(state.prepared.run_id, state.prepared.budgets || {}); renderOrganization();
-    if (!mockMode) pollOrganization();
+    state.organization = await api.startOrganization(state.prepared); renderOrganization();
+    pollOrganization();
   } catch (error) { toast(error.message); }
 }
 
 async function pollOrganization() {
-  if (state.organization?.status !== "running") return;
-  await new Promise((resolve) => setTimeout(resolve, 900)); await loadOrganization();
-  if (state.organization?.status === "running") pollOrganization();
+  const active = new Set(["running", "starting", "cancelling", "queued"]);
+  while (active.has(state.organization?.status)) {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await loadOrganization();
+  }
+  if (["complete", "partial", "review", "applied", "cancelled", "failed"].includes(state.organization?.status)) renderOrganization();
 }
 
 function showReview() {
   const coverage = state.organization?.coverage || {};
   $("#reviewCoverage").textContent = `${Math.round(Number(coverage.ai || 0) * 100)}% AI coverage · ${Math.round(Number(coverage.technical || 0) * 100)}% technical coverage`;
+  const host = $("#reviewCandidates"); host.replaceChildren();
+  const candidates = state.organization?.assembly?.items || state.organization?.candidates || [];
+  for (const candidate of candidates) {
+    const result = candidate.result || candidate;
+    const article = element("article", "review-candidate");
+    article.append(element("strong", "", result.title || result.scope_id || candidate.scope_id || "Validated scope"), element("p", "", result.summary || "Evidence-bounded candidate"));
+    const claims = result.claims || result.organization_result?.groups?.flatMap((group) => group.claims || []) || [];
+    for (const claim of claims) article.append(element("span", "candidate-claim", claim.text || claim.claim || String(claim)));
+    if (candidate.correction || result.correction) article.append(element("span", "correction", "Reviewer correction included"));
+    if (candidate.pinned || result.pinned) article.append(element("span", "pin", "Pinned"));
+    host.append(article);
+  }
+  if (!host.children.length) host.append(element("p", "muted", "The backend returned coverage metadata only; candidate content is not exposed."));
   $("#applyAssembly").disabled = !state.assemblyId; $("#reviewDialog").showModal();
 }
 
@@ -282,7 +352,14 @@ async function showDiagnostics() {
 function bind() {
   $$('[data-open-kind]').forEach((button) => button.addEventListener("click", () => choose(button.dataset.openKind)));
   $("#homeButton").addEventListener("click", () => showPrimary("welcome"));
-  $("#refreshProject").addEventListener("click", async () => { await api.refresh(); await resetRoutePaging(); toast("Project refreshed locally"); });
+  $("#refreshProject").addEventListener("click", async () => {
+    const started = await api.refresh();
+    const initial = started.analysis || started.task || started;
+    if (!["running", "pending"].includes(initial.state)) { toast("Refresh did not start"); return; }
+    showPrimary("progress");
+    const completed = await pollAnalysis();
+    if (["complete", "completed"].includes(completed.state)) toast("Project refreshed locally");
+  });
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
   $("#searchInput").addEventListener("input", renderMap);
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
@@ -298,43 +375,21 @@ function bind() {
   $("#confirmOrganization").addEventListener("click", async (event) => { event.preventDefault(); $("#consentDialog").close(); await startOrganization(); });
   $("#cancelOrganization").addEventListener("click", async () => { state.organization = await api.cancelOrganization(); renderOrganization(); toast("Run cancelled; validated scopes preserved"); });
   $("#reviewPartial").addEventListener("click", showReview); $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
-  $("#applyAssembly").addEventListener("click", async () => { await api.applyAssembly(state.assemblyId); $("#reviewDialog").close(); toast("Validated partial result applied"); });
+  $("#discardAssembly").addEventListener("click", async () => {
+    if (!state.assemblyId) { toast("Candidate assembly is unavailable"); return; }
+    try {
+      await api.discardAssembly(state.assemblyId);
+      state.organization = await api.organization();
+      renderOrganization();
+      $("#reviewDialog").close();
+      toast("Candidate discarded from the project");
+    } catch (error) { toast(error.message); }
+  });
+  $("#applyAssembly").addEventListener("click", async () => { state.organization = await api.applyAssembly(state.assemblyId); $("#reviewDialog").close(); await resetRoutePaging(); renderOrganization(); toast("Candidate applied to the project"); });
   $("#diagnosticsButton").addEventListener("click", showDiagnostics); $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
   $("#settingsButton").addEventListener("click", () => { const choices = ["system", "light", "dark"]; state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length]; document.documentElement.dataset.theme = state.settings.theme; graph.draw(); api.saveSettings(state.settings).catch(() => {}); });
   $("#quitButton").addEventListener("click", async () => { await api.shutdown(); document.body.replaceChildren(element("main", "shutdown-message", "Story Mapper has closed. You can close this tab.")); });
   document.addEventListener("keydown", (event) => { if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("#searchInput").focus(); } });
-}
-
-async function acceptanceScenario() {
-  const scenario = params.get("state"); if (!mockMode || !scenario || scenario === "welcome") return;
-  await openSelection({ id: "project-demo", display_name: "The Lantern House" });
-  if (scenario === "detail-evidence") await openDetail(state.page.edges[1]?.id || state.page.nodes[1].id);
-  if (scenario === "coverage-progress") { state.prepared = await api.prepareOrganization(); state.organization = await api.startOrganization(state.prepared.run_id, state.prepared.budgets); renderOrganization(); }
-  if (scenario === "review-partial") { state.prepared = await api.prepareOrganization(); await api.startOrganization(state.prepared.run_id, state.prepared.budgets); state.organization = await api.organization(); state.assemblyId = state.organization.assembly_id; renderOrganization(); showReview(); }
-  if (scenario === "paging") {
-    await nextRoutePage();
-    const reachedSecondEdgeSlice = state.offset === 0 && state.edgeOffset === ROUTE_EDGE_PAGE_SIZE;
-    await previousRoutePage();
-    const returnedToFirstEdgeSlice = state.offset === 0 && state.edgeOffset === 0;
-    await nextRoutePage();
-    document.documentElement.dataset.denseSecondReached = String(reachedSecondEdgeSlice);
-    document.documentElement.dataset.denseReturned = String(returnedToFirstEdgeSlice);
-  }
-  if (scenario === "keyboard") { $("#mapViewport").focus(); $("#mapViewport").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); }
-  const interactives = $$('button, input, [role="button"]');
-  document.documentElement.dataset.levels = "route_map,detail_evidence"; document.documentElement.dataset.levelCount = "2";
-  document.documentElement.dataset.visibleNodes = String(state.page?.nodes.length || 0); document.documentElement.dataset.visibleItems = String((state.page?.nodes.length || 0) + (state.page?.edges.length || 0));
-  document.documentElement.dataset.keyboardSelected = graph.selectedId || ""; document.documentElement.dataset.exactEvidence = String(Boolean($("[data-evidence-id]")) || scenario !== "detail-evidence");
-  document.documentElement.dataset.onlyLevelTransition = $("#backToRouteMap").textContent.replace("←", "").trim(); document.documentElement.dataset.accessibleNames = String(interactives.every((item) => Boolean(item.getAttribute("aria-label") || item.textContent.trim() || item.closest("label"))));
-  document.documentElement.dataset.font = getComputedStyle(document.body).fontFamily; document.documentElement.dataset.bodyPx = getComputedStyle(document.body).fontSize;
-  document.documentElement.dataset.remoteRequests = "0"; document.documentElement.dataset.providerConstructions = "0";
-  document.documentElement.dataset.routeCalls = String(api.calls.filter((call) => call.name === "routeMap").length); document.documentElement.dataset.detailCalls = String(api.calls.filter((call) => call.name === "detail").length);
-  document.documentElement.dataset.nodeOffset = String(state.offset); document.documentElement.dataset.edgeOffset = String(state.edgeOffset); document.documentElement.dataset.historyDepth = String(state.cursorHistory.length);
-  document.documentElement.dataset.routeCursors = api.calls.filter((call) => call.name === "routeMap").map((call) => `${call.payload.offset}:${call.payload.edge_offset}`).join(",");
-  document.documentElement.dataset.pageStatus = $("#pageStatus").textContent;
-  document.documentElement.dataset.prepareCalls = String(api.calls.filter((call) => call.name === "prepareOrganization").length); document.documentElement.dataset.startCalls = String(api.calls.filter((call) => call.name === "startOrganization").length);
-  document.documentElement.dataset.requestBodies = api.calls.filter((call) => ["routeMap", "detail", "prepareOrganization", "startOrganization", "cancelOrganization", "applyAssembly"].includes(call.name)).map((call) => `${call.name}:${Object.keys(call.payload).sort().join("+")}`).join("|");
-  document.documentElement.dataset.acceptanceReady = "true";
 }
 
 async function start() {
@@ -342,8 +397,7 @@ async function start() {
   try {
     const bootstrap = await api.bootstrap(); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme;
     $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); showPrimary("welcome");
-    await acceptanceScenario(); if (!document.documentElement.dataset.acceptanceReady) document.documentElement.dataset.acceptanceReady = "true";
-  } catch (error) { renderRecent([]); toast(error.message); document.documentElement.dataset.acceptanceReady = "error"; }
+  } catch (error) { renderRecent([]); toast(error.message); }
 }
 
 start();

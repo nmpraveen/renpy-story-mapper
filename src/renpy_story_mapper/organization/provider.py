@@ -22,6 +22,7 @@ from PySide6.QtCore import QByteArray, QProcess, QProcessEnvironment
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     MAX_PROMPT_CHARS,
+    AttemptGate,
     CancelledCallback,
     CodexMode,
     OrganizationChunkResult,
@@ -31,6 +32,7 @@ from renpy_story_mapper.organization.contracts import (
     ProviderExecutionMetadata,
     ProviderState,
     ProviderStatus,
+    organization_prompts_fit,
     serialize_organization_prompt,
 )
 from renpy_story_mapper.organization.errors import (
@@ -51,6 +53,7 @@ _KILL_CLEANUP_MS = 100
 _MODEL_DISCOVERY_TIMEOUT_SECONDS = 0.5
 _EXECUTABLE_DISCOVERY_TIMEOUT_SECONDS = 0.5
 _MAX_MODEL_DISCOVERY_BYTES = 64 * 1024
+_DEFAULT_MAX_PROVIDER_OUTPUT_BYTES = 256_000
 _START_POLL_ATTEMPTS = 35
 _DISCOVERY_SOCKET_TIMEOUT_SECONDS = 0.1
 _DISCOVERY_DEADLINE_MARGIN_SECONDS = 0.01
@@ -296,6 +299,8 @@ class CodexCliProvider:
         environment_factory: EnvironmentFactory | None = None,
         attempt_observer: Callable[[ProviderAttemptUsage], None] | None = None,
         repair_semaphore: threading.Semaphore | None = None,
+        attempt_gate: AttemptGate | None = None,
+        maximum_output_bytes: int = _DEFAULT_MAX_PROVIDER_OUTPUT_BYTES,
     ) -> None:
         self.mode = mode
         self.executable = executable
@@ -322,6 +327,11 @@ class CodexCliProvider:
         self._reported_model: str | None = None
         self._attempt_observer = attempt_observer
         self._repair_semaphore = repair_semaphore
+        self._attempt_gate = attempt_gate
+        if maximum_output_bytes <= 0:
+            raise ValueError("Provider output byte limit must be positive.")
+        self._maximum_output_bytes = maximum_output_bytes
+        self._attempt_transmitted = False
 
     def set_attempt_observer(self, observer: Callable[[ProviderAttemptUsage], None] | None) -> None:
         """Install a scheduler-owned incremental accounting sink."""
@@ -330,6 +340,18 @@ class CodexCliProvider:
     def set_repair_semaphore(self, semaphore: threading.Semaphore | None) -> None:
         """Share a scheduler repair bound across otherwise independent providers."""
         self._repair_semaphore = semaphore
+
+    def set_attempt_gate(self, gate: AttemptGate | None) -> None:
+        """Install a scheduler-owned authorization boundary for every transmission."""
+
+        self._attempt_gate = gate
+
+    def set_maximum_output_bytes(self, maximum: int) -> None:
+        """Set the transport cap paired with scheduler token reservations."""
+
+        if maximum <= 0:
+            raise ValueError("Provider output byte limit must be positive.")
+        self._maximum_output_bytes = maximum
 
     def status(self) -> ProviderStatus:
         if self._cached_status is not None:
@@ -603,11 +625,10 @@ class CodexCliProvider:
             output_usage: list[int | None] = []
             for attempt in (1, 2):
                 repair = attempt == 2
-                transmitted_prompts.append(
-                    self._prompt(request, repair=repair).encode("utf-8")
-                )
+                prompt = self._prompt(request, repair=repair).encode("utf-8")
                 self._input_tokens = None
                 self._output_tokens = None
+                self._attempt_transmitted = False
                 usage_recorded = False
                 attempt_started_at = time.monotonic()
                 outcome = "failed"
@@ -621,6 +642,7 @@ class CodexCliProvider:
                                 )
                         repair_acquired = True
                     raw = self._execute(request, progress, cancelled, repair=repair)
+                    transmitted_prompts.append(prompt)
                     input_usage.append(self._input_tokens)
                     output_usage.append(self._output_tokens)
                     usage_recorded = True
@@ -688,7 +710,7 @@ class CodexCliProvider:
                 finally:
                     if repair_acquired and self._repair_semaphore is not None:
                         self._repair_semaphore.release()
-                    if self._attempt_observer is not None:
+                    if self._attempt_observer is not None and self._attempt_transmitted:
                         self._attempt_observer(
                             ProviderAttemptUsage(
                                 attempt=attempt,
@@ -773,6 +795,12 @@ class CodexCliProvider:
                         "Codex CLI startup timed out. Check provider availability and retry."
                     )
                 prompt = self._prompt(request, repair=repair).encode("utf-8")
+                if self._attempt_gate is not None and not self._attempt_gate(prompt):
+                    self._stop_process(process)
+                    raise OrganizationCancelledError(
+                        "The aggregate provider budget stopped transmission."
+                    )
+                self._attempt_transmitted = True
                 written = process.write(prompt)
                 if written != len(prompt):
                     self._stop_process(process)
@@ -783,9 +811,17 @@ class CodexCliProvider:
                 progress(20, "Organizing story structure")
                 deadline = time.monotonic() + request.timeout_seconds
                 buffer = b""
+                output_bytes = 0
                 final_payload: object | None = None
                 while not process.waitForFinished(_POLL_MS):
-                    buffer += _as_bytes(process.readAllStandardOutput())
+                    chunk = _as_bytes(process.readAllStandardOutput())
+                    output_bytes += len(chunk)
+                    if output_bytes > self._maximum_output_bytes:
+                        self._stop_process(process)
+                        raise InvalidProviderOutputError(
+                            "The organizer output exceeded its bounded transport allowance."
+                        )
+                    buffer += chunk
                     buffer, found = self._consume_lines(buffer, process)
                     if found is not None:
                         final_payload = found
@@ -800,7 +836,14 @@ class CodexCliProvider:
                             "The organizer timed out. Retry a smaller scope or check the "
                             "local model."
                         )
-                buffer += _as_bytes(process.readAllStandardOutput())
+                chunk = _as_bytes(process.readAllStandardOutput())
+                output_bytes += len(chunk)
+                if output_bytes > self._maximum_output_bytes:
+                    self._stop_process(process)
+                    raise InvalidProviderOutputError(
+                        "The organizer output exceeded its bounded transport allowance."
+                    )
+                buffer += chunk
                 buffer, found = self._consume_lines(buffer + b"\n", process)
                 if found is not None:
                     final_payload = found
@@ -874,9 +917,25 @@ class CodexCliProvider:
         if isinstance(usage, dict):
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
-            if isinstance(input_tokens, int):
+            if input_tokens is not None and (
+                not isinstance(input_tokens, int)
+                or isinstance(input_tokens, bool)
+                or input_tokens < 0
+            ):
+                raise ProviderUnavailableError(
+                    "The organizer reported invalid input-token metadata."
+                )
+            if output_tokens is not None and (
+                not isinstance(output_tokens, int)
+                or isinstance(output_tokens, bool)
+                or output_tokens < 0
+            ):
+                raise ProviderUnavailableError(
+                    "The organizer reported invalid output-token metadata."
+                )
+            if isinstance(input_tokens, int) and not isinstance(input_tokens, bool):
                 self._input_tokens = input_tokens
-            if isinstance(output_tokens, int):
+            if isinstance(output_tokens, int) and not isinstance(output_tokens, bool):
                 self._output_tokens = output_tokens
         if "model" not in event:
             return
@@ -904,10 +963,7 @@ class CodexCliProvider:
 
     @staticmethod
     def _validate_prompt_limits(request: OrganizationRequest) -> None:
-        if any(
-            len(serialize_organization_prompt(request, repair=repair)) > MAX_PROMPT_CHARS
-            for repair in (False, True)
-        ):
+        if not organization_prompts_fit(request, limit=MAX_PROMPT_CHARS):
             raise ValueError("The complete organization prompt exceeds the 48,000-character limit.")
 
     def _lmstudio_process_environment(self, codex_home: Path) -> QProcessEnvironment:

@@ -145,6 +145,12 @@ class AttemptObserver(Protocol):
     def __call__(self, usage: ProviderAttemptUsage) -> None: ...
 
 
+class AttemptGate(Protocol):
+    """Authorize one provider transmission from its exact serialized prompt."""
+
+    def __call__(self, prompt: bytes) -> bool: ...
+
+
 @dataclass(frozen=True)
 class OrganizationChunkResult:
     stage: OrganizationStage
@@ -265,3 +271,22 @@ def serialize_organization_prompt(request: OrganizationRequest, *, repair: bool)
         "input": request.payload,
     }
     return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+
+
+def serialized_prompt_chars(request: OrganizationRequest, *, repair: bool) -> int:
+    """Return the character count of the exact provider stdin serialization."""
+
+    return len(serialize_organization_prompt(request, repair=repair))
+
+
+def organization_prompts_fit(
+    request: OrganizationRequest, *, limit: int = MAX_PROMPT_CHARS
+) -> bool:
+    """Require both possible transmissions to be strictly below ``limit``."""
+
+    if limit <= 0:
+        raise ValueError("Prompt limit must be positive.")
+    return all(
+        serialized_prompt_chars(request, repair=repair) < limit
+        for repair in (False, True)
+    )

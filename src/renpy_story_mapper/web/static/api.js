@@ -4,6 +4,15 @@ import {
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
+  soft_seconds: 600, hard_seconds: 900, soft_tokens: 1500000, hard_tokens: 2000000, hard_calls: 48,
+});
+const budgetKeys = Object.keys(DEFAULT_ORGANIZATION_BUDGETS);
+
+function exactBudgets(value) {
+  if (!value || Object.keys(value).length !== budgetKeys.length || budgetKeys.some((key) => !Number.isInteger(value[key]) || value[key] <= 0)) throw new TypeError("Prepared organization budgets are missing, unbounded, or inexact");
+  return Object.fromEntries(budgetKeys.map((key) => [key, value[key]]));
+}
 
 export class LocalApi {
   constructor({ session, csrf } = {}) {
@@ -55,12 +64,21 @@ export class LocalApi {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
   async organization() { return assertOrganization(await this.request(ENDPOINTS.organization)); }
-  async prepareOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationPrepare, { method: "POST", body: {} })); }
-  async startOrganization(runId, budgets) {
+  async prepareOrganization(scopeIds = [], budgets = DEFAULT_ORGANIZATION_BUDGETS) {
+    const requested = exactBudgets(budgets);
+    const prepared = assertOrganization(await this.request(ENDPOINTS.organizationPrepare, { method: "POST", body: { scope_ids: scopeIds, ...requested } }));
+    const returned = exactBudgets(prepared.budgets);
+    if (budgetKeys.some((key) => returned[key] !== requested[key]) || !Array.isArray(prepared.scope_ids) || !prepared.scope_ids.length) throw new TypeError("Prepared organization binding is incomplete");
+    return prepared;
+  }
+  async startOrganization(prepared) {
+    if (!prepared?.run_id || !Array.isArray(prepared.scope_ids) || !prepared.scope_ids.length) throw new TypeError("Prepared organization binding is unavailable");
+    const budgets = exactBudgets(prepared.budgets);
     return assertOrganization(await this.request(ENDPOINTS.organizationStart, {
-      method: "POST", body: { run_id: runId, confirm_cloud: true, budgets },
+      method: "POST", body: { run_id: prepared.run_id, confirm_cloud: true, scope_ids: prepared.scope_ids, budgets },
     }));
   }
   async cancelOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationCancel, { method: "POST", body: {} })); }
   async applyAssembly(assemblyId) { return assertOrganization(await this.request(ENDPOINTS.assemblyApply, { method: "POST", body: { assembly_id: assemblyId } })); }
+  async discardAssembly(assemblyId) { return assertOrganization(await this.request(ENDPOINTS.assemblyDiscard, { method: "POST", body: { assembly_id: assemblyId } })); }
 }

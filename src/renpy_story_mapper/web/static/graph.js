@@ -1,7 +1,20 @@
 import { RENDER_LIMITS } from "./contract.js";
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
-const laneY = Object.freeze({ spine: 240, "detour-a": 105, red: 390, blue: 510 });
+const X_STEP = 190;
+const LANE_STEP = 118;
+const NODE_WIDTH = 142;
+const NODE_HEIGHT = 66;
+
+function stableHue(value) {
+  let hash = 2166136261;
+  for (const character of String(value)) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return Math.abs(hash) % 360;
+}
+
+function endpoint(edge, side) {
+  return side === "source" ? edge.source_id : edge.target_id;
+}
 
 export class RouteGraph {
   constructor({ viewport, world, canvas, onSelect, onOpen }) {
@@ -14,9 +27,11 @@ export class RouteGraph {
     this.nodes = [];
     this.edges = [];
     this.positions = new Map();
+    this.edgePositions = new Map();
     this.selectedId = null;
     this.scale = 1;
-    this.offset = { x: 34, y: 20 };
+    this.offset = { x: 24, y: 20 };
+    this.bounds = { width: 1, height: 1 };
     this.drag = null;
     new ResizeObserver(() => this.draw()).observe(viewport);
     this.bind();
@@ -24,7 +39,7 @@ export class RouteGraph {
 
   bind() {
     this.viewport.addEventListener("pointerdown", (event) => {
-      if (event.target.closest?.(".station, .edge-stop")) return;
+      if (event.target.closest?.(".station, .edge-stop, .continuation-portal")) return;
       this.drag = { x: event.clientX, y: event.clientY, ox: this.offset.x, oy: this.offset.y };
       this.viewport.setPointerCapture(event.pointerId);
       this.viewport.classList.add("is-panning");
@@ -45,55 +60,101 @@ export class RouteGraph {
     this.viewport.addEventListener("keydown", (event) => this.keyboard(event));
   }
 
-  setData(nodes, edges, selectedId = null) {
+  laneOrder(nodes, lanes = []) {
+    const metadata = new Map(lanes.map((lane) => [lane.id, lane]));
+    for (const node of nodes) if (!metadata.has(node.lane_id)) metadata.set(node.lane_id, { id: node.lane_id, kind: node.lane_kind });
+    return [...metadata.values()].filter((lane) => lane.id).sort((a, b) => {
+      const priority = (lane) => lane.kind === "spine" ? 0 : lane.kind === "detour" ? 1 : 2;
+      return priority(a) - priority(b) || String(a.id).localeCompare(String(b.id));
+    });
+  }
+
+  setData(nodes, edges, selectedId = null, lanes = []) {
     if (nodes.length > RENDER_LIMITS.nodes || edges.length > RENDER_LIMITS.edges || nodes.length + edges.length > RENDER_LIMITS.items) throw new RangeError("Route Map render boundary exceeded");
-    this.nodes = nodes;
+    this.nodes = [...nodes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || String(a.id).localeCompare(String(b.id)));
     const ids = new Set(nodes.map((node) => node.id));
     this.edges = edges.filter((edge) => ids.has(edge.source_id) || ids.has(edge.target_id));
     this.positions.clear();
+    this.edgePositions.clear();
     this.world.replaceChildren();
-    const chronological = [...nodes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-    chronological.forEach((node, index) => {
-      const lane = node.lane_id in laneY ? node.lane_id : node.lane_kind === "persistent" ? (index % 2 ? "blue" : "red") : node.lane_kind === "detour" ? "detour-a" : "spine";
-      const position = { x: 70 + index * 178, y: laneY[lane], width: 136, height: 62 };
+
+    const laneRows = this.laneOrder(nodes, lanes);
+    const laneIndex = new Map(laneRows.map((lane, index) => [lane.id, index]));
+    const orders = [...new Set(this.nodes.map((node) => Number(node.order || 0)))].sort((a, b) => a - b);
+    const orderIndex = new Map(orders.map((order, index) => [order, index]));
+    const laneTop = 82;
+
+    laneRows.forEach((lane, index) => {
+      const label = document.createElement("span");
+      label.className = "lane-label";
+      label.style.top = `${laneTop + index * LANE_STEP - 32}px`;
+      label.style.setProperty("--lane-hue", String(stableHue(lane.id)));
+      label.textContent = String(lane.id);
+      this.world.append(label);
+    });
+
+    this.nodes.forEach((node, index) => {
+      const x = 92 + (orderIndex.get(Number(node.order || 0)) ?? index) * X_STEP;
+      const y = laneTop + (laneIndex.get(node.lane_id) ?? 0) * LANE_STEP;
+      const position = { x, y, width: NODE_WIDTH, height: NODE_HEIGHT, lane: node.lane_id };
       this.positions.set(node.id, position);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "station";
       button.dataset.elementId = node.id;
       button.dataset.kind = node.kind || "milestone";
-      button.dataset.lane = node.lane_kind || "spine";
-      button.style.left = `${position.x}px`;
-      button.style.top = `${position.y}px`;
+      button.dataset.laneKind = node.lane_kind || "spine";
+      button.dataset.laneId = node.lane_id || "lane";
+      button.style.left = `${x}px`;
+      button.style.top = `${y}px`;
+      button.style.setProperty("--lane-hue", String(stableHue(node.lane_id)));
       button.tabIndex = -1;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
-      button.setAttribute("aria-label", `${node.kind || "Milestone"}: ${node.title || "Untitled station"}. Open Detail and Evidence.`);
+      const gateCount = Number(node.gate_ids?.length || 0);
+      button.setAttribute("aria-label", `${node.kind || "Milestone"}: ${node.title || "Untitled station"}, lane ${node.lane_id}${gateCount ? `, ${gateCount} gates` : ""}. Open Detail and Evidence.`);
       button.append(this.span("station-shape", this.shape(node.kind)), this.span("station-title", node.title || "Untitled station"));
-      const marker = this.span("station-meta", `${String(index + 1).padStart(2, "0")} · ${String(node.kind || "milestone").replaceAll("_", " ")}`);
-      button.append(marker);
+      button.append(this.span("station-meta", `${String(index + 1).padStart(2, "0")} · ${String(node.kind || "milestone").replaceAll("_", " ")}`));
       button.addEventListener("click", () => { this.select(node.id, true); this.onOpen?.(node); });
       this.world.append(button);
     });
+
+    const minX = 42;
+    const maxX = Math.max(300, ...[...this.positions.values()].map((position) => position.x + position.width + 80));
     for (const edge of this.edges) {
       const source = this.positions.get(edge.source_id);
       const target = this.positions.get(edge.target_id);
-      if (!source || !target) continue;
+      const known = source || target;
+      if (!known) continue;
+      const missingSource = !source;
+      const missingTarget = !target;
+      const sourcePoint = source ? { x: source.x + source.width, y: source.y + 24 } : { x: minX, y: target.y + 24 };
+      const targetPoint = target ? { x: target.x, y: target.y + 24 } : { x: maxX, y: source.y + 24 };
+      this.edgePositions.set(edge.id, { source: sourcePoint, target: targetPoint, missingSource, missingTarget });
+      const midpoint = { x: (sourcePoint.x + targetPoint.x) / 2, y: (sourcePoint.y + targetPoint.y) / 2 };
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "edge-stop";
+      button.className = missingSource || missingTarget ? "continuation-portal" : "edge-stop";
       button.dataset.elementId = edge.id;
       button.dataset.role = edge.role || "flow";
-      button.style.left = `${(source.x + source.width + target.x) / 2 - 12}px`;
-      button.style.top = `${(source.y + target.y) / 2 + 20}px`;
+      button.dataset.continuation = missingSource ? "previous" : missingTarget ? "next" : "";
+      button.style.left = `${(missingSource ? sourcePoint.x : missingTarget ? targetPoint.x : midpoint.x) - 14}px`;
+      button.style.top = `${(missingSource ? sourcePoint.y : missingTarget ? targetPoint.y : midpoint.y) - 14}px`;
+      button.style.setProperty("--lane-hue", String(stableHue(edge.lane_id || known.lane)));
       button.tabIndex = -1;
-      const detail = [edge.role, edge.gate_ids?.length ? "gate" : "", edge.effect_ids?.length ? "effect" : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
-      button.setAttribute("aria-label", `Route segment: ${detail || "flow"}. Open Detail and Evidence.`);
-      button.textContent = edge.gate_ids?.length ? "G" : edge.effect_ids?.length ? "+" : edge.technical_hops ? String(edge.technical_hops) : "·";
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", "false");
+      const continuation = missingSource ? `Continues from ${edge.source_id} on another page` : missingTarget ? `Continues to ${edge.target_id} on another page` : "Route segment";
+      const detail = [edge.role, edge.gate_ids?.length ? `${edge.gate_ids.length} gate` : "", edge.effect_ids?.length ? `${edge.effect_ids.length} effect` : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
+      button.setAttribute("aria-label", `${continuation}: ${detail || "flow"}. Open Detail and Evidence.`);
+      button.textContent = missingSource ? "←" : missingTarget ? "→" : edge.gate_ids?.length ? "G" : edge.effect_ids?.length ? "+" : edge.technical_hops ? String(edge.technical_hops) : "·";
       button.addEventListener("click", () => { this.select(edge.id, true); this.onOpen?.(edge); });
       this.world.append(button);
     }
-    this.select(this.elements().some((item) => item.id === selectedId) ? selectedId : chronological[0]?.id, false);
+    this.bounds = { width: maxX + 30, height: laneTop + laneRows.length * LANE_STEP + 50 };
+    this.world.style.width = `${this.bounds.width}px`;
+    this.world.style.height = `${this.bounds.height}px`;
+    this.select(this.elements().some((item) => item.id === selectedId) ? selectedId : this.nodes[0]?.id, false);
     this.fit();
   }
 
@@ -146,11 +207,8 @@ export class RouteGraph {
 
   fit() {
     if (!this.nodes.length) return;
-    const values = [...this.positions.values()];
-    const width = Math.max(...values.map((position) => position.x + position.width)) + 80;
-    const height = Math.max(...values.map((position) => position.y + position.height)) + 70;
     const rect = this.viewport.getBoundingClientRect();
-    this.scale = clamp(Math.min((rect.width - 32) / width, (rect.height - 32) / height, 1), .5, 1);
+    this.scale = clamp(Math.min((rect.width - 32) / this.bounds.width, (rect.height - 32) / this.bounds.height, 1), .5, 1);
     this.offset = { x: 16, y: 16 };
     this.transform();
   }
@@ -164,28 +222,37 @@ export class RouteGraph {
     this.canvas.height = Math.max(1, Math.floor(rect.height * ratio));
     this.context.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.context.clearRect(0, 0, rect.width, rect.height);
-    const root = getComputedStyle(document.documentElement);
     for (const edge of this.edges) {
-      const source = this.positions.get(edge.source_id);
-      const target = this.positions.get(edge.target_id);
-      if (!source || !target) continue;
-      const sx = this.offset.x + (source.x + source.width / 2) * this.scale;
-      const sy = this.offset.y + (source.y + 20) * this.scale;
-      const tx = this.offset.x + (target.x + target.width / 2) * this.scale;
-      const ty = this.offset.y + (target.y + 20) * this.scale;
+      const points = this.edgePositions.get(edge.id);
+      if (!points) continue;
+      const sx = this.offset.x + points.source.x * this.scale;
+      const sy = this.offset.y + points.source.y * this.scale;
+      const tx = this.offset.x + points.target.x * this.scale;
+      const ty = this.offset.y + points.target.y * this.scale;
       const role = String(edge.role || "flow");
-      const color = role.includes("unresolved") ? "--unresolved" : edge.lane_id === "red" ? "--route-red" : edge.lane_id === "blue" ? "--route-blue" : role.includes("detour") || role.includes("choice") ? "--detour" : "--flow";
+      const hue = stableHue(edge.lane_id || "flow");
       this.context.beginPath();
       this.context.moveTo(sx, sy);
-      const bend = Math.max(26, Math.abs(tx - sx) * .35);
-      this.context.bezierCurveTo(sx + bend, sy, tx - bend, ty, tx, ty);
-      this.context.strokeStyle = root.getPropertyValue(color).trim();
+      if (role.includes("loop") || tx <= sx) {
+        const lift = Math.max(46, Math.abs(tx - sx) * .28);
+        this.context.bezierCurveTo(sx + 50, sy - lift, tx - 50, ty - lift, tx, ty);
+      } else {
+        const bend = Math.max(30, Math.abs(tx - sx) * .36);
+        this.context.bezierCurveTo(sx + bend, sy, tx - bend, ty, tx, ty);
+      }
+      this.context.strokeStyle = role.includes("unresolved") ? getComputedStyle(document.documentElement).getPropertyValue("--unresolved").trim() : `hsl(${hue} 50% 48%)`;
       this.context.lineWidth = edge.id === this.selectedId ? 5 : role === "technical_corridor" ? 8 : 3;
-      this.context.setLineDash(role.includes("unresolved") ? [7, 6] : role.includes("loop") ? [4, 4] : []);
+      this.context.setLineDash(points.missingSource || points.missingTarget ? [10, 5] : role.includes("unresolved") ? [7, 6] : role.includes("loop") ? [4, 4] : []);
       this.context.stroke();
+      this.context.setLineDash([]);
+      if (edge.gate_ids?.length) {
+        const mx = (sx + tx) / 2; const my = (sy + ty) / 2;
+        this.context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--gate").trim();
+        this.context.strokeRect(mx - 5, my - 5, 10, 10);
+      }
       if (edge.proven_merge) {
-        this.context.setLineDash([]);
-        this.context.strokeRect(tx - 5, ty - 5, 10, 10);
+        this.context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--effect").trim();
+        this.context.strokeRect(tx - 6, ty - 6, 12, 12);
       }
     }
   }

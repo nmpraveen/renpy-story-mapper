@@ -944,6 +944,28 @@ def test_explicit_cloud_model_records_selection_and_rejects_conflicting_metadata
         ).organize(request, lambda _percent, _status: None, lambda: False)
 
 
+@pytest.mark.parametrize(
+    "usage",
+    (
+        {"input_tokens": -1, "output_tokens": 0},
+        {"input_tokens": 0, "output_tokens": -1},
+        {"input_tokens": True, "output_tokens": 0},
+        {"input_tokens": 0, "output_tokens": "1"},
+    ),
+)
+def test_provider_rejects_malformed_token_metadata(usage: dict[str, object]) -> None:
+    usage_event = json.dumps(
+        {"type": "turn.completed", "model": "gpt-5.6-luna", "usage": usage}
+    ).encode("utf-8")
+    process = FakeProcess(usage_event + b"\n" + _jsonl(_valid_payload()))
+
+    with pytest.raises(ProviderUnavailableError, match="token metadata"):
+        CodexCliProvider(
+            CodexMode.CODEX_CHATGPT,
+            process_factory=lambda: process,
+        ).organize(_request(), lambda _percent, _status: None, lambda: False)
+
+
 def test_lmstudio_command_adds_only_locked_local_flags() -> None:
     provider = CodexCliProvider(CodexMode.CODEX_LMSTUDIO)
     _program, args = provider.command(Path("schema.json"), model="local-model")
