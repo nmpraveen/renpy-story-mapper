@@ -143,8 +143,14 @@ findings. All were corrected:
    data is explicitly labeled persisted project history.
 5. AI pages return complete bounded incident topology with cursor-bound dense-edge continuation.
 
-Final independent re-review: pending on the completed artifact head and will be added before the PR
-is opened.
+Final independent re-review at `1bdb295` closed all five prior findings and reported no unresolved
+P0, P1, or P2 issue. The reviewer independently reproduced 14 focused corrective tests and the full
+524-test suite, Ruff, strict mypy across 55 source files, `pip check`, all four JavaScript syntax
+checks, both milestone-range `git diff --check` commands, provider-free fresh/replay acceptance, the
+real Chrome harness at 100% and 200%, and browser-only wheel inspection. The reviewer recorded zero
+provider constructions, starts, remote requests, and replay calls, then recommended opening the
+unmerged M08 PR. Live Luna metrics and external samples were intentionally not rerun during this
+read-only review.
 
 ## Limitations and deferred work
 
@@ -171,11 +177,11 @@ is opened.
 
 ## Commit summary
 
-Implementation and integration are represented by the milestone range
-`32e9a3c4a41c0eb4acc9b13af966f4b727319d46..80553f3`, including browser-only cleanup, evaluation,
-bounded windows, web consent, projection, browser experience, evidence ownership, topology paging,
-honest accounting, and final browser evidence fixtures. The final documentation/infographic/review
-commits and PR URL are added after artifact generation.
+Implementation, integration, documentation, and independent review are represented by the milestone
+range `32e9a3c4a41c0eb4acc9b13af966f4b727319d46..1bdb295`, including browser-only cleanup,
+evaluation, bounded windows, web consent, projection, browser experience, evidence ownership,
+topology paging, honest accounting, final browser evidence fixtures, the native infographic, and
+the completed corrective re-review.
 
 ## Required artifacts
 
