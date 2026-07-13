@@ -4,6 +4,26 @@ The packaged browser is a presentation client for the loopback-only Python servi
 owns topology, evidence, organization state, request bounds, and path redaction. JavaScript never
 derives authoritative connectivity.
 
+## M08 AI Story Map
+
+After an exact current-generation assembly is applied, the browser defaults to the AI Story Map.
+Technical Structure remains a comparison and fallback view with unchanged deterministic authority.
+The projected boxes are real AI event groups and the projected connections are the deterministic
+quotient edges; the browser never renames technical nodes one by one or invents connectivity.
+
+- `POST /api/v1/m08/ai-story-map` accepts only
+  `{node_offset, node_limit, edge_offset, edge_limit}`. Limits are 30 nodes and 180 edges.
+- `POST /api/v1/m08/ai-story-detail` accepts only `element_id` plus optional bounded technical and
+  evidence cursors. Limits are 30 member nodes, 180 member edges, and 60 evidence records.
+- `POST /api/v1/m08/comparison` accepts the same page fields as AI Story Map and returns the AI and
+  Technical Structure pages under one exact `authority_hash` with `authority_unchanged: true`.
+
+Missing, stale, or invalid applied organization returns an explicit unavailable reason and a safe
+Technical Structure fallback reference. It never returns a project path, source root, provider
+object, or credential. Detail/Evidence contains member technical nodes and edges, exact gates and
+effects, reviewer corrections and pins, evidence-backed claims, and relative qualified source
+locations. Opening, switching, paging, comparing, replaying, and reopening are provider-free.
+
 ## Two-level M07 surface
 
 The only visible levels are `route_map` and `detail_evidence`. Stations, line segments, and

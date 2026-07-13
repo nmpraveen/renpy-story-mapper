@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from typing import Final, Literal, Protocol, cast
 
+from renpy_story_mapper import storage
+from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
 from renpy_story_mapper.bounded_window import (
     MAX_WINDOW_BOUNDARY_EDGES,
     MAX_WINDOW_EVIDENCE,
@@ -52,6 +55,9 @@ from renpy_story_mapper.web.contracts import (
     M07_PREPARE_REQUEST_FIELDS,
     M07_START_REQUEST_FIELDS,
     M07_WINDOW_RESOLVE_REQUEST_FIELDS,
+    M08_AI_STORY_DETAIL_REQUEST_FIELDS,
+    M08_AI_STORY_MAP_REQUEST_FIELDS,
+    M08_API_ROUTES,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -212,6 +218,7 @@ class ProjectApi:
                     "diagnostics": "/api/v1/diagnostics",
                     "shutdown": "/api/v1/shutdown",
                     "m07": dict(M07_API_ROUTES),
+                    "m08": dict(M08_API_ROUTES),
                 },
             }
         if method == "GET" and path == "/api/v1/recent":
@@ -247,7 +254,21 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if method == "POST" and path == M08_API_ROUTES["ai_story_map"]:
+            exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
+            return json_value(self._m08_ai_story_page(body))
+        if method == "POST" and path == M08_API_ROUTES["ai_story_detail"]:
+            exact_fields(
+                body,
+                allowed=M08_AI_STORY_DETAIL_REQUEST_FIELDS,
+                required=("element_id",),
+            )
+            return json_value(self._m08_ai_story_detail(body))
+        if method == "POST" and path == M08_API_ROUTES["comparison"]:
+            exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
+            return json_value(self._m08_comparison(body))
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
+            exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             return json_value(
                 self._m07_workflow().route_map(
                     offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
@@ -277,6 +298,7 @@ class ProjectApi:
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["detail"]:
+            exact_fields(body, allowed=("element_id",), required=("element_id",))
             try:
                 return json_value(self._m07_workflow().detail(require_string(body, "element_id")))
             except KeyError as exc:
@@ -319,6 +341,7 @@ class ProjectApi:
                 stage=stage,
                 status_override=status_override,
             )
+            response.update(self._m08_attempt_metrics())
             response["refresh"] = (
                 json_value(task) if task is not None and task.kind == "refresh" else None
             )
@@ -696,6 +719,187 @@ class ProjectApi:
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
 
+    def _m08_query(
+        self,
+    ) -> tuple[AIStoryMapQueryResult, dict[str, object], dict[str, dict[str, object]]]:
+        """Resolve only the applied assembly for the current exact route authority.
+
+        A latest stale applied row is inspected only to return the explicit stale reason. It is
+        never projected over current authority and never becomes the default map.
+        """
+
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            if not isinstance(route, dict):
+                raise ValueError("the project has no valid M07 route map")
+            typed_route = cast(dict[str, object], route)
+            generation = hashlib.sha256(storage.canonical_json(typed_route)).hexdigest()
+            model = project.m07_model_service()
+            facts = _m08_facts_by_id(project)
+            try:
+                assembly: object | None = model.applied_assembly(generation=generation)
+            except (storage.ProjectCorruptError, TypeError, ValueError):
+                assembly = {
+                    "assembly_id": "invalid",
+                    "generation": generation,
+                    "status": "applied",
+                    "payload": None,
+                    "payload_hash": "invalid",
+                }
+            if assembly is None:
+                row = project._require_open().execute(
+                    """SELECT assembly_id,generation,status,payload_json,payload_hash
+                       FROM m07_assemblies WHERE status='applied'
+                       ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1"""
+                ).fetchone()
+                if row is not None:
+                    try:
+                        assembly = {
+                            "assembly_id": str(row["assembly_id"]),
+                            "generation": str(row["generation"]),
+                            "status": str(row["status"]),
+                            "payload": storage.decode_json(row["payload_json"]),
+                            "payload_hash": str(row["payload_hash"]),
+                        }
+                    except (storage.ProjectCorruptError, TypeError, ValueError):
+                        assembly = {
+                            "assembly_id": "invalid",
+                            "generation": generation,
+                            "status": "applied",
+                            "payload": None,
+                            "payload_hash": "invalid",
+                        }
+            result = query_ai_story_map(typed_route, assembly, facts=facts)  # type: ignore[arg-type]
+        return result, typed_route, facts
+
+    def _m08_attempt_metrics(self) -> dict[str, object]:
+        with Project.open(self._project()) as project:
+            row = project._require_open().execute(
+                """SELECT COALESCE(SUM(elapsed_ms),0) elapsed_ms,
+                          COALESCE(SUM(cached),0) cache_hits,
+                          COUNT(*) attempts
+                   FROM m07_provider_attempts"""
+            ).fetchone()
+        return {
+            "elapsed_seconds": 0.0 if row is None else int(row["elapsed_ms"]) / 1000,
+            "cache_hits": 0 if row is None else int(row["cache_hits"]),
+            "attempts": 0 if row is None else int(row["attempts"]),
+        }
+
+    def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        node_offset = bounded_int(
+            body, "node_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        node_limit = bounded_int(body, "node_limit", default=30, minimum=1, maximum=30)
+        edge_offset = bounded_int(
+            body, "edge_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        edge_limit = bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180)
+        result, _route, _facts = self._m08_query()
+        if result.story_map is None:
+            return result.to_dict()
+        return result.story_map.page(
+            node_offset=node_offset,
+            node_limit=node_limit,
+            edge_offset=edge_offset,
+            edge_limit=edge_limit,
+        )
+
+    def _m08_ai_story_detail(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        element_id = require_string(body, "element_id")
+        route_node_offset = bounded_int(
+            body, "route_node_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        route_node_limit = bounded_int(
+            body, "route_node_limit", default=30, minimum=1, maximum=30
+        )
+        route_edge_offset = bounded_int(
+            body, "route_edge_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        route_edge_limit = bounded_int(
+            body, "route_edge_limit", default=180, minimum=1, maximum=180
+        )
+        evidence_offset = bounded_int(
+            body, "evidence_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        evidence_limit = bounded_int(
+            body, "evidence_limit", default=60, minimum=1, maximum=60
+        )
+        result, _route, _facts = self._m08_query()
+        if result.story_map is None:
+            return result.to_dict()
+        story_map = result.story_map
+        try:
+            detail = story_map.detail(
+                element_id,
+                route_node_offset=route_node_offset,
+                route_node_limit=route_node_limit,
+                route_edge_offset=route_edge_offset,
+                route_edge_limit=route_edge_limit,
+                evidence_offset=evidence_offset,
+                evidence_limit=evidence_limit,
+            )
+        except KeyError as exc:
+            raise ApiProblem(
+                404, "m08_element_not_found", "The AI Story Map element is unavailable."
+            ) from exc
+        node = next((item for item in story_map.nodes if item.id == element_id), None)
+        edge = next((item for item in story_map.edges if item.id == element_id), None)
+        if node is not None:
+            predecessor_ids = [
+                item.source_id for item in story_map.edges if item.target_id == node.id
+            ]
+            successor_ids = [
+                item.target_id for item in story_map.edges if item.source_id == node.id
+            ]
+        else:
+            assert edge is not None
+            predecessor_ids = [edge.source_id]
+            successor_ids = [edge.target_id]
+        detail["predecessor_ids"] = predecessor_ids
+        detail["successor_ids"] = successor_ids
+        detail["local_path"] = [*predecessor_ids, element_id, *successor_ids]
+        with Project.open(self._project()) as project:
+            qualified = {
+                str(item["id"]): item
+                for item in (
+                    _m08_qualify_evidence(project, cast(Mapping[str, object], evidence))
+                    for evidence in cast(list[object], detail["evidence"])
+                    if isinstance(evidence, Mapping) and isinstance(evidence.get("id"), str)
+                )
+            }
+        detail["evidence"] = [
+            qualified.get(str(item.get("id")), item)
+            for item in cast(list[dict[str, object]], detail["evidence"])
+        ]
+        return detail
+
+    def _m08_comparison(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        ai = self._m08_ai_story_page(body)
+        technical = self._m07_workflow().route_map(
+            offset=bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000),
+            limit=bounded_int(body, "node_limit", default=30, minimum=1, maximum=30),
+            edge_offset=bounded_int(
+                body, "edge_offset", default=0, minimum=0, maximum=2_000_000
+            ),
+            edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
+        )
+        authority_hash = str(technical["authority_hash"])
+        if ai.get("authority_hash") != authority_hash:
+            raise ApiProblem(
+                409,
+                "m08_authority_changed",
+                "The route authority changed while preparing the comparison.",
+            )
+        return {
+            "schema_version": 1,
+            "authority_hash": authority_hash,
+            "default_view": "ai_story_map" if ai.get("status") == "available" else "technical",
+            "ai": ai,
+            "technical": technical,
+            "authority_unchanged": True,
+        }
+
     def _m07_prepared_contract(self, raw: dict[str, object]) -> dict[str, object]:
         scope_ids = _object_strings(raw.get("scope_ids"), "prepared scope_ids")
         window_ids = _object_strings(raw.get("window_ids"), "prepared window_ids")
@@ -1058,6 +1262,87 @@ class ProjectApi:
             )
             percent = 0 if progress.total == 0 else round(completed * 100 / progress.total)
             self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
+
+
+def _m08_facts_by_id(project: Project) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    for collection in ("gates", "effects"):
+        for key in project.payload_keys(collection):
+            value = project.payload(collection, key)
+            if not isinstance(value, list):
+                continue
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    result[str(item["id"])] = cast(dict[str, object], item)
+    return result
+
+
+def _m08_qualify_evidence(
+    project: Project, evidence: Mapping[str, object]
+) -> dict[str, object]:
+    """Attach relative qualified line evidence without exposing local filesystem paths."""
+
+    result = dict(evidence)
+    source = evidence.get("source")
+    if not isinstance(source, Mapping):
+        graph_sources: dict[str, Mapping[str, object]] = {}
+        for collection in ("m01_graph", "m06_control_flow"):
+            graph = project.payload(collection, "authoritative")
+            if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
+                continue
+            for node in graph["nodes"]:
+                if (
+                    isinstance(node, dict)
+                    and isinstance(node.get("id"), str)
+                    and isinstance(node.get("source"), Mapping)
+                ):
+                    graph_sources.setdefault(str(node["id"]), node["source"])
+        payload = evidence.get("payload")
+        if isinstance(payload, Mapping):
+            source = next(
+                (
+                    graph_sources[candidate]
+                    for candidate in (payload.get("source"), payload.get("target"))
+                    if isinstance(candidate, str) and candidate in graph_sources
+                ),
+                None,
+            )
+    if not isinstance(source, Mapping):
+        raise storage.ProjectCorruptError("route evidence has no qualified source location")
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    if (
+        not isinstance(path, str)
+        or Path(path).is_absolute()
+        or not isinstance(start, Mapping)
+        or not isinstance(end, Mapping)
+        or not isinstance(start.get("line"), int)
+        or isinstance(start.get("line"), bool)
+        or not isinstance(end.get("line"), int)
+        or isinstance(end.get("line"), bool)
+    ):
+        raise storage.ProjectCorruptError("route evidence has invalid qualified source lines")
+    derivation = next(
+        (
+            item
+            for item in project.source_derivations()
+            if item.get("source_path") == path
+        ),
+        None,
+    )
+    result.update(
+        {
+            "source_path": path,
+            "start_line": int(start["line"]),
+            "end_line": int(end["line"]),
+            "line_basis": (
+                derivation.get("line_basis") if derivation is not None else "physical_source"
+            ),
+            "provenance": None if derivation is None else dict(derivation),
+        }
+    )
+    return result
 
 
 def _bounded_window_requests(

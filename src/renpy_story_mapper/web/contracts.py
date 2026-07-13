@@ -65,6 +65,27 @@ M07_SCOPE_OVERRIDE_REQUEST_FIELDS: Final = (
 M07_ASSEMBLY_APPLY_REQUEST_FIELDS: Final = ("assembly_id",)
 M07_ASSEMBLY_DISCARD_REQUEST_FIELDS: Final = ("assembly_id",)
 
+M08_API_ROUTES: Final[dict[str, str]] = {
+    "ai_story_map": "/api/v1/m08/ai-story-map",
+    "ai_story_detail": "/api/v1/m08/ai-story-detail",
+    "comparison": "/api/v1/m08/comparison",
+}
+M08_AI_STORY_MAP_REQUEST_FIELDS: Final = (
+    "node_offset",
+    "node_limit",
+    "edge_offset",
+    "edge_limit",
+)
+M08_AI_STORY_DETAIL_REQUEST_FIELDS: Final = (
+    "element_id",
+    "route_node_offset",
+    "route_node_limit",
+    "route_edge_offset",
+    "route_edge_limit",
+    "evidence_offset",
+    "evidence_limit",
+)
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:

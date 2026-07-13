@@ -24,6 +24,9 @@ export const ENDPOINTS = Object.freeze({
   organizationCancel: "/api/v1/m07/organization/cancel",
   assemblyApply: "/api/v1/m07/assembly/apply",
   assemblyDiscard: "/api/v1/m07/assembly/discard",
+  aiStoryMap: "/api/v1/m08/ai-story-map",
+  aiStoryDetail: "/api/v1/m08/ai-story-detail",
+  mapComparison: "/api/v1/m08/comparison",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -165,6 +168,38 @@ export function assertDetail(detail) {
   }
   if (detail.level && detail.level !== "detail_evidence") throw new TypeError("Unexpected semantic level");
   return detail;
+}
+
+export function assertAIStoryMap(value) {
+  if (!object(value) || !["available", "unavailable"].includes(value.status)) throw new TypeError("Invalid AI Story Map response");
+  digest(value.authority_hash, "AI Story Map authority_hash");
+  if (value.status === "unavailable") {
+    if (!object(value.technical_fallback) || value.technical_fallback.available !== true) throw new TypeError("AI Story Map fallback is unavailable");
+    return value;
+  }
+  if (!Array.isArray(value.nodes) || !Array.isArray(value.edges) || !object(value.page) || !object(value.coverage)) throw new TypeError("AI Story Map page is incomplete");
+  if (value.nodes.length > RENDER_LIMITS.nodes || value.edges.length > RENDER_LIMITS.edges || value.nodes.length + value.edges.length > RENDER_LIMITS.items) throw new RangeError("AI Story Map exceeds the packaged rendering boundary");
+  if (value.level !== "ai_story_map" || value.presentation_levels?.length !== 2) throw new TypeError("Unexpected AI Story Map semantic levels");
+  digest(value.organization_hash, "AI Story Map organization_hash");
+  digest(value.projection_hash, "AI Story Map projection_hash");
+  return value;
+}
+
+export function assertAIStoryDetail(value) {
+  if (value?.status === "unavailable") return assertAIStoryMap(value);
+  if (!object(value) || value.level !== "detail_evidence" || !object(value.element) || !Array.isArray(value.member_route_nodes) || !Array.isArray(value.member_route_edges) || !Array.isArray(value.evidence) || !Array.isArray(value.claims)) throw new TypeError("Invalid AI Detail/Evidence response");
+  if (value.member_route_nodes.length > 30 || value.member_route_edges.length > 180 || value.evidence.length > 60) throw new RangeError("AI Detail/Evidence exceeds its bounded response limits");
+  digest(value.authority_hash, "AI Detail authority_hash");
+  return value;
+}
+
+export function assertMapComparison(value) {
+  if (!object(value) || value.schema_version !== 1 || value.authority_unchanged !== true || !object(value.technical) || !object(value.ai)) throw new TypeError("Invalid map comparison response");
+  digest(value.authority_hash, "Comparison authority_hash");
+  assertRoutePage(value.technical);
+  assertAIStoryMap(value.ai);
+  if (value.technical.authority_hash !== value.authority_hash || value.ai.authority_hash !== value.authority_hash) throw new TypeError("Comparison authority changed");
+  return value;
 }
 
 export function assertOrganization(value) {

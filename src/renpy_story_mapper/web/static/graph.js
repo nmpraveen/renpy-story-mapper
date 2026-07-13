@@ -1,19 +1,15 @@
 import { RENDER_LIMITS } from "./contract.js";
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
-const X_STEP = 190;
-const LANE_STEP = 118;
-const NODE_WIDTH = 142;
-const NODE_HEIGHT = 66;
+const X_STEP = 222;
+const LANE_STEP = 128;
+const NODE_WIDTH = 164;
+const NODE_HEIGHT = 78;
 
 function stableHue(value) {
   let hash = 2166136261;
   for (const character of String(value)) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return Math.abs(hash) % 360;
-}
-
-function endpoint(edge, side) {
-  return side === "source" ? edge.source_id : edge.target_id;
 }
 
 export class RouteGraph {
@@ -62,7 +58,7 @@ export class RouteGraph {
 
   laneOrder(nodes, lanes = []) {
     const metadata = new Map(lanes.map((lane) => [lane.id, lane]));
-    for (const node of nodes) if (!metadata.has(node.lane_id)) metadata.set(node.lane_id, { id: node.lane_id, kind: node.lane_kind });
+    for (const node of nodes) if (!metadata.has(node.lane_id)) metadata.set(node.lane_id, { id: node.lane_id, kind: node.lane_kind, label: node.lane_label });
     return [...metadata.values()].filter((lane) => lane.id).sort((a, b) => {
       const priority = (lane) => lane.kind === "spine" ? 0 : lane.kind === "detour" ? 1 : 2;
       return priority(a) - priority(b) || String(a.id).localeCompare(String(b.id));
@@ -88,8 +84,7 @@ export class RouteGraph {
       const label = document.createElement("span");
       label.className = "lane-label";
       label.style.top = `${laneTop + index * LANE_STEP - 32}px`;
-      label.style.setProperty("--lane-hue", String(stableHue(lane.id)));
-      label.textContent = String(lane.id);
+      label.textContent = String(lane.label || (lane.kind === "spine" ? "Story spine" : lane.kind === "detour" ? "Local detours" : "Persistent route"));
       this.world.append(label);
     });
 
@@ -102,19 +97,20 @@ export class RouteGraph {
       button.type = "button";
       button.className = "station";
       button.dataset.elementId = node.id;
-      button.dataset.kind = node.kind || "milestone";
+      button.dataset.kind = node.kind || "event";
+      button.dataset.role = node.presentation_role || node.kind || "event";
       button.dataset.laneKind = node.lane_kind || "spine";
-      button.dataset.laneId = node.lane_id || "lane";
+      button.dataset.laneId = node.lane_id || "story-spine";
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
-      button.style.setProperty("--lane-hue", String(stableHue(node.lane_id)));
       button.tabIndex = -1;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
-      const gateCount = Number(node.gate_ids?.length || 0);
-      button.setAttribute("aria-label", `${node.kind || "Milestone"}: ${node.title || "Untitled station"}, lane ${node.lane_id}${gateCount ? `, ${gateCount} gates` : ""}. Open Detail and Evidence.`);
-      button.append(this.span("station-shape", this.shape(node.kind)), this.span("station-title", node.title || "Untitled station"));
-      button.append(this.span("station-meta", `${String(index + 1).padStart(2, "0")} · ${String(node.kind || "milestone").replaceAll("_", " ")}`));
+      const gateCount = Number(node.gate_ids?.length || node.fact_ids?.length || 0);
+      button.setAttribute("aria-label", `${node.kind || "Event"}: ${node.title || "Untitled event"}${gateCount ? `, ${gateCount} facts` : ""}. Open Detail and Evidence.`);
+      button.append(this.span("station-shape", this.shape(node.kind)), this.span("station-title", node.title || "Untitled event"));
+      if (node.summary) button.append(this.span("station-summary", node.summary));
+      button.append(this.span("station-meta", `${String(index + 1).padStart(2, "0")} · ${String(node.source_kind || node.kind || "event").replaceAll("_", " ")}`));
       button.addEventListener("click", () => { this.select(node.id, true); this.onOpen?.(node); });
       this.world.append(button);
     });
@@ -128,24 +124,23 @@ export class RouteGraph {
       if (!known) continue;
       const missingSource = !source;
       const missingTarget = !target;
-      const sourcePoint = source ? { x: source.x + source.width, y: source.y + 24 } : { x: minX, y: target.y + 24 };
-      const targetPoint = target ? { x: target.x, y: target.y + 24 } : { x: maxX, y: source.y + 24 };
+      const sourcePoint = source ? { x: source.x + source.width, y: source.y + 26 } : { x: minX, y: target.y + 26 };
+      const targetPoint = target ? { x: target.x, y: target.y + 26 } : { x: maxX, y: source.y + 26 };
       this.edgePositions.set(edge.id, { source: sourcePoint, target: targetPoint, missingSource, missingTarget });
       const midpoint = { x: (sourcePoint.x + targetPoint.x) / 2, y: (sourcePoint.y + targetPoint.y) / 2 };
       const button = document.createElement("button");
       button.type = "button";
       button.className = missingSource || missingTarget ? "continuation-portal" : "edge-stop";
       button.dataset.elementId = edge.id;
-      button.dataset.role = edge.role || "flow";
+      button.dataset.role = edge.role || edge.presentation_role || "transition";
       button.dataset.continuation = missingSource ? "previous" : missingTarget ? "next" : "";
       button.style.left = `${(missingSource ? sourcePoint.x : missingTarget ? targetPoint.x : midpoint.x) - 14}px`;
       button.style.top = `${(missingSource ? sourcePoint.y : missingTarget ? targetPoint.y : midpoint.y) - 14}px`;
-      button.style.setProperty("--lane-hue", String(stableHue(edge.lane_id || known.lane)));
       button.tabIndex = -1;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
       const continuation = missingSource ? `Continues from ${edge.source_id} on another page` : missingTarget ? `Continues to ${edge.target_id} on another page` : "Route segment";
-      const detail = [edge.role, edge.gate_ids?.length ? `${edge.gate_ids.length} gate` : "", edge.effect_ids?.length ? `${edge.effect_ids.length} effect` : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
+      const detail = [edge.role || edge.presentation_role, edge.gate_ids?.length ? `${edge.gate_ids.length} gate` : "", edge.effect_ids?.length ? `${edge.effect_ids.length} effect` : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
       button.setAttribute("aria-label", `${continuation}: ${detail || "flow"}. Open Detail and Evidence.`);
       button.textContent = missingSource ? "←" : missingTarget ? "→" : edge.gate_ids?.length ? "G" : edge.effect_ids?.length ? "+" : edge.technical_hops ? String(edge.technical_hops) : "·";
       button.addEventListener("click", () => { this.select(edge.id, true); this.onOpen?.(edge); });
@@ -159,7 +154,7 @@ export class RouteGraph {
   }
 
   elements() { return [...this.nodes, ...this.edges]; }
-  shape(kind) { return kind === "choice" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" ? "■" : kind === "unresolved" ? "?" : "●"; }
+  shape(kind) { return kind === "choice" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : "●"; }
   span(className, value) { const span = document.createElement("span"); span.className = className; span.textContent = String(value); return span; }
 
   select(id, notify = true) {
@@ -222,6 +217,20 @@ export class RouteGraph {
     this.canvas.height = Math.max(1, Math.floor(rect.height * ratio));
     this.context.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.context.clearRect(0, 0, rect.width, rect.height);
+    const styles = getComputedStyle(document.documentElement);
+    const rule = styles.getPropertyValue("--rule").trim();
+    const ink = styles.getPropertyValue("--ink").trim();
+    const accent = styles.getPropertyValue("--accent").trim();
+    this.context.strokeStyle = rule;
+    this.context.lineWidth = 1;
+    this.context.setLineDash([2, 10]);
+    for (let y = 86; y < rect.height; y += LANE_STEP * this.scale) {
+      this.context.beginPath();
+      this.context.moveTo(0, Math.round(y) + .5);
+      this.context.lineTo(rect.width, Math.round(y) + .5);
+      this.context.stroke();
+    }
+    this.context.setLineDash([]);
     for (const edge of this.edges) {
       const points = this.edgePositions.get(edge.id);
       if (!points) continue;
@@ -229,8 +238,7 @@ export class RouteGraph {
       const sy = this.offset.y + points.source.y * this.scale;
       const tx = this.offset.x + points.target.x * this.scale;
       const ty = this.offset.y + points.target.y * this.scale;
-      const role = String(edge.role || "flow");
-      const hue = stableHue(edge.lane_id || "flow");
+      const role = String(edge.role || edge.presentation_role || "transition");
       this.context.beginPath();
       this.context.moveTo(sx, sy);
       if (role.includes("loop") || tx <= sx) {
@@ -240,20 +248,22 @@ export class RouteGraph {
         const bend = Math.max(30, Math.abs(tx - sx) * .36);
         this.context.bezierCurveTo(sx + bend, sy, tx - bend, ty, tx, ty);
       }
-      this.context.strokeStyle = role.includes("unresolved") ? getComputedStyle(document.documentElement).getPropertyValue("--unresolved").trim() : `hsl(${hue} 50% 48%)`;
-      this.context.lineWidth = edge.id === this.selectedId ? 5 : role === "technical_corridor" ? 8 : 3;
+      this.context.strokeStyle = role.includes("persistent") || role.includes("detour") ? accent : ink;
+      this.context.lineWidth = edge.id === this.selectedId ? 5 : role === "technical_corridor" ? 8 : 2.5;
       this.context.setLineDash(points.missingSource || points.missingTarget ? [10, 5] : role.includes("unresolved") ? [7, 6] : role.includes("loop") ? [4, 4] : []);
       this.context.stroke();
       this.context.setLineDash([]);
       if (edge.gate_ids?.length) {
         const mx = (sx + tx) / 2; const my = (sy + ty) / 2;
-        this.context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--gate").trim();
+        this.context.strokeStyle = accent;
         this.context.strokeRect(mx - 5, my - 5, 10, 10);
       }
       if (edge.proven_merge) {
-        this.context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--effect").trim();
+        this.context.strokeStyle = ink;
         this.context.strokeRect(tx - 6, ty - 6, 12, 12);
       }
     }
   }
 }
+
+export { stableHue };

@@ -2,6 +2,7 @@ import {
   ENDPOINTS, ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE,
   assertBoundedWindowResolution, assertDetail, assertOrganization,
   assertPreparedOrganization, assertRoutePage, assertWindowSelectionRequest,
+  assertAIStoryDetail, assertAIStoryMap, assertMapComparison,
   exactOrganizationBudgets,
 } from "./contract.js";
 
@@ -12,7 +13,9 @@ export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
 const budgetKeys = Object.keys(DEFAULT_ORGANIZATION_BUDGETS);
 
 function exactBudgets(value) {
-  return exactOrganizationBudgets(value);
+  const budgets = exactOrganizationBudgets(value);
+  if (Object.values(budgets).some((item) => !Number.isInteger(item))) throw new TypeError("Organization budgets must be finite integers");
+  return budgets;
 }
 
 function uniqueIds(value, label) {
@@ -51,16 +54,18 @@ function exactWindowRequest(request) {
 
 export function organizationStartPayload(preparedValue) {
   const prepared = assertPreparedOrganization(preparedValue);
+  if (!prepared.run_id || (!prepared.scope_ids.length && !prepared.window_ids.length)) throw new TypeError("Prepared organization binding is incomplete");
+  const binding = { scope_ids: prepared.scope_ids, budgets: prepared.budgets };
   return {
     run_id: prepared.run_id,
     confirm_cloud: true,
-    scope_ids: [...prepared.scope_ids],
+    scope_ids: [...binding.scope_ids],
     window_ids: [...prepared.window_ids],
     selection_hash: prepared.selection_hash,
     authority_hash: prepared.authority_hash,
     recovered_source_acknowledgement: prepared.recovered_source_acknowledgement,
     model: { ...prepared.model },
-    budgets: exactBudgets(prepared.budgets),
+    budgets: exactBudgets(binding.budgets),
   };
 }
 
@@ -68,6 +73,7 @@ export class LocalApi {
   constructor({ session, csrf } = {}) {
     this.session = session || document.querySelector('meta[name="rsm-session"]')?.content || "";
     this.csrf = csrf || document.querySelector('meta[name="rsm-csrf"]')?.content || "";
+    this.organizationSelection = { scopeIds: [], windowRequests: [] };
   }
 
   async request(path, { method = "GET", body, signal } = {}) {
@@ -113,6 +119,21 @@ export class LocalApi {
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
+  async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+    return assertAIStoryMap(await this.request(ENDPOINTS.aiStoryMap, {
+      method: "POST", body: { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+    }));
+  }
+  async aiStoryDetail(elementId, cursors = {}) {
+    return assertAIStoryDetail(await this.request(ENDPOINTS.aiStoryDetail, {
+      method: "POST", body: { element_id: elementId, ...cursors },
+    }));
+  }
+  async mapComparison(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+    return assertMapComparison(await this.request(ENDPOINTS.mapComparison, {
+      method: "POST", body: { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+    }));
+  }
   async resolveBoundedWindow(selection) {
     const anchors = selection && (Object.hasOwn(selection, "entry_node_id") || Object.hasOwn(selection, "exit_node_id"));
     exactKeys(selection, anchors ? ["entry_node_id", "exit_node_id"] : ["node_ids"], "Bounded-window selector");
@@ -122,7 +143,10 @@ export class LocalApi {
     return assertBoundedWindowResolution(await this.request(ENDPOINTS.boundedWindowResolve, { method: "POST", body }));
   }
   async organization() { return assertOrganization(await this.request(ENDPOINTS.organization)); }
-  async prepareOrganization(scopeIds = [], windowRequests = [], budgets = DEFAULT_ORGANIZATION_BUDGETS) {
+  setOrganizationSelection(scopeIds, windowRequests) {
+    this.organizationSelection = { scopeIds: [...scopeIds], windowRequests: [...windowRequests] };
+  }
+  async prepareOrganization(scopeIds = this.organizationSelection.scopeIds, windowRequests = this.organizationSelection.windowRequests, budgets = DEFAULT_ORGANIZATION_BUDGETS) {
     const scopes = uniqueIds(scopeIds, "Organization scope_ids");
     if (!Array.isArray(windowRequests) || windowRequests.length > 64) throw new TypeError("Organization window_requests must be bounded");
     const windows = windowRequests.map(exactWindowRequest);
