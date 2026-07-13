@@ -72,8 +72,14 @@ def test_real_nested_evidence_and_non_authoritative_ai_review() -> None:
     assert "technical map is authoritative" in app
     assert "Candidates do not replace the technical map until applied" in html
     assert 'id="discardAssembly"' in html and 'id="applyAssembly"' in html
-    assert "project unchanged" in app
+    assert "state.organization?.assembly?.items" in app
+    assert "await api.discardAssembly(state.assemblyId)" in app
+    assert app.index("await api.discardAssembly(state.assemblyId)") < app.index(
+        'toast("Candidate discarded from the project")'
+    )
     assert "/api/v1/m07/assembly/discard" in contract
+    assert "current backend does not" not in contract.casefold()
+    assert not any(marker in contract for marker in ("Ã", "Â", "â"))
 
 
 def test_polling_waits_for_actual_terminal_status() -> None:
@@ -104,6 +110,7 @@ def test_bounded_search_navigation_and_accessibility_contracts() -> None:
 def test_api_fails_closed_on_unbounded_or_incomplete_prepare_binding() -> None:
     api = _text("api.js")
     app = _text("app.js")
+    route_contract = _text("contract.js")
     assert "DEFAULT_ORGANIZATION_BUDGETS" in api
     for field in ("soft_seconds", "hard_seconds", "soft_tokens", "hard_tokens", "hard_calls"):
         assert field in api
@@ -118,6 +125,9 @@ def test_api_fails_closed_on_unbounded_or_incomplete_prepare_binding() -> None:
     assert "Number.isInteger" in api
     assert "Prepared organization binding is incomplete" in api
     assert "scope_ids: prepared.scope_ids, budgets" in api
+    assert 'assemblyDiscard: "/api/v1/m07/assembly/discard"' in route_contract
+    assert "ENDPOINTS.assemblyDiscard" in api
+    assert "body: { assembly_id: assemblyId }" in api
     assert "api.startOrganization(state.prepared)" in app
     assert "const completed = await pollAnalysis()" in app
 

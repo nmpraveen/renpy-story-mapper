@@ -132,7 +132,9 @@ def test_production_review_shape_decisions_and_pagination_are_explicit() -> None
     assert "value.assembly_id" in app
     assert "assembly_id: assemblyId" in api
     assert "ENDPOINTS.assemblyApply" in api
+    assert "ENDPOINTS.assemblyDiscard" in api
     assert "api.applyAssembly" in app
+    assert "api.discardAssembly" in app
     assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
 
 

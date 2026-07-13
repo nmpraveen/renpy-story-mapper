@@ -31,32 +31,25 @@ as a labelled continuation portal; the client neither invents the endpoint nor d
   `{run_id, confirm_cloud: true, scope_ids, budgets}` copied exactly from prepare
 - `POST /api/v1/m07/organization/cancel` with `{}`
 - `POST /api/v1/m07/assembly/apply` with `{assembly_id}`
+- `POST /api/v1/m07/assembly/discard` with `{assembly_id}`
 
-Open, render, detail, and prepare never construct a provider. Cloud work begins only after the
-confirmed start mutation. The browser polls organization status until a terminal status is
-actually returned. Candidate content never replaces the technical map before apply.
+Prepare does not construct a provider. Start validates that `scope_ids` and `budgets` exactly match
+the fresh, single-use prepared binding before cloud work can begin. The browser polls organization
+status until a terminal status is actually returned.
 
-## Optional review and global-navigation extensions
+## Review and route search
 
-The browser safely consumes these fields when present:
+The current draft is returned as `organization.assembly.items`. Candidate results expose their
+claims, evidence links, reviewer corrections, and pins. Candidates remain proposals and never
+replace the technical map before Apply.
 
-- Detail: `ai_candidates: [{id, title, summary, claims, correction?, pinned?}]`; each claim is
-  `{id, text, evidence_ids}` and references records in detail `evidence`.
-- Organization: `candidates` or `assembly.items`, carrying claims, corrections, and pins.
-- Route page: `global_navigation.next: {offset, edge_offset}` and
-  `global_search: {query, element_ids}`. Local filtering remains available when absent.
+Apply persists the selected draft. Discard persistently supersedes the current draft and returns
+organization status; the browser then refreshes status before reporting success.
 
-The current backend does not expose candidate contents, corrections, or pins in Detail/status and
-has no discard mutation. Persisted discard needs an authenticated endpoint such as
-`POST /api/v1/m07/assembly/discard` with `{assembly_id}`, returning normal organization status with
-`status: "discarded"`. Global search needs `{query, after, limit}` →
-`{query, element_ids, next_after}`; global navigation needs an addressable cursor for an element
-ID. Until then, Discard closes local review and explicitly reports that the project is unchanged.
-
-The current start dispatcher binds authority and scopes server-side through the single-use
-`run_id`, but does not validate the echoed `scope_ids` or `budgets`. It must reject a start whose
-echo differs from the prepared binding. The client already sends the echo and fails closed when
-prepare omits a non-empty `scope_ids` array or any finite requested budget.
+Bounded route-search results are exposed as
+`global_search: {query, element_ids, next_after}` and are consumed without expanding the current
+render boundary. Global navigation can supply `global_navigation.next: {offset, edge_offset}`.
+Local filtering and ordinary paging remain available when no global result is active.
 
 ## Local shell and acceptance
 

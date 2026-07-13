@@ -286,7 +286,7 @@ function renderOrganization() {
   $("#cancelOrganization").hidden = value.status !== "running";
   $("#resumeOrganization").hidden = !["cancelled", "partial"].includes(value.status);
   $("#reviewPartial").hidden = !value.assembly_id;
-  if (value.assembly_id) state.assemblyId = value.assembly_id;
+  state.assemblyId = value.assembly_id || null;
 }
 
 async function prepareOrganization() {
@@ -320,7 +320,7 @@ function showReview() {
   const coverage = state.organization?.coverage || {};
   $("#reviewCoverage").textContent = `${Math.round(Number(coverage.ai || 0) * 100)}% AI coverage · ${Math.round(Number(coverage.technical || 0) * 100)}% technical coverage`;
   const host = $("#reviewCandidates"); host.replaceChildren();
-  const candidates = state.organization?.candidates || state.organization?.assembly?.items || [];
+  const candidates = state.organization?.assembly?.items || state.organization?.candidates || [];
   for (const candidate of candidates) {
     const result = candidate.result || candidate;
     const article = element("article", "review-candidate");
@@ -365,7 +365,16 @@ function bind() {
   $("#confirmOrganization").addEventListener("click", async (event) => { event.preventDefault(); $("#consentDialog").close(); await startOrganization(); });
   $("#cancelOrganization").addEventListener("click", async () => { state.organization = await api.cancelOrganization(); renderOrganization(); toast("Run cancelled; validated scopes preserved"); });
   $("#reviewPartial").addEventListener("click", showReview); $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
-  $("#discardAssembly").addEventListener("click", () => { $("#reviewDialog").close(); toast("Candidate dismissed locally; project unchanged"); });
+  $("#discardAssembly").addEventListener("click", async () => {
+    if (!state.assemblyId) { toast("Candidate assembly is unavailable"); return; }
+    try {
+      await api.discardAssembly(state.assemblyId);
+      state.organization = await api.organization();
+      renderOrganization();
+      $("#reviewDialog").close();
+      toast("Candidate discarded from the project");
+    } catch (error) { toast(error.message); }
+  });
   $("#applyAssembly").addEventListener("click", async () => { state.organization = await api.applyAssembly(state.assemblyId); $("#reviewDialog").close(); await resetRoutePaging(); renderOrganization(); toast("Candidate applied to the project"); });
   $("#diagnosticsButton").addEventListener("click", showDiagnostics); $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
   $("#settingsButton").addEventListener("click", () => { const choices = ["system", "light", "dark"]; state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length]; document.documentElement.dataset.theme = state.settings.theme; graph.draw(); api.saveSettings(state.settings).catch(() => {}); });

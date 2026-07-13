@@ -80,4 +80,5 @@ export class LocalApi {
   }
   async cancelOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationCancel, { method: "POST", body: {} })); }
   async applyAssembly(assemblyId) { return assertOrganization(await this.request(ENDPOINTS.assemblyApply, { method: "POST", body: { assembly_id: assemblyId } })); }
+  async discardAssembly(assemblyId) { return assertOrganization(await this.request(ENDPOINTS.assemblyDiscard, { method: "POST", body: { assembly_id: assemblyId } })); }
 }
