@@ -41,6 +41,7 @@ from renpy_story_mapper.web.contracts import (
     optional_bounded_int,
     optional_string,
     require_string,
+    required_string_tuple,
     string_tuple,
 )
 from renpy_story_mapper.web.state import UserStateStore
@@ -262,6 +263,9 @@ class ProjectApi:
             prepared = workflow.authorize_start(
                 require_string(body, "run_id"),
                 confirm_cloud=boolean(body, "confirm_cloud"),
+                scope_ids=required_string_tuple(
+                    body, "scope_ids", maximum_items=10_000
+                ),
                 budget=start_budget,
             )
 
@@ -325,6 +329,22 @@ class ProjectApi:
             response = workflow.status(stage="applied", status_override="applied")
             response["assembly_id"] = assembly_id
             response["assembly"] = assembly
+            return json_value(response)
+        if method == "POST" and path == M07_API_ROUTES["assembly_discard"]:
+            workflow = self._m07_workflow()
+            assembly_id = require_string(body, "assembly_id")
+            try:
+                assembly = workflow.discard(assembly_id)
+            except KeyError as exc:
+                raise ApiProblem(
+                    404, "m07_assembly_not_found", "The assembly is unavailable."
+                ) from exc
+            except ValueError as exc:
+                raise ApiProblem(
+                    409, "m07_assembly_stale", "The assembly is not a current draft."
+                ) from exc
+            response = workflow.status(stage="discarded")
+            response["discarded_assembly"] = assembly
             return json_value(response)
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)

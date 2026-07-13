@@ -23,6 +23,7 @@ M07_API_ROUTES: Final[dict[str, str]] = {
     "source_acknowledge": "/api/v1/m07/source-coverage/acknowledge",
     "scope_override": "/api/v1/m07/scope/override",
     "assembly_apply": "/api/v1/m07/assembly/apply",
+    "assembly_discard": "/api/v1/m07/assembly/discard",
 }
 M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit", "edge_offset", "edge_limit")
 M07_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
@@ -34,7 +35,7 @@ M07_PREPARE_REQUEST_FIELDS: Final = (
     "hard_tokens",
     "hard_calls",
 )
-M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud", "budgets")
+M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud", "scope_ids", "budgets")
 M07_ROUTE_SEARCH_REQUEST_FIELDS: Final = ("query", "after", "limit")
 M07_SOURCE_ACKNOWLEDGE_REQUEST_FIELDS: Final = ("coverage_token", "acknowledge")
 M07_SCOPE_OVERRIDE_REQUEST_FIELDS: Final = (
@@ -44,6 +45,7 @@ M07_SCOPE_OVERRIDE_REQUEST_FIELDS: Final = (
     "pinned",
 )
 M07_ASSEMBLY_APPLY_REQUEST_FIELDS: Final = ("assembly_id",)
+M07_ASSEMBLY_DISCARD_REQUEST_FIELDS: Final = ("assembly_id",)
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,14 @@ def string_tuple(
     if any(not isinstance(item, str) or not item or len(item) > 512 for item in value):
         raise ValueError(f"{name} must contain non-empty strings")
     return tuple(value)  # type: ignore[arg-type]
+
+
+def required_string_tuple(
+    body: dict[str, JsonValue], name: str, *, maximum_items: int = 250
+) -> tuple[str, ...]:
+    if name not in body:
+        raise ValueError(f"{name} is required")
+    return string_tuple(body, name, maximum_items=maximum_items)
 
 
 def bounded_int(

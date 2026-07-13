@@ -319,17 +319,23 @@ class M07WorkflowService:
         run_id: str,
         *,
         confirm_cloud: bool,
+        scope_ids: Sequence[str],
         budget: BudgetPolicy,
         cancelled: Callable[[], bool],
         progress: ProgressCallback | None = None,
     ) -> dict[str, object]:
         prepared = self.authorize_start(
-            run_id, confirm_cloud=confirm_cloud, budget=budget
+            run_id, confirm_cloud=confirm_cloud, scope_ids=scope_ids, budget=budget
         )
         return self.run_prepared(prepared, cancelled=cancelled, progress=progress)
 
     def authorize_start(
-        self, run_id: str, *, confirm_cloud: bool, budget: BudgetPolicy
+        self,
+        run_id: str,
+        *,
+        confirm_cloud: bool,
+        scope_ids: Sequence[str],
+        budget: BudgetPolicy,
     ) -> PreparedRun:
         """Consume exact fresh consent synchronously, before a background task is accepted."""
 
@@ -341,6 +347,8 @@ class M07WorkflowService:
                 raise PreparedRunError("the prepared run is missing or stale")
             # Exact consent becomes single-use only after its own opaque run ID is presented.
             self._prepared = None
+        if tuple(scope_ids) != prepared.scope_ids:
+            raise PreparedRunError("the start scope_ids do not match the prepared run")
         if _budget_dict(budget) != _budget_dict(prepared.config.budget):
             raise PreparedRunError("the start budget does not match the prepared run")
         with Project.open(self._project_path) as project:
@@ -415,6 +423,7 @@ class M07WorkflowService:
             checkpoints = model.checkpoints(generation=generation)
             coverage = model.coverage(generation=generation).to_dict()
             assemblies = _assembly_metadata(project, generation=generation)
+            draft = model.current_draft(generation=generation)
             source_coverage = project.source_coverage()
             attempt_row = (
                 project._require_open()
@@ -483,6 +492,7 @@ class M07WorkflowService:
             "partial": partial,
             "worker_peak": 0 if progress is None else progress.peak_workers,
             "assembly_id": None if reviewable is None else reviewable["assembly_id"],
+            "assembly": None if draft is None else _sanitize(draft.to_dict()),
             "assemblies": assemblies,
             "authority_hash": generation,
             "source_coverage": source_coverage,
@@ -493,6 +503,17 @@ class M07WorkflowService:
             with Project.open(self._project_path) as project:
                 generation = _authority_hash(_route_payload(project))
                 assembly = project.m07_model_service().apply(
+                    assembly_id, generation=generation
+                )
+        except KeyError as exc:
+            raise KeyError("assembly not found") from exc
+        return assembly.to_dict()
+
+    def discard(self, assembly_id: str) -> dict[str, object]:
+        try:
+            with Project.open(self._project_path) as project:
+                generation = _authority_hash(_route_payload(project))
+                assembly = project.m07_model_service().discard(
                     assembly_id, generation=generation
                 )
         except KeyError as exc:

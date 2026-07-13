@@ -318,6 +318,7 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": False,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -328,6 +329,7 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
                 {
                     "run_id": "m07_stale",
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -354,6 +356,7 @@ def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: 
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )
@@ -376,8 +379,22 @@ def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: 
         assert 0 <= status["ai_coverage"] <= status["technical_coverage"] <= 1
         assert status["partial"] is True
         assert status["assemblies"]
-        assembly = status["assemblies"][0]
+        assembly = status["assembly"]
+        assert assembly["assembly_id"] == status["assemblies"][0]["assembly_id"]
         assert status["assembly_id"] == assembly["assembly_id"]
+        assert assembly["generation"] == status["authority_hash"]
+        assert assembly["payload"]["items"]
+        assert all(
+            "correction" in item and "pinned" in item
+            for item in assembly["payload"]["items"]
+        )
+        provider_item = next(
+            item
+            for item in assembly["payload"]["items"]
+            if isinstance(item.get("result"), dict)
+            and isinstance(item["result"].get("organization_result"), dict)
+        )
+        assert "claims" in provider_item["result"]["organization_result"]["groups"][0]
         applied = api.dispatch(
             "POST",
             M07_API_ROUTES["assembly_apply"],
@@ -402,6 +419,7 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
         {
             "run_id": prepared["run_id"],
             "confirm_cloud": True,
+            "scope_ids": prepared["scope_ids"],
             "budgets": prepared["budgets"],
         },
     )
@@ -419,6 +437,7 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )
@@ -460,6 +479,7 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )
@@ -482,6 +502,7 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -493,6 +514,7 @@ def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
             {
                 "run_id": resumed["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": resumed["scope_ids"],
                 "budgets": resumed["budgets"],
             },
         )
@@ -531,6 +553,7 @@ def test_contract_constants_are_exact() -> None:
         "source_acknowledge": "/api/v1/m07/source-coverage/acknowledge",
         "scope_override": "/api/v1/m07/scope/override",
         "assembly_apply": "/api/v1/m07/assembly/apply",
+        "assembly_discard": "/api/v1/m07/assembly/discard",
     }
 
 
@@ -580,6 +603,7 @@ def test_source_coverage_block_acknowledgement_and_last_moment_guard(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -595,6 +619,31 @@ def test_start_budget_and_route_generation_are_exact_and_single_use(
     api = _api(m07_project, calls)
     try:
         prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
+        with pytest.raises(ValueError, match="scope_ids"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "scope_ids": [*prepared["scope_ids"], "scope_invented"],
+                    "budgets": prepared["budgets"],
+                },
+            )
+        with pytest.raises(ValueError, match="stale"):
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["start"],
+                {
+                    "run_id": prepared["run_id"],
+                    "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
+                    "budgets": prepared["budgets"],
+                },
+            )
+        assert calls == []
+
+        prepared = api.dispatch("POST", M07_API_ROUTES["prepare"], {})
         mismatched = dict(prepared["budgets"])
         mismatched["hard_calls"] = int(mismatched["hard_calls"]) - 1
         with pytest.raises(ValueError, match="does not match"):
@@ -604,6 +653,7 @@ def test_start_budget_and_route_generation_are_exact_and_single_use(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": mismatched,
                 },
             )
@@ -614,6 +664,7 @@ def test_start_budget_and_route_generation_are_exact_and_single_use(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -640,6 +691,7 @@ def test_start_budget_and_route_generation_are_exact_and_single_use(
                 {
                     "run_id": prepared["run_id"],
                     "confirm_cloud": True,
+                    "scope_ids": prepared["scope_ids"],
                     "budgets": prepared["budgets"],
                 },
             )
@@ -681,6 +733,7 @@ def test_applied_overlay_and_draft_are_rejected_after_route_refresh(m07_project:
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )
@@ -771,6 +824,7 @@ def test_applied_detail_exposes_evidence_claims_corrections_and_pins(
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )
@@ -785,6 +839,17 @@ def test_applied_detail_exposes_evidence_claims_corrections_and_pins(
                 "pinned": True,
             },
         )
+        review = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert review["assembly"]["assembly_id"] == assembly["assembly_id"]
+        reviewed_scope = next(
+            item
+            for item in review["assembly"]["payload"]["items"]
+            if item["scope_id"] == prepared["scope_ids"][0]
+        )
+        assert reviewed_scope["correction"] == {"title": "Pinned corrected title"}
+        assert reviewed_scope["pinned"] is True
+        reviewed_groups = reviewed_scope["result"]["organization_result"]["groups"]
+        assert all(claim["evidence_ids"] for claim in reviewed_groups[0]["claims"])
         api.dispatch(
             "POST",
             M07_API_ROUTES["assembly_apply"],
@@ -803,6 +868,41 @@ def test_applied_detail_exposes_evidence_claims_corrections_and_pins(
         assert interpretation["pinned"] is True
         assert interpretation["correction"] == {"title": "Pinned corrected title"}
         assert all(claim["evidence_ids"] for claim in interpretation["claims"])
+
+        applied_route = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        discard_draft = api.dispatch(
+            "POST",
+            M07_API_ROUTES["scope_override"],
+            {
+                "scope_id": prepared["scope_ids"][0],
+                "authority_hash": prepared["authority_hash"],
+                "correction": {"title": "Discard this draft"},
+                "pinned": False,
+            },
+        )
+        discarded = api.dispatch(
+            "POST",
+            M07_API_ROUTES["assembly_discard"],
+            {"assembly_id": discard_draft["assembly_id"]},
+        )
+        assert discarded["discarded_assembly"]["status"] == "superseded"
+        unchanged_route = api.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        assert unchanged_route["applied_assembly"] == applied_route["applied_assembly"]
+        assert unchanged_route["nodes"] == applied_route["nodes"]
+        with pytest.raises(Exception) as repeated:
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["assembly_discard"],
+                {"assembly_id": discard_draft["assembly_id"]},
+            )
+        assert getattr(repeated.value, "status", None) == 409
+        with pytest.raises(Exception) as unknown:
+            api.dispatch(
+                "POST",
+                M07_API_ROUTES["assembly_discard"],
+                {"assembly_id": "assembly_unknown"},
+            )
+        assert getattr(unknown.value, "status", None) == 404
     finally:
         api.close()
 
@@ -863,6 +963,7 @@ def _assert_browser_organization(value: dict[str, Any]) -> None:
     assert set(value["tokens"]) >= {"used", "budget", "input", "output"}
     assert "calls" in value and "eta" in value and "partial" in value
     assert "assembly_id" in value
+    assert "assembly" in value
 
 
 def test_local_server_emits_packaged_route_and_organization_shapes(
@@ -914,6 +1015,7 @@ def test_local_server_emits_packaged_route_and_organization_shapes(
             {
                 "run_id": prepared["run_id"],
                 "confirm_cloud": True,
+                "scope_ids": prepared["scope_ids"],
                 "budgets": prepared["budgets"],
             },
         )

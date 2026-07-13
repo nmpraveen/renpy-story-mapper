@@ -472,6 +472,37 @@ class M07ModelService:
             )
             return Assembly(assembly_id, generation, "draft", payload, payload_hash, coverage)
 
+    def current_draft(self, *, generation: str) -> Assembly | None:
+        row = (
+            self._project._require_open()
+            .execute(
+                """SELECT * FROM m07_assemblies
+                   WHERE generation=? AND status='draft'
+                   ORDER BY created_utc DESC,assembly_id DESC LIMIT 1""",
+                (generation,),
+            )
+            .fetchone()
+        )
+        return None if row is None else _assembly(row)
+
+    def discard(self, assembly_id: str, *, generation: str) -> Assembly:
+        """Atomically supersede one exact current-generation draft and nothing else."""
+
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT * FROM m07_assemblies WHERE assembly_id=?", (assembly_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown assembly: {assembly_id}")
+            if str(row["generation"]) != generation or str(row["status"]) != "draft":
+                raise ValueError("the assembly is not a current draft")
+            connection.execute(
+                "UPDATE m07_assemblies SET status='superseded' WHERE assembly_id=?",
+                (assembly_id,),
+            )
+            return _assembly(row, status="superseded")
+
     def apply(self, assembly_id: str, *, generation: str) -> Assembly:
         connection = self._project._require_open()
         with storage.transaction(connection):
