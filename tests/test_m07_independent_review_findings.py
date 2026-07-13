@@ -6,6 +6,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from renpy_story_mapper.m07_workflow import M07WorkflowService, _ValidatingProvider
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
@@ -126,6 +128,12 @@ def test_transmission_guard_runs_before_every_provider_attempt() -> None:
             raise ValueError("recovered-source transmission is now blocked")
 
     class RepairingProvider:
+        def __init__(self) -> None:
+            self.gate: Any = None
+
+        def set_attempt_gate(self, gate: Any) -> None:
+            self.gate = gate
+
         def status(self) -> Any:
             raise AssertionError("not used")
 
@@ -134,15 +142,20 @@ def test_transmission_guard_runs_before_every_provider_attempt() -> None:
 
         def organize(self, _request: Any, _progress: Any, _cancelled: Any) -> Any:
             nonlocal blocked, transmissions
+            assert self.gate(b"initial prompt")
             transmissions += 1
             blocked = True
+            assert self.gate(b"repair prompt")
             transmissions += 1
             return _result()
 
     wrapped = _ValidatingProvider(RepairingProvider(), guard)
-    wrapped.organize(_request(), lambda _percent, _status: None, lambda: False)
+    wrapped.set_attempt_gate(lambda _prompt: True)
+    with pytest.raises(ValueError, match="now blocked"):
+        wrapped.organize(_request(), lambda _percent, _status: None, lambda: False)
 
-    assert guard_calls == transmissions
+    assert guard_calls == 2
+    assert transmissions == 1
 
 
 def _branching_project(tmp_path: Path) -> Path:
@@ -163,7 +176,16 @@ def _branching_project(tmp_path: Path) -> Path:
 
 
 def test_every_detail_evidence_record_has_a_qualified_source_line(tmp_path: Path) -> None:
-    service = M07WorkflowService(_branching_project(tmp_path), lambda _scope: None)  # type: ignore[arg-type,return-value]
+    project_path = _branching_project(tmp_path)
+    with Project.open(project_path) as project:
+        route = project.payload("m07_route_map", "authoritative")
+        graph = project.payload("m01_graph", "authoritative")
+        assert isinstance(route, dict) and isinstance(graph, dict)
+        raw_evidence = {item["id"]: item for item in route["evidence"]}  # type: ignore[index]
+        graph_nodes = {item["id"]: item for item in graph["nodes"]}  # type: ignore[index]
+        derivations = {item["source_path"]: item for item in project.source_derivations()}
+
+    service = M07WorkflowService(project_path, lambda _scope: None)  # type: ignore[arg-type,return-value]
     page = service.route_map(limit=30, edge_limit=180)
     missing: list[str] = []
     for element in [*page["nodes"], *page["edges"]]:  # type: ignore[misc]
@@ -175,6 +197,19 @@ def test_every_detail_evidence_record_has_a_qualified_source_line(tmp_path: Path
                 and evidence.get("line_basis")
             ):
                 missing.append(str(evidence.get("id")))
+                continue
+            expected_derivation = derivations[evidence["source_path"]]
+            assert evidence["provenance"] == {
+                **expected_derivation,
+                "locator": Path(str(expected_derivation["locator"])).name,
+            }
+            original = raw_evidence[evidence["id"]]
+            if original.get("source") is None:
+                graph_node = graph_nodes[evidence["qualified_from_graph_node_id"]]
+                graph_source = graph_node["source"]
+                assert evidence["source_path"] == graph_source["path"]
+                assert evidence["start_line"] == graph_source["start"]["line"]
+                assert evidence["end_line"] == graph_source["end"]["line"]
 
     assert missing == []
 

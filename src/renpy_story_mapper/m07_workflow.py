@@ -20,6 +20,7 @@ from renpy_story_mapper.m07_model import CheckpointStatus
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
+    AttemptGate,
     CancelledCallback,
     OrganizationChunkResult,
     OrganizationConstraints,
@@ -28,11 +29,15 @@ from renpy_story_mapper.organization.contracts import (
     OrganizationRequest,
     OrganizationStage,
     ProviderStatus,
+    serialize_organization_prompt,
 )
 from renpy_story_mapper.organization.contracts import (
     ProgressCallback as ProviderProgressCallback,
 )
-from renpy_story_mapper.organization.errors import InvalidProviderOutputError
+from renpy_story_mapper.organization.errors import (
+    InvalidProviderOutputError,
+    OrganizationCancelledError,
+)
 from renpy_story_mapper.organization.parallel import (
     BudgetPolicy,
     CheckpointState,
@@ -73,6 +78,8 @@ class _ValidatingProvider:
     ) -> None:
         self._provider = provider
         self._transmission_guard = transmission_guard
+        self._attempt_gate_installed = False
+        self._fallback_attempt_gate: AttemptGate | None = None
 
     def status(self) -> ProviderStatus:
         return self._provider.status()
@@ -83,8 +90,16 @@ class _ValidatingProvider:
         progress: ProviderProgressCallback,
         cancelled: CancelledCallback,
     ) -> OrganizationChunkResult:
-        # Deliberately the last local check before control crosses into a provider.
-        self._transmission_guard()
+        # Providers without an attempt primitive get the strongest available one-call guard.
+        # Providers with the primitive are guarded at each exact transmission below.
+        if not self._attempt_gate_installed:
+            self._transmission_guard()
+            if self._fallback_attempt_gate is not None:
+                prompt = serialize_organization_prompt(request, repair=False).encode("utf-8")
+                if not self._fallback_attempt_gate(prompt):
+                    raise OrganizationCancelledError(
+                        "The aggregate provider budget stopped transmission."
+                    )
         result = self._provider.organize(
             request,
             progress,
@@ -100,6 +115,28 @@ class _ValidatingProvider:
         # mocked/custom providers cannot cross deterministic authority.
         validated = validate_result(result.raw_normalized, request)
         return replace(validated, attempts=result.attempts, metadata=result.metadata)
+
+    def set_attempt_gate(self, gate: AttemptGate | None) -> None:
+        """Compose persisted authority before scheduler reservation for every transmission."""
+
+        setter = getattr(self._provider, "set_attempt_gate", None)
+        if not callable(setter):
+            self._attempt_gate_installed = False
+            self._fallback_attempt_gate = gate
+            return
+        if gate is None:
+            setter(None)
+            self._attempt_gate_installed = False
+            self._fallback_attempt_gate = None
+            return
+
+        def guarded(prompt: bytes) -> bool:
+            self._transmission_guard()
+            return gate(prompt)
+
+        setter(guarded)
+        self._attempt_gate_installed = True
+        self._fallback_attempt_gate = None
 
     def cancel(self) -> None:
         self._provider.cancel()
@@ -173,10 +210,25 @@ class M07WorkflowService:
             _overlay_node(item, overlay) for item in _records(page.get("nodes"), "nodes")
         ]
         nodes = _records(route.get("nodes"), "nodes")
+        nodes_by_id = {_string(item.get("id"), "node id"): item for item in nodes}
+        rendered_node_ids = {
+            _string(item.get("id"), "node id") for item in _records(page.get("nodes"), "nodes")
+        }
+        for edge in _records(page.get("edges"), "edges"):
+            rendered_node_ids.update(
+                {
+                    _string(edge.get("source_id"), "edge source id"),
+                    _string(edge.get("target_id"), "edge target id"),
+                }
+            )
         lanes = sorted(
             {
-                (_string(item.get("lane_id"), "lane id"), str(item.get("lane_kind", "spine")))
-                for item in nodes
+                (
+                    _string(nodes_by_id[node_id].get("lane_id"), "lane id"),
+                    str(nodes_by_id[node_id].get("lane_kind", "spine")),
+                )
+                for node_id in rendered_node_ids
+                if node_id in nodes_by_id
             }
         )
         result = {
@@ -205,6 +257,7 @@ class M07WorkflowService:
             overlay, _applied = _applied_overlay(project, generation=generation)
             facts = _facts_by_id(project)
             provenance = _provenance_by_path(project)
+            graph_sources = _graph_sources_by_id(project)
         nodes = _records(route.get("nodes"), "nodes")
         edges = _records(route.get("edges"), "edges")
         evidence_by_id = {
@@ -240,7 +293,7 @@ class M07WorkflowService:
                 "gates": [facts[item] for item in node_gate_ids if item in facts],
                 "effects": [facts[item] for item in node_effect_ids if item in facts],
                 "evidence": [
-                    _detail_evidence(evidence_by_id[item], provenance)
+                    _detail_evidence(evidence_by_id[item], provenance, graph_sources)
                     for item in evidence_ids
                     if item in evidence_by_id
                 ],
@@ -262,7 +315,7 @@ class M07WorkflowService:
             "gates": [facts[item] for item in gate_ids if item in facts],
             "effects": [facts[item] for item in effect_ids if item in facts],
             "evidence": [
-                _detail_evidence(evidence_by_id[item], provenance)
+                _detail_evidence(evidence_by_id[item], provenance, graph_sources)
                 for item in evidence_ids
                 if item in evidence_by_id
             ],
@@ -862,13 +915,39 @@ def _provenance_by_path(project: Project) -> dict[str, Mapping[str, object]]:
     }
 
 
+def _graph_sources_by_id(project: Project) -> dict[str, Mapping[str, object]]:
+    result: dict[str, Mapping[str, object]] = {}
+    for collection in ("m01_graph", "m06_control_flow"):
+        payload = project.payload(collection, "authoritative")
+        if not isinstance(payload, dict):
+            continue
+        for node in _records(payload.get("nodes"), f"{collection}.nodes"):
+            node_id = node.get("id")
+            source = node.get("source")
+            if isinstance(node_id, str) and isinstance(source, Mapping):
+                result.setdefault(node_id, source)
+    return result
+
+
 def _detail_evidence(
-    evidence: Mapping[str, object], provenance: Mapping[str, Mapping[str, object]]
+    evidence: Mapping[str, object],
+    provenance: Mapping[str, Mapping[str, object]],
+    graph_sources: Mapping[str, Mapping[str, object]],
 ) -> dict[str, object]:
     result = dict(evidence)
     source = evidence.get("source")
+    qualified_node_id: str | None = None
     if not isinstance(source, Mapping):
-        return result
+        payload = evidence.get("payload")
+        if isinstance(payload, Mapping):
+            for name in ("source", "target"):
+                candidate = payload.get(name)
+                if isinstance(candidate, str) and candidate in graph_sources:
+                    qualified_node_id = candidate
+                    source = graph_sources[candidate]
+                    break
+    if not isinstance(source, Mapping):
+        raise storage.ProjectCorruptError("route evidence has no qualified source location")
     path = source.get("path")
     start = source.get("start")
     end = source.get("end")
@@ -892,6 +971,7 @@ def _detail_evidence(
                 derivation.get("line_basis") if derivation is not None else "physical_source"
             ),
             "provenance": None if derivation is None else dict(derivation),
+            "qualified_from_graph_node_id": qualified_node_id,
         }
     )
     return result
