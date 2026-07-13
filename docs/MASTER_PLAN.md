@@ -999,7 +999,11 @@ Locked deliverables:
    outside the repository; fixtures store only permitted synthetic content, fingerprints, scope
    identifiers, and expected structural/narrative assertions.
 3. Preserve the deterministic-before-AI baseline and expose a clear Technical Structure versus AI
-   Story Map comparison. Once accepted AI organization exists, the AI Story Map is the default.
+   Story Map comparison. The broad AI view is a stable quotient graph: validated AI events become
+   the visible boxes, while deterministic code projects only the real cross-event connections and
+   retains their underlying gates, effects, route roles, and evidence. It must not merely rename
+   every technical node. Once accepted AI organization exists, the AI Story Map is the default;
+   Detail / Evidence is the only second user-visible level.
 4. Use the existing resumable parallel scope scheduler for Luna analysis, with evidence-complete
    scene/event output, cross-scope reconciliation, cache reuse, partial validated results, and no
    all-or-nothing global collapse.
