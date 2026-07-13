@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +115,72 @@ def test_hard_token_budget_rejects_an_attempt_that_can_report_above_its_reservat
     ).run((RouteScope(0, _request()),), consent_run_id="review-run")
 
     assert outcome.progress.input_tokens + outcome.progress.output_tokens <= 70_000
+
+
+def test_negative_provider_usage_cannot_replenish_hard_token_admission() -> None:
+    transmissions = 0
+
+    class Provider:
+        def __init__(self, scope: RouteScope) -> None:
+            self.scope = scope
+            self.gate: Any = None
+            self.observer: Any = None
+
+        def set_attempt_gate(self, gate: Any) -> None:
+            self.gate = gate
+
+        def set_attempt_observer(self, observer: Any) -> None:
+            self.observer = observer
+
+        def set_maximum_output_bytes(self, _maximum: int) -> None:
+            return
+
+        def status(self) -> Any:
+            raise AssertionError("not used")
+
+        def cancel(self) -> None:
+            return
+
+        def organize(self, request: Any, _progress: Any, _cancelled: Any) -> Any:
+            nonlocal transmissions
+            prompt = serialize_organization_prompt(request, repair=False).encode("utf-8")
+            if not self.gate(prompt):
+                raise RuntimeError("hard token budget blocked transmission")
+            transmissions += 1
+            if self.scope.ordinal == 0:
+                self.observer(ProviderAttemptUsage(1, 1, "invalid", -1_000_000, 0))
+            else:
+                self.observer(ProviderAttemptUsage(1, 1, "validated", 1, 1))
+            return _result()
+
+    first = _request()
+    second = replace(first, chunk_id="review-chunk-2", scope_id="review-scope-2")
+    maximum_output_bytes = 1_000
+    maximum_provider_overhead = 1_000
+    admitted_ceiling = (
+        len(serialize_organization_prompt(first, repair=False).encode("utf-8"))
+        + maximum_output_bytes
+        + maximum_provider_overhead
+    )
+    outcome = ParallelOrganizationScheduler(
+        lambda scope: Provider(scope),
+        InMemoryCheckpointSink(),
+        SchedulerConfig(
+            initial_workers=1,
+            maximum_workers=1,
+            maximum_output_bytes_per_attempt=maximum_output_bytes,
+            maximum_provider_overhead_tokens_per_attempt=maximum_provider_overhead,
+            budget=BudgetPolicy(hard_calls=2, hard_tokens=admitted_ceiling, hard_seconds=30),
+        ),
+    ).run(
+        (RouteScope(0, first), RouteScope(1, second)),
+        consent_run_id="review-run",
+    )
+
+    assert transmissions == 1
+    assert outcome.progress.calls == 1
+    assert outcome.progress.input_tokens >= 0
+    assert outcome.progress.output_tokens >= 0
 
 
 def test_transmission_guard_runs_before_every_provider_attempt() -> None:
