@@ -13,7 +13,9 @@ All implementation and review tasks use GPT-5.6 Sol with High reasoning and fast
 | `019f598e-778d-7b03-a3d0-0c9a429c48cf` | Hard-token admission correction | Enforceable per-attempt ceiling and truthful fail-closed accounting | `codex/m07-1-fix-token-budget` | Completed; `23733cd`, integrated as `66e7d0a` |
 | `019f598e-776e-76b0-933f-58fdd2706ab4` | Privacy, evidence, and lane correction | Per-attempt recovery guard, qualified edge evidence, bounded lane metadata | `codex/m07-1-fix-backend-review` | Completed; `5c1b282`, integrated as `6839f9a` |
 | `019f598e-776d-7c31-a2d5-b4f4ef90087c` | Evidence line-basis correction | Render reconstructed/physical provenance without generic fallback | `codex/m07-1-fix-browser-basis` | Completed; `c82d106`, integrated as `9526b1e` |
-| `019f5996-b765-7763-8680-055e11596b25` | Final independent correction re-audit | Verify all review corrections and complete final defect gate | `codex/m07-1-final-reaudit` | Active; negative-accounting regression `88b5e0e` integrated as `757d9c4`, fix `c889fdd` under re-audit |
+| `019f5996-b765-7763-8680-055e11596b25` | Final independent correction re-audit | Verify all review corrections and complete final defect gate | `codex/m07-1-final-reaudit` | Completed; regression `88b5e0e` integrated as `757d9c4`; final exact-head audit reported no unresolved P0-P2 at `d46767a` |
 
 The orchestrator owns integration, conflict resolution, full Windows acceptance, documentation,
 the native infographic, and the pull request.
+
+Orchestrator closure commits after review: `c889fdd`, `7012482`, `d46767a`, and `3399154`.
