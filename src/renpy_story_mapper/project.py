@@ -707,17 +707,25 @@ class Project:
             variables.append(value)
         if not found:
             raise KeyError(f"state variable does not exist: {original_name}")
+        connection = self._require_open()
         self.write_payloads(
             [
                 PayloadRecord(
                     "state_registry",
                     "authoritative",
                     variables,
-                    tuple(source.path for source in self.sources()),
+                    tuple(
+                        str(row[0])
+                        for row in connection.execute(
+                            """SELECT source_path FROM payload_dependencies
+                               WHERE collection='state_registry'
+                                 AND record_key='authoritative'
+                               ORDER BY source_path"""
+                        )
+                    ),
                 )
             ]
         )
-        connection = self._require_open()
         with storage.transaction(connection):
             if category is not None:
                 connection.execute(

@@ -33,6 +33,7 @@ PAYLOAD_COLLECTIONS: Final = frozenset(
         "parsed_source",
         "source_dependencies",
         "state_registry",
+        "story_metadata",
     }
 )
 
