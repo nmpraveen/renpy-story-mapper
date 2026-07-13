@@ -19,6 +19,13 @@ from urllib.parse import urlsplit
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.m07_model import CheckpointStatus
+from renpy_story_mapper.organization.contracts import (
+    InterpretationClaim,
+    OrganizationChunkResult,
+    OrganizationGroup,
+    OrganizationStage,
+)
+from renpy_story_mapper.organization.persistence import encode_organization_result
 from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.security import SessionSecurity
@@ -176,6 +183,9 @@ def _persist_organization(project_path: Path, *, apply: bool, title: str) -> str
                 )
             return assembly_id
         checkpoints = {item.scope_id: item for item in service.checkpoints(generation=generation)}
+        nodes_by_id = {
+            str(item["id"]): item for item in route["nodes"] if isinstance(item, dict)
+        }
         for scope in route["scopes"]:
             if not isinstance(scope, dict):
                 continue
@@ -183,30 +193,65 @@ def _persist_organization(project_path: Path, *, apply: bool, title: str) -> str
             members = [str(item) for item in scope["node_ids"]]
             checkpoint = checkpoints.get(scope_id)
             if checkpoint is not None and checkpoint.status is CheckpointStatus.PENDING:
+                groups: list[OrganizationGroup] = []
+                raw_groups: list[dict[str, object]] = []
+                ungrouped: list[str] = []
+                for index, member in enumerate(members):
+                    evidence_ids = tuple(
+                        item
+                        for item in nodes_by_id[member]["evidence_ids"]
+                        if isinstance(item, str)
+                    )
+                    if not evidence_ids:
+                        ungrouped.append(member)
+                        continue
+                    group_id = f"event_{scope_id}_{index:03d}"
+                    claim_text = "This evidence-backed route event advances the observatory story."
+                    groups.append(
+                        OrganizationGroup(
+                            id=group_id,
+                            title="The Observatory Choice",
+                            summary="Avery chooses honesty or a solitary search before the routes meet under the telescope.",
+                            member_ids=(member,),
+                            characters=(),
+                            importance="turning point",
+                            outcomes=("Trust and courage shape the final decision.",),
+                            promoted_fact_ids=(),
+                            claims=(InterpretationClaim(claim_text, evidence_ids),),
+                            warnings=(),
+                        )
+                    )
+                    raw_groups.append(
+                        {
+                            "id": group_id,
+                            "title": "The Observatory Choice",
+                            "summary": "Avery chooses honesty or a solitary search before the routes meet under the telescope.",
+                            "member_ids": [member],
+                            "characters": [],
+                            "importance": "turning point",
+                            "outcomes": ["Trust and courage shape the final decision."],
+                            "promoted_fact_ids": [],
+                            "claims": [
+                                {"text": claim_text, "evidence_ids": list(evidence_ids)}
+                            ],
+                            "warnings": [],
+                        }
+                    )
+                result = OrganizationChunkResult(
+                    stage=OrganizationStage.EVENTS,
+                    groups=tuple(groups),
+                    ungrouped_ids=tuple(ungrouped),
+                    raw_normalized={
+                        "stage": "events",
+                        "groups": raw_groups,
+                        "ungrouped_ids": ungrouped,
+                    },
+                )
                 service.transition(scope_id, CheckpointStatus.IN_FLIGHT)
                 service.transition(
                     scope_id,
                     CheckpointStatus.VALIDATED,
-                    result={
-                        "organization_result": {
-                            "groups": [
-                                {
-                                    "id": f"event_{scope_id}_{index:03d}",
-                                    "title": "The Observatory Choice",
-                                    "summary": "Avery chooses honesty or a solitary search before the routes meet under the telescope.",
-                                    "member_ids": [member],
-                                    "characters": ["Avery", "Morgan"],
-                                    "importance": "turning point",
-                                    "outcomes": ["Trust and courage shape the final decision."],
-                                    "promoted_fact_ids": [],
-                                    "claims": [],
-                                    "warnings": [],
-                                }
-                                for index, member in enumerate(members)
-                            ],
-                            "ungrouped_ids": [],
-                        }
-                    },
+                    result={"organization_result": encode_organization_result(result)},
                 )
             service.set_override(
                 scope_id,
