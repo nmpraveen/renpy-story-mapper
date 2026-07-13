@@ -13,6 +13,7 @@ provider boundary.
 | `019f5bcc-f66a-7d92-89e6-0a02eadc3bcc` | Add bounded AI windows | Exact narrative-window selection, hash-bound subset consent, bounded request assembly, resume/cache safety, and backend tests | `codex/m08-bounded-ai-windows` | Delivered `0c43f13`; integrated as `f2b685a`; browser contract update pending |
 | `019f5bd6-d228-76f2-bb5f-862b2702420b` | Build AI Story Map projection | Deterministic quotient of validated AI groups into human story nodes/edges with exact detail/evidence links and technical fallback | `codex/m08-ai-story-projection` | Delivered `02b7bcc`; integrated as `77f6898`; web rendering pending |
 | `019f5bde-6bf6-7153-a88f-8b90d1a370e5` | Integrate bounded web contract | Provider-free window resolution plus strict prepare/start HTTP and JavaScript contracts, restored browser workflow tests, and consent metadata | `codex/m08-web-bounded-contract` | Delivered `d687820`; integrated as `7390d7d`; orchestrator rerun 51 passed; milestone verification pending |
+| `019f5bf4-3ee7-77b3-9cb2-532f179d8bb5` | Build AI Story Map browser UX | Browser-only quotient graph, two-level Detail/Evidence navigation, bounded consent workflow, progress/review/comparison UI, and Chrome acceptance harness | `codex/m08-browser-story-experience` | Active |
 
 The permanent orchestrator owns integration, live AI authorization boundaries, complete Windows
 acceptance, documentation, the native infographic, and the pull request.
