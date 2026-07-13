@@ -70,9 +70,10 @@ def test_fixture_manifest_hashes_and_physical_evidence_are_exact() -> None:
         assert path.is_file()
         assert _canonical_text_hash(path) == expected["sha256"]
         if "physical_line_count" in expected:
-            assert len(path.read_text(encoding="utf-8").splitlines()) == expected[
-                "physical_line_count"
-            ]
+            assert (
+                len(path.read_text(encoding="utf-8").splitlines())
+                == expected["physical_line_count"]
+            )
 
     source_lines = (FIXTURES / "route_topology.rpy").read_text(encoding="utf-8").splitlines()
     evidence = _sequence(manifest["evidence"])
@@ -177,15 +178,12 @@ def test_provider_timelines_cover_every_locked_adversarial_behavior() -> None:
         assert [event["tick"] for event in events] == sorted(event["tick"] for event in events)
         assert set(scenario["scopes"])
         assert all(
-            "scope" not in event or event["scope"] in set(scenario["scopes"])
-            for event in events
+            "scope" not in event or event["scope"] in set(scenario["scopes"]) for event in events
         )
 
     shuffled = _mapping(scenarios["shuffled_completion"])
     completion = [
-        event["scope"]
-        for event in _sequence(shuffled["events"])
-        if event["event"] == "validated"
+        event["scope"] for event in _sequence(shuffled["events"]) if event["event"] == "validated"
     ]
     assert completion != shuffled["expected_assembly"]
     assert shuffled["expected_assembly"] == shuffled["scopes"]
@@ -257,26 +255,19 @@ def test_browser_fixture_and_harness_define_exactly_two_local_levels() -> None:
     assert contract["zoom_percentages"] == [100, 200]
     assert contract["network"] == {"allowed_origins": ["127.0.0.1"], "remote_requests": 0}
     assert "--force-device-scale-factor=2" in source
-    assert "720,450" in source and "1440,900" in source
+    assert '"width": 720 if zoom == 200 else 1440' in source
+    assert '"height": 450 if zoom == 200 else 900' in source
     assert "provider_constructions" in source
     assert '"remote_requests": 0' in source
-    assert "Back to Route Map" in source
-    assert 'list.addEventListener("click"' in source
-    assert 'event.key==="Enter"' in source
+    assert "LocalWebServer" in source and "ProjectApi" in source
+    assert "create_ingested_project" in source
     assert "Open Detail" not in source
     assert "Level 3" not in source and "third level" not in source.casefold()
     spec = importlib.util.spec_from_file_location("m07_browser_acceptance", HARNESS)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assets = "\n".join(text for _, text in module.ASSETS.values())
-    assert not re.search(r"(?:https?:)?//(?!127\.0\.0\.1|localhost)", assets, re.IGNORECASE)
-    assert module.STATES == (
-        "route-map",
-        "detail-evidence",
-        "coverage-progress",
-        "review-partial",
-    )
+    assert module.ZOOMS == (100, 200)
 
 
 def test_public_scope_checkpoint_contract_is_durable_and_queryable() -> None:
