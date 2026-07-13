@@ -307,17 +307,18 @@ function titleFor(id) { return state.page?.nodes.find((node) => node.id === id)?
 async function loadOrganization() { try { state.organization = await api.organization(); renderOrganization(); } catch (error) { $("#organizationMetrics").replaceChildren(element("p", "muted", "Organization status unavailable.")); } }
 
 function renderOrganization() {
-  const value = state.organization || {}; const scopes = value.scopes || {}; const tokens = value.tokens || {}; const coverage = value.coverage || {}; const eta = value.eta || {};
+  const value = state.organization || {}; const scopes = value.scopes || {}; const accounting = value.accounting || {}; const tokens = accounting.tokens || {}; const coverage = value.coverage || {}; const eta = value.eta || {};
   const fallback = Number(scopes.fallback || 0) + Number(scopes.failed || 0) + Number(scopes.cancelled || 0);
   const honestStatus = value.status === "complete" && fallback ? "partial with fallback" : String(value.status || "idle").replaceAll("_", " ");
+  const metricLabel = value.status_label || accounting.label || "Accounting unavailable";
   const host = $("#organizationMetrics"); host.replaceChildren();
   const rows = [
-    ["Status", `${honestStatus} · ${value.stage || "idle"}`],
-    ["Scopes", `${scopes.validated || 0} validated · ${scopes.fallback || 0} fallback · ${scopes.pending || 0} pending · ${scopes.cancelled || 0} cancelled`],
-    ["Usage", `${value.calls || 0} calls · ${Number(tokens.used || 0).toLocaleString()} / ${Number(tokens.budget || 0).toLocaleString()} tokens`],
-    ["Time", value.elapsed_seconds == null ? `elapsed not reported · ${eta.low_seconds == null ? "ETA unavailable" : `${Math.ceil(eta.low_seconds / 60)}–${Math.ceil(eta.high_seconds / 60)} min ETA`}` : `${value.elapsed_seconds}s elapsed`],
-    ["Cache", `${value.cache_hits ?? value.cached ?? 0} hits · ${value.attempts || 0} attempts · ${value.validated || 0} validated`],
-    ["Coverage", `${Math.round(Number(coverage.ai || 0) * 100)}% AI · ${Math.round(Number(coverage.technical || 0) * 100)}% technical`],
+    [`Status — ${metricLabel}`, `${honestStatus} · ${value.stage || "idle"}`],
+    [`Scopes — ${metricLabel}`, `${scopes.validated || 0} validated · ${scopes.fallback || 0} fallback · ${scopes.pending || 0} pending · ${scopes.cancelled || 0} cancelled`],
+    [`Usage — ${metricLabel}`, `${accounting.calls || 0} calls · ${Number(tokens.total || 0).toLocaleString()} tokens`],
+    [`Time — ${metricLabel}`, `${Number(accounting.elapsed_seconds || 0).toFixed(1)}s ${accounting.elapsed_basis === "provider_attempts" ? "provider time" : "elapsed"} · ${eta.low_seconds == null ? "ETA unavailable" : `${Math.ceil(eta.low_seconds / 60)}–${Math.ceil(eta.high_seconds / 60)} min ETA`}`],
+    [`Cache — ${metricLabel}`, `${accounting.cache_hits || 0} hits · ${accounting.attempts || 0} provider attempts`],
+    [`Coverage — ${metricLabel}`, `${Math.round(Number(coverage.ai || 0) * 100)}% AI · ${Math.round(Number(coverage.technical || 0) * 100)}% technical`],
   ];
   for (const [label, text] of rows) { const row = element("div", "metric"); row.append(element("span", "", label), element("strong", "", text)); host.append(row); }
   $("#cancelOrganization").hidden = value.status !== "running"; $("#resumeOrganization").hidden = !["cancelled", "partial"].includes(value.status); $("#reviewPartial").hidden = !value.assembly_id;

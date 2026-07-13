@@ -121,9 +121,7 @@ def test_production_picker_shapes_create_and_refresh_a_real_project(tmp_path: Pa
         source.write_text(
             'label start:\n    "Hello"\n\nlabel added:\n    return\n', encoding="utf-8"
         )
-        status, refreshed = _request(
-            server, "POST", "/api/v1/projects/refresh", body={}
-        )
+        status, refreshed = _request(server, "POST", "/api/v1/projects/refresh", body={})
         assert status == 200
         assert refreshed["analysis"]["state"] == "running"
         assert _wait_for_task(server)["state"] == "completed"
@@ -174,9 +172,7 @@ def test_known_dynamic_jump_is_authoritatively_unresolved(tmp_path: Path) -> Non
     )
     thread = start_in_thread(server)
     try:
-        status, picked = _request(
-            server, "POST", "/api/v1/native-picker", body={"kind": "project"}
-        )
+        status, picked = _request(server, "POST", "/api/v1/native-picker", body={"kind": "project"})
         assert status == 200
         status, _opened = _request(
             server,
@@ -254,13 +250,13 @@ def _pending_draft(project_path: Path) -> tuple[str, dict[str, object]]:
         return service.create_draft(run_id, "independent-test", candidate), candidate
 
 
-def test_draft_review_contract_is_exact_and_pagination_is_bounded(tmp_path: Path) -> None:
+def test_superseded_draft_routes_are_absent_but_m07_review_routes_remain(tmp_path: Path) -> None:
     project_path = tmp_path / "review.rsmproj"
     with create_ingested_project(
         project_path, ROOT / "tests" / "fixtures" / "m05" / "organization"
     ):
         pass
-    draft_id, candidate = _pending_draft(project_path)
+    draft_id, _candidate = _pending_draft(project_path)
     server = LocalWebServer(
         "127.0.0.1",
         0,
@@ -272,9 +268,7 @@ def test_draft_review_contract_is_exact_and_pagination_is_bounded(tmp_path: Path
     )
     thread = start_in_thread(server)
     try:
-        status, picked = _request(
-            server, "POST", "/api/v1/native-picker", body={"kind": "project"}
-        )
+        status, picked = _request(server, "POST", "/api/v1/native-picker", body={"kind": "project"})
         assert status == 200
         status, _opened = _request(
             server,
@@ -285,51 +279,20 @@ def test_draft_review_contract_is_exact_and_pagination_is_bounded(tmp_path: Path
         assert status == 200
         assert _wait_for_task(server)["state"] == "completed"
 
-        status, envelope = _request(server, "GET", "/api/v1/organization/draft")
-        assert status == 200
-        assert [draft["id"] for draft in envelope["drafts"]] == [draft_id]
-        assert envelope["reviews"][draft_id] == []
-        status, blocked = _request(
-            server,
-            "POST",
-            "/api/v1/organization/apply",
-            body={"draft_id": draft_id},
-        )
-        assert status == 409
-        assert blocked["error"]["code"] == "draft_review_incomplete"
-
-        expected_reviews = 0
-        for target_kind, key in (("arc", "arcs"), ("event", "events")):
-            groups = candidate[key]
-            assert isinstance(groups, list)
-            for group in groups:
-                assert isinstance(group, dict)
-                status, reviewed = _request(
-                    server,
-                    "POST",
-                    "/api/v1/organization/review",
-                    body={
-                        "draft_id": draft_id,
-                        "target_kind": target_kind,
-                        "target_id": group["id"],
-                        "decision": "approved",
-                    },
-                )
-                assert status == 200
-                assert reviewed["decision"] == "approved"
-                expected_reviews += 1
-
-        status, decided = _request(server, "GET", "/api/v1/organization/draft")
-        assert status == 200
-        assert len(decided["reviews"][draft_id]) == expected_reviews
-        status, applied = _request(
-            server,
-            "POST",
-            "/api/v1/organization/apply",
-            body={"draft_id": draft_id},
-        )
-        assert status == 200
-        assert applied == {"draft_id": draft_id, "status": "applied"}
+        for method, path in (
+            ("GET", "/api/v1/organization/draft"),
+            ("POST", "/api/v1/organization/review"),
+            ("POST", "/api/v1/organization/apply"),
+            ("POST", "/api/v1/organization/discard"),
+        ):
+            status, blocked = _request(
+                server,
+                method,
+                path,
+                body=None if method == "GET" else {"draft_id": draft_id},
+            )
+            assert status == 404
+            assert blocked["error"]["code"] == "not_found"
     finally:
         server.close_service()
         thread.join(timeout=5)

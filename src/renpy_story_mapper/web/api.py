@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import secrets
 import threading
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Final, Literal, Protocol, cast
+from typing import Final, Protocol, cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
@@ -49,7 +50,6 @@ from renpy_story_mapper.project import (
     open_project,
     refresh_ingested_project,
 )
-from renpy_story_mapper.story_organization import StoryOrganizationService
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
     M07_PREPARE_REQUEST_FIELDS,
@@ -108,6 +108,15 @@ M07_DEFAULT_BUDGETS: Final[dict[str, JsonValue]] = {
     "hard_tokens": 2_000_000,
     "hard_calls": 48,
 }
+LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
+    {
+        "/api/v1/organization/consent",
+        "/api/v1/organization/draft",
+        "/api/v1/organization/review",
+        "/api/v1/organization/apply",
+        "/api/v1/organization/discard",
+    }
+)
 
 
 class ApiProblem(Exception):
@@ -174,6 +183,13 @@ class ProjectApi:
         self._m07_service_path: Path | None = None
         self._m07_consent_snapshot: dict[str, JsonValue] | None = None
         self._m07_start_binding: dict[str, JsonValue] | None = None
+        self._m07_run_id: str | None = None
+        self._m07_run_baseline: dict[str, int] | None = None
+        self._m07_run_progress: ProgressSnapshot | None = None
+        self._m07_run_started_at: float | None = None
+        self._m07_run_elapsed_seconds: float | None = None
+        self._m07_run_cache_hits = 0
+        self._m07_run_selected_ids: tuple[str, ...] = ()
 
     def close(self) -> None:
         self.cancel()
@@ -210,17 +226,14 @@ class ProjectApi:
                     "evidence": "/api/v1/story/evidence",
                     "facts": "/api/v1/story/facts",
                     "settings": "/api/v1/settings",
-                    "organization_start": "/api/v1/organization/consent",
-                    "organization_draft": "/api/v1/organization/draft",
-                    "organization_review": "/api/v1/organization/review",
-                    "organization_apply": "/api/v1/organization/apply",
-                    "organization_discard": "/api/v1/organization/discard",
                     "diagnostics": "/api/v1/diagnostics",
                     "shutdown": "/api/v1/shutdown",
                     "m07": dict(M07_API_ROUTES),
                     "m08": dict(M08_API_ROUTES),
                 },
             }
+        if path in LEGACY_ORGANIZATION_ROUTES:
+            raise ApiProblem(404, "not_found", "The requested API endpoint does not exist.")
         if method == "GET" and path == "/api/v1/recent":
             return {"recent_projects": self._recent_projects()}
         if method == "GET" and path == "/api/v1/analysis/progress":
@@ -341,11 +354,10 @@ class ProjectApi:
                 stage=stage,
                 status_override=status_override,
             )
-            response.update(self._m08_attempt_metrics())
             response["refresh"] = (
                 json_value(task) if task is not None and task.kind == "refresh" else None
             )
-            return json_value(self._with_m07_consent(response))
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["prepare"]:
             exact_fields(body, allowed=M07_PREPARE_REQUEST_FIELDS)
             scope_ids = string_tuple(body, "scope_ids", maximum_items=MAX_M07_SELECTION_ITEMS)
@@ -443,6 +455,7 @@ class ProjectApi:
                 model=cast(dict[str, object], model),
                 budget=start_budget,
             )
+            self._begin_m07_run_metrics(authorized.run_id)
 
             def run_m07(cancelled: threading.Event) -> None:
                 workflow.run_prepared(
@@ -451,21 +464,25 @@ class ProjectApi:
                     progress=self._m07_progress,
                 )
 
-            started = self._start(
-                "m07_organization",
-                run_m07,
-            )
+            try:
+                started = self._start(
+                    "m07_organization",
+                    run_m07,
+                )
+            except Exception:
+                self._clear_m07_run_metrics()
+                raise
             response = workflow.status(stage="starting", status_override="running")
             response["run_id"] = authorized.run_id
             response["task"] = started.get("analysis") if isinstance(started, dict) else None
-            return json_value(self._with_m07_consent(response))
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["cancel"]:
             self.cancel()
             # The packaged browser polls only while status is ``running``.  Keep that
             # lifecycle status until the background boundary durably reports cancellation;
             # advertising ``cancelled`` here would also enable Resume before the old task exits.
             return json_value(
-                self._with_m07_consent(
+                self._m07_browser_status(
                     self._m07_workflow().status(
                         stage="cancelling",
                         status_override="running",
@@ -506,7 +523,7 @@ class ProjectApi:
             response = workflow.status(stage="applied", status_override="applied")
             response["assembly_id"] = assembly_id
             response["assembly"] = assembly
-            return json_value(self._with_m07_consent(response))
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["assembly_discard"]:
             workflow = self._m07_workflow()
             assembly_id = require_string(body, "assembly_id")
@@ -522,7 +539,7 @@ class ProjectApi:
                 ) from exc
             response = workflow.status(stage="discarded")
             response["discarded_assembly"] = assembly
-            return json_value(self._with_m07_consent(response))
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)
         if method == "POST" and path == "/api/v1/story/search":
@@ -533,19 +550,6 @@ class ProjectApi:
             return self._presentation_facts(body)
         if method == "PUT" and path == "/api/v1/settings":
             return {"settings": self._state_store.save_settings(body)}
-        if method == "GET" and path == "/api/v1/organization/draft":
-            return self._organization()
-        if method == "POST" and path == "/api/v1/organization/consent":
-            if not boolean(body, "consent"):
-                raise ValueError("explicit consent is required")
-            scopes = string_tuple(body, "scope_ids")
-            return self._start("organization", lambda cancelled: self._organize(scopes, cancelled))
-        if method == "POST" and path == "/api/v1/organization/review":
-            return self._review_draft(body)
-        if method == "POST" and path == "/api/v1/organization/apply":
-            return self._draft_action(body, apply=True)
-        if method == "POST" and path == "/api/v1/organization/discard":
-            return self._draft_action(body, apply=False)
         if method == "GET" and path == "/api/v1/diagnostics":
             with self._lock:
                 ready = self._project_path is not None
@@ -658,6 +662,15 @@ class ProjectApi:
     ) -> None:
         with self._lock:
             self._task = TaskStatus(task_id, kind, state, stage, percent, cancellable, error)
+            if (
+                kind == "m07_organization"
+                and state != "running"
+                and self._m07_run_started_at is not None
+                and self._m07_run_elapsed_seconds is None
+            ):
+                self._m07_run_elapsed_seconds = max(
+                    0.0, time.monotonic() - self._m07_run_started_at
+                )
 
     def _open(self, path: Path, cancelled: threading.Event) -> None:
         if cancelled.is_set():
@@ -676,6 +689,7 @@ class ProjectApi:
             self._m07_service_path = None
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
+            self._clear_m07_run_metrics_locked()
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -688,6 +702,7 @@ class ProjectApi:
             self._m07_service_path = None
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
+            self._clear_m07_run_metrics_locked()
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -696,6 +711,7 @@ class ProjectApi:
         if project is None or source is None:
             raise ApiProblem(409, "no_project", "Open a project first.")
         refresh_ingested_project(project, source, cancel_check=cancelled.is_set)
+        self._clear_m07_run_metrics()
 
     def _project(self) -> Path:
         with self._lock:
@@ -747,11 +763,15 @@ class ProjectApi:
                     "payload_hash": "invalid",
                 }
             if assembly is None:
-                row = project._require_open().execute(
-                    """SELECT assembly_id,generation,status,payload_json,payload_hash
+                row = (
+                    project._require_open()
+                    .execute(
+                        """SELECT assembly_id,generation,status,payload_json,payload_hash
                        FROM m07_assemblies WHERE status='applied'
                        ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1"""
-                ).fetchone()
+                    )
+                    .fetchone()
+                )
                 if row is not None:
                     try:
                         assembly = {
@@ -772,28 +792,166 @@ class ProjectApi:
             result = query_ai_story_map(typed_route, assembly, facts=facts)  # type: ignore[arg-type]
         return result, typed_route, facts
 
-    def _m08_attempt_metrics(self) -> dict[str, object]:
+    def _persisted_attempt_metrics(self) -> dict[str, int]:
         with Project.open(self._project()) as project:
-            row = project._require_open().execute(
-                """SELECT COALESCE(SUM(elapsed_ms),0) elapsed_ms,
+            row = (
+                project._require_open()
+                .execute(
+                    """SELECT COALESCE(SUM(calls),0) calls,
+                          COALESCE(SUM(input_tokens),0) input_tokens,
+                          COALESCE(SUM(output_tokens),0) output_tokens,
+                          COALESCE(SUM(elapsed_ms),0) elapsed_ms,
                           COALESCE(SUM(cached),0) cache_hits,
                           COUNT(*) attempts
                    FROM m07_provider_attempts"""
-            ).fetchone()
+                )
+                .fetchone()
+            )
+        names = ("calls", "input_tokens", "output_tokens", "elapsed_ms", "cache_hits", "attempts")
+        return {name: 0 if row is None else int(row[name]) for name in names}
+
+    def _m08_attempt_metrics(
+        self,
+        response: Mapping[str, object],
+        *,
+        use_current_run: bool | None = None,
+    ) -> dict[str, object]:
+        persisted = self._persisted_attempt_metrics()
+        with self._lock:
+            run_id = self._m07_run_id
+            baseline = None if self._m07_run_baseline is None else dict(self._m07_run_baseline)
+            progress = self._m07_run_progress
+            started_at = self._m07_run_started_at
+            finished_elapsed = self._m07_run_elapsed_seconds
+            current_cache_hits = self._m07_run_cache_hits
+
+        current_run = run_id is not None and baseline is not None
+        if use_current_run is not None:
+            current_run = current_run and use_current_run
+        if not current_run:
+            scope = "project_history"
+            label = "Persisted project history"
+            metrics = persisted
+            elapsed_seconds = metrics["elapsed_ms"] / 1000
+            elapsed_basis = "provider_attempts"
+            accounting_run_id = None
+        else:
+            assert run_id is not None and baseline is not None
+            scope = "current_run"
+            label = "Current run"
+            metrics = {name: max(0, persisted[name] - baseline[name]) for name in persisted}
+            if progress is not None:
+                metrics["calls"] = progress.calls
+                metrics["input_tokens"] = progress.input_tokens
+                metrics["output_tokens"] = progress.output_tokens
+                metrics["attempts"] = max(metrics["attempts"], progress.calls)
+            metrics["cache_hits"] = current_cache_hits
+            if finished_elapsed is not None:
+                elapsed_seconds = finished_elapsed
+            elif started_at is not None:
+                elapsed_seconds = max(0.0, time.monotonic() - started_at)
+            else:
+                elapsed_seconds = 0.0
+            elapsed_basis = "wall_clock"
+            accounting_run_id = run_id
+
+        token_total = metrics["input_tokens"] + metrics["output_tokens"]
+        raw_tokens = response.get("tokens")
+        budget = raw_tokens.get("budget", 0) if isinstance(raw_tokens, Mapping) else 0
+        accounting = {
+            "scope": scope,
+            "label": label,
+            "run_id": accounting_run_id,
+            "calls": metrics["calls"],
+            "tokens": {
+                "input": metrics["input_tokens"],
+                "output": metrics["output_tokens"],
+                "total": token_total,
+            },
+            "elapsed_seconds": elapsed_seconds,
+            "elapsed_basis": elapsed_basis,
+            "cache_hits": metrics["cache_hits"],
+            "attempts": metrics["attempts"],
+        }
         return {
-            "elapsed_seconds": 0.0 if row is None else int(row["elapsed_ms"]) / 1000,
-            "cache_hits": 0 if row is None else int(row["cache_hits"]),
-            "attempts": 0 if row is None else int(row["attempts"]),
+            "accounting": accounting,
+            "calls": metrics["calls"],
+            "tokens": {
+                "used": token_total,
+                "budget": budget,
+                "input": metrics["input_tokens"],
+                "output": metrics["output_tokens"],
+                "total": token_total,
+            },
+            "elapsed_seconds": elapsed_seconds,
+            "cache_hits": metrics["cache_hits"],
+            "attempts": metrics["attempts"],
         }
 
+    def _m07_browser_status(self, response: dict[str, object]) -> dict[str, object]:
+        project_history = _m07_scope_metrics(response)
+        project_history["accounting"] = self._m08_attempt_metrics(response, use_current_run=False)[
+            "accounting"
+        ]
+        with self._lock:
+            current_run = self._m07_run_id is not None
+            selected_ids = self._m07_run_selected_ids
+        if current_run:
+            _filter_m07_scope_metrics(response, selected_ids)
+        response.update(self._m08_attempt_metrics(response))
+        if current_run:
+            scope_counts = response.get("scope_counts")
+            tokens = response.get("tokens")
+            if isinstance(scope_counts, dict) and isinstance(tokens, dict):
+                scope_counts["calls"] = response["calls"]
+                scope_counts["input_tokens"] = tokens["input"]
+                scope_counts["output_tokens"] = tokens["output"]
+        response["status_scope"] = "current_run" if current_run else "project_history"
+        response["status_label"] = "Current run" if current_run else "Persisted project history"
+        response["project_history"] = project_history
+        return self._with_m07_consent(response)
+
+    def _begin_m07_run_metrics(self, run_id: str) -> None:
+        baseline = self._persisted_attempt_metrics()
+        with self._lock:
+            snapshot = self._m07_consent_snapshot or {}
+            cached = snapshot.get("cached", 0)
+            validated = snapshot.get("validated", 0)
+            scope_ids = snapshot.get("scope_ids", [])
+            window_ids = snapshot.get("window_ids", [])
+            self._m07_run_id = run_id
+            self._m07_run_baseline = baseline
+            self._m07_run_progress = None
+            self._m07_run_started_at = time.monotonic()
+            self._m07_run_elapsed_seconds = None
+            self._m07_run_cache_hits = (
+                cached if isinstance(cached, int) and not isinstance(cached, bool) else 0
+            ) + (validated if isinstance(validated, int) and not isinstance(validated, bool) else 0)
+            self._m07_run_selected_ids = tuple(
+                item
+                for values in (scope_ids, window_ids)
+                if isinstance(values, list)
+                for item in values
+                if isinstance(item, str)
+            )
+
+    def _clear_m07_run_metrics(self) -> None:
+        with self._lock:
+            self._clear_m07_run_metrics_locked()
+
+    def _clear_m07_run_metrics_locked(self) -> None:
+        self._m07_run_id = None
+        self._m07_run_baseline = None
+        self._m07_run_progress = None
+        self._m07_run_started_at = None
+        self._m07_run_elapsed_seconds = None
+        self._m07_run_cache_hits = 0
+        self._m07_run_selected_ids = ()
+
     def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
-        node_offset = bounded_int(
-            body, "node_offset", default=0, minimum=0, maximum=2_000_000
-        )
+        node_offset = bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000)
         node_limit = bounded_int(body, "node_limit", default=30, minimum=1, maximum=30)
-        edge_offset = bounded_int(
-            body, "edge_offset", default=0, minimum=0, maximum=2_000_000
-        )
+        edge_offset = bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000)
         edge_limit = bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180)
         result, _route, _facts = self._m08_query()
         if result.story_map is None:
@@ -810,9 +968,7 @@ class ProjectApi:
         route_node_offset = bounded_int(
             body, "route_node_offset", default=0, minimum=0, maximum=2_000_000
         )
-        route_node_limit = bounded_int(
-            body, "route_node_limit", default=30, minimum=1, maximum=30
-        )
+        route_node_limit = bounded_int(body, "route_node_limit", default=30, minimum=1, maximum=30)
         route_edge_offset = bounded_int(
             body, "route_edge_offset", default=0, minimum=0, maximum=2_000_000
         )
@@ -822,9 +978,7 @@ class ProjectApi:
         evidence_offset = bounded_int(
             body, "evidence_offset", default=0, minimum=0, maximum=2_000_000
         )
-        evidence_limit = bounded_int(
-            body, "evidence_limit", default=60, minimum=1, maximum=60
-        )
+        evidence_limit = bounded_int(body, "evidence_limit", default=60, minimum=1, maximum=60)
         result, _route, _facts = self._m08_query()
         if result.story_map is None:
             return result.to_dict()
@@ -879,9 +1033,7 @@ class ProjectApi:
         technical = self._m07_workflow().route_map(
             offset=bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000),
             limit=bounded_int(body, "node_limit", default=30, minimum=1, maximum=30),
-            edge_offset=bounded_int(
-                body, "edge_offset", default=0, minimum=0, maximum=2_000_000
-            ),
+            edge_offset=bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000),
             edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
         )
         authority_hash = str(technical["authority_hash"])
@@ -1158,110 +1310,102 @@ class ProjectApi:
             )
         return json_value(result)
 
-    def _organization(self) -> JsonValue:
-        with Project.open(self._project()) as project:
-            service = StoryOrganizationService(project)
-            drafts = service.drafts(status="pending")
-            return {
-                "id": drafts[0].id if drafts else None,
-                "runs": json_value(service.runs()),
-                "drafts": json_value(drafts),
-                "reviews": {
-                    draft.id: json_value(service.draft_reviews(draft.id)) for draft in drafts
-                },
-                "arcs": json_value(service.arcs()),
-                "events": json_value(service.events()),
-                "edges": json_value(service.event_edges()),
-            }
-
-    def _draft_action(self, body: dict[str, JsonValue], *, apply: bool) -> JsonValue:
-        draft_id = require_string(body, "draft_id")
-        try:
-            with Project.open(self._project()) as project:
-                service = StoryOrganizationService(project)
-                if apply:
-                    service.apply_draft(draft_id)
-                else:
-                    service.discard_draft(draft_id)
-        except KeyError as exc:
-            raise ApiProblem(404, "draft_not_found", "The pending draft is unavailable.") from exc
-        except ValueError as exc:
-            code = "draft_review_incomplete" if apply else "draft_action_invalid"
-            raise ApiProblem(409, code, "The draft action cannot be completed safely.") from exc
-        return {"draft_id": draft_id, "status": "applied" if apply else "discarded"}
-
-    def _review_draft(self, body: dict[str, JsonValue]) -> JsonValue:
-        draft_id = require_string(body, "draft_id")
-        target_kind = require_string(body, "target_kind", maximum=16)
-        target_id = require_string(body, "target_id")
-        decision = require_string(body, "decision", maximum=16)
-        review_kind: Literal["arc", "event"]
-        if target_kind == "arc":
-            review_kind = "arc"
-        elif target_kind == "event":
-            review_kind = "event"
-        else:
-            raise ValueError("invalid draft review")
-        review_decision: Literal["approved", "rejected"]
-        if decision == "approved":
-            review_decision = "approved"
-        elif decision == "rejected":
-            review_decision = "rejected"
-        else:
-            raise ValueError("invalid draft review")
-        try:
-            with Project.open(self._project()) as project:
-                StoryOrganizationService(project).review_draft_group(
-                    draft_id, review_kind, target_id, review_decision
-                )
-        except KeyError as exc:
-            raise ApiProblem(
-                404, "draft_group_not_found", "The pending draft group is unavailable."
-            ) from exc
-        except ValueError as exc:
-            raise ApiProblem(409, "draft_review_invalid", "The draft review is invalid.") from exc
-        return {
-            "draft_id": draft_id,
-            "target_kind": target_kind,
-            "target_id": target_id,
-            "decision": decision,
-        }
-
-    def _organize(self, scope_ids: tuple[str, ...], cancelled: threading.Event) -> None:
-        """Reuse the accepted M05 workflow; provider construction occurs only after consent."""
-
-        from renpy_story_mapper.organization import CodexCliProvider
-        from renpy_story_mapper.organization_workflow import (
-            OrganizationOptions,
-            OrganizationWorkflow,
-        )
-
-        path = self._project()
-        with Project.open(path) as project:
-            workflow = OrganizationWorkflow(project, lambda mode: CodexCliProvider(mode))
-            workflow.organize(
-                scope_ids,
-                OrganizationOptions(),
-                progress=lambda percent, stage: self._organization_progress(percent, stage),
-                cancelled=cancelled.is_set,
-                confirm_cloud=lambda _run_id: True,
-            )
-
-    def _organization_progress(self, percent: int, stage: str) -> None:
-        with self._lock:
-            task = self._task
-        if task is not None and task.kind == "organization":
-            self._progress(task.id, task.kind, stage[:120], max(0, min(99, percent)))
-
     def _m07_progress(self, progress: ProgressSnapshot) -> None:
         with self._lock:
             task = self._task
+            if task is not None and task.kind == "m07_organization":
+                self._m07_run_progress = progress
         if task is not None and task.kind == "m07_organization":
             completed = (
                 progress.validated + progress.fallback + progress.failed + progress.cancelled
             )
             percent = 0 if progress.total == 0 else round(completed * 100 / progress.total)
             self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
+
+
+def _m07_scope_metrics(response: Mapping[str, object]) -> dict[str, object]:
+    scopes = response.get("scopes")
+    scope_counts = response.get("scope_counts")
+    scope_statuses = response.get("scope_statuses")
+    coverage = response.get("coverage")
+    return {
+        "scope": "project_history",
+        "label": "Persisted project history",
+        "status": response.get("status"),
+        "scopes": dict(scopes) if isinstance(scopes, Mapping) else {},
+        "scope_counts": dict(scope_counts) if isinstance(scope_counts, Mapping) else {},
+        "scope_statuses": list(scope_statuses) if isinstance(scope_statuses, list) else [],
+        "coverage": dict(coverage) if isinstance(coverage, Mapping) else {},
+        "ai_coverage": response.get("ai_coverage"),
+        "technical_coverage": response.get("technical_coverage"),
+        "partial": response.get("partial"),
+        "cached": _m07_status_count(scope_statuses, "cached"),
+        "validated": _m07_status_count(scope_statuses, "validated"),
+    }
+
+
+def _m07_status_count(value: object, status: str) -> int:
+    if not isinstance(value, list):
+        return 0
+    return sum(isinstance(item, Mapping) and item.get("status") == status for item in value)
+
+
+def _filter_m07_scope_metrics(response: dict[str, object], selected_ids: tuple[str, ...]) -> None:
+    selected = set(selected_ids)
+    raw_statuses = response.get("scope_statuses")
+    statuses = (
+        [
+            item
+            for item in raw_statuses
+            if isinstance(item, Mapping) and item.get("scope_id") in selected
+        ]
+        if isinstance(raw_statuses, list)
+        else []
+    )
+    counts = {
+        name: _m07_status_count(statuses, name)
+        for name in (
+            "pending",
+            "cached",
+            "in_flight",
+            "validated",
+            "fallback",
+            "failed",
+            "cancelled",
+        )
+    }
+    total = len(selected_ids)
+    pending = counts["pending"] + counts["cached"] + counts["in_flight"]
+    completed = counts["validated"] + counts["fallback"]
+    ai_coverage = 1.0 if total == 0 else counts["validated"] / total
+    technical_coverage = 1.0 if total == 0 else completed / total
+    response["scope_statuses"] = statuses
+    response["scopes"] = {
+        "total": total,
+        "pending": pending,
+        "validated": counts["validated"],
+        "fallback": counts["fallback"],
+        "failed": counts["failed"],
+        "cancelled": counts["cancelled"],
+    }
+    response["scope_counts"] = {
+        "total": total,
+        "pending": counts["pending"],
+        "cached_or_in_flight": counts["cached"] + counts["in_flight"],
+        "validated": counts["validated"],
+        "fallback": counts["fallback"],
+        "failed": counts["failed"],
+        "cancelled": counts["cancelled"],
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "completed": completed,
+        "ratio": 1.0 if total == 0 else completed / total,
+    }
+    response["coverage"] = {"ai": ai_coverage, "technical": technical_coverage}
+    response["ai_coverage"] = ai_coverage
+    response["technical_coverage"] = technical_coverage
+    response["partial"] = completed < total or counts["fallback"] > 0
 
 
 def _m08_facts_by_id(project: Project) -> dict[str, dict[str, object]]:
@@ -1277,9 +1421,7 @@ def _m08_facts_by_id(project: Project) -> dict[str, dict[str, object]]:
     return result
 
 
-def _m08_qualify_evidence(
-    project: Project, evidence: Mapping[str, object]
-) -> dict[str, object]:
+def _m08_qualify_evidence(project: Project, evidence: Mapping[str, object]) -> dict[str, object]:
     """Attach relative qualified line evidence without exposing local filesystem paths."""
 
     result = dict(evidence)
@@ -1324,11 +1466,7 @@ def _m08_qualify_evidence(
     ):
         raise storage.ProjectCorruptError("route evidence has invalid qualified source lines")
     derivation = next(
-        (
-            item
-            for item in project.source_derivations()
-            if item.get("source_path") == path
-        ),
+        (item for item in project.source_derivations() if item.get("source_path") == path),
         None,
     )
     result.update(

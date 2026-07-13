@@ -202,8 +202,26 @@ export function assertMapComparison(value) {
   return value;
 }
 
+function exactOrganizationAccounting(value) {
+  exactKeys(value, ["scope", "label", "run_id", "calls", "tokens", "elapsed_seconds", "elapsed_basis", "cache_hits", "attempts"], "Organization accounting");
+  exactKeys(value.tokens, ["input", "output", "total"], "Organization accounting tokens");
+  for (const item of [value.calls, value.tokens.input, value.tokens.output, value.tokens.total, value.cache_hits, value.attempts]) {
+    if (!Number.isInteger(item) || item < 0) throw new TypeError("Organization accounting values must be non-negative integers");
+  }
+  if (value.tokens.total !== value.tokens.input + value.tokens.output || !Number.isFinite(value.elapsed_seconds) || value.elapsed_seconds < 0) throw new TypeError("Organization accounting totals are invalid");
+  if (value.scope === "current_run") {
+    if (value.label !== "Current run" || typeof value.run_id !== "string" || !value.run_id.startsWith("m07_") || value.elapsed_basis !== "wall_clock") throw new TypeError("Current-run accounting provenance is invalid");
+  } else if (value.scope === "project_history") {
+    if (value.label !== "Persisted project history" || value.run_id !== null || value.elapsed_basis !== "provider_attempts") throw new TypeError("Project-history accounting provenance is invalid");
+  } else throw new TypeError("Organization accounting scope is invalid");
+  return value;
+}
+
 export function assertOrganization(value) {
   if (!object(value)) throw new TypeError("Invalid organization response");
+  exactOrganizationAccounting(value.accounting);
+  if (!["current_run", "project_history"].includes(value.status_scope) || value.status_label !== value.accounting.label || !object(value.project_history) || value.project_history.scope !== "project_history" || value.project_history.label !== "Persisted project history") throw new TypeError("Organization status provenance is invalid");
+  exactOrganizationAccounting(value.project_history.accounting);
   const scopeIds = uniqueStrings(value.scope_ids, "Organization scope_ids");
   const windowIds = uniqueStrings(value.window_ids, "Organization window_ids");
   exactSelectedCounts(value.selected_counts, scopeIds.length, windowIds.length);

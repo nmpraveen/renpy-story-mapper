@@ -111,7 +111,9 @@ def test_bootstrap_contract_security_headers_and_injected_tokens(
     assert body["api_version"] == "v1"
     assert body["limits"] == {"nodes": 80, "edges": 120, "items": 240, "results": 100}
     assert body["routes"]["search"] == "/api/v1/story/search"
-    assert body["routes"]["organization_review"] == "/api/v1/organization/review"
+    assert body["routes"]["m07"]["prepare"] == "/api/v1/m07/organization/prepare"
+    assert body["routes"]["m07"]["start"] == "/api/v1/m07/organization/start"
+    assert not any(key.startswith("organization_") for key in body["routes"])
     assert headers["Cache-Control"].startswith("no-store")
     assert "default-src 'self'" in headers["Content-Security-Policy"]
     assert headers["X-Content-Type-Options"] == "nosniff"
@@ -131,9 +133,7 @@ def test_explicit_shutdown_route_responds_before_requesting_app_exit(
     requested = threading.Event()
     running_server.shutdown_callback = requested.set
 
-    status, body, _headers = request(
-        running_server, "POST", "/api/v1/shutdown", body={}
-    )
+    status, body, _headers = request(running_server, "POST", "/api/v1/shutdown", body={})
 
     assert status == 200
     assert body == {"state": "shutting_down"}
@@ -414,7 +414,7 @@ def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_proje
     assert reopened.recent_projects() == (analyzed_project.resolve(),)
 
 
-def test_organization_requires_fresh_explicit_consent_before_provider(
+def test_legacy_organization_consent_route_is_absent_and_provider_free(
     running_server: LocalWebServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import renpy_story_mapper.organization as organization
@@ -431,10 +431,10 @@ def test_organization_requires_fresh_explicit_consent_before_provider(
         running_server,
         "POST",
         "/api/v1/organization/consent",
-        body={"consent": False, "scope_ids": []},
+        body={"consent": True, "scope_ids": ["legacy-global-scope"]},
     )
-    assert status == 400
-    assert body["error"]["code"] == "invalid_request"
+    assert status == 404
+    assert body["error"]["code"] == "not_found"
     assert not constructed
 
 
@@ -485,13 +485,13 @@ def _pending_organization_draft(
         return service.create_draft(run_id, "test-generation", candidate), candidate
 
 
-def test_draft_review_apply_and_discard_api_contract(tmp_path: Path) -> None:
+def test_legacy_draft_review_apply_and_discard_routes_fail_closed(tmp_path: Path) -> None:
     project_path = tmp_path / "organization.rsmproj"
     project = create_ingested_project(
         project_path, Path("tests/fixtures/m05/organization").resolve()
     )
     project.close()
-    draft_id, candidate = _pending_organization_draft(project_path)
+    draft_id, _candidate = _pending_organization_draft(project_path)
     static = tmp_path / "static"
     static.mkdir()
     (static / "index.html").write_text("ready", encoding="utf-8")
@@ -523,71 +523,19 @@ def test_draft_review_apply_and_discard_api_contract(tmp_path: Path) -> None:
             time.sleep(0.01)
         assert progress["state"] == "completed"
 
-        status, draft, _headers = request(server, "GET", "/api/v1/organization/draft")
-        assert status == 200
-        assert draft["drafts"][0]["candidate"] == candidate
-        assert draft["reviews"][draft_id] == []
-
-        status, failure, _headers = request(
-            server,
-            "POST",
-            "/api/v1/organization/apply",
-            body={"draft_id": draft_id},
+        legacy_requests = (
+            ("GET", "/api/v1/organization/draft", None),
+            ("POST", "/api/v1/organization/review", {"draft_id": draft_id}),
+            ("POST", "/api/v1/organization/apply", {"draft_id": draft_id}),
+            ("POST", "/api/v1/organization/discard", {"draft_id": draft_id}),
         )
-        assert status == 409
-        assert failure == {
-            "error": {
-                "code": "draft_review_incomplete",
-                "message": "The draft action cannot be completed safely.",
-            }
-        }
-        for target_kind, collection in (("arc", "arcs"), ("event", "events")):
-            values = candidate[collection]
-            assert isinstance(values, list)
-            for value in values:
-                assert isinstance(value, dict)
-                status, reviewed, _headers = request(
-                    server,
-                    "POST",
-                    "/api/v1/organization/review",
-                    body={
-                        "draft_id": draft_id,
-                        "target_kind": target_kind,
-                        "target_id": value["id"],
-                        "decision": "approved",
-                    },
-                )
-                assert status == 200
-                assert reviewed["decision"] == "approved"
-        _status, reviewed_draft, _headers = request(server, "GET", "/api/v1/organization/draft")
-        expected_reviews = len(candidate["arcs"]) + len(candidate["events"])  # type: ignore[arg-type]
-        assert len(reviewed_draft["reviews"][draft_id]) == expected_reviews
-
-        status, applied, _headers = request(
-            server,
-            "POST",
-            "/api/v1/organization/apply",
-            body={"draft_id": draft_id},
-        )
-        assert status == 200
-        assert applied["status"] == "applied"
-
-        discarded_id, _discarded_candidate = _pending_organization_draft(
-            project_path, suffix="-discard"
-        )
-        status, pending_only, _headers = request(server, "GET", "/api/v1/organization/draft")
-        assert status == 200
-        assert pending_only["id"] == discarded_id
-        assert [draft["id"] for draft in pending_only["drafts"]] == [discarded_id]
-        assert set(pending_only["reviews"]) == {discarded_id}
-        status, discarded, _headers = request(
-            server,
-            "POST",
-            "/api/v1/organization/discard",
-            body={"draft_id": discarded_id},
-        )
-        assert status == 200
-        assert discarded["status"] == "discarded"
+        for method, path, body in legacy_requests:
+            status, failure, _headers = request(server, method, path, body=body)
+            assert status == 404
+            assert failure["error"]["code"] == "not_found"
+        with Project.open(project_path) as opened:
+            drafts = opened.organization_service().drafts(status="pending")
+            assert [draft.id for draft in drafts] == [draft_id]
     finally:
         server.close_service()
         thread.join(timeout=5)

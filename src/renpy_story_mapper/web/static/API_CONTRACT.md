@@ -63,6 +63,10 @@ as a labelled continuation portal; the client neither invents the endpoint nor d
 - `POST /api/v1/m07/assembly/apply` with `{assembly_id}`
 - `POST /api/v1/m07/assembly/discard` with `{assembly_id}`
 
+The superseded `/api/v1/organization/*` consent, draft, review, apply, and discard endpoints are
+not part of the browser API and return `404`. Cloud work can begin only through the provider-free
+prepare response followed by the exact nine-field, single-use start binding above.
+
 Resolve and prepare do not construct a provider. Empty, global/full-map, unknown, duplicate,
 disconnected, oversize, extra-field, and stale window selections fail closed. Start validates all
 nine fields against the fresh, single-use prepared binding and revalidates current route authority
@@ -77,6 +81,17 @@ edges, evidence, and facts. Organization status exposes the same consent summary
 `scope_ids`, `window_ids`, `selected_counts`, `cached`, `validated`, `model`, `budgets`,
 `selection_hash`, `prepared_authority_hash`, and `recovered_source_acknowledgement`; its existing
 `authority_hash` remains the current authoritative route hash.
+
+Every organization response labels its top-level status provenance as `current_run` or
+`project_history` and also exposes the full persisted generation state under the explicitly
+labelled `project_history` object. Current-run scope totals, statuses, validated/fallback/pending
+counts, coverage, partial state, and cache reuse are filtered to the exact prepared `scope_ids` and
+`window_ids`; disjoint checkpoints from the same route generation cannot enter those values.
+`accounting` reports current in-memory progress plus the incremental persisted-attempt delta while
+that run identity is known. After opening or reopening a project, it instead labels cumulative
+calls, tokens, attempts, cache hits, and summed provider-attempt time as persisted project history.
+The flat accounting fields mirror that same labelled provenance, so historical attempts are never
+presented as one run or as a zero-call replay.
 
 ## Review and route search
 

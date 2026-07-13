@@ -675,6 +675,41 @@ def test_prepare_is_provider_free_and_missing_or_stale_consent_is_rejected(
         api.close()
 
 
+def test_legacy_cloud_routes_fail_closed_and_exact_start_is_the_only_provider_path(
+    m07_project: Path,
+) -> None:
+    calls: list[tuple[int, str]] = []
+    api = _api(m07_project, calls)
+    try:
+        bootstrap = api.dispatch("GET", "/api/v1/bootstrap", {})
+        assert isinstance(bootstrap, dict)
+        routes = bootstrap["routes"]
+        assert isinstance(routes, dict)
+        assert routes["m07"]["prepare"] == M07_API_ROUTES["prepare"]
+        assert routes["m07"]["start"] == M07_API_ROUTES["start"]
+        assert not any(str(key).startswith("organization_") for key in routes)
+
+        for method, path in (
+            ("POST", "/api/v1/organization/consent"),
+            ("GET", "/api/v1/organization/draft"),
+            ("POST", "/api/v1/organization/review"),
+            ("POST", "/api/v1/organization/apply"),
+            ("POST", "/api/v1/organization/discard"),
+        ):
+            with pytest.raises(ApiProblem) as problem:
+                api.dispatch(method, path, {"consent": True, "scope_ids": _scope_ids(m07_project)})
+            assert problem.value.status == 404
+            assert problem.value.code == "not_found"
+        assert calls == []
+
+        prepared = _prepare(api, m07_project, hard_calls=1)
+        api.dispatch("POST", M07_API_ROUTES["start"], _start_body(prepared))
+        assert _wait(api)["state"] == "completed"
+        assert len(calls) == 1
+    finally:
+        api.close()
+
+
 def test_start_progress_partial_apply_and_authority_hash_unchanged(m07_project: Path) -> None:
     calls: list[tuple[int, str]] = []
     api = _api(m07_project, calls)
@@ -745,12 +780,27 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
         _start_body(prepared),
     )
     assert _wait(first)["state"] == "completed"
+    first_status = first.dispatch("GET", M07_API_ROUTES["organization"], {})
+    assert first_status["status_scope"] == "current_run"
+    assert first_status["accounting"]["scope"] == "current_run"
+    assert first_status["accounting"]["calls"] == len(calls)
     first.close()
     first_count = len(calls)
     assert first_count > 0
 
     second = _api(m07_project, calls)
     try:
+        reopened = second.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert reopened["status_scope"] == "project_history"
+        assert reopened["status_label"] == "Persisted project history"
+        assert reopened["accounting"]["scope"] == "project_history"
+        assert reopened["accounting"]["calls"] == first_count
+        assert reopened["accounting"]["attempts"] == first_count
+        assert reopened["project_history"]["accounting"] == reopened["accounting"]
+        second.dispatch("POST", M07_API_ROUTES["route_map"], {})
+        second.dispatch("POST", "/api/v1/m08/ai-story-map", {})
+        assert len(calls) == first_count
+
         prepared = _prepare(second, m07_project)
         second.dispatch(
             "POST",
@@ -760,9 +810,67 @@ def test_close_reopen_replay_uses_zero_provider_calls(m07_project: Path) -> None
         assert _wait(second)["state"] == "completed"
         assert len(calls) == first_count
         status = second.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert status["status_scope"] == "current_run"
+        assert status["scopes"]["total"] == prepared["scopes"]
         assert status["scope_counts"]["validated"] == status["scope_counts"]["total"]
+        assert status["accounting"] == {
+            "scope": "current_run",
+            "label": "Current run",
+            "run_id": prepared["run_id"],
+            "calls": 0,
+            "tokens": {"input": 0, "output": 0, "total": 0},
+            "elapsed_seconds": status["accounting"]["elapsed_seconds"],
+            "elapsed_basis": "wall_clock",
+            "cache_hits": prepared["scopes"],
+            "attempts": 0,
+        }
+        assert status["project_history"]["accounting"]["calls"] == first_count
     finally:
         second.close()
+
+
+def test_disjoint_runs_report_only_the_exact_current_selection(m07_project: Path) -> None:
+    calls: list[tuple[int, str]] = []
+    scope_ids = _scope_ids(m07_project)
+    assert len(scope_ids) >= 2
+    api = _api(m07_project, calls)
+    try:
+        first = api.dispatch("POST", M07_API_ROUTES["prepare"], {"scope_ids": [scope_ids[0]]})
+        assert isinstance(first, dict)
+        api.dispatch("POST", M07_API_ROUTES["start"], _start_body(first))
+        assert _wait(api)["state"] == "completed"
+        first_status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert first_status["scopes"]["total"] == 1
+        assert first_status["scopes"]["validated"] == 1
+        assert first_status["coverage"] == {"ai": 1.0, "technical": 1.0}
+        assert first_status["partial"] is False
+
+        second = api.dispatch("POST", M07_API_ROUTES["prepare"], {"scope_ids": [scope_ids[1]]})
+        assert isinstance(second, dict)
+        api.dispatch("POST", M07_API_ROUTES["start"], _start_body(second))
+        assert _wait(api)["state"] == "completed"
+        second_status = api.dispatch("GET", M07_API_ROUTES["organization"], {})
+        assert second_status["status_scope"] == "current_run"
+        assert second_status["scope_ids"] == [scope_ids[1]]
+        assert second_status["scopes"] == {
+            "total": 1,
+            "pending": 0,
+            "validated": 1,
+            "fallback": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+        assert second_status["scope_counts"]["total"] == 1
+        assert second_status["coverage"] == {"ai": 1.0, "technical": 1.0}
+        assert second_status["partial"] is False
+        assert second_status["accounting"]["calls"] == 1
+        assert second_status["accounting"]["attempts"] == 1
+        assert second_status["accounting"]["cache_hits"] == 0
+        assert [item["scope_id"] for item in second_status["scope_statuses"]] == [scope_ids[1]]
+        assert second_status["project_history"]["label"] == "Persisted project history"
+        assert second_status["project_history"]["accounting"]["calls"] == 1
+    finally:
+        api.close()
 
 
 def test_cancel_preserves_scopes_and_resume_requires_fresh_prepare(
