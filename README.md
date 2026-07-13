@@ -4,8 +4,10 @@ This repository contains a local-first Windows browser application and analyzer 
 Ren'Py stories as a bounded, source-linked Route Map. It safely reads folders, individual source
 files, or RPA 3.0 archives, prefers available `.rpy` source over matching `.rpyc`, stores durable
 SQLite projects, and presents deterministic routes, choices, requirements, effects, and exact
-evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, evaluate script
-expressions, or decompile compiled scripts.
+evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, or evaluate script
+expressions. When original `.rpy` is unavailable, compiled `.rpyc` recovery uses an isolated,
+pinned Unrpyc helper; its output is provenance-qualified reconstructed evidence and never original
+author source or original physical-line authority.
 
 ## Safety model
 
@@ -167,11 +169,13 @@ endings, unresolved behavior, and label boundaries remain explicit.
 
 Supported graph authority: labels, fallthrough, string-literal menu choices, if/elif/else, jump,
 call, return, and explicit unresolved nodes. The parser is deliberately conservative. It does not
-attempt full Ren'Py language compatibility, `.rpyc` decompilation, expression truth evaluation,
-creator-defined statement parsing, Python control-flow inference, screen/ATL analysis, or game
-execution. Interactive `call screen` statements therefore retain sequential fallthrough plus an
-explicit unresolved-interaction edge. Those boundaries are security properties, not missing
-runtime dependencies.
+attempt full Ren'Py language compatibility, expression truth evaluation, creator-defined statement
+parsing, Python control-flow inference, screen/ATL analysis, or game execution. Static `.rpyc`
+recovery, when required, runs through the isolated pinned helper and records derivation provenance,
+completeness, and reconstructed line basis; incomplete coverage remains explicit and gated by the
+recovered-source acknowledgement policy. Interactive `call screen` statements retain sequential
+fallthrough plus an explicit unresolved-interaction edge. Those boundaries are security properties,
+not missing runtime dependencies.
 
 The loopback browser is the sole supported product surface. The command-line analyzer remains a
 diagnostic and export harness, not a second interactive product. The legacy QGraphicsView desktop

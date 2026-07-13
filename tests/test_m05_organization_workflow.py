@@ -1037,3 +1037,56 @@ def test_all_ungrouped_event_scope_skips_empty_reconciliation_and_arc_calls() ->
     assert connectivity == []
     assert arcs.groups == ()
     assert arcs.ungrouped_ids == ()
+
+
+def test_pending_draft_retains_its_run_metadata_when_a_newer_run_fails(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "runs.rsmproj"
+    with create_project(project_path, FIXTURE) as project:
+        service = project.organization_service()
+        pending_run = service.create_run(
+            provider_mode="codex_lmstudio",
+            model_profile="balanced",
+            model_fingerprint="pending-model",
+            prompt_version="prompt-v1",
+            output_schema_version="schema-v1",
+            generation="generation",
+            run_id="pending-run",
+        )
+        service.finish_run(pending_run, "completed", elapsed_ms=1)
+        all_beats = [
+            str(row[0])
+            for row in project._require_open().execute(
+                "SELECT node_id FROM presentation_nodes WHERE level=3 ORDER BY sort_key,node_id"
+            )
+        ]
+        service.create_draft(
+            pending_run,
+            "generation",
+            {
+                "arcs": [],
+                "events": [],
+                "claims": [],
+                "ungrouped_beat_ids": all_beats,
+            },
+        )
+        newer_run = service.create_run(
+            provider_mode="codex_lmstudio",
+            model_profile="balanced",
+            model_fingerprint="wrong-model",
+            prompt_version="prompt-v1",
+            output_schema_version="schema-v1",
+            generation="generation",
+            run_id="newer-run",
+        )
+        service.finish_run(newer_run, "failed", elapsed_ms=1)
+
+    with Project.open(project_path) as project:
+        service = project.organization_service()
+        pending_draft = service.drafts(status="pending")[0]
+        runs = {run.id: run for run in service.runs()}
+
+    assert pending_draft.run_id == "pending-run"
+    assert runs[pending_draft.run_id].model_fingerprint == "pending-model"
+    assert runs["newer-run"].status == "failed"
