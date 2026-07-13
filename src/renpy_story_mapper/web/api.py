@@ -753,7 +753,7 @@ class ProjectApi:
         """Reuse the accepted M05 workflow; provider construction occurs only after consent."""
 
         from renpy_story_mapper.organization import CodexCliProvider
-        from renpy_story_mapper.ui.organization_workflow import (
+        from renpy_story_mapper.organization_workflow import (
             OrganizationOptions,
             OrganizationWorkflow,
         )

@@ -13,11 +13,11 @@ from renpy_story_mapper.organization.contracts import (
     OrganizationStage,
 )
 from renpy_story_mapper.organization.provider import CodexCliProvider
-from renpy_story_mapper.project import Project, create_project
-from renpy_story_mapper.ui.organization_workflow import (
+from renpy_story_mapper.organization_workflow import (
     OrganizationOptions,
     OrganizationWorkflow,
 )
+from renpy_story_mapper.project import Project, create_project
 
 
 def test_cloud_provider_command_is_intrinsically_luna_locked() -> None:

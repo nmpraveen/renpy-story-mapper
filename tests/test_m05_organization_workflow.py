@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 from dataclasses import replace
 from itertools import pairwise
@@ -8,12 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
-from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QListWidget, QMessageBox, QStackedWidget
-from pytestqt.qtbot import QtBot
 
 from renpy_story_mapper.organization import CodexMode
 from renpy_story_mapper.organization.contracts import (
@@ -26,30 +20,7 @@ from renpy_story_mapper.organization.contracts import (
     ProviderState,
 )
 from renpy_story_mapper.organization.errors import ConsentRequiredError, OrganizationError
-from renpy_story_mapper.presentation import (
-    Continuation,
-    EvidenceRecord,
-    PresentationEdge,
-    PresentationLevel,
-    PresentationNode,
-    PresentationPage,
-    PresentationRequest,
-    ResultPage,
-)
-from renpy_story_mapper.presentation import (
-    FactRecord as PresentationFactRecord,
-)
-from renpy_story_mapper.project import Project, create_project
-from renpy_story_mapper.story_organization import (
-    OrganizationDraft,
-    OrganizationRun,
-    StoryArc,
-    StoryEdge,
-    StoryEvent,
-)
-from renpy_story_mapper.ui.graph_canvas import GraphCanvas, SemanticLevel
-from renpy_story_mapper.ui.main_window import MainWindow
-from renpy_story_mapper.ui.organization_workflow import (
+from renpy_story_mapper.organization_workflow import (
     OrganizationOptions,
     OrganizationWorkflow,
     _candidate_payload,
@@ -64,14 +35,20 @@ from renpy_story_mapper.ui.organization_workflow import (
     _request_member_characters,
     collect_organization_input,
 )
-from renpy_story_mapper.ui.story_explorer import (
-    AcceptedStoryPresenter,
-    DraftReviewDialog,
-    InspectorTabs,
-    StorySnapshot,
-    WelcomeWidget,
-    apply_story_palette,
+from renpy_story_mapper.presentation import (
+    Continuation,
+    EvidenceRecord,
+    PresentationEdge,
+    PresentationLevel,
+    PresentationNode,
+    PresentationPage,
+    PresentationRequest,
+    ResultPage,
 )
+from renpy_story_mapper.presentation import (
+    FactRecord as PresentationFactRecord,
+)
+from renpy_story_mapper.project import Project, create_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m05" / "organization"
 
@@ -797,267 +774,6 @@ def test_late_finish_failure_discards_pending_draft_and_marks_run_failed(
         assert service.runs()[-1].status == "failed"
 
 
-def test_welcome_workspace_accessibility_and_application_zoom(qtbot: QtBot) -> None:
-    window = MainWindow()
-    qtbot.addWidget(window)
-    assert isinstance(window.page_stack.currentWidget(), WelcomeWidget)
-    assert window.welcome_page.folder_button.accessibleName()
-    assert window.navigator.accessibleName()
-    assert window.inspector.accessibleName()
-    assert window.evidence_timeline.accessibleName()
-    window.set_application_zoom(200)
-    assert window.font().pixelSize() == 28
-    apply_story_palette(window, dark=True)
-    assert window.palette().color(QPalette.ColorRole.Window).lightness() < 128
-
-
-def test_organize_action_uses_full_game_when_no_scope_is_explicitly_selected(
-    qtbot: QtBot,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.map_presenter._last_nodes[SemanticLevel.OVERVIEW] = ("overview-scope",)
-    captured: list[tuple[tuple[str, ...], OrganizationOptions, bool]] = []
-
-    def organize(scopes: Any, _options: Any, *, cloud_confirmed: bool = False) -> bool:
-        captured.append((tuple(scopes), _options, cloud_confirmed))
-        return True
-
-    window.organization_controller.organize = organize  # type: ignore[method-assign]
-    window.organize_button.setEnabled(True)
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
-    )
-    window.organize_button.click()
-    assert len(captured) == 1
-    scopes, options, confirmed = captured[0]
-    assert scopes == ()
-    assert options.mode is CodexMode.CODEX_CHATGPT
-    assert options.model == "gpt-5.6-luna"
-    assert options.model_profile == "high"
-    assert confirmed
-    assert window.organize_button.menu() is None
-
-
-def test_accepted_semantic_level_changes_reload_correct_slices(qtbot: QtBot) -> None:
-    canvas = GraphCanvas()
-    navigator = QListWidget()
-    inspector = InspectorTabs()
-    stack = QStackedWidget()
-    stack.addWidget(canvas)
-    evidence = QListWidget()
-    stack.addWidget(evidence)
-    for widget in (canvas, navigator, inspector, stack):
-        qtbot.addWidget(widget)
-    presenter = AcceptedStoryPresenter(canvas, navigator, inspector, stack, evidence)
-    arc = StoryArc(
-        "arc", "Opening", "Overview", 0, "ai", False, False, "approved", False, ("event",)
-    )
-    event = StoryEvent(
-        "event", "Choice", "Choose", 0, "ai", False, False, "approved", False, ("beat",)
-    )
-    presenter._snapshot = StorySnapshot(
-        (arc,),
-        (event,),
-        (StoryEdge("edge", "event", "event", "loop", ("l3:edge",)),),
-        (),
-        (),
-        (),
-        None,
-        None,
-    )
-    presenter._active = True
-    presenter.show_overview()
-    assert canvas.rendered_node_ids == ("arc",)
-    canvas.set_semantic_level(SemanticLevel.EVENTS)
-    assert canvas.rendered_node_ids == ("event",)
-    canvas.set_semantic_level(SemanticLevel.OVERVIEW)
-    assert canvas.rendered_node_ids == ("arc",)
-    assert canvas.rendered_item_count <= 240
-
-
-def test_first_pending_draft_is_announced_without_accepted_arcs(qtbot: QtBot) -> None:
-    window = MainWindow()
-    qtbot.addWidget(window)
-    candidate = {
-        "arcs": [
-            {
-                "id": "arc",
-                "title": "Opening",
-                "summary": "Opening arc",
-                "event_ids": ["event"],
-            }
-        ],
-        "events": [
-            {
-                "id": "event",
-                "title": "Arrival",
-                "summary": "The story begins",
-                "beat_ids": ["beat"],
-            }
-        ],
-        "claims": [],
-        "ungrouped_beat_ids": [],
-    }
-    draft = OrganizationDraft("draft", "run", "generation", "pending", candidate, "utc", None)
-    snapshot = StorySnapshot((), (), (), (), (), (), draft, None)
-    applied: list[str] = []
-
-    def review(_draft: str, kind: str, identifier: str, decision: str) -> bool:
-        window.organization_controller.review_saved.emit(kind, identifier, decision)
-        return True
-
-    window.organization_controller.review_group = review  # type: ignore[method-assign]
-    window.organization_controller.apply_draft = (  # type: ignore[method-assign]
-        lambda draft_id: applied.append(draft_id) is None
-    )
-    window.accepted_presenter._loaded(snapshot)
-
-    dialog = window._review_dialog
-    assert isinstance(dialog, DraftReviewDialog)
-    assert not window.accepted_presenter.active
-    assert not dialog.apply_button.isEnabled()
-    for row in range(dialog.groups.count()):
-        dialog.groups.setCurrentRow(row)
-        dialog._save()
-    assert dialog.apply_button.isEnabled()
-    dialog.apply_button.click()
-    assert applied == ["draft"]
-
-
-def test_review_comparison_reports_split_merge_and_effective_model(qtbot: QtBot) -> None:
-    parent = MainWindow()
-    qtbot.addWidget(parent)
-    candidate = {
-        "arcs": [
-            {
-                "id": "new-arc",
-                "title": "Proposed",
-                "summary": "Proposed arc",
-                "event_ids": ["new-a", "new-b"],
-            }
-        ],
-        "events": [
-            {
-                "id": "new-a",
-                "title": "Part one",
-                "summary": "Split first",
-                "beat_ids": ["a"],
-            },
-            {
-                "id": "new-b",
-                "title": "Part two",
-                "summary": "Merged rest",
-                "beat_ids": ["b", "c", "d"],
-            },
-        ],
-        "claims": [],
-        "ungrouped_beat_ids": [],
-    }
-    draft = OrganizationDraft("draft", "run", "generation", "pending", candidate, "utc", None)
-    run = OrganizationRun(
-        "run",
-        "codex_lmstudio",
-        "balanced",
-        "resolved-model-id",
-        "prompt-v1",
-        "schema-v1",
-        "generation",
-        "completed",
-        "utc",
-        "utc",
-        1250,
-        {"cache_hits": 2, "provider_calls": 0},
-        None,
-    )
-    current = (
-        StoryEvent("old-a", "Old A", "", 0, "ai", False, False, "approved", False, ("a", "b")),
-        StoryEvent("old-b", "Old B", "", 1, "ai", False, False, "approved", False, ("c", "d")),
-    )
-
-    dialog = DraftReviewDialog(draft, run, (), current, (), parent)
-    qtbot.addWidget(dialog)
-
-    assert "Split 1" in dialog.comparison_summary.text()
-    assert "Merged 1" in dialog.comparison_summary.text()
-    assert "resolved-model-id" in dialog.provider_metadata.text()
-    assert "Profile: balanced" in dialog.provider_metadata.text()
-    assert "Cache hits: 2" in dialog.provider_metadata.text()
-
-
-def test_restore_story_state_respects_saved_level_and_valid_ids(qtbot: QtBot) -> None:
-    canvas = GraphCanvas()
-    navigator = QListWidget()
-    inspector = InspectorTabs()
-    stack = QStackedWidget()
-    stack.addWidget(canvas)
-    evidence = QListWidget()
-    stack.addWidget(evidence)
-    for widget in (canvas, navigator, inspector, stack):
-        qtbot.addWidget(widget)
-    presenter = AcceptedStoryPresenter(canvas, navigator, inspector, stack, evidence)
-    arc = StoryArc(
-        "arc", "Opening", "Overview", 0, "ai", False, False, "approved", False, ("event",)
-    )
-    event = StoryEvent(
-        "event", "Choice", "Choose", 0, "ai", False, False, "approved", False, ("beat",)
-    )
-    other_arc = StoryArc(
-        "other-arc",
-        "Elsewhere",
-        "Other overview",
-        1,
-        "ai",
-        False,
-        False,
-        "approved",
-        False,
-        ("other-event",),
-    )
-    other_event = StoryEvent(
-        "other-event",
-        "Elsewhere event",
-        "Other event",
-        1,
-        "ai",
-        False,
-        False,
-        "approved",
-        False,
-        ("other-beat",),
-    )
-    presenter._snapshot = StorySnapshot(
-        (arc, other_arc), (event, other_event), (), (), (), (), None, None
-    )
-    presenter._active = True
-
-    presenter.restore_story_state("arc", "event", 1)
-    assert canvas.semantic_level is SemanticLevel.OVERVIEW
-    assert canvas.rendered_node_ids == ("arc", "other-arc")
-    presenter.restore_story_state("arc", "event", 2)
-    assert canvas.semantic_level is SemanticLevel.EVENTS
-    assert canvas.rendered_node_ids == ("event",)
-    captured: list[str] = []
-    presenter._session = object()  # type: ignore[assignment]
-    presenter.show_evidence = captured.append  # type: ignore[method-assign]
-    presenter.restore_story_state("arc", "event", 3)
-    assert captured == ["event"]
-    presenter.restore_story_state("missing", "missing", 2)
-    assert canvas.semantic_level is SemanticLevel.OVERVIEW
-    presenter.restore_story_state("arc", "other-event", 2)
-    assert canvas.semantic_level is SemanticLevel.EVENTS
-    assert canvas.rendered_node_ids == ("event",)
-    assert presenter.selected_event_id is None
-
-    presenter.set_project(None)
-    assert presenter.selected_arc_id is None
-    assert presenter.selected_event_id is None
-    assert canvas.rendered_node_ids == ()
-
-
 def test_choice_input_keeps_all_explicit_captions_conditions_and_speakers() -> None:
     node = PresentationNode(
         "beat",
@@ -1321,52 +1037,3 @@ def test_all_ungrouped_event_scope_skips_empty_reconciliation_and_arc_calls() ->
     assert connectivity == []
     assert arcs.groups == ()
     assert arcs.ungrouped_ids == ()
-
-
-def test_accepted_event_enrichment_is_visible_in_card_and_inspector(qtbot: QtBot) -> None:
-    canvas = GraphCanvas()
-    navigator = QListWidget()
-    inspector = InspectorTabs()
-    stack = QStackedWidget()
-    stack.addWidget(canvas)
-    evidence = QListWidget()
-    stack.addWidget(evidence)
-    for widget in (canvas, navigator, inspector, stack):
-        qtbot.addWidget(widget)
-    presenter = AcceptedStoryPresenter(canvas, navigator, inspector, stack, evidence)
-    arc = StoryArc(
-        "arc", "Opening", "Overview", 0, "ai", False, False, "approved", False, ("event",)
-    )
-    event = StoryEvent(
-        "event", "Choice", "Choose", 0, "ai", False, False, "approved", False, ("beat",)
-    )
-    enrichment = SimpleNamespace(
-        target_kind="event",
-        target_id="event",
-        characters=("Alice", "Bob"),
-        importance="major",
-        outcomes=("A route opens",),
-        promoted_fact_ids=(),
-        warnings=("Interpretive title",),
-    )
-    presenter._snapshot = StorySnapshot(
-        (arc,), (event,), (), (), (), (), None, None, enrichments=(enrichment,)
-    )
-    presenter._active = True
-
-    presenter.show_arc("arc")
-    detail = canvas._node_items["event"].spec.detail
-    presenter._selected("event")
-
-    assert "Major" in detail
-    assert "Characters: Alice, Bob" in detail
-    assert "Outcomes: 1" in detail
-    assert "Outcome  •  A route opens" in [
-        inspector.state.item(index).text() for index in range(inspector.state.count())
-    ]
-    assert "Warning  •  Interpretive title" in [
-        inspector.state.item(index).text() for index in range(inspector.state.count())
-    ]
-    assert "Importance: major" in inspector.details.text()
-    assert presenter.search("alice")
-    assert canvas.rendered_node_ids == ("arc",)

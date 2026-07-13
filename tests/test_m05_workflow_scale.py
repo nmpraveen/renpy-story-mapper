@@ -24,18 +24,7 @@ from renpy_story_mapper.organization.errors import (
     ProviderTimeoutError,
 )
 from renpy_story_mapper.organization.validation import validate_result
-from renpy_story_mapper.presentation import (
-    Continuation,
-    EvidenceRecord,
-    FactRecord,
-    PresentationEdge,
-    PresentationLevel,
-    PresentationNode,
-    PresentationPage,
-    PresentationService,
-)
-from renpy_story_mapper.project import Project, create_project
-from renpy_story_mapper.ui.organization_workflow import (
+from renpy_story_mapper.organization_workflow import (
     OrganizationOptions,
     OrganizationWorkflow,
     _collapsed_event_connectivity,
@@ -48,6 +37,17 @@ from renpy_story_mapper.ui.organization_workflow import (
     collect_organization_input,
     resolve_organization_scopes,
 )
+from renpy_story_mapper.presentation import (
+    Continuation,
+    EvidenceRecord,
+    FactRecord,
+    PresentationEdge,
+    PresentationLevel,
+    PresentationNode,
+    PresentationPage,
+    PresentationService,
+)
+from renpy_story_mapper.project import Project, create_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m04" / "presentation"
 
