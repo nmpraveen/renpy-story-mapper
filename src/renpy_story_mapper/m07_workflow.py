@@ -16,6 +16,15 @@ from pathlib import Path, PurePath
 from typing import cast
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.bounded_window import (
+    MAX_WINDOW_BOUNDARY_EDGES,
+    MAX_WINDOW_EVIDENCE,
+    MAX_WINDOW_FACTS,
+    MAX_WINDOW_INTERNAL_EDGES,
+    MAX_WINDOW_NODES,
+    BoundedNarrativeWindow,
+    build_window_from_request,
+)
 from renpy_story_mapper.m07_model import CheckpointStatus
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
@@ -67,6 +76,12 @@ class PreparedRun:
     run_id: str
     authority_hash: str
     scope_ids: tuple[str, ...]
+    window_ids: tuple[str, ...]
+    deterministic_scopes: tuple[DeterministicRouteScope, ...]
+    windows: tuple[BoundedNarrativeWindow, ...]
+    selection_hash: str
+    recovered_source_acknowledgement: str
+    legacy_complete_scope: bool
     config: SchedulerConfig
 
 
@@ -328,6 +343,7 @@ class M07WorkflowService:
         *,
         scope_ids: Sequence[str],
         budget: BudgetPolicy,
+        window_requests: Sequence[Mapping[str, object]] = (),
     ) -> dict[str, object]:
         # This method intentionally does not touch the provider factory.
         with Project.open(self._project_path) as project:
@@ -335,35 +351,98 @@ class M07WorkflowService:
             _require_ai_transmission_allowed(project)
             generation = _authority_hash(route)
             checkpoints = project.m07_model_service().checkpoints(generation=generation)
+            recovered_source_acknowledgement = _source_coverage_token(project)
         deterministic = _deterministic_scopes(route)
-        available = {item.id for item in deterministic}
-        selected = tuple(scope_ids) if scope_ids else tuple(item.id for item in deterministic)
-        if not selected or len(set(selected)) != len(selected) or set(selected) != available:
-            raise ValueError("scope_ids must name the complete current deterministic route scope")
-        run_id = f"m07_{secrets.token_urlsafe(32)}"
+        selected_ids = tuple(scope_ids)
+        if not selected_ids and not window_requests:
+            raise ValueError(
+                "an explicit deterministic scope or bounded window selection is required"
+            )
+        if len(set(selected_ids)) != len(selected_ids):
+            raise ValueError("scope_ids must be unique")
+        available = {item.id: item for item in deterministic}
+        unknown = [item for item in selected_ids if item not in available]
+        if unknown:
+            raise ValueError("scope_ids contain an unknown deterministic route scope")
+        selected_scopes = tuple(available[item] for item in selected_ids)
+        for scope in selected_scopes:
+            _validate_scope_size(scope)
+        windows = tuple(
+            build_window_from_request(route, request, require_expected=True)
+            for request in window_requests
+        )
+        window_ids = tuple(item.id for item in windows)
+        if len(set(window_ids)) != len(window_ids):
+            raise ValueError("bounded window IDs must be unique")
+        if set(selected_ids) & set(window_ids):
+            raise ValueError("deterministic scope and bounded window IDs must be disjoint")
+        combined = tuple(
+            replace(scope, ordinal=ordinal)
+            for ordinal, scope in enumerate(
+                (
+                    *selected_scopes,
+                    *(
+                        DeterministicRouteScope(
+                            id=window.id,
+                            ordinal=0,
+                            lane_id="bounded_window",
+                            node_ids=window.node_ids,
+                            edge_ids=window.internal_edge_ids,
+                            evidence_ids=window.evidence_ids,
+                            input_hash=window.input_hash,
+                        )
+                        for window in windows
+                    ),
+                )
+            )
+        )
+        legacy_complete_scope = not windows and selected_ids == tuple(
+            item.id for item in deterministic
+        )
         _require_finite_budget(budget)
         config = SchedulerConfig(budget=budget)
-        prepared = PreparedRun(run_id, generation, selected, config)
+        selection_hash = _selection_hash(
+            authority_hash=generation,
+            scopes=combined,
+            windows=windows,
+            budget=budget,
+            recovered_source_acknowledgement=recovered_source_acknowledgement,
+        )
+        run_id = f"m07_{secrets.token_urlsafe(32)}"
+        prepared = PreparedRun(
+            run_id,
+            generation,
+            selected_ids,
+            window_ids,
+            combined,
+            windows,
+            selection_hash,
+            recovered_source_acknowledgement,
+            legacy_complete_scope,
+            config,
+        )
         with self._lock:
             self._prepared = prepared
             self._last_budget = budget
             self._last_budget_generation = generation
+        selected_checkpoint_ids = {*selected_ids, *window_ids}
         cached = sum(
-            item.status in {CheckpointStatus.CACHED, CheckpointStatus.VALIDATED}
+            item.scope_id in selected_checkpoint_ids
+            and item.status in {CheckpointStatus.CACHED, CheckpointStatus.VALIDATED}
             for item in checkpoints
         )
         return {
             "run_id": run_id,
-            "scopes": len(selected),
-            "scope_ids": list(selected),
+            "scopes": len(combined),
+            "scope_ids": list(selected_ids),
+            "window_ids": list(window_ids),
+            "windows": [item.to_dict() for item in windows],
             "cached": cached,
-            "model": {
-                "id": M05_CLOUD_MODEL,
-                "reasoning": M05_REASONING_PROFILE,
-                "fast_mode": False,
-            },
+            "model": _model_identity(),
             "budgets": _budget_dict(budget),
             "authority_hash": generation,
+            "selection_hash": selection_hash,
+            "recovered_source_acknowledgement": recovered_source_acknowledgement,
             "requires_confirm_cloud": True,
         }
 
@@ -376,9 +455,22 @@ class M07WorkflowService:
         budget: BudgetPolicy,
         cancelled: Callable[[], bool],
         progress: ProgressCallback | None = None,
+        window_ids: Sequence[str] = (),
+        selection_hash: str | None = None,
+        authority_hash: str | None = None,
+        recovered_source_acknowledgement: str | None = None,
+        model: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         prepared = self.authorize_start(
-            run_id, confirm_cloud=confirm_cloud, scope_ids=scope_ids, budget=budget
+            run_id,
+            confirm_cloud=confirm_cloud,
+            scope_ids=scope_ids,
+            budget=budget,
+            window_ids=window_ids,
+            selection_hash=selection_hash,
+            authority_hash=authority_hash,
+            recovered_source_acknowledgement=recovered_source_acknowledgement,
+            model=model,
         )
         return self.run_prepared(prepared, cancelled=cancelled, progress=progress)
 
@@ -389,6 +481,11 @@ class M07WorkflowService:
         confirm_cloud: bool,
         scope_ids: Sequence[str],
         budget: BudgetPolicy,
+        window_ids: Sequence[str] = (),
+        selection_hash: str | None = None,
+        authority_hash: str | None = None,
+        recovered_source_acknowledgement: str | None = None,
+        model: Mapping[str, object] | None = None,
     ) -> PreparedRun:
         """Consume exact fresh consent synchronously, before a background task is accepted."""
 
@@ -402,8 +499,29 @@ class M07WorkflowService:
             self._prepared = None
         if tuple(scope_ids) != prepared.scope_ids:
             raise PreparedRunError("the start scope_ids do not match the prepared run")
+        if tuple(window_ids) != prepared.window_ids:
+            raise PreparedRunError("the start window_ids do not match the prepared run")
         if _budget_dict(budget) != _budget_dict(prepared.config.budget):
             raise PreparedRunError("the start budget does not match the prepared run")
+        if not prepared.legacy_complete_scope:
+            exact = {
+                "selection_hash": selection_hash,
+                "authority_hash": authority_hash,
+                "recovered_source_acknowledgement": recovered_source_acknowledgement,
+                "model": model,
+            }
+            if any(value is None for value in exact.values()):
+                raise PreparedRunError("exact subset/window consent fields are required")
+            if selection_hash != prepared.selection_hash:
+                raise PreparedRunError("the start selection_hash does not match the prepared run")
+            if authority_hash != prepared.authority_hash:
+                raise PreparedRunError("the start authority_hash does not match the prepared run")
+            if recovered_source_acknowledgement != prepared.recovered_source_acknowledgement:
+                raise PreparedRunError(
+                    "the recovered-source acknowledgement does not match the prepared run"
+                )
+            if dict(cast(Mapping[str, object], model)) != _model_identity():
+                raise PreparedRunError("the provider identity does not match the prepared run")
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
             _validate_prepared_authority(project, route, prepared)
@@ -422,8 +540,14 @@ class M07WorkflowService:
         with Project.open(self._project_path) as project:
             route = _route_payload(project)
             _validate_prepared_authority(project, route, prepared)
-            deterministic = _deterministic_scopes(route)
-            scopes = _organization_scopes(route, deterministic, run_id, _facts_by_id(project))
+            deterministic = prepared.deterministic_scopes
+            scopes = _organization_scopes(
+                route,
+                deterministic,
+                run_id,
+                _facts_by_id(project),
+                windows={item.id: item for item in prepared.windows},
+            )
             sink = _WorkflowCheckpointSink(
                 project,
                 generation=prepared.authority_hash,
@@ -683,7 +807,10 @@ def _organization_scopes(
     deterministic: Sequence[DeterministicRouteScope],
     run_id: str,
     facts: Mapping[str, Mapping[str, object]],
+    *,
+    windows: Mapping[str, BoundedNarrativeWindow] | None = None,
 ) -> tuple[RouteScope, ...]:
+    windows = {} if windows is None else windows
     nodes = {
         _string(item.get("id"), "node id"): item for item in _records(route.get("nodes"), "nodes")
     }
@@ -696,18 +823,39 @@ def _organization_scopes(
     }
     result: list[RouteScope] = []
     for scope in deterministic:
-        scope_nodes = [_sanitize(nodes[item]) for item in scope.node_ids if item in nodes]
-        scope_edges = [_sanitize(edges[item]) for item in scope.edge_ids if item in edges]
-        scope_evidence = [
-            _sanitize(evidence[item]) for item in scope.evidence_ids if item in evidence
-        ]
-        fact_ids = frozenset(
-            item
-            for edge in scope_edges
-            if isinstance(edge, dict)
-            for key in ("gate_ids", "effect_ids")
-            for item in _strings(edge.get(key))
-        )
+        _require_all_ids(scope.node_ids, nodes, f"scope {scope.id} node")
+        _require_all_ids(scope.edge_ids, edges, f"scope {scope.id} edge")
+        _require_all_ids(scope.evidence_ids, evidence, f"scope {scope.id} evidence")
+        window = windows.get(scope.id)
+        scope_nodes = [_sanitize(nodes[item]) for item in scope.node_ids]
+        scope_edges = [_sanitize(edges[item]) for item in scope.edge_ids]
+        scope_evidence = [_sanitize(evidence[item]) for item in scope.evidence_ids]
+        if window is None:
+            boundary_nodes: list[object] = []
+            boundary_edges: list[object] = []
+            context_member_ids: frozenset[str] = frozenset()
+            fact_ids = frozenset(
+                item
+                for edge in scope_edges
+                if isinstance(edge, dict)
+                for key in ("gate_ids", "effect_ids")
+                for item in _strings(edge.get(key))
+            )
+            window_contract: object | None = None
+        else:
+            _require_all_ids(window.boundary_node_ids, nodes, f"window {window.id} boundary node")
+            _require_all_ids(window.boundary_edge_ids, edges, f"window {window.id} boundary edge")
+            boundary_nodes = [_sanitize(nodes[item]) for item in window.boundary_node_ids]
+            boundary_edges = [_sanitize(edges[item]) for item in window.boundary_edge_ids]
+            context_member_ids = frozenset(window.boundary_node_ids)
+            fact_ids = frozenset(window.fact_ids)
+            window_contract = window.to_dict()
+        _require_all_ids(fact_ids, facts, f"scope {scope.id} fact")
+        if len(fact_ids) > MAX_WINDOW_FACTS:
+            raise ValueError(
+                f"scope {scope.id} exceeds bounded facts limit "
+                f"({len(fact_ids)} > {MAX_WINDOW_FACTS})"
+            )
         request = OrganizationRequest(
             run_id=run_id,
             chunk_id=f"chunk_{scope.id}",
@@ -722,11 +870,21 @@ def _organization_scopes(
                 "facts": [_sanitize(facts[item]) for item in sorted(fact_ids) if item in facts],
                 "nodes": scope_nodes,
                 "edges": scope_edges,
+                "boundary_node_ids": (
+                    [] if window is None else list(window.boundary_node_ids)
+                ),
+                "boundary_edge_ids": (
+                    [] if window is None else list(window.boundary_edge_ids)
+                ),
+                "boundary_nodes": boundary_nodes,
+                "boundary_edges": boundary_edges,
+                "bounded_window": window_contract,
                 "evidence": scope_evidence,
             },
             constraints=OrganizationConstraints(
                 ordered_member_ids=scope.node_ids,
                 required_member_ids=frozenset(scope.node_ids),
+                context_member_ids=context_member_ids,
                 fact_ids=fact_ids,
                 evidence_ids=frozenset(scope.evidence_ids),
             ),
@@ -886,15 +1044,92 @@ def _require_ai_transmission_allowed(project: Project) -> None:
         )
 
 
+def _source_coverage_token(project: Project) -> str:
+    coverage = project.source_coverage()
+    token = coverage.get("coverage_token")
+    if isinstance(token, str) and len(token) == 64:
+        return token
+    return hashlib.sha256(storage.canonical_json(coverage)).hexdigest()
+
+
+def _model_identity() -> dict[str, object]:
+    return {
+        "id": M05_CLOUD_MODEL,
+        "reasoning": M05_REASONING_PROFILE,
+        "fast_mode": False,
+    }
+
+
+def _selection_hash(
+    *,
+    authority_hash: str,
+    scopes: Sequence[DeterministicRouteScope],
+    windows: Sequence[BoundedNarrativeWindow],
+    budget: BudgetPolicy,
+    recovered_source_acknowledgement: str,
+) -> str:
+    return hashlib.sha256(
+        storage.canonical_json(
+            {
+                "authority_hash": authority_hash,
+                "scopes": [item.to_dict() for item in scopes],
+                "windows": [item.to_dict() for item in windows],
+                "budgets": _budget_dict(budget),
+                "model": _model_identity(),
+                "recovered_source_acknowledgement": recovered_source_acknowledgement,
+            }
+        )
+    ).hexdigest()
+
+
+def _validate_scope_size(scope: DeterministicRouteScope) -> None:
+    limits = {
+        "nodes": (len(scope.node_ids), MAX_WINDOW_NODES),
+        "edges": (len(scope.edge_ids), MAX_WINDOW_INTERNAL_EDGES + MAX_WINDOW_BOUNDARY_EDGES),
+        "evidence records": (len(scope.evidence_ids), MAX_WINDOW_EVIDENCE),
+    }
+    for name, (actual, maximum) in limits.items():
+        if actual > maximum:
+            raise ValueError(
+                f"deterministic scope {scope.id} exceeds bounded {name} limit "
+                f"({actual} > {maximum})"
+            )
+
+
 def _validate_prepared_authority(
     project: Project, route: Mapping[str, object], prepared: PreparedRun
 ) -> None:
     _require_ai_transmission_allowed(project)
     if _authority_hash(route) != prepared.authority_hash:
         raise PreparedRunError("the deterministic route scope changed after preparation")
-    current_scope_ids = tuple(item.id for item in _deterministic_scopes(route))
-    if current_scope_ids != prepared.scope_ids:
-        raise PreparedRunError("the deterministic route scope set changed after preparation")
+    if _source_coverage_token(project) != prepared.recovered_source_acknowledgement:
+        raise PreparedRunError("recovered-source acknowledgement changed after preparation")
+    current = {item.id: item for item in _deterministic_scopes(route)}
+    if any(item not in current for item in prepared.scope_ids):
+        raise PreparedRunError("a selected deterministic route scope changed after preparation")
+    selected = tuple(
+        replace(current[item], ordinal=ordinal)
+        for ordinal, item in enumerate(prepared.scope_ids)
+    )
+    prepared_selected = prepared.deterministic_scopes[: len(prepared.scope_ids)]
+    if selected != prepared_selected:
+        raise PreparedRunError(
+            "selected deterministic route scope contents changed after preparation"
+        )
+    rebuilt_windows = tuple(
+        build_window_from_request(route, item.selection_request(), require_expected=True)
+        for item in prepared.windows
+    )
+    if rebuilt_windows != prepared.windows:
+        raise PreparedRunError("bounded narrative window changed after preparation")
+    if _selection_hash(
+        authority_hash=prepared.authority_hash,
+        scopes=prepared.deterministic_scopes,
+        windows=rebuilt_windows,
+        budget=prepared.config.budget,
+        recovered_source_acknowledgement=prepared.recovered_source_acknowledgement,
+    ) != prepared.selection_hash:
+        raise PreparedRunError("the prepared bounded selection hash is stale")
 
 
 def _guard_provider_transmission(project_path: Path, prepared: PreparedRun) -> None:
@@ -905,6 +1140,16 @@ def _guard_provider_transmission(project_path: Path, prepared: PreparedRun) -> N
 def _require_finite_budget(budget: BudgetPolicy) -> None:
     if budget.hard_seconds is None or budget.hard_tokens is None or budget.hard_calls is None:
         raise ValueError("finite hard_seconds, hard_tokens, and hard_calls are required")
+
+
+def _require_all_ids(
+    identifiers: Sequence[str] | frozenset[str],
+    records: Mapping[str, object],
+    name: str,
+) -> None:
+    missing = [item for item in identifiers if item not in records]
+    if missing:
+        raise ValueError(f"{name} IDs are incomplete or unknown")
 
 
 def _provenance_by_path(project: Project) -> dict[str, Mapping[str, object]]:
