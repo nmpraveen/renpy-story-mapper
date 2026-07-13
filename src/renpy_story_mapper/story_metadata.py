@@ -211,7 +211,7 @@ def extract_story_metadata(
 
             memory = _memory_statement(line)
             if memory is not None:
-                title, thumbnail, collection = memory
+                title, thumbnail, collection, key = memory
                 if title is None:
                     diagnostics.add(
                         "dynamic_scene_title",
@@ -226,6 +226,8 @@ def extract_story_metadata(
                     }
                     if thumbnail is not None:
                         record["thumbnail"] = thumbnail
+                    if key is not None:
+                        record["key"] = key
                     scene_titles.append(record)
                     record_count = _count(record_count, configured)
 
@@ -402,7 +404,9 @@ def _scalar(value: ast.expr | None) -> str | int | float | bool | None | object:
     return _NOT_LITERAL
 
 
-def _memory_statement(line: str) -> tuple[str | None, str | None, str] | None:
+def _memory_statement(
+    line: str,
+) -> tuple[str | None, str | None, str, str | None] | None:
     stripped = line.strip()
     if "memory" not in stripped.casefold() and ".append(" not in stripped:
         return None
@@ -418,8 +422,8 @@ def _memory_statement(line: str) -> tuple[str | None, str | None, str] | None:
         if value is None or not isinstance(value, ast.Call) or not _memory_call(value):
             return None
         target = statement.targets[0] if isinstance(statement, ast.Assign) else statement.target
-        title, thumbnail = _memory_value(value)
-        return title, thumbnail, _name(target) or "memory"
+        title, thumbnail, key = _memory_value(value)
+        return title, thumbnail, _name(target) or "memory", key
     if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
         return None
     call = statement.value
@@ -432,8 +436,8 @@ def _memory_statement(line: str) -> tuple[str | None, str | None, str] | None:
     collection = _name(call.func.value)
     if collection is None or "mem" not in collection.casefold():
         return None
-    title, thumbnail = _memory_value(call.args[0])
-    return title, thumbnail, collection
+    title, thumbnail, key = _memory_value(call.args[0])
+    return title, thumbnail, collection, key
 
 
 def _character_state_hints(line: str) -> tuple[tuple[str, str, str], ...]:
@@ -475,15 +479,15 @@ def _memory_call(value: ast.Call) -> bool:
     return name is not None and name.rsplit(".", 1)[-1].casefold() in _MEMORY_CONSTRUCTORS
 
 
-def _memory_value(value: ast.expr) -> tuple[str | None, str | None]:
+def _memory_value(value: ast.expr) -> tuple[str | None, str | None, str | None]:
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
-        return value.value, None
+        return value.value, None, None
     if isinstance(value, (ast.List, ast.Tuple)):
         title = _literal_string(value.elts[0]) if value.elts else None
         thumbnail = _literal_string(value.elts[1]) if len(value.elts) > 1 else None
-        return title, thumbnail
+        return title, thumbnail, None
     if not isinstance(value, ast.Call) or not _memory_call(value):
-        return None, None
+        return None, None, None
     title_nodes = list(value.args[:1])
     title_nodes.extend(
         keyword.value for keyword in value.keywords if keyword.arg in {"name", "title"}
@@ -494,13 +498,21 @@ def _memory_value(value: ast.expr) -> tuple[str | None, str | None]:
         for keyword in value.keywords
         if keyword.arg in {"image", "thumb", "thumbnail"}
     )
+    key_nodes = [keyword.value for keyword in value.keywords if keyword.arg == "key"]
     if len(title_nodes) != 1 or len(thumbnail_nodes) > 1:
-        return None, None
+        return None, None, None
     title = _literal_string(title_nodes[0])
     thumbnail = _literal_string(thumbnail_nodes[0]) if thumbnail_nodes else None
     if thumbnail_nodes and thumbnail is None:
-        return None, None
-    return title, thumbnail
+        return None, None, None
+    key = _literal_scene_key(key_nodes[0]) if len(key_nodes) == 1 else None
+    return title, thumbnail, key
+
+
+def _literal_scene_key(value: ast.expr) -> str | None:
+    if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+        return None
+    return value.value if re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", value.value) else None
 
 
 def _name(value: ast.expr) -> str | None:

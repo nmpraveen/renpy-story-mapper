@@ -68,7 +68,6 @@ def inspect_input(
     if resolved.is_dir():
         source_root = _resolve_game_root(resolved)
         kind = InputKind.GAME_FOLDER
-        candidates.extend(_loose_candidates(source_root, configured, cancel_check))
         archives: list[Path] = []
         for item in source_root.rglob("*.rpa"):
             if not item.is_file():
@@ -84,6 +83,8 @@ def inspect_input(
         archives.sort(key=lambda item: item.as_posix().casefold())
         archive_names = {archive.name.casefold() for archive in archives}
         scripts_authoritative = "scripts.rpa" in archive_names
+        if not scripts_authoritative:
+            candidates.extend(_loose_candidates(source_root, configured, cancel_check))
         for archive in archives:
             archive_name = archive.name.casefold()
             if scripts_authoritative and archive_name not in {"scripts.rpa", "extras.rpa"}:

@@ -14,6 +14,7 @@ from renpy_story_mapper.ingestion.contracts import (
     SourceTier,
 )
 from renpy_story_mapper.ingestion.errors import IngestionError
+from renpy_story_mapper.presentation import PresentationLevel, PresentationRequest
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.project_analysis import create_input_project, refresh_input_project
 from renpy_story_mapper.story_metadata import (
@@ -77,6 +78,9 @@ def test_exact_extras_coexistence_quarantines_replay_and_recovers_separately(
         game / "images.rpa",
         {"accidental_story.rpy": b"label must_not_be_discovered:\n    return\n"},
     )
+    (game / "loose_replay.rpy").write_text(
+        "label loose_replay_must_not_be_discovered:\n    return\n", encoding="utf-8"
+    )
 
     before = {
         path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in game.glob("*.rpa")
@@ -84,6 +88,7 @@ def test_exact_extras_coexistence_quarantines_replay_and_recovers_separately(
     plan = inspect_input(game, _options(tmp_path))
     assert [candidate.logical_path for candidate in plan.selected] == ["game/story.rpy"]
     assert all("images.rpa" not in candidate.locator for candidate in plan.candidates)
+    assert all("loose_replay" not in candidate.logical_path for candidate in plan.candidates)
     assert {candidate.logical_path for candidate in plan.secondary_candidates} == {
         "game/extras/replay.rpyc",
         "game/scripts/character_screen.rpy",
@@ -92,6 +97,7 @@ def test_exact_extras_coexistence_quarantines_replay_and_recovers_separately(
     result = ingest_input(game, _options(tmp_path))
     assert [source.path for source in result.sources] == ["game/story.rpy"]
     assert b"primeira_memoria" not in b"".join(source.content for source in result.sources)
+    assert b"loose_replay" not in b"".join(source.content for source in result.sources)
     secondary = {source.path: source for source in result.secondary_sources}
     assert set(secondary) == {
         "game/extras/replay.rpy",
@@ -124,10 +130,19 @@ def test_quarantine_rule_does_not_change_direct_or_noncoexisting_archive_behavio
     assert [source.path for source in folder_result.sources] == ["game/extras/replay.rpy"]
     assert folder_result.secondary_sources == ()
 
+    loose_game = tmp_path / "only-loose" / "game"
+    loose_game.mkdir(parents=True)
+    (loose_game / "story.rpy").write_text("label loose_start:\n", encoding="utf-8")
+    loose_result = ingest_input(loose_game, _options(tmp_path / "only-loose"))
+    assert [source.path for source in loose_result.sources] == ["game/story.rpy"]
+
 
 def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path: Path) -> None:
     game = tmp_path / "game"
     game.mkdir()
+    (game / "loose_replay.rpy").write_text(
+        "label loose_replay_memory:\n    return\n", encoding="utf-8"
+    )
     make_rpa(
         game / "scripts.rpa",
         {
@@ -142,7 +157,10 @@ def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path
         game / "extras.rpa",
         {
             "extras/replay.rpy": b"label replay_memory:\n    return\n",
-            "scripts/character_screen.rpy": b'text "Wanda LUST"\ntext "[lust]"\n',
+            "scripts/character_screen.rpy": (
+                b'text "Wanda LUST"\ntext "[lust]"\n'
+                b'memories.append(Memory("Opening Memory", "thumb.jpg", key="start"))\n'
+            ),
         },
     )
     project_path = tmp_path / "story.rsmproj"
@@ -156,9 +174,15 @@ def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path
         }
         graph = storage.canonical_json(project.payload("m01_graph", "authoritative"))
         assert b"replay_memory" not in graph
+        assert b"loose_replay_memory" not in graph
         metadata = project.payload("story_metadata", "authoritative")
         assert isinstance(metadata, dict)
         assert {item["alias"] for item in metadata["characters"]} == {"w"}
+        assert metadata["scene_titles"][0]["key"] == "start"
+        scenes = project.presentation_service().view(
+            PresentationRequest(PresentationLevel.OVERVIEW)
+        ).nodes
+        assert scenes[0].name == "Opening Memory"
         variables = {
             item.original_name: item
             for item in project.presentation_service().state_variables().items
@@ -315,6 +339,25 @@ def test_screen_properties_and_literal_memorias_constructor_are_supported() -> N
         "gene_char_trait": ("Gene trait", "skill"),
     }
     assert payload["scene_titles"][0]["title"] == "First Memory"
+    assert "key" not in payload["scene_titles"][0]
+
+
+def test_scene_title_key_requires_one_nonempty_literal_keyword() -> None:
+    payload = extract_story_metadata(
+        [
+            _source(
+                "game/extras_core.rpy",
+                'memories.append(Memory("Applied", "one.jpg", key="start"))\n'
+                'memories.append(Memory("Dynamic", "two.jpg", key=get_key()))\n'
+                'memories.append(Memory("Blank", "three.jpg", key=""))\n'
+                'memories.append(Memory("Unkeyed", "four.jpg"))\n',
+                locator="extras.rpa!/extras/extras_core.rpyc",
+            )
+        ]
+    )
+    titles = {item["title"]: item for item in payload["scene_titles"]}
+    assert titles["Applied"]["key"] == "start"
+    assert all("key" not in titles[title] for title in {"Dynamic", "Blank", "Unkeyed"})
 
 
 def test_dynamic_and_malformed_constructs_are_skipped_without_execution(tmp_path: Path) -> None:
