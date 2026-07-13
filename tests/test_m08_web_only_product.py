@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QFileDialog
 
+from renpy_story_mapper.web import launcher
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.picker import QtDialogAdapter
 
@@ -109,3 +111,54 @@ def test_picker_response_uses_opaque_authority_and_does_not_leak_parent_path() -
     assert response["display_name"] == "story.rpy"
     assert "private" not in json.dumps(response).casefold()
     assert "secret" not in json.dumps(response).casefold()
+
+
+def test_launcher_does_not_quit_when_native_picker_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: dict[str, object] = {}
+
+    class _Signal:
+        def connect(self, callback: object) -> None:
+            events["shutdown_callback"] = callback
+
+    class _Application:
+        def __init__(self, _args: list[str]) -> None:
+            self.aboutToQuit = _Signal()
+
+        @staticmethod
+        def instance() -> None:
+            return None
+
+        def setQuitOnLastWindowClosed(self, value: bool) -> None:
+            events["quit_on_last_window"] = value
+
+        def exec(self) -> int:
+            return 0
+
+    class _Server:
+        port = 12345
+
+        def close_service(self) -> None:
+            events["server_closed"] = True
+
+    class _Thread:
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, *, timeout: int) -> None:
+            events["join_timeout"] = timeout
+
+    monkeypatch.setattr(launcher, "QApplication", _Application)
+    monkeypatch.setattr(launcher, "QtDialogAdapter", object)
+    monkeypatch.setattr(
+        launcher,
+        "QtShutdownBridge",
+        lambda _app: SimpleNamespace(request=lambda: None),
+    )
+    monkeypatch.setattr(launcher, "ProjectApi", lambda _dialogs: object())
+    monkeypatch.setattr(launcher, "LocalWebServer", lambda *_args, **_kwargs: _Server())
+    monkeypatch.setattr(launcher, "start_in_thread", lambda _server: _Thread())
+
+    assert launcher.main(["--no-browser"]) == 0
+    assert events["quit_on_last_window"] is False

@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     instance = QApplication.instance()
     app = instance if isinstance(instance, QApplication) else QApplication(sys.argv[:1])
+    app.setQuitOnLastWindowClosed(False)
     dialogs = QtDialogAdapter()
     shutdown_bridge = QtShutdownBridge(app)
     api = ProjectApi(dialogs)

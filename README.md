@@ -54,6 +54,8 @@ Launch the supported product after setup:
 .\.venv\Scripts\renpy-story-mapper-web.exe
 ```
 
+Or double-click `Launch RenPy Story Mapper.cmd` in the repository folder.
+
 The launcher binds an ephemeral port on `127.0.0.1`, opens the system browser, and serves only
 packaged local assets. Use **Open Folder**, **Open Archive**, or **Open File** to select a read-only
 game source and save the `.rsmproj` project outside the selected source folder. Use **Open Project**
