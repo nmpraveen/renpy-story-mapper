@@ -5,58 +5,13 @@ from __future__ import annotations
 import argparse
 import sys
 import webbrowser
-from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import QApplication
 
 from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.picker import QtDialogAdapter
 from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
-
-
-class QtDialogAdapter(QObject):
-    """Marshal narrow native file/folder selections onto the Qt UI thread."""
-
-    _requested = Signal(str)
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._result: Path | None = None
-        self._requested.connect(self._choose, Qt.ConnectionType.BlockingQueuedConnection)
-
-    def choose_source(self, kind: str) -> Path | None:
-        return self._request(kind)
-
-    def choose_open_project(self) -> Path | None:
-        return self._request("project_open")
-
-    def choose_save_project(self) -> Path | None:
-        return self._request("project_save")
-
-    def _request(self, kind: str) -> Path | None:
-        self._result = None
-        self._requested.emit(kind)
-        return self._result
-
-    @Slot(str)
-    def _choose(self, kind: str) -> None:
-        if kind == "folder":
-            path = QFileDialog.getExistingDirectory(None, "Open Game Folder")
-        elif kind in {"archive", "source"}:
-            path, _ = QFileDialog.getOpenFileName(
-                None, "Open Ren'Py Source", "", "Ren'Py sources (*.rpy *.rpyc *.rpa)"
-            )
-        elif kind == "project_open":
-            path, _ = QFileDialog.getOpenFileName(
-                None, "Open Project", "", "Story Mapper projects (*.rsmproj)"
-            )
-        else:
-            path, _ = QFileDialog.getSaveFileName(
-                None, "Create Project", "", "Story Mapper projects (*.rsmproj)"
-            )
-            if path and not path.lower().endswith(".rsmproj"):
-                path += ".rsmproj"
-        self._result = Path(path) if path else None
 
 
 class QtShutdownBridge(QObject):

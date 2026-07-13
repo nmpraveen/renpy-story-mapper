@@ -15,6 +15,7 @@ from renpy_story_mapper.organization.chunking import partition_organization_requ
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     MAX_PROMPT_CHARS,
+    InterpretationClaim,
     OrganizationChunkResult,
     OrganizationConstraints,
     OrganizationGroup,
@@ -114,6 +115,10 @@ def _fixture_route_request(*, repetitions: int = 1) -> OrganizationRequest:
             ordered_member_ids=node_ids,
             required_member_ids=frozenset(node_ids),
             evidence_ids=evidence_ids,
+            member_evidence_ids=tuple(
+                (str(node["id"]), tuple(str(item) for item in node["evidence_ids"]))
+                for node in nodes
+            ),
         ),
         cloud_consent_run_id="run-1",
         model=M05_CLOUD_MODEL,
@@ -142,6 +147,13 @@ def test_current_m07_fixture_route_is_partitioned_by_exact_normal_and_repair_siz
 
 
 def _result_for(request: OrganizationRequest) -> OrganizationChunkResult:
+    cited_evidence = tuple(
+        evidence_id
+        for member_id, evidence_ids in request.constraints.member_evidence_ids
+        if member_id in request.constraints.ordered_member_ids
+        for evidence_id in evidence_ids
+    )
+    claims = (InterpretationClaim("Grounded partition.", cited_evidence),)
     group = OrganizationGroup(
         id="group",
         title="Partition",
@@ -151,7 +163,7 @@ def _result_for(request: OrganizationRequest) -> OrganizationChunkResult:
         importance="supporting",
         outcomes=(),
         promoted_fact_ids=(),
-        claims=(),
+        claims=claims,
         warnings=(),
     )
     raw = {
@@ -166,7 +178,9 @@ def _result_for(request: OrganizationRequest) -> OrganizationChunkResult:
                 "importance": group.importance,
                 "outcomes": [],
                 "promoted_fact_ids": [],
-                "claims": [],
+                "claims": [
+                    {"text": claims[0].text, "evidence_ids": list(cited_evidence)}
+                ],
                 "warnings": [],
             }
         ],

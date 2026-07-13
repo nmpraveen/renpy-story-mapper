@@ -10,24 +10,11 @@ from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.ingestion import IngestionOptions, inspect_input
 from renpy_story_mapper.ingestion.errors import IngestionError
 from renpy_story_mapper.ingestion.helper import _audit
-from renpy_story_mapper.project import Project
-from renpy_story_mapper.ui.organization_workflow import (
+from renpy_story_mapper.organization_workflow import (
     OrganizationOptions,
     OrganizationWorkflow,
 )
-from renpy_story_mapper.ui.project_controller import validate_create_paths
-
-
-def test_desktop_project_creation_accepts_direct_compiled_source(tmp_path: Path) -> None:
-    compiled = tmp_path / "story.rpyc"
-    compiled.write_bytes(b"RENPY RPC2")
-    projects = tmp_path / "projects"
-    projects.mkdir()
-
-    source, destination = validate_create_paths(compiled, projects / "story.rsmproj")
-
-    assert source == compiled
-    assert destination == projects / "story.rsmproj"
+from renpy_story_mapper.project import Project
 
 
 def test_incomplete_source_coverage_blocks_provider_construction(tmp_path: Path) -> None:

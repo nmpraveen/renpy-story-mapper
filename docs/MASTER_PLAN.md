@@ -1,9 +1,9 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-12
+Last revised: 2026-07-13
 
-Status: M01 through M07 are complete and merged. M07.1 is complete on its milestone branch and
-awaiting review of unmerged pull request #12 as of 2026-07-12.
+Status: M01 through M07.1 are complete and merged. M08 is active on
+`codex/m08-web-ai-validation` as of 2026-07-13.
 
 ## 1. Product goal
 
@@ -196,8 +196,6 @@ Deterministic scenes, beats, and transitions (M02)
         |
 Requirements, state effects, and durable project storage (M03)
         |
-Legacy three-level interactive Windows graph (M04)
-        |
 AI-assisted event grouping, titles, summaries, and high-level meaning (M05)
         |
 Deterministic control regions and route semantics (M06)
@@ -231,9 +229,9 @@ flowchart, but it must preserve splits, merges, loops, calls, returns, shared sc
 - A loopback-only local Python web service and browser interface are the primary shell from M06.5.
   Analysis, projects, source access, AI execution, and all sensitive data remain on the Windows
   machine; the browser is a presentation client, not a hosted service.
-- PySide6 remains available temporarily for native Windows file/folder dialogs and as a legacy
-  fallback during the browser migration. The M04 `QGraphicsView` interface is no longer the
-  preferred product surface.
+- The loopback browser interface is the sole supported product surface from M08. A narrowly scoped
+  native Windows file/folder dialog helper may remain behind the local service, but the legacy M04
+  `QGraphicsView` application, entry point, assets, tests, and documentation are removed.
 - One minimal provider-neutral AI interface with only the provider adapter needed for the first
   working version; multiple provider integrations are not a milestone requirement
 
@@ -242,9 +240,10 @@ patching are outside the active plan.
 
 ## 7. Milestones
 
-M01 through M06.5 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
+M01 through M07.1 are complete. The user approved a post-M05 redesign on 2026-07-12 after a
 compiled-only large-game trial exposed source-recovery, branch-classification, AI-scale, and graph
-readability limits. The browser-interface bridge is merged and M07 is now active.
+readability limits. On 2026-07-13 the user approved M08 to make the product browser-only and to
+validate AI as the required human-readable story stage.
 
 ### M03 - Story state and durable projects
 
@@ -928,8 +927,7 @@ technical coverage.
 
 ### M07.1 - Safety and Real-Project Closure
 
-Status: Complete on `codex/m07-1-safety-real-project-closure` as of 2026-07-12; Windows acceptance
-passed and milestone pull request #12 is intentionally unmerged pending user review.
+Status: Complete and merged through PR #12 at `32e9a3c` on 2026-07-13.
 
 Objective: close the correctness and real-browser gaps found after M07 without broadening the
 product, deleting the legacy fallback, or weakening deterministic authority.
@@ -965,6 +963,101 @@ Explicit exclusions:
   desktop deletion, storage consolidation, source-recovery expansion, or canonical archive access.
 - No visual simplification that hides deterministic gates, effects, unresolved behavior, or source
   evidence.
+
+### M08 - Web-Only AI Story Understanding Validation
+
+Status: Complete on `codex/m08-web-ai-validation` as of 2026-07-13; the milestone PR is
+intentionally left unmerged for user review.
+
+Completion result: the packaged product is now browser-only. Evidence-grounded GPT-5.6 Luna
+organization is the default human-readable story layer after acceptance, with Technical Structure
+retained as the deterministic authority and fallback. Exact bounded consent, ownership-scoped
+claims, partial fallback, resumable checkpoints, honest current-run accounting, topology-complete
+pagination, two-level Detail / Evidence navigation, and zero-provider open/replay behavior are
+verified. Corrected live results accepted 51/53 complex-fixture scopes, 8/8 small `.rpy` scopes,
+0/5 compiled-only scopes with intentional technical fallback, and 1/4 bounded MsDenvers windows;
+all four retained 100% deterministic technical coverage and unchanged authority hashes. See
+`docs/milestones/M08/COMPLETION_REPORT.md` for commands, metrics, limitations, and review evidence.
+
+Objective: remove the obsolete standalone Windows graph application and prove, on controlled real
+story inputs, that evidence-grounded GPT-5.6 Luna organization produces a substantially more useful
+human story map than deterministic structure alone.
+
+Product contract:
+
+- The loopback browser interface is the sole supported product surface. Remove the legacy
+  `renpy-story-mapper-gui` entry point, QGraphicsView workspace, desktop-only assets/tests, and
+  instructions. A minimal local Windows picker may remain only as an implementation detail of the
+  browser workflow.
+- Deterministic analysis remains the authority for source selection, connections, choices,
+  conditions, requirements, effects, reconvergence, persistent routes, loops, calls, returns,
+  endings, unresolved behavior, and source evidence.
+- AI is the required stage for the finished human-readable map: scene boundaries, meaningful
+  events, titles, summaries, character development, route meaning, importance, and broad story
+  arcs. The technical map remains visible for verification, failure recovery, and privacy-first
+  operation, but is not presented as the finished reading experience.
+- Cloud analysis uses GPT-5.6 Luna with High reasoning and fast mode disabled. Opening or rendering
+  a project never invokes AI. Rich story transmission requires exact explicit consent, including
+  recovered-source acknowledgement where applicable. LM Studio remains deferred.
+
+Locked deliverables:
+
+1. Remove the legacy standalone desktop product surface without duplicating backend behavior in
+   JavaScript or weakening the local-only browser security boundary.
+2. Establish a checked-in evaluation manifest and expected-result schema covering the generated
+   complex branching fixture, small real `.rpy`, small recovered `.rpyc`, and bounded MsDenvers
+   walkthrough-backed scopes. External copyrighted story text and walkthrough contents remain
+   outside the repository; fixtures store only permitted synthetic content, fingerprints, scope
+   identifiers, and expected structural/narrative assertions.
+3. Preserve the deterministic-before-AI baseline and expose a clear Technical Structure versus AI
+   Story Map comparison. The broad AI view is a stable quotient graph: validated AI events become
+   the visible boxes, while deterministic code projects only the real cross-event connections and
+   retains their underlying gates, effects, route roles, and evidence. It must not merely rename
+   every technical node. Once accepted AI organization exists, the AI Story Map is the default;
+   Detail / Evidence is the only second user-visible level.
+4. Use the existing resumable parallel scope scheduler for Luna analysis, with evidence-complete
+   scene/event output, cross-scope reconciliation, cache reuse, partial validated results, and no
+   all-or-nothing global collapse.
+5. Display AI coverage, technical fallback, pending/failed scopes, calls, tokens, elapsed time, ETA,
+   consent/provider identity, and cache reuse. Preserve cancel/resume and review/apply/discard.
+6. Produce a reproducible evaluation report comparing deterministic structure, AI organization,
+   and curated expected story meaning: scene boundaries, meaningful events, route names, character
+   developments, temporary detours, persistent routes, loops, and endings.
+7. Run live AI only on separately consented bounded inputs. Start with the synthetic and small
+   scripts; use selected MsDenvers scopes and its official walkthrough only as diagnostic evidence,
+   never as a runtime dependency. Do not repeat the prior unrestricted full-game run in M08.
+
+Acceptance criteria:
+
+- No legacy standalone GUI entry point or QGraphicsView product code ships in the wheel; the local
+  browser can create/open/refresh a project and reach both Technical Structure and AI Story Map.
+- Every AI event, arc, claim, promoted character, and outcome references existing evidence IDs;
+  AI cannot invent or redirect factual graph structure, gates, effects, routes, or endings.
+- The complex fixture and both small real-source forms complete the evaluation workflow with stable
+  deterministic authority before/after AI, clear coverage/fallback metrics, persisted accepted
+  results, and zero-call unchanged replay.
+- Selected MsDenvers scopes are compared with curated walkthrough expectations for reconvergent
+  variations, persistent character routes, important events, and endings. Disagreements are
+  recorded honestly and corrected through prompt/assembly changes or documented limitations.
+- The AI Story Map is demonstrably more readable than Technical Structure according to the checked
+  evaluation rubric; if it is not, M08 remains incomplete.
+- Cancellation preserves validated scopes, resume avoids repeating them, and partial validated
+  results remain reviewable when a soft budget is reached.
+- Opening/reopening/navigation causes zero provider or remote calls. Every live story transmission
+  is consented and records Luna/High/no-fast-mode identity, calls, tokens, time, and hashes.
+- Windows CPython 3.12 full pytest, Ruff, strict mypy, `pip check`, `git diff --check`, wheel
+  inspection, real Chrome tests at 100% and 200%, milestone end-to-end evaluation, and independent
+  review complete with no unresolved P0-P2 finding.
+- `GOAL.md`, `TASKS.md`, `COMPLETION_REPORT.md`, and native `INFOGRAPHIC.png` exist. One M08 PR is
+  opened and left unmerged.
+
+Explicit exclusions:
+
+- No LM Studio validation, hosted service, installer, standalone executable, macOS work, game
+  editing/patching, full unrestricted MsDenvers rerun, automatic cloud calls, or deterministic
+  analyzer rewrite.
+- The official walkthrough is evaluation evidence only and is never required for analyzing an
+  arbitrary game.
 
 ## 8. Product completion definition
 
@@ -1052,5 +1145,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review the unmerged M07.1 pull request, completion report, and native infographic. Do not merge or
-begin any later milestone without explicit approval.
+Complete M08 on one unmerged pull request, present its report and native infographic, and wait for
+explicit approval before any later milestone.

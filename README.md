@@ -1,11 +1,13 @@
-# Ren'Py Story Mapper - Windows Story Map
+# Ren'Py Story Mapper - Local Browser Story Map
 
-This repository contains a local-first Windows application and analyzer for exploring Ren'Py
-stories as a bounded, source-linked three-level graph. It safely reads folders or RPA 3.0
-archives, prefers available `.rpy` source over matching `.rpyc`, stores durable SQLite projects,
-and presents deterministic labels, structural event groups, choices, requirements, effects, and
-exact evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, evaluate
-script expressions, or decompile compiled scripts.
+This repository contains a local-first Windows browser application and analyzer for exploring
+Ren'Py stories as a bounded, source-linked Route Map. It safely reads folders, individual source
+files, or RPA 3.0 archives, prefers available `.rpy` source over matching `.rpyc`, stores durable
+SQLite projects, and presents deterministic routes, choices, requirements, effects, and exact
+evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, or evaluate script
+expressions. When original `.rpy` is unavailable, compiled `.rpyc` recovery uses an isolated,
+pinned Unrpyc helper; its output is provenance-qualified reconstructed evidence and never original
+author source or original physical-line authority.
 
 ## Safety model
 
@@ -44,33 +46,34 @@ python -m pip install -e ".[dev]"
 
 If PowerShell activation is disabled, invoke `.\.venv\Scripts\python.exe` directly as shown below.
 
-## Windows desktop application
+## Local browser application
 
-Launch the application after setup:
+Launch the supported product after setup:
 
 ```powershell
-.\.venv\Scripts\renpy-story-mapper-gui.exe
+.\.venv\Scripts\renpy-story-mapper-web.exe
 ```
 
-Use **Folder** or **Archive** to select a read-only game source and save the `.rsmproj` project
-outside the game/archive folder. Use **Open** for an existing project and **Refresh** after source
-changes. Analysis, project opening, indexing, refresh, search, and evidence work run in background
-threads with progress and cancellation.
+The launcher binds an ephemeral port on `127.0.0.1`, opens the system browser, and serves only
+packaged local assets. Use **Open Folder**, **Open Archive**, or **Open File** to select a read-only
+game source and save the `.rsmproj` project outside the selected source folder. Use **Open Project**
+for an existing project and **Refresh** after source changes. Native Windows dialogs remain a narrow
+launcher implementation detail; selected filesystem paths are represented in browser requests by
+short-lived opaque identifiers.
 
-The map has three semantic levels:
+The browser has exactly two user-visible map levels:
 
-- **Level 1:** bounded label/chapter containers and major structural connections.
-- **Level 2:** deterministic event groups with choices, requirements, effects, and branch types.
-- **Level 3:** exact beats, expressions, source paths, and physical lines.
+- **Route Map:** a bounded chronological overview of story lines, choices, merges, loops,
+  continuations, and endings.
+- **Detail / Evidence:** the selected route element's local context, requirements, effects,
+  unresolved behavior, exact source text, relative paths, and physical lines.
 
-Mouse-wheel zoom changes semantic detail; middle-drag pans; **Fit** preserves the current level;
-double-click expands a container; **Back** returns to the previous level. Search can focus results
-beyond the current bounded page. Technical/unresolved toggles, variable/category filters, the
-evidence inspector, durable node renames/hiding, and variable display/category overrides are
-available in the main window.
+Pan, zoom, fit, paging, keyboard navigation, search, technical/unresolved toggles, and source
+evidence all remain inside this two-level browser workflow. Optional organization proposes a more
+readable story view without changing deterministic graph authority.
 
-The deterministic Level 2 groups are structural pre-AI slices, not final human-quality scenes.
-The application remains fully usable without AI or cloud access.
+The deterministic technical map remains fully usable without AI or cloud access. See the
+[local browser operations guide](docs/LOCAL_BROWSER.md) for launch, security, and shutdown details.
 
 ## Analyze an archive
 
@@ -166,14 +169,16 @@ endings, unresolved behavior, and label boundaries remain explicit.
 
 Supported graph authority: labels, fallthrough, string-literal menu choices, if/elif/else, jump,
 call, return, and explicit unresolved nodes. The parser is deliberately conservative. It does not
-attempt full Ren'Py language compatibility, `.rpyc` decompilation, expression truth evaluation,
-creator-defined statement parsing, Python control-flow inference, screen/ATL analysis, or game
-execution. Interactive `call screen` statements therefore retain sequential fallthrough plus an
-explicit unresolved-interaction edge. Those boundaries are security properties, not missing
-runtime dependencies.
+attempt full Ren'Py language compatibility, expression truth evaluation, creator-defined statement
+parsing, Python control-flow inference, screen/ATL analysis, or game execution. Static `.rpyc`
+recovery, when required, runs through the isolated pinned helper and records derivation provenance,
+completeness, and reconstructed line basis; incomplete coverage remains explicit and gated by the
+recovered-source acknowledgement policy. Interactive `call screen` statements retain sequential
+fallthrough plus an explicit unresolved-interaction edge. Those boundaries are security properties,
+not missing runtime dependencies.
 
-M04 adds the deterministic Windows application and layered map while preserving these security
-boundaries. AI grouping, provider integration, chatbot/query workflows, packaging, installers,
-public releases, macOS support, game editing, and game patching are not part of M04. M05 may add
-explicitly enabled AI organization without changing deterministic graph edges, gates, effects, or
-source evidence.
+The loopback browser is the sole supported product surface. The command-line analyzer remains a
+diagnostic and export harness, not a second interactive product. The legacy QGraphicsView desktop
+application is not packaged. Optional organization cannot change deterministic edges, gates,
+effects, routes, endings, unresolved records, or source evidence. Hosted deployment, installers,
+standalone executables, macOS support, game editing, and game patching remain out of scope.

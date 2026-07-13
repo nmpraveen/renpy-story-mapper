@@ -52,6 +52,19 @@ def build_cache_key(
         "fact_ids": sorted(request.constraints.fact_ids),
         "evidence_ids": sorted(request.constraints.evidence_ids),
         "character_names": sorted(request.constraints.character_names),
+        "member_evidence_ids": request.constraints.member_evidence_ids,
+        "member_fact_ids": request.constraints.member_fact_ids,
+        "fact_evidence_ids": request.constraints.fact_evidence_ids,
+        "member_character_names": request.constraints.member_character_names,
+        "edge_ownership": [
+            {
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "evidence_ids": edge.evidence_ids,
+                "fact_ids": edge.fact_ids,
+            }
+            for edge in request.constraints.edge_ownership
+        ],
     }
     input_hash = hashlib.sha256(
         json.dumps(

@@ -77,6 +77,18 @@ def _request(stage: OrganizationStage = OrganizationStage.EVENTS) -> Organizatio
             fact_ids=frozenset({"fact-1"}),
             evidence_ids=frozenset({"evidence-1", "evidence-2", "evidence-3"}),
             character_names=frozenset({"Ava"}),
+            member_evidence_ids=(
+                ("beat-1", ("evidence-1",)),
+                ("beat-2", ("evidence-2",)),
+                ("beat-3", ("evidence-3",)),
+            ),
+            member_fact_ids=(("beat-1", ("fact-1",)),),
+            fact_evidence_ids=(("fact-1", ("evidence-1",)),),
+            member_character_names=(
+                ("beat-1", ("Ava",)),
+                ("beat-2", ("Ava",)),
+                ("beat-3", ("Ava",)),
+            ),
         ),
         cloud_consent_run_id="run-1",
         timeout_seconds=0.05,
@@ -96,7 +108,12 @@ def _valid_payload(stage: OrganizationStage = OrganizationStage.EVENTS) -> dict[
                 "importance": "turning point",
                 "outcomes": ["The synthetic route continues."],
                 "promoted_fact_ids": ["fact-1"],
-                "claims": [{"text": "Ava commits to the route.", "evidence_ids": ["evidence-2"]}],
+                "claims": [
+                    {
+                        "text": "Ava commits to the route.",
+                        "evidence_ids": ["evidence-1", "evidence-2", "evidence-3"],
+                    }
+                ],
                 "warnings": [],
             }
         ],
@@ -683,6 +700,7 @@ def test_validator_rejects_malformed_or_invented_authority(
 def test_validator_rejects_missing_coverage_crossings_and_context_membership() -> None:
     missing = _valid_payload()
     missing["groups"][0]["member_ids"] = ["beat-1"]
+    missing["groups"][0]["claims"][0]["evidence_ids"] = ["evidence-1"]
     with pytest.raises(InvalidProviderOutputError, match="coverage"):
         validate_result(missing, _request())
     crossed = _valid_payload()

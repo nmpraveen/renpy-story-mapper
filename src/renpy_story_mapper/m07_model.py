@@ -485,6 +485,21 @@ class M07ModelService:
         )
         return None if row is None else _assembly(row)
 
+    def applied_assembly(self, *, generation: str) -> Assembly | None:
+        """Return only the applied organization for one exact authority generation."""
+
+        row = (
+            self._project._require_open()
+            .execute(
+                """SELECT * FROM m07_assemblies
+                   WHERE generation=? AND status='applied'
+                   ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1""",
+                (generation,),
+            )
+            .fetchone()
+        )
+        return None if row is None else _assembly(row)
+
     def discard(self, assembly_id: str, *, generation: str) -> Assembly:
         """Atomically supersede one exact current-generation draft and nothing else."""
 

@@ -19,13 +19,11 @@ dev = [
   "mypy>=1.10,<2",
   "pytest>=8.2,<9",
   "pytest-cov>=5,<7",
-  "pytest-qt>=4.4,<5",
   "ruff>=0.5,<1",
 ]
 
 [project.scripts]
 renpy-story-mapper = "renpy_story_mapper.cli:main"
-renpy-story-mapper-gui = "renpy_story_mapper.ui.app:main"
 renpy-story-mapper-web = "renpy_story_mapper.web.launcher:main"
 
 [tool.hatch.build.targets.wheel]

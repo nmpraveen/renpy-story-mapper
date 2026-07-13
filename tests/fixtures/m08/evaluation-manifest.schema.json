@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renpy-story-mapper.invalid/schemas/m08-evaluation-manifest-v1.json",
+  "title": "M08 provider-free story-understanding evaluation manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "safety", "provider_policy", "rubric", "scopes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_invocation_default_forbidden",
+        "external_text_forbidden",
+        "absolute_paths_forbidden",
+        "walkthrough_is_evaluation_only"
+      ],
+      "properties": {
+        "provider_invocation_default_forbidden": {"const": true},
+        "external_text_forbidden": {"const": true},
+        "absolute_paths_forbidden": {"const": true},
+        "walkthrough_is_evaluation_only": {"const": true}
+      }
+    },
+    "provider_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "reasoning", "fast_mode", "invocation_default"],
+      "properties": {
+        "model": {"const": "gpt-5.6-luna"},
+        "reasoning": {"const": "high"},
+        "fast_mode": {"const": false},
+        "invocation_default": {"const": "forbidden"}
+      }
+    },
+    "rubric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass_score", "max_title_chars", "max_summary_chars"],
+      "properties": {
+        "pass_score": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "max_title_chars": {"type": "integer", "minimum": 1},
+        "max_summary_chars": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/scope"}
+    }
+  },
+  "$defs": {
+    "uniqueStrings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "external", "repository_path", "input_sha256", "path_slot", "fingerprint_slot"],
+      "properties": {
+        "source_kind": {"enum": ["rpy", "rpyc", "bounded_external"]},
+        "external": {"type": "boolean"},
+        "repository_path": {"type": ["string", "null"]},
+        "input_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "path_slot": {"type": ["string", "null"]},
+        "fingerprint_slot": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"external": {"const": true}}},
+          "then": {
+            "properties": {
+              "repository_path": {"type": "null"},
+              "input_sha256": {"type": "null"},
+              "path_slot": {"type": "string", "minLength": 1},
+              "fingerprint_slot": {"type": "string", "minLength": 1}
+            }
+          },
+          "else": {
+            "properties": {
+              "repository_path": {"type": "string", "pattern": "^tests/fixtures/"},
+              "input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "path_slot": {"type": "null"},
+              "fingerprint_slot": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "expectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible_ids", "scene_boundaries", "meaningful_event_ids", "feature_subjects"],
+      "properties": {
+        "eligible_ids": {"$ref": "#/$defs/uniqueStrings"},
+        "scene_boundaries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/uniqueStrings"}
+        },
+        "meaningful_event_ids": {"$ref": "#/$defs/uniqueStrings"},
+        "feature_subjects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "character_development",
+            "route_meaning",
+            "temporary_detours",
+            "persistent_routes",
+            "loops",
+            "endings"
+          ],
+          "properties": {
+            "character_development": {"$ref": "#/$defs/uniqueStrings"},
+            "route_meaning": {"$ref": "#/$defs/uniqueStrings"},
+            "temporary_detours": {"$ref": "#/$defs/uniqueStrings"},
+            "persistent_routes": {"$ref": "#/$defs/uniqueStrings"},
+            "loops": {"$ref": "#/$defs/uniqueStrings"},
+            "endings": {"$ref": "#/$defs/uniqueStrings"}
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "input", "bounds", "expectations", "budget"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "input": {"$ref": "#/$defs/input"},
+        "bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entry_label", "scope_ids", "max_source_files", "max_labels", "window"],
+          "properties": {
+            "entry_label": {"type": ["string", "null"]},
+            "scope_ids": {"$ref": "#/$defs/uniqueStrings"},
+            "max_source_files": {"type": "integer", "minimum": 1},
+            "max_labels": {"type": "integer", "minimum": 1},
+            "window": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "window_id",
+                "parent_scope_id",
+                "selection_mode",
+                "expected_node_ids",
+                "expected_evidence_ids",
+                "boundary_before_node_ids",
+                "boundary_after_node_ids",
+                "id_set_sha256",
+                "id_set_slot",
+                "id_set_fingerprint_slot",
+                "max_nodes",
+                "max_evidence",
+                "require_strict_subset"
+              ],
+              "properties": {
+                "window_id": {"type": "string", "minLength": 1},
+                "parent_scope_id": {"type": "string", "minLength": 1},
+                "selection_mode": {"const": "bounded_window"},
+                "expected_node_ids": {"$ref": "#/$defs/uniqueStrings"},
+                "expected_evidence_ids": {"$ref": "#/$defs/uniqueStrings"},
+                "boundary_before_node_ids": {"$ref": "#/$defs/uniqueStrings"},
+                "boundary_after_node_ids": {"$ref": "#/$defs/uniqueStrings"},
+                "id_set_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+                "id_set_slot": {"type": ["string", "null"]},
+                "id_set_fingerprint_slot": {"type": ["string", "null"]},
+                "max_nodes": {"type": "integer", "minimum": 1},
+                "max_evidence": {"type": "integer", "minimum": 1},
+                "require_strict_subset": {"type": "boolean"}
+              }
+            }
+          }
+        },
+        "expectations": {"$ref": "#/$defs/expectations"},
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_calls", "max_tokens", "max_elapsed_ms"],
+          "properties": {
+            "max_calls": {"type": "integer", "minimum": 1},
+            "max_tokens": {"type": "integer", "minimum": 1},
+            "max_elapsed_ms": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    }
+  }
+}

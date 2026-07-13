@@ -2,16 +2,41 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import threading
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Final, Protocol, cast
 
-from renpy_story_mapper.m07_workflow import M07WorkflowService, ProviderFactory
-from renpy_story_mapper.organization.contracts import OrganizationProvider
+from renpy_story_mapper import storage
+from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
+from renpy_story_mapper.bounded_window import (
+    MAX_WINDOW_BOUNDARY_EDGES,
+    MAX_WINDOW_EVIDENCE,
+    MAX_WINDOW_FACTS,
+    MAX_WINDOW_INTERNAL_EDGES,
+    MAX_WINDOW_NODES,
+    BoundedWindowError,
+    build_bounded_narrative_window,
+)
+from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
+from renpy_story_mapper.m07_workflow import (
+    M07WorkflowService,
+    PreparedRunError,
+    ProviderFactory,
+    validate_persisted_assembly,
+)
+from renpy_story_mapper.organization.contracts import (
+    M05_CLOUD_MODEL,
+    M05_REASONING_PROFILE,
+    OrganizationProvider,
+)
+from renpy_story_mapper.organization.errors import InvalidProviderOutputError
 from renpy_story_mapper.organization.parallel import BudgetPolicy, ProgressSnapshot, RouteScope
 from renpy_story_mapper.presentation import (
     MAX_RESULTS,
@@ -27,16 +52,24 @@ from renpy_story_mapper.project import (
     open_project,
     refresh_ingested_project,
 )
-from renpy_story_mapper.story_organization import StoryOrganizationService
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
+    M07_PREPARE_REQUEST_FIELDS,
+    M07_START_REQUEST_FIELDS,
+    M07_WINDOW_RESOLVE_REQUEST_FIELDS,
+    M08_AI_STORY_DETAIL_REQUEST_FIELDS,
+    M08_AI_STORY_MAP_REQUEST_FIELDS,
+    M08_API_ROUTES,
+    M08_COMPARISON_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
     TaskStatus,
     boolean,
     bounded_int,
+    exact_fields,
     json_value,
+    object_tuple,
     object_value,
     optional_bounded_int,
     optional_string,
@@ -45,6 +78,48 @@ from renpy_story_mapper.web.contracts import (
     string_tuple,
 )
 from renpy_story_mapper.web.state import UserStateStore
+
+MAX_M07_SELECTION_ITEMS: Final = 64
+M07_BUDGET_FIELDS: Final = (
+    "soft_seconds",
+    "hard_seconds",
+    "soft_tokens",
+    "hard_tokens",
+    "hard_calls",
+)
+M07_MODEL_FIELDS: Final = ("id", "reasoning", "fast_mode")
+M07_EXPECTED_WINDOW_FIELDS: Final = (
+    "id",
+    "node_ids",
+    "internal_edge_ids",
+    "boundary_node_ids",
+    "boundary_edge_ids",
+    "evidence_ids",
+    "fact_ids",
+    "input_hash",
+    "authority_hash",
+)
+M07_MODEL_IDENTITY: Final[dict[str, JsonValue]] = {
+    "id": M05_CLOUD_MODEL,
+    "reasoning": M05_REASONING_PROFILE,
+    "fast_mode": False,
+}
+M07_DEFAULT_BUDGETS: Final[dict[str, JsonValue]] = {
+    "soft_seconds": 600,
+    "hard_seconds": 900,
+    "soft_tokens": 1_500_000,
+    "hard_tokens": 2_000_000,
+    "hard_calls": 48,
+}
+LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
+    {
+        "/api/v1/organization/consent",
+        "/api/v1/organization/draft",
+        "/api/v1/organization/review",
+        "/api/v1/organization/apply",
+        "/api/v1/organization/discard",
+    }
+)
 
 
 class ApiProblem(Exception):
@@ -109,6 +184,15 @@ class ProjectApi:
         self._m07_provider_factory = m07_provider_factory or _default_m07_provider_factory
         self._m07_service: M07WorkflowService | None = None
         self._m07_service_path: Path | None = None
+        self._m07_consent_snapshot: dict[str, JsonValue] | None = None
+        self._m07_start_binding: dict[str, JsonValue] | None = None
+        self._m07_run_id: str | None = None
+        self._m07_run_baseline: dict[str, int] | None = None
+        self._m07_run_progress: ProgressSnapshot | None = None
+        self._m07_run_started_at: float | None = None
+        self._m07_run_elapsed_seconds: float | None = None
+        self._m07_run_cache_hits = 0
+        self._m07_run_selected_ids: tuple[str, ...] = ()
 
     def close(self) -> None:
         self.cancel()
@@ -145,16 +229,14 @@ class ProjectApi:
                     "evidence": "/api/v1/story/evidence",
                     "facts": "/api/v1/story/facts",
                     "settings": "/api/v1/settings",
-                    "organization_start": "/api/v1/organization/consent",
-                    "organization_draft": "/api/v1/organization/draft",
-                    "organization_review": "/api/v1/organization/review",
-                    "organization_apply": "/api/v1/organization/apply",
-                    "organization_discard": "/api/v1/organization/discard",
                     "diagnostics": "/api/v1/diagnostics",
                     "shutdown": "/api/v1/shutdown",
                     "m07": dict(M07_API_ROUTES),
+                    "m08": dict(M08_API_ROUTES),
                 },
             }
+        if path in LEGACY_ORGANIZATION_ROUTES:
+            raise ApiProblem(404, "not_found", "The requested API endpoint does not exist.")
         if method == "GET" and path == "/api/v1/recent":
             return {"recent_projects": self._recent_projects()}
         if method == "GET" and path == "/api/v1/analysis/progress":
@@ -188,7 +270,21 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if method == "POST" and path == M08_API_ROUTES["ai_story_map"]:
+            exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
+            return json_value(self._m08_ai_story_page(body))
+        if method == "POST" and path == M08_API_ROUTES["ai_story_detail"]:
+            exact_fields(
+                body,
+                allowed=M08_AI_STORY_DETAIL_REQUEST_FIELDS,
+                required=("element_id",),
+            )
+            return json_value(self._m08_ai_story_detail(body))
+        if method == "POST" and path == M08_API_ROUTES["comparison"]:
+            exact_fields(body, allowed=M08_COMPARISON_REQUEST_FIELDS)
+            return json_value(self._m08_comparison(body))
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
+            exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             return json_value(
                 self._m07_workflow().route_map(
                     offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
@@ -218,12 +314,34 @@ class ProjectApi:
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["detail"]:
+            exact_fields(body, allowed=("element_id",), required=("element_id",))
             try:
                 return json_value(self._m07_workflow().detail(require_string(body, "element_id")))
             except KeyError as exc:
                 raise ApiProblem(
                     404, "m07_element_not_found", "The route-map element is unavailable."
                 ) from exc
+        if method == "POST" and path == M07_API_ROUTES["window_resolve"]:
+            exact_fields(body, allowed=M07_WINDOW_RESOLVE_REQUEST_FIELDS)
+            try:
+                window = build_bounded_narrative_window(
+                    self._m07_route_authority(),
+                    node_ids=string_tuple(body, "node_ids", maximum_items=MAX_WINDOW_NODES),
+                    entry_node_id=optional_string(body, "entry_node_id"),
+                    exit_node_id=optional_string(body, "exit_node_id"),
+                )
+            except ValueError as exc:
+                raise ApiProblem(
+                    400,
+                    "m07_bounded_window_invalid",
+                    "The bounded narrative window selection is invalid.",
+                ) from exc
+            return json_value(
+                {
+                    "window": window.to_dict(),
+                    "selection_request": window.selection_request(),
+                }
+            )
         if method == "GET" and path == M07_API_ROUTES["organization"]:
             with self._lock:
                 task = self._task
@@ -240,59 +358,138 @@ class ProjectApi:
                 status_override=status_override,
             )
             response["refresh"] = (
-                json_value(task)
-                if task is not None and task.kind == "refresh"
-                else None
+                json_value(task) if task is not None and task.kind == "refresh" else None
             )
-            return json_value(response)
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["prepare"]:
+            exact_fields(body, allowed=M07_PREPARE_REQUEST_FIELDS)
+            scope_ids = string_tuple(body, "scope_ids", maximum_items=MAX_M07_SELECTION_ITEMS)
+            window_requests = _bounded_window_requests(body)
+            if not scope_ids and not window_requests:
+                raise ApiProblem(
+                    400,
+                    "m07_selection_required",
+                    "Select at least one bounded route scope or narrative window.",
+                )
+            if len(scope_ids) + len(window_requests) > MAX_M07_SELECTION_ITEMS:
+                raise ValueError("the selected work-unit count exceeds the API limit")
             budget = _budget_policy(body, with_finite_defaults=True)
             _validate_budget_order(budget)
-            return json_value(
-                self._m07_workflow().prepare(
-                    scope_ids=string_tuple(body, "scope_ids", maximum_items=10_000),
+            try:
+                raw_prepared = self._m07_workflow().prepare(
+                    scope_ids=scope_ids,
+                    window_requests=window_requests,
                     budget=budget,
                 )
-            )
+            except BoundedWindowError as exc:
+                raise ApiProblem(
+                    400,
+                    "m07_bounded_window_invalid",
+                    "The bounded narrative window selection is invalid or stale.",
+                ) from exc
+            prepared_contract = self._m07_prepared_contract(raw_prepared)
+            with self._lock:
+                self._m07_consent_snapshot = _consent_snapshot(prepared_contract)
+                self._m07_start_binding = _strict_start_binding(prepared_contract)
+            return json_value(prepared_contract)
         if method == "POST" and path == M07_API_ROUTES["start"]:
-            workflow = self._m07_workflow()
-            start_budget = _budget_policy(
-                object_value(body, "budgets"), with_finite_defaults=False
+            exact_fields(
+                body,
+                allowed=M07_START_REQUEST_FIELDS,
+                required=M07_START_REQUEST_FIELDS,
             )
+            workflow = self._m07_workflow()
+            budget_body = object_value(body, "budgets")
+            exact_fields(
+                budget_body,
+                allowed=M07_BUDGET_FIELDS,
+                required=M07_BUDGET_FIELDS,
+                name="budgets",
+            )
+            start_budget = _budget_policy(budget_body, with_finite_defaults=False)
             _validate_budget_order(start_budget)
-            prepared = workflow.authorize_start(
-                require_string(body, "run_id"),
-                confirm_cloud=boolean(body, "confirm_cloud"),
-                scope_ids=required_string_tuple(
-                    body, "scope_ids", maximum_items=10_000
-                ),
+            scope_ids = required_string_tuple(
+                body, "scope_ids", maximum_items=MAX_M07_SELECTION_ITEMS
+            )
+            window_ids = required_string_tuple(
+                body, "window_ids", maximum_items=MAX_M07_SELECTION_ITEMS
+            )
+            if not scope_ids and not window_ids:
+                raise ValueError("the start selection cannot be empty")
+            if len(scope_ids) + len(window_ids) > MAX_M07_SELECTION_ITEMS:
+                raise ValueError("the start work-unit count exceeds the API limit")
+            if len(set(scope_ids)) != len(scope_ids) or len(set(window_ids)) != len(window_ids):
+                raise ValueError("start selection IDs must be unique")
+            selection_hash = _sha256(body, "selection_hash")
+            authority_hash = _sha256(body, "authority_hash")
+            recovered_acknowledgement = _sha256(body, "recovered_source_acknowledgement")
+            model = object_value(body, "model")
+            exact_fields(
+                model,
+                allowed=M07_MODEL_FIELDS,
+                required=M07_MODEL_FIELDS,
+                name="model",
+            )
+            if model != M07_MODEL_IDENTITY:
+                raise ValueError("the exact provider model identity is required")
+            run_id = require_string(body, "run_id")
+            confirm_cloud = boolean(body, "confirm_cloud")
+            if confirm_cloud:
+                self._consume_m07_start_binding(
+                    {
+                        "run_id": run_id,
+                        "scope_ids": list(scope_ids),
+                        "window_ids": list(window_ids),
+                        "selection_hash": selection_hash,
+                        "authority_hash": authority_hash,
+                        "recovered_source_acknowledgement": recovered_acknowledgement,
+                        "model": dict(model),
+                        "budgets": dict(budget_body),
+                    }
+                )
+            authorized = workflow.authorize_start(
+                run_id,
+                confirm_cloud=confirm_cloud,
+                scope_ids=scope_ids,
+                window_ids=window_ids,
+                selection_hash=selection_hash,
+                authority_hash=authority_hash,
+                recovered_source_acknowledgement=recovered_acknowledgement,
+                model=cast(dict[str, object], model),
                 budget=start_budget,
             )
+            self._begin_m07_run_metrics(authorized.run_id)
 
             def run_m07(cancelled: threading.Event) -> None:
                 workflow.run_prepared(
-                    prepared,
+                    authorized,
                     cancelled=cancelled.is_set,
                     progress=self._m07_progress,
                 )
 
-            started = self._start(
-                "m07_organization",
-                run_m07,
-            )
+            try:
+                started = self._start(
+                    "m07_organization",
+                    run_m07,
+                )
+            except Exception:
+                self._clear_m07_run_metrics()
+                raise
             response = workflow.status(stage="starting", status_override="running")
-            response["run_id"] = prepared.run_id
+            response["run_id"] = authorized.run_id
             response["task"] = started.get("analysis") if isinstance(started, dict) else None
-            return json_value(response)
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["cancel"]:
             self.cancel()
             # The packaged browser polls only while status is ``running``.  Keep that
             # lifecycle status until the background boundary durably reports cancellation;
             # advertising ``cancelled`` here would also enable Resume before the old task exits.
             return json_value(
-                self._m07_workflow().status(
-                    stage="cancelling",
-                    status_override="running",
+                self._m07_browser_status(
+                    self._m07_workflow().status(
+                        stage="cancelling",
+                        status_override="running",
+                    )
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["source_acknowledge"]:
@@ -329,7 +526,7 @@ class ProjectApi:
             response = workflow.status(stage="applied", status_override="applied")
             response["assembly_id"] = assembly_id
             response["assembly"] = assembly
-            return json_value(response)
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == M07_API_ROUTES["assembly_discard"]:
             workflow = self._m07_workflow()
             assembly_id = require_string(body, "assembly_id")
@@ -345,7 +542,7 @@ class ProjectApi:
                 ) from exc
             response = workflow.status(stage="discarded")
             response["discarded_assembly"] = assembly
-            return json_value(response)
+            return json_value(self._m07_browser_status(response))
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)
         if method == "POST" and path == "/api/v1/story/search":
@@ -356,19 +553,6 @@ class ProjectApi:
             return self._presentation_facts(body)
         if method == "PUT" and path == "/api/v1/settings":
             return {"settings": self._state_store.save_settings(body)}
-        if method == "GET" and path == "/api/v1/organization/draft":
-            return self._organization()
-        if method == "POST" and path == "/api/v1/organization/consent":
-            if not boolean(body, "consent"):
-                raise ValueError("explicit consent is required")
-            scopes = string_tuple(body, "scope_ids")
-            return self._start("organization", lambda cancelled: self._organize(scopes, cancelled))
-        if method == "POST" and path == "/api/v1/organization/review":
-            return self._review_draft(body)
-        if method == "POST" and path == "/api/v1/organization/apply":
-            return self._draft_action(body, apply=True)
-        if method == "POST" and path == "/api/v1/organization/discard":
-            return self._draft_action(body, apply=False)
         if method == "GET" and path == "/api/v1/diagnostics":
             with self._lock:
                 ready = self._project_path is not None
@@ -481,6 +665,15 @@ class ProjectApi:
     ) -> None:
         with self._lock:
             self._task = TaskStatus(task_id, kind, state, stage, percent, cancellable, error)
+            if (
+                kind == "m07_organization"
+                and state != "running"
+                and self._m07_run_started_at is not None
+                and self._m07_run_elapsed_seconds is None
+            ):
+                self._m07_run_elapsed_seconds = max(
+                    0.0, time.monotonic() - self._m07_run_started_at
+                )
 
     def _open(self, path: Path, cancelled: threading.Event) -> None:
         if cancelled.is_set():
@@ -497,6 +690,9 @@ class ProjectApi:
             self._source_path = source
             self._m07_service = None
             self._m07_service_path = None
+            self._m07_consent_snapshot = None
+            self._m07_start_binding = None
+            self._clear_m07_run_metrics_locked()
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -507,6 +703,9 @@ class ProjectApi:
             self._source_path = source
             self._m07_service = None
             self._m07_service_path = None
+            self._m07_consent_snapshot = None
+            self._m07_start_binding = None
+            self._clear_m07_run_metrics_locked()
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -515,6 +714,7 @@ class ProjectApi:
         if project is None or source is None:
             raise ApiProblem(409, "no_project", "Open a project first.")
         refresh_ingested_project(project, source, cancel_check=cancelled.is_set)
+        self._clear_m07_run_metrics()
 
     def _project(self) -> Path:
         with self._lock:
@@ -530,6 +730,463 @@ class ProjectApi:
                 self._m07_service = M07WorkflowService(path, self._m07_provider_factory)
                 self._m07_service_path = path
             return self._m07_service
+
+    def _m07_route_authority(self) -> dict[str, object]:
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+        if not isinstance(route, dict):
+            raise ValueError("the project has no valid M07 route map")
+        return cast(dict[str, object], route)
+
+    def _m08_query(
+        self,
+    ) -> tuple[AIStoryMapQueryResult, dict[str, object], dict[str, dict[str, object]]]:
+        """Resolve only the applied assembly for the current exact route authority.
+
+        A latest stale applied row is inspected only to return the explicit stale reason. It is
+        never projected over current authority and never becomes the default map.
+        """
+
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            if not isinstance(route, dict):
+                raise ValueError("the project has no valid M07 route map")
+            typed_route = cast(dict[str, object], route)
+            generation = hashlib.sha256(storage.canonical_json(typed_route)).hexdigest()
+            model = project.m07_model_service()
+            facts = _m08_facts_by_id(project)
+            try:
+                assembly: object | None = model.applied_assembly(generation=generation)
+            except (storage.ProjectCorruptError, TypeError, ValueError):
+                assembly = {
+                    "assembly_id": "invalid",
+                    "generation": generation,
+                    "status": "applied",
+                    "payload": None,
+                    "payload_hash": "invalid",
+                }
+            if isinstance(assembly, Assembly):
+                try:
+                    validate_persisted_assembly(
+                        project,
+                        route=typed_route,
+                        generation=generation,
+                        assembly_id=assembly.assembly_id,
+                    )
+                except (
+                    InvalidProviderOutputError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    storage.ProjectCorruptError,
+                ):
+                    assembly = {
+                        "assembly_id": "invalid",
+                        "generation": generation,
+                        "status": "applied",
+                        "payload": None,
+                        "payload_hash": "invalid",
+                    }
+            if assembly is None:
+                row = (
+                    project._require_open()
+                    .execute(
+                        """SELECT assembly_id,generation,status,payload_json,payload_hash
+                       FROM m07_assemblies WHERE status='applied'
+                       ORDER BY applied_utc DESC,assembly_id DESC LIMIT 1"""
+                    )
+                    .fetchone()
+                )
+                if row is not None:
+                    try:
+                        assembly = {
+                            "assembly_id": str(row["assembly_id"]),
+                            "generation": str(row["generation"]),
+                            "status": str(row["status"]),
+                            "payload": storage.decode_json(row["payload_json"]),
+                            "payload_hash": str(row["payload_hash"]),
+                        }
+                    except (storage.ProjectCorruptError, TypeError, ValueError):
+                        assembly = {
+                            "assembly_id": "invalid",
+                            "generation": generation,
+                            "status": "applied",
+                            "payload": None,
+                            "payload_hash": "invalid",
+                        }
+            result = query_ai_story_map(typed_route, assembly, facts=facts)  # type: ignore[arg-type]
+        return result, typed_route, facts
+
+    def _persisted_attempt_metrics(self) -> dict[str, int]:
+        with Project.open(self._project()) as project:
+            row = (
+                project._require_open()
+                .execute(
+                    """SELECT COALESCE(SUM(calls),0) calls,
+                          COALESCE(SUM(input_tokens),0) input_tokens,
+                          COALESCE(SUM(output_tokens),0) output_tokens,
+                          COALESCE(SUM(elapsed_ms),0) elapsed_ms,
+                          COALESCE(SUM(cached),0) cache_hits,
+                          COUNT(*) attempts
+                   FROM m07_provider_attempts"""
+                )
+                .fetchone()
+            )
+        names = ("calls", "input_tokens", "output_tokens", "elapsed_ms", "cache_hits", "attempts")
+        return {name: 0 if row is None else int(row[name]) for name in names}
+
+    def _m08_attempt_metrics(
+        self,
+        response: Mapping[str, object],
+        *,
+        use_current_run: bool | None = None,
+    ) -> dict[str, object]:
+        persisted = self._persisted_attempt_metrics()
+        with self._lock:
+            run_id = self._m07_run_id
+            baseline = None if self._m07_run_baseline is None else dict(self._m07_run_baseline)
+            progress = self._m07_run_progress
+            started_at = self._m07_run_started_at
+            finished_elapsed = self._m07_run_elapsed_seconds
+            current_cache_hits = self._m07_run_cache_hits
+
+        current_run = run_id is not None and baseline is not None
+        if use_current_run is not None:
+            current_run = current_run and use_current_run
+        if not current_run:
+            scope = "project_history"
+            label = "Persisted project history"
+            metrics = persisted
+            elapsed_seconds = metrics["elapsed_ms"] / 1000
+            elapsed_basis = "provider_attempts"
+            accounting_run_id = None
+        else:
+            assert run_id is not None and baseline is not None
+            scope = "current_run"
+            label = "Current run"
+            metrics = {name: max(0, persisted[name] - baseline[name]) for name in persisted}
+            if progress is not None:
+                metrics["calls"] = progress.calls
+                metrics["input_tokens"] = progress.input_tokens
+                metrics["output_tokens"] = progress.output_tokens
+                metrics["attempts"] = max(metrics["attempts"], progress.calls)
+            metrics["cache_hits"] = current_cache_hits
+            if finished_elapsed is not None:
+                elapsed_seconds = finished_elapsed
+            elif started_at is not None:
+                elapsed_seconds = max(0.0, time.monotonic() - started_at)
+            else:
+                elapsed_seconds = 0.0
+            elapsed_basis = "wall_clock"
+            accounting_run_id = run_id
+
+        token_total = metrics["input_tokens"] + metrics["output_tokens"]
+        raw_tokens = response.get("tokens")
+        budget = raw_tokens.get("budget", 0) if isinstance(raw_tokens, Mapping) else 0
+        accounting = {
+            "scope": scope,
+            "label": label,
+            "run_id": accounting_run_id,
+            "calls": metrics["calls"],
+            "tokens": {
+                "input": metrics["input_tokens"],
+                "output": metrics["output_tokens"],
+                "total": token_total,
+            },
+            "elapsed_seconds": elapsed_seconds,
+            "elapsed_basis": elapsed_basis,
+            "cache_hits": metrics["cache_hits"],
+            "attempts": metrics["attempts"],
+        }
+        return {
+            "accounting": accounting,
+            "calls": metrics["calls"],
+            "tokens": {
+                "used": token_total,
+                "budget": budget,
+                "input": metrics["input_tokens"],
+                "output": metrics["output_tokens"],
+                "total": token_total,
+            },
+            "elapsed_seconds": elapsed_seconds,
+            "cache_hits": metrics["cache_hits"],
+            "attempts": metrics["attempts"],
+        }
+
+    def _m07_browser_status(self, response: dict[str, object]) -> dict[str, object]:
+        project_history = _m07_scope_metrics(response)
+        project_history["accounting"] = self._m08_attempt_metrics(response, use_current_run=False)[
+            "accounting"
+        ]
+        with self._lock:
+            current_run = self._m07_run_id is not None
+            selected_ids = self._m07_run_selected_ids
+        if current_run:
+            _filter_m07_scope_metrics(response, selected_ids)
+        response.update(self._m08_attempt_metrics(response))
+        if current_run:
+            scope_counts = response.get("scope_counts")
+            tokens = response.get("tokens")
+            if isinstance(scope_counts, dict) and isinstance(tokens, dict):
+                scope_counts["calls"] = response["calls"]
+                scope_counts["input_tokens"] = tokens["input"]
+                scope_counts["output_tokens"] = tokens["output"]
+        response["status_scope"] = "current_run" if current_run else "project_history"
+        response["status_label"] = "Current run" if current_run else "Persisted project history"
+        response["project_history"] = project_history
+        return self._with_m07_consent(response)
+
+    def _begin_m07_run_metrics(self, run_id: str) -> None:
+        baseline = self._persisted_attempt_metrics()
+        with self._lock:
+            snapshot = self._m07_consent_snapshot or {}
+            cached = snapshot.get("cached", 0)
+            validated = snapshot.get("validated", 0)
+            scope_ids = snapshot.get("scope_ids", [])
+            window_ids = snapshot.get("window_ids", [])
+            self._m07_run_id = run_id
+            self._m07_run_baseline = baseline
+            self._m07_run_progress = None
+            self._m07_run_started_at = time.monotonic()
+            self._m07_run_elapsed_seconds = None
+            self._m07_run_cache_hits = (
+                cached if isinstance(cached, int) and not isinstance(cached, bool) else 0
+            ) + (validated if isinstance(validated, int) and not isinstance(validated, bool) else 0)
+            self._m07_run_selected_ids = tuple(
+                item
+                for values in (scope_ids, window_ids)
+                if isinstance(values, list)
+                for item in values
+                if isinstance(item, str)
+            )
+
+    def _clear_m07_run_metrics(self) -> None:
+        with self._lock:
+            self._clear_m07_run_metrics_locked()
+
+    def _clear_m07_run_metrics_locked(self) -> None:
+        self._m07_run_id = None
+        self._m07_run_baseline = None
+        self._m07_run_progress = None
+        self._m07_run_started_at = None
+        self._m07_run_elapsed_seconds = None
+        self._m07_run_cache_hits = 0
+        self._m07_run_selected_ids = ()
+
+    def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        node_offset = bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000)
+        node_limit = bounded_int(body, "node_limit", default=30, minimum=1, maximum=30)
+        edge_offset = bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000)
+        edge_limit = bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180)
+        edge_cursor = optional_string(body, "edge_cursor", maximum=80)
+        result, _route, _facts = self._m08_query()
+        if result.story_map is None:
+            return result.to_dict()
+        return result.story_map.page(
+            node_offset=node_offset,
+            node_limit=node_limit,
+            edge_offset=edge_offset,
+            edge_limit=edge_limit,
+            edge_cursor=edge_cursor,
+        )
+
+    def _m08_ai_story_detail(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        element_id = require_string(body, "element_id")
+        route_node_offset = bounded_int(
+            body, "route_node_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        route_node_limit = bounded_int(body, "route_node_limit", default=30, minimum=1, maximum=30)
+        route_edge_offset = bounded_int(
+            body, "route_edge_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        route_edge_limit = bounded_int(
+            body, "route_edge_limit", default=180, minimum=1, maximum=180
+        )
+        evidence_offset = bounded_int(
+            body, "evidence_offset", default=0, minimum=0, maximum=2_000_000
+        )
+        evidence_limit = bounded_int(body, "evidence_limit", default=60, minimum=1, maximum=60)
+        result, _route, _facts = self._m08_query()
+        if result.story_map is None:
+            return result.to_dict()
+        story_map = result.story_map
+        try:
+            detail = story_map.detail(
+                element_id,
+                route_node_offset=route_node_offset,
+                route_node_limit=route_node_limit,
+                route_edge_offset=route_edge_offset,
+                route_edge_limit=route_edge_limit,
+                evidence_offset=evidence_offset,
+                evidence_limit=evidence_limit,
+            )
+        except KeyError as exc:
+            raise ApiProblem(
+                404, "m08_element_not_found", "The AI Story Map element is unavailable."
+            ) from exc
+        node = next((item for item in story_map.nodes if item.id == element_id), None)
+        edge = next((item for item in story_map.edges if item.id == element_id), None)
+        if node is not None:
+            predecessor_ids = [
+                item.source_id for item in story_map.edges if item.target_id == node.id
+            ]
+            successor_ids = [
+                item.target_id for item in story_map.edges if item.source_id == node.id
+            ]
+        else:
+            assert edge is not None
+            predecessor_ids = [edge.source_id]
+            successor_ids = [edge.target_id]
+        detail["predecessor_ids"] = predecessor_ids
+        detail["successor_ids"] = successor_ids
+        detail["local_path"] = [*predecessor_ids, element_id, *successor_ids]
+        with Project.open(self._project()) as project:
+            qualified = {
+                str(item["id"]): item
+                for item in (
+                    _m08_qualify_evidence(project, cast(Mapping[str, object], evidence))
+                    for evidence in cast(list[object], detail["evidence"])
+                    if isinstance(evidence, Mapping) and isinstance(evidence.get("id"), str)
+                )
+            }
+        detail["evidence"] = [
+            qualified.get(str(item.get("id")), item)
+            for item in cast(list[dict[str, object]], detail["evidence"])
+        ]
+        return detail
+
+    def _m08_comparison(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        ai = self._m08_ai_story_page({**body, "edge_offset": 0})
+        technical = self._m07_workflow().route_map(
+            offset=bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000),
+            limit=bounded_int(body, "node_limit", default=30, minimum=1, maximum=30),
+            edge_offset=bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000),
+            edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
+        )
+        authority_hash = str(technical["authority_hash"])
+        if ai.get("authority_hash") != authority_hash:
+            raise ApiProblem(
+                409,
+                "m08_authority_changed",
+                "The route authority changed while preparing the comparison.",
+            )
+        return {
+            "schema_version": 1,
+            "authority_hash": authority_hash,
+            "default_view": "ai_story_map" if ai.get("status") == "available" else "technical",
+            "ai": ai,
+            "technical": technical,
+            "authority_unchanged": True,
+        }
+
+    def _m07_prepared_contract(self, raw: dict[str, object]) -> dict[str, object]:
+        scope_ids = _object_strings(raw.get("scope_ids"), "prepared scope_ids")
+        window_ids = _object_strings(raw.get("window_ids"), "prepared window_ids")
+        windows = _object_records(raw.get("windows"), "prepared windows")
+        model = raw.get("model")
+        budgets = raw.get("budgets")
+        if model != M07_MODEL_IDENTITY or not isinstance(budgets, dict):
+            raise ValueError("the prepared provider binding is invalid")
+        exact_fields(
+            cast(dict[str, JsonValue], budgets),
+            allowed=M07_BUDGET_FIELDS,
+            required=M07_BUDGET_FIELDS,
+            name="prepared budgets",
+        )
+        authority_hash = _object_sha256(raw.get("authority_hash"), "prepared authority_hash")
+        selected_ids = {*scope_ids, *window_ids}
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            if not isinstance(route, dict):
+                raise ValueError("the project has no valid M07 route map")
+            checkpoints = project.m07_model_service().checkpoints(generation=authority_hash)
+            source_coverage = project.source_coverage()
+        cached = sum(
+            item.scope_id in selected_ids and item.status is CheckpointStatus.CACHED
+            for item in checkpoints
+        )
+        validated = sum(
+            item.scope_id in selected_ids and item.status is CheckpointStatus.VALIDATED
+            for item in checkpoints
+        )
+        return {
+            "run_id": _object_string(raw.get("run_id"), "prepared run_id"),
+            "scopes": len(scope_ids) + len(window_ids),
+            "scope_ids": list(scope_ids),
+            "window_ids": list(window_ids),
+            "windows": windows,
+            "selected_counts": _selected_counts(cast(dict[str, object], route), scope_ids, windows),
+            "cached": cached,
+            "validated": validated,
+            "model": dict(M07_MODEL_IDENTITY),
+            "budgets": dict(budgets),
+            "authority_hash": authority_hash,
+            "selection_hash": _object_sha256(raw.get("selection_hash"), "prepared selection_hash"),
+            "recovered_source_acknowledgement": _object_sha256(
+                raw.get("recovered_source_acknowledgement"),
+                "prepared recovered-source acknowledgement",
+            ),
+            "source_coverage": source_coverage,
+            "requires_confirm_cloud": raw.get("requires_confirm_cloud") is True,
+        }
+
+    def _with_m07_consent(self, response: dict[str, object]) -> dict[str, object]:
+        with self._lock:
+            stored = self._m07_consent_snapshot
+            snapshot = None if stored is None else dict(stored)
+        if snapshot is None:
+            empty = json_value(
+                {
+                    "scope_ids": [],
+                    "window_ids": [],
+                    "selected_counts": _empty_selected_counts(),
+                    "cached": 0,
+                    "validated": 0,
+                    "model": dict(M07_MODEL_IDENTITY),
+                    "budgets": dict(M07_DEFAULT_BUDGETS),
+                    "selection_hash": None,
+                    "prepared_authority_hash": None,
+                    "recovered_source_acknowledgement": None,
+                }
+            )
+            if not isinstance(empty, dict):
+                raise TypeError("empty consent snapshot must be an object")
+            snapshot = empty
+        else:
+            cached, validated = _selected_checkpoint_counts(
+                response.get("scope_statuses"),
+                {
+                    *cast(list[str], snapshot["scope_ids"]),
+                    *cast(list[str], snapshot["window_ids"]),
+                },
+            )
+            snapshot["cached"] = cached
+            snapshot["validated"] = validated
+        return {**response, **snapshot}
+
+    def _consume_m07_start_binding(self, actual: dict[str, JsonValue]) -> None:
+        with self._lock:
+            expected = self._m07_start_binding
+            if expected is None or not secrets.compare_digest(
+                cast(str, expected["run_id"]), cast(str, actual["run_id"])
+            ):
+                raise PreparedRunError("the prepared run is missing or stale")
+            self._m07_start_binding = None
+        comparisons = (
+            ("scope_ids", "the start scope_ids do not match the prepared run"),
+            ("window_ids", "the start window_ids do not match the prepared run"),
+            ("budgets", "the start budget does not match the prepared run"),
+            ("selection_hash", "the start selection_hash does not match the prepared run"),
+            ("authority_hash", "the start authority_hash does not match the prepared run"),
+            (
+                "recovered_source_acknowledgement",
+                "the recovered-source acknowledgement does not match the prepared run",
+            ),
+            ("model", "the provider identity does not match the prepared run"),
+        )
+        for name, message in comparisons:
+            if actual[name] != expected[name]:
+                raise PreparedRunError(message)
 
     def _presentation_view(self, body: dict[str, JsonValue]) -> JsonValue:
         raw_level = body.get("level", "arcs")
@@ -680,110 +1337,386 @@ class ProjectApi:
             )
         return json_value(result)
 
-    def _organization(self) -> JsonValue:
-        with Project.open(self._project()) as project:
-            service = StoryOrganizationService(project)
-            drafts = service.drafts(status="pending")
-            return {
-                "id": drafts[0].id if drafts else None,
-                "runs": json_value(service.runs()),
-                "drafts": json_value(drafts),
-                "reviews": {
-                    draft.id: json_value(service.draft_reviews(draft.id)) for draft in drafts
-                },
-                "arcs": json_value(service.arcs()),
-                "events": json_value(service.events()),
-                "edges": json_value(service.event_edges()),
-            }
-
-    def _draft_action(self, body: dict[str, JsonValue], *, apply: bool) -> JsonValue:
-        draft_id = require_string(body, "draft_id")
-        try:
-            with Project.open(self._project()) as project:
-                service = StoryOrganizationService(project)
-                if apply:
-                    service.apply_draft(draft_id)
-                else:
-                    service.discard_draft(draft_id)
-        except KeyError as exc:
-            raise ApiProblem(404, "draft_not_found", "The pending draft is unavailable.") from exc
-        except ValueError as exc:
-            code = "draft_review_incomplete" if apply else "draft_action_invalid"
-            raise ApiProblem(409, code, "The draft action cannot be completed safely.") from exc
-        return {"draft_id": draft_id, "status": "applied" if apply else "discarded"}
-
-    def _review_draft(self, body: dict[str, JsonValue]) -> JsonValue:
-        draft_id = require_string(body, "draft_id")
-        target_kind = require_string(body, "target_kind", maximum=16)
-        target_id = require_string(body, "target_id")
-        decision = require_string(body, "decision", maximum=16)
-        review_kind: Literal["arc", "event"]
-        if target_kind == "arc":
-            review_kind = "arc"
-        elif target_kind == "event":
-            review_kind = "event"
-        else:
-            raise ValueError("invalid draft review")
-        review_decision: Literal["approved", "rejected"]
-        if decision == "approved":
-            review_decision = "approved"
-        elif decision == "rejected":
-            review_decision = "rejected"
-        else:
-            raise ValueError("invalid draft review")
-        try:
-            with Project.open(self._project()) as project:
-                StoryOrganizationService(project).review_draft_group(
-                    draft_id, review_kind, target_id, review_decision
-                )
-        except KeyError as exc:
-            raise ApiProblem(
-                404, "draft_group_not_found", "The pending draft group is unavailable."
-            ) from exc
-        except ValueError as exc:
-            raise ApiProblem(409, "draft_review_invalid", "The draft review is invalid.") from exc
-        return {
-            "draft_id": draft_id,
-            "target_kind": target_kind,
-            "target_id": target_id,
-            "decision": decision,
-        }
-
-    def _organize(self, scope_ids: tuple[str, ...], cancelled: threading.Event) -> None:
-        """Reuse the accepted M05 workflow; provider construction occurs only after consent."""
-
-        from renpy_story_mapper.organization import CodexCliProvider
-        from renpy_story_mapper.ui.organization_workflow import (
-            OrganizationOptions,
-            OrganizationWorkflow,
-        )
-
-        path = self._project()
-        with Project.open(path) as project:
-            workflow = OrganizationWorkflow(project, lambda mode: CodexCliProvider(mode))
-            workflow.organize(
-                scope_ids,
-                OrganizationOptions(),
-                progress=lambda percent, stage: self._organization_progress(percent, stage),
-                cancelled=cancelled.is_set,
-                confirm_cloud=lambda _run_id: True,
-            )
-
-    def _organization_progress(self, percent: int, stage: str) -> None:
-        with self._lock:
-            task = self._task
-        if task is not None and task.kind == "organization":
-            self._progress(task.id, task.kind, stage[:120], max(0, min(99, percent)))
-
     def _m07_progress(self, progress: ProgressSnapshot) -> None:
         with self._lock:
             task = self._task
+            if task is not None and task.kind == "m07_organization":
+                self._m07_run_progress = progress
         if task is not None and task.kind == "m07_organization":
             completed = (
                 progress.validated + progress.fallback + progress.failed + progress.cancelled
             )
             percent = 0 if progress.total == 0 else round(completed * 100 / progress.total)
             self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
+
+
+def _m07_scope_metrics(response: Mapping[str, object]) -> dict[str, object]:
+    scopes = response.get("scopes")
+    scope_counts = response.get("scope_counts")
+    scope_statuses = response.get("scope_statuses")
+    coverage = response.get("coverage")
+    return {
+        "scope": "project_history",
+        "label": "Persisted project history",
+        "status": response.get("status"),
+        "scopes": dict(scopes) if isinstance(scopes, Mapping) else {},
+        "scope_counts": dict(scope_counts) if isinstance(scope_counts, Mapping) else {},
+        "scope_statuses": list(scope_statuses) if isinstance(scope_statuses, list) else [],
+        "coverage": dict(coverage) if isinstance(coverage, Mapping) else {},
+        "ai_coverage": response.get("ai_coverage"),
+        "technical_coverage": response.get("technical_coverage"),
+        "partial": response.get("partial"),
+        "cached": _m07_status_count(scope_statuses, "cached"),
+        "validated": _m07_status_count(scope_statuses, "validated"),
+    }
+
+
+def _m07_status_count(value: object, status: str) -> int:
+    if not isinstance(value, list):
+        return 0
+    return sum(isinstance(item, Mapping) and item.get("status") == status for item in value)
+
+
+def _filter_m07_scope_metrics(response: dict[str, object], selected_ids: tuple[str, ...]) -> None:
+    selected = set(selected_ids)
+    raw_statuses = response.get("scope_statuses")
+    statuses = (
+        [
+            item
+            for item in raw_statuses
+            if isinstance(item, Mapping) and item.get("scope_id") in selected
+        ]
+        if isinstance(raw_statuses, list)
+        else []
+    )
+    counts = {
+        name: _m07_status_count(statuses, name)
+        for name in (
+            "pending",
+            "cached",
+            "in_flight",
+            "validated",
+            "fallback",
+            "failed",
+            "cancelled",
+        )
+    }
+    total = len(selected_ids)
+    pending = counts["pending"] + counts["cached"] + counts["in_flight"]
+    completed = counts["validated"] + counts["fallback"]
+    ai_coverage = 1.0 if total == 0 else counts["validated"] / total
+    technical_coverage = 1.0 if total == 0 else completed / total
+    response["scope_statuses"] = statuses
+    response["scopes"] = {
+        "total": total,
+        "pending": pending,
+        "validated": counts["validated"],
+        "fallback": counts["fallback"],
+        "failed": counts["failed"],
+        "cancelled": counts["cancelled"],
+    }
+    response["scope_counts"] = {
+        "total": total,
+        "pending": counts["pending"],
+        "cached_or_in_flight": counts["cached"] + counts["in_flight"],
+        "validated": counts["validated"],
+        "fallback": counts["fallback"],
+        "failed": counts["failed"],
+        "cancelled": counts["cancelled"],
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "completed": completed,
+        "ratio": 1.0 if total == 0 else completed / total,
+    }
+    response["coverage"] = {"ai": ai_coverage, "technical": technical_coverage}
+    response["ai_coverage"] = ai_coverage
+    response["technical_coverage"] = technical_coverage
+    response["partial"] = completed < total or counts["fallback"] > 0
+
+
+def _m08_facts_by_id(project: Project) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    for collection in ("gates", "effects"):
+        for key in project.payload_keys(collection):
+            value = project.payload(collection, key)
+            if not isinstance(value, list):
+                continue
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    result[str(item["id"])] = cast(dict[str, object], item)
+    return result
+
+
+def _m08_qualify_evidence(project: Project, evidence: Mapping[str, object]) -> dict[str, object]:
+    """Attach relative qualified line evidence without exposing local filesystem paths."""
+
+    result = dict(evidence)
+    source = evidence.get("source")
+    if not isinstance(source, Mapping):
+        graph_sources: dict[str, Mapping[str, object]] = {}
+        for collection in ("m01_graph", "m06_control_flow"):
+            graph = project.payload(collection, "authoritative")
+            if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
+                continue
+            for node in graph["nodes"]:
+                if (
+                    isinstance(node, dict)
+                    and isinstance(node.get("id"), str)
+                    and isinstance(node.get("source"), Mapping)
+                ):
+                    graph_sources.setdefault(str(node["id"]), node["source"])
+        payload = evidence.get("payload")
+        if isinstance(payload, Mapping):
+            source = next(
+                (
+                    graph_sources[candidate]
+                    for candidate in (payload.get("source"), payload.get("target"))
+                    if isinstance(candidate, str) and candidate in graph_sources
+                ),
+                None,
+            )
+    if not isinstance(source, Mapping):
+        raise storage.ProjectCorruptError("route evidence has no qualified source location")
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    if (
+        not isinstance(path, str)
+        or Path(path).is_absolute()
+        or not isinstance(start, Mapping)
+        or not isinstance(end, Mapping)
+        or not isinstance(start.get("line"), int)
+        or isinstance(start.get("line"), bool)
+        or not isinstance(end.get("line"), int)
+        or isinstance(end.get("line"), bool)
+    ):
+        raise storage.ProjectCorruptError("route evidence has invalid qualified source lines")
+    derivation = next(
+        (item for item in project.source_derivations() if item.get("source_path") == path),
+        None,
+    )
+    result.update(
+        {
+            "source_path": path,
+            "start_line": int(start["line"]),
+            "end_line": int(end["line"]),
+            "line_basis": (
+                derivation.get("line_basis") if derivation is not None else "physical_source"
+            ),
+            "provenance": None if derivation is None else dict(derivation),
+        }
+    )
+    return result
+
+
+def _bounded_window_requests(
+    body: dict[str, JsonValue],
+) -> tuple[dict[str, object], ...]:
+    requests = object_tuple(body, "window_requests", maximum_items=MAX_M07_SELECTION_ITEMS)
+    result: list[dict[str, object]] = []
+    expected_limits = {
+        "node_ids": MAX_WINDOW_NODES,
+        "internal_edge_ids": MAX_WINDOW_INTERNAL_EDGES,
+        "boundary_node_ids": MAX_WINDOW_BOUNDARY_EDGES,
+        "boundary_edge_ids": MAX_WINDOW_BOUNDARY_EDGES,
+        "evidence_ids": MAX_WINDOW_EVIDENCE,
+        "fact_ids": MAX_WINDOW_FACTS,
+    }
+    for request in requests:
+        exact_fields(
+            request,
+            allowed=("node_ids", "entry_node_id", "exit_node_id", "expected"),
+            required=("expected",),
+            name="bounded-window request",
+        )
+        if "node_ids" in request:
+            required_string_tuple(request, "node_ids", maximum_items=MAX_WINDOW_NODES)
+        else:
+            require_string(request, "entry_node_id")
+            require_string(request, "exit_node_id")
+        expected = object_value(request, "expected")
+        exact_fields(
+            expected,
+            allowed=M07_EXPECTED_WINDOW_FIELDS,
+            required=M07_EXPECTED_WINDOW_FIELDS,
+            name="bounded-window expected",
+        )
+        require_string(expected, "id", maximum=128)
+        for key, maximum in expected_limits.items():
+            required_string_tuple(expected, key, maximum_items=maximum)
+        _sha256(expected, "input_hash")
+        _sha256(expected, "authority_hash")
+        result.append(cast(dict[str, object], request))
+    return tuple(result)
+
+
+def _sha256(body: dict[str, JsonValue], name: str) -> str:
+    return _object_sha256(body.get(name), name)
+
+
+def _object_sha256(value: object, name: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _object_string(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 512:
+        raise ValueError(f"{name} must be a non-empty bounded string")
+    return value
+
+
+def _object_strings(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > MAX_M07_SELECTION_ITEMS:
+        raise ValueError(f"{name} must be a bounded string array")
+    result = tuple(_object_string(item, name) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} must contain unique strings")
+    return result
+
+
+def _object_records(value: object, name: str) -> list[dict[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"{name} must be an object array")
+    return [cast(dict[str, object], item) for item in value]
+
+
+def _selected_counts(
+    route: dict[str, object],
+    scope_ids: tuple[str, ...],
+    windows: list[dict[str, object]],
+) -> dict[str, int]:
+    scopes = {
+        _object_string(item.get("id"), "route scope id"): item
+        for item in _object_records(route.get("scopes"), "route scopes")
+    }
+    edges = {
+        _object_string(item.get("id"), "route edge id"): item
+        for item in _object_records(route.get("edges"), "route edges")
+    }
+    nodes: set[str] = set()
+    internal_edges: set[str] = set()
+    boundary_nodes: set[str] = set()
+    boundary_edges: set[str] = set()
+    evidence: set[str] = set()
+    facts: set[str] = set()
+    for scope_id in scope_ids:
+        scope = scopes.get(scope_id)
+        if scope is None:
+            raise ValueError("prepared route scope is unavailable")
+        nodes.update(_record_ids(scope, "node_ids", MAX_WINDOW_NODES))
+        internal_edges.update(
+            _record_ids(
+                scope,
+                "edge_ids",
+                MAX_WINDOW_INTERNAL_EDGES + MAX_WINDOW_BOUNDARY_EDGES,
+            )
+        )
+        evidence.update(_record_ids(scope, "evidence_ids", MAX_WINDOW_EVIDENCE))
+    for window in windows:
+        nodes.update(_record_ids(window, "node_ids", MAX_WINDOW_NODES))
+        internal_edges.update(_record_ids(window, "internal_edge_ids", MAX_WINDOW_INTERNAL_EDGES))
+        boundary_nodes.update(_record_ids(window, "boundary_node_ids", MAX_WINDOW_BOUNDARY_EDGES))
+        boundary_edges.update(_record_ids(window, "boundary_edge_ids", MAX_WINDOW_BOUNDARY_EDGES))
+        evidence.update(_record_ids(window, "evidence_ids", MAX_WINDOW_EVIDENCE))
+        facts.update(_record_ids(window, "fact_ids", MAX_WINDOW_FACTS))
+    for edge_id in internal_edges | boundary_edges:
+        edge = edges.get(edge_id)
+        if edge is None:
+            raise ValueError("prepared route edge is unavailable")
+        facts.update(_record_ids(edge, "gate_ids", MAX_WINDOW_FACTS))
+        facts.update(_record_ids(edge, "effect_ids", MAX_WINDOW_FACTS))
+    return {
+        "work_units": len(scope_ids) + len(windows),
+        "deterministic_scopes": len(scope_ids),
+        "windows": len(windows),
+        "nodes": len(nodes),
+        "internal_edges": len(internal_edges),
+        "boundary_nodes": len(boundary_nodes),
+        "boundary_edges": len(boundary_edges),
+        "evidence": len(evidence),
+        "facts": len(facts),
+    }
+
+
+def _record_ids(record: dict[str, object], name: str, maximum: int) -> tuple[str, ...]:
+    value = record.get(name)
+    if not isinstance(value, list) or len(value) > maximum:
+        raise ValueError(f"{name} must be a bounded string array")
+    result = tuple(_object_string(item, name) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} must contain unique strings")
+    return result
+
+
+def _empty_selected_counts() -> dict[str, int]:
+    return {
+        "work_units": 0,
+        "deterministic_scopes": 0,
+        "windows": 0,
+        "nodes": 0,
+        "internal_edges": 0,
+        "boundary_nodes": 0,
+        "boundary_edges": 0,
+        "evidence": 0,
+        "facts": 0,
+    }
+
+
+def _consent_snapshot(prepared: dict[str, object]) -> dict[str, JsonValue]:
+    value = json_value(
+        {
+            "scope_ids": prepared["scope_ids"],
+            "window_ids": prepared["window_ids"],
+            "selected_counts": prepared["selected_counts"],
+            "cached": prepared["cached"],
+            "validated": prepared["validated"],
+            "model": prepared["model"],
+            "budgets": prepared["budgets"],
+            "selection_hash": prepared["selection_hash"],
+            "prepared_authority_hash": prepared["authority_hash"],
+            "recovered_source_acknowledgement": prepared["recovered_source_acknowledgement"],
+        }
+    )
+    if not isinstance(value, dict):
+        raise TypeError("prepared consent snapshot must be an object")
+    return value
+
+
+def _strict_start_binding(prepared: dict[str, object]) -> dict[str, JsonValue]:
+    value = json_value(
+        {
+            "run_id": prepared["run_id"],
+            "scope_ids": prepared["scope_ids"],
+            "window_ids": prepared["window_ids"],
+            "selection_hash": prepared["selection_hash"],
+            "authority_hash": prepared["authority_hash"],
+            "recovered_source_acknowledgement": prepared["recovered_source_acknowledgement"],
+            "model": prepared["model"],
+            "budgets": prepared["budgets"],
+        }
+    )
+    if not isinstance(value, dict):
+        raise TypeError("strict start binding must be an object")
+    return value
+
+
+def _selected_checkpoint_counts(raw_statuses: object, selected_ids: set[str]) -> tuple[int, int]:
+    if not isinstance(raw_statuses, list):
+        return 0, 0
+    cached = 0
+    validated = 0
+    for item in raw_statuses:
+        if not isinstance(item, dict) or item.get("scope_id") not in selected_ids:
+            continue
+        cached += item.get("status") == CheckpointStatus.CACHED.value
+        validated += item.get("status") == CheckpointStatus.VALIDATED.value
+    return cached, validated
 
 
 def _story_view_node(
@@ -824,9 +1757,7 @@ def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
 
 
-def _budget_policy(
-    body: dict[str, JsonValue], *, with_finite_defaults: bool
-) -> BudgetPolicy:
+def _budget_policy(body: dict[str, JsonValue], *, with_finite_defaults: bool) -> BudgetPolicy:
     hard_seconds = optional_bounded_int(body, "hard_seconds", minimum=1, maximum=7_200)
     hard_tokens = optional_bounded_int(body, "hard_tokens", minimum=1, maximum=40_000_000)
     hard_calls = optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000)
@@ -837,9 +1768,7 @@ def _budget_policy(
     return BudgetPolicy(
         soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
         hard_seconds=hard_seconds,
-        soft_tokens=optional_bounded_int(
-            body, "soft_tokens", minimum=1, maximum=20_000_000
-        ),
+        soft_tokens=optional_bounded_int(body, "soft_tokens", minimum=1, maximum=20_000_000),
         hard_tokens=hard_tokens,
         hard_calls=hard_calls,
     )

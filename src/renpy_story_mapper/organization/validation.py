@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import cast
 
 from renpy_story_mapper.organization.contracts import (
@@ -62,6 +63,82 @@ def _text(value: object, name: str, maximum: int | None = None) -> str:
     return value
 
 
+def _ownership_map(
+    entries: object,
+    name: str,
+    *,
+    allowed_keys: set[str],
+    allowed_values: frozenset[str],
+) -> dict[str, frozenset[str]]:
+    if not isinstance(entries, tuple):
+        raise _reject(f"{name} ownership is malformed")
+    result: dict[str, frozenset[str]] = {}
+    for entry in entries:
+        if (
+            not isinstance(entry, tuple)
+            or len(entry) != 2
+            or not isinstance(entry[0], str)
+            or not entry[0]
+            or not isinstance(entry[1], tuple)
+            or any(not isinstance(value, str) or not value for value in entry[1])
+        ):
+            raise _reject(f"{name} ownership is malformed")
+        key, values = entry
+        if key in result or key not in allowed_keys:
+            raise _reject(f"{name} ownership has an unknown or duplicate subject")
+        if len(set(values)) != len(values) or set(values) - allowed_values:
+            raise _reject(f"{name} ownership references unknown or duplicate authority")
+        result[key] = frozenset(values)
+    return result
+
+
+def _ownership_constraints(
+    request: OrganizationRequest,
+) -> tuple[
+    Mapping[str, frozenset[str]],
+    Mapping[str, frozenset[str]],
+    Mapping[str, frozenset[str]],
+    Mapping[str, frozenset[str]],
+]:
+    constraints = request.constraints
+    members = set(constraints.ordered_member_ids)
+    member_evidence = _ownership_map(
+        constraints.member_evidence_ids,
+        "member evidence",
+        allowed_keys=members,
+        allowed_values=constraints.evidence_ids,
+    )
+    member_facts = _ownership_map(
+        constraints.member_fact_ids,
+        "member fact",
+        allowed_keys=members,
+        allowed_values=constraints.fact_ids,
+    )
+    fact_evidence = _ownership_map(
+        constraints.fact_evidence_ids,
+        "fact evidence",
+        allowed_keys=set(constraints.fact_ids),
+        allowed_values=constraints.evidence_ids,
+    )
+    member_characters = _ownership_map(
+        constraints.member_character_names,
+        "member character",
+        allowed_keys=members,
+        allowed_values=constraints.character_names,
+    )
+    for edge in constraints.edge_ownership:
+        if (
+            not edge.source_id
+            or not edge.target_id
+            or len(set(edge.evidence_ids)) != len(edge.evidence_ids)
+            or len(set(edge.fact_ids)) != len(edge.fact_ids)
+            or set(edge.evidence_ids) - constraints.evidence_ids
+            or set(edge.fact_ids) - constraints.fact_ids
+        ):
+            raise _reject("edge ownership references unknown or duplicate authority")
+    return member_evidence, member_facts, fact_evidence, member_characters
+
+
 def validate_result(payload: object, request: OrganizationRequest) -> OrganizationChunkResult:
     """Reject unknown authority, invented IDs/facts, gaps, duplicates, and order crossings."""
     if not isinstance(payload, dict) or set(payload) != _ROOT_KEYS:
@@ -77,6 +154,9 @@ def validate_result(payload: object, request: OrganizationRequest) -> Organizati
 
     constraints = request.constraints
     allowed = set(constraints.ordered_member_ids)
+    member_evidence, member_facts, fact_evidence, member_characters = (
+        _ownership_constraints(request)
+    )
     if set(ungrouped) - allowed:
         raise _reject("ungrouped IDs include an unknown ID")
     order = {member_id: index for index, member_id in enumerate(constraints.ordered_member_ids)}
@@ -114,13 +194,53 @@ def validate_result(payload: object, request: OrganizationRequest) -> Organizati
         )
         if set(facts) - constraints.fact_ids:
             raise _reject("a promoted fact ID was invented")
+        group_members = set(members)
+        support_by_member = {
+            member: set(member_evidence.get(member, ())) for member in members
+        }
+        fact_members: dict[str, set[str]] = {}
+        fact_support: dict[str, set[str]] = {}
+        for member in members:
+            direct_evidence = set(member_evidence.get(member, ()))
+            for fact_id in member_facts.get(member, ()):
+                fact_members.setdefault(fact_id, set()).add(member)
+                fact_support.setdefault(fact_id, set()).update(direct_evidence)
+        for edge in constraints.edge_ownership:
+            if edge.source_id not in group_members or edge.target_id not in group_members:
+                continue
+            edge_evidence = set(edge.evidence_ids)
+            support_by_member[edge.source_id].update(edge_evidence)
+            support_by_member[edge.target_id].update(edge_evidence)
+            for fact_id in edge.fact_ids:
+                fact_members.setdefault(fact_id, set()).update(
+                    {edge.source_id, edge.target_id}
+                )
+                fact_support.setdefault(fact_id, set()).update(edge_evidence)
+        if set(facts) - set(fact_members):
+            raise _reject("a promoted fact is not attributable to this group's members")
+        for fact_id in facts:
+            fact_evidence_values = set(fact_evidence.get(fact_id, ()))
+            fact_support.setdefault(fact_id, set()).update(fact_evidence_values)
+            for member in fact_members[fact_id]:
+                support_by_member[member].update(fact_evidence_values)
+        group_characters = {
+            character
+            for member in members
+            for character in member_characters.get(member, ())
+        }
+        if set(characters) - group_characters:
+            raise _reject("a character name is not attributable to this group's members")
         importance = _text(raw_group["importance"], "group.importance")
         if importance not in _IMPORTANCE:
             raise _reject("importance is not an allowed value")
         claims_value = raw_group["claims"]
         if not isinstance(claims_value, list):
             raise _reject("claims must be an array")
+        if not claims_value:
+            raise _reject("every group must include evidence-backed claims")
         claims: list[InterpretationClaim] = []
+        cited_evidence: set[str] = set()
+        group_evidence = set().union(*support_by_member.values())
         for claim in claims_value:
             if not isinstance(claim, dict) or set(claim) != _CLAIM_KEYS:
                 raise _reject("a claim contains invalid fields")
@@ -129,12 +249,19 @@ def validate_result(payload: object, request: OrganizationRequest) -> Organizati
                 raise _reject("every interpretation must include evidence IDs")
             if set(evidence) - constraints.evidence_ids:
                 raise _reject("an interpretation references invented evidence")
+            if set(evidence) - group_evidence:
+                raise _reject("an interpretation cites evidence outside its group members")
+            cited_evidence.update(evidence)
             claims.append(
                 InterpretationClaim(
                     text=_text(claim["text"], "claim.text", 320),
                     evidence_ids=tuple(evidence),
                 )
             )
+        if any(not cited_evidence.intersection(support_by_member[member]) for member in members):
+            raise _reject("group claims do not collectively support every member")
+        if any(not cited_evidence.intersection(fact_support[fact_id]) for fact_id in facts):
+            raise _reject("a promoted fact lacks member-linked cited evidence")
         parsed_groups.append(
             OrganizationGroup(
                 id=group_id,

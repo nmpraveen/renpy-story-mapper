@@ -14,6 +14,7 @@ import pytest
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     CodexMode,
+    InterpretationClaim,
     OrganizationChunkResult,
     OrganizationConstraints,
     OrganizationGroup,
@@ -55,6 +56,7 @@ def _request(
             ordered_member_ids=(member,),
             required_member_ids=frozenset({member}),
             evidence_ids=frozenset({f"evidence-{index}"}),
+            member_evidence_ids=((member, (f"evidence-{index}",)),),
         ),
         cloud_consent_run_id=run_id,
         model=M05_CLOUD_MODEL,
@@ -71,7 +73,9 @@ def _result(index: int, *, tokens: int = 10) -> OrganizationChunkResult:
         importance="supporting",
         outcomes=(),
         promoted_fact_ids=(),
-        claims=(),
+        claims=(
+            InterpretationClaim(f"Grounded claim {index}", (f"evidence-{index}",)),
+        ),
         warnings=(),
     )
     return OrganizationChunkResult(
