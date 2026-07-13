@@ -7,6 +7,7 @@ import pytest
 
 from renpy_story_mapper.presentation import PresentationLevel, PresentationRequest
 from renpy_story_mapper.project import (
+    PayloadRecord,
     Project,
     SourceFingerprint,
     create_project,
@@ -14,6 +15,7 @@ from renpy_story_mapper.project import (
 )
 from renpy_story_mapper.project_analysis import persist_story_metadata
 from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.contracts import M07_API_ROUTES
 
 
 def _project(tmp_path: Path) -> Path:
@@ -188,6 +190,18 @@ def test_opening_metadata_project_in_browser_is_provider_free(tmp_path: Path) ->
     path = _project(tmp_path)
     with Project.open(path) as project:
         persist_story_metadata(project, _metadata(), source_paths=("story.rpy",))
+        route = project.payload("m07_route_map", "authoritative")
+        effects = project.payload("effects", "story.rpy")
+        assert isinstance(route, dict) and isinstance(effects, list) and effects
+        assert isinstance(route["edges"], list) and route["edges"]
+        route["edges"][0]["effect_ids"] = [effects[0]["id"]]
+        project.write_payloads(
+            (PayloadRecord("m07_route_map", "authoritative", route, ("story.rpy",)),)
+        )
+        authority_hash = project._require_open().execute(
+            """SELECT payload_hash FROM payloads
+               WHERE collection='m07_route_map' AND record_key='authoritative'"""
+        ).fetchone()[0]
 
     provider_calls: list[object] = []
 
@@ -198,11 +212,42 @@ def test_opening_metadata_project_in_browser_is_provider_free(tmp_path: Path) ->
     api = ProjectApi(_NoDialogs(), m07_provider_factory=forbidden_provider)
     api._project_path = path
     try:
-        page = api.dispatch("POST", "/api/v1/story/view", {"level": "arcs"})
+        page = api.dispatch("POST", M07_API_ROUTES["route_map"], {"limit": 30})
+        assert isinstance(page, dict)
+        titled = next(item for item in page["nodes"] if item.get("scene_title_key") == "start")
+        assert titled["title"] == "Opening Memory"
+
+        details = [
+            api.dispatch("POST", M07_API_ROUTES["detail"], {"element_id": item["id"]})
+            for item in [*page["nodes"], *page["edges"]]
+        ]
     finally:
         api.close()
-    assert page["nodes"][0]["title"] == "Opening Memory"  # type: ignore[index]
+    dialogue = [record for detail in details for record in detail.get("dialogue", [])]
+    facts = [
+        record
+        for detail in details
+        for collection in ("gates", "effects", "facts")
+        for record in detail.get(collection, [])
+    ]
+    assert any(record["speaker_display_name"] == "Wanda" for record in dialogue)
+    assert any(record["variable_display_name"] == "Wanda LUST" for record in facts)
     assert provider_calls == []
+    with Project.open(path) as project:
+        assert project._require_open().execute(
+            """SELECT payload_hash FROM payloads
+               WHERE collection='m07_route_map' AND record_key='authoritative'"""
+        ).fetchone()[0] == authority_hash
+
+
+def test_packaged_browser_consumes_metadata_display_fields() -> None:
+    app = (
+        Path(__file__).parents[1] / "src" / "renpy_story_mapper" / "web" / "static" / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "item.speaker_display_name && item.text" in app
+    assert "item.variable_display_name" in app
+    assert 'addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue")' in app
 
 
 def test_changed_metadata_dependency_invalidates_only_advisory_payload(tmp_path: Path) -> None:

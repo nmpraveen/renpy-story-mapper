@@ -285,26 +285,17 @@ class ProjectApi:
             return json_value(self._m08_comparison(body))
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
-            return json_value(
-                self._m07_workflow().route_map(
-                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
-                    limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
-                    edge_offset=bounded_int(
-                        body,
-                        "edge_offset",
-                        default=0,
-                        minimum=0,
-                        maximum=2_000_000,
-                    ),
-                    edge_limit=bounded_int(
-                        body,
-                        "edge_limit",
-                        default=180,
-                        minimum=1,
-                        maximum=180,
-                    ),
-                )
+            page = self._m07_workflow().route_map(
+                offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
+                limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                edge_offset=bounded_int(
+                    body, "edge_offset", default=0, minimum=0, maximum=2_000_000
+                ),
+                edge_limit=bounded_int(
+                    body, "edge_limit", default=180, minimum=1, maximum=180
+                ),
             )
+            return json_value(self._story_display_route_page(page))
         if method == "POST" and path == M07_API_ROUTES["route_search"]:
             return json_value(
                 self._m07_workflow().search_route(
@@ -316,7 +307,8 @@ class ProjectApi:
         if method == "POST" and path == M07_API_ROUTES["detail"]:
             exact_fields(body, allowed=("element_id",), required=("element_id",))
             try:
-                return json_value(self._m07_workflow().detail(require_string(body, "element_id")))
+                detail = self._m07_workflow().detail(require_string(body, "element_id"))
+                return json_value(self._story_display_detail(detail))
             except KeyError as exc:
                 raise ApiProblem(
                     404, "m07_element_not_found", "The route-map element is unavailable."
@@ -1053,7 +1045,7 @@ class ProjectApi:
             qualified.get(str(item.get("id")), item)
             for item in cast(list[dict[str, object]], detail["evidence"])
         ]
-        return detail
+        return self._story_display_detail(detail)
 
     def _m08_comparison(self, body: dict[str, JsonValue]) -> dict[str, object]:
         ai = self._m08_ai_story_page({**body, "edge_offset": 0})
@@ -1063,6 +1055,7 @@ class ProjectApi:
             edge_offset=bounded_int(body, "edge_offset", default=0, minimum=0, maximum=2_000_000),
             edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
         )
+        technical = self._story_display_route_page(technical)
         authority_hash = str(technical["authority_hash"])
         if ai.get("authority_hash") != authority_hash:
             raise ApiProblem(
@@ -1078,6 +1071,16 @@ class ProjectApi:
             "technical": technical,
             "authority_unchanged": True,
         }
+
+    def _story_display_route_page(self, page: dict[str, object]) -> dict[str, object]:
+        with Project.open(self._project()) as project:
+            context = _story_display_context(project)
+        return _enrich_route_page(page, context)
+
+    def _story_display_detail(self, detail: dict[str, object]) -> dict[str, object]:
+        with Project.open(self._project()) as project:
+            context = _story_display_context(project)
+        return _enrich_story_detail(detail, context)
 
     def _m07_prepared_contract(self, raw: dict[str, object]) -> dict[str, object]:
         scope_ids = _object_strings(raw.get("scope_ids"), "prepared scope_ids")
@@ -1348,6 +1351,196 @@ class ProjectApi:
             )
             percent = 0 if progress.total == 0 else round(completed * 100 / progress.total)
             self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
+
+
+type StoryDisplayContext = tuple[
+    dict[str, str],
+    dict[str, tuple[str, str]],
+    dict[str, str],
+    dict[str, str],
+]
+
+
+def _story_display_context(project: Project) -> StoryDisplayContext:
+    aliases: dict[str, str] = {}
+    state_names: dict[str, tuple[str, str]] = {}
+    scene_titles: dict[str, str] = {}
+    control_labels: dict[str, str] = {}
+
+    metadata = project.payload("story_metadata", "authoritative")
+    if isinstance(metadata, Mapping):
+        characters = metadata.get("characters")
+        if isinstance(characters, list):
+            for item in characters:
+                if not isinstance(item, Mapping):
+                    continue
+                alias, display_name = item.get("alias"), item.get("display_name")
+                if isinstance(alias, str) and isinstance(display_name, str):
+                    aliases[alias] = display_name
+        titles = metadata.get("scene_titles")
+        if isinstance(titles, list):
+            for item in titles:
+                if not isinstance(item, Mapping):
+                    continue
+                key, title = item.get("key"), item.get("title")
+                if isinstance(key, str) and isinstance(title, str):
+                    scene_titles[key] = title
+
+    registry = project.payload("state_registry", "authoritative")
+    if isinstance(registry, list):
+        for item in registry:
+            if not isinstance(item, Mapping):
+                continue
+            name, display_name, category = (
+                item.get("original_name"),
+                item.get("display_name"),
+                item.get("category"),
+            )
+            if all(isinstance(value, str) for value in (name, display_name, category)):
+                state_names[cast(str, name)] = (cast(str, display_name), cast(str, category))
+
+    control_flow = project.payload("m06_control_flow", "authoritative")
+    if isinstance(control_flow, Mapping) and isinstance(control_flow.get("nodes"), list):
+        for item in cast(list[object], control_flow["nodes"]):
+            if not isinstance(item, Mapping) or item.get("kind") != "label":
+                continue
+            node_id, label = item.get("id"), item.get("label")
+            if isinstance(node_id, str) and isinstance(label, str):
+                control_labels[node_id] = label
+    return aliases, state_names, scene_titles, control_labels
+
+
+def _enrich_route_page(
+    page: Mapping[str, object], context: StoryDisplayContext
+) -> dict[str, object]:
+    result = dict(page)
+    nodes = page.get("nodes")
+    if isinstance(nodes, list):
+        result["nodes"] = [
+            _enrich_route_node(item, context) if isinstance(item, Mapping) else item
+            for item in nodes
+        ]
+    return result
+
+
+def _enrich_route_node(
+    node: Mapping[str, object], context: StoryDisplayContext
+) -> dict[str, object]:
+    _aliases, _state_names, scene_titles, control_labels = context
+    result = dict(node)
+    control_id = node.get("control_node_id")
+    label = control_labels.get(control_id) if isinstance(control_id, str) else None
+    title = scene_titles.get(label) if label is not None else None
+    if title is None or node.get("organization") == "ai_interpretation":
+        return result
+    previous_title = result.get("title")
+    result["title"] = title
+    result["scene_title_key"] = label
+    if result.get("summary") == previous_title:
+        result["summary"] = title
+    return result
+
+
+def _enrich_story_detail(
+    detail: Mapping[str, object], context: StoryDisplayContext
+) -> dict[str, object]:
+    aliases, state_names, _scene_titles, _control_labels = context
+    result = dict(detail)
+    element = detail.get("element")
+    if isinstance(element, Mapping):
+        result["element"] = _enrich_route_node(element, context)
+    members = detail.get("member_route_nodes")
+    if isinstance(members, list):
+        result["member_route_nodes"] = [
+            _enrich_route_node(item, context) if isinstance(item, Mapping) else item
+            for item in members
+        ]
+    for collection in ("facts", "gates", "effects"):
+        raw_items = detail.get(collection)
+        if isinstance(raw_items, list):
+            result[collection] = [
+                _enrich_story_fact(item, state_names) if isinstance(item, Mapping) else item
+                for item in raw_items
+            ]
+    enriched_facts = result.get("facts")
+    if isinstance(enriched_facts, list):
+        if "gates" not in detail:
+            result["gates"] = [
+                item
+                for item in enriched_facts
+                if isinstance(item, Mapping) and isinstance(item.get("variables"), list)
+            ]
+        if "effects" not in detail:
+            result["effects"] = [
+                item
+                for item in enriched_facts
+                if isinstance(item, Mapping) and isinstance(item.get("variable"), str)
+            ]
+
+    evidence = detail.get("evidence")
+    if isinstance(evidence, list):
+        enriched_evidence: list[object] = []
+        dialogue: list[dict[str, object]] = []
+        for item in evidence:
+            if not isinstance(item, Mapping):
+                enriched_evidence.append(item)
+                continue
+            enriched, records = _enrich_story_evidence(item, aliases)
+            enriched_evidence.append(enriched)
+            dialogue.extend(records[: max(0, MAX_RESULTS - len(dialogue))])
+        result["evidence"] = enriched_evidence
+        if dialogue:
+            result["dialogue"] = dialogue
+    return result
+
+
+def _enrich_story_fact(
+    fact: Mapping[str, object], state_names: Mapping[str, tuple[str, str]]
+) -> dict[str, object]:
+    result = dict(fact)
+    variable = fact.get("variable")
+    if not isinstance(variable, str):
+        variables = fact.get("variables")
+        variable = variables[0] if isinstance(variables, list) and variables else None
+    display = state_names.get(variable) if isinstance(variable, str) else None
+    if display is not None:
+        result["variable_display_name"] = display[0]
+        result["category"] = display[1]
+    return result
+
+
+def _enrich_story_evidence(
+    evidence: Mapping[str, object], aliases: Mapping[str, str]
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    result = dict(evidence)
+    payload = evidence.get("payload")
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("content"), list):
+        return result, []
+    content: list[object] = []
+    dialogue: list[dict[str, object]] = []
+    evidence_id = str(evidence.get("id", "evidence"))
+    for index, raw in enumerate(cast(list[object], payload["content"])):
+        if not isinstance(raw, Mapping):
+            content.append(raw)
+            continue
+        item = dict(raw)
+        speaker, text = item.get("speaker"), item.get("text")
+        display_name = aliases.get(speaker) if isinstance(speaker, str) else None
+        if display_name is not None and isinstance(text, str):
+            item["speaker_display_name"] = display_name
+            dialogue.append(
+                {
+                    "id": f"{evidence_id}:dialogue:{index}",
+                    "speaker": speaker,
+                    "speaker_display_name": display_name,
+                    "text": text,
+                }
+            )
+        content.append(item)
+    enriched_payload = dict(payload)
+    enriched_payload["content"] = content
+    result["payload"] = enriched_payload
+    return result, dialogue
 
 
 def _m07_scope_metrics(response: Mapping[str, object]) -> dict[str, object]:

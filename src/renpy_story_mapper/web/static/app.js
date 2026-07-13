@@ -246,7 +246,7 @@ function selectItem(item) { state.selectedId = item.id; $("#selectionStatus").te
 function addFactGroup(host, title, items, type) {
   if (!items?.length) return;
   const section = element("section", "fact-group"); section.append(element("h2", "", title)); const list = element("ul", "fact-list");
-  for (const item of items) { const row = element("li", `fact ${type}`); row.append(element("span", "fact-shape", type === "gate" ? "△" : type === "effect" ? "+" : "•"), element("strong", "", item.label || item.caption || item.text || item.id), element("code", "", item.expression || "")); list.append(row); }
+  for (const item of items) { const visibleLabel = item.label || (item.speaker_display_name && item.text ? `${item.speaker_display_name}: ${item.text}` : item.variable_display_name || item.caption || item.text || item.id); const row = element("li", `fact ${type}`); row.append(element("span", "fact-shape", type === "gate" ? "△" : type === "effect" ? "+" : "•"), element("strong", "", visibleLabel), element("code", "", item.expression || "")); list.append(row); }
   section.append(list); host.append(section);
 }
 
