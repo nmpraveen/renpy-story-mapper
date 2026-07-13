@@ -1,8 +1,11 @@
 # M08 Completion Report - Web-Only AI Story Understanding Validation
 
-Date: 2026-07-13  
-Branch: `codex/m08-web-ai-validation`  
-Baseline: `32e9a3c4a41c0eb4acc9b13af966f4b727319d46`  
+Date: 2026-07-13
+
+Branch: `codex/m08-web-ai-validation`
+
+Baseline: `32e9a3c4a41c0eb4acc9b13af966f4b727319d46`
+
 PR state: one M08 pull request will be opened and intentionally left unmerged.
 
 ## Outcome
@@ -107,8 +110,10 @@ All commands ran on Windows with the repository CPython 3.12 virtual environment
 | `scripts\m08_browser_acceptance.py --output artifacts\M08\browser-final-corrected` | 0 | Chrome 100% and 200%; exact consent, pagination, evidence, keyboard, review/apply/discard; no overflow; 0 provider constructions/starts/remote requests |
 | `pip wheel . --no-deps --wheel-dir artifacts\M08\dist-final-corrected` | 0 | Wheel built and inspected |
 
-Wheel: `renpy_story_mapper-0.1.0-py3-none-any.whl`  
-SHA-256: `f3d59e1b6adf8499746b925c2afa3cc676e09df7fbbf7324b6bd46cb505d24a4`  
+Wheel: `renpy_story_mapper-0.1.0-py3-none-any.whl`
+
+SHA-256: `f3d59e1b6adf8499746b925c2afa3cc676e09df7fbbf7324b6bd46cb505d24a4`
+
 Entries: 80. Desktop/GUI/QGraphics matches: zero. Console scripts: only
 `renpy-story-mapper` and `renpy-story-mapper-web`.
 
