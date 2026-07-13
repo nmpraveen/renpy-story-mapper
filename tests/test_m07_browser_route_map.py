@@ -107,7 +107,15 @@ def test_api_fails_closed_on_unbounded_or_incomplete_prepare_binding() -> None:
     assert "DEFAULT_ORGANIZATION_BUDGETS" in api
     for field in ("soft_seconds", "hard_seconds", "soft_tokens", "hard_tokens", "hard_calls"):
         assert field in api
-    assert "Number.isFinite" in api
+    for value in (
+        "soft_seconds: 600",
+        "hard_seconds: 900",
+        "soft_tokens: 1500000",
+        "hard_tokens: 2000000",
+        "hard_calls: 48",
+    ):
+        assert value in api
+    assert "Number.isInteger" in api
     assert "Prepared organization binding is incomplete" in api
     assert "scope_ids: prepared.scope_ids, budgets" in api
     assert "api.startOrganization(state.prepared)" in app

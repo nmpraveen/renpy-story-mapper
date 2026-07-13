@@ -25,7 +25,8 @@ as a labelled continuation portal; the client neither invents the endpoint nor d
 - `GET /api/v1/m07/organization`
 - `POST /api/v1/m07/organization/prepare` with
   `{scope_ids, soft_seconds, hard_seconds, soft_tokens, hard_tokens, hard_calls}`; every budget is
-  finite and positive
+  a positive integer. Defaults are `soft_seconds: 600`, `hard_seconds: 900`,
+  `soft_tokens: 1500000`, `hard_tokens: 2000000`, and `hard_calls: 48`.
 - `POST /api/v1/m07/organization/start` with
   `{run_id, confirm_cloud: true, scope_ids, budgets}` copied exactly from prepare
 - `POST /api/v1/m07/organization/cancel` with `{}`

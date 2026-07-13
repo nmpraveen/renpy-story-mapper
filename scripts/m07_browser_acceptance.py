@@ -263,6 +263,9 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
             route_state = session.evaluate(
                 """(() => { const items=[...document.querySelectorAll('[data-element-id]')]; const active=document.querySelector('[aria-selected="true"]'); const viewport=document.querySelector('#mapViewport'); viewport.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})); return {lanes:[...new Set([...document.querySelectorAll('.station')].map(x=>x.dataset.laneId))],portals:document.querySelectorAll('.continuation-portal').length,items:items.length,before:active?.dataset.elementId,after:document.querySelector('[aria-selected="true"]')?.dataset.elementId}; })()"""
             )
+            session.evaluate("document.querySelector('#organizeButton').click()")
+            session.wait("document.querySelector('#consentDialog').open")
+            session.evaluate("document.querySelector('#consentDialog').close()")
             first_status = session.evaluate("document.querySelector('#pageStatus').textContent")
             if not session.evaluate("!document.querySelector('#nextPage').disabled"):
                 raise AssertionError("Live fixture did not produce a second bounded route page")
@@ -311,6 +314,24 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 for event in session.events
                 if event.get("method") == "Network.requestWillBeSent"
             ]
+            prepare_requests = [
+                event["params"]["request"]
+                for event in session.events
+                if event.get("method") == "Network.requestWillBeSent"
+                and event["params"]["request"]["url"].endswith("/api/v1/m07/organization/prepare")
+            ]
+            if len(prepare_requests) != 1:
+                raise AssertionError("Live acceptance did not issue exactly one prepare request")
+            prepare_body = json.loads(prepare_requests[0].get("postData", "{}"))
+            expected_budgets = {
+                "soft_seconds": 600,
+                "hard_seconds": 900,
+                "soft_tokens": 1_500_000,
+                "hard_tokens": 2_000_000,
+                "hard_calls": 48,
+            }
+            if {key: prepare_body.get(key) for key in expected_budgets} != expected_budgets:
+                raise AssertionError(f"Prepare budget mismatch: {prepare_body}")
             remote = [
                 url for url in requests if urlsplit(url).hostname not in {"127.0.0.1", "localhost"}
             ]
@@ -350,6 +371,7 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 "document_width": detail_state["width"],
                 "client_width": detail_state["client"],
                 "request_count": len(requests),
+                "prepare_budgets": expected_budgets,
                 "remote_requests": 0,
             }
         finally:

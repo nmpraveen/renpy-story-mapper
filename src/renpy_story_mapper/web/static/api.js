@@ -5,12 +5,12 @@ import {
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
-  soft_seconds: 300, hard_seconds: 600, soft_tokens: 15000, hard_tokens: 18000, hard_calls: 16,
+  soft_seconds: 600, hard_seconds: 900, soft_tokens: 1500000, hard_tokens: 2000000, hard_calls: 48,
 });
 const budgetKeys = Object.keys(DEFAULT_ORGANIZATION_BUDGETS);
 
 function exactBudgets(value) {
-  if (!value || budgetKeys.some((key) => !Number.isFinite(value[key]) || value[key] <= 0)) throw new TypeError("Prepared organization budgets are missing or unbounded");
+  if (!value || Object.keys(value).length !== budgetKeys.length || budgetKeys.some((key) => !Number.isInteger(value[key]) || value[key] <= 0)) throw new TypeError("Prepared organization budgets are missing, unbounded, or inexact");
   return Object.fromEntries(budgetKeys.map((key) => [key, value[key]]));
 }
 
