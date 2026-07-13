@@ -22,20 +22,41 @@ as a labelled continuation portal; the client neither invents the endpoint nor d
 
 - `POST /api/v1/m07/route-map` with `{offset, limit, edge_offset, edge_limit}`
 - `POST /api/v1/m07/detail` with `{element_id}`
+- `POST /api/v1/m07/bounded-window/resolve` with exactly one selector:
+  `{node_ids}` or `{entry_node_id, exit_node_id}`. The provider-free response is exactly
+  `{window, selection_request}`. `window` is the complete content-addressed
+  `BoundedNarrativeWindow`; `selection_request` contains the selector plus the complete expected
+  IDs and hashes required by prepare.
 - `GET /api/v1/m07/organization`
 - `POST /api/v1/m07/organization/prepare` with
-  `{scope_ids, soft_seconds, hard_seconds, soft_tokens, hard_tokens, hard_calls}`; every budget is
-  a positive integer. Defaults are `soft_seconds: 600`, `hard_seconds: 900`,
+  `{scope_ids, window_requests, soft_seconds, hard_seconds, soft_tokens, hard_tokens, hard_calls}`.
+  At least one explicit `scope_id` or exact resolver `selection_request` is required. There are at
+  most 64 combined work units; nested window IDs and objects are bounded by the domain limits.
+  Every supplied budget is a positive integer. Defaults are `soft_seconds: 600`, `hard_seconds: 900`,
   `soft_tokens: 1500000`, `hard_tokens: 2000000`, and `hard_calls: 48`.
 - `POST /api/v1/m07/organization/start` with
-  `{run_id, confirm_cloud: true, scope_ids, budgets}` copied exactly from prepare
+  `{run_id, confirm_cloud: true, scope_ids, window_ids, selection_hash, authority_hash,
+  recovered_source_acknowledgement, model, budgets}` copied exactly from prepare. `model` is
+  exactly `{id: "gpt-5.6-luna", reasoning: "high", fast_mode: false}` and `budgets` has exactly the
+  five finite budget fields.
 - `POST /api/v1/m07/organization/cancel` with `{}`
 - `POST /api/v1/m07/assembly/apply` with `{assembly_id}`
 - `POST /api/v1/m07/assembly/discard` with `{assembly_id}`
 
-Prepare does not construct a provider. Start validates that `scope_ids` and `budgets` exactly match
-the fresh, single-use prepared binding before cloud work can begin. The browser polls organization
-status until a terminal status is actually returned.
+Resolve and prepare do not construct a provider. Empty, global/full-map, unknown, duplicate,
+disconnected, oversize, extra-field, and stale window selections fail closed. Start validates all
+nine fields against the fresh, single-use prepared binding and revalidates current route authority
+and recovered-source coverage before cloud work can begin. No start field is inferred or refreshed
+after consent. The browser polls organization status until a terminal status is actually returned.
+
+Prepare returns exactly `run_id`, `scopes`, `scope_ids`, `window_ids`, `windows`,
+`selected_counts`, `cached`, `validated`, `model`, `budgets`, `authority_hash`, `selection_hash`,
+`recovered_source_acknowledgement`, `source_coverage`, and `requires_confirm_cloud`. Counts cover
+selected work units, deterministic scopes, windows, nodes, internal edges, boundary nodes and
+edges, evidence, and facts. Organization status exposes the same consent summary under
+`scope_ids`, `window_ids`, `selected_counts`, `cached`, `validated`, `model`, `budgets`,
+`selection_hash`, `prepared_authority_hash`, and `recovered_source_acknowledgement`; its existing
+`authority_hash` remains the current authoritative route hash.
 
 ## Review and route search
 

@@ -2,10 +2,10 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "44522dd16b105ab96ba3b9dc3fb843f25e12003a5f1e7bc8407d7fbe7a9a8e9a",
-    "api.js": "b38d8ce34bfea0d1b2e87297932ce5870968fb0ffc4c8311e9785176dd418dd2",
+    "API_CONTRACT.md": "6ad053993763b39d712932a9bec7883ac0ab2e235c789fcc72d8ef2902228209",
+    "api.js": "3a70d15f7e464e51c6e0531acfdb0708d65d712503db00b410c81365cff31db5",
     "app.js": "cc730251aaf910c15d440d5b7b61eea9838b97aa07c98b71e25302b27a4c93b2",
-    "contract.js": "d7789e36719435ff467823ba1003835426d00eff6ceaaee53917ee6b970afb98",
+    "contract.js": "96a115c77d166b3adcf5ad2f18b72abdec38d4a2f9427c92bf65734a63eb82ce",
     "graph.js": "73cc844924fc253166a5db7e67abec4e9b3117c7ccd35d37354b61b30eaa9a01",
     "index.html": "4a5064e8774e443f7831fc3855edea3ff5f45b9f83f2ef5ab1b0a07d0c5d5769",
     "styles.css": "7aadab0efa2e6c4c9af9c4ec1ae98477ce285a4522895462f4dddee8fabb69aa"

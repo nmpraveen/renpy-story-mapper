@@ -2,16 +2,35 @@
 
 from __future__ import annotations
 
+import secrets
 import threading
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Final, Literal, Protocol, cast
 
-from renpy_story_mapper.m07_workflow import M07WorkflowService, ProviderFactory
-from renpy_story_mapper.organization.contracts import OrganizationProvider
+from renpy_story_mapper.bounded_window import (
+    MAX_WINDOW_BOUNDARY_EDGES,
+    MAX_WINDOW_EVIDENCE,
+    MAX_WINDOW_FACTS,
+    MAX_WINDOW_INTERNAL_EDGES,
+    MAX_WINDOW_NODES,
+    BoundedWindowError,
+    build_bounded_narrative_window,
+)
+from renpy_story_mapper.m07_model import CheckpointStatus
+from renpy_story_mapper.m07_workflow import (
+    M07WorkflowService,
+    PreparedRunError,
+    ProviderFactory,
+)
+from renpy_story_mapper.organization.contracts import (
+    M05_CLOUD_MODEL,
+    M05_REASONING_PROFILE,
+    OrganizationProvider,
+)
 from renpy_story_mapper.organization.parallel import BudgetPolicy, ProgressSnapshot, RouteScope
 from renpy_story_mapper.presentation import (
     MAX_RESULTS,
@@ -30,13 +49,18 @@ from renpy_story_mapper.project import (
 from renpy_story_mapper.story_organization import StoryOrganizationService
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
+    M07_PREPARE_REQUEST_FIELDS,
+    M07_START_REQUEST_FIELDS,
+    M07_WINDOW_RESOLVE_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
     TaskStatus,
     boolean,
     bounded_int,
+    exact_fields,
     json_value,
+    object_tuple,
     object_value,
     optional_bounded_int,
     optional_string,
@@ -45,6 +69,39 @@ from renpy_story_mapper.web.contracts import (
     string_tuple,
 )
 from renpy_story_mapper.web.state import UserStateStore
+
+MAX_M07_SELECTION_ITEMS: Final = 64
+M07_BUDGET_FIELDS: Final = (
+    "soft_seconds",
+    "hard_seconds",
+    "soft_tokens",
+    "hard_tokens",
+    "hard_calls",
+)
+M07_MODEL_FIELDS: Final = ("id", "reasoning", "fast_mode")
+M07_EXPECTED_WINDOW_FIELDS: Final = (
+    "id",
+    "node_ids",
+    "internal_edge_ids",
+    "boundary_node_ids",
+    "boundary_edge_ids",
+    "evidence_ids",
+    "fact_ids",
+    "input_hash",
+    "authority_hash",
+)
+M07_MODEL_IDENTITY: Final[dict[str, JsonValue]] = {
+    "id": M05_CLOUD_MODEL,
+    "reasoning": M05_REASONING_PROFILE,
+    "fast_mode": False,
+}
+M07_DEFAULT_BUDGETS: Final[dict[str, JsonValue]] = {
+    "soft_seconds": 600,
+    "hard_seconds": 900,
+    "soft_tokens": 1_500_000,
+    "hard_tokens": 2_000_000,
+    "hard_calls": 48,
+}
 
 
 class ApiProblem(Exception):
@@ -109,6 +166,8 @@ class ProjectApi:
         self._m07_provider_factory = m07_provider_factory or _default_m07_provider_factory
         self._m07_service: M07WorkflowService | None = None
         self._m07_service_path: Path | None = None
+        self._m07_consent_snapshot: dict[str, JsonValue] | None = None
+        self._m07_start_binding: dict[str, JsonValue] | None = None
 
     def close(self) -> None:
         self.cancel()
@@ -224,6 +283,27 @@ class ProjectApi:
                 raise ApiProblem(
                     404, "m07_element_not_found", "The route-map element is unavailable."
                 ) from exc
+        if method == "POST" and path == M07_API_ROUTES["window_resolve"]:
+            exact_fields(body, allowed=M07_WINDOW_RESOLVE_REQUEST_FIELDS)
+            try:
+                window = build_bounded_narrative_window(
+                    self._m07_route_authority(),
+                    node_ids=string_tuple(body, "node_ids", maximum_items=MAX_WINDOW_NODES),
+                    entry_node_id=optional_string(body, "entry_node_id"),
+                    exit_node_id=optional_string(body, "exit_node_id"),
+                )
+            except ValueError as exc:
+                raise ApiProblem(
+                    400,
+                    "m07_bounded_window_invalid",
+                    "The bounded narrative window selection is invalid.",
+                ) from exc
+            return json_value(
+                {
+                    "window": window.to_dict(),
+                    "selection_request": window.selection_request(),
+                }
+            )
         if method == "GET" and path == M07_API_ROUTES["organization"]:
             with self._lock:
                 task = self._task
@@ -240,38 +320,110 @@ class ProjectApi:
                 status_override=status_override,
             )
             response["refresh"] = (
-                json_value(task)
-                if task is not None and task.kind == "refresh"
-                else None
+                json_value(task) if task is not None and task.kind == "refresh" else None
             )
-            return json_value(response)
+            return json_value(self._with_m07_consent(response))
         if method == "POST" and path == M07_API_ROUTES["prepare"]:
+            exact_fields(body, allowed=M07_PREPARE_REQUEST_FIELDS)
+            scope_ids = string_tuple(body, "scope_ids", maximum_items=MAX_M07_SELECTION_ITEMS)
+            window_requests = _bounded_window_requests(body)
+            if not scope_ids and not window_requests:
+                raise ApiProblem(
+                    400,
+                    "m07_selection_required",
+                    "Select at least one bounded route scope or narrative window.",
+                )
+            if len(scope_ids) + len(window_requests) > MAX_M07_SELECTION_ITEMS:
+                raise ValueError("the selected work-unit count exceeds the API limit")
             budget = _budget_policy(body, with_finite_defaults=True)
             _validate_budget_order(budget)
-            return json_value(
-                self._m07_workflow().prepare(
-                    scope_ids=string_tuple(body, "scope_ids", maximum_items=10_000),
+            try:
+                raw_prepared = self._m07_workflow().prepare(
+                    scope_ids=scope_ids,
+                    window_requests=window_requests,
                     budget=budget,
                 )
-            )
+            except BoundedWindowError as exc:
+                raise ApiProblem(
+                    400,
+                    "m07_bounded_window_invalid",
+                    "The bounded narrative window selection is invalid or stale.",
+                ) from exc
+            prepared_contract = self._m07_prepared_contract(raw_prepared)
+            with self._lock:
+                self._m07_consent_snapshot = _consent_snapshot(prepared_contract)
+                self._m07_start_binding = _strict_start_binding(prepared_contract)
+            return json_value(prepared_contract)
         if method == "POST" and path == M07_API_ROUTES["start"]:
-            workflow = self._m07_workflow()
-            start_budget = _budget_policy(
-                object_value(body, "budgets"), with_finite_defaults=False
+            exact_fields(
+                body,
+                allowed=M07_START_REQUEST_FIELDS,
+                required=M07_START_REQUEST_FIELDS,
             )
+            workflow = self._m07_workflow()
+            budget_body = object_value(body, "budgets")
+            exact_fields(
+                budget_body,
+                allowed=M07_BUDGET_FIELDS,
+                required=M07_BUDGET_FIELDS,
+                name="budgets",
+            )
+            start_budget = _budget_policy(budget_body, with_finite_defaults=False)
             _validate_budget_order(start_budget)
-            prepared = workflow.authorize_start(
-                require_string(body, "run_id"),
-                confirm_cloud=boolean(body, "confirm_cloud"),
-                scope_ids=required_string_tuple(
-                    body, "scope_ids", maximum_items=10_000
-                ),
+            scope_ids = required_string_tuple(
+                body, "scope_ids", maximum_items=MAX_M07_SELECTION_ITEMS
+            )
+            window_ids = required_string_tuple(
+                body, "window_ids", maximum_items=MAX_M07_SELECTION_ITEMS
+            )
+            if not scope_ids and not window_ids:
+                raise ValueError("the start selection cannot be empty")
+            if len(scope_ids) + len(window_ids) > MAX_M07_SELECTION_ITEMS:
+                raise ValueError("the start work-unit count exceeds the API limit")
+            if len(set(scope_ids)) != len(scope_ids) or len(set(window_ids)) != len(window_ids):
+                raise ValueError("start selection IDs must be unique")
+            selection_hash = _sha256(body, "selection_hash")
+            authority_hash = _sha256(body, "authority_hash")
+            recovered_acknowledgement = _sha256(body, "recovered_source_acknowledgement")
+            model = object_value(body, "model")
+            exact_fields(
+                model,
+                allowed=M07_MODEL_FIELDS,
+                required=M07_MODEL_FIELDS,
+                name="model",
+            )
+            if model != M07_MODEL_IDENTITY:
+                raise ValueError("the exact provider model identity is required")
+            run_id = require_string(body, "run_id")
+            confirm_cloud = boolean(body, "confirm_cloud")
+            if confirm_cloud:
+                self._consume_m07_start_binding(
+                    {
+                        "run_id": run_id,
+                        "scope_ids": list(scope_ids),
+                        "window_ids": list(window_ids),
+                        "selection_hash": selection_hash,
+                        "authority_hash": authority_hash,
+                        "recovered_source_acknowledgement": recovered_acknowledgement,
+                        "model": dict(model),
+                        "budgets": dict(budget_body),
+                    }
+                )
+            authorized = workflow.authorize_start(
+                run_id,
+                confirm_cloud=confirm_cloud,
+                scope_ids=scope_ids,
+                window_ids=window_ids,
+                selection_hash=selection_hash,
+                authority_hash=authority_hash,
+                recovered_source_acknowledgement=recovered_acknowledgement,
+                model=cast(dict[str, object], model),
                 budget=start_budget,
             )
 
             def run_m07(cancelled: threading.Event) -> None:
                 workflow.run_prepared(
-                    prepared,
+                    authorized,
                     cancelled=cancelled.is_set,
                     progress=self._m07_progress,
                 )
@@ -281,18 +433,20 @@ class ProjectApi:
                 run_m07,
             )
             response = workflow.status(stage="starting", status_override="running")
-            response["run_id"] = prepared.run_id
+            response["run_id"] = authorized.run_id
             response["task"] = started.get("analysis") if isinstance(started, dict) else None
-            return json_value(response)
+            return json_value(self._with_m07_consent(response))
         if method == "POST" and path == M07_API_ROUTES["cancel"]:
             self.cancel()
             # The packaged browser polls only while status is ``running``.  Keep that
             # lifecycle status until the background boundary durably reports cancellation;
             # advertising ``cancelled`` here would also enable Resume before the old task exits.
             return json_value(
-                self._m07_workflow().status(
-                    stage="cancelling",
-                    status_override="running",
+                self._with_m07_consent(
+                    self._m07_workflow().status(
+                        stage="cancelling",
+                        status_override="running",
+                    )
                 )
             )
         if method == "POST" and path == M07_API_ROUTES["source_acknowledge"]:
@@ -329,7 +483,7 @@ class ProjectApi:
             response = workflow.status(stage="applied", status_override="applied")
             response["assembly_id"] = assembly_id
             response["assembly"] = assembly
-            return json_value(response)
+            return json_value(self._with_m07_consent(response))
         if method == "POST" and path == M07_API_ROUTES["assembly_discard"]:
             workflow = self._m07_workflow()
             assembly_id = require_string(body, "assembly_id")
@@ -345,7 +499,7 @@ class ProjectApi:
                 ) from exc
             response = workflow.status(stage="discarded")
             response["discarded_assembly"] = assembly
-            return json_value(response)
+            return json_value(self._with_m07_consent(response))
         if method == "POST" and path == "/api/v1/story/view":
             return self._presentation_view(body)
         if method == "POST" and path == "/api/v1/story/search":
@@ -497,6 +651,8 @@ class ProjectApi:
             self._source_path = source
             self._m07_service = None
             self._m07_service_path = None
+            self._m07_consent_snapshot = None
+            self._m07_start_binding = None
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -507,6 +663,8 @@ class ProjectApi:
             self._source_path = source
             self._m07_service = None
             self._m07_service_path = None
+            self._m07_consent_snapshot = None
+            self._m07_start_binding = None
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -530,6 +688,122 @@ class ProjectApi:
                 self._m07_service = M07WorkflowService(path, self._m07_provider_factory)
                 self._m07_service_path = path
             return self._m07_service
+
+    def _m07_route_authority(self) -> dict[str, object]:
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+        if not isinstance(route, dict):
+            raise ValueError("the project has no valid M07 route map")
+        return cast(dict[str, object], route)
+
+    def _m07_prepared_contract(self, raw: dict[str, object]) -> dict[str, object]:
+        scope_ids = _object_strings(raw.get("scope_ids"), "prepared scope_ids")
+        window_ids = _object_strings(raw.get("window_ids"), "prepared window_ids")
+        windows = _object_records(raw.get("windows"), "prepared windows")
+        model = raw.get("model")
+        budgets = raw.get("budgets")
+        if model != M07_MODEL_IDENTITY or not isinstance(budgets, dict):
+            raise ValueError("the prepared provider binding is invalid")
+        exact_fields(
+            cast(dict[str, JsonValue], budgets),
+            allowed=M07_BUDGET_FIELDS,
+            required=M07_BUDGET_FIELDS,
+            name="prepared budgets",
+        )
+        authority_hash = _object_sha256(raw.get("authority_hash"), "prepared authority_hash")
+        selected_ids = {*scope_ids, *window_ids}
+        with Project.open(self._project()) as project:
+            route = project.payload("m07_route_map", "authoritative")
+            if not isinstance(route, dict):
+                raise ValueError("the project has no valid M07 route map")
+            checkpoints = project.m07_model_service().checkpoints(generation=authority_hash)
+            source_coverage = project.source_coverage()
+        cached = sum(
+            item.scope_id in selected_ids and item.status is CheckpointStatus.CACHED
+            for item in checkpoints
+        )
+        validated = sum(
+            item.scope_id in selected_ids and item.status is CheckpointStatus.VALIDATED
+            for item in checkpoints
+        )
+        return {
+            "run_id": _object_string(raw.get("run_id"), "prepared run_id"),
+            "scopes": len(scope_ids) + len(window_ids),
+            "scope_ids": list(scope_ids),
+            "window_ids": list(window_ids),
+            "windows": windows,
+            "selected_counts": _selected_counts(cast(dict[str, object], route), scope_ids, windows),
+            "cached": cached,
+            "validated": validated,
+            "model": dict(M07_MODEL_IDENTITY),
+            "budgets": dict(budgets),
+            "authority_hash": authority_hash,
+            "selection_hash": _object_sha256(raw.get("selection_hash"), "prepared selection_hash"),
+            "recovered_source_acknowledgement": _object_sha256(
+                raw.get("recovered_source_acknowledgement"),
+                "prepared recovered-source acknowledgement",
+            ),
+            "source_coverage": source_coverage,
+            "requires_confirm_cloud": raw.get("requires_confirm_cloud") is True,
+        }
+
+    def _with_m07_consent(self, response: dict[str, object]) -> dict[str, object]:
+        with self._lock:
+            stored = self._m07_consent_snapshot
+            snapshot = None if stored is None else dict(stored)
+        if snapshot is None:
+            empty = json_value(
+                {
+                    "scope_ids": [],
+                    "window_ids": [],
+                    "selected_counts": _empty_selected_counts(),
+                    "cached": 0,
+                    "validated": 0,
+                    "model": dict(M07_MODEL_IDENTITY),
+                    "budgets": dict(M07_DEFAULT_BUDGETS),
+                    "selection_hash": None,
+                    "prepared_authority_hash": None,
+                    "recovered_source_acknowledgement": None,
+                }
+            )
+            if not isinstance(empty, dict):
+                raise TypeError("empty consent snapshot must be an object")
+            snapshot = empty
+        else:
+            cached, validated = _selected_checkpoint_counts(
+                response.get("scope_statuses"),
+                {
+                    *cast(list[str], snapshot["scope_ids"]),
+                    *cast(list[str], snapshot["window_ids"]),
+                },
+            )
+            snapshot["cached"] = cached
+            snapshot["validated"] = validated
+        return {**response, **snapshot}
+
+    def _consume_m07_start_binding(self, actual: dict[str, JsonValue]) -> None:
+        with self._lock:
+            expected = self._m07_start_binding
+            if expected is None or not secrets.compare_digest(
+                cast(str, expected["run_id"]), cast(str, actual["run_id"])
+            ):
+                raise PreparedRunError("the prepared run is missing or stale")
+            self._m07_start_binding = None
+        comparisons = (
+            ("scope_ids", "the start scope_ids do not match the prepared run"),
+            ("window_ids", "the start window_ids do not match the prepared run"),
+            ("budgets", "the start budget does not match the prepared run"),
+            ("selection_hash", "the start selection_hash does not match the prepared run"),
+            ("authority_hash", "the start authority_hash does not match the prepared run"),
+            (
+                "recovered_source_acknowledgement",
+                "the recovered-source acknowledgement does not match the prepared run",
+            ),
+            ("model", "the provider identity does not match the prepared run"),
+        )
+        for name, message in comparisons:
+            if actual[name] != expected[name]:
+                raise PreparedRunError(message)
 
     def _presentation_view(self, body: dict[str, JsonValue]) -> JsonValue:
         raw_level = body.get("level", "arcs")
@@ -786,6 +1060,215 @@ class ProjectApi:
             self._progress(task.id, task.kind, "organizing route scopes", min(99, percent))
 
 
+def _bounded_window_requests(
+    body: dict[str, JsonValue],
+) -> tuple[dict[str, object], ...]:
+    requests = object_tuple(body, "window_requests", maximum_items=MAX_M07_SELECTION_ITEMS)
+    result: list[dict[str, object]] = []
+    expected_limits = {
+        "node_ids": MAX_WINDOW_NODES,
+        "internal_edge_ids": MAX_WINDOW_INTERNAL_EDGES,
+        "boundary_node_ids": MAX_WINDOW_BOUNDARY_EDGES,
+        "boundary_edge_ids": MAX_WINDOW_BOUNDARY_EDGES,
+        "evidence_ids": MAX_WINDOW_EVIDENCE,
+        "fact_ids": MAX_WINDOW_FACTS,
+    }
+    for request in requests:
+        exact_fields(
+            request,
+            allowed=("node_ids", "entry_node_id", "exit_node_id", "expected"),
+            required=("expected",),
+            name="bounded-window request",
+        )
+        if "node_ids" in request:
+            required_string_tuple(request, "node_ids", maximum_items=MAX_WINDOW_NODES)
+        else:
+            require_string(request, "entry_node_id")
+            require_string(request, "exit_node_id")
+        expected = object_value(request, "expected")
+        exact_fields(
+            expected,
+            allowed=M07_EXPECTED_WINDOW_FIELDS,
+            required=M07_EXPECTED_WINDOW_FIELDS,
+            name="bounded-window expected",
+        )
+        require_string(expected, "id", maximum=128)
+        for key, maximum in expected_limits.items():
+            required_string_tuple(expected, key, maximum_items=maximum)
+        _sha256(expected, "input_hash")
+        _sha256(expected, "authority_hash")
+        result.append(cast(dict[str, object], request))
+    return tuple(result)
+
+
+def _sha256(body: dict[str, JsonValue], name: str) -> str:
+    return _object_sha256(body.get(name), name)
+
+
+def _object_sha256(value: object, name: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _object_string(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 512:
+        raise ValueError(f"{name} must be a non-empty bounded string")
+    return value
+
+
+def _object_strings(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > MAX_M07_SELECTION_ITEMS:
+        raise ValueError(f"{name} must be a bounded string array")
+    result = tuple(_object_string(item, name) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} must contain unique strings")
+    return result
+
+
+def _object_records(value: object, name: str) -> list[dict[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"{name} must be an object array")
+    return [cast(dict[str, object], item) for item in value]
+
+
+def _selected_counts(
+    route: dict[str, object],
+    scope_ids: tuple[str, ...],
+    windows: list[dict[str, object]],
+) -> dict[str, int]:
+    scopes = {
+        _object_string(item.get("id"), "route scope id"): item
+        for item in _object_records(route.get("scopes"), "route scopes")
+    }
+    edges = {
+        _object_string(item.get("id"), "route edge id"): item
+        for item in _object_records(route.get("edges"), "route edges")
+    }
+    nodes: set[str] = set()
+    internal_edges: set[str] = set()
+    boundary_nodes: set[str] = set()
+    boundary_edges: set[str] = set()
+    evidence: set[str] = set()
+    facts: set[str] = set()
+    for scope_id in scope_ids:
+        scope = scopes.get(scope_id)
+        if scope is None:
+            raise ValueError("prepared route scope is unavailable")
+        nodes.update(_record_ids(scope, "node_ids", MAX_WINDOW_NODES))
+        internal_edges.update(
+            _record_ids(
+                scope,
+                "edge_ids",
+                MAX_WINDOW_INTERNAL_EDGES + MAX_WINDOW_BOUNDARY_EDGES,
+            )
+        )
+        evidence.update(_record_ids(scope, "evidence_ids", MAX_WINDOW_EVIDENCE))
+    for window in windows:
+        nodes.update(_record_ids(window, "node_ids", MAX_WINDOW_NODES))
+        internal_edges.update(_record_ids(window, "internal_edge_ids", MAX_WINDOW_INTERNAL_EDGES))
+        boundary_nodes.update(_record_ids(window, "boundary_node_ids", MAX_WINDOW_BOUNDARY_EDGES))
+        boundary_edges.update(_record_ids(window, "boundary_edge_ids", MAX_WINDOW_BOUNDARY_EDGES))
+        evidence.update(_record_ids(window, "evidence_ids", MAX_WINDOW_EVIDENCE))
+        facts.update(_record_ids(window, "fact_ids", MAX_WINDOW_FACTS))
+    for edge_id in internal_edges | boundary_edges:
+        edge = edges.get(edge_id)
+        if edge is None:
+            raise ValueError("prepared route edge is unavailable")
+        facts.update(_record_ids(edge, "gate_ids", MAX_WINDOW_FACTS))
+        facts.update(_record_ids(edge, "effect_ids", MAX_WINDOW_FACTS))
+    return {
+        "work_units": len(scope_ids) + len(windows),
+        "deterministic_scopes": len(scope_ids),
+        "windows": len(windows),
+        "nodes": len(nodes),
+        "internal_edges": len(internal_edges),
+        "boundary_nodes": len(boundary_nodes),
+        "boundary_edges": len(boundary_edges),
+        "evidence": len(evidence),
+        "facts": len(facts),
+    }
+
+
+def _record_ids(record: dict[str, object], name: str, maximum: int) -> tuple[str, ...]:
+    value = record.get(name)
+    if not isinstance(value, list) or len(value) > maximum:
+        raise ValueError(f"{name} must be a bounded string array")
+    result = tuple(_object_string(item, name) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{name} must contain unique strings")
+    return result
+
+
+def _empty_selected_counts() -> dict[str, int]:
+    return {
+        "work_units": 0,
+        "deterministic_scopes": 0,
+        "windows": 0,
+        "nodes": 0,
+        "internal_edges": 0,
+        "boundary_nodes": 0,
+        "boundary_edges": 0,
+        "evidence": 0,
+        "facts": 0,
+    }
+
+
+def _consent_snapshot(prepared: dict[str, object]) -> dict[str, JsonValue]:
+    value = json_value(
+        {
+            "scope_ids": prepared["scope_ids"],
+            "window_ids": prepared["window_ids"],
+            "selected_counts": prepared["selected_counts"],
+            "cached": prepared["cached"],
+            "validated": prepared["validated"],
+            "model": prepared["model"],
+            "budgets": prepared["budgets"],
+            "selection_hash": prepared["selection_hash"],
+            "prepared_authority_hash": prepared["authority_hash"],
+            "recovered_source_acknowledgement": prepared["recovered_source_acknowledgement"],
+        }
+    )
+    if not isinstance(value, dict):
+        raise TypeError("prepared consent snapshot must be an object")
+    return value
+
+
+def _strict_start_binding(prepared: dict[str, object]) -> dict[str, JsonValue]:
+    value = json_value(
+        {
+            "run_id": prepared["run_id"],
+            "scope_ids": prepared["scope_ids"],
+            "window_ids": prepared["window_ids"],
+            "selection_hash": prepared["selection_hash"],
+            "authority_hash": prepared["authority_hash"],
+            "recovered_source_acknowledgement": prepared["recovered_source_acknowledgement"],
+            "model": prepared["model"],
+            "budgets": prepared["budgets"],
+        }
+    )
+    if not isinstance(value, dict):
+        raise TypeError("strict start binding must be an object")
+    return value
+
+
+def _selected_checkpoint_counts(raw_statuses: object, selected_ids: set[str]) -> tuple[int, int]:
+    if not isinstance(raw_statuses, list):
+        return 0, 0
+    cached = 0
+    validated = 0
+    for item in raw_statuses:
+        if not isinstance(item, dict) or item.get("scope_id") not in selected_ids:
+            continue
+        cached += item.get("status") == CheckpointStatus.CACHED.value
+        validated += item.get("status") == CheckpointStatus.VALIDATED.value
+    return cached, validated
+
+
 def _story_view_node(
     node: PresentationNode,
     *,
@@ -824,9 +1307,7 @@ def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
 
 
-def _budget_policy(
-    body: dict[str, JsonValue], *, with_finite_defaults: bool
-) -> BudgetPolicy:
+def _budget_policy(body: dict[str, JsonValue], *, with_finite_defaults: bool) -> BudgetPolicy:
     hard_seconds = optional_bounded_int(body, "hard_seconds", minimum=1, maximum=7_200)
     hard_tokens = optional_bounded_int(body, "hard_tokens", minimum=1, maximum=40_000_000)
     hard_calls = optional_bounded_int(body, "hard_calls", minimum=1, maximum=10_000)
@@ -837,9 +1318,7 @@ def _budget_policy(
     return BudgetPolicy(
         soft_seconds=optional_bounded_int(body, "soft_seconds", minimum=1, maximum=3_600),
         hard_seconds=hard_seconds,
-        soft_tokens=optional_bounded_int(
-            body, "soft_tokens", minimum=1, maximum=20_000_000
-        ),
+        soft_tokens=optional_bounded_int(body, "soft_tokens", minimum=1, maximum=20_000_000),
         hard_tokens=hard_tokens,
         hard_calls=hard_calls,
     )

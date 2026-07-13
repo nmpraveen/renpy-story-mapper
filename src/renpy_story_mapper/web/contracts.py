@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
-from typing import Final, TypeGuard
+from typing import Final, TypeGuard, cast
 
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -16,6 +17,7 @@ M07_API_ROUTES: Final[dict[str, str]] = {
     "route_map": "/api/v1/m07/route-map",
     "route_search": "/api/v1/m07/route-search",
     "detail": "/api/v1/m07/detail",
+    "window_resolve": "/api/v1/m07/bounded-window/resolve",
     "organization": "/api/v1/m07/organization",
     "prepare": "/api/v1/m07/organization/prepare",
     "start": "/api/v1/m07/organization/start",
@@ -27,15 +29,31 @@ M07_API_ROUTES: Final[dict[str, str]] = {
 }
 M07_ROUTE_MAP_REQUEST_FIELDS: Final = ("offset", "limit", "edge_offset", "edge_limit")
 M07_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
+M07_WINDOW_RESOLVE_REQUEST_FIELDS: Final = (
+    "node_ids",
+    "entry_node_id",
+    "exit_node_id",
+)
 M07_PREPARE_REQUEST_FIELDS: Final = (
     "scope_ids",
+    "window_requests",
     "soft_seconds",
     "hard_seconds",
     "soft_tokens",
     "hard_tokens",
     "hard_calls",
 )
-M07_START_REQUEST_FIELDS: Final = ("run_id", "confirm_cloud", "scope_ids", "budgets")
+M07_START_REQUEST_FIELDS: Final = (
+    "run_id",
+    "confirm_cloud",
+    "scope_ids",
+    "window_ids",
+    "selection_hash",
+    "authority_hash",
+    "recovered_source_acknowledgement",
+    "model",
+    "budgets",
+)
 M07_ROUTE_SEARCH_REQUEST_FIELDS: Final = ("query", "after", "limit")
 M07_SOURCE_ACKNOWLEDGE_REQUEST_FIELDS: Final = ("coverage_token", "acknowledge")
 M07_SCOPE_OVERRIDE_REQUEST_FIELDS: Final = (
@@ -159,3 +177,31 @@ def object_value(body: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
     if not isinstance(value, dict):
         raise ValueError(f"{name} must be an object")
     return value
+
+
+def exact_fields(
+    body: dict[str, JsonValue],
+    *,
+    allowed: Collection[str],
+    required: Collection[str] = (),
+    name: str = "request",
+) -> None:
+    """Reject transport objects that contain unknown fields or omit required ones."""
+
+    unknown = set(body) - set(allowed)
+    missing = set(required) - set(body)
+    if unknown:
+        raise ValueError(f"{name} contains unsupported fields")
+    if missing:
+        raise ValueError(f"{name} is missing required fields")
+
+
+def object_tuple(
+    body: dict[str, JsonValue], name: str, *, maximum_items: int
+) -> tuple[dict[str, JsonValue], ...]:
+    value = body.get(name, [])
+    if not isinstance(value, list) or len(value) > maximum_items:
+        raise ValueError(f"{name} must be a bounded object array")
+    if any(not isinstance(item, dict) for item in value):
+        raise ValueError(f"{name} must contain objects")
+    return tuple(cast(dict[str, JsonValue], item) for item in value)

@@ -1,6 +1,8 @@
 import {
   ENDPOINTS, ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE,
-  assertDetail, assertOrganization, assertRoutePage,
+  assertBoundedWindowResolution, assertDetail, assertOrganization,
+  assertPreparedOrganization, assertRoutePage, assertWindowSelectionRequest,
+  exactOrganizationBudgets,
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -10,8 +12,56 @@ export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
 const budgetKeys = Object.keys(DEFAULT_ORGANIZATION_BUDGETS);
 
 function exactBudgets(value) {
-  if (!value || Object.keys(value).length !== budgetKeys.length || budgetKeys.some((key) => !Number.isInteger(value[key]) || value[key] <= 0)) throw new TypeError("Prepared organization budgets are missing, unbounded, or inexact");
-  return Object.fromEntries(budgetKeys.map((key) => [key, value[key]]));
+  return exactOrganizationBudgets(value);
+}
+
+function uniqueIds(value, label) {
+  if (!Array.isArray(value) || value.length > 64 || value.some((item) => typeof item !== "string" || !item || item.length > 512) || new Set(value).size !== value.length) throw new TypeError(`${label} must be a bounded unique ID array`);
+  return [...value];
+}
+
+function exactKeys(value, keys, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))) throw new TypeError(`${label} has missing or extra fields`);
+  return value;
+}
+
+function exactWindowRequest(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) throw new TypeError("Bounded-window request must be an object");
+  const anchors = Object.hasOwn(request, "entry_node_id") || Object.hasOwn(request, "exit_node_id");
+  exactKeys(request, anchors ? ["entry_node_id", "exit_node_id", "expected"] : ["node_ids", "expected"], "Bounded-window request");
+  const expected = request.expected;
+  const window = {
+    schema_version: 1,
+    id: expected?.id,
+    selection_kind: anchors ? "anchors" : "node_ids",
+    entry_node_id: anchors ? request.entry_node_id : null,
+    exit_node_id: anchors ? request.exit_node_id : null,
+    node_ids: expected?.node_ids,
+    internal_edge_ids: expected?.internal_edge_ids,
+    boundary_node_ids: expected?.boundary_node_ids,
+    boundary_edge_ids: expected?.boundary_edge_ids,
+    evidence_ids: expected?.evidence_ids,
+    fact_ids: expected?.fact_ids,
+    input_hash: expected?.input_hash,
+    authority_hash: expected?.authority_hash,
+  };
+  assertWindowSelectionRequest(request, window);
+  return JSON.parse(JSON.stringify(request));
+}
+
+export function organizationStartPayload(preparedValue) {
+  const prepared = assertPreparedOrganization(preparedValue);
+  return {
+    run_id: prepared.run_id,
+    confirm_cloud: true,
+    scope_ids: [...prepared.scope_ids],
+    window_ids: [...prepared.window_ids],
+    selection_hash: prepared.selection_hash,
+    authority_hash: prepared.authority_hash,
+    recovered_source_acknowledgement: prepared.recovered_source_acknowledgement,
+    model: { ...prepared.model },
+    budgets: exactBudgets(prepared.budgets),
+  };
 }
 
 export class LocalApi {
@@ -63,19 +113,31 @@ export class LocalApi {
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
+  async resolveBoundedWindow(selection) {
+    const anchors = selection && (Object.hasOwn(selection, "entry_node_id") || Object.hasOwn(selection, "exit_node_id"));
+    exactKeys(selection, anchors ? ["entry_node_id", "exit_node_id"] : ["node_ids"], "Bounded-window selector");
+    const body = anchors
+      ? { entry_node_id: selection.entry_node_id, exit_node_id: selection.exit_node_id }
+      : { node_ids: uniqueIds(selection.node_ids, "Bounded-window node_ids") };
+    return assertBoundedWindowResolution(await this.request(ENDPOINTS.boundedWindowResolve, { method: "POST", body }));
+  }
   async organization() { return assertOrganization(await this.request(ENDPOINTS.organization)); }
-  async prepareOrganization(scopeIds = [], budgets = DEFAULT_ORGANIZATION_BUDGETS) {
+  async prepareOrganization(scopeIds = [], windowRequests = [], budgets = DEFAULT_ORGANIZATION_BUDGETS) {
+    const scopes = uniqueIds(scopeIds, "Organization scope_ids");
+    if (!Array.isArray(windowRequests) || windowRequests.length > 64) throw new TypeError("Organization window_requests must be bounded");
+    const windows = windowRequests.map(exactWindowRequest);
+    if (!scopes.length && !windows.length) throw new TypeError("Select a bounded scope or exact narrative window before preparing AI");
+    if (scopes.length + windows.length > 64) throw new TypeError("Organization selection exceeds the work-unit limit");
     const requested = exactBudgets(budgets);
-    const prepared = assertOrganization(await this.request(ENDPOINTS.organizationPrepare, { method: "POST", body: { scope_ids: scopeIds, ...requested } }));
+    const prepared = assertPreparedOrganization(await this.request(ENDPOINTS.organizationPrepare, { method: "POST", body: { scope_ids: scopes, window_requests: windows, ...requested } }));
     const returned = exactBudgets(prepared.budgets);
-    if (budgetKeys.some((key) => returned[key] !== requested[key]) || !Array.isArray(prepared.scope_ids) || !prepared.scope_ids.length) throw new TypeError("Prepared organization binding is incomplete");
+    if (budgetKeys.some((key) => returned[key] !== requested[key])) throw new TypeError("Prepared organization budgets changed in transit");
     return prepared;
   }
   async startOrganization(prepared) {
-    if (!prepared?.run_id || !Array.isArray(prepared.scope_ids) || !prepared.scope_ids.length) throw new TypeError("Prepared organization binding is unavailable");
-    const budgets = exactBudgets(prepared.budgets);
+    const body = organizationStartPayload(prepared);
     return assertOrganization(await this.request(ENDPOINTS.organizationStart, {
-      method: "POST", body: { run_id: prepared.run_id, confirm_cloud: true, scope_ids: prepared.scope_ids, budgets },
+      method: "POST", body,
     }));
   }
   async cancelOrganization() { return assertOrganization(await this.request(ENDPOINTS.organizationCancel, { method: "POST", body: {} })); }
