@@ -145,10 +145,10 @@ class PersistentCheckpointSink:
             raise ValueError("generation cannot be empty")
         self._model: M07ModelService = project.m07_model_service()
         self._cache: StoryOrganizationService = project.organization_service()
+        self._project_path = project.path
         self._generation = generation
         self._config = config
         self._lock = threading.RLock()
-        self._queued_attempts: list[AttemptAccounting] = []
         self._pending_errors: dict[str, str | None] = {}
         self._cache_hits: set[str] = set()
         self._sequence = 0
@@ -226,7 +226,6 @@ class PersistentCheckpointSink:
     ) -> None:
         del message
         with self._lock:
-            self._flush_attempts()
             self._sequence += 1
             self.events.append(
                 OutcomeEvent(
@@ -256,22 +255,56 @@ class PersistentCheckpointSink:
             ordinal = self._next_attempt[scope_id]
             self._next_attempt[scope_id] = ordinal + 1
             attempt_id = _attempt_id(self._generation, scope_id, ordinal)
-            self._queued_attempts.append(
-                AttemptAccounting(
-                    attempt_id=attempt_id,
-                    scope_id=scope_id,
-                    ordinal=ordinal,
-                    outcome=usage.outcome,
-                    calls=1,
-                    input_tokens=usage.input_tokens or 0,
-                    output_tokens=usage.output_tokens or 0,
-                    elapsed_ms=usage.elapsed_ms,
-                )
+            attempt = AttemptAccounting(
+                attempt_id=attempt_id,
+                scope_id=scope_id,
+                ordinal=ordinal,
+                outcome=usage.outcome,
+                calls=1,
+                input_tokens=usage.input_tokens or 0,
+                output_tokens=usage.output_tokens or 0,
+                elapsed_ms=usage.elapsed_ms,
             )
+            connection = storage.connect(self._project_path)
+            try:
+                with storage.transaction(connection):
+                    connection.execute(
+                        """INSERT INTO m07_provider_attempts(
+                           attempt_id,scope_id,ordinal,outcome,calls,input_tokens,output_tokens,
+                           elapsed_ms,cached,created_utc) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            attempt.attempt_id,
+                            attempt.scope_id,
+                            attempt.ordinal,
+                            attempt.outcome,
+                            attempt.calls,
+                            attempt.input_tokens,
+                            attempt.output_tokens,
+                            attempt.elapsed_ms,
+                            int(attempt.cached),
+                            storage.utc_now(),
+                        ),
+                    )
+                    connection.execute(
+                        """UPDATE m07_scope_checkpoints SET attempts=attempts+1,calls=calls+?,
+                           input_tokens=input_tokens+?,output_tokens=output_tokens+?,updated_utc=?
+                           WHERE scope_id=?""",
+                        (
+                            attempt.calls,
+                            attempt.input_tokens,
+                            attempt.output_tokens,
+                            storage.utc_now(),
+                            attempt.scope_id,
+                        ),
+                    )
+            finally:
+                connection.close()
+
+    def flush_attempts(self) -> None:
+        """Attempt records are already committed synchronously by ``attempt``."""
 
     def publish(self, envelope: ScopeEnvelope) -> None:
         with self._lock:
-            self._flush_attempts()
             status = _checkpoint_status(envelope.state)
             checkpoint = self._require_checkpoint(envelope.scope_id)
             if checkpoint.status is status and status is not CheckpointStatus.VALIDATED:
@@ -297,17 +330,11 @@ class PersistentCheckpointSink:
 
     def assemble(self, envelopes: Iterable[ScopeEnvelope]) -> tuple[ScopeEnvelope, ...]:
         with self._lock:
-            self._flush_attempts()
             ordered = tuple(sorted(envelopes, key=lambda item: (item.ordinal, item.scope_id)))
             self.last_assembly = self._model.assemble(
                 generation=self._generation, allow_partial=True
             )
             return ordered
-
-    def _flush_attempts(self) -> None:
-        queued, self._queued_attempts = self._queued_attempts, []
-        for attempt in sorted(queued, key=lambda item: (item.scope_id, item.ordinal)):
-            self._model.record_attempt(attempt)
 
     def _cache_identity(self, identity: str) -> CacheIdentity:
         return self._cache.cache_identity(

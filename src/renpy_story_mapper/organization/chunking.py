@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import deque
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 
 from renpy_story_mapper.organization.contracts import (
@@ -15,7 +15,7 @@ from renpy_story_mapper.organization.contracts import (
     OrganizationConstraints,
     OrganizationRequest,
     OrganizationStage,
-    serialize_organization_prompt,
+    organization_prompts_fit,
 )
 
 MAX_CHARS = MAX_PROMPT_CHARS
@@ -313,15 +313,215 @@ def _event_request(
 
 
 def _request_prompts_fit(request: OrganizationRequest) -> bool:
-    return all(
-        len(serialize_organization_prompt(request, repair=repair)) <= MAX_CHARS
-        for repair in (False, True)
-    )
+    return organization_prompts_fit(request, limit=MAX_CHARS)
 
 
 def _ensure_request_prompts_fit(request: OrganizationRequest) -> None:
     if not _request_prompts_fit(request):
         raise ValueError("The complete organization prompt exceeds the 48,000-character limit.")
+
+
+def partition_organization_request(
+    request: OrganizationRequest,
+) -> tuple[OrganizationRequest, ...]:
+    """Partition an oversized M07 route request by ordered nodes using exact prompts.
+
+    The returned requests retain the logical scope ID while receiving deterministic chunk
+    suffixes. Required members are assigned to exactly one contiguous partition; related route
+    records are filtered to the members they reference. Non-route requests must already fit.
+    """
+
+    if _request_prompts_fit(request):
+        return (request,)
+    nodes = request.payload.get("nodes")
+    events = request.payload.get("events")
+    if not request.constraints.ordered_member_ids:
+        _ensure_request_prompts_fit(request)
+        raise AssertionError("unreachable")
+    if isinstance(nodes, list):
+        builder = _route_partition_request
+        item_name = "route-node"
+        primary = nodes
+    elif isinstance(events, list):
+        builder = _normalized_event_partition_request
+        item_name = "normalized-event"
+        primary = events
+    else:
+        _ensure_request_prompts_fit(request)
+        raise AssertionError("unreachable")
+    node_by_id: dict[str, dict[str, object]] = {}
+    for value in primary:
+        if not isinstance(value, dict) or not isinstance(value.get("id"), str):
+            raise ValueError("Route nodes must be objects with text IDs before partitioning.")
+        node_id = value["id"]
+        if node_id in node_by_id:
+            raise ValueError("Route node IDs must be unique before partitioning.")
+        node_by_id[node_id] = value
+    ordered = request.constraints.ordered_member_ids
+    if any(node_id not in node_by_id for node_id in ordered):
+        raise ValueError("Every ordered route member must have a node payload.")
+
+    partitions: list[OrganizationRequest] = []
+    start = 0
+    while start < len(ordered):
+        best: OrganizationRequest | None = None
+        lower = start + 1
+        upper = len(ordered)
+        while lower <= upper:
+            end = (lower + upper) // 2
+            candidate = builder(request, ordered[start:end], len(partitions) + 1)
+            if _request_prompts_fit(candidate):
+                best = candidate
+                lower = end + 1
+            else:
+                upper = end - 1
+        if best is None:
+            raise ValueError(
+                f"A single complete {item_name} organization prompt exceeds the "
+                "48,000-character limit."
+            )
+        partitions.append(best)
+        start += len(best.constraints.ordered_member_ids)
+    return tuple(partitions)
+
+
+def _normalized_event_partition_request(
+    request: OrganizationRequest, assigned_ids: tuple[str, ...], ordinal: int
+) -> OrganizationRequest:
+    assigned = frozenset(assigned_ids)
+    events = [
+        item
+        for item in _record_list(request.payload, "events")
+        if _record_id(item) in assigned
+    ]
+    connectivity_value = request.payload.get("local_connectivity", [])
+    if not isinstance(connectivity_value, list) or any(
+        not isinstance(item, dict) for item in connectivity_value
+    ):
+        raise ValueError("Normalized local connectivity must be a list of objects.")
+    connectivity = [
+        item for item in connectivity_value if _record_references(item, assigned)
+    ]
+    fact_ids = _referenced_ids(events, request.constraints.fact_ids)
+    evidence_ids = _referenced_ids(events, request.constraints.evidence_ids)
+    character_names = _referenced_ids(events, request.constraints.character_names)
+    payload = dict(request.payload)
+    payload["events"] = events
+    if "local_connectivity" in payload:
+        payload["local_connectivity"] = connectivity
+    return replace(
+        request,
+        chunk_id=f"{request.chunk_id}:part:{ordinal}",
+        payload=payload,
+        constraints=OrganizationConstraints(
+            ordered_member_ids=assigned_ids,
+            required_member_ids=request.constraints.required_member_ids.intersection(assigned),
+            context_member_ids=request.constraints.context_member_ids.intersection(assigned),
+            fact_ids=fact_ids,
+            evidence_ids=evidence_ids,
+            character_names=character_names,
+        ),
+    )
+
+
+def _route_partition_request(
+    request: OrganizationRequest, assigned_ids: tuple[str, ...], ordinal: int
+) -> OrganizationRequest:
+    assigned = frozenset(assigned_ids)
+    nodes = _record_list(request.payload, "nodes")
+    selected_nodes = [item for item in nodes if item["id"] in assigned]
+    edges = [
+        item
+        for item in _record_list(request.payload, "edges")
+        if _record_references(item, assigned)
+    ]
+    available_fact_ids = request.constraints.fact_ids
+    referenced_fact_ids = _referenced_ids((*selected_nodes, *edges), available_fact_ids)
+    facts = [
+        item
+        for item in _record_list(request.payload, "facts")
+        if item["id"] in referenced_fact_ids
+    ]
+    available_evidence_ids = request.constraints.evidence_ids
+    referenced_evidence_ids = _referenced_ids(
+        (*selected_nodes, *edges, *facts), available_evidence_ids
+    )
+    evidence = [
+        item
+        for item in _record_list(request.payload, "evidence")
+        if item["id"] in referenced_evidence_ids
+    ]
+    payload = dict(request.payload)
+    payload.update(
+        {
+            "node_ids": list(assigned_ids),
+            "edge_ids": [_record_id(item) for item in edges],
+            "evidence_ids": [_record_id(item) for item in evidence],
+            "fact_ids": [_record_id(item) for item in facts],
+            "nodes": selected_nodes,
+            "edges": edges,
+            "evidence": evidence,
+            "facts": facts,
+        }
+    )
+    return replace(
+        request,
+        chunk_id=f"{request.chunk_id}:part:{ordinal}",
+        payload=payload,
+        constraints=OrganizationConstraints(
+            ordered_member_ids=assigned_ids,
+            required_member_ids=request.constraints.required_member_ids.intersection(assigned),
+            context_member_ids=request.constraints.context_member_ids.intersection(assigned),
+            fact_ids=frozenset(_record_id(item) for item in facts),
+            evidence_ids=frozenset(_record_id(item) for item in evidence),
+            character_names=request.constraints.character_names,
+        ),
+    )
+
+
+def _record_list(payload: dict[str, object], field: str) -> list[dict[str, object]]:
+    value = payload.get(field, [])
+    if not isinstance(value, list):
+        raise ValueError(f"Route {field} must be a list before partitioning.")
+    records: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise ValueError(f"Route {field} must contain objects with text IDs.")
+        records.append(item)
+    return records
+
+
+def _record_id(record: dict[str, object]) -> str:
+    value = record["id"]
+    assert isinstance(value, str)
+    return value
+
+
+def _record_references(record: dict[str, object], identifiers: frozenset[str]) -> bool:
+    return bool(_referenced_ids((record,), identifiers))
+
+
+def _referenced_ids(
+    values: Sequence[object], identifiers: frozenset[str]
+) -> frozenset[str]:
+    found: set[str] = set()
+
+    def visit(value: object, *, record_id: object = None) -> None:
+        if isinstance(value, str):
+            if value != record_id and value in identifiers:
+                found.add(value)
+        elif isinstance(value, dict):
+            own_id = value.get("id")
+            for key, item in value.items():
+                if key != "id":
+                    visit(item, record_id=own_id)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item, record_id=record_id)
+
+    for value in values:
+        visit(value)
+    return frozenset(found)
 
 
 def _event_payload(

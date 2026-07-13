@@ -316,3 +316,25 @@ def test_retry_continues_stable_attempt_ordinals_after_reopen(tmp_path: Path) ->
         ).fetchall()
         assert [int(row["ordinal"]) for row in rows] == [0, 1]
         assert len({str(row["attempt_id"]) for row in rows}) == 2
+
+
+def test_attempt_is_durable_before_any_terminal_event(tmp_path: Path) -> None:
+    project_path = tmp_path / "attempt-immediate.rsmproj"
+    request = _request("scope-incremental")
+    scope = RouteScope(0, request)
+    with Project.create(project_path) as project:
+        sink = _sink(project, scope, _topology("scope-incremental"))
+        sink.attempt(
+            "scope-incremental",
+            ProviderAttemptUsage(1, 7, "invalid", input_tokens=11, output_tokens=3),
+        )
+        row = project._require_open().execute(
+            "SELECT outcome,calls,input_tokens,output_tokens FROM m07_provider_attempts"
+        ).fetchone()
+        assert row is not None
+        assert tuple(row[key] for key in ("outcome", "calls", "input_tokens", "output_tokens")) == (
+            "invalid",
+            1,
+            11,
+            3,
+        )
