@@ -15,6 +15,7 @@ from typing import Final, Protocol, cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
+from renpy_story_mapper.analysis_phases import ANALYSIS_STATE_SCHEMA_VERSION
 from renpy_story_mapper.bounded_window import (
     MAX_WINDOW_BOUNDARY_EDGES,
     MAX_WINDOW_EVIDENCE,
@@ -830,6 +831,11 @@ class ProjectApi:
             analysis_state = project.payload("m10_analysis_state", "authoritative")
         if not isinstance(analysis_state, dict):
             raise ValueError("the project has no valid M10 generation state")
+        if (
+            analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION
+            or not isinstance(analysis_state.get("source_generation"), str)
+        ):
+            raise ValueError("the project has an incompatible M10 generation state")
         canonical = (
             cast(dict[str, object], raw_canonical)
             if isinstance(raw_canonical, dict)
@@ -837,6 +843,17 @@ class ProjectApi:
             and isinstance(raw_canonical.get("source_generation"), str)
             else None
         )
+        state_canonical_generation = analysis_state.get("canonical_generation")
+        state_canonical_hash = analysis_state.get("canonical_hash")
+        if canonical is not None:
+            canonical_hash = hashlib.sha256(storage.canonical_json(canonical)).hexdigest()
+            if (
+                state_canonical_generation != canonical["source_generation"]
+                or state_canonical_hash != canonical_hash
+            ):
+                raise ValueError("the M10 generation state does not bind the canonical graph")
+        elif state_canonical_generation is not None or state_canonical_hash is not None:
+            raise ValueError("the M10 generation state references an invalid canonical graph")
         projection_reason: str | None = None
         projection = (
             cast(dict[str, object], raw_projection)
@@ -856,11 +873,16 @@ class ProjectApi:
         elif projection["source_generation"] != canonical["source_generation"]:
             projection = None
             projection_reason = "projection_generation_mismatch"
-        elif projection["canonical_graph_hash"] != hashlib.sha256(
-            storage.canonical_json(canonical)
-        ).hexdigest():
+        elif projection["canonical_graph_hash"] != state_canonical_hash:
             projection = None
             projection_reason = "projection_canonical_hash_mismatch"
+        elif (
+            analysis_state.get("simplified_generation") != projection["source_generation"]
+            or analysis_state.get("simplified_canonical_hash")
+            != projection["canonical_graph_hash"]
+        ):
+            projection = None
+            projection_reason = "projection_analysis_state_mismatch"
         return (
             projection,
             canonical,

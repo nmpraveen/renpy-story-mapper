@@ -460,6 +460,8 @@ def _region_detail(
     }
     if region.get("merge_node_id") is not None:
         escape_ids.add(str(region["merge_node_id"]))
+    region_fact_ids = _record_fact_ids(region)
+    fact_ids.update(region_fact_ids)
     for arm in sorted(
         _records(attributes.get("arms"), "canonical region arms"),
         key=_arm_ordinal,
@@ -467,14 +469,15 @@ def _region_detail(
         edge_id = str(arm["edge_id"])
         entry_id = str(arm["entry_node_id"])
         edge = edges.get(edge_id, {})
-        entry = nodes.get(entry_id, {})
-        arm_fact_ids = {
-            *_strings(_attributes(edge).get("gate_ids")),
-            *_strings(_attributes(edge).get("effect_ids")),
-            *_strings(_attributes(entry).get("fact_ids")),
-        }
+        member_ids = {entry_id, *_strings(arm.get("member_node_ids"))}
+        arm_fact_ids = _record_fact_ids(edge)
+        for member_id in member_ids:
+            arm_fact_ids.update(_record_fact_ids(nodes.get(member_id, {})))
+        for candidate in edges.values():
+            if candidate.get("source_id") in member_ids:
+                arm_fact_ids.update(_record_fact_ids(candidate))
         fact_ids.update(arm_fact_ids)
-        escape_ids.update((edge_id, entry_id, *_strings(arm.get("member_node_ids"))))
+        escape_ids.update((edge_id, *member_ids))
         arm_facts = [
             _display_fact(facts[item]) for item in sorted(arm_fact_ids) if item in facts
         ]

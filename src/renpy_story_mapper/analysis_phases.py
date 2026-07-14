@@ -37,12 +37,14 @@ class PhaseBinding:
     phase: str
     source_generation: str
     payloads: tuple[Mapping[str, str], ...]
+    duration_seconds: float
 
     def to_dict(self) -> dict[str, object]:
         return {
             "phase": self.phase,
             "source_generation": self.source_generation,
             "payloads": [dict(item) for item in self.payloads],
+            "duration_seconds": self.duration_seconds,
         }
 
 
@@ -68,6 +70,7 @@ def analysis_state_payload(
     simplified_canonical_hash: str | None = None,
     failure_phase: str | None = None,
     failure_code: str | None = None,
+    failure_duration_seconds: float | None = None,
 ) -> dict[str, object]:
     if (canonical_generation is None) != (canonical_hash is None):
         raise ValueError("canonical generation and hash must be present together")
@@ -108,6 +111,7 @@ def analysis_state_payload(
         value["failure"] = {
             "phase": failure_phase,
             "code": failure_code or "analysis_phase_failed",
+            "duration_seconds": max(0.0, failure_duration_seconds or 0.0),
             "message": "The phase failed safely; available deterministic results were preserved.",
         }
     return value

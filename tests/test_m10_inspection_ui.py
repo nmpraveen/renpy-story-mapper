@@ -7,6 +7,7 @@ import pytest
 
 import renpy_story_mapper.project_analysis as project_analysis
 from renpy_story_mapper.project import (
+    PayloadRecord,
     Project,
     create_ingested_project,
     refresh_ingested_project,
@@ -281,6 +282,20 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     assert detail["proofs"]
     assert detail["canonical_escape_ids"]
 
+    arm_expressions = {
+        str(fact["expression"])
+        for projected_region in projection["regions"]
+        for arm in inspection_detail(
+            projection,
+            canonical,
+            state,
+            view="simplified",
+            element_id=projected_region["canonical_region_id"],
+        )["region"]["ordered_arms"]
+        for fact in arm["facts"]
+    }
+    assert "trust += 1" in arm_expressions
+
     proof_detail = inspection_detail(
         projection,
         canonical,
@@ -437,6 +452,52 @@ def test_stale_projection_is_never_composed_with_newer_canonical_graph(
         )
         assert stale_detail["status"] == "unavailable"
         assert "canonical_records" not in stale_detail
+    finally:
+        api.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("schema_version", 999, "incompatible M10 generation state"),
+        ("canonical_hash", "0" * 64, "does not bind the canonical graph"),
+    ],
+)
+def test_m10_api_rejects_unbound_analysis_state(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    source, project_path = _project(tmp_path)
+    with Project.open(project_path) as project:
+        state = project.payload("m10_analysis_state", "authoritative")
+        assert isinstance(state, dict)
+        project.write_payloads(
+            (
+                PayloadRecord(
+                    "m10_analysis_state",
+                    "authoritative",
+                    {**state, field: value},
+                ),
+            )
+        )
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+        with pytest.raises(ValueError, match=message):
+            api.dispatch(
+                "POST",
+                "/api/v1/m10/inspection-map",
+                {
+                    "view": "canonical",
+                    "offset": 0,
+                    "limit": 30,
+                    "edge_offset": 0,
+                    "edge_limit": 180,
+                },
+            )
     finally:
         api.close()
 
