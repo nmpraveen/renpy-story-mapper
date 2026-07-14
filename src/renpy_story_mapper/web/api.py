@@ -61,6 +61,9 @@ from renpy_story_mapper.web.contracts import (
     M08_AI_STORY_MAP_REQUEST_FIELDS,
     M08_API_ROUTES,
     M08_COMPARISON_REQUEST_FIELDS,
+    M10_API_ROUTES,
+    M10_DETAIL_REQUEST_FIELDS,
+    M10_INSPECTION_MAP_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -77,6 +80,7 @@ from renpy_story_mapper.web.contracts import (
     required_string_tuple,
     string_tuple,
 )
+from renpy_story_mapper.web.inspection_api import inspection_detail, inspection_page
 from renpy_story_mapper.web.state import UserStateStore
 
 MAX_M07_SELECTION_ITEMS: Final = 64
@@ -233,6 +237,7 @@ class ProjectApi:
                     "shutdown": "/api/v1/shutdown",
                     "m07": dict(M07_API_ROUTES),
                     "m08": dict(M08_API_ROUTES),
+                    "m10": dict(M10_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -283,6 +288,50 @@ class ProjectApi:
         if method == "POST" and path == M08_API_ROUTES["comparison"]:
             exact_fields(body, allowed=M08_COMPARISON_REQUEST_FIELDS)
             return json_value(self._m08_comparison(body))
+        if method == "POST" and path == M10_API_ROUTES["inspection_map"]:
+            exact_fields(body, allowed=M10_INSPECTION_MAP_REQUEST_FIELDS)
+            projection, canonical, analysis_state = self._m10_payloads()
+            return json_value(
+                inspection_page(
+                    projection,
+                    canonical,
+                    analysis_state,
+                    view=require_string(body, "view", maximum=16),
+                    offset=bounded_int(
+                        body, "offset", default=0, minimum=0, maximum=2_000_000
+                    ),
+                    limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                    edge_offset=bounded_int(
+                        body, "edge_offset", default=0, minimum=0, maximum=2_000_000
+                    ),
+                    edge_limit=bounded_int(
+                        body, "edge_limit", default=180, minimum=1, maximum=180
+                    ),
+                )
+            )
+        if method == "POST" and path == M10_API_ROUTES["detail"]:
+            exact_fields(
+                body,
+                allowed=M10_DETAIL_REQUEST_FIELDS,
+                required=M10_DETAIL_REQUEST_FIELDS,
+            )
+            projection, canonical, analysis_state = self._m10_payloads()
+            try:
+                return json_value(
+                    inspection_detail(
+                        projection,
+                        canonical,
+                        analysis_state,
+                        view=require_string(body, "view", maximum=16),
+                        element_id=require_string(body, "element_id", maximum=512),
+                    )
+                )
+            except KeyError as exc:
+                raise ApiProblem(
+                    404,
+                    "m10_element_not_found",
+                    "The inspection element is unavailable.",
+                ) from exc
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             page = self._m07_workflow().route_map(
@@ -760,6 +809,23 @@ class ProjectApi:
         if not isinstance(route, dict):
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
+
+    def _m10_payloads(
+        self,
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        with Project.open(self._project()) as project:
+            projection = project.payload("m10_inspection_projection", "authoritative")
+            canonical = project.payload("m10_canonical_graph", "authoritative")
+            analysis_state = project.payload("m10_analysis_state", "authoritative")
+        if not isinstance(projection, dict) or not isinstance(canonical, dict):
+            raise ValueError("the project has no valid M10 inspection graph")
+        if not isinstance(analysis_state, dict):
+            raise ValueError("the project has no valid M10 generation state")
+        return (
+            cast(dict[str, object], projection),
+            cast(dict[str, object], canonical),
+            cast(dict[str, object], analysis_state),
+        )
 
     def _m08_query(
         self,

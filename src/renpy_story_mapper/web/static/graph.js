@@ -154,7 +154,7 @@ export class RouteGraph {
   }
 
   elements() { return [...this.nodes, ...this.edges]; }
-  shape(kind) { return kind === "choice" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : "●"; }
+  shape(kind) { return kind === "choice" || kind === "choice_outcome" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : "●"; }
   span(className, value) { const span = document.createElement("span"); span.className = className; span.textContent = String(value); return span; }
 
   select(id, notify = true) {

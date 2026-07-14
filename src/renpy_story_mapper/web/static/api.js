@@ -119,6 +119,16 @@ export class LocalApi {
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
+  async inspectionMap(view, offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+    if (!["simplified", "canonical"].includes(view)) throw new TypeError("Unknown inspection view");
+    return assertRoutePage(await this.request(ENDPOINTS.inspectionMap, {
+      method: "POST", body: { view, offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+    }));
+  }
+  async inspectionDetail(view, elementId) {
+    if (!["simplified", "canonical"].includes(view)) throw new TypeError("Unknown inspection view");
+    return assertDetail(await this.request(ENDPOINTS.inspectionDetail, { method: "POST", body: { view, element_id: elementId } }));
+  }
   async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE, edgeCursor = null) {
     const body = { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit };
     if (edgeCursor !== null) body.edge_cursor = edgeCursor;

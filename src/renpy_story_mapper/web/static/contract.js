@@ -27,6 +27,8 @@ export const ENDPOINTS = Object.freeze({
   aiStoryMap: "/api/v1/m08/ai-story-map",
   aiStoryDetail: "/api/v1/m08/ai-story-detail",
   mapComparison: "/api/v1/m08/comparison",
+  inspectionMap: "/api/v1/m10/inspection-map",
+  inspectionDetail: "/api/v1/m10/detail",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);

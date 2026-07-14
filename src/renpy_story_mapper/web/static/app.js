@@ -8,7 +8,7 @@ const api = new LocalApi();
 const CURSOR_HISTORY_LIMIT = 12;
 
 const state = {
-  project: null, page: null, aiPage: null, technicalPage: null, mode: "technical",
+  project: null, page: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, aiReason: null, mode: "inspection",
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
@@ -130,14 +130,17 @@ function normalizedPage(page, mode = state.mode) {
 }
 
 async function loadComparison() {
+  try { state.inspectionPage = normalizedPage(await api.inspectionMap("simplified", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE), "inspection"); }
+  catch (_error) { state.inspectionPage = null; }
   const comparison = await api.mapComparison(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE);
   state.technicalPage = normalizedPage(comparison.technical, "technical");
   state.aiPage = comparison.ai.status === "available" ? normalizedPage(comparison.ai, "ai") : null;
+  state.aiReason = comparison.ai.reason || "not yet organized";
   state.mode = comparison.default_view === "ai_story_map" && state.aiPage ? "ai" : "technical";
   state.page = state.mode === "ai" ? state.aiPage : state.technicalPage;
   const unavailable = !state.aiPage;
   $("#fallbackNotice").hidden = !unavailable;
-  $("#fallbackReason").textContent = `${String(comparison.ai.reason || "not yet organized").replaceAll("_", " ")}. Technical Structure is shown.`;
+  $("#fallbackReason").textContent = `${String(state.aiReason).replaceAll("_", " ")}. Technical Structure is shown.`;
   updateModeHeader();
   renderMap();
 }
@@ -146,15 +149,20 @@ async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.
   try {
     const raw = state.mode === "ai"
       ? await api.aiStoryMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE, cursor.edgeCursor ?? null)
-      : await api.routeMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE);
+      : ["inspection", "canonical"].includes(state.mode)
+        ? await api.inspectionMap(state.mode === "canonical" ? "canonical" : "simplified", cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE)
+        : await api.routeMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE);
     if (raw.status === "unavailable") { state.mode = "technical"; return loadRoutePage(cursor); }
     const page = normalizedPage(raw, state.mode);
     state.page = page;
-    if (state.mode === "ai") state.aiPage = page; else state.technicalPage = page;
+    if (state.mode === "ai") state.aiPage = page;
+    else if (state.mode === "inspection") state.inspectionPage = page;
+    else if (state.mode === "canonical") state.canonicalPage = page;
+    else state.technicalPage = page;
     state.offset = Number(page.offset || 0);
     state.edgeOffset = Number(page.edge_offset || 0);
     state.edgeCursor = state.mode === "ai" ? page.edge_cursor ?? null : null;
-    renderMap();
+    updateModeHeader(); renderMap();
   } catch (error) { $("#selectionStatus").textContent = "Map unavailable"; toast(error.message); }
 }
 
@@ -162,7 +170,7 @@ async function resetRoutePaging() {
   state.cursorHistory = [];
   state.offset = 0; state.edgeOffset = 0; state.edgeCursor = null; state.windowResolution = null; state.prepared = null;
   $("#scopePreview").textContent = "No story text is sent until an exact preview is confirmed.";
-  try { await loadComparison(); } catch (error) { state.mode = "technical"; await loadRoutePage({ offset: 0, edgeOffset: 0 }); }
+  try { await loadComparison(); } catch (error) { state.mode = "inspection"; try { await loadRoutePage({ offset: 0, edgeOffset: 0 }); } catch (_inspectionError) { state.mode = "technical"; await loadRoutePage({ offset: 0, edgeOffset: 0 }); } }
 }
 
 function nextCursor() {
@@ -188,7 +196,7 @@ function visiblePage() {
   const matchedIds = query && globalSearch?.query === query && Array.isArray(globalSearch.element_ids) ? new Set(globalSearch.element_ids) : null;
   const visibleNodes = (state.page?.nodes || []).filter((node) => {
     if (!state.settings.include_unresolved && node.unresolved) return false;
-    return !query || matchedIds?.has(node.id) || `${node.title} ${node.summary}`.toLocaleLowerCase().includes(query);
+    return !query || matchedIds?.has(node.id) || `${node.id} ${node.title} ${node.summary} ${node.reachability || ""}`.toLocaleLowerCase().includes(query);
   });
   const ids = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = (state.page?.edges || []).filter((edge) => {
@@ -220,25 +228,32 @@ function renderMap() {
   $("#previousPage").disabled = state.cursorHistory.length === 0; $("#nextPage").disabled = nextCursor() === null;
   const nodeIds = new Set(nodes.map((node) => node.id)); const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
   $("#visibleStatus").textContent = `${nodes.length} ${state.mode === "ai" ? "events" : "nodes"} · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
+  const generation = state.page?.generation_status;
+  $("#generationStatus").hidden = !generation;
+  if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
   const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
   if (state.mode === "ai") summary.append(element("strong", "", "Story coverage"), element("span", "", `${coverage.ai_owned_route_nodes || 0} AI-organized nodes`), element("span", "", `${coverage.technical_fallback_route_nodes || 0} technical fallback nodes`));
+  else if (["inspection", "canonical"].includes(state.mode)) summary.append(element("strong", "", state.mode === "canonical" ? "Canonical authority" : "Inspection coverage"), element("span", "", `${coverage.control_nodes ?? "—"} canonical records`), element("span", "", `${coverage.suppressed_records ?? 0} presentation suppressions`));
   else summary.append(element("strong", "", "Technical authority"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps`));
   const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
 }
 
 function updateModeHeader() {
   const ai = state.mode === "ai";
-  $("#aiMapButton").setAttribute("aria-pressed", String(ai)); $("#technicalMapButton").setAttribute("aria-pressed", String(!ai));
+  const inspection = state.mode === "inspection"; const canonical = state.mode === "canonical"; const technical = state.mode === "technical";
+  $("#aiMapButton").setAttribute("aria-pressed", String(ai)); $("#inspectionMapButton").setAttribute("aria-pressed", String(inspection)); $("#canonicalMapButton").setAttribute("aria-pressed", String(canonical)); $("#technicalMapButton").setAttribute("aria-pressed", String(technical));
   $("#aiMapButton").disabled = !state.aiPage;
-  $("#mapEyebrow").textContent = ai ? "AI Story Map" : "Technical Structure";
-  $("#mapTitle").textContent = ai ? "The story at a glance" : "Authoritative control flow";
-  $("#projectBadge").textContent = ai ? "AI Story Map · applied" : "Technical Structure";
+  $("#mapEyebrow").textContent = ai ? "AI Story Map" : inspection ? "Deterministic inspection" : canonical ? "Canonical technical graph" : "Technical Structure";
+  $("#mapTitle").textContent = ai ? "The story at a glance" : inspection ? "Choices, routes, and rejoins" : canonical ? "Every canonical record" : "Authoritative control flow";
+  $("#projectBadge").textContent = ai ? "AI Story Map · applied" : inspection ? "M10 Inspection" : canonical ? "M10 Canonical" : "Technical Structure";
+  const m10 = inspection || canonical; $("#organizationPanel").hidden = m10; $("#organizeButton").hidden = m10;
+  if (!state.aiPage) $("#fallbackReason").textContent = `${String(state.aiReason || "not yet organized").replaceAll("_", " ")}. ${inspection ? "Inspection" : canonical ? "Canonical graph" : "Technical Structure"} is shown.`;
 }
 
 async function switchMode(mode) {
   if (mode === "ai" && !state.aiPage) { toast("Apply a validated organization before using the AI Story Map"); return; }
-  state.mode = mode; state.page = mode === "ai" ? state.aiPage : state.technicalPage; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
-  updateModeHeader(); renderMap();
+  state.mode = mode; state.page = mode === "ai" ? state.aiPage : mode === "inspection" ? state.inspectionPage : mode === "canonical" ? state.canonicalPage : state.technicalPage; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
+  updateModeHeader(); if (state.page) renderMap(); else await loadRoutePage({ offset: 0, edgeOffset: 0 });
 }
 
 function selectItem(item) { state.selectedId = item.id; $("#selectionStatus").textContent = `${item.title || String(item.role || item.kind || "route").replaceAll("_", " ")} · Enter for Detail / Evidence`; }
@@ -275,11 +290,12 @@ function renderTechnicalMembers(detail) {
 
 async function openDetail(elementId) {
   try {
-    const detail = state.mode === "ai" ? await api.aiStoryDetail(elementId) : await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
+    const detail = state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
     if (detail.status === "unavailable") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); return; }
     const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.presentation_role || selected.role || selected.kind || "Story element").replaceAll("_", " ");
     $("#detailKind").textContent = String(selected.source_kind || selected.presentation_role || selected.kind || selected.role || "route element").replaceAll("_", " ");
     $("#detailSummary").textContent = selected.summary || "Authoritative local context and exact source evidence.";
+    $("#canonicalEscapeButton").hidden = state.mode === "canonical" || !detail.canonical_focus_id;
     const strip = $("#pathStrip"); strip.replaceChildren();
     for (const id of detail.predecessor_ids || []) strip.append(element("span", "path-stop predecessor", `← ${titleFor(id)}`));
     strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
@@ -302,6 +318,13 @@ async function openDetail(elementId) {
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();
   } catch (error) { toast(error.message); }
+}
+
+async function openCanonicalRecord() {
+  const focusId = state.detail?.canonical_focus_id; if (!focusId) return;
+  showLevel("route_map"); state.mode = "canonical"; state.page = null; state.canonicalPage = null; state.cursorHistory = []; state.offset = Number(state.detail.canonical_focus_offset || 0); state.edgeOffset = 0; state.selectedId = focusId;
+  await loadRoutePage({ offset: state.offset, edgeOffset: 0 });
+  graph.world.querySelector(`[data-element-id="${CSS.escape(focusId)}"]`)?.focus();
 }
 
 function titleFor(id) { return state.page?.nodes.find((node) => node.id === id)?.title || "Adjacent event"; }
@@ -405,10 +428,11 @@ function bind() {
   $("#searchInput").addEventListener("input", renderMap);
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
-  $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
+  $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
   $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
   $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
   $("#selectVisibleNodes").addEventListener("click", async () => { try { await selectVisibleForAI(); toast("Exact provider-free preview ready"); } catch (error) { toast(error.message); } });
   $("#organizeButton").addEventListener("click", prepareOrganization); $("#resumeOrganization").addEventListener("click", async () => { state.prepared = null; await prepareOrganization(); });
   $("#confirmOrganization").addEventListener("click", async (event) => { event.preventDefault(); $("#consentDialog").close(); await startOrganization(); });

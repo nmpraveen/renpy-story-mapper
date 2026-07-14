@@ -3,11 +3,11 @@
   "hash_basis": "sha256-utf8-lf",
   "assets": {
     "API_CONTRACT.md": "7250f7be5cd3044df765a3b0a844fd9d1ab5fe7188283614b910fc627375ac05",
-    "api.js": "ab7736d0e9118dfc5abee486c022074367cd74d77aa1744f2704b2ef6db2e841",
-    "app.js": "07bebd5732dd1fd3979415a1e4b768268e8d3e544fda0c785073cf64d9fddbfe",
-    "contract.js": "b88978f44d9f53db97b1bd3c4a610e1d2420416086e923e5c284e683545aa9bc",
-    "graph.js": "7d7708a2959a7278ca6fab21d809727a73ea5bbd0708d3b49721e2d1a88468ce",
-    "index.html": "50bbb8bcbc1943c84c820b43426446bfc5b5a12a4dcb7ec68e8cd25f0713adf2",
-    "styles.css": "dba2dfac36ae5ff2299d067c61c6d46c4975be6148b28961298dba84da0fbac0"
+    "api.js": "264f63250e032295e4c12b2c8f356421918dd1a3a1feea4ae7eb20f0ba773d03",
+    "app.js": "fa3ad01a3ce8b861251db3c8725488ff2d88b9bdb5dd656f3f6a33ad3f2d89e6",
+    "contract.js": "6d8154038e56135055da1e39cbab8dfe28a6d63b84015b3e332f5d6f7d1dd21b",
+    "graph.js": "6ae7a19f01195b6ea275fb0034640409d391c920bff95ec05660ba16514688a6",
+    "index.html": "37b19f7f51521f93edac2428454aed39a33ce9055bb43901422011fd10e78adb",
+    "styles.css": "4dd065f459c4ce0f3a3feed77c032fbb87189c405ff86a2b5e73157ae7410051"
   }
 }
