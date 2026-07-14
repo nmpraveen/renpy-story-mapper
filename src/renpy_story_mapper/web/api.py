@@ -309,6 +309,8 @@ class ProjectApi:
                     edge_limit=bounded_int(
                         body, "edge_limit", default=180, minimum=1, maximum=180
                     ),
+                    query=optional_string(body, "query", maximum=256),
+                    focus=optional_string(body, "focus", maximum=512),
                     projection_unavailable_reason=projection_reason,
                 )
             )

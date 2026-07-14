@@ -227,6 +227,21 @@ async function nextRoutePage() {
 
 async function previousRoutePage() { const target = state.cursorHistory.pop(); if (target) await loadRoutePage(target); }
 
+async function searchM10WholeGraph() {
+  const query = $("#searchInput").value.trim();
+  if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
+  const view = state.mode === "canonical" ? "canonical" : "simplified";
+  const raw = await api.inspectionMap(view, 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, query ? { query } : {});
+  if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, Boolean(state.page)); return; }
+  const page = normalizedPage(raw, state.mode); state.page = page;
+  if (state.mode === "inspection") state.inspectionPage = page; else state.canonicalPage = page;
+  state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.cursorHistory = [];
+  state.selectedId = page.search?.focus?.element_id || null;
+  renderMap();
+  if (query && !page.search?.total_matches) $("#selectionStatus").textContent = "No whole-graph matches";
+  else if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+}
+
 function visiblePage() {
   const query = $("#searchInput").value.trim().toLocaleLowerCase();
   const globalSearch = state.page?.global_search || state.page?.search;
@@ -332,6 +347,22 @@ function renderTechnicalMembers(detail) {
   $("#technicalMembers").hidden = !host.children.length;
 }
 
+function renderInspectionDerivations(detail) {
+  const regionHost = $("#regionDerivation"); const proofHost = $("#proofDerivation"); const linkHost = $("#linkedRecords");
+  regionHost.replaceChildren(); proofHost.replaceChildren(); linkHost.replaceChildren();
+  if (detail.region) {
+    const region = detail.region; const summary = element("article", "derivation-record");
+    summary.append(element("strong", "", String(region.classification || "branch region").replaceAll("_", " ")), element("span", "", `Split ${region.split_node_id} · merge ${region.merge_node_id || "none"}`), element("span", "", `Persistence: ${(region.persistence_reasons || []).join(" · ") || "none"}`)); regionHost.append(summary);
+    for (const arm of region.ordered_arms || []) {
+      const record = element("article", "derivation-record"); const facts = (arm.facts || []).map((item) => item.label || item.id).join(" · ");
+      record.append(element("strong", "", `Arm ${Number(arm.ordinal) + 1}`), element("span", "", `Entry ${arm.entry_node_id} · ${arm.member_count} members · ${arm.terminal_summary || "nonterminal"}`), element("span", "", facts ? `Facts: ${facts}` : "Facts: none")); regionHost.append(record);
+    }
+  }
+  for (const proof of detail.proofs || []) { const record = element("article", "derivation-record"); record.append(element("strong", "", String(proof.kind || "proof").replaceAll("_", " ")), element("p", "", proof.explanation || "Deterministic derivation"), element("span", "", `Inputs: ${(proof.input_ids || []).join(" · ")}`)); proofHost.append(record); }
+  for (const linked of detail.linked_records || []) { if (linked.id === detail.element?.id) continue; const button = element("button", "quiet-button linked-record", `${String(linked.kind || "record").replaceAll("_", " ")} · ${linked.title || linked.id}`); button.type = "button"; button.addEventListener("click", () => openDetail(linked.id)); linkHost.append(button); }
+  $("#derivationPanel").hidden = !(regionHost.children.length || proofHost.children.length || linkHost.children.length);
+}
+
 async function openDetail(elementId) {
   try {
     const detail = state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
@@ -349,6 +380,7 @@ async function openDetail(elementId) {
     strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
     for (const id of detail.successor_ids || []) strip.append(element("span", "path-stop successor", `${titleFor(id)} →`));
     renderTechnicalMembers(detail);
+    renderInspectionDerivations(detail);
     const facts = $("#detailFacts"); facts.replaceChildren(); const allFacts = detail.facts || [];
     addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements || allFacts.filter((item) => String(item.kind || "").includes("gate") || String(item.type || "").includes("require")), "gate"); addFactGroup(facts, "Effects", detail.effects || allFacts.filter((item) => String(item.kind || "").includes("effect")), "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
     const interpretations = $("#interpretations"); interpretations.replaceChildren();
@@ -473,7 +505,10 @@ function bind() {
     showPrimary("progress"); const completed = await pollAnalysis(); if (["complete", "completed"].includes(completed.state)) toast("Project refreshed locally");
   });
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
-  $("#searchInput").addEventListener("input", renderMap);
+  $("#searchInput").addEventListener("input", () => {
+    clearTimeout(searchM10WholeGraph.timer);
+    searchM10WholeGraph.timer = setTimeout(() => searchM10WholeGraph().catch((error) => toast(error.message)), 180);
+  });
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
   $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));

@@ -40,6 +40,26 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
     return source, project_path
 
 
+def _large_project(tmp_path: Path) -> tuple[Path, Path]:
+    source = tmp_path / "large-game"
+    source.mkdir()
+    lines = ["label start:\n"]
+    lines.extend(f'    "Scene {index:02d} unique text."\n' for index in range(45))
+    lines.extend(
+        [
+            "    return\n",
+            "\n",
+            "label hidden_label:\n",
+            '    "Hidden label content."\n',
+            "    return\n",
+        ]
+    )
+    (source / "story.rpy").write_text("".join(lines), encoding="utf-8")
+    project_path = tmp_path / "large-story.rsmproj"
+    create_ingested_project(project_path, source).close()
+    return source, project_path
+
+
 def _payloads(project_path: Path) -> tuple[dict[str, object], ...]:
     with Project.open(project_path) as project:
         values = (
@@ -159,6 +179,143 @@ def test_project_api_exposes_bounded_m10_map_and_detail(tmp_path: Path) -> None:
         assert detail["canonical_focus_id"]
     finally:
         api.close()
+
+
+def test_whole_graph_search_and_exact_focus_open_the_bounded_target_page(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _large_project(tmp_path)
+    with Project.open(project_path) as project:
+        canonical = project.payload("m10_canonical_graph", "authoritative")
+    assert isinstance(canonical, dict)
+    target = next(
+        item
+        for item in canonical["nodes"]
+        if item["attributes"].get("source_text") == '"Scene 44 unique text."'
+    )
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+
+        def page(**extra: object) -> dict[str, object]:
+            value = api.dispatch(
+                "POST",
+                "/api/v1/m10/inspection-map",
+                {
+                    "view": "canonical",
+                    "offset": 0,
+                    "limit": 30,
+                    "edge_offset": 0,
+                    "edge_limit": 180,
+                    **extra,
+                },
+            )
+            assert isinstance(value, dict)
+            return value
+
+        searched = page(query="Scene 44 unique text")
+        assert searched["offset"] >= 30
+        assert searched["search"]["focus"]["element_id"] == target["id"]
+        assert target["id"] in {item["id"] for item in searched["nodes"]}
+
+        for exact in (target["id"], target["graph_node_id"], "hidden_label"):
+            focused = page(focus=exact)
+            focus = focused["search"]["focus"]
+            assert focus["offset"] == focused["offset"]
+            assert focus["element_id"] in {item["id"] for item in focused["nodes"]}
+
+        by_location = page(query="story.rpy:46")
+        assert by_location["search"]["total_matches"] >= 1
+    finally:
+        api.close()
+
+
+def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    for expression, field_kind in (("ready", "condition"), ("trust += 1", "fact")):
+        search_page = inspection_page(
+            projection,
+            canonical,
+            state,
+            view="canonical",
+            offset=0,
+            limit=30,
+            edge_offset=0,
+            edge_limit=180,
+            query=expression,
+        )
+        assert any(
+            field_kind in item["field"] or field_kind == item["record_kind"]
+            for item in search_page["search"]["matches"]
+        )
+    region_id = projection["regions"][0]["canonical_region_id"]
+    detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=region_id,
+    )
+
+    region = detail["region"]
+    assert detail["element"]["kind"] == "branch_region"
+    assert region["classification"]
+    assert region["split_node_id"]
+    assert "merge_node_id" in region
+    assert region["ordered_arms"]
+    assert all(
+        "member_count" in arm
+        and "gate_facts" in arm
+        and "effect_facts" in arm
+        and "terminal_summary" in arm
+        for arm in region["ordered_arms"]
+    )
+    assert "persistence_reasons" in region
+    assert "unresolved_arm_count" in region
+    assert region["terminal_summaries"]
+    assert region["origins"]
+    assert detail["proofs"]
+    assert detail["canonical_escape_ids"]
+
+    proof_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=detail["proofs"][0]["id"],
+    )
+    assert proof_detail["element"]["kind"] == "proof"
+    assert proof_detail["proofs"][0]["explanation"]
+
+    outcome = next(item for item in projection["nodes"] if item["title"] == "Help")
+    outcome_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=outcome["id"],
+    )
+    assert outcome_detail["regions"]
+    assert outcome_detail["proofs"]
+    assert {item["kind"] for item in outcome_detail["linked_records"]} >= {
+        "region",
+        "evidence",
+        "proof",
+    }
+    fact = outcome_detail["facts"][0]
+    fact_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=fact["id"],
+    )
+    assert fact_detail["element"]["kind"] == "fact"
+    assert fact_detail["evidence"]
 
 
 def test_canonical_api_survives_initial_simplified_projection_failure(
@@ -396,3 +553,5 @@ def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() ->
     assert "last_known_good" in app
     assert "inspectionCurrent" in app and "canonicalCurrent" in app
     assert "comparison.default_view" not in app
+    assert "searchM10WholeGraph" in app
+    assert "renderInspectionDerivations" in app
