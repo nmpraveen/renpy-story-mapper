@@ -4,10 +4,63 @@ The packaged browser is a presentation client for the loopback-only Python servi
 owns topology, evidence, organization state, request bounds, and path redaction. JavaScript never
 derives authoritative connectivity.
 
+## M10 deterministic inspection
+
+For an M10 project, the browser chooses the best deterministic result in this order: current
+simplified M10 inspection, current canonical M10 graph, a coherent stale simplified/canonical
+pair, then the M07 Technical Structure. An applied M08 AI Story Map remains selectable but does
+not override the normal M10 default.
+
+- `POST /api/v1/m10/inspection-map` accepts only
+  `{view, offset?, limit?, edge_offset?, edge_limit?, query?, focus?}`. `view` is `simplified` or
+  `canonical`; node and edge limits are at most 30 and 180. `query` is at most 256 characters and
+  `focus` is at most 512 characters.
+- `POST /api/v1/m10/detail` accepts exactly `{view, element_id}`. `element_id` is at most 512
+  characters and may identify a visible node or edge, canonical region, fact, evidence record, or
+  deterministic proof.
+
+Canonical inspection is independent of the optional simplified projection. Before inspection is
+served, the service validates analysis-state schema 2 and its canonical generation/hash binding.
+Before a simplified response is served, it also validates the projection schema, source
+generation, and `canonical_graph_hash` against the selected canonical payload. A mismatch returns a typed
+`status: "unavailable"` response with `view`, a bounded reason, and `generation_status`; stale and
+current generations are never composed. Canonical inspection remains available when a current
+canonical graph exists but simplified projection creation failed.
+
+Available pages expose `status: "available"`, `level: "route_map"`, `view`, source and authority
+identities, generation status, bounded node and incident-edge slices, lanes, coverage, and paging.
+`generation_status` includes freshness, analysis status, canonical/simplified availability,
+last-known-good status, completed phases with nonnegative durations, and a sanitized failure
+record with failed-phase duration when present. Available
+details use `level: "detail_evidence"` and remain bounded to 60 records per related collection.
+
+Whole-graph search is server-side and does not expand the rendering boundary. It can match an
+exact canonical ID, underlying graph-node ID, label, visible title/caption, source text, relative
+source path and line, and condition/effect metadata. Results include the bounded page offset and
+element ID needed to center the first match. `focus` performs exact focus resolution for canonical
+IDs and graph-node IDs. At most 50 search matches are materialized. M10 does not invent day,
+chapter, numbered-name, or asset-name heuristics when deterministic metadata is absent.
+
+Detail links expose regions, facts, evidence, and proofs without deriving new topology. Branch
+region detail includes classification, split, ordered arms, arm entry and member count,
+merge/rejoin when present, persistence reasons, unresolved/terminal summaries, attached gate and
+effect facts, origins, proof records, and canonical escape IDs. Loop, terminal, call-return, and
+reachability records expose their existing deterministic origins/proofs. Route-to-target solving
+is not an M10 endpoint.
+
+After a failed create or refresh, the browser requests retained deterministic results and enters
+the workspace when any ordered fallback is available. It keeps a persistent failure banner with
+the failed phase, freshness, completed phases, and last-known-good status. A failure before the
+first canonical payload produces a bounded partial-analysis/diagnostics state instead of an empty
+invented map. Opaque creator code is displayed as
+`Unsupported creator Python · preserved, not executed`; it is not executed or automatically
+reclassified as an unresolved transfer.
+
 ## M08 AI Story Map
 
-After an exact current-generation assembly is applied, the browser defaults to the AI Story Map.
-Technical Structure remains a comparison and fallback view with unchanged deterministic authority.
+After an exact current-generation assembly is applied, the browser can display the AI Story Map
+when selected. M10 deterministic inspection remains the normal default, and Technical Structure
+remains a comparison and fallback view with unchanged deterministic authority.
 The projected boxes are real AI event groups and the projected connections are the deterministic
 quotient edges; the browser never renames technical nodes one by one or invents connectivity.
 
