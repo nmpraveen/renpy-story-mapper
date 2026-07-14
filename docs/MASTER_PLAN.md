@@ -1231,5 +1231,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Complete the M10.1 corrective validation report on `codex/m10-final-hardening` and wait for explicit
-approval before creating its pull request or beginning M11.
+Review and merge PR #19 from `codex/m10-final-hardening`. After PR #19 is merged and only with
+explicit user approval, begin M11 human story scenes and chapters. Do not start M11 while PR #19
+is under review.
