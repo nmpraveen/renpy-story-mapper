@@ -6,7 +6,12 @@ import pytest
 
 import renpy_story_mapper.presentation as presentation
 import renpy_story_mapper.project_analysis as project_analysis
-from renpy_story_mapper.project import Project, create_ingested_project, refresh_ingested_project
+from renpy_story_mapper.project import (
+    PayloadRecord,
+    Project,
+    create_ingested_project,
+    refresh_ingested_project,
+)
 from renpy_story_mapper.storage import canonical_json
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m10" / "canonical_constructs.rpy"
@@ -89,6 +94,72 @@ def test_operational_phase_timings_do_not_change_canonical_structural_bytes(
     assert canonical_json(first_canonical) == canonical_json(second_canonical)
     assert all("duration_seconds" in item for item in first_state["phases"])
     assert all("duration_seconds" in item for item in second_state["phases"])
+
+
+def test_coherent_unchanged_refresh_reuses_every_analysis_phase_without_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _source(tmp_path)
+    project_path = tmp_path / "story.rsmproj"
+    create_ingested_project(project_path, source).close()
+    before_database = project_path.read_bytes()
+    with Project.open(project_path) as project:
+        before_canonical = _payload(project, "m10_canonical_graph")
+        before_projection = _payload(project, "m10_inspection_projection")
+
+    def unexpected_call(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("unchanged refresh called an expensive phase or backup")
+
+    for name in (
+        "build_graph",
+        "build_semantic_story",
+        "extract_state",
+        "analyze_control_flow",
+        "project_route_map",
+        "build_canonical_graph",
+        "project_inspection_graph",
+    ):
+        monkeypatch.setattr(project_analysis, name, unexpected_call)
+    monkeypatch.setattr(presentation, "rebuild_presentation_index", unexpected_call)
+    monkeypatch.setattr(Project, "backup", unexpected_call)
+    progress: list[tuple[str, int]] = []
+
+    report = refresh_ingested_project(
+        project_path,
+        source,
+        progress=lambda phase, percent: progress.append((phase, percent)),
+    )
+
+    assert report.parsed_sources == ()
+    assert report.reused_sources == ("game/story.rpy",)
+    assert report.invalidated_sources == ()
+    assert report.removed_sources == ()
+    assert report.reused_phases == project_analysis.REUSABLE_ANALYSIS_PHASES
+    assert progress == [("complete", 100)]
+    assert project_path.read_bytes() == before_database
+    with Project.open(project_path) as project:
+        assert _payload(project, "m10_canonical_graph") == before_canonical
+        assert _payload(project, "m10_inspection_projection") == before_projection
+
+
+def test_unchanged_refresh_recomputes_when_analysis_state_is_not_current_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _source(tmp_path)
+    project_path = tmp_path / "story.rsmproj"
+    create_ingested_project(project_path, source).close()
+    with Project.open(project_path) as project:
+        state = _payload(project, "m10_analysis_state")
+        state["status"] = "failed"
+        project.write_payloads((PayloadRecord("m10_analysis_state", "authoritative", state),))
+
+    def expected_recomputation(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("coherence failure must not use the unchanged fast path")
+
+    monkeypatch.setattr(project_analysis, "build_graph", expected_recomputation)
+
+    with pytest.raises(AssertionError, match="coherence failure"):
+        refresh_ingested_project(project_path, source)
 
 
 def test_failed_new_route_phase_keeps_last_good_canonical_graph_stale(

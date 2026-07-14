@@ -98,6 +98,7 @@ class RefreshReport:
     reused_sources: tuple[str, ...]
     invalidated_sources: tuple[str, ...]
     removed_sources: tuple[str, ...] = ()
+    reused_phases: tuple[str, ...] = ()
 
 
 class Project:

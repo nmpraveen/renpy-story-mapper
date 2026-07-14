@@ -16,6 +16,7 @@ from typing import cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.analysis_phases import (
+    ANALYSIS_STATE_SCHEMA_VERSION,
     AnalysisStatus,
     PhaseBinding,
     analysis_state_payload,
@@ -23,16 +24,20 @@ from renpy_story_mapper.analysis_phases import (
 )
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import (
-    source_generation as canonical_source_generation,
+    CANONICAL_GRAPH_SCHEMA,
+    stable_origin_record_id,
 )
 from renpy_story_mapper.canonical_graph_contract import (
-    stable_origin_record_id,
+    source_generation as canonical_source_generation,
 )
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive
-from renpy_story_mapper.inspection_projection import project_inspection_graph
+from renpy_story_mapper.inspection_projection import (
+    INSPECTION_PROJECTION_SCHEMA,
+    project_inspection_graph,
+)
 from renpy_story_mapper.model import (
     Call,
     If,
@@ -57,7 +62,7 @@ from renpy_story_mapper.project import (
     RefreshReport,
     SourceFingerprint,
 )
-from renpy_story_mapper.route_map import project_route_map
+from renpy_story_mapper.route_map import ROUTE_MAP_SCHEMA_VERSION, project_route_map
 from renpy_story_mapper.rpa import RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import (
@@ -73,6 +78,19 @@ from renpy_story_mapper.story_metadata import StoryMetadataLimitError, extract_s
 
 CancelCheck = Callable[[], bool] | None
 AnalysisProgress = Callable[[str, int], None] | None
+
+REUSABLE_ANALYSIS_PHASES = (
+    "source_inventory",
+    "parse",
+    "graph",
+    "semantic_state",
+    "control_flow",
+    "route_map",
+    "canonical_graph",
+    "simplified_projection",
+    "inspection_projection",
+)
+_ANALYSIS_DEPENDENCY_METADATA_KEY = "analysis_input_dependency_hash"
 
 
 def create_input_project(
@@ -123,6 +141,16 @@ def create_input_project(
             progress=progress,
         )
         project.replace_ingestion_provenance(result)
+        project.set_metadata(
+            {
+                _ANALYSIS_DEPENDENCY_METADATA_KEY: _input_analysis_dependency_hash(
+                    result,
+                    configured,
+                    entry_label=entry_label,
+                    story_metadata=story_metadata,
+                )
+            }
+        )
         return project
     except BaseException:
         if project.payload("m10_analysis_state", "authoritative") is None:
@@ -150,27 +178,53 @@ def refresh_input_project(
         raise ValueError(
             "an existing project input is already current and cannot refresh another project"
         )
+    all_sources = (*result.sources, *result.secondary_sources)
+    fingerprints = tuple(
+        SourceFingerprint.from_bytes(
+            source.path,
+            source.content,
+            metadata=source.provenance.to_dict(),
+        )
+        for source in all_sources
+    )
+    story_metadata = _input_story_metadata(result, cancel_check)
+    story_metadata_source_paths = tuple(source.path for source in all_sources)
     project_path = Path(database_path).resolve(strict=True)
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     original = Project.open(project_path)
     try:
+        entry_label = str(original.metadata().get("entry_label", "start"))
+        dependency_hash = _input_analysis_dependency_hash(
+            result,
+            configured,
+            entry_label=entry_label,
+            story_metadata=story_metadata,
+        )
+        reused_phases = _coherent_reused_phases(
+            original,
+            fingerprints,
+            canonical_paths=tuple(sorted(result.content_by_path)),
+            entry_label=entry_label,
+            dependency_hash=dependency_hash,
+            story_metadata=story_metadata,
+            story_metadata_source_paths=story_metadata_source_paths,
+        )
+        if reused_phases:
+            _check_cancelled(cancel_check)
+            _emit_analysis_progress(progress, "complete", 100)
+            return RefreshReport(
+                (),
+                tuple(sorted(result.content_by_path)),
+                (),
+                (),
+                reused_phases,
+            )
         original.backup(temporary)
     finally:
         original.close()
     try:
         staged = Project.open(temporary)
         try:
-            entry_label = str(staged.metadata().get("entry_label", "start"))
-            all_sources = (*result.sources, *result.secondary_sources)
-            fingerprints = tuple(
-                SourceFingerprint.from_bytes(
-                    source.path,
-                    source.content,
-                    metadata=source.provenance.to_dict(),
-                )
-                for source in all_sources
-            )
-            story_metadata = _input_story_metadata(result, cancel_check)
             report = _refresh_open_project(
                 staged,
                 result.content_by_path,
@@ -178,11 +232,16 @@ def refresh_input_project(
                 cancel_check=cancel_check,
                 source_fingerprints=fingerprints,
                 story_metadata=story_metadata,
-                story_metadata_source_paths=tuple(source.path for source in all_sources),
+                story_metadata_source_paths=story_metadata_source_paths,
                 progress=progress,
             )
             staged.replace_ingestion_provenance(result)
-            staged.set_metadata({"source_coverage_complete": result.complete})
+            staged.set_metadata(
+                {
+                    "source_coverage_complete": result.complete,
+                    _ANALYSIS_DEPENDENCY_METADATA_KEY: dependency_hash,
+                }
+            )
         except BaseException:
             staged.close()
             with Project.open(temporary) as partial:
@@ -215,11 +274,21 @@ def create_folder_project(
         metadata={"source_kind": "folder", "source_root": str(root), "entry_label": "start"},
     )
     try:
+        content = _read_source_tree(root, cancel_check=cancel_check)
+        fingerprints = _content_fingerprints(content)
         _refresh_open_project(
             project,
-            _read_source_tree(root, cancel_check=cancel_check),
+            content,
             entry_label="start",
             cancel_check=cancel_check,
+            source_fingerprints=fingerprints,
+        )
+        project.set_metadata(
+            {
+                _ANALYSIS_DEPENDENCY_METADATA_KEY: _legacy_analysis_dependency_hash(
+                    "folder", str(root), "start", fingerprints
+                )
+            }
         )
         return project
     except BaseException:
@@ -237,26 +306,47 @@ def refresh_folder_project(
     project_path = Path(database_path).resolve(strict=True)
     _check_cancelled(cancel_check)
     content = _read_source_tree(root, cancel_check=cancel_check)
+    fingerprints = _content_fingerprints(content)
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     _check_cancelled(cancel_check)
     original = Project.open(project_path)
     try:
-        if _content_matches(original, content):
+        entry_label = str(original.metadata().get("entry_label", "start"))
+        dependency_hash = _legacy_analysis_dependency_hash(
+            "folder", str(root), entry_label, fingerprints
+        )
+        current_story_metadata = original.payload("story_metadata", "authoritative")
+        reused_phases = _coherent_reused_phases(
+            original,
+            fingerprints,
+            canonical_paths=tuple(sorted(content)),
+            entry_label=entry_label,
+            dependency_hash=dependency_hash,
+            story_metadata=(
+                current_story_metadata
+                if isinstance(current_story_metadata, Mapping)
+                else None
+            ),
+            story_metadata_source_paths=tuple(sorted(content)),
+        )
+        if reused_phases:
             _check_cancelled(cancel_check)
-            return RefreshReport((), tuple(sorted(content)), ())
+            return RefreshReport((), tuple(sorted(content)), (), (), reused_phases)
         original.backup(temporary)
     finally:
         original.close()
     try:
         staged = Project.open(temporary)
         try:
-            metadata = staged.metadata()
-            entry_label = str(metadata.get("entry_label", "start"))
             report = _refresh_open_project(
                 staged,
                 content,
                 entry_label=entry_label,
                 cancel_check=cancel_check,
+                source_fingerprints=fingerprints,
+            )
+            staged.set_metadata(
+                {_ANALYSIS_DEPENDENCY_METADATA_KEY: dependency_hash}
             )
         finally:
             staged.close()
@@ -287,10 +377,24 @@ def create_rpa_project(
         },
     )
     try:
-        _refresh_open_project(project, content, entry_label=entry_label, cancel_check=cancel_check)
+        fingerprints = _content_fingerprints(content)
+        _refresh_open_project(
+            project,
+            content,
+            entry_label=entry_label,
+            cancel_check=cancel_check,
+            source_fingerprints=fingerprints,
+        )
         project.write_payloads(
             [PayloadRecord("import_manifest", "authoritative", manifest, tuple(sorted(content)))],
             cancelled=cancel_check,
+        )
+        project.set_metadata(
+            {
+                _ANALYSIS_DEPENDENCY_METADATA_KEY: _legacy_analysis_dependency_hash(
+                    "archive", str(archive), entry_label, fingerprints, manifest=manifest
+                )
+            }
         )
         return project
     except BaseException:
@@ -306,35 +410,44 @@ def refresh_rpa_project(
 ) -> RefreshReport:
     archive = Path(archive_path).resolve(strict=True)
     content, manifest = _read_archive_sources(archive, cancel_check=cancel_check)
+    fingerprints = _content_fingerprints(content)
     project_path = Path(database_path).resolve(strict=True)
     temporary = project_path.with_name(f".{project_path.name}.{uuid.uuid4().hex}.refresh.tmp")
     original = Project.open(project_path)
     try:
-        if _content_matches(original, content):
+        entry_label = str(original.metadata().get("entry_label", "start"))
+        dependency_hash = _legacy_analysis_dependency_hash(
+            "archive", str(archive), entry_label, fingerprints, manifest=manifest
+        )
+        current_story_metadata = original.payload("story_metadata", "authoritative")
+        reused_phases = _coherent_reused_phases(
+            original,
+            fingerprints,
+            canonical_paths=tuple(sorted(content)),
+            entry_label=entry_label,
+            dependency_hash=dependency_hash,
+            story_metadata=(
+                current_story_metadata
+                if isinstance(current_story_metadata, Mapping)
+                else None
+            ),
+            story_metadata_source_paths=tuple(sorted(content)),
+        )
+        if reused_phases:
             _check_cancelled(cancel_check)
-            if original.payload("import_manifest", "authoritative") != manifest:
-                original.write_payloads(
-                    [
-                        PayloadRecord(
-                            "import_manifest",
-                            "authoritative",
-                            manifest,
-                            tuple(sorted(content)),
-                        )
-                    ],
-                    cancelled=cancel_check,
-                )
-            return RefreshReport((), tuple(sorted(content)), ())
+            return RefreshReport((), tuple(sorted(content)), (), (), reused_phases)
         original.backup(temporary)
     finally:
         original.close()
     try:
         staged = Project.open(temporary)
         try:
-            metadata = staged.metadata()
-            entry_label = str(metadata.get("entry_label", "start"))
             report = _refresh_open_project(
-                staged, content, entry_label=entry_label, cancel_check=cancel_check
+                staged,
+                content,
+                entry_label=entry_label,
+                cancel_check=cancel_check,
+                source_fingerprints=fingerprints,
             )
             staged.write_payloads(
                 [
@@ -343,6 +456,9 @@ def refresh_rpa_project(
                     )
                 ],
                 cancelled=cancel_check,
+            )
+            staged.set_metadata(
+                {_ANALYSIS_DEPENDENCY_METADATA_KEY: dependency_hash}
             )
         finally:
             staged.close()
@@ -454,6 +570,410 @@ def _input_story_metadata(result: object, cancel_check: CancelCheck) -> dict[str
                 }
             ],
         }
+
+
+def _input_analysis_dependency_hash(
+    result: object,
+    options: object,
+    *,
+    entry_label: str,
+    story_metadata: Mapping[str, object],
+) -> str:
+    """Bind the analysis to every stable input that can affect deterministic output."""
+
+    from renpy_story_mapper.ingestion.contracts import IngestionOptions, IngestionResult
+
+    if not isinstance(result, IngestionResult) or not isinstance(options, IngestionOptions):
+        raise TypeError("analysis dependencies require ingestion results and options")
+
+    def source_value(source: object) -> dict[str, object]:
+        from renpy_story_mapper.ingestion.contracts import IngestionSource
+
+        if not isinstance(source, IngestionSource):
+            raise TypeError("analysis source must be an IngestionSource")
+        provenance = dict(source.provenance.to_dict())
+        # Cache use is operational provenance; identical recovered bytes have identical
+        # deterministic analysis dependencies regardless of whether retrieval was cached.
+        provenance.pop("cache_hit", None)
+        return {
+            "path": source.path,
+            "content_hash": hashlib.sha256(source.content).hexdigest(),
+            "size_bytes": len(source.content),
+            "provenance": provenance,
+        }
+
+    option_values = {
+        "allow_partial_recovery": options.allow_partial_recovery,
+        "recovery_timeout_seconds": options.recovery_timeout_seconds,
+        "max_input_bytes": options.max_input_bytes,
+        "max_output_bytes": options.max_output_bytes,
+        "max_decompressed_bytes": options.max_decompressed_bytes,
+        "max_total_output_bytes": options.max_total_output_bytes,
+        "max_log_bytes": options.max_log_bytes,
+        "max_memory_bytes": options.max_memory_bytes,
+        "max_sources": options.max_sources,
+    }
+    dependency = {
+        "schema_version": 1,
+        "input_kind": result.plan.input_kind.value,
+        "resolved_input": str(result.plan.resolved_input),
+        "entry_label": entry_label,
+        "ingestion_options": option_values,
+        "canonical_sources": [source_value(source) for source in result.sources],
+        "secondary_sources": [source_value(source) for source in result.secondary_sources],
+        "complete": result.complete,
+        "ai_transmission_blocked": result.ai_transmission_blocked,
+        "warnings": list(result.warnings),
+        "recovery_failures": [
+            {
+                "logical_path": failure.logical_path,
+                "locator": failure.locator,
+                "input_sha256": failure.input_sha256,
+                "error_kind": failure.error_kind,
+                "sanitized_error": failure.sanitized_error,
+            }
+            for failure in (*result.recovery_failures, *result.secondary_recovery_failures)
+        ],
+        "story_metadata_hash": hashlib.sha256(canonical_json(dict(story_metadata))).hexdigest(),
+    }
+    return hashlib.sha256(canonical_json(dependency)).hexdigest()
+
+
+def _content_fingerprints(
+    content_by_path: Mapping[str, bytes],
+) -> tuple[SourceFingerprint, ...]:
+    return tuple(
+        SourceFingerprint.from_bytes(path, content_by_path[path])
+        for path in sorted(content_by_path)
+    )
+
+
+def _legacy_analysis_dependency_hash(
+    source_kind: str,
+    locator: str,
+    entry_label: str,
+    fingerprints: Sequence[SourceFingerprint],
+    *,
+    manifest: Mapping[str, object] | None = None,
+) -> str:
+    dependency: dict[str, object] = {
+        "schema_version": 1,
+        "source_kind": source_kind,
+        "locator": locator,
+        "entry_label": entry_label,
+        "sources": [
+            {
+                "path": item.path,
+                "content_hash": item.content_hash,
+                "size_bytes": item.size_bytes,
+                "metadata": dict(item.metadata),
+            }
+            for item in sorted(fingerprints, key=lambda value: value.path)
+        ],
+    }
+    if manifest is not None:
+        dependency["manifest_hash"] = hashlib.sha256(
+            canonical_json(dict(manifest))
+        ).hexdigest()
+    return hashlib.sha256(canonical_json(dependency)).hexdigest()
+
+
+def _coherent_reused_phases(
+    project: Project,
+    fingerprints: Sequence[SourceFingerprint],
+    *,
+    canonical_paths: Sequence[str],
+    entry_label: str,
+    dependency_hash: str,
+    story_metadata: Mapping[str, object] | None,
+    story_metadata_source_paths: Sequence[str],
+) -> tuple[str, ...]:
+    """Return reusable phases only for a completely coherent unchanged generation."""
+
+    try:
+        if not _has_coherent_reusable_analysis(
+            project,
+            fingerprints,
+            canonical_paths=canonical_paths,
+            entry_label=entry_label,
+            dependency_hash=dependency_hash,
+            story_metadata=story_metadata,
+            story_metadata_source_paths=story_metadata_source_paths,
+        ):
+            return ()
+    except Exception:
+        # A malformed or unsupported persisted read model must take the normal staged
+        # refresh path, where existing failure/preservation behavior remains authoritative.
+        return ()
+    return REUSABLE_ANALYSIS_PHASES
+
+
+def _has_coherent_reusable_analysis(
+    project: Project,
+    fingerprints: Sequence[SourceFingerprint],
+    *,
+    canonical_paths: Sequence[str],
+    entry_label: str,
+    dependency_hash: str,
+    story_metadata: Mapping[str, object] | None,
+    story_metadata_source_paths: Sequence[str],
+) -> bool:
+    incoming = tuple(sorted(fingerprints, key=lambda item: item.path))
+    if len({item.path for item in incoming}) != len(incoming):
+        return False
+    stored = project.sources()
+    if len(stored) != len(incoming):
+        return False
+    for old, new in zip(stored, incoming, strict=True):
+        if (
+            old.path != new.path
+            or old.content_hash != new.content_hash
+            or old.size_bytes != new.size_bytes
+            or _stable_source_metadata(old.metadata) != _stable_source_metadata(new.metadata)
+        ):
+            return False
+
+    generation = canonical_source_generation(
+        tuple((item.path, item.content_hash) for item in incoming)
+    )
+    metadata = project.metadata()
+    if (
+        metadata.get("entry_label") != entry_label
+        or metadata.get(_ANALYSIS_DEPENDENCY_METADATA_KEY) != dependency_hash
+    ):
+        return False
+
+    canonical = _payload_scalars(
+        project,
+        "m10_canonical_graph",
+        "authoritative",
+        ("schema", "source_generation"),
+    )
+    projection = _payload_scalars(
+        project,
+        "m10_inspection_projection",
+        "authoritative",
+        ("schema", "source_generation", "canonical_graph_hash", "route_map_hash"),
+    )
+    if canonical is None or projection is None:
+        return False
+    canonical_hash = canonical["payload_hash"]
+    if (
+        canonical.get("schema") != CANONICAL_GRAPH_SCHEMA
+        or canonical.get("source_generation") != generation
+        or projection.get("schema") != INSPECTION_PROJECTION_SCHEMA
+        or projection.get("source_generation") != generation
+        or projection.get("canonical_graph_hash") != canonical_hash
+    ):
+        return False
+
+    route_map = project.payload("m07_route_map", "authoritative")
+    if not isinstance(route_map, Mapping):
+        return False
+    route_hash = hashlib.sha256(canonical_json(dict(route_map))).hexdigest()
+    if (
+        route_map.get("schema_version") != ROUTE_MAP_SCHEMA_VERSION
+        or projection.get("route_map_hash") != route_hash
+    ):
+        return False
+
+    state = project.payload("m10_analysis_state", "authoritative")
+    if not isinstance(state, Mapping):
+        return False
+    if (
+        state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION
+        or state.get("source_generation") != generation
+        or state.get("status") != AnalysisStatus.CURRENT_COMPLETE.value
+        or state.get("canonical_availability") != "current_complete"
+        or state.get("simplified_availability") != "current_complete"
+        or state.get("canonical_generation") != generation
+        or state.get("canonical_hash") != canonical_hash
+        or state.get("simplified_generation") != generation
+        or state.get("simplified_canonical_hash") != canonical_hash
+        or "failure" in state
+    ):
+        return False
+
+    inventory_hash = hashlib.sha256(
+        canonical_json(
+            [{"path": item.path, "content_hash": item.content_hash} for item in incoming]
+        )
+    ).hexdigest()
+    phases = state.get("phases")
+    if not isinstance(phases, list) or len(phases) != len(REUSABLE_ANALYSIS_PHASES):
+        return False
+    for expected_phase, raw_phase in zip(REUSABLE_ANALYSIS_PHASES, phases, strict=True):
+        if not isinstance(raw_phase, Mapping):
+            return False
+        if (
+            raw_phase.get("phase") != expected_phase
+            or raw_phase.get("source_generation") != generation
+        ):
+            return False
+        bindings = raw_phase.get("payloads")
+        if not isinstance(bindings, list) or not bindings:
+            return False
+        for raw_binding in bindings:
+            if not isinstance(raw_binding, Mapping):
+                return False
+            collection = raw_binding.get("collection")
+            key = raw_binding.get("key")
+            payload_hash = raw_binding.get("payload_hash")
+            if not all(isinstance(item, str) for item in (collection, key, payload_hash)):
+                return False
+            if collection == "sources" and key == "inventory":
+                if payload_hash != inventory_hash:
+                    return False
+            elif collection == "presentation_index" and key == "authoritative":
+                if payload_hash != route_hash:
+                    return False
+            elif _stored_payload_hash(project, collection, key) != payload_hash:
+                return False
+
+    required_authoritative = (
+        "m01_graph",
+        "m02_semantic",
+        "state_registry",
+        "m06_control_flow",
+        "m07_route_map",
+        "m10_canonical_graph",
+        "m10_inspection_projection",
+    )
+    if any(
+        _stored_payload_hash(project, collection, "authoritative") is None
+        for collection in required_authoritative
+    ):
+        return False
+
+    expected_paths = tuple(sorted(canonical_paths))
+    if project.payload_keys("parsed_source") != expected_paths:
+        return False
+    if project.payload_keys("source_dependencies") != expected_paths:
+        return False
+    metadata_payload = project.payload("story_metadata", "authoritative")
+    if story_metadata is None:
+        if metadata_payload is not None:
+            return False
+    else:
+        if metadata_payload != dict(story_metadata):
+            return False
+        if _payload_source_paths(project, "story_metadata", "authoritative") != tuple(
+            sorted(story_metadata_source_paths)
+        ):
+            return False
+    if not _route_scope_checkpoints_coherent(project, route_map, route_hash):
+        return False
+    return _presentation_index_coherent(project)
+
+
+def _stable_source_metadata(value: Mapping[str, object]) -> bytes:
+    metadata = dict(value)
+    metadata.pop("cache_hit", None)
+    return canonical_json(metadata)
+
+
+def _payload_scalars(
+    project: Project,
+    collection: str,
+    key: str,
+    fields: Sequence[str],
+) -> dict[str, object] | None:
+    columns = ", ".join(f"json_extract(payload_json, '$.{field}') AS {field}" for field in fields)
+    row = (
+        project._require_open()
+        .execute(
+            f"SELECT payload_hash, {columns} FROM payloads WHERE collection=? AND record_key=?",
+            (collection, key),
+        )
+        .fetchone()
+    )
+    if row is None:
+        return None
+    return {"payload_hash": str(row["payload_hash"]), **{field: row[field] for field in fields}}
+
+
+def _stored_payload_hash(project: Project, collection: object, key: object) -> str | None:
+    if not isinstance(collection, str) or not isinstance(key, str):
+        return None
+    row = (
+        project._require_open()
+        .execute(
+            "SELECT payload_hash FROM payloads WHERE collection=? AND record_key=?",
+            (collection, key),
+        )
+        .fetchone()
+    )
+    return None if row is None else str(row["payload_hash"])
+
+
+def _route_scope_checkpoints_coherent(
+    project: Project, route_map: Mapping[str, object], route_hash: str
+) -> bool:
+    raw_scopes = route_map.get("scopes")
+    if not isinstance(raw_scopes, list):
+        return False
+    expected: list[tuple[str, int, str, bytes]] = []
+    for raw_scope in raw_scopes:
+        if not isinstance(raw_scope, Mapping):
+            return False
+        scope_id = raw_scope.get("id")
+        ordinal = raw_scope.get("ordinal")
+        input_hash = raw_scope.get("input_hash")
+        if (
+            not isinstance(scope_id, str)
+            or not isinstance(ordinal, int)
+            or isinstance(ordinal, bool)
+            or not isinstance(input_hash, str)
+        ):
+            return False
+        expected.append((scope_id, ordinal, input_hash, canonical_json(dict(raw_scope))))
+    rows = (
+        project._require_open()
+        .execute(
+            """SELECT scope_id,ordinal,generation,input_hash,scope_json
+           FROM m07_scope_checkpoints ORDER BY ordinal,scope_id"""
+        )
+        .fetchall()
+    )
+    if len(rows) != len(expected):
+        return False
+    for row, item in zip(
+        rows, sorted(expected, key=lambda value: (value[1], value[0])), strict=True
+    ):
+        if (
+            str(row["scope_id"]) != item[0]
+            or int(row["ordinal"]) != item[1]
+            or str(row["generation"]) != route_hash
+            or str(row["input_hash"]) != item[2]
+            or bytes(row["scope_json"]) != item[3]
+        ):
+            return False
+    return True
+
+
+def _presentation_index_coherent(project: Project) -> bool:
+    connection = project._require_open()
+    row = connection.execute(
+        "SELECT generation FROM presentation_index_state WHERE singleton=1"
+    ).fetchone()
+    if row is None:
+        return False
+    digest = hashlib.sha256()
+    payload_rows = connection.execute(
+        """SELECT collection,record_key,payload_hash FROM payloads
+           WHERE collection IN (
+             'm02_semantic','gates','effects','state_registry','story_metadata'
+           ) ORDER BY collection,record_key"""
+    )
+    for payload_row in payload_rows:
+        for value in (
+            str(payload_row["collection"]),
+            str(payload_row["record_key"]),
+            str(payload_row["payload_hash"]),
+        ):
+            digest.update(value.encode("utf-8"))
+            digest.update(b"\0")
+    return str(row["generation"]) == digest.hexdigest()
 
 
 def _refresh_open_project(
@@ -1290,14 +1810,6 @@ def _read_archive_sources(
         "after": after.to_dict(),
     }
     return content, manifest
-
-
-def _content_matches(project: Project, content_by_path: Mapping[str, bytes]) -> bool:
-    existing = {source.path: source.content_hash for source in project.sources()}
-    incoming = {
-        path: hashlib.sha256(content).hexdigest() for path, content in content_by_path.items()
-    }
-    return existing == incoming
 
 
 def _source_root(value: str | os.PathLike[str]) -> Path:
