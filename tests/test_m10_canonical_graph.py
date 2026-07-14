@@ -88,6 +88,15 @@ def test_canonical_graph_composes_existing_authority_and_is_permutation_stable()
     assert any(item.kind == "unresolved" for item in first.nodes)
     assert all(item.evidence_ids or item.proof_ids for item in (*first.nodes, *first.edges))
     assert all(item.origins for item in (*first.nodes, *first.edges, *first.regions))
+    assert {
+        "branch_arm_membership",
+        "call_site_return_continuation",
+        "immediate_post_dominator_merge",
+        "resolved_static_reachability",
+        "scc_loop_membership",
+        "terminal_classification",
+    } <= {item.kind for item in first.proofs}
+    assert all(item.origins and item.input_ids and item.explanation for item in first.proofs)
 
     permuted_graph = copy.deepcopy(graph)
     permuted_semantic = copy.deepcopy(semantic)
