@@ -222,6 +222,8 @@ def project_inspection_graph(
                     "terminal_kind": route_node.terminal_kind,
                     "unresolved": route_node.unresolved,
                     "canonical_escape_id": canonical.id,
+                    "source_kind": canonical.attributes.get("source_kind"),
+                    "metadata": canonical.attributes.get("metadata"),
                 },
             )
         )
@@ -306,6 +308,8 @@ def _choice_outcomes(
                         "terminal_summary": str(arm.get("terminal_summary", "none")),
                         "unresolved": bool(arm.get("unresolved", False)),
                         "merge_node_id": region.merge_node_id,
+                        "source_kind": entry.attributes.get("source_kind"),
+                        "metadata": entry.attributes.get("metadata"),
                     },
                 )
             )

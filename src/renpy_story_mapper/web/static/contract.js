@@ -143,6 +143,10 @@ export function assertPreparedOrganization(value) {
 }
 
 export function assertRoutePage(page) {
+  if (object(page) && page.status === "unavailable") {
+    if (!["simplified", "canonical"].includes(page.view) || typeof page.reason !== "string" || !object(page.generation_status)) throw new TypeError("Invalid unavailable Route Map response");
+    return page;
+  }
   if (!object(page) || !Array.isArray(page.nodes) || !Array.isArray(page.edges)) {
     throw new TypeError("Invalid Route Map response");
   }
@@ -165,6 +169,10 @@ export function assertRoutePage(page) {
 }
 
 export function assertDetail(detail) {
+  if (object(detail) && detail.status === "unavailable") {
+    if (!["simplified", "canonical"].includes(detail.view) || typeof detail.reason !== "string" || !object(detail.generation_status)) throw new TypeError("Invalid unavailable detail response");
+    return detail;
+  }
   if (!object(detail) || !object(detail.element) || !Array.isArray(detail.evidence)) {
     throw new TypeError("Invalid Detail/Evidence response");
   }

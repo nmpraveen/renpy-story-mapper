@@ -103,7 +103,7 @@ button:disabled { cursor: default; opacity: .45; }
 .progress-meta { display: flex; justify-content: space-between; padding: .45rem 0 1rem; color: var(--muted); font-size: 13px; }
 
 .workspace { height: calc(100% - var(--masthead)); }
-.route-map-view { height: 100%; display: grid; grid-template-areas: "commandbar" "fallback" "map" "organization"; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.route-map-view { height: 100%; display: grid; grid-template-areas: "commandbar" "fallback" "failure" "partial" "map" "organization"; grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; }
 .commandbar { position: relative; z-index: 10; grid-area: commandbar; display: grid; grid-template-columns: minmax(14rem, 1fr) auto minmax(12rem, 20rem) auto auto; align-items: center; gap: .65rem; min-height: 5rem; border-bottom: 1px solid var(--rule); background: var(--sheet); padding: .65rem 1rem; }
 .commandbar h1 { margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: 400; }
 .view-switch { display: flex; flex-wrap: wrap; }
@@ -111,6 +111,10 @@ button:disabled { cursor: default; opacity: .45; }
 .popover { position: absolute; z-index: 20; top: 4.25rem; right: 7rem; min-width: 13rem; border: 1px solid var(--rule-strong); background: var(--sheet); padding: .75rem; box-shadow: 5px 5px 0 var(--paper-deep); }
 .popover label { display: block; padding: .35rem; }
 .fallback-notice { grid-area: fallback; display: flex; gap: .5rem; border-bottom: 1px solid var(--rule); background: var(--accent-soft); padding: .5rem 1rem; font-size: 14px; }
+.analysis-failure-banner { grid-area: failure; display: flex; flex-wrap: wrap; gap: .35rem .75rem; border-bottom: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--sheet)); padding: .55rem 1rem; font-size: 13px; }
+.analysis-failure-banner span { color: var(--muted); }
+.partial-analysis-panel { grid-area: partial; margin: 1rem; border-left: 3px solid var(--danger); background: var(--sheet); padding: 1rem 1.25rem; }
+.partial-analysis-panel h2 { margin: .15rem 0 .4rem; font-family: Georgia, serif; font-weight: 400; }
 
 .map-layout { min-height: 0; grid-area: map; display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); }
 .line-index { overflow: auto; border-right: 1px solid var(--rule); background: var(--sheet); padding: 1rem; }

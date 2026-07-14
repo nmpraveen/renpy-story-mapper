@@ -227,12 +227,15 @@ def _simplified_records(
     nodes: list[dict[str, object]] = []
     for item in _records(projection.get("nodes"), "projection.nodes"):
         attributes = _attributes(item)
+        unsupported_status = _unsupported_creator_status(attributes)
         nodes.append(
             {
                 **dict(item),
+                "source_kind": attributes.get("source_kind"),
                 "lane_kind": _lane_kind(str(item.get("lane_id", ""))),
                 "lane_label": _lane_label(str(item.get("lane_id", ""))),
                 "summary": _summary(item, attributes),
+                "unsupported_status": unsupported_status,
                 "unresolved": bool(attributes.get("unresolved", False)),
                 "reachability": attributes.get("reachability"),
                 "fact_ids": list(_strings(attributes.get("fact_ids"))),
@@ -260,6 +263,7 @@ def _canonical_records(
     order_fallback = 1_000_000
     for index, item in enumerate(_records(canonical.get("nodes"), "canonical.nodes")):
         attributes = _attributes(item)
+        unsupported_status = _unsupported_creator_status(attributes)
         route = attributes.get("route")
         route_value = route if isinstance(route, Mapping) else {}
         lane_id = str(route_value.get("lane_id", "canonical-technical"))
@@ -267,8 +271,10 @@ def _canonical_records(
             {
                 "id": item["id"],
                 "kind": item.get("kind", "script_unit"),
+                "source_kind": attributes.get("source_kind"),
                 "title": item.get("label", "Technical record"),
                 "summary": _summary(item, attributes),
+                "unsupported_status": unsupported_status,
                 "order": route_value.get("order", order_fallback + index),
                 "lane_id": lane_id,
                 "lane_kind": _lane_kind(lane_id),
@@ -373,12 +379,27 @@ def _display_fact(item: Mapping[str, object]) -> dict[str, object]:
 
 
 def _summary(item: Mapping[str, object], attributes: Mapping[str, object]) -> str:
+    unsupported_status = _unsupported_creator_status(attributes)
+    if unsupported_status is not None:
+        return unsupported_status
     parts = [
         str(item.get("reachability") or attributes.get("reachability") or "").replace("_", " "),
         str(attributes.get("terminal_kind") or "").replace("_", " "),
         "unresolved" if attributes.get("unresolved") else "",
     ]
     return " · ".join(part for part in parts if part)
+
+
+def _unsupported_creator_status(attributes: Mapping[str, object]) -> str | None:
+    metadata = attributes.get("metadata")
+    metadata_value = metadata if isinstance(metadata, Mapping) else {}
+    if (
+        attributes.get("source_kind") == "opaque"
+        and metadata_value.get("executed") is False
+        and metadata_value.get("reason") == "embedded_python_not_executed"
+    ):
+        return "Unsupported creator Python · preserved, not executed"
+    return None
 
 
 def _lanes(nodes: Sequence[Mapping[str, object]]) -> list[dict[str, str]]:

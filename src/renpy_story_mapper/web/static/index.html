@@ -48,7 +48,9 @@
           </div>
 
           <div id="fallbackNotice" class="fallback-notice" hidden role="status"><strong>AI Story Map unavailable.</strong><span id="fallbackReason">Technical Structure is shown.</span></div>
-          <div class="map-layout">
+          <div id="analysisFailureBanner" class="analysis-failure-banner" hidden role="alert"><strong id="analysisFailureTitle">Analysis incomplete</strong><span id="analysisFailureSummary"></span><span id="analysisCompletedPhases"></span></div>
+          <section id="partialAnalysisPanel" class="partial-analysis-panel" hidden aria-labelledby="partialAnalysisTitle"><p class="eyebrow">Partial analysis</p><h2 id="partialAnalysisTitle">No map is available yet</h2><p id="partialAnalysisSummary"></p></section>
+          <div id="mapLayout" class="map-layout">
             <aside class="line-index" aria-labelledby="lineIndexTitle"><h2 id="lineIndexTitle">Routes</h2><div id="laneList" class="lane-list"></div><div class="shape-key" aria-label="Map marks"><span>◆ choice</span><span>◇ merge</span><span>↻ loop</span><span>■ ending</span><span>→ continuation</span><span>? unresolved</span></div><div id="coverageSummary" class="coverage-summary"></div></aside>
 
             <section class="map-panel">

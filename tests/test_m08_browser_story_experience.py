@@ -20,12 +20,13 @@ def _assets() -> str:
     )
 
 
-def test_ai_story_map_is_applied_default_with_exact_technical_comparison() -> None:
+def test_ai_story_map_remains_selectable_with_m10_as_deterministic_default() -> None:
     app = _text("app.js")
     html = _text("index.html")
     contract = _text("contract.js")
     assert 'id="aiMapButton"' in html and 'id="technicalMapButton"' in html
-    assert "comparison.default_view === \"ai_story_map\"" in app
+    assert "inspectionCurrent" in app and "canonicalCurrent" in app
+    assert "comparison.default_view" not in app
     assert "state.aiPage" in app and "state.technicalPage" in app
     assert "authority_unchanged" in contract
     assert "/api/v1/m08/ai-story-map" in contract
@@ -107,7 +108,10 @@ def test_editorial_cartography_is_local_restrained_and_free_of_mojibake() -> Non
 
 def test_route_map_keeps_flexible_row_when_fallback_notice_is_hidden() -> None:
     css = _text("styles.css")
-    assert 'grid-template-areas: "commandbar" "fallback" "map" "organization"' in css
+    assert (
+        'grid-template-areas: "commandbar" "fallback" "failure" "partial" "map" '
+        '"organization"' in css
+    )
     assert "grid-area: commandbar" in css
     assert "grid-area: fallback" in css
     assert "grid-area: map" in css

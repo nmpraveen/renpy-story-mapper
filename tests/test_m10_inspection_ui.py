@@ -109,6 +109,30 @@ def test_simplified_detail_has_evidence_and_direct_canonical_focus(tmp_path: Pat
     assert len(detail["evidence"]) <= 60
 
 
+def test_opaque_creator_python_has_explicit_preserved_not_executed_status(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    page = inspection_page(
+        projection,
+        canonical,
+        state,
+        view="canonical",
+        offset=0,
+        limit=30,
+        edge_offset=0,
+        edge_limit=180,
+    )
+    opaque = next(item for item in page["nodes"] if item["source_kind"] == "opaque")
+
+    assert opaque["unsupported_status"] == (
+        "Unsupported creator Python · preserved, not executed"
+    )
+    assert opaque["summary"] == opaque["unsupported_status"]
+    assert opaque["unresolved"] is False
+
+
 def test_project_api_exposes_bounded_m10_map_and_detail(tmp_path: Path) -> None:
     source, project_path = _project(tmp_path)
     api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
@@ -301,6 +325,49 @@ def test_failed_refresh_reports_coherent_last_known_good_generation(
         api.close()
 
 
+def test_failure_before_canonical_graph_returns_bounded_partial_analysis_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_bytes(FIXTURE.read_bytes())
+    project_path = tmp_path / "early-partial.rsmproj"
+
+    def fail_control(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("injected control failure")
+
+    monkeypatch.setattr(project_analysis, "analyze_control_flow", fail_control)
+    with pytest.raises(RuntimeError, match="injected control"):
+        create_ingested_project(project_path, source)
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+        result = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "simplified",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        status = result["generation_status"]
+        assert result["status"] == "unavailable"
+        assert status["failure"]["phase"] == "control_flow"
+        assert status["canonical_availability"] == "none"
+        assert status["completed_phases"] == [
+            "source_inventory",
+            "parse",
+            "graph",
+            "semantic_state",
+        ]
+    finally:
+        api.close()
+
+
 def test_packaged_ui_has_bounded_inspection_and_canonical_escape() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     app = (STATIC / "app.js").read_text(encoding="utf-8")
@@ -327,3 +394,5 @@ def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() ->
     assert "enterAvailableWorkspace" in app
     assert "completed_phases" in app
     assert "last_known_good" in app
+    assert "inspectionCurrent" in app and "canonicalCurrent" in app
+    assert "comparison.default_view" not in app
