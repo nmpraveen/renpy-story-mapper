@@ -1,4 +1,10 @@
-"""Secure, provider-neutral story organization contracts."""
+"""Secure, provider-neutral story organization contracts.
+
+The Qt-backed provider is loaded lazily so importing deterministic contracts does
+not require the desktop runtime.
+"""
+
+from typing import Any
 
 from renpy_story_mapper.organization.cache import OrganizationCacheKey, build_cache_key
 from renpy_story_mapper.organization.chunking import (
@@ -37,8 +43,17 @@ from renpy_story_mapper.organization.persistence import (
     decode_organization_result,
     encode_organization_result,
 )
-from renpy_story_mapper.organization.provider import CodexCliProvider
 from renpy_story_mapper.organization.validation import validate_result
+
+
+def __getattr__(name: str) -> Any:
+    """Retain the legacy provider export without importing Qt eagerly."""
+
+    if name == "CodexCliProvider":
+        from renpy_story_mapper.organization.provider import CodexCliProvider
+
+        return CodexCliProvider
+    raise AttributeError(name)
 
 __all__ = [
     "M05_CLOUD_MODEL",
