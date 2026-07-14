@@ -21,6 +21,7 @@ from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m10" / "canonical_constructs.rpy"
+CALL_RETURN_FIXTURE = Path(__file__).parent / "fixtures" / "call_return.rpy"
 
 
 @pytest.mark.parametrize(
@@ -105,6 +106,62 @@ def test_canonical_graph_composes_existing_authority_and_is_permutation_stable()
     )
     assert second.normalized_bytes() == first.normalized_bytes()
     assert second.authority_hash == first.authority_hash
+
+
+def test_resolved_m06_call_nodes_and_edges_are_reachable_with_proof() -> None:
+    module = parse_script(
+        "call_return.rpy",
+        CALL_RETURN_FIXTURE.read_text(encoding="utf-8").splitlines(keepends=True),
+    )
+    graph = build_graph([module])
+    semantic = build_semantic_story(graph)
+    state = extract_state([module])
+    control = analyze_control_flow(
+        graph, semantic, state.requirements, state.effects
+    ).to_dict()
+    route = project_route_map(control, semantic, state.requirements, state.effects)
+    canonical = build_canonical_graph(
+        graph,
+        semantic,
+        control,
+        route,
+        state,
+        source_generation=source_generation(((module.path, "a" * 64),)),
+    )
+
+    synthetic = {
+        str(item.attributes.get("source_kind")): item
+        for item in canonical.nodes
+        if item.attributes.get("synthetic")
+    }
+    assert (
+        synthetic["procedure_return_boundary"].reachability
+        is ReachabilityStatus.PROVEN_REACHABLE
+    )
+    assert synthetic["call_return_site"].reachability is ReachabilityStatus.PROVEN_REACHABLE
+
+    proof_by_id = {item.id: item for item in canonical.proofs}
+    for node in synthetic.values():
+        assert any(
+            proof_by_id[proof_id].kind == "resolved_static_reachability"
+            for proof_id in node.proof_ids
+        )
+
+    relevant_edges = [
+        item
+        for item in canonical.edges
+        if item.kind in {"call_enter", "call_summary", "call_return"}
+    ]
+    assert relevant_edges
+    assert all(
+        item.reachability is ReachabilityStatus.PROVEN_REACHABLE
+        for item in relevant_edges
+    )
+    assert any(
+        proof_by_id[proof_id].kind == "call_site_return_continuation"
+        for item in relevant_edges
+        for proof_id in item.proof_ids
+    )
 
 
 def test_project_persists_canonical_graph_with_matching_fact_origins(tmp_path: Path) -> None:

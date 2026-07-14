@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from renpy_story_mapper.project import Project, create_ingested_project
+import renpy_story_mapper.project_analysis as project_analysis
+from renpy_story_mapper.project import (
+    Project,
+    create_ingested_project,
+    refresh_ingested_project,
+)
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.inspection_api import inspection_detail, inspection_page
 from renpy_story_mapper.web.state import UserStateStore
@@ -132,6 +137,170 @@ def test_project_api_exposes_bounded_m10_map_and_detail(tmp_path: Path) -> None:
         api.close()
 
 
+def test_canonical_api_survives_initial_simplified_projection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_bytes(FIXTURE.read_bytes())
+    project_path = tmp_path / "partial.rsmproj"
+
+    def fail_projection(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("injected simplified projection failure")
+
+    monkeypatch.setattr(project_analysis, "project_inspection_graph", fail_projection)
+    with pytest.raises(RuntimeError, match="injected simplified"):
+        create_ingested_project(project_path, source)
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+        canonical = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "canonical",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        assert canonical["status"] == "available"
+        assert canonical["nodes"]
+        assert canonical["generation_status"]["failure"]["phase"] == "simplified_projection"
+        detail = api.dispatch(
+            "POST",
+            "/api/v1/m10/detail",
+            {
+                "view": "canonical",
+                "element_id": canonical["nodes"][0]["id"],
+            },
+        )
+        assert detail["canonical_records"]
+
+        simplified = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "simplified",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        assert simplified["status"] == "unavailable"
+        assert simplified["reason"] == "projection_missing"
+        assert simplified["generation_status"]["failure"]["phase"] == "simplified_projection"
+    finally:
+        api.close()
+
+
+def test_stale_projection_is_never_composed_with_newer_canonical_graph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, project_path = _project(tmp_path)
+    with Project.open(project_path) as project:
+        old_projection = project.payload("m10_inspection_projection", "authoritative")
+    assert isinstance(old_projection, dict)
+    stale_outcome = next(item for item in old_projection["nodes"] if item["title"] == "Help")
+
+    (source / "story.rpy").write_text(
+        FIXTURE.read_text(encoding="utf-8").replace('"Help"', '"Assist"'),
+        encoding="utf-8",
+    )
+
+    def fail_projection(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("injected simplified projection failure")
+
+    monkeypatch.setattr(project_analysis, "project_inspection_graph", fail_projection)
+    with pytest.raises(RuntimeError, match="injected simplified"):
+        refresh_ingested_project(project_path, source)
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+        canonical = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "canonical",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        assert canonical["status"] == "available"
+        assert canonical["generation_status"]["freshness"] == "current"
+
+        simplified = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "simplified",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        assert simplified["status"] == "unavailable"
+        assert simplified["reason"] == "projection_generation_mismatch"
+
+        stale_detail = api.dispatch(
+            "POST",
+            "/api/v1/m10/detail",
+            {"view": "simplified", "element_id": stale_outcome["id"]},
+        )
+        assert stale_detail["status"] == "unavailable"
+        assert "canonical_records" not in stale_detail
+    finally:
+        api.close()
+
+
+def test_failed_refresh_reports_coherent_last_known_good_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, project_path = _project(tmp_path)
+    (source / "story.rpy").write_text(
+        FIXTURE.read_text(encoding="utf-8").replace("Trust changed.", "Trust changed now."),
+        encoding="utf-8",
+    )
+
+    def fail_route(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("injected route projection failure")
+
+    monkeypatch.setattr(project_analysis, "project_route_map", fail_route)
+    with pytest.raises(RuntimeError, match="injected route"):
+        refresh_ingested_project(project_path, source)
+
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        api._retain_project_path(project_path, source)
+        page = api.dispatch(
+            "POST",
+            "/api/v1/m10/inspection-map",
+            {
+                "view": "simplified",
+                "offset": 0,
+                "limit": 30,
+                "edge_offset": 0,
+                "edge_limit": 180,
+            },
+        )
+        status = page["generation_status"]
+        assert page["status"] == "available"
+        assert status["freshness"] == "stale"
+        assert status["last_known_good"] is True
+        assert status["failure"]["phase"] == "route_map"
+        assert status["failure"]["code"]
+        assert status["completed_phases"]
+    finally:
+        api.close()
+
+
 def test_packaged_ui_has_bounded_inspection_and_canonical_escape() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     app = (STATIC / "app.js").read_text(encoding="utf-8")
@@ -148,3 +317,13 @@ def test_packaged_ui_has_bounded_inspection_and_canonical_escape() -> None:
     assert "nodes: 30" in contract and "edges: 180" in contract
     assert "bezierCurveTo" in graph
     assert "forceSimulation" not in graph and "requestAnimationFrame" not in graph
+
+
+def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="analysisFailureBanner"' in html
+    assert "enterAvailableWorkspace" in app
+    assert "completed_phases" in app
+    assert "last_known_good" in app
