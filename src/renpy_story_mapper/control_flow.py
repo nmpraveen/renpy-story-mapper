@@ -1289,7 +1289,7 @@ def _regions(
     arms: list[ControlArm] = []
     regions: list[ControlRegion] = []
     for split in sorted(node_by_id.values(), key=lambda item: item.id):
-        outgoing = sorted(edge_by_source[split.id], key=lambda item: item.id)
+        outgoing = sorted(edge_by_source[split.id], key=_source_branch_order)
         if split.kind == "menu" and _has_unconditional_choice(outgoing):
             outgoing = [edge for edge in outgoing if "menu_no_choice" not in edge.semantic_roles]
         if split.kind not in {"menu", "if"} or len({edge.target for edge in outgoing}) < 2:
@@ -1455,6 +1455,22 @@ def _has_unconditional_choice(edges: Sequence[ControlEdge]) -> bool:
         if isinstance(metadata, Mapping) and metadata.get("condition") is None:
             return True
     return False
+
+
+def _source_branch_order(edge: ControlEdge) -> tuple[int, int, str]:
+    """Preserve parser-authored menu/condition order before stable-ID fallback."""
+
+    for evidence in edge.evidence:
+        metadata = evidence.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        for key in ("choice_index", "branch_index"):
+            value = metadata.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                return (0, value, edge.id)
+    if "menu_no_choice" in edge.semantic_roles or "condition_false" in edge.semantic_roles:
+        return (1, 0, edge.id)
+    return (2, 0, edge.id)
 
 
 def _nearest_common_postdominator(
