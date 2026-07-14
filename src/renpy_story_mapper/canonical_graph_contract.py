@@ -87,7 +87,7 @@ class DerivedProof:
             "id": self.id,
             "kind": self.kind,
             "origins": [item.to_dict() for item in sorted(self.origins)],
-            "input_ids": sorted(self.input_ids),
+            "input_ids": list(self.input_ids),
             "explanation": self.explanation,
         }
 

@@ -144,31 +144,43 @@ def build_canonical_graph(
         static_reachable = (
             graph_node_id in reachable_nodes if resolved_entry_known else m01_reachable
         )
+        reachability_witness: dict[str, object] | None = None
         if resolved_entry_known:
             reached = bool(static_reachable)
+            witness_inputs = reachability_inputs.get(graph_node_id, (graph_node_id,))
+            if reached and len(witness_inputs) == 4:
+                reachability_witness = {
+                    "kind": "predecessor",
+                    "root_node_id": witness_inputs[0],
+                    "parent_node_id": witness_inputs[1],
+                    "edge_id": witness_inputs[2],
+                    "node_id": witness_inputs[3],
+                }
+            elif reached:
+                reachability_witness = {
+                    "kind": "root",
+                    "root_node_id": witness_inputs[0],
+                    "node_id": graph_node_id,
+                }
+            else:
+                reachability_witness = {
+                    "kind": "unreached",
+                    "node_id": graph_node_id,
+                }
+            root_id = witness_inputs[0] if reached else graph_node_id
             reachability_proof = _proof(
                 "resolved_static_reachability",
                 tuple(
                     sorted(
                         {
-                            *entry_origins,
+                            OriginReference("m06_control_flow", root_id, "nodes"),
                             OriginReference("m06_control_flow", graph_node_id, "nodes"),
                         }
                     )
                 ),
-                reachability_inputs.get(
-                    graph_node_id,
-                    tuple(
-                        sorted(
-                            {
-                                *(item.record_id for item in entry_origins),
-                                graph_node_id,
-                            }
-                        )
-                    ),
-                ),
+                witness_inputs,
                 (
-                    "Resolved M06 traversal from the configured entry reaches this control node."
+                    "A bounded M06 BFS predecessor witness reaches this control node."
                     if reached
                     else "No resolved M06 edge path from the configured entry reaches this "
                     "control node."
@@ -226,6 +238,8 @@ def build_canonical_graph(
             "resolved_static_reachable": static_reachable,
             "guard_dependencies": guard_dependencies,
         }
+        if reachability_witness is not None:
+            attributes["reachability_witness"] = reachability_witness
         if m01_reachable is not None:
             attributes["m01_reachable_from_entry"] = m01_reachable
         if raw is not None:
@@ -521,18 +535,22 @@ def _resolved_static_reachability(
     for values in outgoing.values():
         values.sort()
 
-    paths: dict[str, tuple[str, ...]] = {root: (root,) for root in sorted(set(roots))}
-    pending = deque(sorted(paths))
+    witnesses: dict[str, tuple[str, ...]] = {
+        root: (root,) for root in sorted(set(roots))
+    }
+    root_by_node = {root: root for root in witnesses}
+    pending = deque(sorted(witnesses))
     while pending:
         source = pending.popleft()
         for edge_id, target in outgoing.get(source, ()):
-            if target in paths:
+            if target in witnesses:
                 continue
-            paths[target] = (*paths[source], edge_id, target)
+            witnesses[target] = (root_by_node[source], source, edge_id, target)
+            root_by_node[target] = root_by_node[source]
             pending.append(target)
     return (
-        set(paths),
-        paths,
+        set(witnesses),
+        witnesses,
         tuple(sorted(set(entry_origins))),
         tuple(sorted(set(roots))),
     )
@@ -1106,7 +1124,7 @@ def _proof(
     explanation: str,
 ) -> DerivedProof:
     proof_id = stable_canonical_id(
-        "proof", kind, *(item.identity for item in sorted(origins)), *sorted(input_ids)
+        "proof", kind, *(item.identity for item in sorted(origins)), *input_ids
     )
     return DerivedProof(proof_id, kind, origins, input_ids, explanation)
 

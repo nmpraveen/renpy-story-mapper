@@ -298,6 +298,35 @@ def test_nested_guards_accumulate_and_stop_at_each_proven_merge() -> None:
     assert after_both.attributes["guard_dependencies"] == []
 
 
+def test_reachability_witness_inputs_preserve_predecessor_field_order() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    \"One\"
+    \"Two\"
+    return
+"""
+    )
+    proof_by_id = {item.id: item for item in canonical.proofs}
+    node = next(
+        item
+        for item in canonical.nodes
+        if item.attributes.get("reachability_witness", {}).get("kind") == "predecessor"
+    )
+    witness = node.attributes["reachability_witness"]
+    proof = next(
+        proof_by_id[proof_id]
+        for proof_id in node.proof_ids
+        if proof_by_id[proof_id].kind == "resolved_static_reachability"
+    )
+    assert proof.input_ids == (
+        witness["root_node_id"],
+        witness["parent_node_id"],
+        witness["edge_id"],
+        witness["node_id"],
+    )
+    assert proof.to_dict()["input_ids"] == list(proof.input_ids)
+
+
 def test_edge_reachability_comes_from_its_source_not_an_alternate_target_path() -> None:
     canonical = _canonical_for_source(
         """label start:
