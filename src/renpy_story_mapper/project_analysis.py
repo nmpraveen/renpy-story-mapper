@@ -31,6 +31,7 @@ from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.importer import inventory_archive
+from renpy_story_mapper.inspection_projection import project_inspection_graph
 from renpy_story_mapper.model import (
     Call,
     If,
@@ -470,6 +471,7 @@ def _refresh_open_project(
     previous_registry = project.payload("state_registry", "authoritative")
     previous_story_metadata = project.payload("story_metadata", "authoritative")
     previous_canonical = project.payload("m10_canonical_graph", "authoritative")
+    previous_inspection = project.payload("m10_inspection_projection", "authoritative")
     previous_canonical_generation, previous_canonical_hash = _canonical_identity(
         previous_canonical
     )
@@ -478,6 +480,15 @@ def _refresh_open_project(
         # participating in source-dependency deletion.
         project.write_payloads(
             (PayloadRecord("m10_canonical_graph", "authoritative", previous_canonical),)
+        )
+    if previous_inspection is not None:
+        # The last-good simplified projection stays usable with its generation marker.
+        project.write_payloads(
+            (
+                PayloadRecord(
+                    "m10_inspection_projection", "authoritative", previous_inspection
+                ),
+            )
         )
     fingerprints = (
         tuple(source_fingerprints)
@@ -652,8 +663,27 @@ def _refresh_open_project(
             canonical_hash,
         )
 
-        phase = "inspection_projection"
+        phase = "simplified_projection"
         _emit_analysis_progress(progress, phase, 92)
+        inspection_projection = project_inspection_graph(canonical_graph, route_map)
+        inspection_records = [
+            PayloadRecord(
+                "m10_inspection_projection",
+                "authoritative",
+                inspection_projection.to_dict(),
+            )
+        ]
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            inspection_records,
+            phases,
+            cancel_check,
+        )
+
+        phase = "inspection_projection"
+        _emit_analysis_progress(progress, phase, 96)
         from renpy_story_mapper.presentation import rebuild_presentation_index
 
         rebuild_presentation_index(project, cancelled=cancel_check)

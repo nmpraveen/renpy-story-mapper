@@ -26,6 +26,7 @@ PAYLOAD_COLLECTIONS: Final = frozenset(
         "m06_control_flow",
         "m07_route_map",
         "m10_canonical_graph",
+        "m10_inspection_projection",
         "m10_analysis_state",
         "diagnostics",
         "unresolved",

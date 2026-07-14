@@ -38,9 +38,7 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
     assert state["status"] == "current_complete"
     assert state["canonical_availability"] == "current_complete"
     assert state["source_generation"] == canonical["source_generation"]
-    assert {item["source_generation"] for item in state["phases"]} == {
-        state["source_generation"]
-    }
+    assert {item["source_generation"] for item in state["phases"]} == {state["source_generation"]}
     assert [item["phase"] for item in state["phases"]] == [
         "source_inventory",
         "parse",
@@ -49,6 +47,7 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
         "control_flow",
         "route_map",
         "canonical_graph",
+        "simplified_projection",
         "inspection_projection",
     ]
     assert progress == [
@@ -59,7 +58,8 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
         ("control_flow", 65),
         ("route_map", 75),
         ("canonical_graph", 85),
-        ("inspection_projection", 92),
+        ("simplified_projection", 92),
+        ("inspection_projection", 96),
         ("complete", 100),
     ]
 
@@ -72,6 +72,7 @@ def test_failed_new_route_phase_keeps_last_good_canonical_graph_stale(
     create_ingested_project(project_path, source).close()
     with Project.open(project_path) as project:
         old_canonical = _payload(project, "m10_canonical_graph")
+        old_projection = _payload(project, "m10_inspection_projection")
     (source / "story.rpy").write_text(
         FIXTURE.read_text(encoding="utf-8").replace("Trust changed.", "Trust changed now."),
         encoding="utf-8",
@@ -87,17 +88,51 @@ def test_failed_new_route_phase_keeps_last_good_canonical_graph_stale(
     with Project.open(project_path) as project:
         state = _payload(project, "m10_analysis_state")
         canonical = _payload(project, "m10_canonical_graph")
+        projection = _payload(project, "m10_inspection_projection")
         assert project.payload("m01_graph", "authoritative") is not None
         assert project.payload("m06_control_flow", "authoritative") is not None
         assert project.payload("m07_route_map", "authoritative") is None
     assert canonical == old_canonical
+    assert projection == old_projection
     assert state["status"] == "failed"
     assert state["canonical_availability"] == "stale"
     assert state["failure"]["phase"] == "route_map"
     assert state["source_generation"] != canonical["source_generation"]
-    assert {item["source_generation"] for item in state["phases"]} == {
-        state["source_generation"]
-    }
+    assert {item["source_generation"] for item in state["phases"]} == {state["source_generation"]}
+
+
+def test_failed_simplified_projection_keeps_new_canonical_and_old_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _source(tmp_path)
+    project_path = tmp_path / "story.rsmproj"
+    create_ingested_project(project_path, source).close()
+    with Project.open(project_path) as project:
+        old_projection = _payload(project, "m10_inspection_projection")
+    (source / "story.rpy").write_text(
+        FIXTURE.read_text(encoding="utf-8").replace(
+            "Trust changed.", "Trust changed before projection."
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_projection(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("injected simplified projection failure")
+
+    monkeypatch.setattr(project_analysis, "project_inspection_graph", fail_projection)
+    with pytest.raises(RuntimeError, match="injected simplified"):
+        refresh_ingested_project(project_path, source)
+
+    with Project.open(project_path) as project:
+        state = _payload(project, "m10_analysis_state")
+        canonical = _payload(project, "m10_canonical_graph")
+        projection = _payload(project, "m10_inspection_projection")
+    assert state["status"] == "failed"
+    assert state["canonical_availability"] == "current_complete"
+    assert state["failure"]["phase"] == "simplified_projection"
+    assert canonical["source_generation"] == state["source_generation"]
+    assert projection == old_projection
+    assert projection["source_generation"] != state["source_generation"]
 
 
 def test_failed_later_projection_keeps_current_canonical_graph(
