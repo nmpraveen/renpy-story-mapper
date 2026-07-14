@@ -869,6 +869,7 @@ def create_ingested_project(
     entry_label: str = "start",
     options: object | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    progress: Callable[[str, int], None] | None = None,
 ) -> Project:
     """Create through the unified M06 input boundary."""
 
@@ -880,6 +881,7 @@ def create_ingested_project(
         entry_label=entry_label,
         options=options,
         cancel_check=cancel_check,
+        progress=progress,
     )
 
 
@@ -900,6 +902,7 @@ def refresh_ingested_project(
     *,
     options: object | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    progress: Callable[[str, int], None] | None = None,
 ) -> RefreshReport:
     """Refresh through the unified M06 input boundary."""
 
@@ -910,6 +913,7 @@ def refresh_ingested_project(
         input_path,
         options=options,
         cancel_check=cancel_check,
+        progress=progress,
     )
 
 

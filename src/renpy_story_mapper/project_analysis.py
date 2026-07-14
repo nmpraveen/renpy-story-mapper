@@ -9,17 +9,23 @@ import hashlib
 import os
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import cast
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.analysis_phases import (
+    AnalysisStatus,
+    PhaseBinding,
+    analysis_state_payload,
+    payload_bindings,
+)
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import (
-    CanonicalGraph,
-    stable_origin_record_id,
+    source_generation as canonical_source_generation,
 )
 from renpy_story_mapper.canonical_graph_contract import (
-    source_generation as canonical_source_generation,
+    stable_origin_record_id,
 )
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
@@ -49,7 +55,7 @@ from renpy_story_mapper.project import (
     RefreshReport,
     SourceFingerprint,
 )
-from renpy_story_mapper.route_map import RouteMap, project_route_map
+from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.rpa import RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import (
@@ -64,6 +70,7 @@ from renpy_story_mapper.storage import ProjectOperationCancelled, canonical_json
 from renpy_story_mapper.story_metadata import StoryMetadataLimitError, extract_story_metadata
 
 CancelCheck = Callable[[], bool] | None
+AnalysisProgress = Callable[[str, int], None] | None
 
 
 def create_input_project(
@@ -73,6 +80,7 @@ def create_input_project(
     entry_label: str = "start",
     options: object | None = None,
     cancel_check: CancelCheck = None,
+    progress: AnalysisProgress = None,
 ) -> Project:
     """Create a project through the unified schema-v5 ingestion boundary."""
 
@@ -110,11 +118,15 @@ def create_input_project(
             source_fingerprints=fingerprints,
             story_metadata=story_metadata,
             story_metadata_source_paths=tuple(source.path for source in all_sources),
+            progress=progress,
         )
         project.replace_ingestion_provenance(result)
         return project
     except BaseException:
-        project.delete()
+        if project.payload("m10_analysis_state", "authoritative") is None:
+            project.delete()
+        else:
+            project.close()
         raise
 
 
@@ -124,6 +136,7 @@ def refresh_input_project(
     *,
     options: object | None = None,
     cancel_check: CancelCheck = None,
+    progress: AnalysisProgress = None,
 ) -> RefreshReport:
     """Refresh an existing project through unified ingestion using atomic staging."""
 
@@ -164,9 +177,19 @@ def refresh_input_project(
                 source_fingerprints=fingerprints,
                 story_metadata=story_metadata,
                 story_metadata_source_paths=tuple(source.path for source in all_sources),
+                progress=progress,
             )
             staged.replace_ingestion_provenance(result)
             staged.set_metadata({"source_coverage_complete": result.complete})
+        except BaseException:
+            staged.close()
+            with Project.open(temporary) as partial:
+                publish_partial = (
+                    partial.payload("m10_analysis_state", "authoritative") is not None
+                )
+            if publish_partial:
+                os.replace(temporary, project_path)
+            raise
         finally:
             staged.close()
         _check_cancelled(cancel_check)
@@ -441,10 +464,21 @@ def _refresh_open_project(
     source_fingerprints: Sequence[SourceFingerprint] | None = None,
     story_metadata: Mapping[str, object] | None = None,
     story_metadata_source_paths: Sequence[str] = (),
+    progress: AnalysisProgress = None,
 ) -> RefreshReport:
     previous_dependencies = _stored_dependencies(project)
     previous_registry = project.payload("state_registry", "authoritative")
     previous_story_metadata = project.payload("story_metadata", "authoritative")
+    previous_canonical = project.payload("m10_canonical_graph", "authoritative")
+    previous_canonical_generation, previous_canonical_hash = _canonical_identity(
+        previous_canonical
+    )
+    if previous_canonical is not None:
+        # Canonical generations are retained explicitly as stale read models rather than
+        # participating in source-dependency deletion.
+        project.write_payloads(
+            (PayloadRecord("m10_canonical_graph", "authoritative", previous_canonical),)
+        )
     fingerprints = (
         tuple(source_fingerprints)
         if source_fingerprints is not None
@@ -461,112 +495,218 @@ def _refresh_open_project(
             for path in sorted(content_by_path)
         )
     )
-    refresh = project.refresh_sources(fingerprints, cancelled=cancel_check)
-    canonical_paths = set(content_by_path)
-    parsed_paths = set(refresh.changed) & canonical_paths
-    modules: dict[str, ScriptModule] = {}
-    for path in sorted(content_by_path):
-        _check_cancelled(cancel_check)
-        if path not in parsed_paths:
-            cached = project.payload("parsed_source", path)
-            if cached is not None:
-                modules[path] = _module_from_value(cached)
-                continue
-            parsed_paths.add(path)
-        modules[path] = _parse_source(path, content_by_path[path])
-
-    module_values = [modules[path] for path in sorted(modules)]
-    dependencies = _source_dependencies(module_values)
-    invalidated = _dependent_closure(
-        _merge_dependencies(previous_dependencies, dependencies),
-        set(refresh.changed) | set(refresh.removed),
-    )
-    graph = build_graph(module_values, entry_label=entry_label)
-    diagnostics = [item for module in module_values for item in module.diagnostics]
-    diagnostics.sort(key=lambda item: canonical_json(item))
-    graph["diagnostics"] = diagnostics
-    counts = cast(dict[str, object], graph["counts"])
-    counts["diagnostics"] = len(diagnostics)
-    semantic = build_semantic_story(graph)
-    state = extract_state(module_values)
-    control_flow = analyze_control_flow(
-        graph,
-        semantic,
-        state.requirements,
-        state.effects,
-    ).to_dict()
-    route_map = project_route_map(control_flow, semantic, state.requirements, state.effects)
     source_generation = canonical_source_generation(
         tuple((item.path, item.content_hash) for item in fingerprints)
     )
-    canonical_graph = build_canonical_graph(
-        graph,
-        semantic,
-        control_flow,
-        route_map,
-        state,
-        source_generation=source_generation,
-    )
-
-    effective_story_metadata = (
-        _validated_story_metadata(story_metadata)
-        if story_metadata is not None
-        else previous_story_metadata
-    )
-    records = _analysis_records(
-        modules,
-        dependencies,
-        graph,
-        semantic,
-        control_flow,
-        route_map,
-        canonical_graph,
-        state,
-        parsed_paths,
-        previous_registry,
-        effective_story_metadata,
-    )
-    if story_metadata is not None:
-        metadata_dependencies = tuple(sorted(set(story_metadata_source_paths)))
-        if len(metadata_dependencies) != len(story_metadata_source_paths):
-            raise ValueError("story metadata source paths must be unique")
-        records.append(
-            PayloadRecord(
-                "story_metadata",
-                "authoritative",
-                effective_story_metadata,
-                metadata_dependencies,
+    phases: list[PhaseBinding] = []
+    phase = "source_inventory"
+    state_initialized = False
+    canonical_generation = previous_canonical_generation
+    canonical_hash = previous_canonical_hash
+    _emit_analysis_progress(progress, phase, 5)
+    try:
+        refresh = project.refresh_sources(fingerprints, cancelled=cancel_check)
+        inventory_hash = hashlib.sha256(
+            canonical_json(
+                [
+                    {"path": item.path, "content_hash": item.content_hash}
+                    for item in sorted(fingerprints, key=lambda item: item.path)
+                ]
+            )
+        ).hexdigest()
+        phases.append(
+            PhaseBinding(
+                phase,
+                source_generation,
+                ({"collection": "sources", "key": "inventory", "payload_hash": inventory_hash},),
             )
         )
-    project.write_payloads(records, cancelled=cancel_check)
-    project.m07_model_service().register_scopes(
-        route_map.scopes, generation=route_map.authority_hash
-    )
-    from renpy_story_mapper.presentation import rebuild_presentation_index
+        _write_analysis_state(
+            project,
+            source_generation,
+            AnalysisStatus.CURRENT_PARTIAL,
+            phases,
+            canonical_generation,
+            canonical_hash,
+        )
+        state_initialized = True
 
-    rebuild_presentation_index(project, cancelled=cancel_check)
-    project.organization_service().reconcile_after_refresh()
-    reused = (set(refresh.unchanged) & canonical_paths) - parsed_paths
-    return RefreshReport(
-        tuple(sorted(parsed_paths)),
-        tuple(sorted(reused)),
-        tuple(sorted(invalidated)),
-        refresh.removed,
-    )
+        phase = "parse"
+        _emit_analysis_progress(progress, phase, 20)
+        canonical_paths = set(content_by_path)
+        parsed_paths = set(refresh.changed) & canonical_paths
+        modules: dict[str, ScriptModule] = {}
+        for path in sorted(content_by_path):
+            _check_cancelled(cancel_check)
+            if path not in parsed_paths:
+                cached = project.payload("parsed_source", path)
+                if cached is not None:
+                    modules[path] = _module_from_value(cached)
+                    continue
+                parsed_paths.add(path)
+            modules[path] = _parse_source(path, content_by_path[path])
+        module_values = [modules[path] for path in sorted(modules)]
+        dependencies = _source_dependencies(module_values)
+        invalidated = _dependent_closure(
+            _merge_dependencies(previous_dependencies, dependencies),
+            set(refresh.changed) | set(refresh.removed),
+        )
+        parsed_records = _parsed_records(modules, dependencies, parsed_paths)
+        _write_phase(project, source_generation, phase, parsed_records, phases, cancel_check)
+
+        phase = "graph"
+        _emit_analysis_progress(progress, phase, 35)
+        graph = build_graph(module_values, entry_label=entry_label)
+        diagnostics = [item for module in module_values for item in module.diagnostics]
+        diagnostics.sort(key=lambda item: canonical_json(item))
+        graph["diagnostics"] = diagnostics
+        counts = cast(dict[str, object], graph["counts"])
+        counts["diagnostics"] = len(diagnostics)
+        all_paths = tuple(sorted(modules))
+        graph_records = [PayloadRecord("m01_graph", "authoritative", graph, all_paths)]
+        _write_phase(project, source_generation, phase, graph_records, phases, cancel_check)
+
+        phase = "semantic_state"
+        _emit_analysis_progress(progress, phase, 50)
+        semantic = build_semantic_story(graph)
+        state = extract_state(module_values)
+        effective_story_metadata = (
+            _validated_story_metadata(story_metadata)
+            if story_metadata is not None
+            else previous_story_metadata
+        )
+        semantic_records = _semantic_state_records(
+            modules,
+            semantic,
+            state,
+            previous_registry,
+            effective_story_metadata,
+        )
+        if story_metadata is not None:
+            metadata_dependencies = tuple(sorted(set(story_metadata_source_paths)))
+            if len(metadata_dependencies) != len(story_metadata_source_paths):
+                raise ValueError("story metadata source paths must be unique")
+            semantic_records.append(
+                PayloadRecord(
+                    "story_metadata",
+                    "authoritative",
+                    effective_story_metadata,
+                    metadata_dependencies,
+                )
+            )
+        _write_phase(project, source_generation, phase, semantic_records, phases, cancel_check)
+
+        phase = "control_flow"
+        _emit_analysis_progress(progress, phase, 65)
+        control_flow = analyze_control_flow(
+            graph,
+            semantic,
+            state.requirements,
+            state.effects,
+        ).to_dict()
+        control_records = [
+            PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths)
+        ]
+        _write_phase(project, source_generation, phase, control_records, phases, cancel_check)
+
+        phase = "route_map"
+        _emit_analysis_progress(progress, phase, 75)
+        route_map = project_route_map(
+            control_flow, semantic, state.requirements, state.effects
+        )
+        route_records = [
+            PayloadRecord("m07_route_map", "authoritative", route_map.to_dict(), all_paths)
+        ]
+        _write_phase(project, source_generation, phase, route_records, phases, cancel_check)
+        project.m07_model_service().register_scopes(
+            route_map.scopes, generation=route_map.authority_hash
+        )
+
+        phase = "canonical_graph"
+        _emit_analysis_progress(progress, phase, 85)
+        canonical_graph = build_canonical_graph(
+            graph,
+            semantic,
+            control_flow,
+            route_map,
+            state,
+            source_generation=source_generation,
+        )
+        canonical_records = [
+            PayloadRecord(
+                "m10_canonical_graph", "authoritative", canonical_graph.to_dict()
+            )
+        ]
+        project.write_payloads(canonical_records, cancelled=cancel_check)
+        canonical_generation = source_generation
+        canonical_hash = canonical_graph.authority_hash
+        phases.append(
+            PhaseBinding(phase, source_generation, payload_bindings(canonical_records))
+        )
+        _write_analysis_state(
+            project,
+            source_generation,
+            AnalysisStatus.CURRENT_PARTIAL,
+            phases,
+            canonical_generation,
+            canonical_hash,
+        )
+
+        phase = "inspection_projection"
+        _emit_analysis_progress(progress, phase, 92)
+        from renpy_story_mapper.presentation import rebuild_presentation_index
+
+        rebuild_presentation_index(project, cancelled=cancel_check)
+        project.organization_service().reconcile_after_refresh()
+        phases.append(
+            PhaseBinding(
+                phase,
+                source_generation,
+                (
+                    {
+                        "collection": "presentation_index",
+                        "key": "authoritative",
+                        "payload_hash": route_map.authority_hash,
+                    },
+                ),
+            )
+        )
+        _write_analysis_state(
+            project,
+            source_generation,
+            AnalysisStatus.CURRENT_COMPLETE,
+            phases,
+            canonical_generation,
+            canonical_hash,
+        )
+        _emit_analysis_progress(progress, "complete", 100)
+        reused = (set(refresh.unchanged) & canonical_paths) - parsed_paths
+        return RefreshReport(
+            tuple(sorted(parsed_paths)),
+            tuple(sorted(reused)),
+            tuple(sorted(invalidated)),
+            refresh.removed,
+        )
+    except BaseException as exc:
+        if state_initialized:
+            with suppress(Exception):
+                _write_analysis_state(
+                    project,
+                    source_generation,
+                    AnalysisStatus.FAILED,
+                    phases,
+                    canonical_generation,
+                    canonical_hash,
+                    failure_phase=phase,
+                    failure_code=_failure_code(exc),
+                )
+        raise
 
 
-def _analysis_records(
+def _parsed_records(
     modules: Mapping[str, ScriptModule],
     dependencies: Mapping[str, set[str]],
-    graph: dict[str, object],
-    semantic: dict[str, object],
-    control_flow: dict[str, object],
-    route_map: RouteMap,
-    canonical_graph: CanonicalGraph,
-    state: StateAnalysis,
     parsed_paths: set[str],
-    previous_registry: object,
-    story_metadata: object,
 ) -> list[PayloadRecord]:
     all_paths = tuple(sorted(modules))
     records: list[PayloadRecord] = []
@@ -580,17 +720,20 @@ def _analysis_records(
                 "source_dependencies", path, sorted(dependencies.get(path, set())), (path,)
             )
         )
-    records.extend(
-        (
-            PayloadRecord("m01_graph", "authoritative", graph, all_paths),
-            PayloadRecord("m02_semantic", "authoritative", semantic, all_paths),
-            PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths),
-            PayloadRecord("m07_route_map", "authoritative", route_map.to_dict(), all_paths),
-            PayloadRecord(
-                "m10_canonical_graph", "authoritative", canonical_graph.to_dict(), all_paths
-            ),
-        )
-    )
+    return records
+
+
+def _semantic_state_records(
+    modules: Mapping[str, ScriptModule],
+    semantic: dict[str, object],
+    state: StateAnalysis,
+    previous_registry: object,
+    story_metadata: object,
+) -> list[PayloadRecord]:
+    all_paths = tuple(sorted(modules))
+    records: list[PayloadRecord] = [
+        PayloadRecord("m02_semantic", "authoritative", semantic, all_paths)
+    ]
 
     requirements_by_path: dict[str, list[dict[str, object]]] = {}
     effects_by_path: dict[str, list[dict[str, object]]] = {}
@@ -627,6 +770,72 @@ def _analysis_records(
     variables = _story_metadata_state_registry(variables, story_metadata)
     records.append(PayloadRecord("state_registry", "authoritative", variables, all_paths))
     return records
+
+
+def _write_phase(
+    project: Project,
+    source_generation: str,
+    phase: str,
+    records: Sequence[PayloadRecord],
+    phases: list[PhaseBinding],
+    cancel_check: CancelCheck,
+) -> None:
+    project.write_payloads(records, cancelled=cancel_check)
+    phases.append(PhaseBinding(phase, source_generation, payload_bindings(records)))
+    canonical_generation, canonical_hash = _canonical_identity(
+        project.payload("m10_canonical_graph", "authoritative")
+    )
+    _write_analysis_state(
+        project,
+        source_generation,
+        AnalysisStatus.CURRENT_PARTIAL,
+        phases,
+        canonical_generation,
+        canonical_hash,
+    )
+
+
+def _write_analysis_state(
+    project: Project,
+    source_generation: str,
+    status: AnalysisStatus,
+    phases: Sequence[PhaseBinding],
+    canonical_generation: str | None,
+    canonical_hash: str | None,
+    *,
+    failure_phase: str | None = None,
+    failure_code: str | None = None,
+) -> None:
+    value = analysis_state_payload(
+        source_generation=source_generation,
+        status=status,
+        phases=phases,
+        canonical_generation=canonical_generation,
+        canonical_hash=canonical_hash,
+        failure_phase=failure_phase,
+        failure_code=failure_code,
+    )
+    project.write_payloads((PayloadRecord("m10_analysis_state", "authoritative", value),))
+
+
+def _canonical_identity(value: object) -> tuple[str | None, str | None]:
+    if not isinstance(value, Mapping):
+        return None, None
+    generation = value.get("source_generation")
+    if not isinstance(generation, str):
+        return None, None
+    return generation, hashlib.sha256(canonical_json(dict(value))).hexdigest()
+
+
+def _emit_analysis_progress(progress: AnalysisProgress, phase: str, percent: int) -> None:
+    if progress is not None:
+        progress(phase, percent)
+
+
+def _failure_code(exc: BaseException) -> str:
+    if isinstance(exc, ProjectOperationCancelled):
+        return "cancelled"
+    return f"{type(exc).__module__}.{type(exc).__qualname__}"[:200]
 
 
 def _requirement_value(value: dict[str, object], evidence: StateEvidence) -> dict[str, object]:

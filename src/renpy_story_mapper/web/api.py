@@ -688,8 +688,26 @@ class ProjectApi:
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
-        project = create_ingested_project(path, source, cancel_check=cancelled.is_set)
-        project.close()
+        try:
+            project = create_ingested_project(
+                path,
+                source,
+                cancel_check=cancelled.is_set,
+                progress=lambda stage, percent: self._deterministic_progress(
+                    "create", stage, percent
+                ),
+            )
+            project.close()
+        except BaseException:
+            if path.exists():
+                with Project.open(path) as partial:
+                    retained = partial.payload("m10_analysis_state", "authoritative") is not None
+                if retained:
+                    self._retain_project_path(path, source)
+            raise
+        self._retain_project_path(path, source)
+
+    def _retain_project_path(self, path: Path, source: Path) -> None:
         with self._lock:
             self._project_path = path
             self._source_path = source
@@ -705,8 +723,21 @@ class ProjectApi:
             project, source = self._project_path, self._source_path
         if project is None or source is None:
             raise ApiProblem(409, "no_project", "Open a project first.")
-        refresh_ingested_project(project, source, cancel_check=cancelled.is_set)
+        refresh_ingested_project(
+            project,
+            source,
+            cancel_check=cancelled.is_set,
+            progress=lambda stage, percent: self._deterministic_progress(
+                "refresh", stage, percent
+            ),
+        )
         self._clear_m07_run_metrics()
+
+    def _deterministic_progress(self, kind: str, stage: str, percent: int) -> None:
+        with self._lock:
+            task = self._task
+        if task is not None and task.kind == kind and task.state == "running":
+            self._progress(task.id, kind, stage, percent)
 
     def _project(self) -> Path:
         with self._lock:
