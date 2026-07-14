@@ -1950,7 +1950,8 @@ def _story_view_node(
 def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     """Import and construct the cloud provider only from a confirmed scheduler worker."""
 
-    from renpy_story_mapper.organization import CodexCliProvider, CodexMode
+    from renpy_story_mapper.organization.contracts import CodexMode
+    from renpy_story_mapper.organization.provider import CodexCliProvider
 
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
 

@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import cast
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.canonical_graph import build_canonical_graph
+from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalGraph,
+    stable_origin_record_id,
+)
+from renpy_story_mapper.canonical_graph_contract import (
+    source_generation as canonical_source_generation,
+)
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.errors import ScriptParseError, StoryMapperError
 from renpy_story_mapper.graph import build_graph
@@ -488,6 +496,17 @@ def _refresh_open_project(
         state.effects,
     ).to_dict()
     route_map = project_route_map(control_flow, semantic, state.requirements, state.effects)
+    source_generation = canonical_source_generation(
+        tuple((item.path, item.content_hash) for item in fingerprints)
+    )
+    canonical_graph = build_canonical_graph(
+        graph,
+        semantic,
+        control_flow,
+        route_map,
+        state,
+        source_generation=source_generation,
+    )
 
     effective_story_metadata = (
         _validated_story_metadata(story_metadata)
@@ -501,6 +520,7 @@ def _refresh_open_project(
         semantic,
         control_flow,
         route_map,
+        canonical_graph,
         state,
         parsed_paths,
         previous_registry,
@@ -542,6 +562,7 @@ def _analysis_records(
     semantic: dict[str, object],
     control_flow: dict[str, object],
     route_map: RouteMap,
+    canonical_graph: CanonicalGraph,
     state: StateAnalysis,
     parsed_paths: set[str],
     previous_registry: object,
@@ -565,6 +586,9 @@ def _analysis_records(
             PayloadRecord("m02_semantic", "authoritative", semantic, all_paths),
             PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths),
             PayloadRecord("m07_route_map", "authoritative", route_map.to_dict(), all_paths),
+            PayloadRecord(
+                "m10_canonical_graph", "authoritative", canonical_graph.to_dict(), all_paths
+            ),
         )
     )
 
@@ -882,8 +906,7 @@ def _evidence_mapping_value(raw: object) -> dict[str, object]:
 
 
 def _stable_record_id(kind: str, value: Mapping[str, object]) -> str:
-    identity = {key: item for key, item in value.items() if key != "id"}
-    return f"{kind}_{hashlib.sha256(canonical_json(identity)).hexdigest()[:20]}"
+    return stable_origin_record_id(kind, value)
 
 
 def _payload_lists(project: Project, collection: str) -> list[object]:
