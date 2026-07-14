@@ -51,6 +51,11 @@ Every canonical node and edge has at least one of:
 2. a deterministic proof record with a stable ID, proof kind, ordered input values, origin
    references, and a bounded explanation.
 
+`input_ids` is an ordered deterministic sequence, not a set. Its serialized order is preserved and
+participates in proof identity. Reachability witnesses use the fixed order root, predecessor,
+incoming edge, and reached node; consumers may reconstruct a longer path by following predecessor
+witnesses rather than expecting every proof to duplicate the full root-to-node path.
+
 The implemented proof kinds are:
 
 - `normalized_control_edge`
@@ -73,6 +78,10 @@ Traversal begins at the M06 procedure entry for the configured entry label, with
 fallback when a procedure entry is unavailable. It follows only resolved, non-`unresolved` M06
 edges. Synthetic M06 nodes, including procedure exits and return sites, participate in the same
 traversal.
+
+The resolved traversal stores one deterministic BFS predecessor witness per reached node. Root
+witnesses contain one input and non-root witnesses contain at most four inputs. Total proof input
+storage is therefore linear in the normalized graph rather than quadratic in path length.
 
 M01 reachability may appear as supporting evidence but is not the authority for M06-only nodes.
 For every node classified from a known entry, `resolved_static_reachability` records the entry

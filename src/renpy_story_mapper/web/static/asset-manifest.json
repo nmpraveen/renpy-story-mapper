@@ -2,9 +2,9 @@
   "format": 2,
   "hash_basis": "sha256-utf8-lf",
   "assets": {
-    "API_CONTRACT.md": "5c389f80b47034e8171d079738edb1c5681b37e87a02519a7f8efc8558af6638",
+    "API_CONTRACT.md": "549d558a32572da4706e1be9e28dd10e42d86a577982d97326c470ee64a685b2",
     "api.js": "e56f6ce6df240d0479b82ae7b77e911d74e5d643252f26a6b68f424a434492e4",
-    "app.js": "222142ca43a8f4a4906d7146afe1b4111c2d0b1a08650314d47cf267a4672594",
+    "app.js": "9a7801fcc56fc51391c8d3f692f7715622f98b106010fb3c1ecf61ff78dc3ac1",
     "contract.js": "86bab0ac9f82887ccbb6f8fcaaee85d1069fba5cf5f3b6249eeac9f5bdfa681b",
     "graph.js": "6ae7a19f01195b6ea275fb0034640409d391c920bff95ec05660ba16514688a6",
     "index.html": "8103a0b07e12fec4654904f3accf51a2072006a534fd7c82935021d6290f9502",

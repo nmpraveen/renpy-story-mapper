@@ -717,3 +717,5 @@ def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() ->
     assert "await openDetail(focus.canonical_id)" in app
     assert "renderInspectionDerivations" in app
     assert "Predicate:" in app
+    assert "AI Story Map is now the default" not in app
+    assert "AI Story Map is ready to review" in app

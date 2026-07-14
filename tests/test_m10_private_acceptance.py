@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from types import ModuleType
 
@@ -60,9 +64,55 @@ def test_private_boundary_fails_on_provider_construction() -> None:
         harness._offline_acceptance_boundary() as counts,
         pytest.raises(AssertionError, match="construct an organization provider"),
     ):
-        harness.CodexCliProvider()
+        harness._provider_bomb_probe()
 
     assert counts == {"provider_constructions": 1, "remote_requests": 0}
+
+
+def test_private_harness_loads_and_bombs_provider_without_qt_imports() -> None:
+    harness_path = Path(__file__).resolve().parents[1] / "scripts" / "m10_private_acceptance.py"
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    code = textwrap.dedent(
+        f"""
+        import importlib.abc
+        import importlib.util
+        from pathlib import Path
+
+        class BlockQt(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "PySide6" or fullname.startswith("PySide6."):
+                    raise ModuleNotFoundError("Qt imports are forbidden in headless acceptance")
+                return None
+
+        import sys
+        sys.meta_path.insert(0, BlockQt())
+        path = Path({str(harness_path)!r})
+        spec = importlib.util.spec_from_file_location("headless_m10_private_acceptance", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            with module._offline_acceptance_boundary() as counts:
+                module._provider_bomb_probe()
+        except AssertionError as exc:
+            assert "construct an organization provider" in str(exc)
+        else:
+            raise AssertionError("provider bomb did not fire")
+        assert counts == {{"provider_constructions": 1, "remote_requests": 0}}
+        """
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(source_root)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_private_boundary_fails_on_network_attempt() -> None:
