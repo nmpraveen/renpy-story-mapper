@@ -8,6 +8,8 @@ import pytest
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import (
     CANONICAL_GRAPH_SCHEMA_VERSION,
+    CanonicalGraph,
+    CanonicalNode,
     ReachabilityStatus,
     assign_reachability,
     source_generation,
@@ -22,6 +24,36 @@ from renpy_story_mapper.state import extract_state
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m10" / "canonical_constructs.rpy"
 CALL_RETURN_FIXTURE = Path(__file__).parent / "fixtures" / "call_return.rpy"
+
+
+def _canonical_for_source(source: str) -> CanonicalGraph:
+    module = parse_script("regression.rpy", source.splitlines(keepends=True))
+    graph = build_graph([module])
+    semantic = build_semantic_story(graph)
+    state = extract_state([module])
+    control = analyze_control_flow(
+        graph, semantic, state.requirements, state.effects
+    ).to_dict()
+    route = project_route_map(control, semantic, state.requirements, state.effects)
+    return build_canonical_graph(
+        graph,
+        semantic,
+        control,
+        route,
+        state,
+        source_generation=source_generation(((module.path, "a" * 64),)),
+    )
+
+
+def _node_by_source(
+    canonical: CanonicalGraph, source_text: str, *, label: str | None = None
+) -> CanonicalNode:
+    return next(
+        item
+        for item in canonical.nodes
+        if item.attributes.get("source_text") == source_text
+        and (label is None or item.label == label)
+    )
 
 
 @pytest.mark.parametrize(
@@ -170,6 +202,175 @@ def test_resolved_m06_call_nodes_and_edges_are_reachable_with_proof() -> None:
         proof_by_id[proof_id].kind == "call_site_return_continuation"
         for item in relevant_edges
         for proof_id in item.proof_ids
+    )
+
+
+def test_persistent_if_guards_propagate_with_ordered_predicate_provenance() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    if score >= 5:
+        jump secret
+    jump normal
+
+label secret:
+    \"Hidden scene\"
+    return
+
+label normal:
+    \"Normal scene\"
+    return
+"""
+    )
+
+    for source_text in ('jump secret', 'label secret:', '"Hidden scene"'):
+        node = _node_by_source(canonical, source_text)
+        assert node.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+        assert node.attributes["guard_dependencies"]
+
+    region = next(item for item in canonical.regions if item.merge_node_id is None)
+    arms = sorted(region.attributes["arms"], key=lambda item: item["ordinal"])
+    positive = arms[0]["predicate"]
+    assert positive["kind"] == "if_branch"
+    assert positive["expression"] == "score >= 5"
+    assert positive["polarity"] == "positive"
+    assert positive["branch_order"] == 0
+    assert positive["source"] == "m01_graph_edge_metadata"
+    assert positive["origin"]["collection"] == "m06_control_flow"
+    assert positive["origin"]["subpath"] == "evidence.metadata.condition"
+    assert positive["requirement_fact_ids"]
+    assert positive["status"] == "proven"
+    assert arms[1]["predicate"]["kind"] == "if_fallthrough"
+    assert arms[1]["predicate"]["expressions"] == ["score >= 5"]
+    assert arms[1]["predicate"]["polarity"] == "none_true"
+    assert arms[1]["predicate"]["branch_order"] == 1
+    assert "expression" not in arms[1]["predicate"]
+
+
+def test_conditional_menu_choice_guards_its_body_node_and_edge() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    menu:
+        \"Help\" if ready:
+            $ trust += 1
+        \"Leave\":
+            return
+"""
+    )
+
+    choice = _node_by_source(canonical, '"Help" if ready:')
+    body = _node_by_source(canonical, '$ trust += 1')
+    body_edge = next(
+        edge
+        for edge in canonical.edges
+        if edge.source_id == choice.id and edge.target_id == body.id
+    )
+    assert choice.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+    assert body.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+    assert body_edge.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+    assert body.attributes["guard_dependencies"][0]["expression"] == "ready"
+    assert body_edge.attributes["guard_dependencies"][0]["expression"] == "ready"
+
+
+def test_nested_guards_accumulate_and_stop_at_each_proven_merge() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    if outer_ready:
+        if inner_ready:
+            \"Nested\"
+        \"Outer only\"
+    \"After both\"
+    return
+"""
+    )
+
+    nested = _node_by_source(canonical, '"Nested"')
+    outer_only = _node_by_source(canonical, '"Outer only"')
+    after_both = _node_by_source(canonical, '"After both"')
+    assert nested.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+    assert [
+        item["expression"] for item in nested.attributes["guard_dependencies"]
+    ] == ["outer_ready", "inner_ready"]
+    assert [item["depth"] for item in nested.attributes["guard_dependencies"]] == [0, 1]
+    assert [
+        item["expression"] for item in outer_only.attributes["guard_dependencies"]
+    ] == ["outer_ready"]
+    assert after_both.reachability is ReachabilityStatus.PROVEN_REACHABLE
+    assert after_both.attributes["guard_dependencies"] == []
+
+
+def test_edge_reachability_comes_from_its_source_not_an_alternate_target_path() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    jump live
+
+label dead:
+    jump live
+
+label live:
+    \"Live\"
+    return
+"""
+    )
+
+    dead_jump = _node_by_source(canonical, "jump live", label="dead")
+    live = _node_by_source(canonical, "label live:")
+    dead_edge = next(
+        edge
+        for edge in canonical.edges
+        if edge.source_id == dead_jump.id and edge.target_id == live.id
+    )
+    assert dead_jump.reachability is ReachabilityStatus.PROVEN_UNREACHABLE
+    assert live.reachability is ReachabilityStatus.PROVEN_REACHABLE
+    assert dead_edge.reachability is ReachabilityStatus.PROVEN_UNREACHABLE
+    proof_by_id = {item.id: item for item in canonical.proofs}
+    assert any(
+        proof_by_id[proof_id].kind == "edge_reachability"
+        for proof_id in dead_edge.proof_ids
+    )
+
+
+def test_conditional_edge_stays_conditional_when_target_has_an_unguarded_path() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    if ready:
+        jump shared
+    jump shared
+
+label shared:
+    \"Shared\"
+    return
+"""
+    )
+
+    guarded_jump = next(
+        item
+        for item in canonical.nodes
+        if item.label == "start"
+        and item.attributes.get("source_text") == "jump shared"
+        and item.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+    )
+    shared = _node_by_source(canonical, "label shared:")
+    guarded_edge = next(
+        edge
+        for edge in canonical.edges
+        if edge.source_id == guarded_jump.id and edge.target_id == shared.id
+    )
+    assert shared.reachability is ReachabilityStatus.PROVEN_REACHABLE
+    assert guarded_edge.reachability is ReachabilityStatus.CONDITIONALLY_REACHABLE
+
+
+def test_unresolved_edges_remain_unresolved() -> None:
+    canonical = _canonical_for_source(
+        """label start:
+    jump expression destination
+"""
+    )
+
+    unresolved_edges = [item for item in canonical.edges if item.kind == "unresolved"]
+    assert unresolved_edges
+    assert all(
+        item.reachability is ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
+        for item in unresolved_edges
     )
 
 

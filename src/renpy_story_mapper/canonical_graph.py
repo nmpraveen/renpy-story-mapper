@@ -47,6 +47,12 @@ def build_canonical_graph(
     evidence: dict[str, SourceEvidence] = {}
     evidence_by_graph_node = _graph_evidence(raw_nodes, evidence)
     facts, fact_ids_by_location, fact_id_by_origin = _state_facts(state, evidence)
+    predicates_by_edge = _edge_predicates(
+        control_edges,
+        raw_by_id,
+        facts,
+        fact_ids_by_location,
+    )
     beat_origins = _beat_origins(semantic)
     scene_origins = _scene_origins(semantic)
     route_node_origins = _route_node_origins(route_map)
@@ -69,11 +75,19 @@ def build_canonical_graph(
         for node_id in (_text(edge, "source"), _text(edge, "target"))
     }
     closed_world = not _has_open_world_behavior(raw_nodes, graph)
-    reachable_nodes, reachability_inputs, entry_origins = _resolved_static_reachability(
-        graph,
+    reachable_nodes, reachability_inputs, entry_origins, reachability_roots = (
+        _resolved_static_reachability(
+            graph,
+            control_flow,
+            control_by_id,
+            control_edges,
+        )
+    )
+    node_guard_states, edge_guard_states, guard_details = _resolved_guard_states(
         control_flow,
-        control_by_id,
         control_edges,
+        reachability_roots,
+        predicates_by_edge,
     )
     resolved_entry_known = bool(entry_origins)
 
@@ -112,7 +126,11 @@ def build_canonical_graph(
             )
             proofs[proof.id] = proof
             proof_ids.append(proof.id)
-        fact_ids = fact_ids_by_location.get(_node_location(raw), ()) if raw is not None else ()
+        fact_ids = (
+            fact_ids_by_location.get(_node_location(raw), ())
+            if raw is not None and str(raw.get("kind")) != "merge"
+            else ()
+        )
         statuses = {
             fact.status
             for fact in facts
@@ -184,13 +202,16 @@ def build_canonical_graph(
             proofs[terminal_proof.id] = terminal_proof
             proof_ids.append(terminal_proof.id)
         unresolved_item = node_kind is CanonicalNodeKind.UNRESOLVED
+        guard_status, guard_dependencies = _best_guard_state(
+            node_guard_states.get(graph_node_id, ()), guard_details
+        )
         reachability = assign_reachability(
             static_reachable=static_reachable,
             unresolved_item=unresolved_item,
             depends_on_unresolved=graph_node_id in unresolved_edge_nodes and unresolved_item,
-            proven_requirement="proven" in statuses,
-            inferred_requirement="possible" in statuses,
-            unresolved_requirement="unresolved" in statuses,
+            proven_requirement="proven" in statuses or guard_status == "proven",
+            inferred_requirement="possible" in statuses or guard_status == "possible",
+            unresolved_requirement="unresolved" in statuses or guard_status == "unresolved",
             unresolved_transfer_could_reach=static_reachable is False and not closed_world,
             closed_world=closed_world,
         )
@@ -203,6 +224,7 @@ def build_canonical_graph(
             "region_ids": sorted(region_ids_by_node.get(graph_node_id, ())),
             "fact_ids": sorted(fact_ids),
             "resolved_static_reachable": static_reachable,
+            "guard_dependencies": guard_dependencies,
         }
         if m01_reachable is not None:
             attributes["m01_reachable_from_entry"] = m01_reachable
@@ -278,6 +300,18 @@ def build_canonical_graph(
         )
         resolved = bool(control_edge.get("resolved", True))
         role = _text(control_edge, "role")
+        guard_status, guard_dependencies = _best_guard_state(
+            edge_guard_states.get(control_edge_id, ()), guard_details
+        )
+        predicate = predicates_by_edge.get(control_edge_id)
+        guard_fact_ids = {
+            fact_id
+            for dependency in guard_dependencies
+            for fact_id in _strings(dependency.get("requirement_fact_ids"))
+        }
+        if predicate is not None:
+            guard_fact_ids.update(_strings(predicate.get("requirement_fact_ids")))
+        gate_ids = tuple(sorted({*gate_ids, *guard_fact_ids}))
         call_site_id = control_edge.get("call_site_id")
         if (
             isinstance(call_site_id, str)
@@ -292,14 +326,30 @@ def build_canonical_graph(
             )
             proofs[continuation_proof.id] = continuation_proof
             proof_ids.append(continuation_proof.id)
-        target_status = node_status.get(
-            target, ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH
+        source_status = node_status.get(
+            source, ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH
         )
-        reachability = (
-            ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
-            if role == "unresolved" or not resolved
-            else target_status
+        reachability = _edge_reachability(
+            source_status,
+            resolved=resolved,
+            role=role,
+            traversed=bool(edge_guard_states.get(control_edge_id)),
+            guard_status=guard_status,
+            closed_world=closed_world,
         )
+        edge_reachability_proof = _proof(
+            "edge_reachability",
+            (OriginReference("m06_control_flow", control_edge_id, "edges"),),
+            (source, control_edge_id, *sorted(guard_fact_ids)),
+            (
+                f"The resolved edge is derived from source status {source_status.value} "
+                f"and guard status {guard_status}; target reachability is not reused."
+                if resolved and role != "unresolved"
+                else "M06 marks this edge unresolved, so its reachability remains unresolved."
+            ),
+        )
+        proofs[edge_reachability_proof.id] = edge_reachability_proof
+        proof_ids.append(edge_reachability_proof.id)
         edges.append(
             CanonicalEdge(
                 edge_id,
@@ -317,6 +367,8 @@ def build_canonical_graph(
                     "call_site_id": call_site_id,
                     "gate_ids": list(gate_ids),
                     "effect_ids": list(effect_ids),
+                    "predicate": dict(predicate) if predicate is not None else None,
+                    "guard_dependencies": guard_dependencies,
                 },
             )
         )
@@ -325,6 +377,7 @@ def build_canonical_graph(
         control_flow,
         canonical_node_id,
         canonical_edge_id,
+        predicates_by_edge,
         proofs,
     )
     result = CanonicalGraph(
@@ -431,7 +484,12 @@ def _resolved_static_reachability(
     control_flow: Mapping[str, object],
     control_by_id: Mapping[str, Mapping[str, object]],
     control_edges: Sequence[Mapping[str, object]],
-) -> tuple[set[str], dict[str, tuple[str, ...]], tuple[OriginReference, ...]]:
+) -> tuple[
+    set[str],
+    dict[str, tuple[str, ...]],
+    tuple[OriginReference, ...],
+    tuple[str, ...],
+]:
     entry_label = str(graph.get("entry_label", "start"))
     roots: list[str] = []
     entry_origins: list[OriginReference] = []
@@ -472,13 +530,358 @@ def _resolved_static_reachability(
                 continue
             paths[target] = (*paths[source], edge_id, target)
             pending.append(target)
-    return set(paths), paths, tuple(sorted(set(entry_origins)))
+    return (
+        set(paths),
+        paths,
+        tuple(sorted(set(entry_origins))),
+        tuple(sorted(set(roots))),
+    )
+
+
+def _edge_predicates(
+    control_edges: Sequence[Mapping[str, object]],
+    raw_by_id: Mapping[str, Mapping[str, object]],
+    facts: Sequence[CanonicalFact],
+    fact_ids_by_location: Mapping[tuple[str, int], tuple[str, ...]],
+) -> dict[str, dict[str, object]]:
+    predicate_roles = {"condition", "condition_false", "menu_choice", "menu_no_choice"}
+    outgoing: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for edge in control_edges:
+        if predicate_roles.intersection(_strings(edge.get("semantic_roles"))):
+            outgoing[_text(edge, "source")].append(edge)
+
+    fact_by_id = {item.id: item for item in facts}
+    result: dict[str, dict[str, object]] = {}
+    for edges in outgoing.values():
+        ordered = sorted(edges, key=_predicate_edge_order)
+        prior_expressions: list[str] = []
+        for branch_order, edge in enumerate(ordered):
+            edge_id = _text(edge, "id")
+            roles = set(_strings(edge.get("semantic_roles")))
+            condition = _edge_condition(edge)
+            expressions: tuple[str, ...]
+            if "condition_false" in roles:
+                kind = "if_fallthrough"
+                polarity = "none_true"
+                expressions = tuple(prior_expressions)
+            elif "condition" in roles and condition is None:
+                kind = "if_else"
+                polarity = "none_true"
+                expressions = tuple(prior_expressions)
+            elif "condition" in roles:
+                kind = "if_branch"
+                polarity = "positive"
+                expressions = (condition,) if condition is not None else ()
+            elif "menu_no_choice" in roles:
+                kind = "menu_no_choice"
+                polarity = "none_available"
+                expressions = tuple(prior_expressions)
+            else:
+                kind = "menu_choice"
+                polarity = "positive" if condition is not None else "unconditional"
+                expressions = (condition,) if condition is not None else ()
+
+            fact_ids = _predicate_fact_ids(
+                edge,
+                expressions,
+                raw_by_id,
+                fact_ids_by_location,
+                fact_by_id,
+            )
+            predicate: dict[str, object] = {
+                "kind": kind,
+                "polarity": polarity,
+                "branch_order": branch_order,
+                "source": (
+                    "m01_graph_edge_metadata"
+                    if polarity in {"positive", "unconditional"}
+                    else "m01_graph_branch_order"
+                ),
+                "origin": OriginReference(
+                    "m06_control_flow",
+                    edge_id,
+                    "evidence.metadata.condition",
+                ).to_dict(),
+                "requirement_fact_ids": list(fact_ids),
+                "status": _predicate_status(expressions, fact_ids, fact_by_id),
+            }
+            if polarity == "positive" and condition is not None:
+                predicate["expression"] = condition
+            elif polarity != "unconditional":
+                predicate["expressions"] = list(expressions)
+            result[edge_id] = predicate
+            if condition is not None and kind in {"if_branch", "menu_choice"}:
+                prior_expressions.append(condition)
+    return result
+
+
+def _predicate_edge_order(edge: Mapping[str, object]) -> tuple[int, int, str]:
+    for evidence in _records(edge.get("evidence"), "control edge evidence"):
+        metadata = evidence.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        for key in ("choice_index", "branch_index"):
+            value = metadata.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                return (0, value, _text(edge, "id"))
+    roles = set(_strings(edge.get("semantic_roles")))
+    if roles.intersection({"menu_no_choice", "condition_false"}):
+        return (1, 0, _text(edge, "id"))
+    return (2, 0, _text(edge, "id"))
+
+
+def _edge_condition(edge: Mapping[str, object]) -> str | None:
+    for evidence in _records(edge.get("evidence"), "control edge evidence"):
+        metadata = evidence.get("metadata")
+        if isinstance(metadata, Mapping):
+            condition = metadata.get("condition")
+            if isinstance(condition, str):
+                return condition
+    return None
+
+
+def _predicate_fact_ids(
+    edge: Mapping[str, object],
+    expressions: Sequence[str],
+    raw_by_id: Mapping[str, Mapping[str, object]],
+    fact_ids_by_location: Mapping[tuple[str, int], tuple[str, ...]],
+    fact_by_id: Mapping[str, CanonicalFact],
+) -> tuple[str, ...]:
+    expression_set = set(expressions)
+    if not expression_set:
+        return ()
+    candidate_ids: set[str] = set()
+    for node_id in (_text(edge, "source"), _text(edge, "target")):
+        candidate_ids.update(fact_ids_by_location.get(_node_location(raw_by_id.get(node_id)), ()))
+    return tuple(
+        sorted(
+            fact_id
+            for fact_id in candidate_ids
+            if fact_id in fact_by_id
+            and fact_by_id[fact_id].kind == "requirement"
+            and fact_by_id[fact_id].attributes.get("original_expression") in expression_set
+        )
+    )
+
+
+def _predicate_status(
+    expressions: Sequence[str],
+    fact_ids: Sequence[str],
+    fact_by_id: Mapping[str, CanonicalFact],
+) -> str:
+    if not expressions:
+        return "unconditional"
+    statuses = {fact_by_id[item].status for item in fact_ids if item in fact_by_id}
+    if not statuses or "unresolved" in statuses:
+        return "unresolved"
+    if "possible" in statuses:
+        return "possible"
+    return "proven"
+
+
+def _resolved_guard_states(
+    control_flow: Mapping[str, object],
+    control_edges: Sequence[Mapping[str, object]],
+    roots: Sequence[str],
+    predicates_by_edge: Mapping[str, Mapping[str, object]],
+) -> tuple[
+    dict[str, tuple[frozenset[str], ...]],
+    dict[str, tuple[frozenset[str], ...]],
+    dict[str, dict[str, object]],
+]:
+    arms = _records(control_flow.get("arms"), "control_flow.arms")
+    regions = {
+        _text(item, "id"): item
+        for item in _records(control_flow.get("regions"), "control_flow.regions")
+    }
+    children: dict[str, list[str]] = defaultdict(list)
+    for region_id, region in regions.items():
+        parent = region.get("parent_region_id")
+        if isinstance(parent, str):
+            children[parent].append(region_id)
+    for values in children.values():
+        values.sort()
+
+    def region_nodes(region_id: str) -> set[str]:
+        value = set(_strings(regions[region_id].get("node_ids")))
+        for child_id in children.get(region_id, ()):
+            value.update(region_nodes(child_id))
+        return value
+
+    def region_depth(region_id: str) -> int:
+        depth = 0
+        seen: set[str] = set()
+        current = regions[region_id].get("parent_region_id")
+        while isinstance(current, str) and current not in seen and current in regions:
+            seen.add(current)
+            depth += 1
+            current = regions[current].get("parent_region_id")
+        return depth
+
+    edge_tokens: dict[str, str] = {}
+    guard_members: dict[str, set[str]] = {}
+    guard_details: dict[str, dict[str, object]] = {}
+    for arm in sorted(arms, key=lambda item: _text(item, "id")):
+        edge_id = _text(arm, "edge_id")
+        predicate = predicates_by_edge.get(edge_id)
+        if predicate is None or predicate.get("status") == "unconditional":
+            continue
+        arm_id = _text(arm, "id")
+        region_id = _text(arm, "region_id")
+        members = set(_strings(arm.get("node_ids")))
+        for child_id in children.get(region_id, ()):
+            if _text(regions[child_id], "split_node_id") in members:
+                members.update(region_nodes(child_id))
+        edge_tokens[edge_id] = arm_id
+        guard_members[arm_id] = members
+        guard_details[arm_id] = {
+            **dict(predicate),
+            "region_id": region_id,
+            "arm_id": arm_id,
+            "parent_region_id": regions[region_id].get("parent_region_id"),
+            "depth": region_depth(region_id),
+        }
+
+    outgoing: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for edge in control_edges:
+        if bool(edge.get("resolved", True)) and _text(edge, "role") != "unresolved":
+            outgoing[_text(edge, "source")].append(edge)
+    for edge_group in outgoing.values():
+        edge_group.sort(key=lambda item: _text(item, "id"))
+
+    node_values: dict[str, set[frozenset[str]]] = {}
+    edge_values: dict[str, set[frozenset[str]]] = {}
+    pending: deque[tuple[str, frozenset[str]]] = deque()
+    for root in sorted(set(roots)):
+        state: frozenset[str] = frozenset()
+        if _add_guard_state(node_values, root, state, guard_details):
+            pending.append((root, state))
+    while pending:
+        source, state = pending.popleft()
+        for edge in outgoing.get(source, ()):
+            edge_id = _text(edge, "id")
+            target = _text(edge, "target")
+            token = edge_tokens.get(edge_id)
+            edge_state = state | ({token} if token is not None else set())
+            _add_guard_state(edge_values, edge_id, edge_state, guard_details)
+            target_state = frozenset(
+                item for item in edge_state if target in guard_members.get(item, set())
+            )
+            if _add_guard_state(node_values, target, target_state, guard_details):
+                pending.append((target, target_state))
+    return (
+        {key: tuple(sorted(value, key=lambda item: _guard_state_key(item, guard_details)))
+         for key, value in node_values.items()},
+        {key: tuple(sorted(value, key=lambda item: _guard_state_key(item, guard_details)))
+         for key, value in edge_values.items()},
+        guard_details,
+    )
+
+
+def _add_guard_state(
+    values: dict[str, set[frozenset[str]]],
+    key: str,
+    state: frozenset[str],
+    guard_details: Mapping[str, Mapping[str, object]],
+) -> bool:
+    current = values.setdefault(key, set())
+    if state in current:
+        return False
+    bounded = sorted(
+        {*current, state},
+        key=lambda item: _guard_state_key(item, guard_details),
+    )[:8]
+    values[key] = set(bounded)
+    return state in values[key]
+
+
+def _guard_state_key(
+    state: frozenset[str], guard_details: Mapping[str, Mapping[str, object]]
+) -> tuple[int, int, tuple[str, ...]]:
+    status = _guard_state_status(state, guard_details)
+    rank = {"none": 0, "proven": 1, "possible": 2, "unresolved": 3}[status]
+    return rank, len(state), tuple(sorted(state))
+
+
+def _guard_state_status(
+    state: frozenset[str], guard_details: Mapping[str, Mapping[str, object]]
+) -> str:
+    if not state:
+        return "none"
+    statuses = {str(guard_details[item].get("status", "unresolved")) for item in state}
+    if "unresolved" in statuses:
+        return "unresolved"
+    if "possible" in statuses:
+        return "possible"
+    return "proven"
+
+
+def _best_guard_state(
+    states: Sequence[frozenset[str]],
+    guard_details: Mapping[str, Mapping[str, object]],
+) -> tuple[str, list[dict[str, object]]]:
+    if not states:
+        return "none", []
+    state = min(states, key=lambda item: _guard_state_key(item, guard_details))
+    dependencies = [dict(guard_details[item]) for item in state]
+    dependencies.sort(key=_guard_dependency_key)
+    return _guard_state_status(state, guard_details), dependencies
+
+
+def _guard_dependency_key(item: Mapping[str, object]) -> tuple[int, str, int, str]:
+    depth = item.get("depth")
+    branch_order = item.get("branch_order")
+    return (
+        depth if isinstance(depth, int) and not isinstance(depth, bool) else 0,
+        str(item.get("region_id", "")),
+        (
+            branch_order
+            if isinstance(branch_order, int) and not isinstance(branch_order, bool)
+            else 0
+        ),
+        str(item.get("arm_id", "")),
+    )
+
+
+def _edge_reachability(
+    source_status: ReachabilityStatus,
+    *,
+    resolved: bool,
+    role: str,
+    traversed: bool,
+    guard_status: str,
+    closed_world: bool,
+) -> ReachabilityStatus:
+    if role == "unresolved" or not resolved:
+        return ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
+    if source_status is ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR:
+        return ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
+    if traversed:
+        return assign_reachability(
+            static_reachable=True,
+            proven_requirement=guard_status == "proven",
+            inferred_requirement=guard_status == "possible",
+            unresolved_requirement=guard_status == "unresolved",
+            closed_world=closed_world,
+        )
+    if source_status in {
+        ReachabilityStatus.PROVEN_UNREACHABLE,
+        ReachabilityStatus.POSSIBLY_DEAD,
+        ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH,
+    }:
+        return source_status
+    return assign_reachability(
+        static_reachable=False,
+        unresolved_transfer_could_reach=not closed_world,
+        closed_world=closed_world,
+    )
 
 
 def _canonical_regions(
     control_flow: Mapping[str, object],
     node_ids: Mapping[str, str],
     edge_ids: Mapping[str, str],
+    predicates_by_edge: Mapping[str, Mapping[str, object]],
     proofs: dict[str, DerivedProof],
 ) -> list[CanonicalRegion]:
     arms = {
@@ -516,6 +919,7 @@ def _canonical_regions(
                     ),
                     "unresolved": bool(arm.get("unresolved", False)),
                     "terminal_summary": str(arm.get("terminal_summary", "none")),
+                    "predicate": dict(predicates_by_edge.get(control_edge_id, {})),
                 }
             )
             arm_proof = _proof(

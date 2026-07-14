@@ -237,7 +237,10 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
 ) -> None:
     _, project_path = _project(tmp_path)
     projection, canonical, state = _payloads(project_path)
-    for expression, field_kind in (("ready", "condition"), ("trust += 1", "fact")):
+    for expression, field_kinds in (
+        ("ready", ("condition", "guard")),
+        ("trust += 1", ("fact",)),
+    ):
         search_page = inspection_page(
             projection,
             canonical,
@@ -250,7 +253,10 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
             query=expression,
         )
         assert any(
-            field_kind in item["field"] or field_kind == item["record_kind"]
+            any(
+                field_kind in item["field"] or field_kind == item["record_kind"]
+                for field_kind in field_kinds
+            )
             for item in search_page["search"]["matches"]
         )
     region_id = projection["regions"][0]["canonical_region_id"]
@@ -281,6 +287,21 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     assert region["origins"]
     assert detail["proofs"]
     assert detail["canonical_escape_ids"]
+    ready_arm = next(
+        arm
+        for projected_region in projection["regions"]
+        for arm in inspection_detail(
+            projection,
+            canonical,
+            state,
+            view="simplified",
+            element_id=projected_region["canonical_region_id"],
+        )["region"]["ordered_arms"]
+        if arm.get("predicate", {}).get("expression") == "ready"
+    )
+    assert ready_arm["predicate"]["kind"] == "menu_choice"
+    assert ready_arm["predicate"]["polarity"] == "positive"
+    assert ready_arm["predicate"]["requirement_fact_ids"]
 
     arm_expressions = {
         str(fact["expression"])
