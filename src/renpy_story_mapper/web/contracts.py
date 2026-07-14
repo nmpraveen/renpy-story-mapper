@@ -93,6 +93,19 @@ M08_AI_STORY_DETAIL_REQUEST_FIELDS: Final = (
     "evidence_limit",
 )
 
+M10_API_ROUTES: Final[dict[str, str]] = {
+    "inspection_map": "/api/v1/m10/inspection-map",
+    "detail": "/api/v1/m10/detail",
+}
+M10_INSPECTION_MAP_REQUEST_FIELDS: Final = (
+    "view",
+    "offset",
+    "limit",
+    "edge_offset",
+    "edge_limit",
+)
+M10_DETAIL_REQUEST_FIELDS: Final = ("view", "element_id")
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:

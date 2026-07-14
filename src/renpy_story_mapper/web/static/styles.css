@@ -106,7 +106,7 @@ button:disabled { cursor: default; opacity: .45; }
 .route-map-view { height: 100%; display: grid; grid-template-areas: "commandbar" "fallback" "map" "organization"; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .commandbar { position: relative; z-index: 10; grid-area: commandbar; display: grid; grid-template-columns: minmax(14rem, 1fr) auto minmax(12rem, 20rem) auto auto; align-items: center; gap: .65rem; min-height: 5rem; border-bottom: 1px solid var(--rule); background: var(--sheet); padding: .65rem 1rem; }
 .commandbar h1 { margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: 400; }
-.view-switch { display: flex; }
+.view-switch { display: flex; flex-wrap: wrap; }
 .search-control input { width: 100%; min-height: 2.35rem; border: 0; border-bottom: 1px solid var(--rule-strong); background: transparent; padding: .4rem .25rem; }
 .popover { position: absolute; z-index: 20; top: 4.25rem; right: 7rem; min-width: 13rem; border: 1px solid var(--rule-strong); background: var(--sheet); padding: .75rem; box-shadow: 5px 5px 0 var(--paper-deep); }
 .popover label { display: block; padding: .35rem; }
@@ -134,7 +134,7 @@ button:disabled { cursor: default; opacity: .45; }
 .lane-label { position: absolute; left: 5.75rem; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .station { position: absolute; width: 10.25rem; min-height: 4.8rem; border: 1px solid var(--rule-strong); border-left: 3px solid var(--ink); background: var(--sheet); padding: .55rem .6rem .5rem 1.6rem; text-align: left; user-select: none; box-shadow: 4px 4px 0 var(--paper-deep); }
 .station::before { position: absolute; top: 14px; left: -8px; width: 11px; height: 11px; border: 2px solid var(--ink); border-radius: 50%; background: var(--paper); content: ""; }
-.station[data-kind="choice"]::before { border-color: var(--accent); border-radius: 0; transform: rotate(45deg); }
+.station[data-kind="choice"]::before, .station[data-kind="choice_outcome"]::before { border-color: var(--accent); border-radius: 0; transform: rotate(45deg); }
 .station[data-kind="merge"]::before { border-radius: 0; transform: rotate(45deg); }
 .station[data-kind="ending"]::before, .station[data-kind="terminal"]::before { border-radius: 0; background: var(--ink); }
 .station[data-kind="loop"] { border-style: dashed; }

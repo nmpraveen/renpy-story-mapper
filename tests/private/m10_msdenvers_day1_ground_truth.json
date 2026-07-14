@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "authorship": "Manually transcribed from the recovered Ren'Py source; no analyzer output was used to create expected facts.",
+  "source": {
+    "file_name": "source.rpy",
+    "sha256": "6dfe1bd2a6f05bc07c024ab29e3a64a465679eb0597c6a1c9ddb1b32806e21e8",
+    "day1_start_line": 52,
+    "day2_start_line": 793
+  },
+  "choices": [
+    {
+      "menu_line": 143,
+      "ordered_arms": [
+        {"caption": "She tells him off.", "caption_line": 144, "target_line": 145, "target_text": "scene Day1_0_Troubled_Student_020_1"},
+        {"caption": "She ignores him", "caption_line": 155, "target_line": 157, "target_text": "if persistent.show_hints:"}
+      ],
+      "rejoin_line": 165,
+      "rejoin_text": "scene Day1_0_Troubled_Student_022_2"
+    },
+    {
+      "menu_line": 191,
+      "ordered_arms": [
+        {"caption": "She addresses his behavior", "caption_line": 192, "target_line": 193, "target_text": "$ v001_address_behavior = True"},
+        {"caption": "She changes the subject", "caption_line": 224, "target_line": 228, "target_text": "scene Day1_0_Troubled_Student_031_1_2"}
+      ],
+      "rejoin_line": 233,
+      "rejoin_text": "scene Day1_0_Troubled_Student_038_1"
+    },
+    {
+      "menu_line": 623,
+      "ordered_arms": [
+        {"caption": "End the massage", "caption_line": 624, "target_line": 625, "target_text": "$ v001_end_massage = True"},
+        {"caption": "Keep going", "caption_line": 628, "target_line": 630, "target_text": "$ fay += 1"}
+      ],
+      "rejoin_line": 793,
+      "rejoin_text": "scene Day2 with Fade(0.4, 0.1 ,0.4)"
+    },
+    {
+      "menu_line": 674,
+      "ordered_arms": [
+        {"caption": "Stop Faye", "caption_line": 675, "target_line": 676, "target_text": "scene Day1_3_Faye_Concern_087_stop"},
+        {"caption": "Do nothing and let Faye continue", "caption_line": 705, "target_line": 707, "target_text": "if persistent.show_hints:"}
+      ],
+      "rejoin_line": 793,
+      "rejoin_text": "scene Day2 with Fade(0.4, 0.1 ,0.4)"
+    }
+  ],
+  "conditions": [
+    {"line": 157, "expression": "persistent.show_hints"},
+    {"line": 194, "expression": "persistent.show_hints"},
+    {"line": 631, "expression": "persistent.show_hints"},
+    {"line": 707, "expression": "persistent.show_hints"},
+    {"line": 1135, "expression": "lust >= 1", "purpose": "Day 1 lust effect gates later content"}
+  ],
+  "effects": [
+    {"line": 159, "expression": "v001_she_ignores_him = True"},
+    {"line": 160, "expression": "ter += 1"},
+    {"line": 193, "expression": "v001_address_behavior = True"},
+    {"line": 196, "expression": "ter += 1"},
+    {"line": 625, "expression": "v001_end_massage = True"},
+    {"line": 630, "expression": "fay += 1"},
+    {"line": 709, "expression": "fay += 2"},
+    {"line": 710, "expression": "lust += 1"},
+    {"line": 711, "expression": "branch_faye_cont_massage = True"}
+  ],
+  "visibility_cases": [
+    {"line": 729, "source_text": "$ renpy.movie_cutscene (\"images/Day1_3_Faye_Concern_090_animation.webm\")", "expectation": "visible_or_explicitly_unresolved"}
+  ],
+  "bounds": {
+    "expected_day1_choice_count": 4,
+    "expected_day1_arm_count": 8,
+    "expected_choice_rejoin_count": 4,
+    "maximum_whole_project_projection_nodes": 100,
+    "maximum_detail_records": 60
+  }
+}

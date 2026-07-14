@@ -43,6 +43,34 @@ def test_control_flow_is_persisted_and_reopens_canonically(tmp_path: Path) -> No
         assert reopened.payload("m06_control_flow", "authoritative") == first
 
 
+def test_choice_arm_ordinals_preserve_source_order() -> None:
+    source = """label start:
+    menu:
+        "First":
+            "one"
+        "Second":
+            "two"
+        "Third":
+            "three"
+    return
+"""
+    graph = build_graph([parse_script("ordered.rpy", source.splitlines(keepends=True))])
+    analysis = analyze_control_flow(graph, build_semantic_story(graph))
+    menu = next(item for item in analysis.nodes if item.kind == "menu")
+    region = next(item for item in analysis.regions if item.split_node_id == menu.id)
+    graph_nodes = {str(item["id"]): item for item in graph["nodes"]}
+    arms = sorted(
+        (item for item in analysis.arms if item.region_id == region.id),
+        key=lambda item: item.ordinal,
+    )
+
+    assert [graph_nodes[item.entry_node_id]["metadata"]["caption"] for item in arms] == [
+        "First",
+        "Second",
+        "Third",
+    ]
+
+
 def test_diamonds_bypass_long_routes_and_terminals_classify_exactly() -> None:
     _, analysis = analyze_fixture("control_regions.rpy")
     start_nodes = {node.id for node in analysis.nodes if node.label == "start"}
