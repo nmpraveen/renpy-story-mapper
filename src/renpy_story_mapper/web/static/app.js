@@ -9,6 +9,7 @@ const CURSOR_HISTORY_LIMIT = 12;
 
 const state = {
   project: null, page: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, aiReason: null, mode: "inspection",
+  analysisStatus: null,
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
@@ -80,7 +81,7 @@ async function openSelection(selection, notify = false) {
     if (state.project.name === "Opening") state.project.name = selection.display_name || "Story";
     $("#projectName").textContent = state.project.name;
     if (["running", "pending"].includes(opened.analysis?.state || opened.task?.state)) { showPrimary("progress"); await pollAnalysis(); }
-    else { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
+    else await enterAvailableWorkspace();
     if (notify) toast("Project opened locally");
   } catch (error) { toast(error.message); }
 }
@@ -95,9 +96,9 @@ async function pollAnalysis() {
     $("#progressPercent").textContent = `${percent}%`; const seconds = Number(progress.elapsed_seconds || 0); $("#progressElapsed").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
     if (progress.state === "running") await new Promise((resolve) => setTimeout(resolve, 350));
   } while (progress.state === "running");
-  if (["complete", "completed"].includes(progress.state)) { showPrimary("workspace"); showLevel("route_map"); await resetRoutePaging(); await loadOrganization(); }
+  if (["complete", "completed"].includes(progress.state)) await enterAvailableWorkspace();
   else if (progress.state === "cancelled") { showPrimary("welcome"); toast("Analysis cancelled safely"); }
-  else toast(progress.error?.message || "Analysis stopped safely");
+  else await enterAvailableWorkspace();
   return progress;
 }
 
@@ -129,20 +130,49 @@ function normalizedPage(page, mode = state.mode) {
   };
 }
 
+function renderAnalysisAvailability(status, hasMap) {
+  state.analysisStatus = status || null;
+  const failure = status?.failure;
+  const completed = status?.completed_phases || [];
+  $("#analysisFailureBanner").hidden = !failure;
+  if (failure) {
+    const phase = String(failure.phase || "analysis").replaceAll("_", " ");
+    $("#analysisFailureTitle").textContent = `Analysis failed in ${phase}`;
+    const displayed = status.last_known_good ? "Showing last-known-good results" : hasMap ? "Showing current retained results" : "No retained map is available";
+    $("#analysisFailureSummary").textContent = `${displayed} · ${status.freshness || "unavailable"}`;
+    $("#analysisCompletedPhases").textContent = completed.length ? `Completed: ${completed.map((item) => String(item).replaceAll("_", " ")).join(" · ")}` : "No phases completed";
+  }
+  $("#mapLayout").hidden = !hasMap;
+  $("#partialAnalysisPanel").hidden = hasMap;
+  if (!hasMap) $("#partialAnalysisSummary").textContent = completed.length ? `Completed phases: ${completed.map((item) => String(item).replaceAll("_", " ")).join(" · ")}` : "Analysis stopped before a renderable graph was produced.";
+}
+
 async function loadComparison() {
-  try { state.inspectionPage = normalizedPage(await api.inspectionMap("simplified", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE), "inspection"); }
-  catch (_error) { state.inspectionPage = null; }
-  const comparison = await api.mapComparison(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE);
-  state.technicalPage = normalizedPage(comparison.technical, "technical");
-  state.aiPage = comparison.ai.status === "available" ? normalizedPage(comparison.ai, "ai") : null;
-  state.aiReason = comparison.ai.reason || "not yet organized";
-  state.mode = comparison.default_view === "ai_story_map" && state.aiPage ? "ai" : "technical";
-  state.page = state.mode === "ai" ? state.aiPage : state.technicalPage;
-  const unavailable = !state.aiPage;
-  $("#fallbackNotice").hidden = !unavailable;
-  $("#fallbackReason").textContent = `${String(state.aiReason).replaceAll("_", " ")}. Technical Structure is shown.`;
+  let simplified = null; let canonical = null; let comparison = null;
+  try { simplified = await api.inspectionMap("simplified", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { simplified = null; }
+  try { canonical = await api.inspectionMap("canonical", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { canonical = null; }
+  state.inspectionPage = simplified?.status === "available" ? normalizedPage(simplified, "inspection") : null;
+  state.canonicalPage = canonical?.status === "available" ? normalizedPage(canonical, "canonical") : null;
+  try { comparison = await api.mapComparison(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { comparison = null; }
+  state.technicalPage = comparison ? normalizedPage(comparison.technical, "technical") : null;
+  state.aiPage = comparison?.ai.status === "available" ? normalizedPage(comparison.ai, "ai") : null;
+  state.aiReason = comparison?.ai.reason || "not yet organized";
+  const inspectionCurrent = state.inspectionPage?.generation_status?.freshness === "current";
+  const canonicalCurrent = state.canonicalPage?.generation_status?.freshness === "current";
+  if (inspectionCurrent) { state.mode = "inspection"; state.page = state.inspectionPage; }
+  else if (canonicalCurrent) { state.mode = "canonical"; state.page = state.canonicalPage; }
+  else if (state.inspectionPage) { state.mode = "inspection"; state.page = state.inspectionPage; }
+  else if (state.technicalPage) { state.mode = "technical"; state.page = state.technicalPage; }
+  else { state.mode = "inspection"; state.page = null; }
+  const status = state.page?.generation_status || simplified?.generation_status || canonical?.generation_status || null;
+  const hasMap = Boolean(state.page);
+  renderAnalysisAvailability(status, hasMap);
+  $("#fallbackNotice").hidden = !hasMap || Boolean(state.aiPage);
+  $("#fallbackReason").textContent = `${String(state.aiReason).replaceAll("_", " ")}. ${state.mode === "inspection" ? "M10 Inspection" : state.mode === "canonical" ? "M10 Canonical" : "Technical Structure"} is shown.`;
   updateModeHeader();
-  renderMap();
+  if (hasMap) renderMap();
+  else graph.setData([], [], null, []);
+  return hasMap;
 }
 
 async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.edgeOffset, edgeCursor: state.edgeCursor }) {
@@ -152,7 +182,7 @@ async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.
       : ["inspection", "canonical"].includes(state.mode)
         ? await api.inspectionMap(state.mode === "canonical" ? "canonical" : "simplified", cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE)
         : await api.routeMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE);
-    if (raw.status === "unavailable") { state.mode = "technical"; return loadRoutePage(cursor); }
+    if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, false); return false; }
     const page = normalizedPage(raw, state.mode);
     state.page = page;
     if (state.mode === "ai") state.aiPage = page;
@@ -162,7 +192,7 @@ async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.
     state.offset = Number(page.offset || 0);
     state.edgeOffset = Number(page.edge_offset || 0);
     state.edgeCursor = state.mode === "ai" ? page.edge_cursor ?? null : null;
-    updateModeHeader(); renderMap();
+    updateModeHeader(); renderMap(); return true;
   } catch (error) { $("#selectionStatus").textContent = "Map unavailable"; toast(error.message); }
 }
 
@@ -170,7 +200,14 @@ async function resetRoutePaging() {
   state.cursorHistory = [];
   state.offset = 0; state.edgeOffset = 0; state.edgeCursor = null; state.windowResolution = null; state.prepared = null;
   $("#scopePreview").textContent = "No story text is sent until an exact preview is confirmed.";
-  try { await loadComparison(); } catch (error) { state.mode = "inspection"; try { await loadRoutePage({ offset: 0, edgeOffset: 0 }); } catch (_inspectionError) { state.mode = "technical"; await loadRoutePage({ offset: 0, edgeOffset: 0 }); } }
+  return loadComparison();
+}
+
+async function enterAvailableWorkspace() {
+  showPrimary("workspace"); showLevel("route_map");
+  const available = await resetRoutePaging();
+  await loadOrganization();
+  return available;
 }
 
 function nextCursor() {
@@ -189,6 +226,21 @@ async function nextRoutePage() {
 }
 
 async function previousRoutePage() { const target = state.cursorHistory.pop(); if (target) await loadRoutePage(target); }
+
+async function searchM10WholeGraph() {
+  const query = $("#searchInput").value.trim();
+  if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
+  const view = state.mode === "canonical" ? "canonical" : "simplified";
+  const raw = await api.inspectionMap(view, 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, query ? { query } : {});
+  if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, Boolean(state.page)); return; }
+  const page = normalizedPage(raw, state.mode); state.page = page;
+  if (state.mode === "inspection") state.inspectionPage = page; else state.canonicalPage = page;
+  state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.cursorHistory = [];
+  state.selectedId = page.search?.focus?.element_id || null;
+  renderMap();
+  if (query && !page.search?.total_matches) $("#selectionStatus").textContent = "No whole-graph matches";
+  else if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+}
 
 function visiblePage() {
   const query = $("#searchInput").value.trim().toLocaleLowerCase();
@@ -218,6 +270,7 @@ function renderLanes(nodes) {
 }
 
 function renderMap() {
+  if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
   const { nodes, edges } = visiblePage();
   graph.setData(nodes, edges, state.selectedId, state.page?.lanes || []);
   renderLanes(nodes); state.selectedId = graph.selectedId;
@@ -229,6 +282,7 @@ function renderMap() {
   const nodeIds = new Set(nodes.map((node) => node.id)); const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
   $("#visibleStatus").textContent = `${nodes.length} ${state.mode === "ai" ? "events" : "nodes"} · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
   const generation = state.page?.generation_status;
+  renderAnalysisAvailability(generation, true);
   $("#generationStatus").hidden = !generation;
   if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
   const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
@@ -243,6 +297,9 @@ function updateModeHeader() {
   const inspection = state.mode === "inspection"; const canonical = state.mode === "canonical"; const technical = state.mode === "technical";
   $("#aiMapButton").setAttribute("aria-pressed", String(ai)); $("#inspectionMapButton").setAttribute("aria-pressed", String(inspection)); $("#canonicalMapButton").setAttribute("aria-pressed", String(canonical)); $("#technicalMapButton").setAttribute("aria-pressed", String(technical));
   $("#aiMapButton").disabled = !state.aiPage;
+  $("#inspectionMapButton").disabled = !state.inspectionPage;
+  $("#canonicalMapButton").disabled = !state.canonicalPage;
+  $("#technicalMapButton").disabled = !state.technicalPage;
   $("#mapEyebrow").textContent = ai ? "AI Story Map" : inspection ? "Deterministic inspection" : canonical ? "Canonical technical graph" : "Technical Structure";
   $("#mapTitle").textContent = ai ? "The story at a glance" : inspection ? "Choices, routes, and rejoins" : canonical ? "Every canonical record" : "Authoritative control flow";
   $("#projectBadge").textContent = ai ? "AI Story Map · applied" : inspection ? "M10 Inspection" : canonical ? "M10 Canonical" : "Technical Structure";
@@ -252,7 +309,9 @@ function updateModeHeader() {
 
 async function switchMode(mode) {
   if (mode === "ai" && !state.aiPage) { toast("Apply a validated organization before using the AI Story Map"); return; }
-  state.mode = mode; state.page = mode === "ai" ? state.aiPage : mode === "inspection" ? state.inspectionPage : mode === "canonical" ? state.canonicalPage : state.technicalPage; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
+  const page = mode === "ai" ? state.aiPage : mode === "inspection" ? state.inspectionPage : mode === "canonical" ? state.canonicalPage : state.technicalPage;
+  if (!page) { toast("That map is unavailable for this analysis result"); return; }
+  state.mode = mode; state.page = page; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
   updateModeHeader(); if (state.page) renderMap(); else await loadRoutePage({ offset: 0, edgeOffset: 0 });
 }
 
@@ -288,19 +347,40 @@ function renderTechnicalMembers(detail) {
   $("#technicalMembers").hidden = !host.children.length;
 }
 
+function renderInspectionDerivations(detail) {
+  const regionHost = $("#regionDerivation"); const proofHost = $("#proofDerivation"); const linkHost = $("#linkedRecords");
+  regionHost.replaceChildren(); proofHost.replaceChildren(); linkHost.replaceChildren();
+  if (detail.region) {
+    const region = detail.region; const summary = element("article", "derivation-record");
+    summary.append(element("strong", "", String(region.classification || "branch region").replaceAll("_", " ")), element("span", "", `Split ${region.split_node_id} · merge ${region.merge_node_id || "none"}`), element("span", "", `Persistence: ${(region.persistence_reasons || []).join(" · ") || "none"}`)); regionHost.append(summary);
+    for (const arm of region.ordered_arms || []) {
+      const record = element("article", "derivation-record"); const facts = (arm.facts || []).map((item) => item.label || item.id).join(" · ");
+      record.append(element("strong", "", `Arm ${Number(arm.ordinal) + 1}`), element("span", "", `Entry ${arm.entry_node_id} · ${arm.member_count} members · ${arm.terminal_summary || "nonterminal"}`), element("span", "", facts ? `Facts: ${facts}` : "Facts: none")); regionHost.append(record);
+    }
+  }
+  for (const proof of detail.proofs || []) { const record = element("article", "derivation-record"); record.append(element("strong", "", String(proof.kind || "proof").replaceAll("_", " ")), element("p", "", proof.explanation || "Deterministic derivation"), element("span", "", `Inputs: ${(proof.input_ids || []).join(" · ")}`)); proofHost.append(record); }
+  for (const linked of detail.linked_records || []) { if (linked.id === detail.element?.id) continue; const button = element("button", "quiet-button linked-record", `${String(linked.kind || "record").replaceAll("_", " ")} · ${linked.title || linked.id}`); button.type = "button"; button.addEventListener("click", () => openDetail(linked.id)); linkHost.append(button); }
+  $("#derivationPanel").hidden = !(regionHost.children.length || proofHost.children.length || linkHost.children.length);
+}
+
 async function openDetail(elementId) {
   try {
     const detail = state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId); state.detail = detail; state.selectedId = elementId;
-    if (detail.status === "unavailable") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); return; }
+    if (detail.status === "unavailable") {
+      if (state.mode === "ai") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); }
+      else { renderAnalysisAvailability(detail.generation_status, Boolean(state.page)); toast("This inspection result is unavailable for the retained generation"); }
+      return;
+    }
     const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.presentation_role || selected.role || selected.kind || "Story element").replaceAll("_", " ");
     $("#detailKind").textContent = String(selected.source_kind || selected.presentation_role || selected.kind || selected.role || "route element").replaceAll("_", " ");
-    $("#detailSummary").textContent = selected.summary || "Authoritative local context and exact source evidence.";
+    $("#detailSummary").textContent = selected.unsupported_status || selected.summary || "Authoritative local context and exact source evidence.";
     $("#canonicalEscapeButton").hidden = state.mode === "canonical" || !detail.canonical_focus_id;
     const strip = $("#pathStrip"); strip.replaceChildren();
     for (const id of detail.predecessor_ids || []) strip.append(element("span", "path-stop predecessor", `← ${titleFor(id)}`));
     strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
     for (const id of detail.successor_ids || []) strip.append(element("span", "path-stop successor", `${titleFor(id)} →`));
     renderTechnicalMembers(detail);
+    renderInspectionDerivations(detail);
     const facts = $("#detailFacts"); facts.replaceChildren(); const allFacts = detail.facts || [];
     addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements || allFacts.filter((item) => String(item.kind || "").includes("gate") || String(item.type || "").includes("require")), "gate"); addFactGroup(facts, "Effects", detail.effects || allFacts.filter((item) => String(item.kind || "").includes("effect")), "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
     const interpretations = $("#interpretations"); interpretations.replaceChildren();
@@ -425,7 +505,10 @@ function bind() {
     showPrimary("progress"); const completed = await pollAnalysis(); if (["complete", "completed"].includes(completed.state)) toast("Project refreshed locally");
   });
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
-  $("#searchInput").addEventListener("input", renderMap);
+  $("#searchInput").addEventListener("input", () => {
+    clearTimeout(searchM10WholeGraph.timer);
+    searchM10WholeGraph.timer = setTimeout(() => searchM10WholeGraph().catch((error) => toast(error.message)), 180);
+  });
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
   $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));

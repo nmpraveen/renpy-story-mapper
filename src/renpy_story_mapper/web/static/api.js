@@ -119,10 +119,13 @@ export class LocalApi {
   async detail(elementId) {
     return assertDetail(await this.request(ENDPOINTS.routeDetail, { method: "POST", body: { element_id: elementId } }));
   }
-  async inspectionMap(view, offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
+  async inspectionMap(view, offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE, { query = null, focus = null } = {}) {
     if (!["simplified", "canonical"].includes(view)) throw new TypeError("Unknown inspection view");
+    const body = { view, offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit };
+    if (query) body.query = query;
+    if (focus) body.focus = focus;
     return assertRoutePage(await this.request(ENDPOINTS.inspectionMap, {
-      method: "POST", body: { view, offset, limit, edge_offset: edgeOffset, edge_limit: edgeLimit },
+      method: "POST", body,
     }));
   }
   async inspectionDetail(view, elementId) {

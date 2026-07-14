@@ -103,6 +103,8 @@ M10_INSPECTION_MAP_REQUEST_FIELDS: Final = (
     "limit",
     "edge_offset",
     "edge_limit",
+    "query",
+    "focus",
 )
 M10_DETAIL_REQUEST_FIELDS: Final = ("view", "element_id")
 

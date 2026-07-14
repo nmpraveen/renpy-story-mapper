@@ -1309,6 +1309,7 @@ def _regions(
                 adjacency,
                 node_by_id,
                 terminal_ids,
+                ipdom,
             )
             summary = reachability[edge.target]
             arm_terminals = summary.terminal_node_ids
@@ -1497,8 +1498,9 @@ def _bounded_arm_members(
     adjacency: Mapping[str, Sequence[str]],
     nodes: Mapping[str, ControlNode],
     terminals: set[str],
+    ipdom: Mapping[str, str | None],
 ) -> set[str]:
-    """Return direct ownership, stopping before nested region expansion."""
+    """Return direct ownership, skipping nested bodies but resuming after their merge."""
 
     pending, seen = [entry], set()
     while pending:
@@ -1509,6 +1511,13 @@ def _bounded_arm_members(
         if node in terminals:
             continue
         if nodes[node].kind in {"if", "menu"}:
+            nested_merge = ipdom.get(node)
+            if (
+                nested_merge is not None
+                and nested_merge != VIRTUAL_EXIT_ID
+                and nested_merge != merge
+            ):
+                pending.append(nested_merge)
             continue
         pending.extend(adjacency.get(node, ()))
     return seen

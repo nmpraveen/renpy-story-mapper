@@ -115,7 +115,7 @@ def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     assert "await api.refresh()" in app and "const completed = await pollAnalysis()" in app
     reset = app[app.index("async function resetRoutePaging()") : app.index("function nextCursor()")]
     assert "state.cursorHistory = []" in reset
-    assert "await loadRoutePage({ offset: 0, edgeOffset: 0 })" in reset
+    assert "return loadComparison()" in reset
 
 
 def test_unresolved_filter_uses_only_authoritative_production_field() -> None:

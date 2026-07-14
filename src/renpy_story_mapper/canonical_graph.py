@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -57,6 +57,10 @@ def build_canonical_graph(
         for item in _records(control_flow.get("terminals"), "control_flow.terminals")
     }
     loop_ids_by_node = _loop_membership(control_flow)
+    loops_by_id = {
+        _text(item, "id"): item
+        for item in _records(control_flow.get("loops"), "control_flow.loops")
+    }
     region_ids_by_node = _region_membership(control_flow)
     unresolved_edge_nodes = {
         node_id
@@ -65,6 +69,13 @@ def build_canonical_graph(
         for node_id in (_text(edge, "source"), _text(edge, "target"))
     }
     closed_world = not _has_open_world_behavior(raw_nodes, graph)
+    reachable_nodes, reachability_inputs, entry_origins = _resolved_static_reachability(
+        graph,
+        control_flow,
+        control_by_id,
+        control_edges,
+    )
+    resolved_entry_known = bool(entry_origins)
 
     nodes: list[CanonicalNode] = []
     canonical_node_id: dict[str, str] = {}
@@ -91,7 +102,7 @@ def build_canonical_graph(
         )
         canonical_node_id[graph_node_id] = node_id
         evidence_ids = evidence_by_graph_node.get(graph_node_id, ())
-        proof_ids: tuple[str, ...] = ()
+        proof_ids: list[str] = []
         if not evidence_ids:
             proof = _proof(
                 "synthetic_control_node",
@@ -100,18 +111,78 @@ def build_canonical_graph(
                 "M06 created this synthetic control node while normalizing calls or exits.",
             )
             proofs[proof.id] = proof
-            proof_ids = (proof.id,)
+            proof_ids.append(proof.id)
         fact_ids = fact_ids_by_location.get(_node_location(raw), ()) if raw is not None else ()
         statuses = {
             fact.status
             for fact in facts
             if fact.id in fact_ids and fact.kind == "requirement"
         }
-        static_reachable = (
+        m01_reachable = (
             bool(raw.get("reachable_from_entry"))
             if raw is not None and isinstance(raw.get("reachable_from_entry"), bool)
             else None
         )
+        static_reachable = (
+            graph_node_id in reachable_nodes if resolved_entry_known else m01_reachable
+        )
+        if resolved_entry_known:
+            reached = bool(static_reachable)
+            reachability_proof = _proof(
+                "resolved_static_reachability",
+                tuple(
+                    sorted(
+                        {
+                            *entry_origins,
+                            OriginReference("m06_control_flow", graph_node_id, "nodes"),
+                        }
+                    )
+                ),
+                reachability_inputs.get(
+                    graph_node_id,
+                    tuple(
+                        sorted(
+                            {
+                                *(item.record_id for item in entry_origins),
+                                graph_node_id,
+                            }
+                        )
+                    ),
+                ),
+                (
+                    "Resolved M06 traversal from the configured entry reaches this control node."
+                    if reached
+                    else "No resolved M06 edge path from the configured entry reaches this "
+                    "control node."
+                ),
+            )
+            proofs[reachability_proof.id] = reachability_proof
+            proof_ids.append(reachability_proof.id)
+        for loop_id in loop_ids_by_node.get(graph_node_id, ()):
+            loop = loops_by_id[loop_id]
+            loop_proof = _proof(
+                "scc_loop_membership",
+                (OriginReference("m06_control_flow", loop_id, "loops"),),
+                (
+                    graph_node_id,
+                    *_strings(loop.get("entry_node_ids")),
+                    *_strings(loop.get("back_edge_ids")),
+                    *_strings(loop.get("exit_edge_ids")),
+                ),
+                "M06 strongly connected component analysis places this node in the loop.",
+            )
+            proofs[loop_proof.id] = loop_proof
+            proof_ids.append(loop_proof.id)
+        if graph_node_id in terminal_by_node:
+            terminal_kind = terminal_by_node[graph_node_id]
+            terminal_proof = _proof(
+                "terminal_classification",
+                (OriginReference("m06_control_flow", graph_node_id, "terminals"),),
+                (graph_node_id, terminal_kind),
+                f"M06 classifies this control node as terminal: {terminal_kind}.",
+            )
+            proofs[terminal_proof.id] = terminal_proof
+            proof_ids.append(terminal_proof.id)
         unresolved_item = node_kind is CanonicalNodeKind.UNRESOLVED
         reachability = assign_reachability(
             static_reachable=static_reachable,
@@ -131,7 +202,10 @@ def build_canonical_graph(
             "loop_ids": sorted(loop_ids_by_node.get(graph_node_id, ())),
             "region_ids": sorted(region_ids_by_node.get(graph_node_id, ())),
             "fact_ids": sorted(fact_ids),
+            "resolved_static_reachable": static_reachable,
         }
+        if m01_reachable is not None:
+            attributes["m01_reachable_from_entry"] = m01_reachable
         if raw is not None:
             attributes["source_text"] = str(raw.get("source_text", ""))
             metadata = raw.get("metadata")
@@ -156,7 +230,7 @@ def build_canonical_graph(
                 label,
                 reachability,
                 evidence_ids,
-                proof_ids,
+                tuple(sorted(set(proof_ids))),
                 ordered_origins,
                 attributes,
             )
@@ -184,6 +258,7 @@ def build_canonical_graph(
             "M10 normalized an existing M06 control edge without changing its endpoints.",
         )
         proofs[proof.id] = proof
+        proof_ids = [proof.id]
         evidence_ids = tuple(
             sorted(
                 set(evidence_by_graph_node.get(source, ()))
@@ -203,6 +278,20 @@ def build_canonical_graph(
         )
         resolved = bool(control_edge.get("resolved", True))
         role = _text(control_edge, "role")
+        call_site_id = control_edge.get("call_site_id")
+        if (
+            isinstance(call_site_id, str)
+            and call_site_id
+            and role in {"call_enter", "call_summary", "call_return"}
+        ):
+            continuation_proof = _proof(
+                "call_site_return_continuation",
+                (OriginReference("m06_control_flow", control_edge_id, "edges"),),
+                (call_site_id, source, target),
+                "M06 binds this call edge to one call site and its normalized continuation.",
+            )
+            proofs[continuation_proof.id] = continuation_proof
+            proof_ids.append(continuation_proof.id)
         target_status = node_status.get(
             target, ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH
         )
@@ -220,12 +309,12 @@ def build_canonical_graph(
                 reachability,
                 resolved,
                 evidence_ids,
-                (proof.id,),
+                tuple(sorted(proof_ids)),
                 ordered_origins,
                 {
                     "control_edge_id": control_edge_id,
                     "semantic_roles": sorted(_strings(control_edge.get("semantic_roles"))),
-                    "call_site_id": control_edge.get("call_site_id"),
+                    "call_site_id": call_site_id,
                     "gate_ids": list(gate_ids),
                     "effect_ids": list(effect_ids),
                 },
@@ -337,6 +426,55 @@ def _graph_evidence(
     return result
 
 
+def _resolved_static_reachability(
+    graph: Mapping[str, object],
+    control_flow: Mapping[str, object],
+    control_by_id: Mapping[str, Mapping[str, object]],
+    control_edges: Sequence[Mapping[str, object]],
+) -> tuple[set[str], dict[str, tuple[str, ...]], tuple[OriginReference, ...]]:
+    entry_label = str(graph.get("entry_label", "start"))
+    roots: list[str] = []
+    entry_origins: list[OriginReference] = []
+    procedures = sorted(
+        _records(control_flow.get("procedures"), "control_flow.procedures"),
+        key=lambda item: _text(item, "id"),
+    )
+    for procedure in procedures:
+        entry_node_id = _text(procedure, "entry_node_id")
+        if _text(procedure, "label") == entry_label and entry_node_id in control_by_id:
+            roots.append(entry_node_id)
+            entry_origins.append(
+                OriginReference("m06_control_flow", _text(procedure, "id"), "procedures")
+            )
+    if not roots:
+        for node_id, node in sorted(control_by_id.items()):
+            if str(node.get("kind")) == "label" and str(node.get("label")) == entry_label:
+                roots.append(node_id)
+                entry_origins.append(OriginReference("m06_control_flow", node_id, "nodes"))
+
+    outgoing: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for edge in control_edges:
+        if not bool(edge.get("resolved", True)) or str(edge.get("role")) == "unresolved":
+            continue
+        source = _text(edge, "source")
+        target = _text(edge, "target")
+        if source in control_by_id and target in control_by_id:
+            outgoing[source].append((_text(edge, "id"), target))
+    for values in outgoing.values():
+        values.sort()
+
+    paths: dict[str, tuple[str, ...]] = {root: (root,) for root in sorted(set(roots))}
+    pending = deque(sorted(paths))
+    while pending:
+        source = pending.popleft()
+        for edge_id, target in outgoing.get(source, ()):
+            if target in paths:
+                continue
+            paths[target] = (*paths[source], edge_id, target)
+            pending.append(target)
+    return set(paths), paths, tuple(sorted(set(entry_origins)))
+
+
 def _canonical_regions(
     control_flow: Mapping[str, object],
     node_ids: Mapping[str, str],
@@ -356,25 +494,44 @@ def _canonical_regions(
         merge = region.get("merge_node_id")
         merge_id = node_ids[str(merge)] if isinstance(merge, str) else None
         arm_values: list[dict[str, object]] = []
+        arm_proof_ids: list[str] = []
         for arm_id in _strings(region.get("arm_ids")):
             arm = arms[arm_id]
+            entry_node_id = _text(arm, "entry_node_id")
+            control_edge_id = _text(arm, "edge_id")
+            member_node_ids = _strings(arm.get("node_ids"))
+            terminal_node_ids = _strings(arm.get("terminal_node_ids"))
             arm_values.append(
                 {
                     "id": arm_id,
                     "origin": OriginReference("m06_control_flow", arm_id, "arms").to_dict(),
                     "ordinal": _integer(arm, "ordinal"),
-                    "entry_node_id": node_ids[_text(arm, "entry_node_id")],
-                    "edge_id": edge_ids[_text(arm, "edge_id")],
+                    "entry_node_id": node_ids[entry_node_id],
+                    "edge_id": edge_ids[control_edge_id],
                     "member_node_ids": sorted(
-                        node_ids[item] for item in _strings(arm.get("node_ids"))
+                        node_ids[item] for item in member_node_ids
                     ),
                     "terminal_node_ids": sorted(
-                        node_ids[item] for item in _strings(arm.get("terminal_node_ids"))
+                        node_ids[item] for item in terminal_node_ids
                     ),
                     "unresolved": bool(arm.get("unresolved", False)),
                     "terminal_summary": str(arm.get("terminal_summary", "none")),
                 }
             )
+            arm_proof = _proof(
+                "branch_arm_membership",
+                (OriginReference("m06_control_flow", arm_id, "arms"),),
+                (
+                    split,
+                    control_edge_id,
+                    entry_node_id,
+                    *member_node_ids,
+                    *terminal_node_ids,
+                ),
+                "M06 assigns the ordered arm entry, members, terminals, and controlling edge.",
+            )
+            proofs[arm_proof.id] = arm_proof
+            arm_proof_ids.append(arm_proof.id)
         proof_kind = "immediate_post_dominator_merge" if merge_id is not None else "branch_region"
         proof = _proof(
             proof_kind,
@@ -392,7 +549,7 @@ def _canonical_regions(
                 merge_id,
                 tuple(node_ids[item] for item in _strings(region.get("node_ids"))),
                 (origin,),
-                (proof.id,),
+                tuple(sorted({proof.id, *arm_proof_ids})),
                 {
                     "parent_region_id": region.get("parent_region_id"),
                     "single_entry": bool(region.get("single_entry", False)),

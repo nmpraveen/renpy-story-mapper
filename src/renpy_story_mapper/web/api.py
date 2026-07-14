@@ -15,6 +15,7 @@ from typing import Final, Protocol, cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
+from renpy_story_mapper.analysis_phases import ANALYSIS_STATE_SCHEMA_VERSION
 from renpy_story_mapper.bounded_window import (
     MAX_WINDOW_BOUNDARY_EDGES,
     MAX_WINDOW_EVIDENCE,
@@ -24,6 +25,8 @@ from renpy_story_mapper.bounded_window import (
     BoundedWindowError,
     build_bounded_narrative_window,
 )
+from renpy_story_mapper.canonical_graph_contract import CANONICAL_GRAPH_SCHEMA
+from renpy_story_mapper.inspection_projection import INSPECTION_PROJECTION_SCHEMA
 from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
 from renpy_story_mapper.m07_workflow import (
     M07WorkflowService,
@@ -290,7 +293,7 @@ class ProjectApi:
             return json_value(self._m08_comparison(body))
         if method == "POST" and path == M10_API_ROUTES["inspection_map"]:
             exact_fields(body, allowed=M10_INSPECTION_MAP_REQUEST_FIELDS)
-            projection, canonical, analysis_state = self._m10_payloads()
+            projection, canonical, analysis_state, projection_reason = self._m10_payloads()
             return json_value(
                 inspection_page(
                     projection,
@@ -307,6 +310,9 @@ class ProjectApi:
                     edge_limit=bounded_int(
                         body, "edge_limit", default=180, minimum=1, maximum=180
                     ),
+                    query=optional_string(body, "query", maximum=256),
+                    focus=optional_string(body, "focus", maximum=512),
+                    projection_unavailable_reason=projection_reason,
                 )
             )
         if method == "POST" and path == M10_API_ROUTES["detail"]:
@@ -315,7 +321,7 @@ class ProjectApi:
                 allowed=M10_DETAIL_REQUEST_FIELDS,
                 required=M10_DETAIL_REQUEST_FIELDS,
             )
-            projection, canonical, analysis_state = self._m10_payloads()
+            projection, canonical, analysis_state, projection_reason = self._m10_payloads()
             try:
                 return json_value(
                     inspection_detail(
@@ -324,6 +330,7 @@ class ProjectApi:
                         analysis_state,
                         view=require_string(body, "view", maximum=16),
                         element_id=require_string(body, "element_id", maximum=512),
+                        projection_unavailable_reason=projection_reason,
                     )
                 )
             except KeyError as exc:
@@ -812,19 +819,75 @@ class ProjectApi:
 
     def _m10_payloads(
         self,
-    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    ) -> tuple[
+        dict[str, object] | None,
+        dict[str, object] | None,
+        dict[str, object],
+        str | None,
+    ]:
         with Project.open(self._project()) as project:
-            projection = project.payload("m10_inspection_projection", "authoritative")
-            canonical = project.payload("m10_canonical_graph", "authoritative")
+            raw_projection = project.payload("m10_inspection_projection", "authoritative")
+            raw_canonical = project.payload("m10_canonical_graph", "authoritative")
             analysis_state = project.payload("m10_analysis_state", "authoritative")
-        if not isinstance(projection, dict) or not isinstance(canonical, dict):
-            raise ValueError("the project has no valid M10 inspection graph")
         if not isinstance(analysis_state, dict):
             raise ValueError("the project has no valid M10 generation state")
+        if (
+            analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION
+            or not isinstance(analysis_state.get("source_generation"), str)
+        ):
+            raise ValueError("the project has an incompatible M10 generation state")
+        canonical = (
+            cast(dict[str, object], raw_canonical)
+            if isinstance(raw_canonical, dict)
+            and raw_canonical.get("schema") == CANONICAL_GRAPH_SCHEMA
+            and isinstance(raw_canonical.get("source_generation"), str)
+            else None
+        )
+        state_canonical_generation = analysis_state.get("canonical_generation")
+        state_canonical_hash = analysis_state.get("canonical_hash")
+        if canonical is not None:
+            canonical_hash = hashlib.sha256(storage.canonical_json(canonical)).hexdigest()
+            if (
+                state_canonical_generation != canonical["source_generation"]
+                or state_canonical_hash != canonical_hash
+            ):
+                raise ValueError("the M10 generation state does not bind the canonical graph")
+        elif state_canonical_generation is not None or state_canonical_hash is not None:
+            raise ValueError("the M10 generation state references an invalid canonical graph")
+        projection_reason: str | None = None
+        projection = (
+            cast(dict[str, object], raw_projection)
+            if isinstance(raw_projection, dict)
+            and raw_projection.get("schema") == INSPECTION_PROJECTION_SCHEMA
+            and isinstance(raw_projection.get("source_generation"), str)
+            and isinstance(raw_projection.get("canonical_graph_hash"), str)
+            else None
+        )
+        if projection is None:
+            projection_reason = (
+                "projection_missing" if raw_projection is None else "projection_invalid"
+            )
+        elif canonical is None:
+            projection = None
+            projection_reason = "canonical_missing"
+        elif projection["source_generation"] != canonical["source_generation"]:
+            projection = None
+            projection_reason = "projection_generation_mismatch"
+        elif projection["canonical_graph_hash"] != state_canonical_hash:
+            projection = None
+            projection_reason = "projection_canonical_hash_mismatch"
+        elif (
+            analysis_state.get("simplified_generation") != projection["source_generation"]
+            or analysis_state.get("simplified_canonical_hash")
+            != projection["canonical_graph_hash"]
+        ):
+            projection = None
+            projection_reason = "projection_analysis_state_mismatch"
         return (
-            cast(dict[str, object], projection),
-            cast(dict[str, object], canonical),
+            projection,
+            canonical,
             cast(dict[str, object], analysis_state),
+            projection_reason,
         )
 
     def _m08_query(

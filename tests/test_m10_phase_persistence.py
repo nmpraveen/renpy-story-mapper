@@ -7,6 +7,7 @@ import pytest
 import renpy_story_mapper.presentation as presentation
 import renpy_story_mapper.project_analysis as project_analysis
 from renpy_story_mapper.project import Project, create_ingested_project, refresh_ingested_project
+from renpy_story_mapper.storage import canonical_json
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m10" / "canonical_constructs.rpy"
 
@@ -37,6 +38,7 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
 
     assert state["status"] == "current_complete"
     assert state["canonical_availability"] == "current_complete"
+    assert state["simplified_availability"] == "current_complete"
     assert state["source_generation"] == canonical["source_generation"]
     assert {item["source_generation"] for item in state["phases"]} == {state["source_generation"]}
     assert [item["phase"] for item in state["phases"]] == [
@@ -50,6 +52,11 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
         "simplified_projection",
         "inspection_projection",
     ]
+    assert all(
+        isinstance(item["duration_seconds"], (int, float))
+        and item["duration_seconds"] >= 0
+        for item in state["phases"]
+    )
     assert progress == [
         ("source_inventory", 5),
         ("parse", 20),
@@ -62,6 +69,26 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
         ("inspection_projection", 96),
         ("complete", 100),
     ]
+
+
+def test_operational_phase_timings_do_not_change_canonical_structural_bytes(
+    tmp_path: Path,
+) -> None:
+    source = _source(tmp_path)
+    first_path = tmp_path / "first.rsmproj"
+    second_path = tmp_path / "second.rsmproj"
+    create_ingested_project(first_path, source).close()
+    create_ingested_project(second_path, source).close()
+
+    with Project.open(first_path) as first, Project.open(second_path) as second:
+        first_canonical = _payload(first, "m10_canonical_graph")
+        second_canonical = _payload(second, "m10_canonical_graph")
+        first_state = _payload(first, "m10_analysis_state")
+        second_state = _payload(second, "m10_analysis_state")
+
+    assert canonical_json(first_canonical) == canonical_json(second_canonical)
+    assert all("duration_seconds" in item for item in first_state["phases"])
+    assert all("duration_seconds" in item for item in second_state["phases"])
 
 
 def test_failed_new_route_phase_keeps_last_good_canonical_graph_stale(
@@ -96,7 +123,9 @@ def test_failed_new_route_phase_keeps_last_good_canonical_graph_stale(
     assert projection == old_projection
     assert state["status"] == "failed"
     assert state["canonical_availability"] == "stale"
+    assert state["simplified_availability"] == "stale"
     assert state["failure"]["phase"] == "route_map"
+    assert state["failure"]["duration_seconds"] >= 0
     assert state["source_generation"] != canonical["source_generation"]
     assert {item["source_generation"] for item in state["phases"]} == {state["source_generation"]}
 
@@ -129,7 +158,9 @@ def test_failed_simplified_projection_keeps_new_canonical_and_old_projection(
         projection = _payload(project, "m10_inspection_projection")
     assert state["status"] == "failed"
     assert state["canonical_availability"] == "current_complete"
+    assert state["simplified_availability"] == "unavailable"
     assert state["failure"]["phase"] == "simplified_projection"
+    assert state["failure"]["duration_seconds"] >= 0
     assert canonical["source_generation"] == state["source_generation"]
     assert projection == old_projection
     assert projection["source_generation"] != state["source_generation"]
@@ -158,7 +189,9 @@ def test_failed_later_projection_keeps_current_canonical_graph(
         canonical = _payload(project, "m10_canonical_graph")
     assert state["status"] == "failed"
     assert state["canonical_availability"] == "current_complete"
+    assert state["simplified_availability"] == "current_complete"
     assert state["failure"]["phase"] == "inspection_projection"
+    assert state["failure"]["duration_seconds"] >= 0
     assert state["source_generation"] == canonical["source_generation"]
 
 
@@ -183,4 +216,6 @@ def test_failed_initial_analysis_retains_current_partial_project(
         assert project.payload("m10_canonical_graph", "authoritative") is None
     assert state["status"] == "failed"
     assert state["canonical_availability"] == "none"
+    assert state["simplified_availability"] == "none"
     assert state["failure"]["phase"] == "control_flow"
+    assert state["failure"]["duration_seconds"] >= 0

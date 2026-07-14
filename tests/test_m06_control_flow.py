@@ -303,6 +303,7 @@ def test_nested_regions_have_stable_innermost_ownership_and_permutation_output()
         '                    "A."\n',
         '                "Inner B":\n',
         '                    "B."\n',
+        '            "After nested."\n',
         '        "Outer B":\n',
         '            "C."\n',
         "    return\n",
@@ -316,6 +317,16 @@ def test_nested_regions_have_stable_innermost_ownership_and_permutation_output()
     second = analyze_control_flow(permuted, build_semantic_story(permuted))
     assert len(first.regions) == 2
     assert any(region.parent_region_id is not None for region in first.regions)
+    outer_region = next(region for region in first.regions if region.parent_region_id is None)
+    outer_first_arm = next(
+        arm for arm in first.arms if arm.region_id == outer_region.id and arm.ordinal == 0
+    )
+    continuation_id = next(
+        str(node["id"])
+        for node in graph["nodes"]
+        if node.get("source_text") == '"After nested."'
+    )
+    assert continuation_id in outer_first_arm.node_ids
     assert first.canonical_json() == second.canonical_json()
     assert (
         first.canonical_json()

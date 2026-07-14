@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
@@ -511,6 +512,7 @@ def _refresh_open_project(
     )
     phases: list[PhaseBinding] = []
     phase = "source_inventory"
+    phase_started = time.perf_counter()
     state_initialized = False
     canonical_generation = previous_canonical_generation
     canonical_hash = previous_canonical_hash
@@ -530,6 +532,7 @@ def _refresh_open_project(
                 phase,
                 source_generation,
                 ({"collection": "sources", "key": "inventory", "payload_hash": inventory_hash},),
+                _phase_duration(phase_started),
             )
         )
         _write_analysis_state(
@@ -543,6 +546,7 @@ def _refresh_open_project(
         state_initialized = True
 
         phase = "parse"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 20)
         canonical_paths = set(content_by_path)
         parsed_paths = set(refresh.changed) & canonical_paths
@@ -563,9 +567,18 @@ def _refresh_open_project(
             set(refresh.changed) | set(refresh.removed),
         )
         parsed_records = _parsed_records(modules, dependencies, parsed_paths)
-        _write_phase(project, source_generation, phase, parsed_records, phases, cancel_check)
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            parsed_records,
+            phases,
+            cancel_check,
+            phase_started,
+        )
 
         phase = "graph"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 35)
         graph = build_graph(module_values, entry_label=entry_label)
         diagnostics = [item for module in module_values for item in module.diagnostics]
@@ -575,9 +588,18 @@ def _refresh_open_project(
         counts["diagnostics"] = len(diagnostics)
         all_paths = tuple(sorted(modules))
         graph_records = [PayloadRecord("m01_graph", "authoritative", graph, all_paths)]
-        _write_phase(project, source_generation, phase, graph_records, phases, cancel_check)
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            graph_records,
+            phases,
+            cancel_check,
+            phase_started,
+        )
 
         phase = "semantic_state"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 50)
         semantic = build_semantic_story(graph)
         state = extract_state(module_values)
@@ -605,9 +627,18 @@ def _refresh_open_project(
                     metadata_dependencies,
                 )
             )
-        _write_phase(project, source_generation, phase, semantic_records, phases, cancel_check)
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            semantic_records,
+            phases,
+            cancel_check,
+            phase_started,
+        )
 
         phase = "control_flow"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 65)
         control_flow = analyze_control_flow(
             graph,
@@ -618,9 +649,18 @@ def _refresh_open_project(
         control_records = [
             PayloadRecord("m06_control_flow", "authoritative", control_flow, all_paths)
         ]
-        _write_phase(project, source_generation, phase, control_records, phases, cancel_check)
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            control_records,
+            phases,
+            cancel_check,
+            phase_started,
+        )
 
         phase = "route_map"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 75)
         route_map = project_route_map(
             control_flow, semantic, state.requirements, state.effects
@@ -628,12 +668,21 @@ def _refresh_open_project(
         route_records = [
             PayloadRecord("m07_route_map", "authoritative", route_map.to_dict(), all_paths)
         ]
-        _write_phase(project, source_generation, phase, route_records, phases, cancel_check)
+        _write_phase(
+            project,
+            source_generation,
+            phase,
+            route_records,
+            phases,
+            cancel_check,
+            phase_started,
+        )
         project.m07_model_service().register_scopes(
             route_map.scopes, generation=route_map.authority_hash
         )
 
         phase = "canonical_graph"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 85)
         canonical_graph = build_canonical_graph(
             graph,
@@ -652,7 +701,12 @@ def _refresh_open_project(
         canonical_generation = source_generation
         canonical_hash = canonical_graph.authority_hash
         phases.append(
-            PhaseBinding(phase, source_generation, payload_bindings(canonical_records))
+            PhaseBinding(
+                phase,
+                source_generation,
+                payload_bindings(canonical_records),
+                _phase_duration(phase_started),
+            )
         )
         _write_analysis_state(
             project,
@@ -664,6 +718,7 @@ def _refresh_open_project(
         )
 
         phase = "simplified_projection"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 92)
         inspection_projection = project_inspection_graph(canonical_graph, route_map)
         inspection_records = [
@@ -680,9 +735,11 @@ def _refresh_open_project(
             inspection_records,
             phases,
             cancel_check,
+            phase_started,
         )
 
         phase = "inspection_projection"
+        phase_started = time.perf_counter()
         _emit_analysis_progress(progress, phase, 96)
         from renpy_story_mapper.presentation import rebuild_presentation_index
 
@@ -699,6 +756,7 @@ def _refresh_open_project(
                         "payload_hash": route_map.authority_hash,
                     },
                 ),
+                _phase_duration(phase_started),
             )
         )
         _write_analysis_state(
@@ -729,6 +787,7 @@ def _refresh_open_project(
                     canonical_hash,
                     failure_phase=phase,
                     failure_code=_failure_code(exc),
+                    failure_duration_seconds=_phase_duration(phase_started),
                 )
         raise
 
@@ -809,9 +868,17 @@ def _write_phase(
     records: Sequence[PayloadRecord],
     phases: list[PhaseBinding],
     cancel_check: CancelCheck,
+    phase_started: float,
 ) -> None:
     project.write_payloads(records, cancelled=cancel_check)
-    phases.append(PhaseBinding(phase, source_generation, payload_bindings(records)))
+    phases.append(
+        PhaseBinding(
+            phase,
+            source_generation,
+            payload_bindings(records),
+            _phase_duration(phase_started),
+        )
+    )
     canonical_generation, canonical_hash = _canonical_identity(
         project.payload("m10_canonical_graph", "authoritative")
     )
@@ -835,15 +902,22 @@ def _write_analysis_state(
     *,
     failure_phase: str | None = None,
     failure_code: str | None = None,
+    failure_duration_seconds: float | None = None,
 ) -> None:
+    simplified_generation, simplified_canonical_hash = _simplified_identity(
+        project.payload("m10_inspection_projection", "authoritative")
+    )
     value = analysis_state_payload(
         source_generation=source_generation,
         status=status,
         phases=phases,
         canonical_generation=canonical_generation,
         canonical_hash=canonical_hash,
+        simplified_generation=simplified_generation,
+        simplified_canonical_hash=simplified_canonical_hash,
         failure_phase=failure_phase,
         failure_code=failure_code,
+        failure_duration_seconds=failure_duration_seconds,
     )
     project.write_payloads((PayloadRecord("m10_analysis_state", "authoritative", value),))
 
@@ -857,9 +931,23 @@ def _canonical_identity(value: object) -> tuple[str | None, str | None]:
     return generation, hashlib.sha256(canonical_json(dict(value))).hexdigest()
 
 
+def _simplified_identity(value: object) -> tuple[str | None, str | None]:
+    if not isinstance(value, Mapping):
+        return None, None
+    generation = value.get("source_generation")
+    canonical_hash = value.get("canonical_graph_hash")
+    if not isinstance(generation, str) or not isinstance(canonical_hash, str):
+        return None, None
+    return generation, canonical_hash
+
+
 def _emit_analysis_progress(progress: AnalysisProgress, phase: str, percent: int) -> None:
     if progress is not None:
         progress(phase, percent)
+
+
+def _phase_duration(started: float) -> float:
+    return round(max(0.0, time.perf_counter() - started), 6)
 
 
 def _failure_code(exc: BaseException) -> str:
