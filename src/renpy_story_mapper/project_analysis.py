@@ -1989,6 +1989,8 @@ def _statement_to_value(statement: Statement) -> dict[str, object]:
                 ],
             }
         )
+        if statement.availability_unresolved:
+            value["availability_unresolved"] = True
     else:
         raise TypeError(f"unsupported parsed statement type: {type(statement).__name__}")
     return value
@@ -2067,7 +2069,10 @@ def _statement_from_value(raw: object) -> Statement:
                     _required_string(caption.get("text"), "menu caption source text"),
                 )
             )
-        return Menu(span, text, choices, captions)
+        availability_unresolved = value.get("availability_unresolved", False)
+        if not isinstance(availability_unresolved, bool):
+            raise ValueError("menu availability_unresolved must be boolean")
+        return Menu(span, text, choices, captions, availability_unresolved)
     raise ValueError(f"unknown parsed statement type {kind!r}")
 
 

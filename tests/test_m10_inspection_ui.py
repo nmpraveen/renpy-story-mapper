@@ -431,6 +431,93 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     assert fact_detail["evidence"]
 
 
+def test_ordered_elif_context_is_preserved_in_node_edge_arm_and_region_details(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ordered-if-game"
+    source.mkdir()
+    (source / "story.rpy").write_text(
+        """label start:
+    if alpha:
+        "Alpha"
+    elif beta:
+        "Beta"
+    elif gamma:
+        "Gamma"
+    else:
+        "Else"
+    return
+""",
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "ordered-if.rsmproj"
+    create_ingested_project(project_path, source).close()
+    projection, canonical, state = _payloads(project_path)
+
+    nodes = canonical["nodes"]
+    edges = canonical["edges"]
+    regions = canonical["regions"]
+    beta_body = next(
+        item for item in nodes if item["attributes"].get("source_text") == '"Beta"'
+    )
+    beta_entry = next(
+        item for item in nodes if item["attributes"].get("source_text") == "elif beta:"
+    )
+    beta_edge = next(
+        item
+        for item in edges
+        if item["target_id"] == beta_entry["id"]
+        and item["attributes"].get("predicate", {}).get("kind") == "if_branch"
+    )
+    region = next(item for item in regions if len(item["attributes"]["arms"]) == 4)
+    expected = [("alpha", "negative"), ("beta", "positive")]
+
+    node_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="canonical",
+        element_id=beta_body["id"],
+    )
+    node_record = next(
+        item for item in node_detail["canonical_records"] if item["id"] == beta_body["id"]
+    )
+    assert [
+        (item["expression"], item["polarity"])
+        for item in node_record["attributes"]["guard_dependencies"][0]["conditions"]
+    ] == expected
+
+    edge_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="canonical",
+        element_id=beta_edge["id"],
+    )
+    edge_record = next(
+        item for item in edge_detail["canonical_records"] if item["id"] == beta_edge["id"]
+    )
+    assert [
+        (item["expression"], item["polarity"])
+        for item in edge_record["attributes"]["predicate"]["conditions"]
+    ] == expected
+    assert len(edge_detail["requirements"]) == 2
+
+    region_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=region["id"],
+    )["region"]
+    beta_arm = region_detail["ordered_arms"][1]
+    assert [
+        (item["expression"], item["polarity"])
+        for item in beta_arm["predicate"]["conditions"]
+    ] == expected
+    assert len(beta_arm["gate_facts"]) == 2
+
+
 def test_canonical_api_survives_initial_simplified_projection_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

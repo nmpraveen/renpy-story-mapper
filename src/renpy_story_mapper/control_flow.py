@@ -1450,6 +1450,12 @@ def _literal_gate_value(expression: str, variable: str) -> str | None:
 
 def _has_unconditional_choice(edges: Sequence[ControlEdge]) -> bool:
     for edge in edges:
+        if "menu_no_choice" not in edge.semantic_roles or not edge.evidence:
+            continue
+        metadata = edge.evidence[0].get("metadata")
+        if isinstance(metadata, Mapping) and metadata.get("availability_unresolved") is True:
+            return False
+    for edge in edges:
         if "menu_choice" not in edge.semantic_roles or not edge.evidence:
             continue
         metadata = edge.evidence[0].get("metadata")

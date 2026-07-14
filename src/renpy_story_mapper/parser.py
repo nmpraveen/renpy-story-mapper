@@ -403,16 +403,19 @@ class RenpySubsetParser:
         _, menu_tail = _head(line.code)
         menu_header = _remove_terminal_colon(menu_tail)
         menu_name: str | None = None
+        availability_unresolved = menu_header is None
         if menu_header:
             static_name, remainder = _static_name(menu_header)
             if static_name is not None and not remainder:
                 menu_name = _resolve_local(static_name, current_global)
+            else:
+                availability_unresolved = True
         cursor = index + 1
         choices: list[MenuChoice] = []
         captions: list[MenuCaption] = []
         if cursor >= len(self.lines) or self.lines[cursor].indent <= line.indent:
             self._diagnose(line, "empty_menu", "menu has no indented choices")
-            menu = Menu(line.span, line.code.strip(), choices, captions)
+            menu = Menu(line.span, line.code.strip(), choices, captions, True)
             return self._anchor_named_menu(menu, menu_name), cursor
         choice_indent = self.lines[cursor].indent
         while cursor < len(self.lines):
@@ -420,10 +423,16 @@ class RenpySubsetParser:
             if choice_line.indent <= line.indent:
                 break
             if choice_line.indent != choice_indent:
+                availability_unresolved = True
                 self._diagnose(
                     choice_line, "unexpected_menu_indent", "menu line treated as opaque"
                 )
                 cursor = self._skip_statement(cursor)
+                continue
+            keyword, tail = _head(choice_line.code)
+            if keyword == "set" and tail:
+                availability_unresolved = True
+                cursor += 1
                 continue
             header = _parse_choice_header(choice_line.code)
             if header is None:
@@ -434,6 +443,7 @@ class RenpySubsetParser:
                     )
                     cursor += 1
                     continue
+                availability_unresolved = True
                 self._diagnose(
                     choice_line, "unsupported_menu_line", "menu caption is not a string choice"
                 )
@@ -450,7 +460,13 @@ class RenpySubsetParser:
                     body,
                 )
             )
-        menu = Menu(line.span, line.code.strip(), choices, captions)
+        menu = Menu(
+            line.span,
+            line.code.strip(),
+            choices,
+            captions,
+            availability_unresolved,
+        )
         return self._anchor_named_menu(menu, menu_name), cursor
 
     def _anchor_named_menu(self, menu: Menu, name: str | None) -> Statement:

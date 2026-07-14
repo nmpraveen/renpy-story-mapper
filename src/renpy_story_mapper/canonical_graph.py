@@ -81,6 +81,7 @@ def build_canonical_graph(
             control_flow,
             control_by_id,
             control_edges,
+            predicates_by_edge,
         )
     )
     node_guard_states, edge_guard_states, guard_details = _resolved_guard_states(
@@ -217,6 +218,9 @@ def build_canonical_graph(
         guard_status, guard_dependencies = _best_guard_state(
             node_guard_states.get(graph_node_id, ()), guard_details
         )
+        guard_alternatives = _guard_alternatives(
+            node_guard_states.get(graph_node_id, ()), guard_details
+        )
         reachability = assign_reachability(
             static_reachable=static_reachable,
             unresolved_item=unresolved_item,
@@ -238,6 +242,8 @@ def build_canonical_graph(
             "resolved_static_reachable": static_reachable,
             "guard_dependencies": guard_dependencies,
         }
+        if len(guard_alternatives) > 1:
+            attributes["guard_alternatives"] = guard_alternatives
         if reachability_witness is not None:
             attributes["reachability_witness"] = reachability_witness
         if m01_reachable is not None:
@@ -317,6 +323,9 @@ def build_canonical_graph(
         guard_status, guard_dependencies = _best_guard_state(
             edge_guard_states.get(control_edge_id, ()), guard_details
         )
+        guard_alternatives = _guard_alternatives(
+            edge_guard_states.get(control_edge_id, ()), guard_details
+        )
         predicate = predicates_by_edge.get(control_edge_id)
         guard_fact_ids = {
             fact_id
@@ -349,21 +358,52 @@ def build_canonical_graph(
             role=role,
             traversed=bool(edge_guard_states.get(control_edge_id)),
             guard_status=guard_status,
+            predicate_feasibility=(
+                str(predicate.get("feasibility")) if predicate is not None else None
+            ),
             closed_world=closed_world,
         )
+        predicate_feasibility = (
+            str(predicate.get("feasibility")) if predicate is not None else None
+        )
+        if predicate_feasibility == "impossible":
+            reachability_explanation = (
+                "An ordinary menu has an unconditional available option, so its no-choice "
+                "edge cannot execute."
+            )
+        elif predicate_feasibility == "unresolved":
+            reachability_explanation = (
+                "Menu availability depends on a set clause or unsupported behavior, so the "
+                "no-choice edge remains unresolved."
+            )
+        elif resolved and role != "unresolved":
+            reachability_explanation = (
+                f"The resolved edge is derived from source status {source_status.value} "
+                f"and guard status {guard_status}; target reachability is not reused."
+            )
+        else:
+            reachability_explanation = (
+                "M06 marks this edge unresolved, so its reachability remains unresolved."
+            )
         edge_reachability_proof = _proof(
             "edge_reachability",
             (OriginReference("m06_control_flow", control_edge_id, "edges"),),
             (source, control_edge_id, *sorted(guard_fact_ids)),
-            (
-                f"The resolved edge is derived from source status {source_status.value} "
-                f"and guard status {guard_status}; target reachability is not reused."
-                if resolved and role != "unresolved"
-                else "M06 marks this edge unresolved, so its reachability remains unresolved."
-            ),
+            reachability_explanation,
         )
         proofs[edge_reachability_proof.id] = edge_reachability_proof
         proof_ids.append(edge_reachability_proof.id)
+        edge_attributes: dict[str, object] = {
+            "control_edge_id": control_edge_id,
+            "semantic_roles": sorted(_strings(control_edge.get("semantic_roles"))),
+            "call_site_id": call_site_id,
+            "gate_ids": list(gate_ids),
+            "effect_ids": list(effect_ids),
+            "predicate": dict(predicate) if predicate is not None else None,
+            "guard_dependencies": guard_dependencies,
+        }
+        if len(guard_alternatives) > 1:
+            edge_attributes["guard_alternatives"] = guard_alternatives
         edges.append(
             CanonicalEdge(
                 edge_id,
@@ -375,15 +415,7 @@ def build_canonical_graph(
                 evidence_ids,
                 tuple(sorted(proof_ids)),
                 ordered_origins,
-                {
-                    "control_edge_id": control_edge_id,
-                    "semantic_roles": sorted(_strings(control_edge.get("semantic_roles"))),
-                    "call_site_id": call_site_id,
-                    "gate_ids": list(gate_ids),
-                    "effect_ids": list(effect_ids),
-                    "predicate": dict(predicate) if predicate is not None else None,
-                    "guard_dependencies": guard_dependencies,
-                },
+                edge_attributes,
             )
         )
 
@@ -498,6 +530,7 @@ def _resolved_static_reachability(
     control_flow: Mapping[str, object],
     control_by_id: Mapping[str, Mapping[str, object]],
     control_edges: Sequence[Mapping[str, object]],
+    predicates_by_edge: Mapping[str, Mapping[str, object]],
 ) -> tuple[
     set[str],
     dict[str, tuple[str, ...]],
@@ -527,6 +560,12 @@ def _resolved_static_reachability(
     outgoing: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for edge in control_edges:
         if not bool(edge.get("resolved", True)) or str(edge.get("role")) == "unresolved":
+            continue
+        predicate = predicates_by_edge.get(_text(edge, "id"))
+        if predicate is not None and predicate.get("feasibility") in {
+            "impossible",
+            "unresolved",
+        }:
             continue
         source = _text(edge, "source")
         target = _text(edge, "target")
@@ -572,39 +611,70 @@ def _edge_predicates(
     result: dict[str, dict[str, object]] = {}
     for edges in outgoing.values():
         ordered = sorted(edges, key=_predicate_edge_order)
-        prior_expressions: list[str] = []
+        prior_conditions: list[dict[str, object]] = []
+        no_choice_feasibility = _menu_no_choice_feasibility(ordered)
         for branch_order, edge in enumerate(ordered):
             edge_id = _text(edge, "id")
             roles = set(_strings(edge.get("semantic_roles")))
             condition = _edge_condition(edge)
-            expressions: tuple[str, ...]
+            current_condition: dict[str, object] | None = None
+            if condition is not None:
+                current_fact_ids = _predicate_fact_ids(
+                    edge,
+                    condition,
+                    raw_by_id,
+                    fact_ids_by_location,
+                    fact_by_id,
+                )
+                current_condition = {
+                    "expression": condition,
+                    "polarity": "positive",
+                    "branch_order": branch_order,
+                    "requirement_fact_ids": list(current_fact_ids),
+                }
+
+            conditions: list[dict[str, object]]
             if "condition_false" in roles:
                 kind = "if_fallthrough"
                 polarity = "none_true"
-                expressions = tuple(prior_expressions)
+                conditions = _negative_conditions(prior_conditions)
             elif "condition" in roles and condition is None:
                 kind = "if_else"
                 polarity = "none_true"
-                expressions = tuple(prior_expressions)
+                conditions = _negative_conditions(prior_conditions)
             elif "condition" in roles:
                 kind = "if_branch"
-                polarity = "positive"
-                expressions = (condition,) if condition is not None else ()
+                conditions = [
+                    *_negative_conditions(prior_conditions),
+                    *([current_condition] if current_condition is not None else []),
+                ]
+                polarity = "positive" if len(conditions) == 1 else "mixed"
             elif "menu_no_choice" in roles:
                 kind = "menu_no_choice"
                 polarity = "none_available"
-                expressions = tuple(prior_expressions)
+                conditions = _negative_conditions(prior_conditions)
             else:
                 kind = "menu_choice"
                 polarity = "positive" if condition is not None else "unconditional"
-                expressions = (condition,) if condition is not None else ()
+                conditions = [current_condition] if current_condition is not None else []
 
-            fact_ids = _predicate_fact_ids(
-                edge,
-                expressions,
-                raw_by_id,
-                fact_ids_by_location,
-                fact_by_id,
+            expressions = tuple(str(item["expression"]) for item in conditions)
+            fact_ids = tuple(
+                sorted(
+                    {
+                        fact_id
+                        for item in conditions
+                        for fact_id in _strings(item.get("requirement_fact_ids"))
+                    }
+                )
+            )
+            feasibility = (
+                no_choice_feasibility if "menu_no_choice" in roles else None
+            )
+            status = (
+                feasibility
+                if feasibility in {"impossible", "unresolved"}
+                else _predicate_status(expressions, fact_ids, fact_by_id)
             )
             predicate: dict[str, object] = {
                 "kind": kind,
@@ -612,7 +682,7 @@ def _edge_predicates(
                 "branch_order": branch_order,
                 "source": (
                     "m01_graph_edge_metadata"
-                    if polarity in {"positive", "unconditional"}
+                    if not any(item["polarity"] == "negative" for item in conditions)
                     else "m01_graph_branch_order"
                 ),
                 "origin": OriginReference(
@@ -621,16 +691,66 @@ def _edge_predicates(
                     "evidence.metadata.condition",
                 ).to_dict(),
                 "requirement_fact_ids": list(fact_ids),
-                "status": _predicate_status(expressions, fact_ids, fact_by_id),
+                "status": status,
+                "operator": "and",
+                "conditions": [dict(item) for item in conditions],
             }
-            if polarity == "positive" and condition is not None:
+            if feasibility is not None:
+                predicate["feasibility"] = feasibility
+            if len(conditions) == 1 and conditions[0]["polarity"] == "positive":
                 predicate["expression"] = condition
-            elif polarity != "unconditional":
+            elif conditions:
                 predicate["expressions"] = list(expressions)
             result[edge_id] = predicate
             if condition is not None and kind in {"if_branch", "menu_choice"}:
-                prior_expressions.append(condition)
+                assert current_condition is not None
+                prior_conditions.append(current_condition)
     return result
+
+
+def _negative_conditions(
+    conditions: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            **dict(item),
+            "polarity": "negative",
+        }
+        for item in conditions
+    ]
+
+
+def _menu_no_choice_feasibility(edges: Sequence[Mapping[str, object]]) -> str:
+    no_choice = next(
+        (
+            edge
+            for edge in edges
+            if "menu_no_choice" in _strings(edge.get("semantic_roles"))
+        ),
+        None,
+    )
+    if no_choice is None:
+        return "conditional"
+    if _edge_metadata_flag(no_choice, "availability_unresolved"):
+        return "unresolved"
+    choices = [
+        edge
+        for edge in edges
+        if "menu_choice" in _strings(edge.get("semantic_roles"))
+    ]
+    if not choices:
+        return "unresolved"
+    if any(_edge_condition(edge) is None for edge in choices):
+        return "impossible"
+    return "conditional"
+
+
+def _edge_metadata_flag(edge: Mapping[str, object], key: str) -> bool:
+    for evidence in _records(edge.get("evidence"), "control edge evidence"):
+        metadata = evidence.get("metadata")
+        if isinstance(metadata, Mapping) and metadata.get(key) is True:
+            return True
+    return False
 
 
 def _predicate_edge_order(edge: Mapping[str, object]) -> tuple[int, int, str]:
@@ -660,26 +780,25 @@ def _edge_condition(edge: Mapping[str, object]) -> str | None:
 
 def _predicate_fact_ids(
     edge: Mapping[str, object],
-    expressions: Sequence[str],
+    expression: str,
     raw_by_id: Mapping[str, Mapping[str, object]],
     fact_ids_by_location: Mapping[tuple[str, int], tuple[str, ...]],
     fact_by_id: Mapping[str, CanonicalFact],
 ) -> tuple[str, ...]:
-    expression_set = set(expressions)
-    if not expression_set:
-        return ()
-    candidate_ids: set[str] = set()
-    for node_id in (_text(edge, "source"), _text(edge, "target")):
-        candidate_ids.update(fact_ids_by_location.get(_node_location(raw_by_id.get(node_id)), ()))
-    return tuple(
-        sorted(
-            fact_id
-            for fact_id in candidate_ids
-            if fact_id in fact_by_id
-            and fact_by_id[fact_id].kind == "requirement"
-            and fact_by_id[fact_id].attributes.get("original_expression") in expression_set
+    for node_id in (_text(edge, "target"), _text(edge, "source")):
+        candidate_ids = fact_ids_by_location.get(_node_location(raw_by_id.get(node_id)), ())
+        matches = tuple(
+            sorted(
+                fact_id
+                for fact_id in candidate_ids
+                if fact_id in fact_by_id
+                and fact_by_id[fact_id].kind == "requirement"
+                and fact_by_id[fact_id].attributes.get("original_expression") == expression
+            )
         )
-    )
+        if matches:
+            return matches
+    return ()
 
 
 def _predicate_status(
@@ -707,6 +826,10 @@ def _resolved_guard_states(
     dict[str, tuple[frozenset[str], ...]],
     dict[str, dict[str, object]],
 ]:
+    control_nodes = _records(control_flow.get("nodes"), "control_flow.nodes")
+    label_by_node = {
+        _text(item, "id"): str(item.get("label", "")) for item in control_nodes
+    }
     arms = _records(control_flow.get("arms"), "control_flow.arms")
     regions = {
         _text(item, "id"): item
@@ -739,6 +862,8 @@ def _resolved_guard_states(
     edge_tokens: dict[str, str] = {}
     guard_members: dict[str, set[str]] = {}
     guard_details: dict[str, dict[str, object]] = {}
+    guard_origins: dict[str, str] = {}
+    guard_scopes: dict[str, str] = {}
     for arm in sorted(arms, key=lambda item: _text(item, "id")):
         edge_id = _text(arm, "edge_id")
         predicate = predicates_by_edge.get(edge_id)
@@ -752,6 +877,7 @@ def _resolved_guard_states(
                 members.update(region_nodes(child_id))
         edge_tokens[edge_id] = arm_id
         guard_members[arm_id] = members
+        guard_origins[arm_id] = arm_id
         guard_details[arm_id] = {
             **dict(predicate),
             "region_id": region_id,
@@ -763,6 +889,12 @@ def _resolved_guard_states(
     outgoing: dict[str, list[Mapping[str, object]]] = defaultdict(list)
     for edge in control_edges:
         if bool(edge.get("resolved", True)) and _text(edge, "role") != "unresolved":
+            predicate = predicates_by_edge.get(_text(edge, "id"))
+            if predicate is not None and predicate.get("feasibility") in {
+                "impossible",
+                "unresolved",
+            }:
+                continue
             outgoing[_text(edge, "source")].append(edge)
     for edge_group in outgoing.values():
         edge_group.sort(key=lambda item: _text(item, "id"))
@@ -780,11 +912,34 @@ def _resolved_guard_states(
             edge_id = _text(edge, "id")
             target = _text(edge, "target")
             token = edge_tokens.get(edge_id)
-            edge_state = state | ({token} if token is not None else set())
+            edge_state = frozenset(state | ({token} if token is not None else set()))
             _add_guard_state(edge_values, edge_id, edge_state, guard_details)
-            target_state = frozenset(
-                item for item in edge_state if target in guard_members.get(item, set())
+            role = _text(edge, "role")
+            crosses_procedure = role == "call_enter" or (
+                role == "jump"
+                and label_by_node.get(source, "") != label_by_node.get(target, "")
             )
+            if crosses_procedure:
+                scoped_items: set[str] = set()
+                target_label = label_by_node.get(target, "")
+                for item in edge_state:
+                    origin = guard_origins[item]
+                    scoped = stable_canonical_id("guard_scope", origin, target_label)
+                    guard_origins[scoped] = origin
+                    guard_scopes[scoped] = target_label
+                    guard_details.setdefault(scoped, dict(guard_details[origin]))
+                    scoped_items.add(scoped)
+                target_state = frozenset(scoped_items)
+            else:
+                target_state = frozenset(
+                    item
+                    for item in edge_state
+                    if (
+                        label_by_node.get(target, "") == guard_scopes[item]
+                        if item in guard_scopes
+                        else target in guard_members.get(item, set())
+                    )
+                )
             if _add_guard_state(node_values, target, target_state, guard_details):
                 pending.append((target, target_state))
     return (
@@ -846,6 +1001,18 @@ def _best_guard_state(
     return _guard_state_status(state, guard_details), dependencies
 
 
+def _guard_alternatives(
+    states: Sequence[frozenset[str]],
+    guard_details: Mapping[str, Mapping[str, object]],
+) -> list[list[dict[str, object]]]:
+    alternatives: list[list[dict[str, object]]] = []
+    for state in sorted(states, key=lambda item: _guard_state_key(item, guard_details)):
+        dependencies = [dict(guard_details[item]) for item in state]
+        dependencies.sort(key=_guard_dependency_key)
+        alternatives.append(dependencies)
+    return alternatives
+
+
 def _guard_dependency_key(item: Mapping[str, object]) -> tuple[int, str, int, str]:
     depth = item.get("depth")
     branch_order = item.get("branch_order")
@@ -868,8 +1035,13 @@ def _edge_reachability(
     role: str,
     traversed: bool,
     guard_status: str,
+    predicate_feasibility: str | None,
     closed_world: bool,
 ) -> ReachabilityStatus:
+    if predicate_feasibility == "impossible":
+        return ReachabilityStatus.PROVEN_UNREACHABLE
+    if predicate_feasibility == "unresolved":
+        return ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
     if role == "unresolved" or not resolved:
         return ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
     if source_status is ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR:
@@ -922,6 +1094,7 @@ def _canonical_regions(
             control_edge_id = _text(arm, "edge_id")
             member_node_ids = _strings(arm.get("node_ids"))
             terminal_node_ids = _strings(arm.get("terminal_node_ids"))
+            predicate = dict(predicates_by_edge.get(control_edge_id, {}))
             arm_values.append(
                 {
                     "id": arm_id,
@@ -935,9 +1108,10 @@ def _canonical_regions(
                     "terminal_node_ids": sorted(
                         node_ids[item] for item in terminal_node_ids
                     ),
-                    "unresolved": bool(arm.get("unresolved", False)),
+                    "unresolved": bool(arm.get("unresolved", False))
+                    or predicate.get("feasibility") == "unresolved",
                     "terminal_summary": str(arm.get("terminal_summary", "none")),
-                    "predicate": dict(predicates_by_edge.get(control_edge_id, {})),
+                    "predicate": predicate,
                 }
             )
             arm_proof = _proof(
@@ -1009,6 +1183,7 @@ def _has_open_world_behavior(
 ) -> bool:
     if any(
         str(item.get("kind")) in {"opaque", "unresolved", "scope_boundary"}
+        or _menu_availability_unresolved(item)
         for item in raw_nodes
     ):
         return True
@@ -1017,6 +1192,15 @@ def _has_open_world_behavior(
         or str(item.get("kind"))
         in {"unresolved_behavior", "call_out_of_scope", "jump_out_of_scope"}
         for item in _records(graph.get("edges"), "graph.edges")
+    )
+
+
+def _menu_availability_unresolved(item: Mapping[str, object]) -> bool:
+    metadata = item.get("metadata")
+    return (
+        str(item.get("kind")) == "menu"
+        and isinstance(metadata, Mapping)
+        and metadata.get("availability_unresolved") is True
     )
 
 

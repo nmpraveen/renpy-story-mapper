@@ -79,6 +79,7 @@ class MenuCaption:
 class Menu(Statement):
     choices: list[MenuChoice] = field(default_factory=list)
     captions: list[MenuCaption] = field(default_factory=list)
+    availability_unresolved: bool = False
 
 
 @dataclass
