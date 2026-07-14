@@ -14,8 +14,8 @@ INSPECTION_VIEWS = frozenset({"simplified", "canonical"})
 
 
 def inspection_page(
-    projection: Mapping[str, object],
-    canonical: Mapping[str, object],
+    projection: Mapping[str, object] | None,
+    canonical: Mapping[str, object] | None,
     analysis_state: Mapping[str, object],
     *,
     view: str,
@@ -23,6 +23,7 @@ def inspection_page(
     limit: int,
     edge_offset: int,
     edge_limit: int,
+    projection_unavailable_reason: str | None = None,
 ) -> dict[str, object]:
     if view not in INSPECTION_VIEWS:
         raise ValueError("inspection view must be simplified or canonical")
@@ -31,9 +32,22 @@ def inspection_page(
     if edge_limit < 1 or edge_limit > MAX_INSPECTION_EDGES:
         raise ValueError("inspection edge limit is outside the rendering boundary")
 
-    nodes, edges = (
-        _simplified_records(projection) if view == "simplified" else _canonical_records(canonical)
-    )
+    if view == "simplified" and (projection is None or canonical is None):
+        return _unavailable_response(
+            view,
+            projection_unavailable_reason or "projection_missing",
+            analysis_state,
+        )
+    if view == "canonical" and canonical is None:
+        return _unavailable_response(view, "canonical_missing", analysis_state)
+    selected = projection if view == "simplified" else canonical
+    assert selected is not None
+    if view == "simplified":
+        assert projection is not None
+        nodes, edges = _simplified_records(projection)
+    else:
+        assert canonical is not None
+        nodes, edges = _canonical_records(canonical)
     ordered_nodes = sorted(nodes, key=_node_order)
     node_slice = ordered_nodes[offset : offset + limit]
     node_ids = {str(item["id"]) for item in node_slice}
@@ -52,16 +66,26 @@ def inspection_page(
     next_node = offset + len(node_slice) if offset + len(node_slice) < len(nodes) else None
     if next_edge is not None:
         next_node = None
-    generation = _generation_status(projection, canonical, analysis_state, view)
+    generation = _generation_status(selected, analysis_state)
     lanes = _lanes(node_slice)
-    suppressed = _records(projection.get("suppressed"), "projection.suppressed")
+    suppressed = (
+        _records(projection.get("suppressed"), "projection.suppressed")
+        if projection is not None
+        else ()
+    )
+    canonical_nodes = (
+        _records(canonical.get("nodes"), "canonical.nodes")
+        if canonical is not None
+        else ()
+    )
     return {
         "schema_version": 1,
+        "status": "available",
         "level": "route_map",
         "view": view,
         "source_generation": generation["source_generation"],
         "generation_status": generation,
-        "authority_hash": _authority_hash(projection if view == "simplified" else canonical),
+        "authority_hash": _authority_hash(selected),
         "offset": offset,
         "limit": limit,
         "next_offset": next_node,
@@ -75,7 +99,7 @@ def inspection_page(
         "edges": edge_slice,
         "lanes": lanes,
         "coverage": {
-            "control_nodes": len(_records(canonical.get("nodes"), "canonical.nodes")),
+            "control_nodes": len(canonical_nodes),
             "visible_nodes": len(nodes),
             "technical_nodes": len(suppressed),
             "suppressed_records": len(suppressed),
@@ -87,17 +111,28 @@ def inspection_page(
 
 
 def inspection_detail(
-    projection: Mapping[str, object],
-    canonical: Mapping[str, object],
+    projection: Mapping[str, object] | None,
+    canonical: Mapping[str, object] | None,
     analysis_state: Mapping[str, object],
     *,
     view: str,
     element_id: str,
+    projection_unavailable_reason: str | None = None,
 ) -> dict[str, object]:
     if view not in INSPECTION_VIEWS:
         raise ValueError("inspection view must be simplified or canonical")
+    if view == "simplified" and (projection is None or canonical is None):
+        return _unavailable_response(
+            view,
+            projection_unavailable_reason or "projection_missing",
+            analysis_state,
+        )
+    if view == "canonical" and canonical is None:
+        return _unavailable_response(view, "canonical_missing", analysis_state)
+    selected = projection if view == "simplified" else canonical
+    assert selected is not None and canonical is not None
     nodes, edges = (
-        _simplified_records(projection) if view == "simplified" else _canonical_records(canonical)
+        _simplified_records(selected) if view == "simplified" else _canonical_records(canonical)
     )
     element = next((item for item in (*nodes, *edges) if item["id"] == element_id), None)
     if element is None:
@@ -147,6 +182,7 @@ def inspection_detail(
     )
     return {
         "schema_version": 1,
+        "status": "available",
         "level": "detail_evidence",
         "view": view,
         "element": element,
@@ -163,7 +199,7 @@ def inspection_detail(
         "canonical_records_truncated": len(canonical_records) > MAX_DETAIL_RECORDS,
         "canonical_focus_id": focus_id,
         "canonical_focus_offset": (focus_index // MAX_INSPECTION_NODES) * MAX_INSPECTION_NODES,
-        "generation_status": _generation_status(projection, canonical, analysis_state, view),
+        "generation_status": _generation_status(selected, analysis_state),
     }
 
 
@@ -270,22 +306,60 @@ def _canonical_records(
 
 
 def _generation_status(
-    projection: Mapping[str, object],
-    canonical: Mapping[str, object],
-    state: Mapping[str, object],
-    view: str,
+    selected: Mapping[str, object], state: Mapping[str, object]
 ) -> dict[str, object]:
     current = str(state.get("source_generation", ""))
-    generation = str(
-        (projection if view == "simplified" else canonical).get("source_generation", "")
-    )
-    return {
+    generation = str(selected.get("source_generation", ""))
+    value: dict[str, object] = {
         "source_generation": generation,
         "current_source_generation": current,
         "freshness": "current" if generation and generation == current else "stale",
         "analysis_status": state.get("status", "unknown"),
         "canonical_availability": state.get("canonical_availability", "none"),
+        "simplified_availability": state.get("simplified_availability", "none"),
+        "last_known_good": bool(generation and generation != current),
+        "completed_phases": _completed_phases(state),
     }
+    failure = state.get("failure")
+    if isinstance(failure, Mapping):
+        value["failure"] = dict(failure)
+    return value
+
+
+def _unavailable_response(
+    view: str,
+    reason: str,
+    state: Mapping[str, object],
+) -> dict[str, object]:
+    generation: dict[str, object] = {
+        "source_generation": None,
+        "current_source_generation": state.get("source_generation"),
+        "freshness": "unavailable",
+        "analysis_status": state.get("status", "unknown"),
+        "canonical_availability": state.get("canonical_availability", "none"),
+        "simplified_availability": state.get("simplified_availability", "none"),
+        "last_known_good": False,
+        "completed_phases": _completed_phases(state),
+    }
+    failure = state.get("failure")
+    if isinstance(failure, Mapping):
+        generation["failure"] = dict(failure)
+    return {
+        "schema_version": 1,
+        "status": "unavailable",
+        "view": view,
+        "reason": reason,
+        "generation_status": generation,
+    }
+
+
+def _completed_phases(state: Mapping[str, object]) -> list[str]:
+    result: list[str] = []
+    for item in _records(state.get("phases"), "analysis_state.phases"):
+        phase = item.get("phase")
+        if isinstance(phase, str):
+            result.append(phase)
+    return result
 
 
 def _display_fact(item: Mapping[str, object]) -> dict[str, object]:

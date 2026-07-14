@@ -9,7 +9,7 @@ from enum import StrEnum
 from renpy_story_mapper import storage
 from renpy_story_mapper.project import PayloadRecord
 
-ANALYSIS_STATE_SCHEMA_VERSION = 1
+ANALYSIS_STATE_SCHEMA_VERSION = 2
 
 
 class AnalysisStatus(StrEnum):
@@ -23,6 +23,13 @@ class CanonicalAvailability(StrEnum):
     NONE = "none"
     STALE = "stale"
     CURRENT_COMPLETE = "current_complete"
+
+
+class SimplifiedAvailability(StrEnum):
+    NONE = "none"
+    STALE = "stale"
+    CURRENT_COMPLETE = "current_complete"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -57,6 +64,8 @@ def analysis_state_payload(
     phases: Sequence[PhaseBinding],
     canonical_generation: str | None,
     canonical_hash: str | None,
+    simplified_generation: str | None = None,
+    simplified_canonical_hash: str | None = None,
     failure_phase: str | None = None,
     failure_code: str | None = None,
 ) -> dict[str, object]:
@@ -68,16 +77,33 @@ def analysis_state_payload(
         availability = CanonicalAvailability.CURRENT_COMPLETE
     else:
         availability = CanonicalAvailability.STALE
+    if (simplified_generation is None) != (simplified_canonical_hash is None):
+        raise ValueError("simplified generation and canonical hash must be present together")
+    if simplified_generation is None:
+        simplified_availability = SimplifiedAvailability.NONE
+    elif (
+        simplified_generation != canonical_generation
+        or simplified_canonical_hash != canonical_hash
+    ):
+        simplified_availability = SimplifiedAvailability.UNAVAILABLE
+    elif simplified_generation == source_generation:
+        simplified_availability = SimplifiedAvailability.CURRENT_COMPLETE
+    else:
+        simplified_availability = SimplifiedAvailability.STALE
     value: dict[str, object] = {
         "schema_version": ANALYSIS_STATE_SCHEMA_VERSION,
         "source_generation": source_generation,
         "status": status.value,
         "canonical_availability": availability.value,
+        "simplified_availability": simplified_availability.value,
         "phases": [item.to_dict() for item in phases],
     }
     if canonical_generation is not None and canonical_hash is not None:
         value["canonical_generation"] = canonical_generation
         value["canonical_hash"] = canonical_hash
+    if simplified_generation is not None and simplified_canonical_hash is not None:
+        value["simplified_generation"] = simplified_generation
+        value["simplified_canonical_hash"] = simplified_canonical_hash
     if failure_phase is not None:
         value["failure"] = {
             "phase": failure_phase,

@@ -836,12 +836,17 @@ def _write_analysis_state(
     failure_phase: str | None = None,
     failure_code: str | None = None,
 ) -> None:
+    simplified_generation, simplified_canonical_hash = _simplified_identity(
+        project.payload("m10_inspection_projection", "authoritative")
+    )
     value = analysis_state_payload(
         source_generation=source_generation,
         status=status,
         phases=phases,
         canonical_generation=canonical_generation,
         canonical_hash=canonical_hash,
+        simplified_generation=simplified_generation,
+        simplified_canonical_hash=simplified_canonical_hash,
         failure_phase=failure_phase,
         failure_code=failure_code,
     )
@@ -855,6 +860,16 @@ def _canonical_identity(value: object) -> tuple[str | None, str | None]:
     if not isinstance(generation, str):
         return None, None
     return generation, hashlib.sha256(canonical_json(dict(value))).hexdigest()
+
+
+def _simplified_identity(value: object) -> tuple[str | None, str | None]:
+    if not isinstance(value, Mapping):
+        return None, None
+    generation = value.get("source_generation")
+    canonical_hash = value.get("canonical_graph_hash")
+    if not isinstance(generation, str) or not isinstance(canonical_hash, str):
+        return None, None
+    return generation, canonical_hash
 
 
 def _emit_analysis_progress(progress: AnalysisProgress, phase: str, percent: int) -> None:
