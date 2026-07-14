@@ -215,20 +215,28 @@ class GraphBuilder:
                 f"{ordinal}:merge",
             )
             self._edge(merge, continuation, "fallthrough")
+            menu_metadata: dict[str, object] = {
+                "captions": [
+                    {"text": caption.caption, "source": caption.span.to_dict()}
+                    for caption in statement.captions
+                ]
+            }
+            if statement.availability_unresolved:
+                menu_metadata["availability_unresolved"] = True
             menu = self._node(
                 "menu",
                 statement.span,
                 statement.text,
                 label,
-                {
-                    "captions": [
-                        {"text": caption.caption, "source": caption.span.to_dict()}
-                        for caption in statement.captions
-                    ]
-                },
+                menu_metadata,
                 discriminator,
             )
-            self._edge(menu, merge, "menu_no_choice")
+            no_choice_metadata: dict[str, object] | None = (
+                {"availability_unresolved": True}
+                if statement.availability_unresolved
+                else None
+            )
+            self._edge(menu, merge, "menu_no_choice", no_choice_metadata)
             for choice_index, choice in enumerate(statement.choices):
                 choice_node = self._node(
                     "menu_choice",

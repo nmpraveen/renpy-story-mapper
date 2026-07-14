@@ -232,12 +232,92 @@ def test_whole_graph_search_and_exact_focus_open_the_bounded_target_page(
         api.close()
 
 
+def test_simplified_search_targets_suppressed_canonical_authority_directly(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    target = next(
+        item
+        for item in canonical["nodes"]
+        if item["attributes"].get("source_text") == "label dynamic_dispatch:"
+    )
+    suppression = next(
+        item
+        for item in projection["suppressed"]
+        if target["id"] in item["canonical_node_ids"]
+    )
+    assert suppression.get("represented_by_node_id") is None
+
+    def page(*, query: str | None = None, focus: str | None = None) -> dict[str, object]:
+        return inspection_page(
+            projection,
+            canonical,
+            state,
+            view="simplified",
+            offset=0,
+            limit=30,
+            edge_offset=0,
+            edge_limit=180,
+            query=query,
+            focus=focus,
+        )
+
+    for exact in (target["id"], target["graph_node_id"]):
+        result = page(focus=exact)
+        match = result["search"]["focus"]
+        assert match["matched_record_id"] == target["id"]
+        assert match["record_kind"] == "canonical_node"
+        assert match["canonical_id"] == target["id"]
+        assert match["target_view"] == "canonical"
+        assert match["visible_simplified_representative_id"] is None
+        assert match["canonical_page_target_id"] == target["id"]
+        assert match["offset"] % 30 == 0
+        assert len(result["nodes"]) <= 30
+        assert len(result["edges"]) <= 180
+
+    searched = page(query="label dynamic_dispatch:")
+    match = searched["search"]["focus"]
+    assert match["canonical_id"] == target["id"]
+    assert match["target_view"] == "canonical"
+    assert match["canonical_page_target_id"] == target["id"]
+
+
+def test_simplified_search_centers_a_visible_canonical_representative(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    help_node = next(item for item in projection["nodes"] if item["title"] == "Help")
+    canonical_id = help_node["canonical_node_ids"][0]
+
+    result = inspection_page(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        offset=0,
+        limit=30,
+        edge_offset=0,
+        edge_limit=180,
+        focus=canonical_id,
+    )
+    match = result["search"]["focus"]
+    assert match["canonical_id"] == canonical_id
+    assert match["target_view"] == "simplified"
+    assert match["element_id"] == help_node["id"]
+    assert match["visible_simplified_representative_id"] == help_node["id"]
+
+
 def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     tmp_path: Path,
 ) -> None:
     _, project_path = _project(tmp_path)
     projection, canonical, state = _payloads(project_path)
-    for expression, field_kind in (("ready", "condition"), ("trust += 1", "fact")):
+    for expression, field_kinds in (
+        ("ready", ("condition", "guard")),
+        ("trust += 1", ("fact",)),
+    ):
         search_page = inspection_page(
             projection,
             canonical,
@@ -250,7 +330,10 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
             query=expression,
         )
         assert any(
-            field_kind in item["field"] or field_kind == item["record_kind"]
+            any(
+                field_kind in item["field"] or field_kind == item["record_kind"]
+                for field_kind in field_kinds
+            )
             for item in search_page["search"]["matches"]
         )
     region_id = projection["regions"][0]["canonical_region_id"]
@@ -281,6 +364,21 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     assert region["origins"]
     assert detail["proofs"]
     assert detail["canonical_escape_ids"]
+    ready_arm = next(
+        arm
+        for projected_region in projection["regions"]
+        for arm in inspection_detail(
+            projection,
+            canonical,
+            state,
+            view="simplified",
+            element_id=projected_region["canonical_region_id"],
+        )["region"]["ordered_arms"]
+        if arm.get("predicate", {}).get("expression") == "ready"
+    )
+    assert ready_arm["predicate"]["kind"] == "menu_choice"
+    assert ready_arm["predicate"]["polarity"] == "positive"
+    assert ready_arm["predicate"]["requirement_fact_ids"]
 
     arm_expressions = {
         str(fact["expression"])
@@ -331,6 +429,93 @@ def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     )
     assert fact_detail["element"]["kind"] == "fact"
     assert fact_detail["evidence"]
+
+
+def test_ordered_elif_context_is_preserved_in_node_edge_arm_and_region_details(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ordered-if-game"
+    source.mkdir()
+    (source / "story.rpy").write_text(
+        """label start:
+    if alpha:
+        "Alpha"
+    elif beta:
+        "Beta"
+    elif gamma:
+        "Gamma"
+    else:
+        "Else"
+    return
+""",
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "ordered-if.rsmproj"
+    create_ingested_project(project_path, source).close()
+    projection, canonical, state = _payloads(project_path)
+
+    nodes = canonical["nodes"]
+    edges = canonical["edges"]
+    regions = canonical["regions"]
+    beta_body = next(
+        item for item in nodes if item["attributes"].get("source_text") == '"Beta"'
+    )
+    beta_entry = next(
+        item for item in nodes if item["attributes"].get("source_text") == "elif beta:"
+    )
+    beta_edge = next(
+        item
+        for item in edges
+        if item["target_id"] == beta_entry["id"]
+        and item["attributes"].get("predicate", {}).get("kind") == "if_branch"
+    )
+    region = next(item for item in regions if len(item["attributes"]["arms"]) == 4)
+    expected = [("alpha", "negative"), ("beta", "positive")]
+
+    node_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="canonical",
+        element_id=beta_body["id"],
+    )
+    node_record = next(
+        item for item in node_detail["canonical_records"] if item["id"] == beta_body["id"]
+    )
+    assert [
+        (item["expression"], item["polarity"])
+        for item in node_record["attributes"]["guard_dependencies"][0]["conditions"]
+    ] == expected
+
+    edge_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="canonical",
+        element_id=beta_edge["id"],
+    )
+    edge_record = next(
+        item for item in edge_detail["canonical_records"] if item["id"] == beta_edge["id"]
+    )
+    assert [
+        (item["expression"], item["polarity"])
+        for item in edge_record["attributes"]["predicate"]["conditions"]
+    ] == expected
+    assert len(edge_detail["requirements"]) == 2
+
+    region_detail = inspection_detail(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        element_id=region["id"],
+    )["region"]
+    beta_arm = region_detail["ordered_arms"][1]
+    assert [
+        (item["expression"], item["polarity"])
+        for item in beta_arm["predicate"]["conditions"]
+    ] == expected
+    assert len(beta_arm["gate_facts"]) == 2
 
 
 def test_canonical_api_survives_initial_simplified_projection_failure(
@@ -615,4 +800,9 @@ def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() ->
     assert "inspectionCurrent" in app and "canonicalCurrent" in app
     assert "comparison.default_view" not in app
     assert "searchM10WholeGraph" in app
+    assert 'focus?.target_view === "canonical"' in app
+    assert "await openDetail(focus.canonical_id)" in app
     assert "renderInspectionDerivations" in app
+    assert "Predicate:" in app
+    assert "AI Story Map is now the default" not in app
+    assert "AI Story Map is ready to review" in app

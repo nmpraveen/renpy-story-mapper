@@ -1013,8 +1013,9 @@ Locked deliverables:
    Story Map comparison. The broad AI view is a stable quotient graph: validated AI events become
    the visible boxes, while deterministic code projects only the real cross-event connections and
    retains their underlying gates, effects, route roles, and evidence. It must not merely rename
-   every technical node. Once accepted AI organization exists, the AI Story Map is the default;
-   Detail / Evidence is the only second user-visible level.
+   every technical node. Accepted AI organization remains selectable for comparison; the later
+   deterministic M10 inspection remains the normal default. Detail / Evidence is the only second
+   user-visible level.
 4. Use the existing resumable parallel scope scheduler for Luna analysis, with evidence-complete
    scene/event output, cross-scope reconciliation, cache reuse, partial validated results, and no
    all-or-nothing global collapse.
@@ -1113,6 +1114,37 @@ Explicit exclusions:
 - No AI-provider work, live story analysis, LM Studio, media ingestion, thumbnails, generalized
   Python evaluation, hosted deployment, installer, game editing, or replay chronology.
 
+### M10 - Canonical deterministic inspection graph
+
+Status: Complete and merged; final corrective hardening is under review on
+`codex/m10-final-hardening`.
+
+M10 owns the generation-bound canonical graph, bounded simplified structural inspection,
+deterministic reachability and branch provenance, whole-authority search/focus, and safe local
+browser inspection. It does not infer human chapters, solve arbitrary paths, or make AI narrative
+claims.
+
+### M11 - Human story scenes and chapters
+
+M11 owns human story scenes and scene/chapter presentation derived from deterministic evidence.
+It may improve narrative readability without replacing the M10 canonical authority.
+
+### M12 - Route-to-target solving
+
+M12 owns route-to-target solving and explicit path requirements. It must remain conservative for
+unresolved or dynamic behavior and must not claim arbitrary expression satisfiability.
+
+### M13 - AI narrative layer
+
+M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
+chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
+to deterministic authority.
+
+### M14 - Dynamic adapters and optional tracing
+
+M14 owns dynamic framework adapters and optional runtime tracing. It is deferred indefinitely for
+now and is not part of M10-M13 implementation work.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -1199,5 +1231,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Complete M09 on one unmerged pull request, present its report and native infographic, and wait for
-explicit approval before any later milestone.
+Review and merge PR #19 from `codex/m10-final-hardening`. After PR #19 is merged and only with
+explicit user approval, begin M11 human story scenes and chapters. Do not start M11 while PR #19
+is under review.

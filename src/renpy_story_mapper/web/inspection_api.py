@@ -55,15 +55,15 @@ def inspection_page(
     search = None
     if canonical is not None and (query or focus):
         search = _search_records(
-            ordered_nodes,
-            edges,
+            projection,
             canonical,
+            requested_view=view,
             query=query,
             focus=focus,
             page_size=limit,
         )
         search_focus = search.get("focus")
-        if isinstance(search_focus, Mapping):
+        if isinstance(search_focus, Mapping) and search_focus.get("target_view") == view:
             resolved_offset = search_focus.get("offset")
             if isinstance(resolved_offset, int) and not isinstance(resolved_offset, bool):
                 offset = resolved_offset
@@ -629,10 +629,10 @@ def _unique_mappings(
 
 
 def _search_records(
-    ordered_nodes: Sequence[Mapping[str, object]],
-    edges: Sequence[Mapping[str, object]],
+    projection: Mapping[str, object] | None,
     canonical: Mapping[str, object],
     *,
+    requested_view: str,
     query: str | None,
     focus: str | None,
     page_size: int,
@@ -640,12 +640,10 @@ def _search_records(
     requested = (focus or query or "").strip()
     normalized = requested.casefold()
     exact_only = bool(focus)
-    canonical_nodes = {
-        str(item["id"]): item for item in _records(canonical.get("nodes"), "canonical.nodes")
-    }
-    canonical_edges = {
-        str(item["id"]): item for item in _records(canonical.get("edges"), "canonical.edges")
-    }
+    query_value = (query or focus or "").strip().casefold()
+    canonical_nodes = _records(canonical.get("nodes"), "canonical.nodes")
+    canonical_edges = _records(canonical.get("edges"), "canonical.edges")
+    canonical_node_by_id = {str(item["id"]): item for item in canonical_nodes}
     evidence = {
         str(item["id"]): item
         for item in _records(canonical.get("evidence"), "canonical.evidence")
@@ -653,114 +651,66 @@ def _search_records(
     facts = {
         str(item["id"]): item for item in _records(canonical.get("facts"), "canonical.facts")
     }
-    outgoing: dict[str, list[Mapping[str, object]]] = {}
-    for edge in edges:
-        outgoing.setdefault(str(edge["source_id"]), []).append(edge)
+    canonical_view_nodes, _canonical_view_edges = _canonical_records(canonical)
+    ordered_canonical_nodes = sorted(canonical_view_nodes, key=_node_order)
+    canonical_node_index = {
+        str(item["id"]): index for index, item in enumerate(ordered_canonical_nodes)
+    }
+    ordered_simplified_nodes: list[dict[str, object]] = []
+    simplified_representative: dict[str, str] = {}
+    simplified_edge_representative: dict[str, str] = {}
+    if projection is not None:
+        simplified_nodes, simplified_edges = _simplified_records(projection)
+        ordered_simplified_nodes = sorted(simplified_nodes, key=_node_order)
+        simplified_ids = {str(item["id"]) for item in ordered_simplified_nodes}
+        for node in ordered_simplified_nodes:
+            for canonical_id in _strings(node.get("canonical_node_ids")):
+                simplified_representative.setdefault(canonical_id, str(node["id"]))
+        for suppression in _records(projection.get("suppressed"), "projection.suppressed"):
+            representative = suppression.get("represented_by_node_id")
+            if not isinstance(representative, str) or representative not in simplified_ids:
+                continue
+            for canonical_id in _strings(suppression.get("canonical_node_ids")):
+                simplified_representative.setdefault(canonical_id, representative)
+        for edge in simplified_edges:
+            source_id = str(edge["source_id"])
+            if source_id not in simplified_ids:
+                source_id = str(edge["target_id"])
+            for canonical_id in _strings(edge.get("canonical_edge_ids")):
+                simplified_edge_representative.setdefault(canonical_id, source_id)
+    simplified_node_index = {
+        str(item["id"]): index for index, item in enumerate(ordered_simplified_nodes)
+    }
 
     matches: list[tuple[int, int, dict[str, object]]] = []
-    for index, node in enumerate(ordered_nodes):
-        candidates: list[tuple[str, str, str, str, bool, int]] = []
 
-        def add(
-            value: object,
-            field: str,
-            record_id: str,
-            record_kind: str,
-            *,
-            focusable: bool = False,
-            exact_priority: int = 3,
-            destination: list[tuple[str, str, str, str, bool, int]] = candidates,
-        ) -> None:
-            if isinstance(value, (str, int)) and not isinstance(value, bool):
-                text = str(value).strip()
-                if text:
-                    destination.append(
-                        (text, field, record_id, record_kind, focusable, exact_priority)
-                    )
-
-        node_id = str(node["id"])
-        add(node_id, "view_id", node_id, "node", focusable=True, exact_priority=0)
-        add(
-            node.get("title"),
-            "title",
-            node_id,
-            "node",
-            focusable=True,
-            exact_priority=2,
+    def search_authority_record(
+        *,
+        candidates: Sequence[tuple[str, str, str, str, bool, int]],
+        canonical_id: str,
+        canonical_page_target_id: str,
+        title: str,
+        record_order: int,
+        representative_id: str | None,
+    ) -> None:
+        target_view = (
+            "canonical"
+            if requested_view == "canonical" or representative_id is None
+            else "simplified"
         )
-        add(node.get("summary"), "summary", node_id, "node")
-        canonical_ids = _strings(node.get("canonical_node_ids"))
-        for canonical_id in canonical_ids:
-            raw = canonical_nodes.get(canonical_id)
-            if raw is None:
-                continue
-            add(
-                canonical_id,
-                "canonical_id",
-                canonical_id,
-                "canonical_node",
-                focusable=True,
-                exact_priority=0,
-            )
-            add(
-                raw.get("graph_node_id"),
-                "graph_node_id",
-                canonical_id,
-                "canonical_node",
-                focusable=True,
-                exact_priority=1,
-            )
-            add(
-                raw.get("label"),
-                "label",
-                canonical_id,
-                "canonical_node",
-                focusable=True,
-                exact_priority=2,
-            )
-            attributes = _attributes(raw)
-            for field, value in _search_scalars(attributes):
-                add(value, field, canonical_id, "canonical_node")
-            for evidence_id in _strings(raw.get("evidence_ids")):
-                source_evidence = evidence.get(evidence_id)
-                if source_evidence is None:
-                    continue
-                add(source_evidence.get("source_text"), "source_text", evidence_id, "evidence")
-                source = source_evidence.get("source")
-                if isinstance(source, Mapping):
-                    for field, value in _search_scalars(source, prefix="source"):
-                        add(value, field, evidence_id, "evidence")
-                    path = source.get("path")
-                    start = source.get("start")
-                    if isinstance(path, str) and isinstance(start, Mapping):
-                        line = start.get("line")
-                        if isinstance(line, int) and not isinstance(line, bool):
-                            add(f"{path}:{line}", "source_location", evidence_id, "evidence")
-            for fact_id in _strings(attributes.get("fact_ids")):
-                fact = facts.get(fact_id)
-                if fact is not None:
-                    for field, value in _search_scalars(_attributes(fact), prefix="fact"):
-                        add(value, field, fact_id, "fact")
-
-        for edge in outgoing.get(node_id, ()):
-            for canonical_edge_id in _strings(edge.get("canonical_edge_ids")):
-                add(
-                    canonical_edge_id,
-                    "canonical_id",
-                    canonical_edge_id,
-                    "canonical_edge",
-                    focusable=True,
-                    exact_priority=0,
-                )
-                raw_edge = canonical_edges.get(canonical_edge_id)
-                if raw_edge is not None:
-                    add(raw_edge.get("kind"), "edge_kind", canonical_edge_id, "canonical_edge")
-            for fact_id in _strings(edge.get("fact_ids")):
-                fact = facts.get(fact_id)
-                if fact is not None:
-                    for field, value in _search_scalars(_attributes(fact), prefix="fact"):
-                        add(value, field, fact_id, "fact")
-
+        canonical_offset = (
+            canonical_node_index.get(canonical_page_target_id, 0) // page_size
+        ) * page_size
+        target_index = (
+            simplified_node_index.get(representative_id, 0)
+            if target_view == "simplified" and representative_id is not None
+            else canonical_node_index.get(canonical_page_target_id, 0)
+        )
+        target_id = (
+            representative_id
+            if target_view == "simplified" and representative_id is not None
+            else canonical_page_target_id
+        )
         best: tuple[int, dict[str, object]] | None = None
         for value, field, record_id, record_kind, focusable, exact_priority in candidates:
             compared = value.casefold()
@@ -772,13 +722,18 @@ def _search_records(
                 score = 5
             else:
                 continue
-            match = {
-                "element_id": node_id,
+            match: dict[str, object] = {
+                "element_id": target_id,
                 "matched_record_id": record_id,
                 "record_kind": record_kind,
+                "canonical_id": canonical_id,
+                "target_view": target_view,
+                "offset": (target_index // page_size) * page_size,
+                "canonical_page_target_id": canonical_page_target_id,
+                "canonical_page_offset": canonical_offset,
+                "visible_simplified_representative_id": representative_id,
                 "field": field,
-                "title": str(node.get("title", "Technical record")),
-                "offset": (index // page_size) * page_size,
+                "title": title,
             }
             candidate = (score, match)
             if best is None or (score, record_id, field) < (
@@ -788,17 +743,157 @@ def _search_records(
             ):
                 best = candidate
         if best is not None:
-            matches.append((best[0], index, best[1]))
+            matches.append((best[0], record_order, best[1]))
+
+    def add_candidate(
+        candidates: list[tuple[str, str, str, str, bool, int]],
+        value: object,
+        field: str,
+        record_id: str,
+        record_kind: str,
+        *,
+        focusable: bool = False,
+        exact_priority: int = 3,
+    ) -> None:
+        if isinstance(value, (str, int)) and not isinstance(value, bool):
+            text = str(value).strip()
+            if text:
+                candidates.append(
+                    (text, field, record_id, record_kind, focusable, exact_priority)
+                )
+
+    def add_evidence_and_facts(
+        candidates: list[tuple[str, str, str, str, bool, int]],
+        record: Mapping[str, object],
+    ) -> None:
+        attributes = _attributes(record)
+        for evidence_id in _strings(record.get("evidence_ids")):
+            source_evidence = evidence.get(evidence_id)
+            if source_evidence is None:
+                continue
+            add_candidate(
+                candidates,
+                source_evidence.get("source_text"),
+                "source_text",
+                evidence_id,
+                "evidence",
+            )
+            source = source_evidence.get("source")
+            if isinstance(source, Mapping):
+                for field, value in _search_scalars(source, prefix="source"):
+                    add_candidate(candidates, value, field, evidence_id, "evidence")
+                path = source.get("path")
+                start = source.get("start")
+                if isinstance(path, str) and isinstance(start, Mapping):
+                    line = start.get("line")
+                    if isinstance(line, int) and not isinstance(line, bool):
+                        add_candidate(
+                            candidates,
+                            f"{path}:{line}",
+                            "source_location",
+                            evidence_id,
+                            "evidence",
+                        )
+        fact_ids = {
+            *_strings(attributes.get("fact_ids")),
+            *_strings(attributes.get("gate_ids")),
+            *_strings(attributes.get("effect_ids")),
+        }
+        for fact_id in sorted(fact_ids):
+            fact = facts.get(fact_id)
+            if fact is not None:
+                for field, value in _search_scalars(_attributes(fact), prefix="fact"):
+                    add_candidate(candidates, value, field, fact_id, "fact")
+
+    for index, raw in enumerate(canonical_nodes):
+        canonical_id = str(raw["id"])
+        candidates: list[tuple[str, str, str, str, bool, int]] = []
+        add_candidate(
+            candidates,
+            canonical_id,
+            "canonical_id",
+            canonical_id,
+            "canonical_node",
+            focusable=True,
+            exact_priority=0,
+        )
+        add_candidate(
+            candidates,
+            raw.get("graph_node_id"),
+            "graph_node_id",
+            canonical_id,
+            "canonical_node",
+            focusable=True,
+            exact_priority=1,
+        )
+        add_candidate(
+            candidates,
+            raw.get("label"),
+            "label",
+            canonical_id,
+            "canonical_node",
+            focusable=True,
+            exact_priority=2,
+        )
+        for field, value in _search_scalars(_attributes(raw)):
+            add_candidate(candidates, value, field, canonical_id, "canonical_node")
+        add_evidence_and_facts(candidates, raw)
+        search_authority_record(
+            candidates=candidates,
+            canonical_id=canonical_id,
+            canonical_page_target_id=canonical_id,
+            title=str(raw.get("label") or "Technical record"),
+            record_order=index,
+            representative_id=simplified_representative.get(canonical_id),
+        )
+
+    edge_order_base = len(canonical_nodes)
+    for index, raw in enumerate(canonical_edges):
+        canonical_id = str(raw["id"])
+        source_id = str(raw["source_id"])
+        candidates = []
+        add_candidate(
+            candidates,
+            canonical_id,
+            "canonical_id",
+            canonical_id,
+            "canonical_edge",
+            focusable=True,
+            exact_priority=0,
+        )
+        add_candidate(
+            candidates,
+            raw.get("kind"),
+            "edge_kind",
+            canonical_id,
+            "canonical_edge",
+        )
+        for field, value in _search_scalars(_attributes(raw)):
+            add_candidate(candidates, value, field, canonical_id, "canonical_edge")
+        add_evidence_and_facts(candidates, raw)
+        source = canonical_node_by_id.get(source_id, {})
+        search_authority_record(
+            candidates=candidates,
+            canonical_id=canonical_id,
+            canonical_page_target_id=source_id,
+            title=f"{source.get('label') or 'Technical'!s} edge",
+            record_order=edge_order_base + index,
+            representative_id=simplified_edge_representative.get(canonical_id),
+        )
 
     matches.sort(key=lambda item: (item[0], item[1], str(item[2]["matched_record_id"])))
     materialized = [item[2] for item in matches[:MAX_SEARCH_RESULTS]]
     result: dict[str, object] = {
-        "query": normalized,
+        "query": query_value,
         "requested": requested,
         "total_matches": len(matches),
         "matches": materialized,
         "truncated": len(matches) > MAX_SEARCH_RESULTS,
-        "element_ids": [materialized[0]["element_id"]] if materialized else [],
+        "element_ids": (
+            [materialized[0]["element_id"]]
+            if materialized and materialized[0]["target_view"] == requested_view
+            else []
+        ),
     }
     if materialized:
         result["focus"] = materialized[0]

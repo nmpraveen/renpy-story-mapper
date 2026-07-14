@@ -5,18 +5,20 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+import importlib
 import json
 import socket
+import sys
 import time
 import urllib.request
 from collections import deque
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 from unittest import mock
 
-from renpy_story_mapper.organization.provider import CodexCliProvider
 from renpy_story_mapper.project import (
     Project,
     create_ingested_project,
@@ -35,6 +37,17 @@ DEFAULT_ARCHIVE = Path(
     r"\MsDenvers-0.1.2.7-pc\game\scripts.rpa"
 )
 DEFAULT_GAME_FOLDER = DEFAULT_ARCHIVE.parent
+EXPECTED_REUSED_PHASES = (
+    "source_inventory",
+    "parse",
+    "graph",
+    "semantic_state",
+    "control_flow",
+    "route_map",
+    "canonical_graph",
+    "simplified_projection",
+    "inspection_projection",
+)
 
 
 def main() -> int:
@@ -83,11 +96,14 @@ def run(
         create_ingested_project(first_path, game_folder_path).close()
         first_seconds = time.perf_counter() - first_started
         initial = _payload_fingerprints(first_path)
+        initial_database_size = first_path.stat().st_size
 
         refresh_started = time.perf_counter()
-        refresh = refresh_ingested_project(first_path, game_folder_path)
+        with _unchanged_refresh_phase_bombs():
+            refresh = refresh_ingested_project(first_path, game_folder_path)
         refresh_seconds = time.perf_counter() - refresh_started
         refreshed = _payload_fingerprints(first_path)
+        refreshed_database_size = first_path.stat().st_size
 
         second_started = time.perf_counter()
         create_ingested_project(second_path, game_folder_path).close()
@@ -116,6 +132,10 @@ def run(
         raise AssertionError("unchanged private input did not produce stable structural output")
     if refresh.parsed_sources or not refresh.reused_sources:
         raise AssertionError("unchanged same-project refresh did not reuse parsed sources")
+    if refresh.reused_phases != EXPECTED_REUSED_PHASES:
+        raise AssertionError("unchanged same-project refresh did not reuse every analysis phase")
+    if initial_database_size != refreshed_database_size:
+        raise AssertionError("unchanged same-project refresh changed the SQLite project size")
     if any(safety_counts.values()):
         raise AssertionError("private acceptance crossed a provider or network boundary")
 
@@ -176,6 +196,11 @@ def run(
             },
             "total_seconds": round(time.perf_counter() - started, 3),
         },
+        "sizes": {
+            "canonical_payload_bytes": refreshed["canonical"]["size_bytes"],
+            "simplified_payload_bytes": refreshed["projection"]["size_bytes"],
+            "sqlite_project_bytes": refreshed_database_size,
+        },
         "artifacts": {
             "first_project": str(first_path),
             "replay_project": str(second_path),
@@ -189,6 +214,7 @@ def run(
             "reused_sources": list(refresh.reused_sources),
             "invalidated_sources": list(refresh.invalidated_sources),
             "removed_sources": list(refresh.removed_sources),
+            "reused_phases": list(refresh.reused_phases),
         },
     }
     (output_dir / "acceptance.json").write_text(
@@ -864,7 +890,9 @@ def _markdown(report: Mapping[str, object]) -> str:
     timings = _mapping(report["timings"], "timings")
     safety = _mapping(report["safety"], "safety")
     ingestion = _mapping(report["ingestion"], "ingestion")
+    sizes = _mapping(report["sizes"], "sizes")
     reused_count = len(cast(list[object], ingestion["reused_sources"]))
+    reused_phases = cast(list[object], ingestion["reused_phases"])
     return (
         "# M10 private MsDenvers Day 1 acceptance\n\n"
         f"Status: **{report['status']}**\n\n"
@@ -879,6 +907,10 @@ def _markdown(report: Mapping[str, object]) -> str:
         f"- Whole-input projection ratio: {graph['whole_input_projection_percent']}%\n"
         f"- Input workflow: {ingestion['input_kind']} ({ingestion['game_folder']})\n"
         f"- Reused sources on unchanged refresh: {reused_count}\n"
+        f"- Reused phases on unchanged refresh: {', '.join(map(str, reused_phases))}\n"
+        f"- Canonical payload: {sizes['canonical_payload_bytes']} bytes\n"
+        f"- Simplified payload: {sizes['simplified_payload_bytes']} bytes\n"
+        f"- SQLite project: {sizes['sqlite_project_bytes']} bytes\n"
         f"- Provider constructions: {safety['provider_constructions']}\n"
         f"- Remote requests: {safety['remote_requests']}\n"
         f"- First analysis: {timings['first_analysis_seconds']} s\n"
@@ -901,8 +933,19 @@ def _offline_acceptance_boundary() -> Any:
         counts["remote_requests"] += 1
         raise AssertionError("M10 acceptance attempted a network request")
 
+    provider_module = ModuleType("renpy_story_mapper.organization.provider")
+
+    class ProviderBomb:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            block_provider()
+
+    provider_module.CodexCliProvider = ProviderBomb  # type: ignore[attr-defined]
+
     with (
-        mock.patch.object(CodexCliProvider, "__init__", block_provider),
+        mock.patch.dict(
+            sys.modules,
+            {"renpy_story_mapper.organization.provider": provider_module},
+        ),
         mock.patch.object(socket.socket, "connect", block_network),
         mock.patch.object(socket, "create_connection", block_network),
         mock.patch.object(urllib.request.OpenerDirector, "open", block_network),
@@ -910,9 +953,40 @@ def _offline_acceptance_boundary() -> Any:
         yield counts
 
 
+def _provider_bomb_probe() -> None:
+    provider_module = importlib.import_module("renpy_story_mapper.organization.provider")
+    provider_module.CodexCliProvider()  # type: ignore[attr-defined]
+
+
+@contextmanager
+def _unchanged_refresh_phase_bombs() -> Any:
+    import renpy_story_mapper.presentation as presentation
+    import renpy_story_mapper.project_analysis as project_analysis
+
+    def block_phase(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unchanged private refresh called an expensive phase or backup")
+
+    with (
+        mock.patch.object(project_analysis, "build_graph", block_phase),
+        mock.patch.object(project_analysis, "build_semantic_story", block_phase),
+        mock.patch.object(project_analysis, "extract_state", block_phase),
+        mock.patch.object(project_analysis, "analyze_control_flow", block_phase),
+        mock.patch.object(project_analysis, "project_route_map", block_phase),
+        mock.patch.object(project_analysis, "build_canonical_graph", block_phase),
+        mock.patch.object(project_analysis, "project_inspection_graph", block_phase),
+        mock.patch.object(presentation, "rebuild_presentation_index", block_phase),
+        mock.patch.object(Project, "backup", block_phase),
+    ):
+        yield
+
+
 def _fingerprint(path: Path) -> dict[str, object]:
     stat = path.stat()
-    return {"size": stat.st_size, "sha256": _sha256(path.read_bytes())}
+    return {
+        "size": stat.st_size,
+        "sha256": _sha256(path.read_bytes()),
+        "modified_ns": stat.st_mtime_ns,
+    }
 
 
 def _sha256(value: bytes) -> str:

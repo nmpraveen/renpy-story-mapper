@@ -34,11 +34,15 @@ last-known-good status, completed phases with nonnegative durations, and a sanit
 record with failed-phase duration when present. Available
 details use `level: "detail_evidence"` and remain bounded to 60 records per related collection.
 
-Whole-graph search is server-side and does not expand the rendering boundary. It can match an
+Whole-graph search is server-side over canonical authority regardless of the selected view and
+does not expand the rendering boundary. It can match an
 exact canonical ID, underlying graph-node ID, label, visible title/caption, source text, relative
-source path and line, and condition/effect metadata. Results include the bounded page offset and
-element ID needed to center the first match. `focus` performs exact focus resolution for canonical
-IDs and graph-node IDs. At most 50 search matches are materialized. M10 does not invent day,
+source path and line, and condition/effect metadata. Results include matched record ID/kind,
+canonical ID, target view, bounded offsets, canonical page target, and the visible simplified
+representative when one exists. A suppressed match without a representative switches to canonical
+inspection and opens that exact record; a represented match centers its simplified node. `focus`
+performs exact focus resolution for canonical IDs and graph-node IDs. At most 50 search matches are
+materialized. M10 does not invent day,
 chapter, numbered-name, or asset-name heuristics when deterministic metadata is absent.
 
 Detail links expose regions, facts, evidence, and proofs without deriving new topology. Branch

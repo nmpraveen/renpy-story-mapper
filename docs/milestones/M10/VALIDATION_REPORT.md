@@ -1,231 +1,242 @@
-# M10 post-merge hardening validation report
+# M10.1 final hardening validation report
 
-## Report status
+## Status and boundaries
 
-This is the correction-branch validation report for M10 after its merge to `main`.
+- Baseline `main`: `7fd1604147afad2fa40a24c942dbe575aaef0f17`
+- Branch: `codex/m10-final-hardening`
+- Pull request: [#19](https://github.com/nmpraveen/renpy-story-mapper/pull/19)
+- Final state: change-request corrections complete and ready for final review
 
-- Baseline `main`: `68923e494d3c8200514845191ced683239e714fc`
-- Correction branch: `codex/m10-post-merge-hardening`
-- Corrective pull request: not created; explicit approval is still required
-- Final validation state: **complete; ready for review, but not approved for PR creation**
+The branch starts from the exact merged PR #18 baseline. It does not revert M10, reset to M09,
+rewrite the accepted five commits, create a replacement pull request, or begin M11-M14.
 
-The merged M10 source remains the baseline. This branch does not revert M10, reset to M09,
-rewrite history, or begin M11, M12, or M13.
+Tracked `main` was clean and exactly matched `origin/main` before the branch was created. Existing
+untracked user directories `docs/handoffs/` and `output/` were preserved. With the worktree `src`
+directory selected on `PYTHONPATH`, the pre-fix focused M10 baseline was 43 passed in 4.91 seconds.
+An earlier collection attempt selected an older installed package because `PYTHONPATH` was absent;
+that environment error is not reported as a product regression.
 
-## Baseline and review protocol
+## Reviewable commit structure
 
-The latest `main` was fetched and the correction branch was created from exact commit
-`68923e494d3c8200514845191ced683239e714fc`. The supplied merged-source ZIP was compared with the
-baseline by tracked Git blob and had no missing, extra, or differing tracked files.
-It contained the same 253 tracked files and had SHA-256
-`1210A1EF193D2BDEFD23F6C1A897AA605D98B0A342A884BDAB15A61AA3A4501A`.
+1. `dc55407` - `fix(m10): propagate branch guards and correct edge reachability`
+2. `db304b0` - `perf(m10): bound reachability proof provenance`
+3. `407e452` - `fix(m10): search suppressed canonical records from simplified view`
+4. `3c860c2` - `perf(m10): reuse coherent unchanged analysis phases`
+5. `9f33888` - `test/docs(m10): validate scale and restore the milestone roadmap`
+6. `346ab71` - `fix(m10): close deterministic reachability gaps`
+7. `test/docs(m10): record PR #19 change-request validation` - this report and roadmap update; its
+   exact hash is supplied in the final handoff
 
-The focused M10 baseline passed before correction, but targeted regression tests then reproduced
-the reported blocking behavior. The regression-first commit was kept separate from the fixes.
+The regression-first work remains visible inside these separate reviewable commits and must not be
+squashed away before review.
 
-## Commit history
+## Regression-first evidence
 
-1. `ea55c82` - reproduce the post-merge blockers with failing regression tests
-2. `c9e4812` - derive reachability from resolved M06 control flow and add deterministic proofs
-3. `41b9d91` - enforce coherent generation read models and canonical-without-projection access
-4. `d10ca96` - expose retained results after failures and make M10 inspection the default
-5. `ebc0293` - add whole-graph focus and derivation detail
-6. `92b67dc` - strengthen deterministic acceptance, nested-arm attachment, and phase timing
-7. `docs(m10): record corrected validation` - this report's documentation-only commit; its exact
-   hash is supplied in the final handoff because a commit cannot contain its own hash
-
-The regression-first history must not be squashed away before review.
-
-## Defect dispositions
-
-| Review finding | Disposition in the correction branch | Validation status |
+| Finding | Observed before behavior changed | Corrected disposition |
 |---|---|---|
-| 1. Synthetic M06 reachability | Reachability now traverses resolved M06 edges from the actual entry procedure/label and includes procedure exits and return sites. M01 is supporting evidence only. `resolved_static_reachability` records the derivation. | Passed targeted and full-suite regressions |
-| 2. Cross-generation canonical/projection composition | API selection validates payload and analysis-state schema, source generation, and canonical hash. A newer canonical payload cannot resolve an older simplified payload. | Passed caption-change, tampered-state, and generation-mismatch regressions |
-| 3. Canonical unavailable without simplified projection | Canonical page/detail load independently. Simplified access returns a typed unavailable response with generation/failure status. | Passed initial/later projection-failure regressions and browser acceptance |
-| 4. Retained partial results hidden after failure | Failed create/refresh enters the best retained workspace, keeps a persistent failure banner, and reports phase, freshness, completed phases, and last-known-good status. | Passed API tests and real-browser current/stale/partial scenarios at 100%/200% |
-| 5. Page-local search/focus | M10 now performs bounded server-side whole-graph search and exact focus, returning the page offset and element ID for results beyond the first 30 nodes. | Passed off-page search and exact ID/focus regressions; browser centered offset 150 |
-| 6. Regions and proofs not inspectable | Region, fact, evidence, and proof IDs are detail targets and linked from node/edge detail. Nested-region continuations resume at the nested merge so enclosing-arm facts remain attached. | Passed synthetic nested-arm, detail, browser, and private attachment checks |
-| 7. Proof contract mismatch | The contract now lists the implemented deterministic proof kinds for reachability, loops, terminals, call/return continuation, branch membership, and merge evidence. | Implementation, contract, and proof-set regression agree |
-| 8. Private acceptance overstated | The harness uses actual game-folder ingestion, exact counts/rejoins/attachments, provider/network bombs, unchanged refresh reuse, fresh-project determinism, streamed payload hashes, and input immutability. | Passed in 305.082 s with measured evidence below |
-| 9. Missing phase timing | Analysis-state schema 2 adds nonnegative completed- and failed-phase `duration_seconds`; timings remain outside normalized canonical bytes. | Passed nonnegative and structural-determinism regressions |
-| 10. Opaque creator status unclear | Browser records expose `Unsupported creator Python · preserved, not executed` without fabricating an unresolved transfer. | Passed API and real-browser checks at 100%/200% |
-| 11. M10 not the normal default | Browser selection order is current simplified M10, current canonical M10, coherent stale M10, then M07. AI remains selectable but does not override the M10 default. | Passed packaged-UI regression and real-browser default checks |
+| Impossible and unresolved `menu_no_choice` | The requested regression-first run proved an ordinary menu with an unconditional option could use `menu_no_choice` to mark `jump hidden`, `label hidden:`, and the hidden scene proven reachable. All-conditional no-choice predicates had no sibling requirement IDs, and menu set/custom availability was indistinguishable from ordinary availability. | Ordinary unconditional menus mark no-choice `impossible`, exclude it from resolved traversal, and make the fallback-only hidden path proven unreachable. All-conditional menus preserve ordered negative `conditions` with each sibling requirement fact. Set clauses and unsupported menu availability mark the edge and arm unresolved. |
+| Ordered `if`/`elif`/`else` context | Multiple-`elif` regressions showed `elif beta` carried only positive `beta`, `elif gamma` only positive `gamma`, and `else` linked only the first sibling fact. Node, edge, arm, and region-detail assertions failed because the prior negative sibling context was absent. | Predicates carry ordered `conditions` records with expression, positive/negative polarity, branch order, and occurrence-specific requirement IDs: `+alpha`; `-alpha AND +beta`; `-alpha AND -beta AND +gamma`; and `-alpha AND -beta AND -gamma`. No textual Python negations are synthesized. |
+| Guarded procedure entries | Guarded-only, multiple-caller, and nested-call regressions proved callee labels, bodies, returns, and shared procedure exits reachable without their caller guards. The regression file produced 11 failures before implementation. | Existing bounded guard states now rescope across resolved call entries and cross-label jumps. Unguarded entry alternatives still win, multiple guarded alternatives remain capped at eight, nested calls retain caller context, and existing call-summary/return-site isolation prevents guards crossing between callers. |
+| Guarded reachability and edge status | The targeted regression run produced five failures: a guarded `secret` path and conditional menu body were proven reachable, a dead-source edge inherited its live target's status, and a guarded edge lacked conditional provenance. The initial unresolved assertion selected the wrong record by a generic `resolved` flag; selecting `kind == "unresolved"` proved unresolved behavior was already correct. | Ordered positive/fallthrough/menu predicates now retain M01/M02/M06 origin, polarity, branch order, requirement IDs, and bounded nested guard dependencies. Edge reachability derives from source, resolution, guard, and open-world status, with explicit proofs. |
+| Quadratic reachability proofs | The new 2,000-statement scale regression failed with 4,008,004 reachability inputs and 111,896,575 normalized canonical bytes. | A deterministic BFS predecessor forest stores one root input or at most four ordered predecessor inputs per node. The final 2,000-statement result has 8,005 inputs and 6,255,798 canonical bytes. |
+| Suppressed canonical search | Exact canonical ID, graph node ID, and source-text searches for suppressed `label dynamic_dispatch:` returned no simplified result; regressions failed with missing focus/metadata. | Search always scans bounded canonical authority. Represented matches focus their simplified representative; unrepresented suppressions switch to canonical, page to the bounded offset, and open the exact canonical record. |
+| Unchanged refresh | The phase/backup bomb regression failed immediately in `Project.backup`; the unchanged path staged a full database and reran every deterministic phase. | Reuse requires exact source/dependency identity, entry/options/roles, supported schemas, current-complete phase bindings, coherent canonical/projection/route hashes, route checkpoints, metadata dependencies, and presentation generation. Valid reuse performs no writes or backup and reports all reused phases; incoherent state follows the existing staged recomputation path. |
+| Headless private safety boundary | A subprocess with `PySide6` imports blocked failed while importing `m10_private_acceptance.py`, before provider/network bombs could be installed. | The harness no longer imports the Qt-backed provider. Its offline boundary injects a provider sentinel module; the headless subprocess and deliberate provider/network bomb regressions pass. |
 
-## Independently verified facts
+The exact PR #19 change-request regressions are:
 
-The following facts are supported by direct repository inspection or focused regression work and
-do not depend on the private MsDenvers environment:
+- `test_unconditional_menu_no_choice_cannot_reach_a_hidden_scene`
+- `test_all_conditional_menu_no_choice_links_negative_sibling_requirements`
+- `test_menu_no_choice_with_unresolved_availability_stays_unresolved` for both `set seen` and a
+  custom menu header
+- `test_ordered_if_predicates_preserve_all_prior_sibling_conditions`
+- `test_ordered_elif_context_is_preserved_in_node_edge_arm_and_region_details`
+- `test_guarded_only_call_keeps_the_callee_conditional`
+- `test_unguarded_call_or_jump_makes_a_shared_callee_proven` for both call and jump entry
+- `test_multiple_guarded_callers_retain_bounded_entry_alternatives`
+- `test_nested_guarded_calls_propagate_the_entry_context`
+- `test_return_continuations_remain_isolated_by_call_site`
 
-- The correction baseline is the merged M10 `main` commit listed above.
-- The source snapshot matches that baseline at the tracked-file blob level.
-- M10 canonical reachability uses the resolved M06 graph and has explicit bounded proof records for
-  reachable/unreachable status, loop membership, terminal classification, call-return
-  continuation, branch-arm membership, and merge/region derivation.
-- Canonical, simplified, and analysis-state payloads are checked for schema, source-generation,
-  and canonical-hash coherence before inspection responses are served.
-- Canonical inspection can return an available page/detail without a simplified projection.
-- Whole-graph search/focus is bounded to 50 materialized matches while rendered pages remain at
-  most 30 nodes and 180 edges.
-- M10 detail can address regions, facts, evidence, and proofs directly.
-- Nested branch-region traversal resumes after a nested merge without absorbing the nested body;
-  enclosing-arm continuation facts therefore remain attached and inspectable.
-- Operational completed- and failed-phase timing is stored in analysis state and excluded from
-  canonical normalized structural bytes.
+## Delivered behavior
 
-These facts do not replace the final command matrix below.
+- Impossible ordinary-menu no-choice edges no longer participate in resolved static reachability;
+  set/custom availability stays explicitly unresolved.
+- Ordered branch and conditional no-choice predicates expose structured `conditions`, `operator`,
+  polarity, branch order, and all linked sibling requirement facts.
+- Procedure-entry guards propagate across guarded calls and nested calls with at most eight stored
+  alternatives; unguarded calls/jumps win, while return continuations remain call-site-specific.
+- True/false/fallthrough and conditional-menu predicates are structurally distinct; no unsafe
+  textual negation is invented.
+- Temporary guards stop at proven merges, persistent guards continue through owned members,
+  nested regions accumulate without flattening, and an unguarded alternate path still wins.
+- Dead-source, conditional, resolved call/return, and unresolved edge statuses remain coherent.
+- Proof `input_ids` are ordered, order participates in identity, and predecessor witnesses permit
+  lazy path reconstruction with linear total storage.
+- Simplified search returns matched record kind/ID, canonical ID, target view, bounded offsets,
+  canonical fallback target, and visible simplified representative when one exists.
+- Unchanged folder, archive, and unified-input refreshes reuse all coherent deterministic phases,
+  skip presentation rebuild and the SQLite staging backup, and return `reused_phases`.
+- The stale AI-default toast now states that an applied AI Story Map is ready to review.
+- The roadmap assigns M11 to human scenes/chapters, M12 to route solving and path requirements,
+  M13 to the AI narrative layer, and indefinitely deferred M14 to dynamic adapters/tracing.
 
-## Environment-specific validation
-
-Environment-specific results identify the command, result, and measured timing from the final
-Windows run against commit `92b67dc` plus the documentation-only working tree.
+## Final Windows validation matrix
 
 | Check | Result | Timing / artifact |
 |---|---|---|
-| Pre-fix focused M10 baseline | 25 passed | 3.24 s pytest |
-| Regression-first reproduction | 5 expected failures before fixes | Regression commit `ea55c82` |
-| Latest focused M10 suite | 43 passed | 4.84 s pytest; 5.350 s command elapsed |
-| Full repository pytest suite on Windows | 590 passed | 61.21 s pytest; 61.678 s command elapsed |
-| Ruff | Passed: `py -3.12 -m ruff check src tests scripts` | 0.165 s |
-| Strict mypy | Passed: 62 source files | 0.230 s |
-| `pip check` | `No broken requirements found.` | 0.459 s |
-| Isolated wheel/package check | Build, isolated install, packaged import, and static-manifest presence passed | `renpy_story_mapper-0.1.0-py3-none-any.whl`; SHA-256 `B5E1B7FD41FF910F52D28F9CF250F54D6BC75CF587C556CDDFEB41F39E587458`; 7.054 s |
-| Packaged JavaScript syntax checks | Four files passed `node --check` | 0.363 s |
-| Browser acceptance at 100% | Passed current default, off-page search, direct detail, opaque status, stale fallback, canonical-only fallback, and bounded partial state | Combined artifact below; 16.579 s for both zooms |
-| Browser acceptance at 200% | Passed the same matrix with 720x450 logical viewport, scale 2, and no horizontal-overflow offenders | `output/m10-browser-hardening-post-commit` |
-| `git diff --check` | Passed; no whitespace errors | Final documentation tree |
+| Pre-fix focused M10 baseline | 43 passed | 4.91 s pytest |
+| PR #19 change-request regression-first run | 11 failed, 18 passed before implementation | Exact failures covered menu feasibility, ordered branch context, guarded callees, bounded alternatives, nested calls, and return isolation |
+| Final canonical defect regression file | 29 passed | 0.40 s pytest |
+| Final full repository pytest | 615 passed | 68.39 s pytest with fixed `PYTHONHASHSEED=0` |
+| Final focused M10 pytest | 68 passed | 7.06 s pytest |
+| Synthetic hidden-gate/menu/dead-edge/alternate-path acceptance | 4 passed | 0.07 s |
+| Ruff | Passed for `src tests scripts` | Final command exit 0 |
+| Strict mypy | Passed for 61 source files | Final command exit 0 |
+| `pip check` | No broken requirements | Final command exit 0 |
+| JavaScript syntax | `api.js`, `app.js`, `contract.js`, and `graph.js` passed `node --check` | Final command exit 0 |
+| Wheel build/install/import/static assets | Passed in isolated target | 387,677-byte wheel; SHA-256 `3f0472b562f03e5718ee27e0bdfa86d97f6c28b7a44601d97f4b8b5164248123` |
+| Browser acceptance | Passed at 100% and 200%; no overflow, provider construction, or remote request | `output/m10-pr19-review-fixes/browser-final` |
+| Persisted linear scale acceptance | Passed all proof/payload growth bounds | `output/m10-pr19-review-fixes/scale-final` |
+| Private actual-folder acceptance | Passed exact choices/rejoins/facts, determinism, bombs, and immutability | 52.348 s; `output/m10-pr19-review-fixes/private-final` |
+| Source/archive immutability | Source and `scripts.rpa` SHA-256, size, and modification time unchanged | Private report |
+| Structural determinism | Same-project refresh and separate fresh replay hashes equal | Private report |
+| Provider/network boundary | 0 provider constructions; 0 remote requests | Private report and deliberate-bomb tests |
 
-The first baseline attempt without the repository `src` directory on `PYTHONPATH` collected an
-older installed package and failed import collection. Re-running against this worktree's `src`
-established the valid baseline above. This was an environment-selection issue, not a product
-regression.
+Two initial full-suite attempts completed with 614 passing tests and only the pre-existing M06
+10,000-node two-second timing threshold above its limit while the machine was cold (2.24-2.47 s).
+The unchanged timing test then passed repeatedly in isolation at 1.87-1.90 s; no threshold or M06
+algorithm was changed. The final fixed-seed complete run passed all 615 tests in 68.39 s.
 
-## Private MsDenvers acceptance
+## Linear proof/storage measurements
 
-The private acceptance must be reported only from the actual supplied game folder or archive via
-the normal ingestion/project-creation path. Recovered commercial source must not be committed.
+The pre-fix reproduction and the bounded in-memory implementation used the same deterministic
+linear-script helper:
 
-| Required measurement | Result |
-|---|---|
-| Actual folder/archive ingestion | Passed through normal `game_folder` project creation and refresh; 52 authoritative recovered sources plus 5 secondary extras |
-| Independent manifest fingerprint | Exact source `game/v0.01_clean.rpy`; SHA-256 `6dfe1bd2a6f05bc07c024ab29e3a64a465679eb0597c6a1c9ddb1b32806e21e8`; 33 independently checked lines |
-| Expected choices / arms / exact rejoins | 4 choices, 8 ordered outcomes, 4 exact rejoin chains at lines 165, 233, 793, and 793 |
-| Conditions/effects attached to expected edge, arm, or region | 5 conditions and 9 effects passed; 13 attach to expected branch arms and the later lust gate attaches to its canonical record |
-| Canonical nodes / edges | 9,120 / 9,238 |
-| Simplified nodes / edges | 418 / 553; manifest-source scope 68/100; whole-input projection is 4.583% of canonical nodes |
-| Unchanged same-project refresh parsed / reused | 0 / 52; invalidated 0; removed 0 |
-| Fresh-project canonical/projection structural determinism | Passed refresh and separate replay; canonical hash `1e3cfb3d764daa2860aeed6252d84e7ab423e884524c920a02829f4d9bba7a14`; projection hash `425aead9a9eae76942b1c6f624f057faa8150110a29109aa41d13782cffa8d51` |
-| Provider constructions | 0, measured under a fail-fast construction bomb; deliberate-bomb regression passed |
-| Remote requests | 0, measured under fail-fast socket/URL bombs; deliberate-bomb regression passed |
-| Source/archive SHA-256 before and after | Source and `scripts.rpa` fingerprints unchanged; creator Python not executed; production hardcodes empty |
-| Total and per-phase timings | First 69.570 s; refresh 151.404 s; replay 69.479 s; total 305.082 s. Phases: inventory 0.000389, parse 0.315447, graph 0.478959, semantic 2.131512, control flow 1.763942, route map 1.207367, canonical 43.334556, simplified 9.628225, inspection index 1.723687 s |
-| Output report/artifact directory | `output/m10-private-msdenvers-hardening-final-passed` |
+| Statements | Pre proof inputs | After proof inputs | Pre canonical bytes | After canonical bytes | Pre build + serialize | After build + serialize |
+|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 252,004 | 2,005 | 8,102,321 | 1,565,274 | 0.202784 s | 0.081082 s |
+| 1,000 | 1,004,004 | 4,005 | 29,449,075 | 3,124,778 | 0.634286 s | 0.169003 s |
+| 2,000 | 4,008,004 | 8,005 | 111,896,575 | 6,247,778 | 2.209597 s | 0.370775 s |
 
-The previous merged report's constant `provider_calls: 0`, source-only ingestion, loose merge
-reachability check, and fresh-project-only replay are not accepted as proof for this correction.
+The final persisted-project acceptance, which also includes the current ingestion and database
+layout, measured:
 
-## Structural determinism and operational timing
+| Statements | Nodes / edges | Proof inputs | Canonical bytes | SQLite bytes | Canonical phase | Total analysis |
+|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 502 / 501 | 2,005 | 1,566,789 | 3,637,248 | 0.115413 s | 0.465888 s |
+| 1,000 | 1,002 / 1,001 | 4,005 | 3,128,798 | 6,803,456 | 0.232957 s | 0.684923 s |
+| 2,000 | 2,002 / 2,001 | 8,005 | 6,255,798 | 13,201,408 | 0.508299 s | 1.346132 s |
 
-The final run must compare normalized canonical and simplified structural bytes across a separate
-fresh project created from unchanged input. It must also run an unchanged refresh on the same
-project and report parsed, reused, and cache behavior. Nonnegative per-phase durations belong only
-to operational analysis state and must differ without changing normalized canonical structural
-bytes.
+The 500-to-1,000 persisted payload ratio is 1.996949x. The 2,000-statement payload is below 12 MB
+and total reachability inputs remain below four times the node count. The earlier approximately
+112 MB 2,000-statement SQLite result is replaced by the exact 13,201,408-byte persisted result.
 
-**Result: passed.** Same-project refresh and separate fresh replay produced identical canonical
-and simplified hashes. Operational timing remained outside normalized structural bytes.
+## Private MsDenvers before/after evidence
+
+The final run used the normal actual game-folder ingestion path, 52 authoritative recovered
+sources plus 5 secondary extras, and the independently authored Day 1 ground truth. It verified 4
+choices, 8 ordered outcomes, 4 exact rejoin chains, 5 conditions, 9 effects, and 1 visibility case.
+
+| Measurement | Accepted PR #19 head before review fixes | Final PR #19 review fixes |
+|---|---:|---:|
+| First analysis | 13.280 s | 23.041 s |
+| Canonical phase | 4.847168 s | 11.139397 s |
+| Unchanged refresh | 0.805 s | 1.427 s |
+| Fresh replay | 12.973 s | 23.408 s |
+| Canonical payload | 36,537,547 bytes | 161,312,664 bytes |
+| Simplified payload | 1,800,115 bytes | 1,857,276 bytes |
+| SQLite project | 110,247,936 bytes | 235,261,952 bytes |
+
+The unchanged refresh parsed 0 and reused 52 sources. Under fail-fast backup and phase bombs it
+reused, in order: `source_inventory`, `parse`, `graph`, `semantic_state`, `control_flow`,
+`route_map`, `canonical_graph`, `simplified_projection`, and `inspection_projection`.
+
+The larger canonical payload is the cost of retaining structured ordered sibling predicates and
+bounded guarded procedure-entry provenance throughout callees. The 9,120-node/9,238-edge private
+graph remains deterministic, the unchanged path still performs no phase recomputation, and the
+separate 2,000-statement scale harness remains below every existing growth bound.
+
+Canonical and simplified hashes were stable across unchanged refresh and a separate fresh replay:
+
+- canonical: `769c2931f284fa875a0b8d561d668fcfe21c4d7e0de83c3f09fad71e7d5f6a2f`
+- simplified: `e8cf9abb2db486dedb5937e52414dff3cde78fdfa4d36d2a9d4d3609237b26cc`
+
+The source and archive retained identical SHA-256, size, and modification time. Creator Python was
+not executed, production game-specific hardcodes were absent, provider constructions were 0, and
+remote requests were 0.
 
 ## Known unresolved behavior
 
-- Arbitrary creator Python and dynamic transfers remain unsupported and unresolved where the
-  deterministic analyzers cannot establish behavior. Creator Python is preserved and not executed.
-- Reachability remains conservative. `possibly_dead` and
-  `unreachable_in_resolved_static_graph` are not proofs of impossibility.
-- A projection failure after a current canonical commit leaves simplified inspection unavailable
-  until it is rebuilt; the current canonical graph remains usable.
-- The simplified map is a structural inspection projection, not a human-authored scene or chapter
-  map.
-- Dense graphs remain bounded by deterministic paging and continuation behavior.
-- The real game folder contains 52 authoritative recovered sources plus 5 secondary extras. Its simplified graph has 418 records even
-  though the independently authored manifest source contributes 68 within the unchanged maximum
-  of 100. The browser renders at most 30 nodes/180 edges; this correction does not add a lossy
-  whole-project suppression heuristic merely to force the multi-source total below 100.
-- Search uses deterministic metadata already present; it does not infer day/chapter boundaries or
-  numbered-name/asset-name semantics.
+- Arbitrary creator Python, computed transfers, and unsupported dynamic framework behavior remain
+  conservative and unresolved; no satisfiability engine was introduced.
+- Guard propagation is bounded to deterministic M06 region/edge evidence and representative guard
+  states. Procedure-entry alternatives are capped at eight and rescope existing guard tokens rather
+  than enumerating complete paths or predicate combinations.
+- Search materializes at most 50 results and rendered pages remain at most 30 nodes and 180 edges.
+- An existing project created before the dependency-identity metadata was introduced performs one
+  normal staged refresh before it becomes eligible for the no-write fast path.
+- The simplified inspection remains structural, not the M11 human scene/chapter model or the M13
+  AI narrative layer.
+- Dynamic framework adapters and optional runtime tracing remain deferred indefinitely to M14.
 
-## Explicitly deferred work
+## Corrected roadmap
 
-- **M11:** human narrative organization, scene/chapter boundaries, and semantic presentation work.
-- **M12:** route-to-target solving, path feasibility, and guided route construction.
-- **M13:** dynamic framework expansion and optional runtime-trace validation.
+- **M11:** human story scenes and scene/chapter presentation.
+- **M12:** route-to-target solving and path requirements.
+- **M13:** optional AI narrative titles, summaries, characters, motives, and
+  chapter/route/full-plot summaries.
+- **M14:** dynamic framework adapters and optional runtime tracing, deferred indefinitely for now.
 
-None of these deferred areas is implemented or claimed by this correction.
-
-## Final diff summary
-
-The correction changes 28 files with 3,781 insertions and 292 deletions over
-`68923e494d3c8200514845191ced683239e714fc..HEAD`. Generated validation artifacts under `output/`
-are intentionally untracked and excluded from this source diff.
-
-## Changes made to this validation report
-
-This correction replaces the merged report's overstatements with measured evidence:
-
-- changed the baseline from M09 to exact merged M10 `main` commit
-  `68923e494d3c8200514845191ced683239e714fc`;
-- identified the correction branch and preserved regression-first commit history;
-- added dispositions for all 11 post-merge findings;
-- removed the claim that page-local filtering constituted whole-graph search/focus;
-- removed the claim that node/edge detail alone made regions and proofs inspectable;
-- removed the hardcoded zero-provider claim and made provider/network bombs mandatory evidence;
-- distinguished recovered-source fingerprinting from actual folder/archive ingestion;
-- required exact private rejoin evidence, explicit counts, attachment checks, unchanged refresh
-  reuse, and separate fresh-project determinism;
-- added phase timing and cross-generation pairing requirements;
-- separated independently verified facts, environment-specific results, unresolved behavior, and
-  M11/M12/M13 deferrals;
-- replaced unrun command claims with the final Windows, browser, package, and private measurements;
-- recorded the 52-source game-folder projection separately from the manifest-authored source
-  scope instead of hiding either count.
-
-## Proposed corrective pull request
+## Current pull request #19
 
 Proposed title:
 
-`Harden M10 generation integrity, inspection provenance, and acceptance`
+`Harden M10 guarded reachability, canonical search, and unchanged refresh`
 
 Proposed body:
 
 > ## Summary
 >
-> - compute canonical reachability from resolved M06 control flow, including synthetic return and
->   procedure-exit nodes, with explicit deterministic proofs;
-> - prevent cross-generation canonical/projection composition and keep canonical inspection usable
->   when simplified projection creation fails;
-> - surface retained current/stale results and failure context, with M10 inspection as the default;
-> - add bounded whole-graph search/focus and inspectable region/fact/evidence/proof detail;
-> - strengthen private acceptance around actual game-folder ingestion, exact rejoins, attachments,
->   refresh reuse, determinism, immutability, and fail-fast provider/network boundaries;
-> - persist nonnegative operational phase timings without affecting structural determinism.
+> - make ordinary unconditional-menu no-choice edges impossible, preserve structured negative
+>   sibling requirements when all choices are conditional, and keep set/custom availability
+>   unresolved;
+> - preserve complete ordered `if`/`elif`/`else` contexts as structured expression/polarity records
+>   with every corresponding requirement fact;
+> - propagate bounded guard alternatives through call and nested-call entries while preserving
+>   unguarded dominance and call-site-specific return continuations;
+> - preserve ordered branch/menu predicate provenance and propagate bounded guard dependencies
+>   through M06 branch arms;
+> - derive edge reachability from the source, resolution, guards, and open-world status instead of
+>   inheriting a target reached by another path;
+> - replace duplicated full reachability paths with ordered constant-size BFS predecessor
+>   witnesses;
+> - search bounded canonical authority from either view, focusing a simplified representative or
+>   switching to exact canonical detail for an unrepresented suppression;
+> - reuse all deterministic phases on a fully coherent unchanged refresh without a staging backup
+>   or presentation rebuild, while falling back safely on any coherence failure;
+> - keep private acceptance headless, fail-fast, and measurable, and restore the M11-M14 roadmap.
 >
 > ## Validation
 >
-> - Windows: 590 repository tests and 43 focused M10 tests passed; Ruff, strict mypy, `pip check`,
->   four JavaScript syntax checks, wheel build/install/import, and `git diff --check` passed.
-> - Browser: the current, canonical-only, stale last-known-good, and bounded partial states passed
->   at 100% and 200%, including off-page focus and direct derivation detail.
-> - Private: actual game-folder ingestion passed 4 choices, 8 arms, 4 exact rejoins, 14 facts,
->   unchanged refresh reuse, fresh replay determinism, input immutability, and measured zero
->   provider constructions/remote requests. Full measurements and artifact paths are in this
->   report.
+> - Windows: 615 repository tests and 68 focused M10 tests passed; Ruff, strict mypy, `pip check`,
+>   four JavaScript syntax checks, wheel build/install/import, and whitespace checks passed.
+> - Browser: 100% and 200% acceptance passed, including suppressed canonical auto-switch/direct
+>   detail, bounded paging, retained failure states, and zero remote requests.
+> - Scale: the persisted 2,000-statement project has 8,005 reachability inputs, a 6,255,798-byte
+>   canonical payload, and a 13,201,408-byte SQLite database; 500-to-1,000 payload growth is
+>   1.996949x.
+> - Private: actual-folder acceptance passed exact choices/rejoins/facts, separate-replay
+>   determinism, source/archive immutability, and measured zero provider constructions/remote
+>   requests. Unchanged refresh completed in 1.427 s while reusing all nine phases under fail-fast
+>   phase and backup bombs.
 >
 > ## Boundaries
 >
-> This correction does not revert M10, reset to M09, rewrite history, or begin M11/M12/M13.
-> Unsupported creator Python remains preserved and unexecuted; unresolved dynamic behavior remains
-> conservative.
+> This correction keeps PR #18 intact, does not reset to M09 or begin M11-M14, and does not add a
+> theorem engine, game execution, or runtime tracing. Unsupported dynamic behavior remains
+> conservative and unresolved.
 
-## Review gate
+## Stop condition
 
-The corrected validation report is complete and internally consistent. Do not create the
-corrective pull request yet; stop and wait for explicit approval.
+The corrected validation report is complete. Push these corrections to existing PR #19 and stop
+for final review. Do not create another pull request, merge PR #19, or begin M11.
