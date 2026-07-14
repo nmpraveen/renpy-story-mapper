@@ -232,6 +232,83 @@ def test_whole_graph_search_and_exact_focus_open_the_bounded_target_page(
         api.close()
 
 
+def test_simplified_search_targets_suppressed_canonical_authority_directly(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    target = next(
+        item
+        for item in canonical["nodes"]
+        if item["attributes"].get("source_text") == "label dynamic_dispatch:"
+    )
+    suppression = next(
+        item
+        for item in projection["suppressed"]
+        if target["id"] in item["canonical_node_ids"]
+    )
+    assert suppression.get("represented_by_node_id") is None
+
+    def page(*, query: str | None = None, focus: str | None = None) -> dict[str, object]:
+        return inspection_page(
+            projection,
+            canonical,
+            state,
+            view="simplified",
+            offset=0,
+            limit=30,
+            edge_offset=0,
+            edge_limit=180,
+            query=query,
+            focus=focus,
+        )
+
+    for exact in (target["id"], target["graph_node_id"]):
+        result = page(focus=exact)
+        match = result["search"]["focus"]
+        assert match["matched_record_id"] == target["id"]
+        assert match["record_kind"] == "canonical_node"
+        assert match["canonical_id"] == target["id"]
+        assert match["target_view"] == "canonical"
+        assert match["visible_simplified_representative_id"] is None
+        assert match["canonical_page_target_id"] == target["id"]
+        assert match["offset"] % 30 == 0
+        assert len(result["nodes"]) <= 30
+        assert len(result["edges"]) <= 180
+
+    searched = page(query="label dynamic_dispatch:")
+    match = searched["search"]["focus"]
+    assert match["canonical_id"] == target["id"]
+    assert match["target_view"] == "canonical"
+    assert match["canonical_page_target_id"] == target["id"]
+
+
+def test_simplified_search_centers_a_visible_canonical_representative(
+    tmp_path: Path,
+) -> None:
+    _, project_path = _project(tmp_path)
+    projection, canonical, state = _payloads(project_path)
+    help_node = next(item for item in projection["nodes"] if item["title"] == "Help")
+    canonical_id = help_node["canonical_node_ids"][0]
+
+    result = inspection_page(
+        projection,
+        canonical,
+        state,
+        view="simplified",
+        offset=0,
+        limit=30,
+        edge_offset=0,
+        edge_limit=180,
+        focus=canonical_id,
+    )
+    match = result["search"]["focus"]
+    assert match["canonical_id"] == canonical_id
+    assert match["target_view"] == "simplified"
+    assert match["element_id"] == help_node["id"]
+    assert match["visible_simplified_representative_id"] == help_node["id"]
+
+
 def test_region_fact_evidence_and_proof_details_are_directly_inspectable(
     tmp_path: Path,
 ) -> None:
@@ -636,4 +713,7 @@ def test_packaged_ui_enters_retained_workspace_and_persists_failure_context() ->
     assert "inspectionCurrent" in app and "canonicalCurrent" in app
     assert "comparison.default_view" not in app
     assert "searchM10WholeGraph" in app
+    assert 'focus?.target_view === "canonical"' in app
+    assert "await openDetail(focus.canonical_id)" in app
     assert "renderInspectionDerivations" in app
+    assert "Predicate:" in app

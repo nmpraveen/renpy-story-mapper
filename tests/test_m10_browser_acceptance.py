@@ -22,6 +22,7 @@ def test_real_browser_harness_covers_hardened_m10_workflows() -> None:
         "last_known_good",
         "Showing last-known-good results",
         "m10-default-{zoom}.png",
+        "m10-suppressed-canonical-{zoom}.png",
         "m10-whole-graph-search-{zoom}.png",
         "m10-direct-proof-detail-{zoom}.png",
         "m10-opaque-status-{zoom}.png",
@@ -45,3 +46,4 @@ def test_real_browser_harness_covers_hardened_m10_workflows() -> None:
     assert module.ZOOMS == (100, 200)
     assert module.VIEWPORTS == {100: (1440, 900), 200: (720, 450)}
     assert module.SEARCH_TARGET == "Scene 44 unique text."
+    assert module.SUPPRESSED_SEARCH_TARGET == "label dynamic_dispatch:"

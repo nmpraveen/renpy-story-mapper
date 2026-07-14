@@ -229,10 +229,24 @@ async function previousRoutePage() { const target = state.cursorHistory.pop(); i
 
 async function searchM10WholeGraph() {
   const query = $("#searchInput").value.trim();
+  const requestId = (searchM10WholeGraph.requestId || 0) + 1; searchM10WholeGraph.requestId = requestId;
   if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
   const view = state.mode === "canonical" ? "canonical" : "simplified";
   const raw = await api.inspectionMap(view, 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, query ? { query } : {});
+  if (requestId !== searchM10WholeGraph.requestId || $("#searchInput").value.trim() !== query) return;
   if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, Boolean(state.page)); return; }
+  const focus = raw.search?.focus;
+  if (view === "simplified" && focus?.target_view === "canonical") {
+    const options = query ? { query, focus: focus.canonical_page_target_id } : { focus: focus.canonical_page_target_id };
+    const canonicalRaw = await api.inspectionMap("canonical", Number(focus.canonical_page_offset || 0), ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, options);
+    if (requestId !== searchM10WholeGraph.requestId || $("#searchInput").value.trim() !== query) return;
+    if (canonicalRaw.status === "unavailable") { renderAnalysisAvailability(canonicalRaw.generation_status, Boolean(state.page)); return; }
+    const canonicalPage = normalizedPage(canonicalRaw, "canonical"); canonicalPage.search = raw.search;
+    showLevel("route_map"); state.mode = "canonical"; state.page = canonicalPage; state.canonicalPage = canonicalPage; state.offset = Number(canonicalPage.offset || 0); state.edgeOffset = 0; state.cursorHistory = []; state.selectedId = focus.canonical_page_target_id;
+    updateModeHeader(); renderMap();
+    await openDetail(focus.canonical_id);
+    return;
+  }
   const page = normalizedPage(raw, state.mode); state.page = page;
   if (state.mode === "inspection") state.inspectionPage = page; else state.canonicalPage = page;
   state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.cursorHistory = [];
@@ -354,8 +368,8 @@ function renderInspectionDerivations(detail) {
     const region = detail.region; const summary = element("article", "derivation-record");
     summary.append(element("strong", "", String(region.classification || "branch region").replaceAll("_", " ")), element("span", "", `Split ${region.split_node_id} · merge ${region.merge_node_id || "none"}`), element("span", "", `Persistence: ${(region.persistence_reasons || []).join(" · ") || "none"}`)); regionHost.append(summary);
     for (const arm of region.ordered_arms || []) {
-      const record = element("article", "derivation-record"); const facts = (arm.facts || []).map((item) => item.label || item.id).join(" · ");
-      record.append(element("strong", "", `Arm ${Number(arm.ordinal) + 1}`), element("span", "", `Entry ${arm.entry_node_id} · ${arm.member_count} members · ${arm.terminal_summary || "nonterminal"}`), element("span", "", facts ? `Facts: ${facts}` : "Facts: none")); regionHost.append(record);
+      const record = element("article", "derivation-record"); const facts = (arm.facts || []).map((item) => item.label || item.id).join(" · "); const predicate = arm.predicate || {}; const expressions = predicate.expression || (predicate.expressions || []).join(" · ") || "unconditional";
+      record.append(element("strong", "", `Arm ${Number(arm.ordinal) + 1}`), element("span", "", `Entry ${arm.entry_node_id} · ${arm.member_count} members · ${arm.terminal_summary || "nonterminal"}`), element("span", "", `Predicate: ${String(predicate.kind || "branch").replaceAll("_", " ")} · ${String(predicate.polarity || "unknown").replaceAll("_", " ")} · ${expressions}`), element("span", "", facts ? `Facts: ${facts}` : "Facts: none")); regionHost.append(record);
     }
   }
   for (const proof of detail.proofs || []) { const record = element("article", "derivation-record"); record.append(element("strong", "", String(proof.kind || "proof").replaceAll("_", " ")), element("p", "", proof.explanation || "Deterministic derivation"), element("span", "", `Inputs: ${(proof.input_ids || []).join(" · ")}`)); proofHost.append(record); }

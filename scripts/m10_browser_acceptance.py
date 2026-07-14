@@ -30,6 +30,7 @@ FIXTURE: Final = ROOT / "tests" / "fixtures" / "m10" / "canonical_constructs.rpy
 ZOOMS: Final = (100, 200)
 VIEWPORTS: Final = {100: (1440, 900), 200: (720, 450)}
 SEARCH_TARGET: Final = "Scene 44 unique text."
+SUPPRESSED_SEARCH_TARGET: Final = "label dynamic_dispatch:"
 OPAQUE_STATUS: Final = "Unsupported creator Python · preserved, not executed"
 CHROME_CANDIDATES: Final = (
     Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
@@ -274,6 +275,24 @@ def _capture_current(browser: Path, output: Path, zoom: int, origin: str) -> dic
             default_shot = output / f"m10-default-{zoom}.png"
             _screenshot(session, default_shot)
 
+            session.evaluate(
+                f"(() => {{ const input=document.querySelector('#searchInput'); input.value={json.dumps(SUPPRESSED_SEARCH_TARGET)}; input.dispatchEvent(new Event('input',{{bubbles:true}})); }})()"
+            )
+            session.wait(
+                f"import('./app.js').then(m=>m.state.mode==='canonical' && m.state.detail?.element?.attributes?.source_text==={json.dumps(SUPPRESSED_SEARCH_TARGET)} && !document.querySelector('#detailView').hidden)"
+            )
+            suppressed_search = session.evaluate(
+                "import('./app.js').then(m=>({mode:m.state.mode,detailId:m.state.detail.element.id,sourceText:m.state.detail.element.attributes.source_text,targetView:m.state.page.search.focus.target_view,canonicalId:m.state.page.search.focus.canonical_id,button:document.querySelector('#canonicalMapButton').getAttribute('aria-pressed')}))"
+            )
+            if suppressed_search["detailId"] != suppressed_search["canonicalId"]:
+                raise AssertionError(
+                    f"Suppressed search did not open exact canonical detail: {suppressed_search}"
+                )
+            suppressed_shot = output / f"m10-suppressed-canonical-{zoom}.png"
+            _screenshot(session, suppressed_shot)
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait("document.querySelector('#routeMapView').hidden === false")
+
             session.evaluate("document.querySelector('#canonicalMapButton').click()")
             session.wait("document.querySelector('#canonicalMapButton').getAttribute('aria-pressed') === 'true'")
             session.evaluate(
@@ -363,6 +382,7 @@ def _capture_current(browser: Path, output: Path, zoom: int, origin: str) -> dic
                 "zoom_percent": zoom,
                 "viewport": {"width": VIEWPORTS[zoom][0], "height": VIEWPORTS[zoom][1]},
                 "default": default,
+                "suppressed_canonical_search": suppressed_search,
                 "whole_graph_search": search,
                 "root_detail": root_detail,
                 "direct_details": direct,
@@ -373,7 +393,13 @@ def _capture_current(browser: Path, output: Path, zoom: int, origin: str) -> dic
                 "expected_optional_api_rejections": allowed_errors,
                 "screenshots": {
                     path.stem: {"file": path.name, "sha256": _hash(path)}
-                    for path in (default_shot, search_shot, derivation_shot, opaque_shot)
+                    for path in (
+                        default_shot,
+                        suppressed_shot,
+                        search_shot,
+                        derivation_shot,
+                        opaque_shot,
+                    )
                 },
             }
         finally:
