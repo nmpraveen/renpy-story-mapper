@@ -1,0 +1,93 @@
+name: Pull request checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-checks:
+    name: Deterministic checks (Python 3.12)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONHASHSEED: "0"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install checks and project
+        run: |
+          python -m pip install --upgrade pip build
+          python -m pip install -e ".[dev]"
+
+      - name: Check changed whitespace
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+          } else {
+            git diff --check "${{ github.event.before }}..${{ github.sha }}"
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Lint Python
+        run: python -m ruff check src tests scripts --no-cache
+
+      - name: Type-check Python
+        run: python -m mypy --strict src/renpy_story_mapper
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem src/renpy_story_mapper/web/static -Filter *.js | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Run deterministic tests
+        shell: pwsh
+        run: |
+          python -m pytest -q `
+            --deselect=tests/test_m05_workflow_scale.py::test_bulk_evidence_and_facts_are_exact_indexed_and_noise_independent `
+            --deselect=tests/test_m06_control_flow.py::test_2000_node_split_chain_runtime_and_memory_are_bounded `
+            --deselect=tests/test_m06_control_flow.py::test_scale_harness_approximately_10k_nodes_15k_edges `
+            --deselect=tests/test_story_organization.py::test_enrichment_validation_uses_member_indexes_with_ten_thousand_noise_rows `
+            --deselect=tests/test_story_organization.py::test_synthetic_query_plans_use_bounded_indexes
+
+      - name: Build distributions in isolation
+        run: python -m build
+
+      - name: Verify wheel in a fresh environment
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist -Filter *.whl | Select-Object -First 1).FullName
+          if (-not $wheel) { throw "Wheel build did not produce an artifact." }
+          $venv = Join-Path $env:RUNNER_TEMP "rsm-wheel-venv"
+          python -m venv $venv
+          $venvPython = Join-Path $venv "Scripts/python.exe"
+          & $venvPython -m pip install --no-deps $wheel
+          & $venvPython -c "from importlib.resources import files; import renpy_story_mapper; root = files('renpy_story_mapper'); assert (root / 'web' / 'static' / 'asset-manifest.json').is_file(); assert (root / 'THIRD_PARTY_NOTICES.md').is_file()"
