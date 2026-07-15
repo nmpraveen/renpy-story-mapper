@@ -1,0 +1,367 @@
+"""Measure deterministic target-specific M12 solving over bounded synthetic projects."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import time
+from collections.abc import Mapping, Sequence
+from itertools import pairwise
+from pathlib import Path
+
+from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
+from renpy_story_mapper.m12_solver import numeric_projection, solve_route
+from renpy_story_mapper.project import Project, create_ingested_project
+from renpy_story_mapper.storage import canonical_json
+
+ROOT = Path(__file__).resolve().parents[1]
+COMPLEX_FIXTURE = ROOT / "tests" / "fixtures" / "m12" / "route_targets.rpy"
+STATEMENT_COUNTS = (24, 48, 96)
+MAX_EXPANSION_GROWTH = 3.0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", required=True, type=Path)
+    args = parser.parse_args()
+    report = run(args.output_dir)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+def run(
+    output_dir: Path,
+    *,
+    statement_counts: Sequence[int] = STATEMENT_COUNTS,
+    include_complex: bool = True,
+) -> dict[str, object]:
+    counts = tuple(statement_counts)
+    if not counts or any(value < 1 for value in counts) or tuple(sorted(set(counts))) != counts:
+        raise ValueError("statement counts must be unique positive ascending integers")
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=False)
+    observations: list[dict[str, object]] = []
+    measurements = [
+        _measure_linear(output_dir, count, observations) for count in counts
+    ]
+    growth: list[dict[str, object]] = []
+    for lower, upper in pairwise(measurements):
+        expanded_growth = _ratio(upper, lower, "expanded_states")
+        if expanded_growth >= MAX_EXPANSION_GROWTH:
+            raise AssertionError(
+                "selected-target deterministic expansion growth approaches quadratic"
+            )
+        if _as_int(upper["route_edge_count"], "upper route edges") <= _as_int(
+            lower["route_edge_count"], "lower route edges"
+        ):
+            raise AssertionError("larger linear workload did not retain the longer target path")
+        growth.append(
+            {
+                "from_statements": lower["statements"],
+                "to_statements": upper["statements"],
+                "expanded_state_growth": round(expanded_growth, 6),
+            }
+        )
+
+    complex_result = _measure_complex(output_dir, observations) if include_complex else None
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "status": "passed",
+        "target_specific": True,
+        "all_target_preprocessing": False,
+        "linear_measurements": measurements,
+        "growth": growth,
+        "complex_workload": complex_result,
+        "limits": {"maximum_expansion_growth": MAX_EXPANSION_GROWTH},
+    }
+    report_bytes = json.dumps(report, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    (output_dir / "acceptance.json").write_bytes(report_bytes)
+    observations_report = {
+        "schema_version": 1,
+        "hardware_sensitive": True,
+        "semantic_pass_fail_uses_these_values": False,
+        "observations": observations,
+    }
+    (output_dir / "observations.json").write_text(
+        json.dumps(observations_report, indent=2, sort_keys=True),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return report
+
+
+def _measure_linear(
+    output_dir: Path,
+    statements: int,
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    source_path = output_dir / f"linear-{statements}.rpy"
+    source_path.write_text(_linear_source(statements), encoding="utf-8", newline="\n")
+    source_before = _fingerprint(source_path)
+    project_path = output_dir / f"linear-{statements}.rsmproj"
+    started = time.perf_counter()
+    create_ingested_project(project_path, source_path).close()
+    analysis_seconds = time.perf_counter() - started
+    if source_before != _fingerprint(source_path):
+        raise AssertionError("M12 scale acceptance modified a synthetic source")
+    with Project.open(project_path) as project:
+        service = M12RouteService(project)
+        page = service.destinations(query="Scale Finish", limit=50)
+        destination = _destination(page, title="Scale Finish")
+        prepared = service.prepare(str(destination["kind"]), str(destination["target_id"]))
+        pure_first = solve_route(
+            prepared.authority.graph,
+            prepared.authority.scene_model,
+            prepared.request,
+        )
+        pure_second = solve_route(
+            prepared.authority.graph,
+            prepared.authority.scene_model,
+            prepared.request,
+        )
+        if pure_first.result is None or pure_second.result is None:
+            raise AssertionError("linear selected-target solve did not return a normalized result")
+        if pure_first.result.normalized_bytes() != pure_second.result.normalized_bytes():
+            raise AssertionError("linear deterministic expansion replay changed normalized bytes")
+        first = service.solve(prepared)
+        replay = service.solve(prepared)
+    if first.result is None or replay.result is None or not replay.cached:
+        raise AssertionError("linear selected-target cache replay failed")
+    normalized = canonical_json(dict(first.result))
+    replay_bytes = canonical_json(dict(replay.result))
+    if normalized != replay_bytes:
+        raise AssertionError("cached replay changed deterministic route bytes")
+    recommended = _mapping(first.result.get("recommended"), "recommended route")
+    budget = _mapping(first.result.get("budget_usage"), "budget usage")
+    limits = prepared.request.limits.to_dict()
+    observations.append(
+        {
+            "workload": f"linear-{statements}",
+            "analysis_seconds": round(analysis_seconds, 6),
+            "sqlite_project_bytes": project_path.stat().st_size,
+        }
+    )
+    return {
+        "statements": statements,
+        "source_sha256": source_before["sha256"],
+        "canonical_nodes": len(prepared.authority.graph.nodes),
+        "scene_count": len(prepared.authority.scene_model.scenes),
+        "selected_destination_kind": destination["kind"],
+        "selected_destination_id": destination["target_id"],
+        "solver_version": prepared.request.solver_version,
+        "limit_profile": limits,
+        "request_identity": prepared.identity.identity_hash,
+        "status": first.result["status"],
+        "expanded_states": budget["expanded_states"],
+        "retained_states": budget["retained_states"],
+        "peak_frontier_states": budget["peak_frontier_states"],
+        "prefix_records": budget["prefix_records"],
+        "route_edge_count": len(_values(recommended.get("edge_ids"), "route edges")),
+        "instruction_count": len(_records(recommended.get("instructions"), "instructions")),
+        "alternatives": len(_records(first.result.get("alternatives"), "alternatives")),
+        "result_bytes": len(normalized),
+        "result_sha256": hashlib.sha256(normalized).hexdigest(),
+        "pure_expansion_replay_identical": True,
+        "cache_replay_identical": True,
+        "source_unchanged": True,
+        "selected_target_solves": 1,
+    }
+
+
+def _measure_complex(
+    output_dir: Path,
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    source_path = output_dir / "complex-route.rpy"
+    source_path.write_bytes(COMPLEX_FIXTURE.read_bytes())
+    source_before = _fingerprint(source_path)
+    project_path = output_dir / "complex-route.rsmproj"
+    started = time.perf_counter()
+    create_ingested_project(project_path, source_path).close()
+    analysis_seconds = time.perf_counter() - started
+    if source_before != _fingerprint(source_path):
+        raise AssertionError("M12 complex scale acceptance modified its source")
+    summaries: dict[str, object] = {}
+    with Project.open(project_path) as project:
+        service = M12RouteService(project)
+        authority = load_m12_authority(project)
+        selected_target_solves = 0
+        targets = (
+            ("confirmed", "Foyer"),
+            ("alternatives", "Memory"),
+            ("threshold_loop", "Observatory"),
+        )
+        for name, query in targets:
+            destination = _destination(service.destinations(query=query, limit=50), title=query)
+            prepared = service.prepare(str(destination["kind"]), str(destination["target_id"]))
+            pure_first = solve_route(authority.graph, authority.scene_model, prepared.request)
+            pure_second = solve_route(authority.graph, authority.scene_model, prepared.request)
+            if pure_first.result is None or pure_second.result is None:
+                raise AssertionError(f"{name} did not return deterministic normalized bytes")
+            if pure_first.result.normalized_bytes() != pure_second.result.normalized_bytes():
+                raise AssertionError(f"{name} expansion-budget replay changed normalized bytes")
+            first = service.solve(prepared)
+            replay = service.solve(prepared)
+            selected_target_solves += 1
+            if first.result is None or replay.result is None or not replay.cached:
+                raise AssertionError(f"{name} exact-key cache replay failed")
+            normalized = canonical_json(dict(first.result))
+            if normalized != canonical_json(dict(replay.result)):
+                raise AssertionError(f"{name} cache replay changed normalized bytes")
+            alternatives = _records(first.result.get("alternatives"), "alternatives")
+            if len(alternatives) > prepared.request.limits.alternatives:
+                raise AssertionError("M12 alternatives exceeded the deterministic limit")
+            recommended_value = first.result.get("recommended")
+            recommended = (
+                _mapping(recommended_value, "recommended")
+                if recommended_value is not None
+                else None
+            )
+            summaries[name] = {
+                "query": query,
+                "destination_kind": destination["kind"],
+                "destination_id": destination["target_id"],
+                "request_identity": prepared.identity.identity_hash,
+                "status": first.result["status"],
+                "termination_reason": first.result["termination_reason"],
+                "complete": first.result["complete"],
+                "alternative_count": len(alternatives),
+                "loop_count": 0 if recommended is None else recommended.get("loop_count", 0),
+                "budget_usage": first.result["budget_usage"],
+                "result_sha256": hashlib.sha256(normalized).hexdigest(),
+                "pure_expansion_replay_identical": True,
+                "cache_replay_identical": True,
+            }
+        projection = numeric_projection(
+            authority.graph,
+            {item.id for item in authority.graph.nodes},
+        )
+    alternatives_summary = _mapping(summaries["alternatives"], "alternatives summary")
+    threshold_summary = _mapping(summaries["threshold_loop"], "threshold summary")
+    if _as_int(alternatives_summary["alternative_count"], "alternative count") < 1:
+        raise AssertionError(
+            "complex selected target did not retain a bounded material alternative"
+        )
+    if threshold_summary["termination_reason"] != "limit:repetition_per_transition":
+        raise AssertionError(
+            "threshold loop did not terminate at its deterministic repetition bound"
+        )
+    thresholds = {
+        key: list(values) for key, values in sorted(projection.thresholds.items())
+    }
+    if not any(3 in values for values in thresholds.values()):
+        raise AssertionError("complex numeric projection omitted the proven score threshold")
+    observations.append(
+        {
+            "workload": "complex-route",
+            "analysis_seconds": round(analysis_seconds, 6),
+            "sqlite_project_bytes": project_path.stat().st_size,
+        }
+    )
+    return {
+        "source_sha256": source_before["sha256"],
+        "canonical_nodes": len(authority.graph.nodes),
+        "scene_count": len(authority.scene_model.scenes),
+        "limit_profile_version": prepared.request.limits.version,
+        "selected_target_solves": selected_target_solves,
+        "all_target_preprocessing": False,
+        "bounded_alternatives": True,
+        "bounded_loop": True,
+        "numeric_thresholds": thresholds,
+        "cache_replay": True,
+        "source_unchanged": True,
+        "targets": summaries,
+    }
+
+
+def _linear_source(statements: int) -> str:
+    chunks = [
+        "label start:\n",
+        "    scene scale_start\n",
+        '    "Begin selected-target scale route."\n',
+        "    jump scale_step_0000\n",
+    ]
+    for index in range(statements):
+        next_label = f"scale_step_{index + 1:04d}" if index + 1 < statements else "scale_target"
+        chunks.extend(
+            (
+                f"\nlabel scale_step_{index:04d}:\n",
+                f"    scene scale_location_{index:04d}\n",
+                f'    "Selected target step {index:04d}."\n',
+                f"    jump {next_label}\n",
+            )
+        )
+    chunks.extend(
+        (
+            "\nlabel scale_target:\n",
+            "    scene scale_finish\n",
+            '    "Scale finish target."\n',
+            "    return\n",
+        )
+    )
+    return "".join(chunks)
+
+
+def _destination(page: Mapping[str, object], *, title: str) -> Mapping[str, object]:
+    candidates = [
+        item
+        for item in _records(page.get("nodes"), "destination nodes")
+        if item.get("kind") == "generic_scene"
+        and str(item.get("title", "")).casefold() == title.casefold()
+    ]
+    if not candidates:
+        candidates = [
+            item
+            for item in _records(page.get("nodes"), "destination nodes")
+            if item.get("kind") == "generic_scene"
+        ]
+    if not candidates:
+        raise AssertionError(f"No supported generic-scene destination matched {title!r}")
+    return sorted(candidates, key=lambda item: str(item.get("target_id")))[0]
+
+
+def _fingerprint(path: Path) -> dict[str, object]:
+    stat = path.stat()
+    return {
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": stat.st_size,
+        "modified_ns": stat.st_mtime_ns,
+    }
+
+
+def _ratio(upper: Mapping[str, object], lower: Mapping[str, object], key: str) -> float:
+    lower_value = _as_int(lower[key], key)
+    if lower_value < 1:
+        raise AssertionError(f"{key} must be positive")
+    return _as_int(upper[key], key) / lower_value
+
+
+def _mapping(value: object, name: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} must be an object")
+    return value
+
+
+def _records(value: object, name: str) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise ValueError(f"{name} must be an array")
+    if not all(isinstance(item, Mapping) for item in value):
+        raise ValueError(f"{name} must contain objects")
+    return tuple(item for item in value if isinstance(item, Mapping))
+
+
+def _values(value: object, name: str) -> tuple[object, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise ValueError(f"{name} must be an array")
+    return tuple(value)
+
+
+def _as_int(value: object, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    return value
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
