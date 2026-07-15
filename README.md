@@ -153,6 +153,36 @@ Projects can be deleted explicitly after they are no longer needed:
 
 ## Tests and static checks
 
+Use the tiered Windows validation entry point for routine work:
+
+```powershell
+# Short edit loop: Ruff plus stable parser/semantic tests.
+.\scripts\validate.ps1 -Tier Fast
+
+# Scoped test selection; pass multiple targets as a PowerShell array.
+.\scripts\validate.ps1 -Tier Focused `
+  -PytestTarget tests\test_parser_graph.py,tests\test_semantic.py
+
+# Full deterministic repository, static, package, and scale verification.
+.\scripts\validate.ps1 -Tier Release
+
+# Inspect commands and timeouts without executing them.
+.\scripts\validate.ps1 -Tier Release -DryRun
+```
+
+`Release` discovers the complete pytest tree, packaged JavaScript, and deterministic
+`*_scale_acceptance.py` scripts, so later milestone additions join the gate without editing the
+orchestrator. It builds the wheel through pip's default isolated PEP 517 environment, installs it
+into a temporary target, and verifies imports and packaged browser assets. Each command has a
+bounded timeout; use `-TimeoutSeconds` only when a slower machine needs a deliberate override.
+
+Real-browser acceptance is excluded by default. Request the newest committed browser harness with
+`-Tier Release -IncludeBrowser`, or combine that switch with `-BrowserScript <path>`. Private-corpus
+acceptance is never discovered or run by the entry point; invoke a private harness directly only
+when its inputs are explicitly authorized and available.
+
+The equivalent individual commands remain:
+
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check src tests scripts
