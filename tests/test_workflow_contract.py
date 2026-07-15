@@ -22,7 +22,7 @@ def test_fresh_context_contract_has_one_gate_and_safe_goal_start() -> None:
     assert "`PASS` or `REVISE`" in semantic_template
 
 
-def test_fresh_context_dispatch_and_idle_state_are_explicit() -> None:
+def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     agents = _read("AGENTS.md")
     state = _read("docs/PROJECT_STATE.md")
     interface = _read(".agents/skills/renpy-milestone/agents/openai.yaml")
@@ -30,7 +30,11 @@ def test_fresh_context_dispatch_and_idle_state_are_explicit() -> None:
     for value in ("gpt-5.6-sol", "thinking `high`", "fast mode disabled"):
         assert value in agents
     assert "Repository prose cannot change Codex client settings" in agents
-    assert "Active milestone: None" in state
+    assert state.count("- Active milestone:") == 1
+    assert "Active milestone: M12 - Route-to-target solving and path requirements" in state
+    assert "Status: In progress" in state
+    assert "Semantic review: `PASS`" in state
+    assert "docs/milestones/M12/GOAL.md" in state
     assert "PR #20" in state
     assert "26502e88bd81b7a1934a6957724fd62f7ba5fbec" in state
     assert "default_prompt" in interface
