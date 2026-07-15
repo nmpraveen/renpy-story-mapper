@@ -70,6 +70,7 @@ def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> 
     for claim_collection in (
         "scene_claims",
         "visible_choice_claims",
+        "satisfying_effect_claims",
         "repeated_action_claims",
         "persistent_commitment_claims",
         "uncertainty_claims",

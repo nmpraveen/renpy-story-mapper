@@ -336,6 +336,7 @@ class RouteAlternative:
     provenance: RouteProvenance
     scene_claims: tuple[RouteClaim, ...] = ()
     visible_choice_claims: tuple[RouteClaim, ...] = ()
+    satisfying_effect_claims: tuple[RouteClaim, ...] = ()
     repeated_action_claims: tuple[RouteClaim, ...] = ()
     persistent_commitment_claims: tuple[RouteClaim, ...] = ()
     uncertainty_claims: tuple[RouteClaim, ...] = ()
@@ -358,6 +359,9 @@ class RouteAlternative:
             "provenance": self.provenance.to_dict(),
             "scene_claims": [item.to_dict() for item in self.scene_claims],
             "visible_choice_claims": [item.to_dict() for item in self.visible_choice_claims],
+            "satisfying_effect_claims": [
+                item.to_dict() for item in self.satisfying_effect_claims
+            ],
             "repeated_action_claims": [
                 item.to_dict() for item in self.repeated_action_claims
             ],
@@ -409,7 +413,7 @@ class RouteResult:
         if self.status in {
             TechnicalStatus.STATE_INFEASIBLE,
             TechnicalStatus.NO_STATIC_ROUTE,
-        } and (not self.complete or not self.closed_world):
+        } and (not self.complete or not self.exhaustive or not self.closed_world):
             raise ValueError("negative conclusions require exhaustive closed-world completion")
         if self.status in {
             TechnicalStatus.STATE_INFEASIBLE,

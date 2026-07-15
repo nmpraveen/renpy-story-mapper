@@ -56,7 +56,7 @@ function routeStartingAssumptions(candidate) {
 }
 
 function routeSatisfyingEffects(candidate) {
-  const direct = candidate.earlier_satisfying_effects || candidate.satisfying_effects || candidate.earlier_effects;
+  const direct = candidate.satisfying_effect_claims || candidate.earlier_satisfying_effects || candidate.satisfying_effects || candidate.earlier_effects;
   if (Array.isArray(direct)) return direct;
   return routeArray(candidate.requirements).map((item) => {
     if (item?.satisfying_effect) return item.satisfying_effect;

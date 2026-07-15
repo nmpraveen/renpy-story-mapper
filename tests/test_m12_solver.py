@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 import pytest
 
@@ -410,6 +411,12 @@ def test_known_literal_default_confirms_while_unknown_and_persistent_remain_cons
     assert known_result.recommended is not None
     assert known_result.recommended.requirements[0].satisfying_effect_id == "m10-init"
 
+    automatic_request = _solve(graph, model, destination)
+    assert automatic_request.initial_state == known_request.initial_state
+    automatic_result = solve_route(graph, model, automatic_request).result
+    assert automatic_result is not None
+    assert automatic_result.status is TechnicalStatus.CONFIRMED
+
     unknown_graph, unknown_model = _authority(
         ("root", "target"),
         ({"id": "edge", "source": "root", "target": "target", "gates": (gate.id,)},),
@@ -438,6 +445,42 @@ def test_known_literal_default_confirms_while_unknown_and_persistent_remain_cons
     ).result
     assert persistent_result is not None
     assert persistent_result.status is TechnicalStatus.BEST_KNOWN
+
+    persistent_gate = _fact(
+        "persistent-gate",
+        kind="requirement",
+        expression="persistent.score >= 2",
+        variable="persistent.score",
+    )
+    persistent_default = _fact(
+        "persistent-default",
+        kind="effect",
+        expression="default persistent.score = 2",
+        variable="persistent.score",
+        operation="assignment",
+        value=2,
+        initialization=True,
+    )
+    persistent_graph, persistent_model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "persistent-edge",
+                "source": "root",
+                "target": "target",
+                "gates": (persistent_gate.id,),
+            },
+        ),
+        facts=(persistent_gate, persistent_default),
+        node_facts={"root": (persistent_default.id,)},
+    )
+    persistent_request = _solve(persistent_graph, persistent_model, destination)
+    assert persistent_request.initial_state == ()
+    persistent_default_result = solve_route(
+        persistent_graph, persistent_model, persistent_request
+    ).result
+    assert persistent_default_result is not None
+    assert persistent_default_result.status is TechnicalStatus.BEST_KNOWN
 
 
 def test_store_scoped_same_name_does_not_satisfy_another_store_gate() -> None:
@@ -489,6 +532,36 @@ def test_known_initial_value_requires_exact_start_fact_and_evidence() -> None:
             model,
             RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
             initial=(fabricated,),
+        )
+
+    persistent_fact = _fact(
+        "persistent-init",
+        kind="effect",
+        expression="default persistent.score = 2",
+        variable="persistent.score",
+        operation="assignment",
+        value=2,
+        initialization=True,
+    )
+    persistent_graph, persistent_model = _authority(
+        ("root", "target"),
+        ({"id": "edge", "source": "root", "target": "target"},),
+        facts=(persistent_fact,),
+        node_facts={"root": (persistent_fact.id,)},
+    )
+    with pytest.raises(ValueError, match="lacks exact M10 initialization proof"):
+        _solve(
+            persistent_graph,
+            persistent_model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(
+                InitialStateValue(
+                    StateVariableIdentity("persistent", "score", True),
+                    InitialValueKind.KNOWN,
+                    2,
+                    ("evidence-persistent-init",),
+                ),
+            ),
         )
 
 
@@ -548,6 +621,16 @@ def test_compound_gate_preserves_effect_and_entry_precondition_attributions() ->
         ("a", RequirementSource.PROVEN_EFFECT),
         ("b", RequirementSource.ENTRY_PRECONDITION),
     }
+    effect_claim = result.recommended.satisfying_effect_claims[0]
+    effect_requirement = next(
+        item
+        for item in result.recommended.requirements
+        if item.source is RequirementSource.PROVEN_EFFECT
+    )
+    assert effect_claim.fact_id == set_a.id
+    assert effect_claim.evidence_ids == ("evidence-set-a",)
+    assert effect_claim.evidence_ids != effect_requirement.evidence_ids
+    assert set_a.id in result.recommended.provenance.fact_ids
 
 
 def test_single_anchor_retains_materially_distinct_alternative() -> None:
@@ -786,6 +869,215 @@ def test_repeated_increments_cross_multiple_thresholds_without_unbounded_project
     assert projection.key_for({score.key: 999}) == ((score.key, ">3"),)
 
 
+def test_one_increment_after_initialization_is_a_proven_effect_not_a_repeat() -> None:
+    gate = _fact("gate", kind="requirement", expression="score >= 1", variable="score")
+    initial_score = _fact(
+        "initial-score",
+        kind="effect",
+        expression="default score = 0",
+        variable="score",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "built", "target"),
+        (
+            {
+                "id": "build-once",
+                "source": "root",
+                "target": "built",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "finish",
+                "source": "built",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial_score, increment),
+        node_facts={"root": (initial_score.id,)},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    requirement = result.recommended.requirements[0]
+    assert requirement.source is RequirementSource.PROVEN_EFFECT
+    assert requirement.satisfying_effect_id == increment.id
+    assert requirement.repeated_count is None
+    assert result.recommended.repeated_action_claims == ()
+
+
+def test_call_resume_projection_preserves_internal_gate_and_effect_semantics() -> None:
+    gate = _fact("callee-gate", kind="requirement", expression="flag == True", variable="flag")
+    initial_flag = _fact(
+        "initial-flag",
+        kind="effect",
+        expression="default flag = False",
+        variable="flag",
+        operation="assignment",
+        value=False,
+        initialization=True,
+    )
+    set_flag = _fact(
+        "set-flag",
+        kind="effect",
+        expression="flag = True",
+        variable="flag",
+        operation="assignment",
+        value=True,
+    )
+    base_edges = (
+        {
+            "id": "enter",
+            "source": "root",
+            "target": "callee",
+            "kind": "call_enter",
+            "call_site_id": "site",
+        },
+        {
+            "id": "internal-gate",
+            "source": "callee",
+            "target": "callee-return",
+            "gates": (gate.id,),
+        },
+        {
+            "id": "procedure-return",
+            "source": "callee-return",
+            "target": "callee-exit",
+            "kind": "call_return",
+        },
+        {
+            "id": "summary",
+            "source": "root",
+            "target": "return-site",
+            "kind": "call_summary",
+            "call_site_id": "site",
+        },
+        {
+            "id": "resume",
+            "source": "return-site",
+            "target": "target",
+            "kind": "call_return",
+            "call_site_id": "site",
+        },
+    )
+    nodes = ("root", "callee", "callee-return", "callee-exit", "return-site", "target")
+    graph, model = _authority(
+        nodes,
+        base_edges,
+        facts=(gate, initial_flag, set_flag),
+        node_facts={"root": (initial_flag.id,)},
+    )
+    destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target")
+    contradiction = solve_route(graph, model, _solve(graph, model, destination)).result
+
+    assert contradiction is not None
+    assert contradiction.status is TechnicalStatus.STATE_INFEASIBLE
+    assert contradiction.negative_provenance is not None
+    assert contradiction.negative_provenance.fact_ids == (gate.id,)
+
+    effect_edges = (dict(base_edges[0], effects=(set_flag.id,)), *base_edges[1:])
+    effect_graph, effect_model = _authority(
+        nodes,
+        effect_edges,
+        facts=(gate, initial_flag, set_flag),
+        node_facts={"root": (initial_flag.id,)},
+    )
+    solved = solve_route(
+        effect_graph,
+        effect_model,
+        _solve(effect_graph, effect_model, destination),
+    ).result
+    assert solved is not None and solved.recommended is not None
+    assert solved.status is TechnicalStatus.CONFIRMED
+    assert solved.recommended.requirements[0].satisfying_effect_id == set_flag.id
+
+
+def test_target_cone_ignores_irrelevant_cycle_without_downgrading_route() -> None:
+    graph, model = _authority(
+        ("root", "target", "unrelated-a", "unrelated-b"),
+        (
+            {"id": "direct", "source": "root", "target": "target"},
+            {"id": "stray", "source": "root", "target": "unrelated-a"},
+            {"id": "cycle-a", "source": "unrelated-a", "target": "unrelated-b"},
+            {"id": "cycle-b", "source": "unrelated-b", "target": "unrelated-a"},
+        ),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.recommended.edge_ids == ("direct",)
+    assert result.budget_usage.limiting_dimension is None
+
+
+def test_sequential_diamonds_retain_bounded_alternatives_without_cartesian_search() -> None:
+    depth = 12
+    nodes = ["root"]
+    edges: list[dict[str, object]] = []
+    choice_nodes = {"root": CanonicalNodeKind.CHOICE}
+    source = "root"
+    for index in range(depth):
+        left = f"left-{index}"
+        right = f"right-{index}"
+        merge = f"merge-{index}"
+        nodes.extend((left, right, merge))
+        edges.extend(
+            (
+                {"id": f"choose-left-{index}", "source": source, "target": left},
+                {"id": f"choose-right-{index}", "source": source, "target": right},
+                {"id": f"merge-left-{index}", "source": left, "target": merge},
+                {"id": f"merge-right-{index}", "source": right, "target": merge},
+            )
+        )
+        choice_nodes[merge] = CanonicalNodeKind.CHOICE
+        source = merge
+    nodes.append("target")
+    edges.append({"id": "finish", "source": source, "target": "target"})
+    graph, model = _authority(tuple(nodes), tuple(edges), node_kinds=choice_nodes)
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.INCOMPLETE
+    assert result.termination_reason == "limit:alternatives"
+    assert result.budget_usage.expanded_states < 250
+    assert len(result.alternatives) == 3
+
+
 def test_expansion_budget_replay_is_byte_identical_and_never_negative() -> None:
     graph, model = _authority(
         ("root", "middle", "target"),
@@ -854,6 +1146,12 @@ def test_state_infeasible_requires_exhaustive_closed_world_contradiction() -> No
     assert result.negative_provenance is not None
     assert result.negative_provenance.fact_ids == (gate.id,)
     assert normalized_result_bytes(result.normalized_dict()) == result.normalized_bytes()
+    with pytest.raises(ValueError, match="exhaustive closed-world"):
+        replace(
+            result,
+            exhaustive=False,
+            termination_reason="best_route_proven",
+        )
 
 
 def test_dynamic_transfer_withholds_no_route_and_marks_best_known_instructions() -> None:

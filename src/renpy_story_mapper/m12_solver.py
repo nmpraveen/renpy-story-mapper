@@ -7,6 +7,7 @@ import heapq
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import cast
 
 from renpy_story_mapper.canonical_graph_contract import (
     CANONICAL_GRAPH_SCHEMA,
@@ -51,6 +52,8 @@ from renpy_story_mapper.m12_model import (
 )
 
 type CancelCheck = Callable[[], bool]
+type _RankKey = tuple[int | str, ...]
+type _MaterialPrefixSignature = tuple[tuple[str, ...], tuple[str, ...]]
 _UNKNOWN = object()
 
 
@@ -163,7 +166,11 @@ def bind_route_request(
     selected_start = start_node_id or (roots[0] if len(roots) == 1 else "")
     if not selected_start or selected_start not in roots:
         raise ValueError("M10 does not identify the requested authoritative starting context")
-    _validate_initial_state(graph, selected_start, initial_state)
+    supplied_initial = {item.variable.key: item for item in initial_state}
+    for item in _authoritative_initial_values(graph, selected_start):
+        supplied_initial.setdefault(item.variable.key, item)
+    resolved_initial = tuple(sorted(supplied_initial.values(), key=lambda item: item.variable))
+    _validate_initial_state(graph, selected_start, resolved_initial)
     _map_destination(graph, scene_model, destination)
     return RouteRequest(
         source_generation=graph.source_generation,
@@ -173,7 +180,7 @@ def bind_route_request(
         scene_hash=scene_model.structural_hash,
         start_node_id=selected_start,
         destination=destination,
-        initial_state=tuple(initial_state),
+        initial_state=resolved_initial,
         limits=limits or DeterministicLimitProfile(),
     )
 
@@ -226,12 +233,28 @@ def solve_route(
         if item.kind == "call_summary"
         and isinstance(item.attributes.get("call_site_id"), str)
     }
+    resume_predecessors = _call_resume_predecessors(structural_edges)
 
-    projection = numeric_projection(graph, {item.node_id for item in anchors}, incoming, fact_by_id)
-    target_reverse_nodes = _resolved_reverse_nodes(
-        {item.node_id for item in anchors}, incoming
+    target_node_ids = {item.node_id for item in anchors}
+    projection = numeric_projection(
+        graph,
+        target_node_ids,
+        incoming,
+        fact_by_id,
+        resume_predecessors=resume_predecessors,
     )
-    values, initial_kinds = _initial_values(request.initial_state, projection)
+    target_cone_nodes = _reverse_nodes(
+        target_node_ids, incoming, resume_predecessors=resume_predecessors
+    )
+    target_reverse_nodes = _resolved_reverse_nodes(
+        target_node_ids, incoming, resume_predecessors=resume_predecessors
+    )
+    values, value_sources, initial_kinds = _initial_values(
+        graph,
+        request.start_node_id,
+        request.initial_state,
+        projection,
+    )
     occurrence_edge = _occurrence_edge_map(graph, scene_model)
     scene_by_node, atom_by_node = _scene_ownership(scene_model)
     lane_by_scene = {
@@ -250,7 +273,7 @@ def solve_route(
     start = _SearchState(
         request.start_node_id,
         values,
-        {},
+        value_sources,
         initial_kinds,
         (request.start_node_id,),
         (),
@@ -274,7 +297,11 @@ def solve_route(
             start,
         ),
     )
-    retained: dict[tuple[object, ...], tuple[int | str, ...]] = {}
+    retained: dict[
+        tuple[object, ...],
+        list[tuple[_RankKey, _MaterialPrefixSignature]],
+    ] = {}
+    retained_count = 0
     candidates: dict[tuple[object, ...], RouteAlternative] = {}
     expanded = 0
     prefixes = 1
@@ -288,6 +315,7 @@ def solve_route(
     contradiction_edge_ids: set[str] = set()
     unsupported_block = False
     best_route_proven = False
+    alternative_limit_hit = False
     candidate_goal = request.limits.alternatives + 1
 
     def record_candidates(candidate_state: _SearchState) -> bool:
@@ -339,21 +367,43 @@ def solve_route(
             best_candidate = min(candidates.values(), key=lambda item: item.ranking_key)
             if best_candidate.ranking_key[:7] <= frontier[0][0][:7]:
                 best_route_proven = True
-                if len(candidates) >= candidate_goal:
-                    limit_hit = "alternatives"
-                    break
         if cancelled is not None and cancelled():
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
         _, _, state = heapq.heappop(frontier)
-        key = _state_key(state, projection, scene_by_node, material_edge_ids)
+        key = _state_key(state, projection)
+        prefix_signature = _material_prefix_signature(
+            state, scene_by_node, material_edge_ids
+        )
         state_rank = _partial_rank(
             state, scene_by_node, minimum_persistent_commitments
         )
-        previous = retained.get(key)
-        if previous is not None and previous <= state_rank:
-            continue
-        retained[key] = state_rank
-        if len(retained) > request.limits.retained_states:
+        retained_bucket = retained.setdefault(key, [])
+        matching_index = next(
+            (
+                index
+                for index, (_, signature) in enumerate(retained_bucket)
+                if signature == prefix_signature
+            ),
+            None,
+        )
+        if matching_index is not None:
+            previous_rank, _ = retained_bucket[matching_index]
+            if previous_rank <= state_rank:
+                continue
+            retained_bucket[matching_index] = (state_rank, prefix_signature)
+        elif len(retained_bucket) < candidate_goal:
+            retained_bucket.append((state_rank, prefix_signature))
+            retained_count += 1
+        else:
+            alternative_limit_hit = True
+            worst_index = max(
+                range(len(retained_bucket)),
+                key=lambda index: retained_bucket[index],
+            )
+            if retained_bucket[worst_index] <= (state_rank, prefix_signature):
+                continue
+            retained_bucket[worst_index] = (state_rank, prefix_signature)
+        if retained_count > request.limits.retained_states:
             limit_hit = "retained_states"
             break
         expanded += 1
@@ -366,13 +416,19 @@ def solve_route(
         if record_candidates(state):
             continue
 
-        traversal_options = [(edge, False) for edge in outgoing.get(state.node_id, ())]
+        traversal_options = [
+            (edge, False)
+            for edge in outgoing.get(state.node_id, ())
+            if edge.target_id in target_cone_nodes
+            and _matches_target_entry_context(edge, anchors)
+        ]
         if state.call_stack and state.edge_ids:
             prior_edge = edge_by_id[state.edge_ids[-1]]
             if (
                 prior_edge.kind == "call_return"
                 and prior_edge.attributes.get("call_site_id") is None
                 and state.call_stack[-1] in call_summaries
+                and call_summaries[state.call_stack[-1]].target_id in target_cone_nodes
             ):
                 traversal_options.append((call_summaries[state.call_stack[-1]], True))
         for edge, is_resume in traversal_options:
@@ -445,6 +501,8 @@ def solve_route(
             break
 
     limit_hit = limit_hit or bounded_limit_hit
+    if alternative_limit_hit:
+        limit_hit = limit_hit or "alternatives"
     closed_world = _closed_world(graph)
     exhaustive = limit_hit is None and not frontier
     ordered_candidates = sorted(candidates.values(), key=lambda item: item.ranking_key)
@@ -457,7 +515,7 @@ def solve_route(
 
     usage = BudgetUsage(
         expanded_states=min(expanded, request.limits.expanded_states),
-        retained_states=min(len(retained), request.limits.retained_states),
+        retained_states=min(retained_count, request.limits.retained_states),
         peak_frontier_states=min(peak_frontier, request.limits.frontier_states),
         prefix_records=min(prefixes, request.limits.prefix_records),
         accounting_units=min(accounting, request.limits.accounting_units),
@@ -585,6 +643,8 @@ def numeric_projection(
     target_node_ids: set[str],
     incoming: Mapping[str, Sequence[CanonicalEdge]] | None = None,
     fact_by_id: Mapping[str, CanonicalFact] | None = None,
+    *,
+    resume_predecessors: Mapping[str, Sequence[str]] | None = None,
 ) -> NumericProjection:
     """Build a target-specific numeric abstraction over the reverse structural cone."""
 
@@ -610,6 +670,10 @@ def numeric_projection(
             if edge.source_id not in reverse_nodes:
                 reverse_nodes.add(edge.source_id)
                 pending.append(edge.source_id)
+        for predecessor in (resume_predecessors or {}).get(node_id, ()):
+            if predecessor not in reverse_nodes:
+                reverse_nodes.add(predecessor)
+                pending.append(predecessor)
     variables: dict[str, StateVariableIdentity] = {}
     thresholds: dict[str, set[int | float]] = defaultdict(set)
     exact: set[str] = set()
@@ -697,34 +761,92 @@ def _validate_initial_state(
 ) -> None:
     """Accept KNOWN values only from an exact M10-proven start initialization fact."""
 
-    start = next((item for item in graph.nodes if item.id == start_node_id), None)
-    if start is None:
+    if not any(item.id == start_node_id for item in graph.nodes):
         raise ValueError("initial state start context is unavailable")
-    start_fact_ids = set(_strings(start.attributes.get("fact_ids")))
     for item in initial_state:
         if item.kind is not InitialValueKind.KNOWN:
             continue
-        matching = []
-        for fact in graph.facts:
-            attributes = fact.attributes
-            variable = attributes.get("variable")
-            if not isinstance(variable, str) or not variable:
-                continue
-            if (
-                fact.id in start_fact_ids
-                and fact.kind == "effect"
-                and fact.status == "proven"
-                and attributes.get("initialization") is True
-                and attributes.get("operation") == "assignment"
-                and identity_from_name(variable) == item.variable
-                and _same_scalar(attributes.get("value"), item.value)
-                and set(item.evidence_ids) <= set(fact.evidence_ids)
-            ):
-                matching.append(fact.id)
-        if not matching:
+        if not _matching_initial_fact_ids(graph, start_node_id, item):
             raise ValueError(
                 f"known initial value for {item.variable.key} lacks exact M10 initialization proof"
             )
+
+
+def _authoritative_initial_values(
+    graph: CanonicalGraph, start_node_id: str
+) -> tuple[InitialStateValue, ...]:
+    """Derive only unambiguous literal initialization facts owned by the M10 start."""
+
+    start = next((item for item in graph.nodes if item.id == start_node_id), None)
+    if start is None:
+        return ()
+    facts = {item.id: item for item in graph.facts}
+    candidates: dict[str, list[tuple[StateVariableIdentity, StateScalar, CanonicalFact]]] = (
+        defaultdict(list)
+    )
+    for fact_id in _strings(start.attributes.get("fact_ids")):
+        fact = facts.get(fact_id)
+        if fact is None:
+            continue
+        attributes = fact.attributes
+        variable_name = attributes.get("variable")
+        value = attributes.get("value")
+        if (
+            fact.kind != "effect"
+            or fact.status != "proven"
+            or attributes.get("initialization") is not True
+            or attributes.get("operation") != "assignment"
+            or not isinstance(variable_name, str)
+            or not variable_name
+            or not _is_scalar(value)
+        ):
+            continue
+        identity = identity_from_name(variable_name)
+        if identity.persistent is True:
+            continue
+        candidates[identity.key].append((identity, cast(StateScalar, value), fact))
+    result: list[InitialStateValue] = []
+    for records in candidates.values():
+        values = {(type(value).__name__, repr(value)) for _, value, _ in records}
+        if len(values) != 1:
+            continue
+        identity, value, selected_fact = min(records, key=lambda item: item[2].id)
+        evidence_ids = tuple(sorted(selected_fact.evidence_ids))
+        result.append(
+            InitialStateValue(identity, InitialValueKind.KNOWN, value, evidence_ids)
+        )
+    return tuple(sorted(result, key=lambda item: item.variable))
+
+
+def _matching_initial_fact_ids(
+    graph: CanonicalGraph,
+    start_node_id: str,
+    item: InitialStateValue,
+) -> tuple[str, ...]:
+    if item.variable.persistent is True:
+        return ()
+    start = next((node for node in graph.nodes if node.id == start_node_id), None)
+    if start is None:
+        return ()
+    start_fact_ids = set(_strings(start.attributes.get("fact_ids")))
+    matching: list[str] = []
+    for fact in graph.facts:
+        attributes = fact.attributes
+        variable = attributes.get("variable")
+        if not isinstance(variable, str) or not variable:
+            continue
+        if (
+            fact.id in start_fact_ids
+            and fact.kind == "effect"
+            and fact.status == "proven"
+            and attributes.get("initialization") is True
+            and attributes.get("operation") == "assignment"
+            and identity_from_name(variable) == item.variable
+            and _same_scalar(attributes.get("value"), item.value)
+            and set(item.evidence_ids) <= set(fact.evidence_ids)
+        ):
+            matching.append(fact.id)
+    return tuple(sorted(matching))
 
 
 def _same_scalar(left: object, right: object) -> bool:
@@ -863,10 +985,17 @@ def _occurrence_edge_map(
 
 
 def _initial_values(
+    graph: CanonicalGraph,
+    start_node_id: str,
     items: Sequence[InitialStateValue],
     projection: NumericProjection,
-) -> tuple[dict[str, object], dict[str, InitialStateValue]]:
+) -> tuple[
+    dict[str, object],
+    dict[str, tuple[str, int]],
+    dict[str, InitialStateValue],
+]:
     values: dict[str, object] = {}
+    sources: dict[str, tuple[str, int]] = {}
     initial: dict[str, InitialStateValue] = {}
     relevant = {item.key for item in projection.relevant_variables}
     for item in items:
@@ -875,7 +1004,11 @@ def _initial_values(
         initial[item.variable.key] = item
         if item.kind is not InitialValueKind.UNKNOWN:
             values[item.variable.key] = item.value
-    return values, initial
+        if item.kind is InitialValueKind.KNOWN:
+            matching = _matching_initial_fact_ids(graph, start_node_id, item)
+            if matching:
+                sources[item.variable.key] = (matching[0], 0)
+    return values, sources, initial
 
 
 def _apply_node_effects(
@@ -891,6 +1024,8 @@ def _apply_node_effects(
     for fact_id in _strings(node.attributes.get("fact_ids")):
         fact = facts.get(fact_id)
         if fact is None or fact.kind != "effect":
+            continue
+        if fact.attributes.get("initialization") is True:
             continue
         _apply_effect(fact, values, sources, warnings, relevant)
     return replace(
@@ -1198,9 +1333,8 @@ def _requirement_attribution(
         return RequirementAttribution(
             fact_id,
             expression,
-            RequirementSource.PROVEN_EFFECT,
+            RequirementSource.UNKNOWN,
             variable,
-            satisfying_effect_id=f"initial:{entry.evidence_ids[0]}",
             evidence_ids=evidence,
         )
     return RequirementAttribution(
@@ -1234,10 +1368,10 @@ def _apply_effect(
         return
     operation = str(fact.attributes.get("operation", ""))
     value = fact.attributes.get("value")
-    prior_count = sources.get(variable.key, (fact.id, 0))[1]
+    prior_source = sources.get(variable.key)
     if operation == "assignment" and _is_scalar(value):
         values[variable.key] = value
-        sources[variable.key] = (fact.id, 1)
+        sources[variable.key] = (fact.id, 0)
     elif (
         operation in {"increment", "decrement"}
         and isinstance(value, int | float)
@@ -1247,7 +1381,12 @@ def _apply_effect(
         if isinstance(current, int | float) and not isinstance(current, bool):
             delta = value if operation == "increment" else -value
             values[variable.key] = current + delta
-            sources[variable.key] = (fact.id, prior_count + 1)
+            repeated_count = (
+                prior_source[1] + 1
+                if prior_source is not None and prior_source[0] == fact.id
+                else 1
+            )
+            sources[variable.key] = (fact.id, repeated_count)
         else:
             values.pop(variable.key, None)
             sources.pop(variable.key, None)
@@ -1361,6 +1500,17 @@ def _route_alternative(
         )
     )
     requirements = tuple(_dedupe_requirements(state.requirements))
+    satisfying_effect_claims = tuple(
+        RouteClaim(
+            text=f"{item.expression} — effect {item.satisfying_effect_id}",
+            fact_id=item.satisfying_effect_id,
+            evidence_ids=tuple(sorted(facts[item.satisfying_effect_id].evidence_ids)),
+        )
+        for item in requirements
+        if item.source is RequirementSource.PROVEN_EFFECT
+        and item.satisfying_effect_id is not None
+        and item.satisfying_effect_id in facts
+    )
     warnings = tuple(state.warnings)
     repeated_claims = tuple(
         _edge_claim(
@@ -1442,6 +1592,11 @@ def _route_alternative(
         None,
     )
     fact_id_values = {item.fact_id for item in requirements}
+    fact_id_values.update(
+        item.satisfying_effect_id
+        for item in requirements
+        if item.satisfying_effect_id is not None
+    )
     if selected_occurrence is not None:
         fact_id_values.update(selected_occurrence.guard_fact_ids)
         fact_id_values.update(selected_occurrence.provenance.fact_ids)
@@ -1506,6 +1661,7 @@ def _route_alternative(
         ),
         scene_claims,
         choice_claims,
+        satisfying_effect_claims,
         repeated_claims,
         persistent_claims,
         warning_claims,
@@ -1808,8 +1964,6 @@ def _visible_choice_text(
 def _state_key(
     state: _SearchState,
     projection: NumericProjection,
-    scene_by_node: Mapping[str, str],
-    material_edge_ids: set[str],
 ) -> tuple[object, ...]:
     requirements = tuple(
         (
@@ -1819,14 +1973,6 @@ def _state_key(
             item.repeated_count,
         )
         for item in _dedupe_requirements(state.requirements)
-    )
-    scene_prefix: list[str] = []
-    for node_id in state.node_ids:
-        scene_id = scene_by_node.get(node_id)
-        if scene_id is not None and (not scene_prefix or scene_prefix[-1] != scene_id):
-            scene_prefix.append(scene_id)
-    material_edges = tuple(
-        edge_id for edge_id in state.edge_ids if edge_id in material_edge_ids
     )
     return (
         state.node_id,
@@ -1841,9 +1987,25 @@ def _state_key(
         state.warnings,
         state.persistent_lane_ids,
         state.selected_occurrence_id,
-        tuple(scene_prefix),
-        material_edges,
     )
+
+
+def _material_prefix_signature(
+    state: _SearchState,
+    scene_by_node: Mapping[str, str],
+    material_edge_ids: set[str],
+) -> _MaterialPrefixSignature:
+    """Identify route-visible diversity separately from semantic dominance."""
+
+    scene_prefix: list[str] = []
+    for node_id in state.node_ids:
+        scene_id = scene_by_node.get(node_id)
+        if scene_id is not None and (not scene_prefix or scene_prefix[-1] != scene_id):
+            scene_prefix.append(scene_id)
+    material_edges = tuple(
+        edge_id for edge_id in state.edge_ids if edge_id in material_edge_ids
+    )
+    return tuple(scene_prefix), material_edges
 
 
 def _partial_rank(
@@ -2004,8 +2166,75 @@ def _solver_edges(edges: Sequence[CanonicalEdge]) -> tuple[CanonicalEdge, ...]:
     )
 
 
+def _call_resume_predecessors(
+    edges: Sequence[CanonicalEdge],
+) -> dict[str, tuple[str, ...]]:
+    """Bind each call summary continuation to its callee's exact return boundary."""
+
+    outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    enters_by_site: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    summaries_by_site: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    for edge in edges:
+        outgoing[edge.source_id].append(edge)
+        call_site = edge.attributes.get("call_site_id")
+        if not isinstance(call_site, str) or not call_site:
+            continue
+        if edge.kind == "call_enter":
+            enters_by_site[call_site].append(edge)
+        elif edge.kind == "call_summary":
+            summaries_by_site[call_site].append(edge)
+    for records in outgoing.values():
+        records.sort(key=lambda item: item.id)
+
+    result: dict[str, set[str]] = defaultdict(set)
+    for call_site in sorted(set(enters_by_site) & set(summaries_by_site)):
+        exits: set[str] = set()
+        for enter in sorted(enters_by_site[call_site], key=lambda item: item.id):
+            pending = deque([enter.target_id])
+            seen = {enter.target_id}
+            while pending:
+                node_id = pending.popleft()
+                node_edges = outgoing.get(node_id, ())
+                nested_sites = {
+                    nested_site
+                    for edge in node_edges
+                    if edge.kind == "call_enter"
+                    and isinstance(
+                        nested_site := edge.attributes.get("call_site_id"), str
+                    )
+                    and nested_site
+                }
+                for edge in node_edges:
+                    edge_site = edge.attributes.get("call_site_id")
+                    if edge.kind == "call_return" and edge_site is None:
+                        exits.add(edge.target_id)
+                        continue
+                    if edge.kind == "call_enter" and edge_site in nested_sites:
+                        continue
+                    if edge.target_id not in seen:
+                        seen.add(edge.target_id)
+                        pending.append(edge.target_id)
+        for summary in summaries_by_site[call_site]:
+            result[summary.target_id].update(exits)
+    return {key: tuple(sorted(values)) for key, values in sorted(result.items())}
+
+
+def _matches_target_entry_context(
+    edge: CanonicalEdge, anchors: Sequence[_TargetAnchor]
+) -> bool:
+    matching = [item for item in anchors if item.node_id == edge.target_id]
+    if not matching:
+        return True
+    return any(
+        item.required_edge_id is None or item.required_edge_id == edge.id for item in matching
+    )
+
+
 def _resolved_reverse_nodes(
-    targets: set[str], incoming: Mapping[str, Sequence[CanonicalEdge]]
+    targets: set[str],
+    incoming: Mapping[str, Sequence[CanonicalEdge]],
+    *,
+    resume_predecessors: Mapping[str, Sequence[str]] | None = None,
 ) -> set[str]:
     result = set(targets)
     pending = deque(sorted(targets))
@@ -2015,11 +2244,18 @@ def _resolved_reverse_nodes(
             if edge.resolved and edge.source_id not in result:
                 result.add(edge.source_id)
                 pending.append(edge.source_id)
+        for predecessor in (resume_predecessors or {}).get(node_id, ()):
+            if predecessor not in result:
+                result.add(predecessor)
+                pending.append(predecessor)
     return result
 
 
 def _reverse_nodes(
-    targets: set[str], incoming: Mapping[str, Sequence[CanonicalEdge]]
+    targets: set[str],
+    incoming: Mapping[str, Sequence[CanonicalEdge]],
+    *,
+    resume_predecessors: Mapping[str, Sequence[str]] | None = None,
 ) -> set[str]:
     """Return the structural reverse cone for one selected destination only."""
 
@@ -2031,6 +2267,10 @@ def _reverse_nodes(
             if edge.source_id not in result:
                 result.add(edge.source_id)
                 pending.append(edge.source_id)
+        for predecessor in (resume_predecessors or {}).get(node_id, ()):
+            if predecessor not in result:
+                result.add(predecessor)
+                pending.append(predecessor)
     return result
 
 
