@@ -10,7 +10,7 @@ const CURSOR_HISTORY_LIMIT = 12;
 const state = {
   project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
   analysisStatus: null,
-  offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
+  offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null, detailRunToken: 0,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
@@ -52,7 +52,14 @@ function routeScenes(candidate) {
 function routeStartingAssumptions(candidate) {
   const direct = candidate.starting_assumptions || candidate.entry_preconditions || candidate.external_preconditions;
   if (Array.isArray(direct)) return direct;
-  return routeArray(candidate.requirements).filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.source || item?.resolution || item?.status || item?.kind));
+  return routeArray(candidate.requirements)
+    .filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.source || item?.resolution || item?.status || item?.kind))
+    .map((item) => {
+      const entry = item?.entry_precondition; const variable = entry?.variable;
+      if (!entry || !variable?.name) return item;
+      const identity = `${variable.scope || "store"}.${variable.name}`;
+      return { ...item, text: `Start with ${identity} = ${JSON.stringify(entry.value)}.` };
+    });
 }
 
 function routeSatisfyingEffects(candidate) {
@@ -695,9 +702,11 @@ function normalizedSceneDetail(detail, elementId) {
 }
 
 async function openDetail(elementId) {
+  const token = state.detailRunToken + 1; state.detailRunToken = token;
   try {
     const sceneMode = state.mode === "scenes";
     let detail = sceneMode ? await api.sceneDetail(elementId) : state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId);
+    if (token !== state.detailRunToken) return;
     if (detail.status === "unavailable") {
       if (sceneMode && state.inspectionPage) { await switchMode("inspection"); toast("Scene presentation became unavailable; M10 Inspection is shown"); }
       else if (state.mode === "ai") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); }
@@ -733,7 +742,7 @@ async function openDetail(elementId) {
     }
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();
-  } catch (error) { toast(error.message); }
+  } catch (error) { if (token === state.detailRunToken) toast(error.message); }
 }
 
 async function openCanonicalRecord() {
@@ -860,7 +869,7 @@ function bind() {
   $("#solveRoute").addEventListener("click", runRouteSolve); $("#retryRoute").addEventListener("click", runRouteSolve); $("#cancelRoute").addEventListener("click", cancelRouteSolve); $("#exportRouteJson").addEventListener("click", exportRouteJson);
   $("#openRouteEvidence").addEventListener("click", () => {
     const candidate = state.route.result?.recommended;
-    const target = candidate?.selected_occurrence_id || routeArray(candidate?.scene_ids).at(-1) || state.route.activeSourceId;
+    const target = candidate?.selected_occurrence_id || state.route.activeSourceId || state.route.destination?.target_id || routeArray(candidate?.scene_ids).at(-1);
     if (target) openDetail(target);
   });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });

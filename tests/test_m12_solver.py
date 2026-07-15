@@ -692,6 +692,121 @@ def test_internally_built_score_outranks_equivalent_entry_precondition() -> None
     assert result.alternatives[0].requirements[0].source is RequirementSource.ENTRY_PRECONDITION
 
 
+def test_mixed_entry_value_and_internal_increment_remains_an_entry_precondition() -> None:
+    gate = _fact("mixed-gate", kind="requirement", expression="score >= 2", variable="score")
+    increment = _fact(
+        "mixed-increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "build", "target"),
+        (
+            {
+                "id": "mixed-build",
+                "source": "root",
+                "target": "build",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "mixed-finish",
+                "source": "build",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, increment),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    request = _solve(
+        graph,
+        model,
+        RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 1),),
+    )
+
+    result = solve_route(graph, model, request).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.PREREQUISITES
+    requirement = result.recommended.requirements[0]
+    assert requirement.source is RequirementSource.ENTRY_PRECONDITION
+    assert requirement.entry_precondition == request.initial_state[0]
+    assert requirement.supporting_effect_ids == (increment.id,)
+    assert result.recommended.satisfying_effect_claims[0].fact_id == increment.id
+    assert {gate.id, increment.id} <= set(result.recommended.provenance.fact_ids)
+    assert any(
+        instruction.kind == "starting_assumption"
+        and instruction.text == "Start with store:score:persistent-unknown = 1."
+        for instruction in result.recommended.instructions
+    )
+
+
+def test_fully_internal_score_outranks_mixed_entry_and_effect_score() -> None:
+    gate = _fact("mixed-rank-gate", kind="requirement", expression="score >= 2", variable="score")
+    increment = _fact(
+        "mixed-rank-increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    assignment = _fact(
+        "mixed-rank-assignment",
+        kind="effect",
+        expression="score = 2",
+        variable="score",
+        operation="assignment",
+        value=2,
+    )
+    graph, model = _authority(
+        ("root", "join", "target"),
+        (
+            {
+                "id": "mixed-path",
+                "source": "root",
+                "target": "join",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "internal-path",
+                "source": "root",
+                "target": "join",
+                "effects": (assignment.id,),
+            },
+            {
+                "id": "gate-edge",
+                "source": "join",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, increment, assignment),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 1),),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.edge_ids == ("internal-path", "gate-edge")
+    assert result.recommended.requirements[0].source is RequirementSource.PROVEN_EFFECT
+    mixed = next(item for item in result.alternatives if item.edge_ids[0] == "mixed-path")
+    assert mixed.requirements[0].source is RequirementSource.ENTRY_PRECONDITION
+    assert mixed.requirements[0].supporting_effect_ids == (increment.id,)
+
+
 def test_exact_and_generic_shared_callee_report_the_selected_occurrence() -> None:
     graph, model = _authority(
         ("root", "callee", "after"),
@@ -857,8 +972,10 @@ def test_repeated_increments_cross_multiple_thresholds_without_unbounded_project
     assert result.status is TechnicalStatus.INCOMPLETE
     assert result.termination_reason == "limit:repetition_per_transition"
     requirement = result.recommended.requirements[0]
-    assert requirement.source is RequirementSource.REPEATED_EVENT
-    assert requirement.repeated_count == 3
+    assert requirement.source is RequirementSource.ENTRY_PRECONDITION
+    assert requirement.entry_precondition == request.initial_state[0]
+    assert requirement.supporting_effect_ids == (increment.id,)
+    assert requirement.repeated_count is None
     assert result.recommended.repeated_action_claims
     repeat_claim = result.recommended.repeated_action_claims[0]
     assert repeat_claim.edge_id == "repeat"

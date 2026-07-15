@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import heapq
+import json
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -107,10 +108,13 @@ class _TargetAnchor:
 class _ValueSource:
     effect_ids: tuple[str, ...]
     effect_counts: tuple[tuple[str, int], ...]
-    last_effect_id: str
+    last_effect_id: str | None
+    depends_on_entry_precondition: bool = False
 
     @property
     def repeated_count(self) -> int:
+        if self.last_effect_id is None:
+            return 0
         return dict(self.effect_counts)[self.last_effect_id]
 
 
@@ -1023,6 +1027,8 @@ def _initial_values(
                     ((matching[0], 1),),
                     matching[0],
                 )
+        elif item.kind is InitialValueKind.ENTRY_PRECONDITION:
+            sources[item.variable.key] = _ValueSource((), (), None, True)
     return values, sources, initial
 
 
@@ -1317,7 +1323,27 @@ def _requirement_attribution(
         )
     source = value_sources.get(variable.key)
     if source is not None:
+        entry = initial.get(variable.key)
+        if source.depends_on_entry_precondition:
+            if entry is None or entry.kind is not InitialValueKind.ENTRY_PRECONDITION:
+                return RequirementAttribution(
+                    fact_id,
+                    expression,
+                    RequirementSource.UNKNOWN,
+                    variable,
+                    evidence_ids=evidence,
+                )
+            return RequirementAttribution(
+                fact_id,
+                expression,
+                RequirementSource.ENTRY_PRECONDITION,
+                variable,
+                supporting_effect_ids=source.effect_ids,
+                entry_precondition=entry,
+                evidence_ids=evidence,
+            )
         if source.repeated_count > 1:
+            assert source.last_effect_id is not None
             return RequirementAttribution(
                 fact_id,
                 expression,
@@ -1326,6 +1352,14 @@ def _requirement_attribution(
                 repeated_effect_id=source.last_effect_id,
                 supporting_effect_ids=source.effect_ids,
                 repeated_count=source.repeated_count,
+                evidence_ids=evidence,
+            )
+        if source.last_effect_id is None:
+            return RequirementAttribution(
+                fact_id,
+                expression,
+                RequirementSource.UNKNOWN,
+                variable,
                 evidence_ids=evidence,
             )
         return RequirementAttribution(
@@ -1344,6 +1378,7 @@ def _requirement_attribution(
             expression,
             RequirementSource.ENTRY_PRECONDITION,
             variable,
+            entry_precondition=entry,
             evidence_ids=evidence,
         )
     if entry is not None and entry.kind is InitialValueKind.KNOWN:
@@ -1408,6 +1443,11 @@ def _apply_effect(
                 effect_ids,
                 tuple((effect_id, effect_counts[effect_id]) for effect_id in effect_ids),
                 fact.id,
+                (
+                    prior_source.depends_on_entry_precondition
+                    if prior_source is not None
+                    else False
+                ),
             )
         else:
             values.pop(variable.key, None)
@@ -1529,7 +1569,11 @@ def _route_alternative(
             evidence_ids=tuple(sorted(facts[effect_id].evidence_ids)),
         )
         for item in requirements
-        if item.source in {RequirementSource.PROVEN_EFFECT, RequirementSource.REPEATED_EVENT}
+        if item.source in {
+            RequirementSource.PROVEN_EFFECT,
+            RequirementSource.REPEATED_EVENT,
+            RequirementSource.ENTRY_PRECONDITION,
+        }
         for effect_id in item.supporting_effect_ids
         if effect_id in facts
     )
@@ -1814,9 +1858,14 @@ def _instructions(
     rows: list[dict[str, object]] = []
     for requirement in requirements:
         if requirement.source is RequirementSource.ENTRY_PRECONDITION:
+            entry = requirement.entry_precondition
+            assert entry is not None
             rows.append({
                 "kind": "starting_assumption",
-                "text": f"Start with: {requirement.expression}.",
+                "text": (
+                    f"Start with {entry.variable.key} = "
+                    f"{json.dumps(entry.value, ensure_ascii=False, sort_keys=True)}."
+                ),
                 "fact_id": requirement.fact_id,
                 "evidence_ids": requirement.evidence_ids,
             })
@@ -1849,7 +1898,11 @@ def _instructions(
         source = {
             RequirementSource.PROVEN_EFFECT: "an earlier proven effect",
             RequirementSource.REPEATED_EVENT: "a proven repeated-event count",
-            RequirementSource.ENTRY_PRECONDITION: "the explicit starting assumption",
+            RequirementSource.ENTRY_PRECONDITION: (
+                "the explicit starting assumption plus earlier proven effects"
+                if requirement.supporting_effect_ids
+                else "the explicit starting assumption"
+            ),
             RequirementSource.UNKNOWN: "unknown or unsupported state",
         }[requirement.source]
         rows.append({
@@ -2021,7 +2074,14 @@ def _state_key(
         state.call_stack,
         projection.key_for(state.values),
         tuple(
-            (key, state.values.get(key, "unknown"))
+            (
+                key,
+                state.values.get(key, "unknown"),
+                state.value_sources[key].effect_ids,
+                state.value_sources[key].effect_counts,
+                state.value_sources[key].last_effect_id,
+                state.value_sources[key].depends_on_entry_precondition,
+            )
             for key in sorted(state.value_sources)
             if key in {item.key for item in projection.relevant_variables}
         ),

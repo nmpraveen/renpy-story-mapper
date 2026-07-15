@@ -113,13 +113,22 @@ def test_material_requirement_has_exactly_one_support_category() -> None:
         supporting_effect_ids=("effect",),
         repeated_count=2,
     )
+    entry_value = InitialStateValue(
+        StateVariableIdentity("store", "score", None),
+        InitialValueKind.ENTRY_PRECONDITION,
+        2,
+    )
     entry = RequirementAttribution(
-        "fact", "score > 1", RequirementSource.ENTRY_PRECONDITION
+        "fact",
+        "score > 1",
+        RequirementSource.ENTRY_PRECONDITION,
+        entry_precondition=entry_value,
     )
 
     assert {item.source for item in (unknown, effect, repeated, entry)} == set(
         RequirementSource
     )
+    assert entry.to_dict()["entry_precondition"] == entry_value.to_dict()
     with pytest.raises(ValueError, match="cannot carry"):
         RequirementAttribution(
             "fact",

@@ -29,7 +29,14 @@ def test_route_panel_stays_inside_the_existing_two_level_workspace() -> None:
     assert ">Open Detail / Evidence</button>" in html
     assert "state.route.activeSourceId" in app
     assert "candidate?.selected_occurrence_id" in app
-    assert "routeArray(candidate?.scene_ids).at(-1)" in app
+    assert (
+        "candidate?.selected_occurrence_id || state.route.activeSourceId || "
+        "state.route.destination?.target_id"
+    ) in app
+    assert "item?.entry_precondition" in app
+    assert "Start with ${identity} = ${JSON.stringify(entry.value)}." in app
+    assert "state.detailRunToken + 1" in app
+    assert "token !== state.detailRunToken" in app
     assert "third" not in html.casefold()
 
 

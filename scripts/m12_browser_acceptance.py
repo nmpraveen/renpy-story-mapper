@@ -205,13 +205,14 @@ def _capture(
             session.evaluate("document.querySelector('#openRouteEvidence').click()")
             session.wait("document.documentElement.dataset.activeLevel==='detail_evidence' && !document.querySelector('#detailView').hidden")
             detail = session.evaluate(
-                "import('./app.js').then(m=>({activeLevel:document.documentElement.dataset.activeLevel,detailLevel:m.state.detail?.level,detailId:m.state.detail?.element?.id,backText:document.querySelector('#backToRouteMap').textContent,canonicalEscapeVisible:!document.querySelector('#canonicalEscapeButton').hidden,levelCount:document.querySelectorAll('[data-level]').length}))"
+                "import('./app.js').then(m=>({activeLevel:document.documentElement.dataset.activeLevel,detailLevel:m.state.detail?.level,detailId:m.state.detail?.element?.id,solvedSourceId:m.state.route.activeSourceId,mutableSourceId:m.state.route.sourceId,destinationTargetId:m.state.route.destination?.target_id||null,candidateSceneId:m.state.route.result?.recommended?.scene_ids?.at(-1)||null,selectedOccurrenceId:m.state.route.result?.recommended?.selected_occurrence_id||null,backText:document.querySelector('#backToRouteMap').textContent,canonicalEscapeVisible:!document.querySelector('#canonicalEscapeButton').hidden,levelCount:document.querySelectorAll('[data-level]').length}))"
             )
             if detail["activeLevel"] != "detail_evidence" or detail["levelCount"] != 2:
                 raise AssertionError(f"Detail/Evidence did not remain the second and final level: {detail}")
             if detail["detailId"] != selected["id"]:
                 raise AssertionError(
-                    f"Detail/Evidence followed the mutable selection instead of the solved route: {detail}"
+                    "Detail/Evidence followed the mutable selection instead of the solved route: "
+                    f"initial={selected['id']!r}, detail={detail}"
                 )
             session.evaluate(
                 "document.querySelector('#detailView').scrollIntoView({block:'start'})"

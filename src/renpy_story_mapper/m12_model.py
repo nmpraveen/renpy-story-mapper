@@ -229,6 +229,7 @@ class RequirementAttribution:
     repeated_effect_id: str | None = None
     supporting_effect_ids: tuple[str, ...] = ()
     repeated_count: int | None = None
+    entry_precondition: InitialStateValue | None = None
     evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -239,6 +240,7 @@ class RequirementAttribution:
                 self.satisfying_effect_id is None
                 or self.repeated_effect_id is not None
                 or self.repeated_count is not None
+                or self.entry_precondition is not None
                 or self.satisfying_effect_id not in self.supporting_effect_ids
             ):
                 raise ValueError("proven-effect attribution requires its exact effect chain")
@@ -248,16 +250,27 @@ class RequirementAttribution:
                 or self.repeated_effect_id is None
                 or self.repeated_count is None
                 or self.repeated_count < 2
+                or self.entry_precondition is not None
                 or self.repeated_effect_id not in self.supporting_effect_ids
             ):
                 raise ValueError("repeated-event attribution requires its exact effect and count")
+        elif self.source is RequirementSource.ENTRY_PRECONDITION:
+            if (
+                self.satisfying_effect_id is not None
+                or self.repeated_effect_id is not None
+                or self.repeated_count is not None
+                or self.entry_precondition is None
+                or self.entry_precondition.kind is not InitialValueKind.ENTRY_PRECONDITION
+            ):
+                raise ValueError("entry attribution requires its explicit initial precondition")
         elif (
             self.satisfying_effect_id is not None
             or self.repeated_effect_id is not None
             or self.supporting_effect_ids
             or self.repeated_count is not None
+            or self.entry_precondition is not None
         ):
-            raise ValueError("entry and unknown requirements cannot carry effect attribution")
+            raise ValueError("unknown requirements cannot carry supporting attribution")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -269,6 +282,11 @@ class RequirementAttribution:
             "repeated_effect_id": self.repeated_effect_id,
             "supporting_effect_ids": list(self.supporting_effect_ids),
             "repeated_count": self.repeated_count,
+            "entry_precondition": (
+                self.entry_precondition.to_dict()
+                if self.entry_precondition is not None
+                else None
+            ),
             "evidence_ids": list(sorted(self.evidence_ids)),
         }
 
