@@ -1,9 +1,9 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-13
+Last revised: 2026-07-15
 
-Status: M01 through M08 are complete and merged. M09 is complete on
-`codex/m09-static-story-metadata` and awaiting user review/merge as of 2026-07-13.
+Status: M01 through M11 are complete and merged. M12 is active under its approved milestone
+contract on `codex/m12-route-solving` as of 2026-07-15.
 
 ## 1. Product goal
 
@@ -1125,13 +1125,15 @@ claims.
 
 ### M11 - Human story scenes and chapters
 
-Status: Implementation and validation complete on `codex/m11-human-scenes`; pull-request
-creation is explicitly approved, and M12 remains blocked pending M11 review.
+Status: Complete and merged through PR #20 at
+`26502e88bd81b7a1934a6957724fd62f7ba5fbec` on 2026-07-15.
 
 M11 owns human story scenes and scene/chapter presentation derived from deterministic evidence.
 It may improve narrative readability without replacing the M10 canonical authority.
 
 ### M12 - Route-to-target solving
+
+Status: Active under the approved M12 contract on `codex/m12-route-solving`.
 
 M12 owns route-to-target solving and explicit path requirements. It must remain conservative for
 unresolved or dynamic behavior and must not claim arbitrary expression satisfiability.
@@ -1233,5 +1235,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Create the approved M11 pull request from `codex/m11-human-scenes`, then wait for review. Do not
-merge it or begin M12 without separate user direction.
+Execute the approved M12 contract through its semantic gate, implementation, validation, and one
+approval-gated pull request. Do not merge M12 or begin M13 without separate user direction.

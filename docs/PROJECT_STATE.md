@@ -6,17 +6,18 @@ Updated: 2026-07-15
 
 ## Current contract
 
-- Active milestone: None.
-- Contract: Not set.
-- Status: Idle.
-- Semantic review: Not started.
-- Native Codex goal: None.
-- Integration head: Not set.
+- Active milestone: M12 - Route-to-target solving and path requirements.
+- Contract: [`docs/milestones/M12/GOAL.md`](milestones/M12/GOAL.md).
+- Status: In progress.
+- Semantic review: `PASS` on 2026-07-15 in [`SEMANTIC_REVIEW.md`](milestones/M12/SEMANTIC_REVIEW.md).
+- Native Codex goal: Active as task goal `019f66ba-d396-7192-a445-a7277e84edf5` with the exact amended done condition.
+- Integration head: `fa8c543f648e085403f7448ab5e89f9b6e6c4fb6`.
 - Pull request: Not set.
 
-M11 is the latest completed product milestone. It merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20) at commit `26502e88bd81b7a1934a6957724fd62f7ba5fbec` on 2026-07-15. No later product milestone is active or approved by this workflow change.
-
-On explicit user approval of a milestone with a safe done condition, copy `docs/milestones/_TEMPLATE/` to the approved milestone directory, fill it from `docs/MASTER_PLAN.md`, and replace this section with links and current facts.
+The user explicitly approved and activated M12 on 2026-07-15. M11 remains the latest completed
+product milestone and merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20)
+at `26502e88bd81b7a1934a6957724fd62f7ba5fbec`. Broad M12 implementation requires the single
+semantic-review gate recorded `PASS`; broad implementation is active.
 
 ## State rules
 
