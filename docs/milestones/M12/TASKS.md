@@ -24,7 +24,7 @@ create product code or tests.
 | Final semantic review | Worker `m12_semantic_rereview` | Read-only solver/authority/contract review | Literal head `1df83098872fb63d434ff3e59a79e0f286944260` | Complete | `PASS`; targeted 11, full M12 97+1 skip, focused 88; Ruff/mypy/JS/manifest/diff passed; no edits or PR |
 | Final delivery review | Worker `m12_final_delivery_review` | Read-only persistence/API/UI/security/acceptance review | Literal head `1df83098872fb63d434ff3e59a79e0f286944260` | Complete | `PASS`; targeted 8, package/manifest 15, repeated-scene probe; browser/scale inspected; no edits or PR |
 | Private acceptance and completion artifacts | Primary | Bounded private run, reports, native infographic, final evidence | Final product head and Release checks | Complete | Five targets/three gated; external report SHA-256 `194551a06be474bfaec41f6e5f01a75c6d0240b02cfa6d28c296dc50791d892e`; `INFOGRAPHIC.png` SHA-256 `c7e651bec7fa9df2080d06649e4d71c8c205279bf63ea1d5c6b96f845a12f3f5` |
-| PR readiness | Primary | Evidence audit, lifecycle `PR ready`, one approval-gated M12 PR | Final reviews and docs | In progress | PR URL and exact head pending |
+| PR readiness | Primary | Evidence audit, lifecycle `PR ready`, one approval-gated M12 PR | Final reviews and docs | Complete | [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22), open and unmerged |
 
 Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`. Record why a task is
 blocked and what unblocks it.

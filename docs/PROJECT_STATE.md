@@ -8,17 +8,17 @@ Updated: 2026-07-15
 
 - Active milestone: M12 - Route-to-target solving and path requirements.
 - Contract: [`docs/milestones/M12/GOAL.md`](milestones/M12/GOAL.md).
-- Status: Verification.
+- Status: PR ready.
 - Semantic review: `PASS` on 2026-07-15 in [`SEMANTIC_REVIEW.md`](milestones/M12/SEMANTIC_REVIEW.md).
-- Native Codex goal: Active as task goal `019f66ba-d396-7192-a445-a7277e84edf5` with the exact amended done condition.
+- Native Codex goal: Task goal `019f66ba-d396-7192-a445-a7277e84edf5`; complete only after this PR-ready state is pushed and verified.
 - Validated product head: `1df83098872fb63d434ff3e59a79e0f286944260`.
-- Pull request: Not set.
+- Pull request: [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22), open and unmerged.
 
 The user explicitly approved and activated M12 on 2026-07-15. M11 remains the latest completed
 product milestone and merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20)
 at `26502e88bd81b7a1934a6957724fd62f7ba5fbec`. M12 passed its single early semantic gate,
 implementation, Fast/Focused/Release, scale/browser/private acceptance, and both final reviews.
-Completion evidence and approval-gated PR preparation are active.
+Completion evidence is durable and approval-gated PR #22 is ready for user review.
 
 ## State rules
 

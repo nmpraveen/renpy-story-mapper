@@ -2,8 +2,8 @@
 
 Last revised: 2026-07-15
 
-Status: M01 through M11 are complete and merged. M12 is active under its approved milestone
-contract on `codex/m12-route-solving` as of 2026-07-15.
+Status: M01 through M11 are complete and merged. M12 is PR ready under its approved milestone
+contract in [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22) as of 2026-07-15.
 
 ## 1. Product goal
 
@@ -1133,7 +1133,7 @@ It may improve narrative readability without replacing the M10 canonical authori
 
 ### M12 - Route-to-target solving
 
-Status: Active under the approved M12 contract on `codex/m12-route-solving`.
+Status: PR ready in [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22); unmerged.
 
 M12 owns route-to-target solving and explicit path requirements. It must remain conservative for
 unresolved or dynamic behavior and must not claim arbitrary expression satisfiability.

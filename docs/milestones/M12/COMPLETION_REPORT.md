@@ -1,10 +1,10 @@
 # M12 completion report
 
-Status: Verification
+Status: PR ready
 
 Validated product commit: `1df83098872fb63d434ff3e59a79e0f286944260`
 
-Pull request: Pending creation
+Pull request: [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22), open and unmerged
 
 ## Outcome
 
@@ -63,7 +63,7 @@ remote request.
 - Integrated diff reviewed against contract and exclusions: Yes
 - Required checks passed: Yes
 - Blocking findings resolved or explicitly accepted: Yes
-- PR genuinely ready: No — creation and final lifecycle commit remain
+- PR genuinely ready: Yes
 
 ## Remaining limitations
 
@@ -76,5 +76,5 @@ remote request.
 - Task controls did not expose verifiable model/reasoning/fast-mode selectors. No model-selection
   product logic was added.
 
-The native Codex goal remains active until the approval-gated PR exists, this report records its
-URL and genuine readiness, and the repository lifecycle is `PR ready`.
+The approval-gated PR exists, its URL and evidence are durable, and the repository lifecycle is
+`PR ready`. Repository `Complete` remains reserved for reconciliation after the user merges it.

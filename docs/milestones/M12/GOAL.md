@@ -1,6 +1,6 @@
 # M12 - Route-to-target solving and path requirements
 
-Status: Verification
+Status: PR ready
 
 Scope authority: `docs/MASTER_PLAN.md`, M12 approved proposal, and the user's 2026-07-15
 binding amendments
@@ -119,7 +119,7 @@ without enumerating playthroughs, inventing state, or claiming unsupported satis
 | 16 | Cache/write counters, migration/open behavior, cancellation and injected failures | Pass; 32 persistence/fault/private-harness tests and emergency replay evidence |
 | 17-18 | API/real-browser checks, screenshots, bounded provenance traversal, export hashes | Pass; Chrome 100%/200% artifacts and hashes in `VALIDATION_REPORT.md` |
 | 19 | Named synthetic test matrix with commands and counts | Pass; 97 focused M12 tests, one opt-in browser skip exercised separately |
-| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Validation/private/final reviews pass; PR creation remains in `COMPLETION_REPORT.md` |
+| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Pass; approval-gated PR #22 is open and unmerged; see `COMPLETION_REPORT.md` |
 
 ## Exclusions
 
