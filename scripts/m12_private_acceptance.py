@@ -21,7 +21,7 @@ from types import ModuleType
 from unittest import mock
 
 from renpy_story_mapper import storage
-from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
+from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project
 
 MANIFEST_SCHEMA = "m12-private-target-selection-v1"
@@ -120,7 +120,9 @@ def run(
         "coverage": {
             "selected_targets": len(observations),
             "hidden_or_gated_targets": sum(
-                item["role"] == "hidden_or_gated" for item in observations
+                item["role"] == "hidden_or_gated"
+                and bool(item["authority_hidden_or_gated"])
+                for item in observations
             ),
             "ending_targets": sum(item["role"] == "ending" for item in observations),
             "persistent_lane_targets": sum(
@@ -270,6 +272,13 @@ def _exercise_target(service: M12RouteService, target: Mapping[str, str]) -> dic
             raise AssertionError("selected private route lacks instructions, scenes, or provenance")
     else:
         raise AssertionError("selected private route recommendation is malformed")
+    authority_classification = _authority_hidden_or_gated(
+        prepared, target, recommended if isinstance(recommended, Mapping) else None
+    )
+    if target["role"] == "hidden_or_gated" and authority_classification is None:
+        raise AssertionError(
+            "selected hidden or gated target lacks M10/M11 guard or route-requirement authority"
+        )
     if not replay.cached:
         raise AssertionError("selected private route did not reuse its exact cache entry")
     first_bytes = storage.canonical_json(dict(first.result))
@@ -277,6 +286,8 @@ def _exercise_target(service: M12RouteService, target: Mapping[str, str]) -> dic
     return {
         "role": target["role"],
         "kind": target["kind"],
+        "authority_hidden_or_gated": authority_classification is not None,
+        "authority_classification": authority_classification,
         "status": str(first.result.get("status")),
         "badge": str(first.result.get("badge")),
         "ordered_scene_count": len(scene_ids),
@@ -298,6 +309,56 @@ def _exercise_target(service: M12RouteService, target: Mapping[str, str]) -> dic
         "exact_replay_cache_hit": replay.cached,
         "normalized_replay_equal": first_bytes == replay_bytes,
     }
+
+
+def _authority_hidden_or_gated(
+    prepared: M12PreparedSolve,
+    target: Mapping[str, str],
+    recommended: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    graph = prepared.authority.graph
+    scene_model = prepared.authority.scene_model
+    facts = {item.id: item for item in graph.facts}
+    if target["kind"] == "exact_occurrence":
+        occurrence = next(
+            (item for item in scene_model.occurrences if item.id == target["target_id"]),
+            None,
+        )
+        if occurrence is not None and occurrence.guard_fact_ids:
+            guarded = [facts[item] for item in occurrence.guard_fact_ids if item in facts]
+            if len(guarded) == len(occurrence.guard_fact_ids) and all(
+                item.evidence_ids for item in guarded
+            ):
+                return {
+                    "basis": "m11_occurrence_guard",
+                    "fact_count": len(guarded),
+                    "evidence_count": len(
+                        {evidence_id for item in guarded for evidence_id in item.evidence_ids}
+                    ),
+                }
+    requirements = _sequence(recommended.get("requirements")) if recommended else ()
+    proven_requirements = []
+    for item in requirements:
+        if not isinstance(item, Mapping):
+            continue
+        fact_id = item.get("fact_id")
+        fact = facts.get(fact_id) if isinstance(fact_id, str) else None
+        evidence = _sequence(item.get("evidence_ids"))
+        if fact is not None and fact.evidence_ids and set(evidence) <= set(fact.evidence_ids):
+            proven_requirements.append(fact)
+    if proven_requirements:
+        return {
+            "basis": "m10_route_requirement",
+            "fact_count": len(proven_requirements),
+            "evidence_count": len(
+                {
+                    evidence_id
+                    for item in proven_requirements
+                    for evidence_id in item.evidence_ids
+                }
+            ),
+        }
+    return None
 
 
 def _sequence(value: object) -> Sequence[object]:

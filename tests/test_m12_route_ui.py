@@ -67,6 +67,15 @@ def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> 
     assert "satisfying_effect_id" in app
     assert "item?.source" in app
     assert 'element("details", "route-claim")' in app
+    for claim_collection in (
+        "scene_claims",
+        "visible_choice_claims",
+        "repeated_action_claims",
+        "persistent_commitment_claims",
+        "uncertainty_claims",
+    ):
+        assert claim_collection in app
+    assert "stableRouteJson(value)" in app
     assert "result.negative_provenance" in app
     assert "walkthrough" not in (api + app + html).casefold()
     assert ".innerHTML" not in app

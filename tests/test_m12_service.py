@@ -145,11 +145,27 @@ def test_real_persistent_and_terminal_routes_preserve_calls_and_human_choices(
                 service.prepare(str(destination["kind"]), str(destination["target_id"]))
             )
             assert outcome.result is not None
-            assert outcome.result["status"] == "confirmed"
-            assert outcome.result["complete"] is True
+            assert outcome.result["status"] == "incomplete_solve"
+            assert outcome.result["complete"] is False
+            assert outcome.result["termination_reason"] in {
+                "limit:alternatives",
+                "limit:repetition_per_transition",
+            }
             recommended = outcome.result["recommended"]
             assert isinstance(recommended, dict)
             assert "Commit to blue" in recommended["visible_choices"]
+            assert recommended["scene_claims"]
+            assert recommended["visible_choice_claims"]
+            assert recommended["persistent_commitment_claims"]
+            for key in (
+                "scene_claims",
+                "visible_choice_claims",
+                "persistent_commitment_claims",
+            ):
+                assert all(
+                    item["evidence_ids"] or item["proof_ids"]
+                    for item in recommended[key]
+                )
             assert "Memory" in recommended["scene_titles"]
             assert recommended["call_contexts"]
             assert all(item["call_site_id"] for item in recommended["call_contexts"])

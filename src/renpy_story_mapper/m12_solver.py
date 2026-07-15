@@ -37,6 +37,7 @@ from renpy_story_mapper.m12_model import (
     RequirementSource,
     RouteAlternative,
     RouteCallContext,
+    RouteClaim,
     RouteDestination,
     RouteInstruction,
     RouteProvenance,
@@ -196,20 +197,40 @@ def solve_route(
     anchors = _map_destination(graph, scene_model, request.destination)
     node_by_id = {item.id: item for item in graph.nodes}
     fact_by_id = {item.id: item for item in graph.facts}
+    edge_by_id = {item.id: item for item in graph.edges}
     outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    structural_outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
     incoming: dict[str, list[CanonicalEdge]] = defaultdict(list)
     solver_edges = _solver_edges(graph.edges)
+    structural_edges = tuple(
+        item
+        for item in graph.edges
+        if item.reachability is not ReachabilityStatus.PROVEN_UNREACHABLE
+    )
     for edge in solver_edges:
         outgoing[edge.source_id].append(edge)
+    for edge in structural_edges:
+        structural_outgoing[edge.source_id].append(edge)
         incoming[edge.target_id].append(edge)
     for outgoing_edges in outgoing.values():
         outgoing_edges.sort(key=lambda item: item.id)
+    material_edge_ids = {
+        edge.id
+        for edge in solver_edges
+        if node_by_id[edge.source_id].kind is CanonicalNodeKind.CHOICE
+        and len(outgoing[edge.source_id]) > 1
+    }
+    call_summaries = {
+        str(item.attributes["call_site_id"]): item
+        for item in structural_edges
+        if item.kind == "call_summary"
+        and isinstance(item.attributes.get("call_site_id"), str)
+    }
 
     projection = numeric_projection(graph, {item.node_id for item in anchors}, incoming, fact_by_id)
     target_reverse_nodes = _resolved_reverse_nodes(
         {item.node_id for item in anchors}, incoming
     )
-    target_cone_nodes = _reverse_nodes({item.node_id for item in anchors}, incoming)
     values, initial_kinds = _initial_values(request.initial_state, projection)
     occurrence_edge = _occurrence_edge_map(graph, scene_model)
     scene_by_node, atom_by_node = _scene_ownership(scene_model)
@@ -260,6 +281,7 @@ def solve_route(
     peak_frontier = 1
     accounting = _accounting_units(start)
     limit_hit: str | None = None
+    bounded_limit_hit: str | None = None
     expanded_node_ids: set[str] = set()
     traversed_edge_ids: set[str] = set()
     contradiction_fact_ids: set[str] = set()
@@ -323,7 +345,7 @@ def solve_route(
         if cancelled is not None and cancelled():
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
         _, _, state = heapq.heappop(frontier)
-        key = _state_key(state, projection)
+        key = _state_key(state, projection, scene_by_node, material_edge_ids)
         state_rank = _partial_rank(
             state, scene_by_node, minimum_persistent_commitments
         )
@@ -344,21 +366,39 @@ def solve_route(
         if record_candidates(state):
             continue
 
-        for edge in outgoing.get(state.node_id, ()):
-            if edge.target_id not in target_cone_nodes:
-                continue
+        traversal_options = [(edge, False) for edge in outgoing.get(state.node_id, ())]
+        if state.call_stack and state.edge_ids:
+            prior_edge = edge_by_id[state.edge_ids[-1]]
+            if (
+                prior_edge.kind == "call_return"
+                and prior_edge.attributes.get("call_site_id") is None
+                and state.call_stack[-1] in call_summaries
+            ):
+                traversal_options.append((call_summaries[state.call_stack[-1]], True))
+        for edge, is_resume in traversal_options:
             traversed_edge_ids.add(edge.id)
-            next_state, contradiction, traversal_limit = _traverse_edge(
-                state,
-                edge,
-                node_by_id,
-                fact_by_id,
-                occurrence_edge,
-                lane_by_scene,
-                scene_by_node,
-                projection,
-                request.limits,
-            )
+            if is_resume:
+                next_state, traversal_limit = _resume_call_summary(
+                    state,
+                    edge,
+                    node_by_id,
+                    lane_by_scene,
+                    scene_by_node,
+                    request.limits,
+                )
+                contradiction = None
+            else:
+                next_state, contradiction, traversal_limit = _traverse_edge(
+                    state,
+                    edge,
+                    node_by_id,
+                    fact_by_id,
+                    occurrence_edge,
+                    lane_by_scene,
+                    scene_by_node,
+                    projection,
+                    request.limits,
+                )
             if (
                 contradiction is not None
                 and edge.source_id in target_reverse_nodes
@@ -367,8 +407,8 @@ def solve_route(
                 contradiction_fact_ids.add(contradiction.id)
                 contradiction_edge_ids.add(edge.id)
             if traversal_limit is not None:
-                limit_hit = traversal_limit
-                break
+                bounded_limit_hit = bounded_limit_hit or traversal_limit
+                continue
             if next_state is None:
                 if contradiction is None:
                     unsupported_block = True
@@ -404,6 +444,7 @@ def solve_route(
         if limit_hit is not None:
             break
 
+    limit_hit = limit_hit or bounded_limit_hit
     closed_world = _closed_world(graph)
     exhaustive = limit_hit is None and not frontier
     ordered_candidates = sorted(candidates.values(), key=lambda item: item.ranking_key)
@@ -442,7 +483,7 @@ def solve_route(
     else:
         recommended = None
         structural = _anchor_structurally_reachable(
-            request.start_node_id, anchors, outgoing
+            request.start_node_id, anchors, structural_outgoing
         )
         if limit_hit is not None or not exhaustive:
             status = TechnicalStatus.INCOMPLETE
@@ -485,7 +526,7 @@ def solve_route(
         alternatives=tuple(ordered_candidates[1:]),
         complete=semantic_complete,
         termination_reason=(
-            "exhausted"
+            "exhaustive"
             if exhaustive
             else (
                 f"limit:{limit_hit}"
@@ -762,10 +803,9 @@ def _scene_anchors(
             anchor = _occurrence_anchor(occurrence, atoms, edge_by_id)
             if anchor is not None:
                 occurrence_anchors.append(anchor)
-    if occurrence_anchors:
-        return tuple(occurrence_anchors)
     direct = _entry_anchors_for_atoms(scene.atom_ids, atoms, graph)
-    return tuple(_TargetAnchor(item) for item in direct)
+    direct_anchors = [_TargetAnchor(item) for item in direct]
+    return tuple(dict.fromkeys((*occurrence_anchors, *direct_anchors)))
 
 
 def _entry_anchors_for_atoms(
@@ -884,9 +924,10 @@ def _traverse_edge(
             return None, None, "call_depth"
         stack = (*stack, call_site)
     elif edge.kind == "call_return":
-        if not isinstance(call_site, str) or not stack or stack[-1] != call_site:
-            return None, None, None
-        stack = stack[:-1]
+        if call_site is not None:
+            if not isinstance(call_site, str) or not stack or stack[-1] != call_site:
+                return None, None, None
+            stack = stack[:-1]
 
     requirements = list(state.requirements)
     warnings = list(state.warnings)
@@ -912,11 +953,21 @@ def _traverse_edge(
         fact = facts.get(fact_id)
         if fact is not None:
             _apply_effect(fact, values, sources, warnings, relevant)
-    if not edge.resolved or edge.reachability is ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR:
+    if not edge.resolved:
         warnings.append(f"Traversal {edge.id} depends on unresolved static behavior.")
+    reachability_warning = (
+        _reachability_warning("Traversal", edge.id, edge.reachability)
+        if edge.resolved
+        else None
+    )
+    if reachability_warning is not None:
+        warnings.append(reachability_warning)
     target_node = nodes[edge.target_id]
     if target_node.kind is CanonicalNodeKind.UNRESOLVED:
         warnings.append(f"Node {target_node.id} represents unresolved static behavior.")
+    node_warning = _reachability_warning("Node", target_node.id, target_node.reachability)
+    if node_warning is not None:
+        warnings.append(node_warning)
 
     counts = dict(state.transition_counts)
     counts[edge.id] = count
@@ -947,6 +998,78 @@ def _traverse_edge(
         None,
         None,
     )
+
+
+def _resume_call_summary(
+    state: _SearchState,
+    edge: CanonicalEdge,
+    nodes: Mapping[str, CanonicalNode],
+    lane_by_scene: Mapping[str, str],
+    scene_by_node: Mapping[str, str],
+    limits: DeterministicLimitProfile,
+) -> tuple[_SearchState | None, str | None]:
+    call_site = edge.attributes.get("call_site_id")
+    if (
+        edge.kind != "call_summary"
+        or not isinstance(call_site, str)
+        or not state.call_stack
+        or state.call_stack[-1] != call_site
+    ):
+        return None, None
+    count = state.transition_counts.get(edge.id, 0) + 1
+    if count > limits.repetition_per_transition:
+        return None, "repetition_per_transition"
+    warnings = list(state.warnings)
+    if not edge.resolved:
+        warnings.append(f"Traversal {edge.id} depends on unresolved static behavior.")
+    edge_warning = (
+        _reachability_warning("Traversal", edge.id, edge.reachability)
+        if edge.resolved
+        else None
+    )
+    if edge_warning is not None:
+        warnings.append(edge_warning)
+    target_node = nodes[edge.target_id]
+    node_warning = _reachability_warning("Node", target_node.id, target_node.reachability)
+    if node_warning is not None:
+        warnings.append(node_warning)
+    counts = dict(state.transition_counts)
+    counts[edge.id] = count
+    persistent = list(state.persistent_lane_ids)
+    target_scene = scene_by_node.get(edge.target_id)
+    if target_scene is not None:
+        lane = lane_by_scene.get(target_scene)
+        if lane is not None and lane not in persistent:
+            persistent.append(lane)
+    return (
+        _SearchState(
+            edge.target_id,
+            dict(state.values),
+            dict(state.value_sources),
+            state.initial_kinds,
+            (*state.node_ids, edge.target_id),
+            (*state.edge_ids, edge.id),
+            state.requirements,
+            tuple(dict.fromkeys(warnings)),
+            state.call_stack,
+            counts,
+            state.selected_occurrence_id,
+            tuple(persistent),
+            state.loop_count + (1 if count > 1 else 0),
+        ),
+        None,
+    )
+
+
+def _reachability_warning(
+    record_kind: str, record_id: str, status: ReachabilityStatus
+) -> str | None:
+    if status in {
+        ReachabilityStatus.PROVEN_REACHABLE,
+        ReachabilityStatus.CONDITIONALLY_REACHABLE,
+    }:
+        return None
+    return f"{record_kind} {record_id} has conservative M10 reachability status {status.value}."
 
 
 def _evaluate_requirement(
@@ -1198,15 +1321,6 @@ def _route_alternative(
     edge_by_id = {item.id: item for item in graph.edges}
     evidence_by_id = {item.id: item for item in graph.evidence}
     scene_records = {item.id: item for item in scene_model.scenes}
-    atom_by_id = {item.id: item for item in scene_model.atoms}
-    scene_by_atom = {
-        atom_id: scene.id for scene in scene_model.scenes for atom_id in scene.atom_ids
-    }
-    occurrences_by_call_node: dict[str, list[CallSiteOccurrence]] = defaultdict(list)
-    for occurrence in scene_model.occurrences:
-        call_atom = atom_by_id.get(occurrence.call_atom_id)
-        if call_atom is not None:
-            occurrences_by_call_node[call_atom.primary_node_id].append(occurrence)
 
     scene_ids: list[str] = []
 
@@ -1215,15 +1329,7 @@ def _route_alternative(
             scene_ids.append(scene_id)
 
     append_scene(scene_by_node.get(state.node_ids[0]))
-    for edge_id, node_id in zip(state.edge_ids, state.node_ids[1:], strict=True):
-        edge = edge_by_id[edge_id]
-        if edge.kind == "call_summary":
-            selected_call_occurrence = _occurrence_for_call_edge(
-                edge, graph, occurrences_by_call_node
-            )
-            if selected_call_occurrence is not None:
-                for atom_id in selected_call_occurrence.referenced_atom_ids:
-                    append_scene(scene_by_atom.get(atom_id))
+    for _edge_id, node_id in zip(state.edge_ids, state.node_ids[1:], strict=True):
         append_scene(scene_by_node.get(node_id))
     choice_edges: list[tuple[str, str]] = []
     for edge_id in state.edge_ids:
@@ -1240,6 +1346,10 @@ def _route_alternative(
             if not choice_edges or choice_edges[-1][0] != caption:
                 choice_edges.append((caption, edge.id))
     choices = [caption for caption, _edge_id in choice_edges]
+    choice_claims = tuple(
+        _edge_claim(caption, edge_by_id[edge_id], node_by_id)
+        for caption, edge_id in choice_edges
+    )
     persistent = tuple(
         lane
         for lane in dict.fromkeys(
@@ -1252,6 +1362,58 @@ def _route_alternative(
     )
     requirements = tuple(_dedupe_requirements(state.requirements))
     warnings = tuple(state.warnings)
+    repeated_claims = tuple(
+        _edge_claim(
+            f"Repeat the supported action {count - 1} additional time(s).",
+            edge_by_id[edge_id],
+            node_by_id,
+            repeated_count=count - 1,
+        )
+        for edge_id, count in sorted(state.transition_counts.items())
+        if count > 1
+    )
+    lane_records = {item.id: item for item in scene_model.lanes}
+    persistent_claims = tuple(
+        RouteClaim(
+            text=f"Commit to persistent lane {lane_id}.",
+            lane_id=lane_id,
+            evidence_ids=tuple(sorted(lane_records[lane_id].provenance.evidence_ids)),
+            proof_ids=tuple(sorted(lane_records[lane_id].provenance.proof_ids)),
+        )
+        for lane_id in persistent
+    )
+    warning_claims = tuple(
+        _warning_claim(warning, state, graph, facts) for warning in warnings
+    )
+    scene_claims = tuple(
+        RouteClaim(
+            text=scene_records[scene_id].title,
+            scene_id=scene_id,
+            evidence_ids=tuple(
+                sorted(
+                    set(scene_records[scene_id].provenance.evidence_ids)
+                    | {
+                        evidence_id
+                        for node_id in state.node_ids
+                        if scene_by_node.get(node_id) == scene_id
+                        for evidence_id in node_by_id[node_id].evidence_ids
+                    }
+                )
+            ),
+            proof_ids=tuple(
+                sorted(
+                    set(scene_records[scene_id].provenance.proof_ids)
+                    | {
+                        proof_id
+                        for node_id in state.node_ids
+                        if scene_by_node.get(node_id) == scene_id
+                        for proof_id in node_by_id[node_id].proof_ids
+                    }
+                )
+            ),
+        )
+        for scene_id in scene_ids
+    )
     ranking = (
         len(warnings),
         sum(item.source is RequirementSource.UNKNOWN for item in requirements),
@@ -1263,13 +1425,12 @@ def _route_alternative(
         "|".join(state.edge_ids),
     )
     instructions = _instructions(
-        scene_ids,
-        scene_records,
-        choice_edges,
+        scene_claims,
+        choice_claims,
         requirements,
-        persistent,
-        warnings,
-        state.loop_count,
+        repeated_claims,
+        persistent_claims,
+        warning_claims,
     )
     call_contexts = _call_contexts(state.edge_ids, graph, scene_model)
     selected_occurrence = next(
@@ -1343,6 +1504,11 @@ def _route_alternative(
             scene_ids=tuple(sorted(set(scene_ids))),
             occurrence_ids=occurrence_ids,
         ),
+        scene_claims,
+        choice_claims,
+        repeated_claims,
+        persistent_claims,
+        warning_claims,
     )
 
 
@@ -1359,6 +1525,7 @@ def _call_contexts(
         if call_atom is not None:
             occurrences_by_call_node[call_atom.primary_node_id].append(occurrence)
     result: list[RouteCallContext] = []
+    seen_call_sites: set[str] = set()
     for edge_id in route_edge_ids:
         edge = edges[edge_id]
         if edge.kind not in {"call_enter", "call_summary"}:
@@ -1366,6 +1533,9 @@ def _call_contexts(
         call_site = edge.attributes.get("call_site_id")
         if not isinstance(call_site, str) or not call_site:
             continue
+        if call_site in seen_call_sites:
+            continue
+        seen_call_sites.add(call_site)
         enter = edge
         if edge.kind == "call_summary":
             enter = next(
@@ -1439,42 +1609,46 @@ def _occurrence_for_call_edge(
 
 
 def _instructions(
-    scene_ids: Sequence[str],
-    scenes: Mapping[str, Scene],
-    choices: Sequence[tuple[str, str]],
+    scenes: Sequence[RouteClaim],
+    choices: Sequence[RouteClaim],
     requirements: Sequence[RequirementAttribution],
-    persistent: Sequence[str],
-    warnings: Sequence[str],
-    loop_count: int,
+    repeated: Sequence[RouteClaim],
+    persistent: Sequence[RouteClaim],
+    warnings: Sequence[RouteClaim],
 ) -> tuple[RouteInstruction, ...]:
-    rows: list[tuple[str, str, str | None, str | None, str | None]] = []
+    rows: list[dict[str, object]] = []
     for requirement in requirements:
         if requirement.source is RequirementSource.ENTRY_PRECONDITION:
-            rows.append(
-                (
-                    "starting_assumption",
-                    f"Start with: {requirement.expression}.",
-                    None,
-                    None,
-                    requirement.fact_id,
-                )
-            )
-    for scene_id in scene_ids:
-        rows.append(
-            ("scene", f"Enter scene \"{scenes[scene_id].title}\".", scene_id, None, None)
-        )
-    for choice, edge_id in choices:
-        rows.append(("choice", f"Choose \"{choice}\".", None, edge_id, None))
-    if loop_count:
-        rows.append(
-            (
-                "repeat",
-                f"Repeat the supported action {loop_count} additional time(s).",
-                None,
-                None,
-                None,
-            )
-        )
+            rows.append({
+                "kind": "starting_assumption",
+                "text": f"Start with: {requirement.expression}.",
+                "fact_id": requirement.fact_id,
+                "evidence_ids": requirement.evidence_ids,
+            })
+    for scene in scenes:
+        rows.append({
+            "kind": "scene",
+            "text": f"Enter scene \"{scene.text}\".",
+            "scene_id": scene.scene_id,
+            "evidence_ids": scene.evidence_ids,
+            "proof_ids": scene.proof_ids,
+        })
+    for claim in choices:
+        rows.append({
+            "kind": "choice",
+            "text": f"Choose \"{claim.text}\".",
+            "edge_id": claim.edge_id,
+            "evidence_ids": claim.evidence_ids,
+            "proof_ids": claim.proof_ids,
+        })
+    for claim in repeated:
+        rows.append({
+            "kind": "repeat",
+            "text": claim.text,
+            "edge_id": claim.edge_id,
+            "evidence_ids": claim.evidence_ids,
+            "proof_ids": claim.proof_ids,
+        })
     for requirement in requirements:
         source = {
             RequirementSource.PROVEN_EFFECT: "an earlier proven effect",
@@ -1482,32 +1656,111 @@ def _instructions(
             RequirementSource.ENTRY_PRECONDITION: "the explicit starting assumption",
             RequirementSource.UNKNOWN: "unknown or unsupported state",
         }[requirement.source]
-        rows.append(
-            (
-                "requirement",
-                f"Requirement: {requirement.expression} — {source}.",
-                None,
-                None,
-                requirement.fact_id,
-            )
-        )
-    for lane in persistent:
-        rows.append(
-            ("commitment", f"Commit to persistent lane {lane}.", None, None, None)
-        )
-    for warning in warnings:
-        rows.append(("warning", f"Uncertainty: {warning}", None, None, None))
+        rows.append({
+            "kind": "requirement",
+            "text": f"Requirement: {requirement.expression} — {source}.",
+            "fact_id": requirement.fact_id,
+            "evidence_ids": requirement.evidence_ids,
+        })
+    for claim in persistent:
+        rows.append({
+            "kind": "commitment",
+            "text": claim.text,
+            "lane_id": claim.lane_id,
+            "evidence_ids": claim.evidence_ids,
+            "proof_ids": claim.proof_ids,
+        })
+    for claim in warnings:
+        rows.append({
+            "kind": "warning",
+            "text": f"Uncertainty: {claim.text}",
+            "scene_id": claim.scene_id,
+            "edge_id": claim.edge_id,
+            "fact_id": claim.fact_id,
+            "node_id": claim.node_id,
+            "evidence_ids": claim.evidence_ids,
+            "proof_ids": claim.proof_ids,
+        })
     return tuple(
         RouteInstruction(
             index + 1,
-            kind,
-            text,
-            scene_id=scene_id,
-            edge_id=edge_id,
-            fact_id=fact_id,
+            kind=str(row["kind"]),
+            text=str(row["text"]),
+            scene_id=_optional_string(row.get("scene_id")),
+            edge_id=_optional_string(row.get("edge_id")),
+            fact_id=_optional_string(row.get("fact_id")),
+            lane_id=_optional_string(row.get("lane_id")),
+            node_id=_optional_string(row.get("node_id")),
+            evidence_ids=_string_tuple(row.get("evidence_ids")),
+            proof_ids=_string_tuple(row.get("proof_ids")),
         )
-        for index, (kind, text, scene_id, edge_id, fact_id) in enumerate(rows)
+        for index, row in enumerate(rows)
     )
+
+
+def _edge_claim(
+    text: str,
+    edge: CanonicalEdge,
+    nodes: Mapping[str, CanonicalNode],
+    *,
+    repeated_count: int | None = None,
+) -> RouteClaim:
+    source = nodes[edge.source_id]
+    target = nodes[edge.target_id]
+    return RouteClaim(
+        text=text,
+        edge_id=edge.id,
+        evidence_ids=tuple(
+            sorted(set(edge.evidence_ids) | set(source.evidence_ids) | set(target.evidence_ids))
+        ),
+        proof_ids=tuple(
+            sorted(set(edge.proof_ids) | set(source.proof_ids) | set(target.proof_ids))
+        ),
+        repeated_count=repeated_count,
+    )
+
+
+def _warning_claim(
+    warning: str,
+    state: _SearchState,
+    graph: CanonicalGraph,
+    facts: Mapping[str, CanonicalFact],
+) -> RouteClaim:
+    edges = {item.id: item for item in graph.edges}
+    nodes = {item.id: item for item in graph.nodes}
+    for edge_id in state.edge_ids:
+        edge = edges[edge_id]
+        gate_ids = _strings(edge.attributes.get("gate_ids"))
+        if edge_id in warning or any(fact_id in warning for fact_id in gate_ids):
+            return _edge_claim(warning, edge, nodes)
+    for node_id in state.node_ids:
+        node = nodes[node_id]
+        if node_id in warning:
+            return RouteClaim(
+                text=warning,
+                node_id=node_id,
+                evidence_ids=tuple(sorted(node.evidence_ids)),
+                proof_ids=tuple(sorted(node.proof_ids)),
+            )
+    for fact in facts.values():
+        expression = fact.attributes.get("original_expression")
+        if fact.id in warning or (isinstance(expression, str) and expression in warning):
+            return RouteClaim(
+                text=warning,
+                fact_id=fact.id,
+                evidence_ids=tuple(sorted(fact.evidence_ids)),
+            )
+    raise ValueError(f"M12 produced an unattributed uncertainty warning: {warning}")
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
 
 
 def _scene_ownership(
@@ -1552,7 +1805,12 @@ def _visible_choice_text(
     return str(predicate_expression or source.label or edge.kind)
 
 
-def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[object, ...]:
+def _state_key(
+    state: _SearchState,
+    projection: NumericProjection,
+    scene_by_node: Mapping[str, str],
+    material_edge_ids: set[str],
+) -> tuple[object, ...]:
     requirements = tuple(
         (
             item.fact_id,
@@ -1561,6 +1819,14 @@ def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[obje
             item.repeated_count,
         )
         for item in _dedupe_requirements(state.requirements)
+    )
+    scene_prefix: list[str] = []
+    for node_id in state.node_ids:
+        scene_id = scene_by_node.get(node_id)
+        if scene_id is not None and (not scene_prefix or scene_prefix[-1] != scene_id):
+            scene_prefix.append(scene_id)
+    material_edges = tuple(
+        edge_id for edge_id in state.edge_ids if edge_id in material_edge_ids
     )
     return (
         state.node_id,
@@ -1575,6 +1841,8 @@ def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[obje
         state.warnings,
         state.persistent_lane_ids,
         state.selected_occurrence_id,
+        tuple(scene_prefix),
+        material_edges,
     )
 
 
@@ -1679,6 +1947,7 @@ def _negative_provenance(
 
 def _closed_world(graph: CanonicalGraph) -> bool:
     open_statuses = {
+        ReachabilityStatus.REACHABLE_UNDER_INFERRED_REQUIREMENTS,
         ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR,
         ReachabilityStatus.POSSIBLY_DEAD,
         ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH,
@@ -1725,12 +1994,13 @@ def _anchor_structurally_reachable(
 
 
 def _solver_edges(edges: Sequence[CanonicalEdge]) -> tuple[CanonicalEdge, ...]:
-    """Retain M10's exact call branches and authoritative summary continuation."""
+    """Retain exact M10 traversal; summaries cannot replace callee semantics."""
 
     return tuple(
         item
         for item in edges
         if item.reachability is not ReachabilityStatus.PROVEN_UNREACHABLE
+        and item.kind != "call_summary"
     )
 
 

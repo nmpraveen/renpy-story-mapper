@@ -50,6 +50,7 @@ from renpy_story_mapper.m12_model import (
     StateVariableIdentity,
     TechnicalStatus,
 )
+from renpy_story_mapper.m12_persistence import normalized_result_bytes
 from renpy_story_mapper.m12_solver import bind_route_request, numeric_projection, solve_route
 
 
@@ -150,6 +151,9 @@ def _authority(
     for spec in edge_specs:
         edge_id = str(spec["id"])
         resolved = bool(spec.get("resolved", True))
+        reachability = spec.get("reachability")
+        if reachability is not None and not isinstance(reachability, ReachabilityStatus):
+            raise TypeError("synthetic edge reachability must use ReachabilityStatus")
         attributes: dict[str, object] = {
             "gate_ids": list(spec.get("gates", ())),
             "effect_ids": list(spec.get("effects", ())),
@@ -162,7 +166,8 @@ def _authority(
                 str(spec["source"]),
                 str(spec["target"]),
                 str(spec.get("kind", "flow")),
-                (
+                reachability
+                or (
                     ReachabilityStatus.PROVEN_REACHABLE
                     if resolved
                     else ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
@@ -662,7 +667,7 @@ def test_multi_entry_scene_completion_uses_the_reached_narrative_anchor() -> Non
 
 def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
     graph, model = _authority(
-        ("root", "callee", "return-site", "after"),
+        ("root", "callee", "callee-exit", "return-site", "after"),
         (
             {
                 "id": "enter",
@@ -670,6 +675,12 @@ def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
                 "target": "callee",
                 "kind": "call_enter",
                 "call_site_id": "site",
+            },
+            {
+                "id": "callee-return",
+                "source": "callee",
+                "target": "callee-exit",
+                "kind": "call_return",
             },
             {
                 "id": "summary",
@@ -686,13 +697,24 @@ def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
                 "call_site_id": "site",
             },
         ),
+        scene_groups={
+            "scene-root": ("root",),
+            "scene-callee": ("callee", "callee-exit"),
+            "scene-return-site": ("return-site",),
+            "scene-after": ("after",),
+        },
         occurrence=("occurrence", "root", "callee", "enter"),
     )
     destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-after")
     result = solve_route(graph, model, _solve(graph, model, destination)).result
 
     assert result is not None and result.recommended is not None
-    assert result.recommended.edge_ids == ("summary", "return")
+    assert result.recommended.edge_ids == (
+        "enter",
+        "callee-return",
+        "summary",
+        "return",
+    )
     assert result.recommended.scene_ids == (
         "scene-root",
         "scene-callee",
@@ -702,6 +724,7 @@ def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
     assert result.recommended.call_contexts[0].call_edge_id == "enter"
     assert result.recommended.call_contexts[0].occurrence_id == "occurrence"
     assert result.recommended.provenance.occurrence_ids == ("occurrence",)
+    assert "callee" in result.recommended.provenance.node_ids
 
 
 def test_repeatable_destination_is_complete_when_reached_once() -> None:
@@ -753,6 +776,11 @@ def test_repeated_increments_cross_multiple_thresholds_without_unbounded_project
     requirement = result.recommended.requirements[0]
     assert requirement.source is RequirementSource.REPEATED_EVENT
     assert requirement.repeated_count == 3
+    assert result.recommended.repeated_action_claims
+    repeat_claim = result.recommended.repeated_action_claims[0]
+    assert repeat_claim.edge_id == "repeat"
+    assert repeat_claim.repeated_count == 2
+    assert repeat_claim.evidence_ids or repeat_claim.proof_ids
     projection = numeric_projection(graph, {"target"})
     assert projection.thresholds[score.key] == (3,)
     assert projection.key_for({score.key: 999}) == ((score.key, ">3"),)
@@ -821,9 +849,11 @@ def test_state_infeasible_requires_exhaustive_closed_world_contradiction() -> No
     assert result.status is TechnicalStatus.STATE_INFEASIBLE
     assert result.recommended is None
     assert result.complete and result.exhaustive and result.closed_world
+    assert result.termination_reason == "exhaustive"
     assert result.diagnostics == ("exact supported contradiction",)
     assert result.negative_provenance is not None
     assert result.negative_provenance.fact_ids == (gate.id,)
+    assert normalized_result_bytes(result.normalized_dict()) == result.normalized_bytes()
 
 
 def test_dynamic_transfer_withholds_no_route_and_marks_best_known_instructions() -> None:
@@ -903,6 +933,148 @@ def test_unrelated_contradiction_cannot_make_exact_occurrence_state_infeasible()
     assert result is not None
     assert result.status is TechnicalStatus.NO_STATIC_ROUTE
     assert result.status is not TechnicalStatus.STATE_INFEASIBLE
+
+
+def test_generic_shared_scene_keeps_open_direct_context_beside_gated_occurrence() -> None:
+    gate = _fact("call-gate", kind="requirement", expression="score >= 1", variable="score")
+    graph, model = _authority(
+        ("root", "caller", "shared"),
+        (
+            {"id": "direct", "source": "root", "target": "shared"},
+            {"id": "to-caller", "source": "root", "target": "caller"},
+            {
+                "id": "gated-call",
+                "source": "caller",
+                "target": "shared",
+                "kind": "call_enter",
+                "call_site_id": "gated-site",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate,),
+        scene_groups={
+            "scene-root": ("root",),
+            "scene-caller": ("caller",),
+            "scene-shared": ("shared",),
+        },
+        occurrence=("gated-occurrence", "caller", "shared", "gated-call"),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-shared"),
+            initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 0),),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.edge_ids == ("direct",)
+    assert result.status is not TechnicalStatus.STATE_INFEASIBLE
+
+
+@pytest.mark.parametrize(
+    "reachability",
+    (
+        ReachabilityStatus.REACHABLE_UNDER_INFERRED_REQUIREMENTS,
+        ReachabilityStatus.POSSIBLY_DEAD,
+        ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH,
+    ),
+)
+def test_non_proven_m10_reachability_never_becomes_confirmed(
+    reachability: ReachabilityStatus,
+) -> None:
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "uncertain-edge",
+                "source": "root",
+                "target": "target",
+                "reachability": reachability,
+            },
+        ),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended.uncertainty_claims
+    claim = result.recommended.uncertainty_claims[0]
+    assert claim.edge_id == "uncertain-edge"
+    assert claim.evidence_ids
+
+
+def test_merged_material_prefixes_survive_dominance_as_alternatives() -> None:
+    graph, model = _authority(
+        ("root", "left", "right", "merge", "target"),
+        (
+            {"id": "choose-left", "source": "root", "target": "left"},
+            {"id": "choose-right", "source": "root", "target": "right"},
+            {"id": "left-merge", "source": "left", "target": "merge"},
+            {"id": "right-merge", "source": "right", "target": "merge"},
+            {"id": "finish", "source": "merge", "target": "target"},
+        ),
+        node_kinds={"root": CanonicalNodeKind.CHOICE},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    paths = {result.recommended.edge_ids, *(item.edge_ids for item in result.alternatives)}
+    assert any("choose-left" in path for path in paths)
+    assert any("choose-right" in path for path in paths)
+
+
+def test_each_material_claim_carries_an_exact_expandable_source() -> None:
+    graph, model = _authority(
+        ("root", "target"),
+        ({"id": "choice", "source": "root", "target": "target"},),
+        node_kinds={"root": CanonicalNodeKind.CHOICE},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.visible_choice_claims
+    for claim in result.recommended.visible_choice_claims:
+        assert claim.edge_id and (claim.evidence_ids or claim.proof_ids)
+    for instruction in result.recommended.instructions:
+        assert any(
+            (
+                instruction.scene_id,
+                instruction.edge_id,
+                instruction.fact_id,
+                instruction.lane_id,
+                instruction.node_id,
+            )
+        )
+        assert instruction.evidence_ids or instruction.proof_ids
 
 
 def test_cancellation_publishes_no_normalized_result() -> None:

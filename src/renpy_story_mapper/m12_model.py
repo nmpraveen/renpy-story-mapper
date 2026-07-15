@@ -265,6 +265,32 @@ class RouteInstruction:
     scene_id: str | None = None
     edge_id: str | None = None
     fact_id: str | None = None
+    lane_id: str | None = None
+    node_id: str | None = None
+    evidence_ids: tuple[str, ...] = ()
+    proof_ids: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return _json_mapping(asdict(self))
+
+
+@dataclass(frozen=True)
+class RouteClaim:
+    text: str
+    scene_id: str | None = None
+    edge_id: str | None = None
+    fact_id: str | None = None
+    lane_id: str | None = None
+    node_id: str | None = None
+    evidence_ids: tuple[str, ...] = ()
+    proof_ids: tuple[str, ...] = ()
+    repeated_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if not any((self.scene_id, self.edge_id, self.fact_id, self.lane_id, self.node_id)):
+            raise ValueError("route claims require an exact source identifier")
+        if not self.evidence_ids and not self.proof_ids:
+            raise ValueError("route claims require exact evidence or proof identifiers")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return _json_mapping(asdict(self))
@@ -308,6 +334,11 @@ class RouteAlternative:
     loop_count: int
     ranking_key: tuple[int | str, ...]
     provenance: RouteProvenance
+    scene_claims: tuple[RouteClaim, ...] = ()
+    visible_choice_claims: tuple[RouteClaim, ...] = ()
+    repeated_action_claims: tuple[RouteClaim, ...] = ()
+    persistent_commitment_claims: tuple[RouteClaim, ...] = ()
+    uncertainty_claims: tuple[RouteClaim, ...] = ()
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -325,6 +356,15 @@ class RouteAlternative:
             "loop_count": self.loop_count,
             "ranking_key": list(self.ranking_key),
             "provenance": self.provenance.to_dict(),
+            "scene_claims": [item.to_dict() for item in self.scene_claims],
+            "visible_choice_claims": [item.to_dict() for item in self.visible_choice_claims],
+            "repeated_action_claims": [
+                item.to_dict() for item in self.repeated_action_claims
+            ],
+            "persistent_commitment_claims": [
+                item.to_dict() for item in self.persistent_commitment_claims
+            ],
+            "uncertainty_claims": [item.to_dict() for item in self.uncertainty_claims],
         }
 
 
@@ -357,10 +397,10 @@ class RouteResult:
     diagnostics: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        complete_reasons = {"exhausted", "best_route_proven"}
+        complete_reasons = {"exhaustive", "best_route_proven"}
         if self.complete != (self.termination_reason in complete_reasons):
             raise ValueError("complete results require a deterministic completion reason")
-        if self.exhaustive != (self.termination_reason == "exhausted"):
+        if self.exhaustive != (self.termination_reason == "exhaustive"):
             raise ValueError("exhaustive results require deterministic exhaustion")
         if self.exhaustive and not self.complete:
             raise ValueError("exhaustive results must be semantically complete")

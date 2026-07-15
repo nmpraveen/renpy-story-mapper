@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from scripts.m12_private_acceptance import MANIFEST_SCHEMA, run
 
-from renpy_story_mapper.m12_service import M12RouteService
+from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project, create_ingested_project
 
-FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
+FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "private_gated_targets.rpy"
 
 
 def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
@@ -28,6 +28,7 @@ def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
 
     with Project.open(baseline) as project:
         service = M12RouteService(project)
+        authority = load_m12_authority(project)
         catalog: list[dict[str, object]] = []
         offset = 0
         while True:
@@ -36,7 +37,14 @@ def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
             if page["next_offset"] is None:
                 break
             offset = int(page["next_offset"])
-        hidden = [item for item in catalog if item["kind"] == "exact_occurrence"][:3]
+        guarded_ids = {
+            item.id for item in authority.scene_model.occurrences if item.guard_fact_ids
+        }
+        hidden = [
+            item
+            for item in catalog
+            if item["kind"] == "exact_occurrence" and item["target_id"] in guarded_ids
+        ][:3]
         assert len(hidden) == 3
         commitment = next(
             item
@@ -96,6 +104,14 @@ def test_private_harness_emits_only_redacted_aggregate_and_preserves_inputs(
 
     assert report["status"] == "passed"
     assert report["coverage"]["hidden_or_gated_targets"] == 3
+    hidden_results = [
+        item for item in report["results"] if item["role"] == "hidden_or_gated"
+    ]
+    assert all(item["authority_hidden_or_gated"] is True for item in hidden_results)
+    assert all(
+        item["authority_classification"]["basis"] == "m11_occurrence_guard"
+        for item in hidden_results
+    )
     assert report["coverage"]["ending_targets"] + report["coverage"]["persistent_lane_targets"] == 1
     assert report["determinism"] == {
         "all_exact_replays_hit_cache": True,
@@ -135,6 +151,29 @@ def test_private_harness_fails_conservatively_without_hidden_target(tmp_path: Pa
     raw["targets"] = [item for item in raw["targets"] if item["role"] != "hidden_or_gated"]
     manifest.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="hidden or gated"):
+        run(
+            baseline_path=baseline,
+            archive_path=archive,
+            targets_path=manifest,
+            output_path=output,
+            walkthrough_path=walkthrough,
+        )
+
+
+def test_private_harness_rejects_caller_label_for_ungated_occurrence(
+    tmp_path: Path,
+) -> None:
+    baseline, archive, manifest, walkthrough, output = _private_inputs(tmp_path)
+    with Project.open(baseline) as project:
+        authority = load_m12_authority(project)
+        ungated_id = next(
+            item.id for item in authority.scene_model.occurrences if not item.guard_fact_ids
+        )
+    raw = json.loads(manifest.read_text(encoding="utf-8"))
+    hidden = next(item for item in raw["targets"] if item["role"] == "hidden_or_gated")
+    hidden["target_id"] = ungated_id
+    manifest.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(AssertionError, match="lacks M10/M11 guard"):
         run(
             baseline_path=baseline,
             archive_path=archive,

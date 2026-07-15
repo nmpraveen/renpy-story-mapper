@@ -86,14 +86,14 @@ function appendRouteSection(host, title, values, ordered = false) {
 function renderRouteCandidate(host, candidate) {
   appendRouteSection(host, "Instructions", candidate.instructions, true);
   appendRouteSection(host, "Starting assumptions", routeStartingAssumptions(candidate));
-  appendRouteSection(host, "Ordered human scenes", routeScenes(candidate), true);
-  appendRouteSection(host, "Visible choices", candidate.visible_choices, true);
-  const repeats = candidate.repeated_actions || candidate.repeats || (candidate.loop_count ? [`Repeat the supported action ${candidate.loop_count} additional time(s).`] : []);
+  appendRouteSection(host, "Ordered human scenes", candidate.scene_claims || routeScenes(candidate), true);
+  appendRouteSection(host, "Visible choices", candidate.visible_choice_claims || candidate.visible_choices, true);
+  const repeats = candidate.repeated_action_claims || candidate.repeated_actions || candidate.repeats || (candidate.loop_count ? [`Repeat the supported action ${candidate.loop_count} additional time(s).`] : []);
   appendRouteSection(host, "Repeated actions", repeats, true);
   appendRouteSection(host, "Requirements", candidate.requirements);
   appendRouteSection(host, "Earlier satisfying effects", routeSatisfyingEffects(candidate));
-  appendRouteSection(host, "Persistent commitments", candidate.persistent_commitments || candidate.persistent_lane_ids);
-  appendRouteSection(host, "Uncertainty warnings", candidate.uncertainty_warnings || candidate.warnings);
+  appendRouteSection(host, "Persistent commitments", candidate.persistent_commitment_claims || candidate.persistent_commitments || candidate.persistent_lane_ids);
+  appendRouteSection(host, "Uncertainty warnings", candidate.uncertainty_claims || candidate.uncertainty_warnings || candidate.warnings);
 }
 
 function renderRouteTechnical(result) {
