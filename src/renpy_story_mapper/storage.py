@@ -31,6 +31,7 @@ PAYLOAD_COLLECTIONS: Final = frozenset(
         "m11_phase_results",
         "m11_analysis_state",
         "m11_corrections",
+        "m12_route_results",
         "diagnostics",
         "unresolved",
         "gates",
