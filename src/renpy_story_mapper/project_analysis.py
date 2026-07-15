@@ -38,6 +38,21 @@ from renpy_story_mapper.inspection_projection import (
     INSPECTION_PROJECTION_SCHEMA,
     project_inspection_graph,
 )
+from renpy_story_mapper.m11_persistence import M11_PHASES, phase_input_hash
+from renpy_story_mapper.m11_scene_model import (
+    M11_ATOM_RULE_VERSION,
+    M11_BOUNDARY_RULE_VERSION,
+    M11_SCENE_MODEL_SCHEMA,
+)
+from renpy_story_mapper.m11_scene_model import (
+    CanonicalBinding as M11CanonicalBinding,
+)
+from renpy_story_mapper.m11_scene_projection import (
+    build_scene_assembly,
+    build_scene_boundaries,
+    build_scene_presentation,
+    build_story_atoms,
+)
 from renpy_story_mapper.model import (
     Call,
     If,
@@ -79,7 +94,7 @@ from renpy_story_mapper.story_metadata import StoryMetadataLimitError, extract_s
 CancelCheck = Callable[[], bool] | None
 AnalysisProgress = Callable[[str, int], None] | None
 
-REUSABLE_ANALYSIS_PHASES = (
+M10_ANALYSIS_PHASES = (
     "source_inventory",
     "parse",
     "graph",
@@ -90,6 +105,7 @@ REUSABLE_ANALYSIS_PHASES = (
     "simplified_projection",
     "inspection_projection",
 )
+REUSABLE_ANALYSIS_PHASES = (*M10_ANALYSIS_PHASES, *M11_PHASES)
 _ANALYSIS_DEPENDENCY_METADATA_KEY = "analysis_input_dependency_hash"
 
 
@@ -758,6 +774,8 @@ def _has_coherent_reusable_analysis(
     if canonical is None or projection is None:
         return False
     canonical_hash = canonical["payload_hash"]
+    if not isinstance(canonical_hash, str):
+        return False
     if (
         canonical.get("schema") != CANONICAL_GRAPH_SCHEMA
         or canonical.get("source_generation") != generation
@@ -800,9 +818,9 @@ def _has_coherent_reusable_analysis(
         )
     ).hexdigest()
     phases = state.get("phases")
-    if not isinstance(phases, list) or len(phases) != len(REUSABLE_ANALYSIS_PHASES):
+    if not isinstance(phases, list) or len(phases) != len(M10_ANALYSIS_PHASES):
         return False
-    for expected_phase, raw_phase in zip(REUSABLE_ANALYSIS_PHASES, phases, strict=True):
+    for expected_phase, raw_phase in zip(M10_ANALYSIS_PHASES, phases, strict=True):
         if not isinstance(raw_phase, Mapping):
             return False
         if (
@@ -863,7 +881,13 @@ def _has_coherent_reusable_analysis(
             return False
     if not _route_scope_checkpoints_coherent(project, route_map, route_hash):
         return False
-    return _presentation_index_coherent(project)
+    if not _presentation_index_coherent(project):
+        return False
+    return project.m11_persistence().has_current_publication(
+        source_generation=generation,
+        canonical_schema=CANONICAL_GRAPH_SCHEMA,
+        canonical_hash=canonical_hash,
+    )
 
 
 def _stable_source_metadata(value: Mapping[str, object]) -> bytes:
@@ -1034,6 +1058,7 @@ def _refresh_open_project(
     phase = "source_inventory"
     phase_started = time.perf_counter()
     state_initialized = False
+    m10_complete = False
     canonical_generation = previous_canonical_generation
     canonical_hash = previous_canonical_hash
     _emit_analysis_progress(progress, phase, 5)
@@ -1287,6 +1312,14 @@ def _refresh_open_project(
             canonical_generation,
             canonical_hash,
         )
+        m10_complete = True
+        _build_and_publish_m11(
+            project,
+            canonical_graph.to_dict(),
+            canonical_hash=canonical_hash,
+            cancel_check=cancel_check,
+            progress=progress,
+        )
         _emit_analysis_progress(progress, "complete", 100)
         reused = (set(refresh.unchanged) & canonical_paths) - parsed_paths
         return RefreshReport(
@@ -1296,7 +1329,7 @@ def _refresh_open_project(
             refresh.removed,
         )
     except BaseException as exc:
-        if state_initialized:
+        if state_initialized and not m10_complete:
             with suppress(Exception):
                 _write_analysis_state(
                     project,
@@ -1310,6 +1343,149 @@ def _refresh_open_project(
                     failure_duration_seconds=_phase_duration(phase_started),
                 )
         raise
+
+
+def _build_and_publish_m11(
+    project: Project,
+    canonical: Mapping[str, object],
+    *,
+    canonical_hash: str | None = None,
+    cancel_check: CancelCheck,
+    progress: AnalysisProgress,
+) -> None:
+    """Build and publish the four whole-corpus M11 phases from M10 authority."""
+
+    persistence = project.m11_persistence()
+    if canonical_hash is None:
+        canonical_hash = hashlib.sha256(canonical_json(dict(canonical))).hexdigest()
+    persistence.cache_authority(canonical, canonical_hash=canonical_hash)
+    generation = canonical.get("source_generation")
+    canonical_schema = canonical.get("schema")
+    if not isinstance(generation, str) or not isinstance(canonical_schema, str):
+        raise ValueError("M11 requires a generation-bound M10 canonical graph")
+    scene_binding = M11CanonicalBinding(generation, canonical_schema, canonical_hash)
+
+    _check_cancelled(cancel_check)
+    _emit_analysis_progress(progress, "story_atoms", 97)
+    atoms_input_hash = phase_input_hash(
+        {
+            "schema": "m11-story-atoms-input-v1",
+            "source_generation": generation,
+            "canonical_schema": canonical_schema,
+            "canonical_hash": canonical_hash,
+            "atom_rule_version": M11_ATOM_RULE_VERSION,
+        }
+    )
+    story_atoms = persistence.phase_result(canonical, "story_atoms", atoms_input_hash)
+    if story_atoms is None:
+        story_atoms = build_story_atoms(canonical, canonical_binding=scene_binding)
+    atoms_checkpoint = persistence.checkpoint_phase(
+        canonical,
+        "story_atoms",
+        atoms_input_hash,
+        story_atoms,
+    )
+
+    _check_cancelled(cancel_check)
+    _emit_analysis_progress(progress, "scene_boundaries", 98)
+    boundaries_input_hash = phase_input_hash(
+        {
+            "schema": "m11-scene-boundaries-input-v1",
+            "canonical_hash": canonical_hash,
+            "story_atoms_hash": atoms_checkpoint.result_hash,
+            "boundary_rule_version": M11_BOUNDARY_RULE_VERSION,
+        }
+    )
+    scene_boundaries = persistence.phase_result(
+        canonical,
+        "scene_boundaries",
+        boundaries_input_hash,
+    )
+    if scene_boundaries is None:
+        scene_boundaries = build_scene_boundaries(
+            canonical,
+            story_atoms,
+            canonical_binding=scene_binding,
+        )
+    boundaries_checkpoint = persistence.checkpoint_phase(
+        canonical,
+        "scene_boundaries",
+        boundaries_input_hash,
+        scene_boundaries,
+        expected_working_hash=atoms_checkpoint.working_hash,
+    )
+
+    _check_cancelled(cancel_check)
+    _emit_analysis_progress(progress, "scene_assembly", 99)
+    assembly_input_hash = phase_input_hash(
+        {
+            "schema": "m11-scene-assembly-input-v1",
+            "canonical_hash": canonical_hash,
+            "story_atoms_hash": atoms_checkpoint.result_hash,
+            "scene_boundaries_hash": boundaries_checkpoint.result_hash,
+            "scene_model_schema": M11_SCENE_MODEL_SCHEMA,
+            "correction_overlay_hash": None,
+        }
+    )
+    scene_assembly = persistence.phase_result(
+        canonical,
+        "scene_assembly",
+        assembly_input_hash,
+    )
+    if scene_assembly is None:
+        scene_assembly = build_scene_assembly(
+            canonical,
+            story_atoms,
+            scene_boundaries,
+            canonical_binding=scene_binding,
+        )
+    assembly_checkpoint = persistence.checkpoint_phase(
+        canonical,
+        "scene_assembly",
+        assembly_input_hash,
+        scene_assembly,
+        expected_working_hash=boundaries_checkpoint.working_hash,
+    )
+
+    _check_cancelled(cancel_check)
+    _emit_analysis_progress(progress, "scene_presentation", 99)
+    presentation_input_hash = phase_input_hash(
+        {
+            "schema": "m11-scene-presentation-input-v1",
+            "canonical_hash": canonical_hash,
+            "scene_assembly_hash": assembly_checkpoint.result_hash,
+            "presentation_schema": "m11-scene-presentation-v1",
+        }
+    )
+    scene_presentation = persistence.phase_result(
+        canonical,
+        "scene_presentation",
+        presentation_input_hash,
+    )
+    if scene_presentation is None:
+        scene_presentation = build_scene_presentation(
+            canonical,
+            scene_assembly,
+            canonical_binding=scene_binding,
+        )
+    presentation_checkpoint = persistence.checkpoint_phase(
+        canonical,
+        "scene_presentation",
+        presentation_input_hash,
+        scene_presentation,
+        expected_working_hash=assembly_checkpoint.working_hash,
+    )
+    _check_cancelled(cancel_check)
+    persistence.publish(
+        canonical,
+        expected_working_hash=presentation_checkpoint.working_hash,
+        expected_phase_hashes={
+            "story_atoms": atoms_checkpoint.result_hash,
+            "scene_boundaries": boundaries_checkpoint.result_hash,
+            "scene_assembly": assembly_checkpoint.result_hash,
+            "scene_presentation": presentation_checkpoint.result_hash,
+        },
+    )
 
 
 def _parsed_records(

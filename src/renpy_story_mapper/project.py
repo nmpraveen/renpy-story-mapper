@@ -23,6 +23,7 @@ IncompatibleProjectVersionError = storage.IncompatibleProjectVersionError
 if TYPE_CHECKING:
     from renpy_story_mapper.ingestion.contracts import IngestionResult
     from renpy_story_mapper.m07_model import M07ModelService
+    from renpy_story_mapper.m11_persistence import M11Persistence
     from renpy_story_mapper.presentation import PresentationService
     from renpy_story_mapper.story_organization import StoryOrganizationService
 
@@ -555,45 +556,58 @@ class Project:
         connection = self._require_open()
         _raise_if_cancelled(cancelled)
         with storage.transaction(connection):
-            now = storage.utc_now()
-            for record in records:
-                _raise_if_cancelled(cancelled)
-                payload = storage.canonical_json(record.value)
-                connection.execute(
-                    """
-                    INSERT INTO payloads(
-                        collection, record_key, payload_json, payload_hash, updated_utc
-                    ) VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(collection, record_key) DO UPDATE SET
-                        payload_json = excluded.payload_json,
-                        payload_hash = excluded.payload_hash,
-                        updated_utc = excluded.updated_utc
-                    """,
-                    (
-                        record.collection,
-                        record.key,
-                        payload,
-                        storage.payload_digest(payload),
-                        now,
-                    ),
-                )
-                connection.execute(
-                    "DELETE FROM payload_dependencies WHERE collection = ? AND record_key = ?",
-                    (record.collection, record.key),
-                )
-                try:
-                    connection.executemany(
-                        """
-                        INSERT INTO payload_dependencies(collection, record_key, source_path)
-                        VALUES (?, ?, ?)
-                        """,
-                        ((record.collection, record.key, path) for path in record.source_paths),
-                    )
-                except sqlite3.IntegrityError as exc:
-                    raise ValueError(
-                        f"payload {record.collection}/{record.key} references an unknown source"
-                    ) from exc
+            self._write_payloads_in_transaction(records, cancelled=cancelled)
+
+    def _write_payloads_in_transaction(
+        self,
+        records: Sequence[PayloadRecord],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
+        """Write generic payload rows inside an existing caller-owned transaction."""
+
+        connection = self._require_open()
+        if not connection.in_transaction:
+            raise storage.ProjectStorageError("payload write requires an active transaction")
+        now = storage.utc_now()
+        for record in records:
             _raise_if_cancelled(cancelled)
+            payload = storage.canonical_json(record.value)
+            connection.execute(
+                """
+                INSERT INTO payloads(
+                    collection, record_key, payload_json, payload_hash, updated_utc
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(collection, record_key) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    payload_hash = excluded.payload_hash,
+                    updated_utc = excluded.updated_utc
+                """,
+                (
+                    record.collection,
+                    record.key,
+                    payload,
+                    storage.payload_digest(payload),
+                    now,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection = ? AND record_key = ?",
+                (record.collection, record.key),
+            )
+            try:
+                connection.executemany(
+                    """
+                    INSERT INTO payload_dependencies(collection, record_key, source_path)
+                    VALUES (?, ?, ?)
+                    """,
+                    ((record.collection, record.key, path) for path in record.source_paths),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"payload {record.collection}/{record.key} references an unknown source"
+                ) from exc
+        _raise_if_cancelled(cancelled)
 
     def payload(self, collection: str, key: str) -> object | None:
         storage.check_collection(collection)
@@ -755,6 +769,13 @@ class Project:
         from renpy_story_mapper.m07_model import M07ModelService
 
         return M07ModelService(self)
+
+    def m11_persistence(self) -> M11Persistence:
+        """Return the generation-bound M11 phase and publication store."""
+
+        from renpy_story_mapper.m11_persistence import M11Persistence
+
+        return M11Persistence(self)
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""
