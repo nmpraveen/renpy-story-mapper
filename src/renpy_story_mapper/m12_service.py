@@ -230,13 +230,14 @@ class M12RouteService:
             raise storage.ProjectCorruptError("M12 cache is unavailable")
 
         started = time.monotonic()
+        deadline = started + emergency_seconds
         emergency_abort = False
 
         def should_stop() -> bool:
             nonlocal emergency_abort
             if cancelled is not None and cancelled():
                 return True
-            if time.monotonic() - started >= emergency_seconds:
+            if time.monotonic() >= deadline:
                 emergency_abort = True
                 return True
             return False
@@ -247,7 +248,7 @@ class M12RouteService:
             prepared.request,
             cancelled=should_stop,
         )
-        if emergency_abort or time.monotonic() - started >= emergency_seconds:
+        if emergency_abort or time.monotonic() >= deadline:
             diagnostic = self._project.m12_persistence().attempt_diagnostic(
                 prepared.identity,
                 AttemptStatus.EMERGENCY_ABORT,
