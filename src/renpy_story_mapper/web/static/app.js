@@ -1,4 +1,4 @@
-import { LocalApi } from "./api.js";
+import { LocalApi, stableRouteJson } from "./api.js";
 import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
 import { RouteGraph } from "./graph.js";
 
@@ -12,6 +12,7 @@ const state = {
   analysisStatus: null,
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
+  route: { sourceItem: null, sourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -30,6 +31,175 @@ const graph = new RouteGraph({
 function toast(message) {
   const host = $("#toast"); host.textContent = message; host.hidden = false;
   clearTimeout(toast.timer); toast.timer = setTimeout(() => { host.hidden = true; }, 2800);
+}
+
+function routeText(value) {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (!value || typeof value !== "object") return "Unknown";
+  const primary = value.instruction || value.text || value.label || value.title || value.caption || value.expression || value.variable_name || value.id || "Route item";
+  const condition = value.condition || value.requirement;
+  return condition && !String(primary).includes(String(condition)) ? `${primary} · ${condition}` : String(primary);
+}
+
+function routeArray(value) { return Array.isArray(value) ? value : []; }
+
+function routeScenes(candidate) {
+  if (Array.isArray(candidate.scene_titles)) return candidate.scene_titles;
+  if (Array.isArray(candidate.titles)) return candidate.titles;
+  if (candidate.titles && typeof candidate.titles === "object") return routeArray(candidate.scene_ids).map((id) => candidate.titles[id] || id);
+  return routeArray(candidate.scene_ids);
+}
+
+function routeStartingAssumptions(candidate) {
+  const direct = candidate.starting_assumptions || candidate.entry_preconditions || candidate.external_preconditions;
+  if (Array.isArray(direct)) return direct;
+  return routeArray(candidate.requirements).filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.resolution || item?.status || item?.kind));
+}
+
+function routeSatisfyingEffects(candidate) {
+  const direct = candidate.earlier_satisfying_effects || candidate.satisfying_effects || candidate.earlier_effects;
+  if (Array.isArray(direct)) return direct;
+  return routeArray(candidate.requirements).map((item) => item?.satisfying_effect).filter(Boolean);
+}
+
+function appendRouteSection(host, title, values, ordered = false) {
+  const items = routeArray(values);
+  if (!items.length) return;
+  const section = element("section", "route-section"); section.append(element("h4", "", title));
+  const list = element(ordered ? "ol" : "ul", "route-list");
+  for (const value of items) list.append(element("li", "", routeText(value)));
+  section.append(list); host.append(section);
+}
+
+function renderRouteCandidate(host, candidate) {
+  appendRouteSection(host, "Instructions", candidate.instructions, true);
+  appendRouteSection(host, "Starting assumptions", routeStartingAssumptions(candidate));
+  appendRouteSection(host, "Ordered human scenes", routeScenes(candidate), true);
+  appendRouteSection(host, "Visible choices", candidate.visible_choices, true);
+  appendRouteSection(host, "Repeated actions", candidate.repeated_actions || candidate.repeats, true);
+  appendRouteSection(host, "Requirements", candidate.requirements);
+  appendRouteSection(host, "Earlier satisfying effects", routeSatisfyingEffects(candidate));
+  appendRouteSection(host, "Persistent commitments", candidate.persistent_commitments || candidate.persistent_lane_ids);
+  appendRouteSection(host, "Uncertainty warnings", candidate.uncertainty_warnings || candidate.warnings);
+}
+
+function renderRouteTechnical(result) {
+  const host = $("#routeTechnicalBody"); host.replaceChildren();
+  const rows = [
+    ["Semantic status", result.status], ["Request", result.request_identity],
+    ["Completion", result.complete ? "Complete" : "Incomplete"], ["Termination", result.termination_reason || "none"],
+    ["Exhaustive", result.exhaustive ? "Yes" : "No"], ["Closed world", result.closed_world ? "Yes" : "No"],
+    ["Selected occurrence", result.recommended?.selected_occurrence_id || "not applicable"],
+  ];
+  const description = element("dl", "route-technical-grid");
+  for (const [term, value] of rows) description.append(element("dt", "", term), element("dd", "", value ?? "unknown"));
+  host.append(description);
+  appendRouteSection(host, "Provenance", result.recommended?.provenance || result.provenance);
+  const accounting = element("details", "route-accounting"); accounting.append(element("summary", "", "Budgets and diagnostics"), element("pre", "", stableRouteJson({ budget_usage: result.budget_usage, diagnostics: result.diagnostics })));
+  host.append(accounting);
+}
+
+function renderRoutePanel() {
+  const route = state.route; const source = route.sourceItem;
+  $("#routeDestination").textContent = source ? source.title || source.label || source.id : "Select a scene or M10 record.";
+  $("#solveRoute").disabled = !source || ["resolving", "running", "cancelling"].includes(route.phase) || !api.m12Routes;
+  const statuses = {
+    idle: "Select a supported destination.", ready: "Ready to solve locally.", resolving: "Checking the exact destination…",
+    running: route.progressLabel || "Solving locally…", cancelling: "Cancelling safely…", cancelled: "Solve cancelled. No result was replaced.",
+    complete: route.cached ? "Cached route ready." : "Route ready.", stale: "Result is stale for this selection. Solve again.",
+    failure: route.error || "Route solve failed. Retry is safe.",
+  };
+  $("#routeStatus").textContent = statuses[route.phase] || statuses.idle;
+  const busy = ["resolving", "running", "cancelling"].includes(route.phase);
+  $("#routePanel").setAttribute("aria-busy", String(busy));
+  $("#cancelRoute").hidden = !busy; $("#retryRoute").hidden = !["cancelled", "failure", "stale"].includes(route.phase);
+  $("#exportRouteJson").hidden = !route.result;
+  const badge = $("#routeBadge"); badge.hidden = !route.result; badge.textContent = route.result?.badge || "";
+  const resultHost = $("#routeResult"); resultHost.hidden = !route.result;
+  const recommended = $("#recommendedRouteBody"); recommended.replaceChildren();
+  if (route.result?.recommended) renderRouteCandidate(recommended, route.result.recommended);
+  else if (route.result) recommended.append(element("p", "muted", "No proven route is available under the completed static analysis."));
+  const alternatives = $("#routeAlternatives"); alternatives.replaceChildren();
+  for (const [index, candidate] of routeArray(route.result?.alternatives).entries()) {
+    const record = element("details", "route-alternative"); record.append(element("summary", "", candidate.title || `Alternative ${index + 1}`));
+    const body = element("div", "route-alternative-body"); renderRouteCandidate(body, candidate); record.append(body); alternatives.append(record);
+  }
+  $("#routeAlternativesSection").hidden = !alternatives.children.length;
+  if (route.result) renderRouteTechnical(route.result); else $("#routeTechnicalBody").replaceChildren();
+}
+
+function selectRouteSource(item) {
+  const changed = state.route.sourceId && state.route.sourceId !== item.id;
+  state.route.sourceItem = item; state.route.sourceId = item.id; state.route.error = null;
+  if (changed && (state.route.result || state.route.requestIdentity)) { state.route.stale = true; if (state.route.phase !== "running") state.route.phase = "stale"; }
+  else if (!["resolving", "running", "cancelling"].includes(state.route.phase) && !state.route.result) state.route.phase = "ready";
+  renderRoutePanel();
+}
+
+async function resolveRouteDestination(source) {
+  const direct = source.route_destination || (source.destination_kind && source.target_id ? { kind: source.destination_kind, target_id: source.target_id, title: source.title, subtitle: source.summary } : null);
+  if (direct?.kind && direct?.target_id) return direct;
+  const page = await api.routeDestinations(source.id, 0, ROUTE_PAGE_SIZE);
+  const candidates = routeArray(page.nodes || page.destinations);
+  const targetIds = new Set([source.id, source.occurrence_id, source.route_target_id].filter(Boolean));
+  const exact = candidates.filter((item) => targetIds.has(item.target_id) && typeof item.kind === "string");
+  exact.sort((left, right) => String(left.kind).localeCompare(String(right.kind)) || String(left.target_id).localeCompare(String(right.target_id)));
+  if (!exact.length) throw new Error("This selection is not a supported M12 destination");
+  return exact[0];
+}
+
+function routeTask(value) { return value?.task || value || {}; }
+
+async function waitForRouteTask(initial, token) {
+  let task = routeTask(initial);
+  while (["pending", "running"].includes(task.state)) {
+    state.route.progressLabel = String(task.stage || "Solving route").replaceAll("_", " "); renderRoutePanel();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    if (token !== state.route.runToken) return null;
+    task = routeTask(await api.progress());
+  }
+  return task;
+}
+
+async function runRouteSolve() {
+  const source = state.route.sourceItem; if (!source) return;
+  const token = state.route.runToken + 1; state.route.runToken = token; state.route.activeSourceId = source.id;
+  state.route.phase = "resolving"; state.route.error = null; state.route.progressLabel = null; state.route.stale = Boolean(state.route.result); renderRoutePanel();
+  try {
+    const destination = await resolveRouteDestination(source); if (token !== state.route.runToken) return;
+    state.route.destination = destination; state.route.phase = "running"; renderRoutePanel();
+    const response = await api.solveRoute(destination.kind, destination.target_id); if (token !== state.route.runToken) return;
+    state.route.requestIdentity = response.request_identity; state.route.cached = response.cached;
+    let result = response.result;
+    if (!response.cached) {
+      const terminal = await waitForRouteTask(response.analysis, token); if (!terminal || token !== state.route.runToken) return;
+      if (terminal.state === "cancelled") { state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel(); return; }
+      if (!["complete", "completed"].includes(terminal.state)) throw new Error(terminal.error?.message || terminal.message || "Route solve failed");
+      result = await api.routeResult(response.request_identity); if (token !== state.route.runToken) return;
+    }
+    state.route.result = result; state.route.stale = state.route.sourceId !== state.route.activeSourceId; state.route.phase = state.route.stale ? "stale" : "complete"; renderRoutePanel();
+  } catch (error) {
+    if (token !== state.route.runToken) return;
+    const stale = String(error.code || "").toLocaleLowerCase().includes("stale") || error.status === 409;
+    state.route.phase = stale ? "stale" : "failure"; state.route.stale = stale || Boolean(state.route.result); state.route.error = error.message; renderRoutePanel();
+  }
+}
+
+async function cancelRouteSolve() {
+  if (!["resolving", "running"].includes(state.route.phase)) return;
+  const serverTaskStarted = state.route.phase === "running";
+  state.route.phase = "cancelling"; renderRoutePanel();
+  if (serverTaskStarted) {
+    try { await api.cancelAnalysis(); } catch (error) { state.route.error = error.message; }
+  }
+  state.route.runToken += 1; state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel();
+}
+
+function exportRouteJson() {
+  const result = state.route.result; if (!result) return;
+  const blob = new Blob([stableRouteJson(result)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob); const link = element("a"); const identity = String(result.request_identity || "route").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 80);
+  link.href = url; link.download = `route-${identity || "result"}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function showPrimary(name) {
@@ -240,6 +410,9 @@ async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.
 }
 
 async function resetRoutePaging() {
+  const nextRouteToken = state.route.runToken + 1;
+  state.route = { sourceItem: null, sourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: nextRouteToken };
+  renderRoutePanel();
   state.cursorHistory = [];
   state.offset = 0; state.edgeOffset = 0; state.edgeCursor = null; state.windowResolution = null; state.prepared = null;
   $("#scopePreview").textContent = "No story text is sent until an exact preview is confirmed.";
@@ -404,7 +577,7 @@ async function switchMode(mode) {
   updateModeHeader(); if (state.page) renderMap(); else await loadRoutePage({ offset: 0, edgeOffset: 0 });
 }
 
-function selectItem(item) { state.selectedId = item.id; $("#selectionStatus").textContent = `${item.title || String(item.role || item.kind || "route").replaceAll("_", " ")} · Enter for Detail / Evidence`; }
+function selectItem(item) { state.selectedId = item.id; $("#selectionStatus").textContent = `${item.title || String(item.role || item.kind || "route").replaceAll("_", " ")} · Enter for Detail / Evidence`; selectRouteSource(item); }
 
 function addFactGroup(host, title, items, type) {
   if (!items?.length) return;
@@ -654,6 +827,8 @@ function bind() {
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
   $("#sceneMapButton").addEventListener("click", () => switchMode("scenes")); $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
   $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);
+  $("#solveRoute").addEventListener("click", runRouteSolve); $("#retryRoute").addEventListener("click", runRouteSolve); $("#cancelRoute").addEventListener("click", cancelRouteSolve); $("#exportRouteJson").addEventListener("click", exportRouteJson);
+  $("#openRouteEvidence").addEventListener("click", () => { if (state.route.sourceId) openDetail(state.route.sourceId); });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
   $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
@@ -672,7 +847,7 @@ function bind() {
 
 async function start() {
   bind();
-  try { const bootstrap = await api.bootstrap(); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); showPrimary("welcome"); } catch (error) { renderRecent([]); toast(error.message); }
+  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
 }
 
 start();

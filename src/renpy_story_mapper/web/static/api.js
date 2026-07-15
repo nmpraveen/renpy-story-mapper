@@ -7,6 +7,8 @@ import {
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const M12_ROUTE_KEYS = Object.freeze(["destinations", "solve", "result"]);
+const M12_BADGES = new Set(["Confirmed route", "Route with prerequisites", "Best known route", "No proven route"]);
 export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
   soft_seconds: 600, hard_seconds: 900, soft_tokens: 1500000, hard_tokens: 2000000, hard_calls: 48,
 });
@@ -25,6 +27,32 @@ function uniqueIds(value, label) {
 
 function exactKeys(value, keys, label) {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))) throw new TypeError(`${label} has missing or extra fields`);
+  return value;
+}
+
+function localVersionedPath(value, label) {
+  if (typeof value !== "string" || !/^\/api\/v[0-9]+\/[a-z0-9/_-]+$/i.test(value)) throw new TypeError(`${label} must be a local versioned API path`);
+  return value;
+}
+
+export function stableRouteJson(value) {
+  const normalize = (item) => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === "object") return Object.fromEntries(Object.keys(item).sort().map((key) => [key, normalize(item[key])]));
+    return item;
+  };
+  return `${JSON.stringify(normalize(value), null, 2)}\n`;
+}
+
+export function assertRouteResult(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Invalid M12 route result");
+  for (const key of ["schema", "request_identity", "status", "badge", "recommended", "alternatives", "complete", "termination_reason", "exhaustive", "closed_world", "budget_usage", "diagnostics"]) {
+    if (!Object.hasOwn(value, key)) throw new TypeError(`M12 route result is missing ${key}`);
+  }
+  if (typeof value.request_identity !== "string" || !value.request_identity) throw new TypeError("Invalid M12 route request identity");
+  if (!M12_BADGES.has(value.badge)) throw new TypeError("Invalid M12 route badge");
+  if (!Array.isArray(value.alternatives)) throw new TypeError("Invalid M12 route alternatives");
+  if (value.recommended !== null && (typeof value.recommended !== "object" || Array.isArray(value.recommended))) throw new TypeError("Invalid M12 recommended route");
   return value;
 }
 
@@ -74,10 +102,24 @@ export class LocalApi {
     this.session = session || document.querySelector('meta[name="rsm-session"]')?.content || "";
     this.csrf = csrf || document.querySelector('meta[name="rsm-csrf"]')?.content || "";
     this.organizationSelection = { scopeIds: [], windowRequests: [] };
+    this.m12Routes = null;
+  }
+
+  configureM12(routes) {
+    if (routes === undefined || routes === null) { this.m12Routes = null; return null; }
+    exactKeys(routes, M12_ROUTE_KEYS, "M12 route endpoints");
+    this.m12Routes = Object.freeze(Object.fromEntries(M12_ROUTE_KEYS.map((key) => [key, localVersionedPath(routes[key], `M12 ${key} endpoint`)])));
+    return this.m12Routes;
+  }
+
+  m12Path(key) {
+    if (!this.m12Routes || !Object.hasOwn(this.m12Routes, key)) throw new Error("Route solving is unavailable for this project");
+    return this.m12Routes[key];
   }
 
   async request(path, { method = "GET", body, signal } = {}) {
-    if (!Object.values(ENDPOINTS).includes(path)) throw new TypeError("Unknown local API endpoint");
+    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path);
+    if (!allowed) throw new TypeError("Unknown local API endpoint");
     const verb = method.toUpperCase();
     const headers = { Accept: "application/json", "X-RSM-Session": this.session };
     if (mutations.has(verb)) {
@@ -95,7 +137,11 @@ export class LocalApi {
       signal,
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error?.message || "Local request failed");
+    if (!response.ok) {
+      const error = new Error(payload.error?.message || "Local request failed");
+      error.status = response.status; error.code = payload.error?.code || null;
+      throw error;
+    }
     return payload;
   }
 
@@ -140,6 +186,32 @@ export class LocalApi {
   }
   async sceneDetail(elementId) {
     return assertSceneDetail(await this.request(ENDPOINTS.sceneDetail, { method: "POST", body: { element_id: elementId } }));
+  }
+  async routeDestinations(query = null, offset = 0, limit = ROUTE_PAGE_SIZE) {
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1) throw new TypeError("Invalid M12 destination page");
+    const body = { offset, limit };
+    if (query) body.query = query;
+    const response = await this.request(this.m12Path("destinations"), { method: "POST", body });
+    const nodes = response?.nodes || response?.destinations;
+    if (!Array.isArray(nodes) || nodes.some((item) => !item || typeof item.kind !== "string" || typeof item.target_id !== "string" || typeof item.title !== "string" || typeof item.subtitle !== "string")) throw new TypeError("Invalid M12 destination response");
+    return response;
+  }
+  async solveRoute(destinationKind, targetId) {
+    if (typeof destinationKind !== "string" || !destinationKind || typeof targetId !== "string" || !targetId) throw new TypeError("Select a supported route destination");
+    const response = await this.request(this.m12Path("solve"), { method: "POST", body: { destination_kind: destinationKind, target_id: targetId } });
+    if (typeof response.cached !== "boolean" || typeof response.request_identity !== "string" || !response.request_identity) throw new TypeError("Invalid M12 solve response");
+    if (response.cached) {
+      assertRouteResult(response.result);
+      if (response.result.request_identity !== response.request_identity) throw new TypeError("M12 cache identity mismatch");
+    }
+    else if (!response.analysis || typeof response.analysis !== "object") throw new TypeError("Invalid M12 analysis task response");
+    return response;
+  }
+  async routeResult(requestIdentity) {
+    if (typeof requestIdentity !== "string" || !requestIdentity) throw new TypeError("Route request identity is required");
+    const result = assertRouteResult(await this.request(this.m12Path("result"), { method: "POST", body: { request_identity: requestIdentity } }));
+    if (result.request_identity !== requestIdentity) throw new TypeError("M12 result identity mismatch");
+    return result;
   }
   async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE, edgeCursor = null) {
     const body = { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit };
