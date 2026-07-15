@@ -329,37 +329,59 @@ def _authority_hidden_or_gated(
             None,
         )
         if occurrence is not None and occurrence.guard_fact_ids:
-            guarded = _proven_requirement_facts(occurrence.guard_fact_ids, facts)
+            guarded = _authority_requirement_facts(occurrence.guard_fact_ids, facts)
             if len(guarded) == len(occurrence.guard_fact_ids):
                 return {
                     "basis": "m11_occurrence_guard",
                     "fact_count": len(guarded),
+                    "fact_statuses": sorted({item.status for item in guarded}),
                     "evidence_count": len(
                         {evidence_id for item in guarded for evidence_id in item.evidence_ids}
                     ),
                 }
+        return None
     edges = {item.id: item for item in graph.edges}
     path_edge_ids = _sequence(recommended.get("edge_ids")) if recommended else ()
     if not path_edge_ids or any(
         not isinstance(edge_id, str) or edge_id not in edges for edge_id in path_edge_ids
     ):
         return None
-    gate_fact_ids = tuple(
+    route_gate_fact_ids = tuple(
         fact_id
         for edge_id in path_edge_ids
         if isinstance(edge_id, str)
         for fact_id in _sequence(edges[edge_id].attributes.get("gate_ids"))
         if isinstance(fact_id, str)
     )
-    proven_requirements = _proven_requirement_facts(gate_fact_ids, facts)
-    if proven_requirements:
+    claimed_requirements: dict[str, frozenset[str]] = {}
+    for item in _sequence(recommended.get("requirements")) if recommended else ():
+        if not isinstance(item, Mapping):
+            continue
+        fact_id = item.get("fact_id")
+        evidence_ids = _sequence(item.get("evidence_ids"))
+        if isinstance(fact_id, str) and all(
+            isinstance(evidence_id, str) for evidence_id in evidence_ids
+        ):
+            claimed_requirements[fact_id] = frozenset(
+                evidence_id for evidence_id in evidence_ids if isinstance(evidence_id, str)
+            )
+    exact_route_claim_ids = tuple(
+        fact_id
+        for fact_id in dict.fromkeys(route_gate_fact_ids)
+        if fact_id in claimed_requirements
+        and fact_id in facts
+        and claimed_requirements[fact_id] == frozenset(facts[fact_id].evidence_ids)
+    )
+    authority_requirements = _authority_requirement_facts(exact_route_claim_ids, facts)
+    if authority_requirements:
         return {
-            "basis": "m10_route_gate",
-            "fact_count": len(proven_requirements),
+            "basis": "m10_selected_route_requirement",
+            "fact_count": len(authority_requirements),
+            "fact_statuses": sorted({item.status for item in authority_requirements}),
             "evidence_count": len(
                 {
                     evidence_id
-                    for item in proven_requirements
+                    for item in authority_requirements
                     for evidence_id in item.evidence_ids
                 }
             ),
@@ -367,7 +389,7 @@ def _authority_hidden_or_gated(
     return None
 
 
-def _proven_requirement_facts(
+def _authority_requirement_facts(
     fact_ids: Sequence[str], facts: Mapping[str, CanonicalFact]
 ) -> tuple[CanonicalFact, ...]:
     result: list[CanonicalFact] = []
@@ -376,7 +398,7 @@ def _proven_requirement_facts(
         if (
             fact is not None
             and fact.kind == "requirement"
-            and fact.status == "proven"
+            and fact.status in {"proven", "unresolved"}
             and fact.evidence_ids
         ):
             result.append(fact)

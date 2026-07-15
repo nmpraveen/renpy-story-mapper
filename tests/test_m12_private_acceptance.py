@@ -5,8 +5,13 @@ import json
 from pathlib import Path
 
 import pytest
-from scripts.m12_private_acceptance import MANIFEST_SCHEMA, run
+from scripts.m12_private_acceptance import (
+    MANIFEST_SCHEMA,
+    _authority_requirement_facts,
+    run,
+)
 
+from renpy_story_mapper.canonical_graph_contract import CanonicalFact
 from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project, create_ingested_project
 
@@ -209,3 +214,23 @@ def test_private_harness_rejects_caller_label_for_ungated_occurrence(
             output_path=output,
             walkthrough_path=walkthrough,
         )
+
+
+def test_private_gate_classification_preserves_honest_unresolved_authority() -> None:
+    facts = {
+        "proven": CanonicalFact("proven", "requirement", "proven", ("e1",), (), {}),
+        "unresolved": CanonicalFact(
+            "unresolved", "requirement", "unresolved", ("e2",), (), {}
+        ),
+        "possible": CanonicalFact(
+            "possible", "requirement", "possible", ("e3",), (), {}
+        ),
+        "effect": CanonicalFact("effect", "effect", "proven", ("e4",), (), {}),
+        "no-evidence": CanonicalFact(
+            "no-evidence", "requirement", "proven", (), (), {}
+        ),
+    }
+
+    classified = _authority_requirement_facts(tuple(facts), facts)
+
+    assert tuple(item.id for item in classified) == ("proven", "unresolved")
