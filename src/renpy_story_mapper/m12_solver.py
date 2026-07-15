@@ -2429,23 +2429,14 @@ def _qualified_name(node: ast.AST) -> str | None:
 def _dedupe_requirements(
     requirements: Iterable[RequirementAttribution],
 ) -> list[RequirementAttribution]:
-    result: dict[tuple[str, str, str], RequirementAttribution] = {}
-    priority = {
-        RequirementSource.UNKNOWN: 0,
-        RequirementSource.ENTRY_PRECONDITION: 1,
-        RequirementSource.PROVEN_EFFECT: 2,
-        RequirementSource.REPEATED_EVENT: 2,
-    }
+    result: list[RequirementAttribution] = []
+    seen: set[RequirementAttribution] = set()
     for item in requirements:
-        key = (
-            item.fact_id,
-            item.expression,
-            item.variable.key if item.variable is not None else "",
-        )
-        prior = result.get(key)
-        if prior is None or priority[item.source] < priority[prior.source]:
-            result[key] = item
-    return [result[key] for key in sorted(result)]
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _strings(value: object) -> tuple[str, ...]:

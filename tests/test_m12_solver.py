@@ -980,6 +980,75 @@ def test_later_effect_cannot_erase_an_earlier_unknown_requirement() -> None:
     assert result.recommended.requirements[0].source is RequirementSource.UNKNOWN
 
 
+def test_revisited_gate_retains_entry_requirement_after_possible_write() -> None:
+    gate = _fact(
+        "chronology-revisited-gate",
+        kind="requirement",
+        expression="score >= 2",
+        variable="score",
+    )
+    possible_write = _fact(
+        "chronology-possible-write",
+        kind="effect",
+        expression="score = dynamic_value",
+        variable="score",
+        operation="assignment",
+        value=0,
+        status="possible",
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {
+                "id": "revisited-first-gate",
+                "source": "root",
+                "target": "first",
+                "gates": (gate.id,),
+            },
+            {
+                "id": "revisited-possible-write",
+                "source": "first",
+                "target": "second",
+                "effects": (possible_write.id,),
+            },
+            {
+                "id": "revisited-second-gate",
+                "source": "second",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, possible_write),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    entry = InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 2)
+
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(entry,),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert [item.source for item in result.recommended.requirements] == [
+        RequirementSource.ENTRY_PRECONDITION,
+        RequirementSource.UNKNOWN,
+    ]
+    assert result.recommended.requirements[0].entry_precondition == entry
+    assert result.recommended.ranking_key[1:3] == (1, 1)
+    assert any(
+        instruction.kind == "starting_assumption"
+        and instruction.text == "Start with store:score:persistent-unknown = 2."
+        for instruction in result.recommended.instructions
+    )
+
+
 def test_exact_and_generic_shared_callee_report_the_selected_occurrence() -> None:
     graph, model = _authority(
         ("root", "callee", "after"),
