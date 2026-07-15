@@ -925,6 +925,147 @@ def test_one_increment_after_initialization_is_a_proven_effect_not_a_repeat() ->
     assert result.recommended.repeated_action_claims == ()
 
 
+def test_repeated_effect_across_distinct_edges_keeps_exact_effect_provenance() -> None:
+    gate = _fact("repeat-gate", kind="requirement", expression="score >= 2", variable="score")
+    initial_score = _fact(
+        "repeat-initial",
+        kind="effect",
+        expression="default score = 0",
+        variable="score",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "repeat-increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {"id": "first-build", "source": "root", "target": "first", "effects": (increment.id,)},
+            {
+                "id": "second-build",
+                "source": "first",
+                "target": "second",
+                "effects": (increment.id,),
+            },
+            {"id": "finish", "source": "second", "target": "target", "gates": (gate.id,)},
+        ),
+        facts=(gate, initial_score, increment),
+        node_facts={"root": (initial_score.id,)},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    requirement = result.recommended.requirements[0]
+    assert requirement.source is RequirementSource.REPEATED_EVENT
+    assert requirement.repeated_count == 2
+    assert requirement.repeated_effect_id == increment.id
+    assert requirement.supporting_effect_ids == (initial_score.id, increment.id)
+    assert {claim.fact_id for claim in result.recommended.satisfying_effect_claims} == {
+        initial_score.id,
+        increment.id,
+    }
+    assert result.recommended.repeated_action_claims[0].fact_id == increment.id
+    assert result.recommended.repeated_action_claims[0].repeated_count == 2
+    assert {gate.id, initial_score.id, increment.id} <= set(
+        result.recommended.provenance.fact_ids
+    )
+    assert any(
+        instruction.kind == "repeat" and instruction.fact_id == increment.id
+        for instruction in result.recommended.instructions
+    )
+
+
+def test_distinct_accumulated_effects_keep_the_complete_support_chain() -> None:
+    gate = _fact("chain-gate", kind="requirement", expression="score >= 2", variable="score")
+    initial_score = _fact(
+        "chain-initial",
+        kind="effect",
+        expression="default score = 0",
+        variable="score",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    first_increment = _fact(
+        "chain-first",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    second_increment = _fact(
+        "chain-second",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {
+                "id": "first-build",
+                "source": "root",
+                "target": "first",
+                "effects": (first_increment.id,),
+            },
+            {
+                "id": "second-build",
+                "source": "first",
+                "target": "second",
+                "effects": (second_increment.id,),
+            },
+            {"id": "finish", "source": "second", "target": "target", "gates": (gate.id,)},
+        ),
+        facts=(gate, initial_score, first_increment, second_increment),
+        node_facts={"root": (initial_score.id,)},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    requirement = result.recommended.requirements[0]
+    assert requirement.source is RequirementSource.PROVEN_EFFECT
+    assert requirement.satisfying_effect_id == second_increment.id
+    assert requirement.supporting_effect_ids == (
+        initial_score.id,
+        first_increment.id,
+        second_increment.id,
+    )
+    assert {claim.fact_id for claim in result.recommended.satisfying_effect_claims} == {
+        initial_score.id,
+        first_increment.id,
+        second_increment.id,
+    }
+    assert {gate.id, initial_score.id, first_increment.id, second_increment.id} <= set(
+        result.recommended.provenance.fact_ids
+    )
+
+
 def test_call_resume_projection_preserves_internal_gate_and_effect_semantics() -> None:
     gate = _fact("callee-gate", kind="requirement", expression="flag == True", variable="flag")
     initial_flag = _fact(

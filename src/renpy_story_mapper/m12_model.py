@@ -226,24 +226,38 @@ class RequirementAttribution:
     source: RequirementSource
     variable: StateVariableIdentity | None = None
     satisfying_effect_id: str | None = None
+    repeated_effect_id: str | None = None
+    supporting_effect_ids: tuple[str, ...] = ()
     repeated_count: int | None = None
     evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        links = sum(
-            (
-                self.satisfying_effect_id is not None,
-                self.repeated_count is not None,
-                self.source is RequirementSource.ENTRY_PRECONDITION,
-                self.source is RequirementSource.UNKNOWN,
-            )
-        )
-        if links != 1:
-            raise ValueError("each material requirement must have exactly one attribution")
-        if self.source is RequirementSource.PROVEN_EFFECT and self.satisfying_effect_id is None:
-            raise ValueError("proven-effect attribution requires its fact ID")
-        if self.source is RequirementSource.REPEATED_EVENT and self.repeated_count is None:
-            raise ValueError("repeated-event attribution requires a count")
+        if len(self.supporting_effect_ids) != len(set(self.supporting_effect_ids)):
+            raise ValueError("supporting effect IDs must be unique")
+        if self.source is RequirementSource.PROVEN_EFFECT:
+            if (
+                self.satisfying_effect_id is None
+                or self.repeated_effect_id is not None
+                or self.repeated_count is not None
+                or self.satisfying_effect_id not in self.supporting_effect_ids
+            ):
+                raise ValueError("proven-effect attribution requires its exact effect chain")
+        elif self.source is RequirementSource.REPEATED_EVENT:
+            if (
+                self.satisfying_effect_id is not None
+                or self.repeated_effect_id is None
+                or self.repeated_count is None
+                or self.repeated_count < 2
+                or self.repeated_effect_id not in self.supporting_effect_ids
+            ):
+                raise ValueError("repeated-event attribution requires its exact effect and count")
+        elif (
+            self.satisfying_effect_id is not None
+            or self.repeated_effect_id is not None
+            or self.supporting_effect_ids
+            or self.repeated_count is not None
+        ):
+            raise ValueError("entry and unknown requirements cannot carry effect attribution")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -252,6 +266,8 @@ class RequirementAttribution:
             "source": self.source.value,
             "variable": self.variable.to_dict() if self.variable is not None else None,
             "satisfying_effect_id": self.satisfying_effect_id,
+            "repeated_effect_id": self.repeated_effect_id,
+            "supporting_effect_ids": list(self.supporting_effect_ids),
             "repeated_count": self.repeated_count,
             "evidence_ids": list(sorted(self.evidence_ids)),
         }

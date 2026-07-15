@@ -103,11 +103,22 @@ class _TargetAnchor:
     required_edge_id: str | None = None
 
 
+@dataclass(frozen=True)
+class _ValueSource:
+    effect_ids: tuple[str, ...]
+    effect_counts: tuple[tuple[str, int], ...]
+    last_effect_id: str
+
+    @property
+    def repeated_count(self) -> int:
+        return dict(self.effect_counts)[self.last_effect_id]
+
+
 @dataclass
 class _SearchState:
     node_id: str
     values: dict[str, object]
-    value_sources: dict[str, tuple[str, int]]
+    value_sources: dict[str, _ValueSource]
     initial_kinds: dict[str, InitialStateValue]
     node_ids: tuple[str, ...]
     edge_ids: tuple[str, ...]
@@ -991,11 +1002,11 @@ def _initial_values(
     projection: NumericProjection,
 ) -> tuple[
     dict[str, object],
-    dict[str, tuple[str, int]],
+    dict[str, _ValueSource],
     dict[str, InitialStateValue],
 ]:
     values: dict[str, object] = {}
-    sources: dict[str, tuple[str, int]] = {}
+    sources: dict[str, _ValueSource] = {}
     initial: dict[str, InitialStateValue] = {}
     relevant = {item.key for item in projection.relevant_variables}
     for item in items:
@@ -1007,7 +1018,11 @@ def _initial_values(
         if item.kind is InitialValueKind.KNOWN:
             matching = _matching_initial_fact_ids(graph, start_node_id, item)
             if matching:
-                sources[item.variable.key] = (matching[0], 0)
+                sources[item.variable.key] = _ValueSource(
+                    (matching[0],),
+                    ((matching[0], 1),),
+                    matching[0],
+                )
     return values, sources, initial
 
 
@@ -1210,7 +1225,7 @@ def _reachability_warning(
 def _evaluate_requirement(
     fact: CanonicalFact,
     values: Mapping[str, object],
-    value_sources: Mapping[str, tuple[str, int]],
+    value_sources: Mapping[str, _ValueSource],
     initial: Mapping[str, InitialStateValue],
 ) -> tuple[bool | None, tuple[RequirementAttribution, ...]]:
     expression = str(fact.attributes.get("original_expression", ""))
@@ -1288,7 +1303,7 @@ def _requirement_attribution(
     expression: str,
     variable: StateVariableIdentity,
     outcome: bool | None,
-    value_sources: Mapping[str, tuple[str, int]],
+    value_sources: Mapping[str, _ValueSource],
     initial: Mapping[str, InitialStateValue],
     evidence: tuple[str, ...],
 ) -> RequirementAttribution:
@@ -1302,14 +1317,15 @@ def _requirement_attribution(
         )
     source = value_sources.get(variable.key)
     if source is not None:
-        effect_id, count = source
-        if count > 1:
+        if source.repeated_count > 1:
             return RequirementAttribution(
                 fact_id,
                 expression,
                 RequirementSource.REPEATED_EVENT,
                 variable,
-                repeated_count=count,
+                repeated_effect_id=source.last_effect_id,
+                supporting_effect_ids=source.effect_ids,
+                repeated_count=source.repeated_count,
                 evidence_ids=evidence,
             )
         return RequirementAttribution(
@@ -1317,7 +1333,8 @@ def _requirement_attribution(
             expression,
             RequirementSource.PROVEN_EFFECT,
             variable,
-            satisfying_effect_id=effect_id,
+            satisfying_effect_id=source.last_effect_id,
+            supporting_effect_ids=source.effect_ids,
             evidence_ids=evidence,
         )
     entry = initial.get(variable.key)
@@ -1349,7 +1366,7 @@ def _requirement_attribution(
 def _apply_effect(
     fact: CanonicalFact,
     values: dict[str, object],
-    sources: dict[str, tuple[str, int]],
+    sources: dict[str, _ValueSource],
     warnings: list[str],
     relevant: set[str],
 ) -> None:
@@ -1371,7 +1388,7 @@ def _apply_effect(
     prior_source = sources.get(variable.key)
     if operation == "assignment" and _is_scalar(value):
         values[variable.key] = value
-        sources[variable.key] = (fact.id, 0)
+        sources[variable.key] = _ValueSource((fact.id,), ((fact.id, 1),), fact.id)
     elif (
         operation in {"increment", "decrement"}
         and isinstance(value, int | float)
@@ -1381,12 +1398,17 @@ def _apply_effect(
         if isinstance(current, int | float) and not isinstance(current, bool):
             delta = value if operation == "increment" else -value
             values[variable.key] = current + delta
-            repeated_count = (
-                prior_source[1] + 1
-                if prior_source is not None and prior_source[0] == fact.id
-                else 1
+            prior_effect_ids = prior_source.effect_ids if prior_source is not None else ()
+            effect_ids = tuple(dict.fromkeys((*prior_effect_ids, fact.id)))
+            effect_counts = (
+                dict(prior_source.effect_counts) if prior_source is not None else {}
             )
-            sources[variable.key] = (fact.id, repeated_count)
+            effect_counts[fact.id] = effect_counts.get(fact.id, 0) + 1
+            sources[variable.key] = _ValueSource(
+                effect_ids,
+                tuple((effect_id, effect_counts[effect_id]) for effect_id in effect_ids),
+                fact.id,
+            )
         else:
             values.pop(variable.key, None)
             sources.pop(variable.key, None)
@@ -1502,17 +1524,17 @@ def _route_alternative(
     requirements = tuple(_dedupe_requirements(state.requirements))
     satisfying_effect_claims = tuple(
         RouteClaim(
-            text=f"{item.expression} — effect {item.satisfying_effect_id}",
-            fact_id=item.satisfying_effect_id,
-            evidence_ids=tuple(sorted(facts[item.satisfying_effect_id].evidence_ids)),
+            text=f"{item.expression} — supporting effect {effect_id}",
+            fact_id=effect_id,
+            evidence_ids=tuple(sorted(facts[effect_id].evidence_ids)),
         )
         for item in requirements
-        if item.source is RequirementSource.PROVEN_EFFECT
-        and item.satisfying_effect_id is not None
-        and item.satisfying_effect_id in facts
+        if item.source in {RequirementSource.PROVEN_EFFECT, RequirementSource.REPEATED_EVENT}
+        for effect_id in item.supporting_effect_ids
+        if effect_id in facts
     )
     warnings = tuple(state.warnings)
-    repeated_claims = tuple(
+    edge_repeated_claims = tuple(
         _edge_claim(
             f"Repeat the supported action {count - 1} additional time(s).",
             edge_by_id[edge_id],
@@ -1522,6 +1544,23 @@ def _route_alternative(
         for edge_id, count in sorted(state.transition_counts.items())
         if count > 1
     )
+    requirement_repeated_claims = tuple(
+        RouteClaim(
+            text=(
+                f"Apply effect {item.repeated_effect_id} "
+                f"{item.repeated_count} proven time(s)."
+            ),
+            fact_id=item.repeated_effect_id,
+            evidence_ids=tuple(sorted(facts[item.repeated_effect_id].evidence_ids)),
+            repeated_count=item.repeated_count,
+        )
+        for item in requirements
+        if item.source is RequirementSource.REPEATED_EVENT
+        and item.repeated_effect_id is not None
+        and item.repeated_count is not None
+        and item.repeated_effect_id in facts
+    )
+    repeated_claims = (*edge_repeated_claims, *requirement_repeated_claims)
     lane_records = {item.id: item for item in scene_model.lanes}
     persistent_claims = tuple(
         RouteClaim(
@@ -1593,9 +1632,9 @@ def _route_alternative(
     )
     fact_id_values = {item.fact_id for item in requirements}
     fact_id_values.update(
-        item.satisfying_effect_id
+        effect_id
         for item in requirements
-        if item.satisfying_effect_id is not None
+        for effect_id in item.supporting_effect_ids
     )
     if selected_occurrence is not None:
         fact_id_values.update(selected_occurrence.guard_fact_ids)
@@ -1802,6 +1841,7 @@ def _instructions(
             "kind": "repeat",
             "text": claim.text,
             "edge_id": claim.edge_id,
+            "fact_id": claim.fact_id,
             "evidence_ids": claim.evidence_ids,
             "proof_ids": claim.proof_ids,
         })
@@ -1970,6 +2010,8 @@ def _state_key(
             item.fact_id,
             item.source.value,
             item.satisfying_effect_id,
+            item.repeated_effect_id,
+            item.supporting_effect_ids,
             item.repeated_count,
         )
         for item in _dedupe_requirements(state.requirements)
@@ -2070,6 +2112,7 @@ def _accounting_units(state: _SearchState) -> int:
         + len(state.requirements)
         + len(state.call_stack)
         + len(state.transition_counts)
+        + sum(len(source.effect_ids) for source in state.value_sources.values())
     )
 
 

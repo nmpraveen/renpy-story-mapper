@@ -103,11 +103,14 @@ def test_material_requirement_has_exactly_one_support_category() -> None:
         "score > 1",
         RequirementSource.PROVEN_EFFECT,
         satisfying_effect_id="effect",
+        supporting_effect_ids=("effect",),
     )
     repeated = RequirementAttribution(
         "fact",
         "score > 1",
         RequirementSource.REPEATED_EVENT,
+        repeated_effect_id="effect",
+        supporting_effect_ids=("effect",),
         repeated_count=2,
     )
     entry = RequirementAttribution(
@@ -117,7 +120,7 @@ def test_material_requirement_has_exactly_one_support_category() -> None:
     assert {item.source for item in (unknown, effect, repeated, entry)} == set(
         RequirementSource
     )
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(ValueError, match="cannot carry"):
         RequirementAttribution(
             "fact",
             "score > 1",
