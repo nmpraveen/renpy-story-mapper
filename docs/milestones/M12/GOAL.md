@@ -1,11 +1,13 @@
 # M12 - Route-to-target solving and path requirements
 
-Status: In progress
+Status: Verification
 
 Scope authority: `docs/MASTER_PLAN.md`, M12 approved proposal, and the user's 2026-07-15
 binding amendments
 
 Baseline: `fa8c543f648e085403f7448ab5e89f9b6e6c4fb6`
+
+Validated product head: `1df83098872fb63d434ff3e59a79e0f286944260`
 
 ## Done condition
 
@@ -111,13 +113,13 @@ without enumerating playthroughs, inventing state, or claiming unsupported satis
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-4 | Binding, entry, destination, determinism, and authority contract tests | Pending; `VALIDATION_REPORT.md` |
-| 5-11 | State, call-context, timing, loop, threshold, and contradiction fixture tests | Pending; `VALIDATION_REPORT.md` |
-| 12-15 | Budget replay, ranking, alternatives, status, and scale metrics | Pending; `VALIDATION_REPORT.md` |
-| 16 | Cache/write counters, migration/open behavior, cancellation and injected failures | Pending; `VALIDATION_REPORT.md` |
-| 17-18 | API/real-browser checks, screenshots, bounded provenance traversal, export hashes | Pending; `VALIDATION_REPORT.md` |
-| 19 | Named synthetic test matrix with commands and counts | Pending; `VALIDATION_REPORT.md` |
-| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Pending; `COMPLETION_REPORT.md` |
+| 1-4 | Binding, entry, destination, determinism, and authority contract tests | Pass; focused M12 suite and `VALIDATION_REPORT.md` |
+| 5-11 | State, call-context, timing, loop, threshold, and contradiction fixture tests | Pass; focused M12 suite and named fixtures in `VALIDATION_REPORT.md` |
+| 12-15 | Budget replay, ranking, alternatives, status, and scale metrics | Pass; byte-identical scale runs in `VALIDATION_REPORT.md` |
+| 16 | Cache/write counters, migration/open behavior, cancellation and injected failures | Pass; 32 persistence/fault/private-harness tests and emergency replay evidence |
+| 17-18 | API/real-browser checks, screenshots, bounded provenance traversal, export hashes | Pass; Chrome 100%/200% artifacts and hashes in `VALIDATION_REPORT.md` |
+| 19 | Named synthetic test matrix with commands and counts | Pass; 97 focused M12 tests, one opt-in browser skip exercised separately |
+| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Validation/private/final reviews pass; PR creation remains in `COMPLETION_REPORT.md` |
 
 ## Exclusions
 
@@ -141,6 +143,6 @@ without enumerating playthroughs, inventing state, or claiming unsupported satis
   required checks. No worker opens a PR.
 - Use at most the primary orchestrator plus two concurrent workers. Integrate only on
   `codex/m12-route-solving`.
-- Keep status at `Integration` until worker changes are integrated and reviewed.
+- Keep status at `Verification` until all evidence is committed and the approval-gated PR exists.
 - Keep the native Codex goal active through integration, verification, private acceptance,
   review, evidence, and PR preparation. Complete it only at genuine `PR ready`.

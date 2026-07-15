@@ -32,7 +32,10 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "Repository prose cannot change Codex client settings" in agents
     assert state.count("- Active milestone:") == 1
     assert "Active milestone: M12 - Route-to-target solving and path requirements" in state
-    assert "Status: In progress" in state
+    assert any(
+        f"- Status: {status}." in state
+        for status in ("In progress", "Integration", "Verification", "PR ready")
+    )
     assert "Semantic review: `PASS`" in state
     assert "docs/milestones/M12/GOAL.md" in state
     assert "PR #20" in state
