@@ -145,6 +145,7 @@ def bind_route_request(
     start_node_id: str | None = None,
     initial_state: Sequence[InitialStateValue] = (),
     limits: DeterministicLimitProfile | None = None,
+    canonical_hash: str | None = None,
 ) -> RouteRequest:
     """Bind a request to exact immutable M10/M11 authority."""
 
@@ -154,17 +155,19 @@ def bind_route_request(
         raise ValueError("M11 source generation does not match M10")
     if scene_model.binding.canonical_schema != CANONICAL_GRAPH_SCHEMA:
         raise ValueError("M11 canonical schema binding does not match M10")
-    if scene_model.binding.canonical_hash != graph.authority_hash:
+    authority_hash = canonical_hash or graph.authority_hash
+    if scene_model.binding.canonical_hash != authority_hash:
         raise ValueError("M11 canonical hash binding does not match M10")
     roots = authoritative_start_nodes(graph)
     selected_start = start_node_id or (roots[0] if len(roots) == 1 else "")
     if not selected_start or selected_start not in roots:
         raise ValueError("M10 does not identify the requested authoritative starting context")
+    _validate_initial_state(graph, selected_start, initial_state)
     _map_destination(graph, scene_model, destination)
     return RouteRequest(
         source_generation=graph.source_generation,
         canonical_schema=CANONICAL_GRAPH_SCHEMA,
-        canonical_hash=graph.authority_hash,
+        canonical_hash=authority_hash,
         scene_schema=M11_SCENE_MODEL_SCHEMA,
         scene_hash=scene_model.structural_hash,
         start_node_id=selected_start,
@@ -180,10 +183,16 @@ def solve_route(
     request: RouteRequest,
     *,
     cancelled: CancelCheck | None = None,
+    canonical_hash: str | None = None,
 ) -> SolveAttempt:
     """Solve one target without executing Ren'Py, creator code, providers, or requests."""
 
-    _validate_request_binding(graph, scene_model, request)
+    _validate_request_binding(
+        graph,
+        scene_model,
+        request,
+        canonical_hash=canonical_hash,
+    )
     anchors = _map_destination(graph, scene_model, request.destination)
     node_by_id = {item.id: item for item in graph.nodes}
     fact_by_id = {item.id: item for item in graph.facts}
@@ -251,9 +260,13 @@ def solve_route(
     peak_frontier = 1
     accounting = _accounting_units(start)
     limit_hit: str | None = None
-    exact_contradictions = 0
+    expanded_node_ids: set[str] = set()
+    traversed_edge_ids: set[str] = set()
+    contradiction_fact_ids: set[str] = set()
+    contradiction_edge_ids: set[str] = set()
+    unsupported_block = False
     best_route_proven = False
-    candidate_goal = min(request.limits.alternatives, 2) if len(anchors) > 1 else 1
+    candidate_goal = request.limits.alternatives + 1
 
     def record_candidates(candidate_state: _SearchState) -> bool:
         matching = [
@@ -305,6 +318,7 @@ def solve_route(
             if best_candidate.ranking_key[:7] <= frontier[0][0][:7]:
                 best_route_proven = True
                 if len(candidates) >= candidate_goal:
+                    limit_hit = "alternatives"
                     break
         if cancelled is not None and cancelled():
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
@@ -321,6 +335,7 @@ def solve_route(
             limit_hit = "retained_states"
             break
         expanded += 1
+        expanded_node_ids.add(state.node_id)
         if expanded > request.limits.expanded_states:
             limit_hit = "expanded_states"
             break
@@ -332,6 +347,7 @@ def solve_route(
         for edge in outgoing.get(state.node_id, ()):
             if edge.target_id not in target_cone_nodes:
                 continue
+            traversed_edge_ids.add(edge.id)
             next_state, contradiction, traversal_limit = _traverse_edge(
                 state,
                 edge,
@@ -344,15 +360,18 @@ def solve_route(
                 request.limits,
             )
             if (
-                contradiction
+                contradiction is not None
                 and edge.source_id in target_reverse_nodes
                 and edge.target_id in target_reverse_nodes
             ):
-                exact_contradictions += 1
+                contradiction_fact_ids.add(contradiction.id)
+                contradiction_edge_ids.add(edge.id)
             if traversal_limit is not None:
                 limit_hit = traversal_limit
                 break
             if next_state is None:
+                if contradiction is None:
+                    unsupported_block = True
                 continue
             completed = record_candidates(next_state)
             prefixes += 1
@@ -388,8 +407,8 @@ def solve_route(
     closed_world = _closed_world(graph)
     exhaustive = limit_hit is None and not frontier
     ordered_candidates = sorted(candidates.values(), key=lambda item: item.ranking_key)
-    discarded_alternatives = len(ordered_candidates) > request.limits.alternatives
-    ordered_candidates = ordered_candidates[: request.limits.alternatives]
+    discarded_alternatives = len(ordered_candidates) > candidate_goal
+    ordered_candidates = ordered_candidates[:candidate_goal]
     if discarded_alternatives:
         limit_hit = limit_hit or "alternatives"
         exhaustive = False
@@ -405,6 +424,7 @@ def solve_route(
     )
     if ordered_candidates:
         recommended = ordered_candidates[0]
+        negative_provenance = None
         if limit_hit is not None:
             status = TechnicalStatus.INCOMPLETE
         elif recommended.uncertainty_warnings or any(
@@ -428,10 +448,26 @@ def solve_route(
             status = TechnicalStatus.INCOMPLETE
         elif not closed_world:
             status = TechnicalStatus.DYNAMIC_POSSIBILITY
-        elif structural and exact_contradictions:
-            status = TechnicalStatus.STATE_INFEASIBLE
+        elif structural:
+            status = (
+                TechnicalStatus.STATE_INFEASIBLE
+                if contradiction_fact_ids and not unsupported_block
+                else TechnicalStatus.DYNAMIC_POSSIBILITY
+            )
         else:
             status = TechnicalStatus.NO_STATIC_ROUTE
+        negative_provenance = (
+            _negative_provenance(
+                graph,
+                anchors,
+                expanded_node_ids,
+                traversed_edge_ids | contradiction_edge_ids,
+                contradiction_fact_ids,
+            )
+            if status
+            in {TechnicalStatus.STATE_INFEASIBLE, TechnicalStatus.NO_STATIC_ROUTE}
+            else None
+        )
         diagnostics = (
             (f"deterministic limit reached: {limit_hit}",)
             if limit_hit
@@ -462,6 +498,7 @@ def solve_route(
         exhaustive=exhaustive,
         closed_world=closed_world,
         budget_usage=usage,
+        negative_provenance=negative_provenance,
         diagnostics=diagnostics,
     )
     return SolveAttempt(result)
@@ -589,13 +626,17 @@ def identities_in_expression(expression: str) -> tuple[StateVariableIdentity, ..
 
 
 def _validate_request_binding(
-    graph: CanonicalGraph, scene_model: SceneModel, request: RouteRequest
+    graph: CanonicalGraph,
+    scene_model: SceneModel,
+    request: RouteRequest,
+    *,
+    canonical_hash: str | None = None,
 ) -> None:
     if request.source_generation != graph.source_generation:
         raise ValueError("route request source generation is stale")
     if (
         request.canonical_schema != CANONICAL_GRAPH_SCHEMA
-        or request.canonical_hash != graph.authority_hash
+        or request.canonical_hash != (canonical_hash or graph.authority_hash)
     ):
         raise ValueError("route request M10 binding is stale")
     if (
@@ -605,6 +646,48 @@ def _validate_request_binding(
         raise ValueError("route request M11 binding is stale")
     if request.start_node_id not in authoritative_start_nodes(graph):
         raise ValueError("route request lacks an M10-authoritative starting context")
+    _validate_initial_state(graph, request.start_node_id, request.initial_state)
+
+
+def _validate_initial_state(
+    graph: CanonicalGraph,
+    start_node_id: str,
+    initial_state: Sequence[InitialStateValue],
+) -> None:
+    """Accept KNOWN values only from an exact M10-proven start initialization fact."""
+
+    start = next((item for item in graph.nodes if item.id == start_node_id), None)
+    if start is None:
+        raise ValueError("initial state start context is unavailable")
+    start_fact_ids = set(_strings(start.attributes.get("fact_ids")))
+    for item in initial_state:
+        if item.kind is not InitialValueKind.KNOWN:
+            continue
+        matching = []
+        for fact in graph.facts:
+            attributes = fact.attributes
+            variable = attributes.get("variable")
+            if not isinstance(variable, str) or not variable:
+                continue
+            if (
+                fact.id in start_fact_ids
+                and fact.kind == "effect"
+                and fact.status == "proven"
+                and attributes.get("initialization") is True
+                and attributes.get("operation") == "assignment"
+                and identity_from_name(variable) == item.variable
+                and _same_scalar(attributes.get("value"), item.value)
+                and set(item.evidence_ids) <= set(fact.evidence_ids)
+            ):
+                matching.append(fact.id)
+        if not matching:
+            raise ValueError(
+                f"known initial value for {item.variable.key} lacks exact M10 initialization proof"
+            )
+
+
+def _same_scalar(left: object, right: object) -> bool:
+    return type(left) is type(right) and left == right and _is_scalar(left)
 
 
 def _map_destination(
@@ -788,40 +871,39 @@ def _traverse_edge(
     scene_by_node: Mapping[str, str],
     projection: NumericProjection,
     limits: DeterministicLimitProfile,
-) -> tuple[_SearchState | None, bool, str | None]:
+) -> tuple[_SearchState | None, CanonicalFact | None, str | None]:
     count = state.transition_counts.get(edge.id, 0) + 1
     if count > limits.repetition_per_transition:
-        return None, False, "repetition_per_transition"
+        return None, None, "repetition_per_transition"
     stack = state.call_stack
     call_site = edge.attributes.get("call_site_id")
     if edge.kind in {"call_enter", "call_summary"}:
         if not isinstance(call_site, str) or not call_site:
-            return None, False, None
+            return None, None, None
         if len(stack) >= limits.call_depth:
-            return None, False, "call_depth"
+            return None, None, "call_depth"
         stack = (*stack, call_site)
     elif edge.kind == "call_return":
         if not isinstance(call_site, str) or not stack or stack[-1] != call_site:
-            return None, False, None
+            return None, None, None
         stack = stack[:-1]
 
     requirements = list(state.requirements)
     warnings = list(state.warnings)
-    contradiction = False
     for fact_id in _strings(edge.attributes.get("gate_ids")):
         fact = facts.get(fact_id)
         if fact is None:
             warnings.append(f"Missing M10 gate fact {fact_id}.")
             continue
-        outcome, attribution = _evaluate_requirement(
+        outcome, attributions = _evaluate_requirement(
             fact, state.values, state.value_sources, state.initial_kinds
         )
         if outcome is False:
-            contradiction = True
-            return None, contradiction, None
-        requirements.append(attribution)
+            return None, fact, None
+        requirements.extend(attributions)
         if outcome is None:
-            warnings.append(f"Requirement remains unknown: {attribution.expression}.")
+            expression = fact.attributes.get("original_expression", "")
+            warnings.append(f"Requirement remains unknown: {expression}.")
 
     values = dict(state.values)
     sources = dict(state.value_sources)
@@ -862,7 +944,7 @@ def _traverse_edge(
             tuple(persistent),
             loops,
         ),
-        contradiction,
+        None,
         None,
     )
 
@@ -872,67 +954,138 @@ def _evaluate_requirement(
     values: Mapping[str, object],
     value_sources: Mapping[str, tuple[str, int]],
     initial: Mapping[str, InitialStateValue],
-) -> tuple[bool | None, RequirementAttribution]:
+) -> tuple[bool | None, tuple[RequirementAttribution, ...]]:
     expression = str(fact.attributes.get("original_expression", ""))
-    identities = identities_in_expression(expression)
-    variable = identities[0] if len(identities) == 1 else None
     evidence = tuple(sorted(fact.evidence_ids))
     if fact.status != "proven":
-        return None, RequirementAttribution(
-            fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
-        )
-    outcome = _safe_condition(expression, values)
-    if outcome is not True:
-        return outcome, RequirementAttribution(
-            fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
-        )
-    source_ids = [
-        source
-        for item in identities
-        if (source := value_sources.get(item.key)) is not None
-    ]
-    if source_ids:
-        effect_id, count = sorted(source_ids)[-1]
-        if count > 1:
-            return True, RequirementAttribution(
+        return None, (
+            RequirementAttribution(
                 fact.id,
+                expression,
+                RequirementSource.UNKNOWN,
+                evidence_ids=evidence,
+            ),
+        )
+    terms = _material_requirement_terms(expression, values)
+    term_outcomes = [_safe_condition(term, values) for term in terms]
+    outcome = (
+        False
+        if any(item is False for item in term_outcomes)
+        else (None if any(item is None for item in term_outcomes) else True)
+    )
+    attributions: list[RequirementAttribution] = []
+    for term, term_outcome in zip(terms, term_outcomes, strict=True):
+        identities = identities_in_expression(term)
+        if not identities:
+            attributions.append(
+                RequirementAttribution(
+                    fact.id,
+                    term,
+                    RequirementSource.UNKNOWN,
+                    evidence_ids=evidence,
+                )
+            )
+            continue
+        for identity in identities:
+            attributions.append(
+                _requirement_attribution(
+                    fact.id,
+                    term,
+                    identity,
+                    term_outcome,
+                    value_sources,
+                    initial,
+                    evidence,
+                )
+            )
+    return outcome, tuple(attributions)
+
+
+def _material_requirement_terms(
+    expression: str, values: Mapping[str, object]
+) -> tuple[str, ...]:
+    try:
+        root = ast.parse(expression, mode="eval").body
+    except SyntaxError:
+        return (expression,)
+
+    def select(node: ast.expr) -> list[ast.expr]:
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            return [selected for child in node.values for selected in select(child)]
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            proven = [
+                child
+                for child in node.values
+                if _safe_condition(ast.unparse(child), values) is True
+            ]
+            if proven:
+                return select(min(proven, key=ast.dump))
+        return [node]
+
+    return tuple(ast.unparse(node) for node in select(root))
+
+
+def _requirement_attribution(
+    fact_id: str,
+    expression: str,
+    variable: StateVariableIdentity,
+    outcome: bool | None,
+    value_sources: Mapping[str, tuple[str, int]],
+    initial: Mapping[str, InitialStateValue],
+    evidence: tuple[str, ...],
+) -> RequirementAttribution:
+    if outcome is not True:
+        return RequirementAttribution(
+            fact_id,
+            expression,
+            RequirementSource.UNKNOWN,
+            variable,
+            evidence_ids=evidence,
+        )
+    source = value_sources.get(variable.key)
+    if source is not None:
+        effect_id, count = source
+        if count > 1:
+            return RequirementAttribution(
+                fact_id,
                 expression,
                 RequirementSource.REPEATED_EVENT,
                 variable,
                 repeated_count=count,
                 evidence_ids=evidence,
             )
-        return True, RequirementAttribution(
-            fact.id,
+        return RequirementAttribution(
+            fact_id,
             expression,
             RequirementSource.PROVEN_EFFECT,
             variable,
             satisfying_effect_id=effect_id,
             evidence_ids=evidence,
         )
-    entry = [
-        value for item in identities if (value := initial.get(item.key)) is not None
-    ]
-    if entry and any(item.kind is InitialValueKind.ENTRY_PRECONDITION for item in entry):
-        return True, RequirementAttribution(
-            fact.id,
+    entry = initial.get(variable.key)
+    if entry is not None and entry.kind is InitialValueKind.ENTRY_PRECONDITION:
+        return RequirementAttribution(
+            fact_id,
             expression,
             RequirementSource.ENTRY_PRECONDITION,
             variable,
             evidence_ids=evidence,
         )
-    known = next((item for item in entry if item.kind is InitialValueKind.KNOWN), None)
-    if known is not None:
-        return True, RequirementAttribution(
-            fact.id,
+    if entry is not None and entry.kind is InitialValueKind.KNOWN:
+        return RequirementAttribution(
+            fact_id,
             expression,
             RequirementSource.PROVEN_EFFECT,
             variable,
-            satisfying_effect_id=f"initial:{known.evidence_ids[0]}",
+            satisfying_effect_id=f"initial:{entry.evidence_ids[0]}",
             evidence_ids=evidence,
         )
-    return True, RequirementAttribution(
-        fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
+    return RequirementAttribution(
+        fact_id,
+        expression,
+        RequirementSource.UNKNOWN,
+        variable,
+        evidence_ids=evidence,
     )
 
 
@@ -1072,7 +1225,7 @@ def _route_alternative(
                 for atom_id in selected_call_occurrence.referenced_atom_ids:
                     append_scene(scene_by_atom.get(atom_id))
         append_scene(scene_by_node.get(node_id))
-    choices: list[str] = []
+    choice_edges: list[tuple[str, str]] = []
     for edge_id in state.edge_ids:
         edge = edge_by_id[edge_id]
         predicate = edge.attributes.get("predicate")
@@ -1084,8 +1237,9 @@ def _route_alternative(
             and not is_impossible_menu_fallthrough
         ):
             caption = _visible_choice_text(edge, node_by_id[edge.source_id], evidence_by_id)
-            if not choices or choices[-1] != caption:
-                choices.append(caption)
+            if not choice_edges or choice_edges[-1][0] != caption:
+                choice_edges.append((caption, edge.id))
+    choices = [caption for caption, _edge_id in choice_edges]
     persistent = tuple(
         lane
         for lane in dict.fromkeys(
@@ -1111,7 +1265,7 @@ def _route_alternative(
     instructions = _instructions(
         scene_ids,
         scene_records,
-        choices,
+        choice_edges,
         requirements,
         persistent,
         warnings,
@@ -1287,13 +1441,13 @@ def _occurrence_for_call_edge(
 def _instructions(
     scene_ids: Sequence[str],
     scenes: Mapping[str, Scene],
-    choices: Sequence[str],
+    choices: Sequence[tuple[str, str]],
     requirements: Sequence[RequirementAttribution],
     persistent: Sequence[str],
     warnings: Sequence[str],
     loop_count: int,
 ) -> tuple[RouteInstruction, ...]:
-    rows: list[tuple[str, str, str | None, str | None]] = []
+    rows: list[tuple[str, str, str | None, str | None, str | None]] = []
     for requirement in requirements:
         if requirement.source is RequirementSource.ENTRY_PRECONDITION:
             rows.append(
@@ -1301,18 +1455,22 @@ def _instructions(
                     "starting_assumption",
                     f"Start with: {requirement.expression}.",
                     None,
+                    None,
                     requirement.fact_id,
                 )
             )
     for scene_id in scene_ids:
-        rows.append(("scene", f"Enter scene \"{scenes[scene_id].title}\".", scene_id, None))
-    for choice in choices:
-        rows.append(("choice", f"Choose \"{choice}\".", None, None))
+        rows.append(
+            ("scene", f"Enter scene \"{scenes[scene_id].title}\".", scene_id, None, None)
+        )
+    for choice, edge_id in choices:
+        rows.append(("choice", f"Choose \"{choice}\".", None, edge_id, None))
     if loop_count:
         rows.append(
             (
                 "repeat",
                 f"Repeat the supported action {loop_count} additional time(s).",
+                None,
                 None,
                 None,
             )
@@ -1329,16 +1487,26 @@ def _instructions(
                 "requirement",
                 f"Requirement: {requirement.expression} — {source}.",
                 None,
+                None,
                 requirement.fact_id,
             )
         )
     for lane in persistent:
-        rows.append(("commitment", f"Commit to persistent lane {lane}.", None, None))
+        rows.append(
+            ("commitment", f"Commit to persistent lane {lane}.", None, None, None)
+        )
     for warning in warnings:
-        rows.append(("warning", f"Uncertainty: {warning}", None, None))
+        rows.append(("warning", f"Uncertainty: {warning}", None, None, None))
     return tuple(
-        RouteInstruction(index + 1, kind, text, scene_id=scene_id, fact_id=fact_id)
-        for index, (kind, text, scene_id, fact_id) in enumerate(rows)
+        RouteInstruction(
+            index + 1,
+            kind,
+            text,
+            scene_id=scene_id,
+            edge_id=edge_id,
+            fact_id=fact_id,
+        )
+        for index, (kind, text, scene_id, edge_id, fact_id) in enumerate(rows)
     )
 
 
@@ -1472,6 +1640,40 @@ def _accounting_units(state: _SearchState) -> int:
         + len(state.requirements)
         + len(state.call_stack)
         + len(state.transition_counts)
+    )
+
+
+def _negative_provenance(
+    graph: CanonicalGraph,
+    anchors: Sequence[_TargetAnchor],
+    expanded_node_ids: set[str],
+    traversed_edge_ids: set[str],
+    contradiction_fact_ids: set[str],
+) -> RouteProvenance:
+    node_by_id = {item.id: item for item in graph.nodes}
+    edge_by_id = {item.id: item for item in graph.edges}
+    fact_by_id = {item.id: item for item in graph.facts}
+    node_ids = set(expanded_node_ids) | {item.node_id for item in anchors}
+    evidence_ids: set[str] = set()
+    proof_ids: set[str] = set()
+    for node_id in node_ids:
+        node = node_by_id[node_id]
+        evidence_ids.update(node.evidence_ids)
+        proof_ids.update(node.proof_ids)
+    for edge_id in traversed_edge_ids:
+        edge = edge_by_id[edge_id]
+        evidence_ids.update(edge.evidence_ids)
+        proof_ids.update(edge.proof_ids)
+    for fact_id in contradiction_fact_ids:
+        evidence_ids.update(fact_by_id[fact_id].evidence_ids)
+    return RouteProvenance(
+        node_ids=tuple(sorted(node_ids)),
+        edge_ids=tuple(sorted(traversed_edge_ids)),
+        fact_ids=tuple(sorted(contradiction_fact_ids)),
+        evidence_ids=tuple(sorted(evidence_ids)),
+        proof_ids=tuple(sorted(proof_ids)),
+        scene_ids=(),
+        occurrence_ids=(),
     )
 
 
@@ -1610,7 +1812,7 @@ def _qualified_name(node: ast.AST) -> str | None:
 def _dedupe_requirements(
     requirements: Iterable[RequirementAttribution],
 ) -> list[RequirementAttribution]:
-    result: dict[str, RequirementAttribution] = {}
+    result: dict[tuple[str, str, str], RequirementAttribution] = {}
     priority = {
         RequirementSource.PROVEN_EFFECT: 0,
         RequirementSource.REPEATED_EVENT: 0,
@@ -1618,9 +1820,14 @@ def _dedupe_requirements(
         RequirementSource.UNKNOWN: 2,
     }
     for item in requirements:
-        prior = result.get(item.fact_id)
+        key = (
+            item.fact_id,
+            item.expression,
+            item.variable.key if item.variable is not None else "",
+        )
+        prior = result.get(key)
         if prior is None or priority[item.source] < priority[prior.source]:
-            result[item.fact_id] = item
+            result[key] = item
     return [result[key] for key in sorted(result)]
 
 

@@ -173,15 +173,19 @@ def _capture(
                 raise AssertionError(f"M12 omitted export or technical/evidence expansion: {result}")
             session.evaluate("document.querySelector('#routeTechnical').open=true; document.querySelector('.route-provenance').open=true")
             session.evaluate(
+                "document.querySelector('#routePanel').scrollIntoView({block:'start'})"
+            )
+            session.evaluate(
                 "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))"
             )
             result_view = session.evaluate(
-                "({activeLevel:document.documentElement.dataset.activeLevel,routeMapHidden:document.querySelector('#routeMapView').hidden,detailHidden:document.querySelector('#detailView').hidden})"
+                "(()=>{const rect=document.querySelector('#routePanel').getBoundingClientRect(); return {activeLevel:document.documentElement.dataset.activeLevel,routeMapHidden:document.querySelector('#routeMapView').hidden,detailHidden:document.querySelector('#detailView').hidden,panelInViewport:rect.bottom>0&&rect.top<window.innerHeight};})()"
             )
             if result_view != {
                 "activeLevel": "route_map",
                 "routeMapHidden": False,
                 "detailHidden": True,
+                "panelInViewport": True,
             }:
                 raise AssertionError(f"Route result was not visible before capture: {result_view}")
             result_shot = output / f"m12-route-result-{zoom}.png"
@@ -195,6 +199,9 @@ def _capture(
             )
             if detail["activeLevel"] != "detail_evidence" or detail["levelCount"] != 2:
                 raise AssertionError(f"Detail/Evidence did not remain the second and final level: {detail}")
+            session.evaluate(
+                "document.querySelector('#detailView').scrollIntoView({block:'start'})"
+            )
             session.evaluate(
                 "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))"
             )

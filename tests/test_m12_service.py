@@ -36,7 +36,7 @@ def test_destination_catalog_uses_current_m10_m11_authority_and_is_searchable(
         authority = load_m12_authority(project)
         page = service.destinations(limit=50)
 
-        assert page["canonical_hash"] == authority.graph.authority_hash
+        assert page["canonical_hash"] == authority.canonical_hash
         assert page["scene_model_hash"] == authority.scene_model.structural_hash
         kinds = {item["kind"] for item in page["nodes"]}
         assert {

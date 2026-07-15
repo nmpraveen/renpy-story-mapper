@@ -46,7 +46,7 @@ export function stableRouteJson(value) {
 
 export function assertRouteResult(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Invalid M12 route result");
-  for (const key of ["schema", "request_identity", "status", "badge", "recommended", "alternatives", "complete", "termination_reason", "exhaustive", "closed_world", "budget_usage", "diagnostics"]) {
+  for (const key of ["schema", "request_identity", "status", "badge", "recommended", "alternatives", "complete", "termination_reason", "exhaustive", "closed_world", "budget_usage", "negative_provenance", "diagnostics"]) {
     if (!Object.hasOwn(value, key)) throw new TypeError(`M12 route result is missing ${key}`);
   }
   if (typeof value.request_identity !== "string" || !value.request_identity) throw new TypeError("Invalid M12 route request identity");

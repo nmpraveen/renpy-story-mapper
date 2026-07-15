@@ -27,7 +27,8 @@ def test_route_panel_stays_inside_the_existing_two_level_workspace() -> None:
     assert ">How do I reach this?</button>" in html
     assert 'id="openRouteEvidence"' in html
     assert ">Open Detail / Evidence</button>" in html
-    assert "openDetail(state.route.sourceId)" in app
+    assert "state.route.activeSourceId" in app
+    assert "candidate?.selected_occurrence_id" in app
     assert "third" not in html.casefold()
 
 
@@ -65,6 +66,8 @@ def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> 
     assert "Provenance and evidence" in app
     assert "satisfying_effect_id" in app
     assert "item?.source" in app
+    assert 'element("details", "route-claim")' in app
+    assert "result.negative_provenance" in app
     assert "walkthrough" not in (api + app + html).casefold()
     assert ".innerHTML" not in app
     assert "replaceChildren" in app and "textContent" in app
@@ -100,6 +103,8 @@ def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -
     assert 'state.route.phase = state.route.stale ? "stale" : "complete"' in app
     assert 'route.cached ? "Cached route ready."' in app
     assert 'route.phase = stale ? "stale" : "failure"' in app
+    assert 'error.status === 409' not in app
+    assert "Search incomplete. No reachability or infeasibility conclusion was published." in app
     assert "state.route.result = result" in app
     assert "Boolean(state.route.result)" in app
     assert 'role="status" aria-live="polite"' in html
@@ -137,7 +142,7 @@ def test_route_api_behavior_preserves_exact_payloads_and_stable_json() -> None:
         schema: "m12.route-result.v1", request_identity: "request-1", status: "confirmed",
         badge: "Confirmed route", recommended: {{ instructions: ["Begin"] }}, alternatives: [],
         complete: true, termination_reason: "target_reached", exhaustive: false,
-        closed_world: false, budget_usage: {{}}, diagnostics: []
+        closed_world: false, budget_usage: {{}}, negative_provenance: null, diagnostics: []
       }};
       api.request = async (path, options) => {{
         calls.push({{ path, method: options.method, body: options.body }});

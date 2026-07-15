@@ -200,6 +200,7 @@ def test_deterministic_bound_can_never_construct_negative_conclusion() -> None:
             False,
             True,
             usage,
+            None,
             (),
         )
     incomplete = RouteResult(
@@ -213,6 +214,7 @@ def test_deterministic_bound_can_never_construct_negative_conclusion() -> None:
         False,
         False,
         usage,
+        None,
         (),
     )
     assert incomplete.status is TechnicalStatus.INCOMPLETE

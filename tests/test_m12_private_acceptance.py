@@ -28,11 +28,6 @@ def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
 
     with Project.open(baseline) as project:
         service = M12RouteService(project)
-        hidden = next(
-            item
-            for item in service.destinations(query="Courtyard", limit=50)["nodes"]
-            if item["kind"] == "generic_scene"
-        )
         catalog: list[dict[str, object]] = []
         offset = 0
         while True:
@@ -41,6 +36,8 @@ def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
             if page["next_offset"] is None:
                 break
             offset = int(page["next_offset"])
+        hidden = [item for item in catalog if item["kind"] == "exact_occurrence"][:3]
+        assert len(hidden) == 3
         commitment = next(
             item
             for preferred in ("persistent_lane", "terminal")
@@ -54,11 +51,14 @@ def _private_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
             {
                 "schema": MANIFEST_SCHEMA,
                 "targets": [
-                    {
-                        "role": "hidden_or_gated",
-                        "kind": hidden["kind"],
-                        "target_id": hidden["target_id"],
-                    },
+                    *(
+                        {
+                            "role": "hidden_or_gated",
+                            "kind": item["kind"],
+                            "target_id": item["target_id"],
+                        }
+                        for item in hidden
+                    ),
                     {
                         "role": role,
                         "kind": commitment["kind"],
@@ -95,7 +95,7 @@ def test_private_harness_emits_only_redacted_aggregate_and_preserves_inputs(
     )
 
     assert report["status"] == "passed"
-    assert report["coverage"]["hidden_or_gated_targets"] == 1
+    assert report["coverage"]["hidden_or_gated_targets"] == 3
     assert report["coverage"]["ending_targets"] + report["coverage"]["persistent_lane_targets"] == 1
     assert report["determinism"] == {
         "all_exact_replays_hit_cache": True,

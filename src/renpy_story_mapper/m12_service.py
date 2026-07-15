@@ -60,6 +60,7 @@ type CancelCheck = Callable[[], bool]
 class M12Authority:
     graph: CanonicalGraph
     scene_model: SceneModel
+    canonical_hash: str
     m11_publication_hash: str
 
     @property
@@ -68,7 +69,7 @@ class M12Authority:
             "source_generation": self.graph.source_generation,
             "schema": CANONICAL_GRAPH_SCHEMA,
             "schema_version": CANONICAL_GRAPH_SCHEMA_VERSION,
-            "canonical_hash": self.graph.authority_hash,
+            "canonical_hash": self.canonical_hash,
         }
 
     @property
@@ -173,7 +174,7 @@ class M12RouteService:
             "schema": M12_DESTINATIONS_SCHEMA,
             "status": "available",
             "source_generation": authority.graph.source_generation,
-            "canonical_hash": authority.graph.authority_hash,
+            "canonical_hash": authority.canonical_hash,
             "scene_model_hash": authority.scene_model.structural_hash,
             "query": requested,
             "offset": offset,
@@ -195,7 +196,12 @@ class M12RouteService:
         except ValueError as exc:
             raise ValueError("route destination is unsupported") from exc
         authority = self._current_authority()
-        request = bind_route_request(authority.graph, authority.scene_model, destination)
+        request = bind_route_request(
+            authority.graph,
+            authority.scene_model,
+            destination,
+            canonical_hash=authority.canonical_hash,
+        )
         identity = self._project.m12_persistence().identity(
             request.normalized_dict(),
             request.limits.to_dict(),
@@ -247,6 +253,7 @@ class M12RouteService:
             prepared.authority.scene_model,
             prepared.request,
             cancelled=should_stop,
+            canonical_hash=prepared.authority.canonical_hash,
         )
         if emergency_abort or time.monotonic() >= deadline:
             diagnostic = self._project.m12_persistence().attempt_diagnostic(
@@ -299,18 +306,21 @@ def load_m12_authority(project: Project) -> M12Authority:
     raw_state = project.payload("m10_analysis_state", "authoritative")
     if not isinstance(raw_state, Mapping):
         raise ValueError("M12 requires current M10 authority")
+    canonical_hash = raw_state.get("canonical_hash")
+    if not isinstance(canonical_hash, str):
+        raise ValueError("M12 requires a current complete M10 canonical graph")
     graph = _compact_canonical_graph(project, raw_state)
     if (
         raw_state.get("canonical_availability") != "current_complete"
         or raw_state.get("source_generation") != graph.source_generation
         or raw_state.get("canonical_generation") != graph.source_generation
-        or raw_state.get("canonical_hash") != graph.authority_hash
+        or raw_state.get("canonical_hash") != canonical_hash
     ):
         raise ValueError("M12 requires a current complete M10 canonical graph")
     selection = project.m11_persistence().select_current(
         source_generation=graph.source_generation,
         canonical_schema=CANONICAL_GRAPH_SCHEMA,
-        canonical_hash=graph.authority_hash,
+        canonical_hash=canonical_hash,
     )
     if (
         selection.availability is not M11Availability.CURRENT_COMPLETE
@@ -318,10 +328,10 @@ def load_m12_authority(project: Project) -> M12Authority:
     ):
         raise ValueError(f"M12 requires current complete M11 authority: {selection.reason}")
     model = scene_model_from_stored_results(selection.phase_results)
-    if model.binding.canonical_hash != graph.authority_hash:
+    if model.binding.canonical_hash != canonical_hash:
         raise ValueError("M11 scene model is not bound to the current M10 graph")
     assert selection.model_hash is not None
-    return M12Authority(graph, model, selection.model_hash)
+    return M12Authority(graph, model, canonical_hash, selection.model_hash)
 
 
 def _authority_is_current(project: Project, authority: M12Authority) -> bool:
@@ -334,14 +344,14 @@ def _authority_is_current(project: Project, authority: M12Authority) -> bool:
         raw_state.get("canonical_availability") != "current_complete"
         or raw_state.get("source_generation") != authority.graph.source_generation
         or raw_state.get("canonical_generation") != authority.graph.source_generation
-        or raw_state.get("canonical_hash") != authority.graph.authority_hash
+        or raw_state.get("canonical_hash") != authority.canonical_hash
     ):
         return False
     row = project._require_open().execute(
         "SELECT payload_hash FROM payloads WHERE collection=? AND record_key=?",
         ("m10_canonical_graph", "authoritative"),
     ).fetchone()
-    if row is None or str(row[0]) != authority.graph.authority_hash:
+    if row is None or str(row[0]) != authority.canonical_hash:
         return False
     persistence = project.m11_persistence()
     state = persistence.analysis_state()
@@ -354,7 +364,7 @@ def _authority_is_current(project: Project, authority: M12Authority) -> bool:
     return persistence.has_current_publication(
         source_generation=authority.graph.source_generation,
         canonical_schema=CANONICAL_GRAPH_SCHEMA,
-        canonical_hash=authority.graph.authority_hash,
+        canonical_hash=authority.canonical_hash,
     )
 
 
@@ -407,7 +417,6 @@ def _compact_canonical_graph(
         facts,
         evidence,
         proofs,
-        authority_hash_override=canonical_hash,
     )
     graph.validate()
     return graph

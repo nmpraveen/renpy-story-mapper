@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+import pytest
+
 from renpy_story_mapper.canonical_graph_contract import (
     CANONICAL_GRAPH_SCHEMA,
     CanonicalEdge,
@@ -60,12 +62,15 @@ def _fact(
     operation: str | None = None,
     value: object = None,
     status: str = "proven",
+    initialization: bool = False,
 ) -> CanonicalFact:
     attributes: dict[str, object] = {"original_expression": expression}
     if kind == "requirement":
         attributes["variables"] = [variable] if variable is not None else []
     else:
         attributes.update({"variable": variable, "operation": operation, "value": value})
+        if initialization:
+            attributes["initialization"] = True
     return CanonicalFact(
         fact_id,
         kind,
@@ -363,10 +368,20 @@ def _solve(
 
 def test_known_literal_default_confirms_while_unknown_and_persistent_remain_conservative() -> None:
     gate = _fact("gate", kind="requirement", expression="score >= 2", variable="score")
+    initial_score = _fact(
+        "m10-init",
+        kind="effect",
+        expression="default score = 2",
+        variable="score",
+        operation="assignment",
+        value=2,
+        initialization=True,
+    )
     graph, model = _authority(
         ("root", "target"),
         ({"id": "edge", "source": "root", "target": "target", "gates": (gate.id,)},),
-        facts=(gate,),
+        facts=(gate, initial_score),
+        node_facts={"root": (initial_score.id,)},
     )
     destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target")
     score = StateVariableIdentity("store", "score", None)
@@ -375,15 +390,31 @@ def test_known_literal_default_confirms_while_unknown_and_persistent_remain_cons
         graph,
         model,
         destination,
-        initial=(InitialStateValue(score, InitialValueKind.KNOWN, 2, ("m10-init",)),),
+        initial=(
+            InitialStateValue(
+                score,
+                InitialValueKind.KNOWN,
+                2,
+                ("evidence-m10-init",),
+            ),
+        ),
     )
     known_result = solve_route(graph, model, known_request).result
     assert known_result is not None
     assert known_result.status is TechnicalStatus.CONFIRMED
     assert known_result.recommended is not None
-    assert known_result.recommended.requirements[0].satisfying_effect_id == "initial:m10-init"
+    assert known_result.recommended.requirements[0].satisfying_effect_id == "m10-init"
 
-    unknown_result = solve_route(graph, model, _solve(graph, model, destination)).result
+    unknown_graph, unknown_model = _authority(
+        ("root", "target"),
+        ({"id": "edge", "source": "root", "target": "target", "gates": (gate.id,)},),
+        facts=(gate,),
+    )
+    unknown_result = solve_route(
+        unknown_graph,
+        unknown_model,
+        _solve(unknown_graph, unknown_model, destination),
+    ).result
     assert unknown_result is not None
     assert unknown_result.status is TechnicalStatus.BEST_KNOWN
     assert unknown_result.recommended is not None
@@ -391,11 +422,11 @@ def test_known_literal_default_confirms_while_unknown_and_persistent_remain_cons
 
     persistent = StateVariableIdentity("persistent", "score", True)
     persistent_result = solve_route(
-        graph,
-        model,
+        unknown_graph,
+        unknown_model,
         _solve(
-            graph,
-            model,
+            unknown_graph,
+            unknown_model,
             destination,
             initial=(InitialStateValue(persistent, InitialValueKind.UNKNOWN),),
         ),
@@ -416,15 +447,13 @@ def test_store_scoped_same_name_does_not_satisfy_another_store_gate() -> None:
     destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target")
     wrong_store = InitialStateValue(
         StateVariableIdentity("store_b", "score", None),
-        InitialValueKind.KNOWN,
+        InitialValueKind.ENTRY_PRECONDITION,
         1,
-        ("m10-b",),
     )
     right_store = InitialStateValue(
         StateVariableIdentity("store_a", "score", None),
-        InitialValueKind.KNOWN,
+        InitialValueKind.ENTRY_PRECONDITION,
         1,
-        ("m10-a",),
     )
 
     wrong = solve_route(
@@ -434,7 +463,111 @@ def test_store_scoped_same_name_does_not_satisfy_another_store_gate() -> None:
         graph, model, _solve(graph, model, destination, initial=(right_store,))
     ).result
     assert wrong is not None and wrong.status is TechnicalStatus.BEST_KNOWN
-    assert right is not None and right.status is TechnicalStatus.CONFIRMED
+    assert right is not None and right.status is TechnicalStatus.PREREQUISITES
+
+
+def test_known_initial_value_requires_exact_start_fact_and_evidence() -> None:
+    graph, model = _authority(
+        ("root", "target"),
+        ({"id": "edge", "source": "root", "target": "target"},),
+    )
+    fabricated = InitialStateValue(
+        StateVariableIdentity("store", "score", None),
+        InitialValueKind.KNOWN,
+        2,
+        ("evidence-does-not-exist",),
+    )
+
+    with pytest.raises(ValueError, match="lacks exact M10 initialization proof"):
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(fabricated,),
+        )
+
+
+def test_compound_gate_preserves_effect_and_entry_precondition_attributions() -> None:
+    gate = _fact(
+        "compound-gate",
+        kind="requirement",
+        expression="a >= 1 and b >= 1",
+    )
+    set_a = _fact(
+        "set-a",
+        kind="effect",
+        expression="a = 1",
+        variable="a",
+        operation="assignment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "build", "target"),
+        (
+            {
+                "id": "build",
+                "source": "root",
+                "target": "build",
+                "effects": (set_a.id,),
+            },
+            {
+                "id": "finish",
+                "source": "build",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, set_a),
+    )
+    request = _solve(
+        graph,
+        model,
+        RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        initial=(
+            InitialStateValue(
+                StateVariableIdentity("store", "b", None),
+                InitialValueKind.ENTRY_PRECONDITION,
+                1,
+            ),
+        ),
+    )
+
+    result = solve_route(graph, model, request).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.PREREQUISITES
+    assert {
+        (item.variable.name if item.variable else "", item.source)
+        for item in result.recommended.requirements
+    } == {
+        ("a", RequirementSource.PROVEN_EFFECT),
+        ("b", RequirementSource.ENTRY_PRECONDITION),
+    }
+
+
+def test_single_anchor_retains_materially_distinct_alternative() -> None:
+    graph, model = _authority(
+        ("root", "middle", "target"),
+        (
+            {"id": "direct", "source": "root", "target": "target"},
+            {"id": "via", "source": "root", "target": "middle"},
+            {"id": "finish", "source": "middle", "target": "target"},
+        ),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.edge_ids == ("direct",)
+    assert [item.edge_ids for item in result.alternatives] == [("via", "finish")]
+    assert result.exhaustive and result.complete
 
 
 def test_internally_built_score_outranks_equivalent_entry_precondition() -> None:
@@ -609,7 +742,7 @@ def test_repeated_increments_cross_multiple_thresholds_without_unbounded_project
         graph,
         model,
         RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
-        initial=(InitialStateValue(score, InitialValueKind.KNOWN, 0, ("m10-zero",)),),
+        initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 0),),
         limits=limits,
     )
     result = solve_route(graph, model, request).result
@@ -653,17 +786,34 @@ def test_expansion_budget_replay_is_byte_identical_and_never_negative() -> None:
 
 def test_state_infeasible_requires_exhaustive_closed_world_contradiction() -> None:
     gate = _fact("gate", kind="requirement", expression="score >= 1", variable="score")
+    initial_score = _fact(
+        "m10-zero",
+        kind="effect",
+        expression="default score = 0",
+        variable="score",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
     graph, model = _authority(
         ("root", "target"),
         ({"id": "edge", "source": "root", "target": "target", "gates": (gate.id,)},),
-        facts=(gate,),
+        facts=(gate, initial_score),
+        node_facts={"root": (initial_score.id,)},
     )
     score = StateVariableIdentity("store", "score", None)
     request = _solve(
         graph,
         model,
         RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
-        initial=(InitialStateValue(score, InitialValueKind.KNOWN, 0, ("m10-zero",)),),
+        initial=(
+            InitialStateValue(
+                score,
+                InitialValueKind.KNOWN,
+                0,
+                ("evidence-m10-zero",),
+            ),
+        ),
     )
     result = solve_route(graph, model, request).result
 
@@ -672,6 +822,8 @@ def test_state_infeasible_requires_exhaustive_closed_world_contradiction() -> No
     assert result.recommended is None
     assert result.complete and result.exhaustive and result.closed_world
     assert result.diagnostics == ("exact supported contradiction",)
+    assert result.negative_provenance is not None
+    assert result.negative_provenance.fact_ids == (gate.id,)
 
 
 def test_dynamic_transfer_withholds_no_route_and_marks_best_known_instructions() -> None:
@@ -744,7 +896,7 @@ def test_unrelated_contradiction_cannot_make_exact_occurrence_state_infeasible()
         graph,
         model,
         RouteDestination(DestinationKind.EXACT_OCCURRENCE, "occurrence-right"),
-        initial=(InitialStateValue(score, InitialValueKind.KNOWN, 0, ("m10-zero",)),),
+        initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 0),),
     )
     result = solve_route(graph, model, request).result
 

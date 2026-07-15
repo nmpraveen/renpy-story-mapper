@@ -353,6 +353,7 @@ class RouteResult:
     exhaustive: bool
     closed_world: bool
     budget_usage: BudgetUsage
+    negative_provenance: RouteProvenance | None
     diagnostics: tuple[str, ...]
 
     def __post_init__(self) -> None:
@@ -370,6 +371,26 @@ class RouteResult:
             TechnicalStatus.NO_STATIC_ROUTE,
         } and (not self.complete or not self.closed_world):
             raise ValueError("negative conclusions require exhaustive closed-world completion")
+        if self.status in {
+            TechnicalStatus.STATE_INFEASIBLE,
+            TechnicalStatus.NO_STATIC_ROUTE,
+        }:
+            if (
+                self.negative_provenance is None
+                or not self.negative_provenance.node_ids
+                or not (
+                    self.negative_provenance.evidence_ids
+                    or self.negative_provenance.proof_ids
+                )
+            ):
+                raise ValueError("negative conclusions require exact closure provenance")
+            if (
+                self.status is TechnicalStatus.STATE_INFEASIBLE
+                and not self.negative_provenance.fact_ids
+            ):
+                raise ValueError("state-infeasible conclusions require contradiction facts")
+        elif self.negative_provenance is not None:
+            raise ValueError("only proven negative conclusions can carry negative provenance")
 
     def normalized_dict(self) -> dict[str, JsonValue]:
         return {
@@ -385,6 +406,11 @@ class RouteResult:
             "exhaustive": self.exhaustive,
             "closed_world": self.closed_world,
             "budget_usage": self.budget_usage.to_dict(),
+            "negative_provenance": (
+                None
+                if self.negative_provenance is None
+                else self.negative_provenance.to_dict()
+            ),
             "diagnostics": list(self.diagnostics),
         }
 

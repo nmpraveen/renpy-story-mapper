@@ -120,11 +120,13 @@ def _measure_linear(
             prepared.authority.graph,
             prepared.authority.scene_model,
             prepared.request,
+            canonical_hash=prepared.authority.canonical_hash,
         )
         pure_second = solve_route(
             prepared.authority.graph,
             prepared.authority.scene_model,
             prepared.request,
+            canonical_hash=prepared.authority.canonical_hash,
         )
         if pure_first.result is None or pure_second.result is None:
             raise AssertionError("linear selected-target solve did not return a normalized result")
@@ -201,8 +203,18 @@ def _measure_complex(
         for name, query in targets:
             destination = _destination(service.destinations(query=query, limit=50), title=query)
             prepared = service.prepare(str(destination["kind"]), str(destination["target_id"]))
-            pure_first = solve_route(authority.graph, authority.scene_model, prepared.request)
-            pure_second = solve_route(authority.graph, authority.scene_model, prepared.request)
+            pure_first = solve_route(
+                authority.graph,
+                authority.scene_model,
+                prepared.request,
+                canonical_hash=authority.canonical_hash,
+            )
+            pure_second = solve_route(
+                authority.graph,
+                authority.scene_model,
+                prepared.request,
+                canonical_hash=authority.canonical_hash,
+            )
             if pure_first.result is None or pure_second.result is None:
                 raise AssertionError(f"{name} did not return deterministic normalized bytes")
             if pure_first.result.normalized_bytes() != pure_second.result.normalized_bytes():
@@ -246,9 +258,8 @@ def _measure_complex(
                     initial_state=(
                         InitialStateValue(
                             StateVariableIdentity("store", "score", None),
-                            InitialValueKind.KNOWN,
+                            InitialValueKind.ENTRY_PRECONDITION,
                             0,
-                            ("acceptance-explicit-entry",),
                         ),
                     ),
                     limits=replace(
@@ -257,10 +268,16 @@ def _measure_complex(
                     ),
                 )
                 bounded_first = solve_route(
-                    authority.graph, authority.scene_model, bounded_request
+                    authority.graph,
+                    authority.scene_model,
+                    bounded_request,
+                    canonical_hash=authority.canonical_hash,
                 )
                 bounded_second = solve_route(
-                    authority.graph, authority.scene_model, bounded_request
+                    authority.graph,
+                    authority.scene_model,
+                    bounded_request,
+                    canonical_hash=authority.canonical_hash,
                 )
                 if bounded_first.result is None or bounded_second.result is None:
                     raise AssertionError("bounded threshold replay returned no result")

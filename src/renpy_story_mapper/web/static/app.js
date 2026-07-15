@@ -12,7 +12,7 @@ const state = {
   analysisStatus: null,
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
-  route: { sourceItem: null, sourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
+  route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -44,10 +44,9 @@ function routeText(value) {
 function routeArray(value) { return Array.isArray(value) ? value : []; }
 
 function routeScenes(candidate) {
-  if (Array.isArray(candidate.scene_titles)) return candidate.scene_titles;
-  if (Array.isArray(candidate.titles)) return candidate.titles;
-  if (candidate.titles && typeof candidate.titles === "object") return routeArray(candidate.scene_ids).map((id) => candidate.titles[id] || id);
-  return routeArray(candidate.scene_ids);
+  const ids = routeArray(candidate.scene_ids);
+  const titles = Array.isArray(candidate.scene_titles) ? candidate.scene_titles : (Array.isArray(candidate.titles) ? candidate.titles : []);
+  return ids.map((id, index) => ({ text: titles[index] || candidate.titles?.[id] || id, scene_id: id }));
 }
 
 function routeStartingAssumptions(candidate) {
@@ -61,8 +60,8 @@ function routeSatisfyingEffects(candidate) {
   if (Array.isArray(direct)) return direct;
   return routeArray(candidate.requirements).map((item) => {
     if (item?.satisfying_effect) return item.satisfying_effect;
-    if (item?.satisfying_effect_id) return { text: `${item.expression} - effect ${item.satisfying_effect_id}` };
-    if (item?.repeated_count) return { text: `${item.expression} - repeated ${item.repeated_count} time(s)` };
+    if (item?.satisfying_effect_id) return { text: `${item.expression} - effect ${item.satisfying_effect_id}`, fact_id: item.fact_id, satisfying_effect_id: item.satisfying_effect_id, evidence_ids: item.evidence_ids, variable: item.variable };
+    if (item?.repeated_count) return { text: `${item.expression} - repeated ${item.repeated_count} time(s)`, fact_id: item.fact_id, repeated_count: item.repeated_count, evidence_ids: item.evidence_ids, variable: item.variable };
     return null;
   }).filter(Boolean);
 }
@@ -72,7 +71,15 @@ function appendRouteSection(host, title, values, ordered = false) {
   if (!items.length) return;
   const section = element("section", "route-section"); section.append(element("h4", "", title));
   const list = element(ordered ? "ol" : "ul", "route-list");
-  for (const value of items) list.append(element("li", "", routeText(value)));
+  for (const value of items) {
+    const item = element("li");
+    if (value && typeof value === "object") {
+      const claim = element("details", "route-claim");
+      claim.append(element("summary", "", routeText(value)), element("pre", "", stableRouteJson(value)));
+      item.append(claim);
+    } else item.textContent = routeText(value);
+    list.append(item);
+  }
   section.append(list); host.append(section);
 }
 
@@ -100,7 +107,7 @@ function renderRouteTechnical(result) {
   const description = element("dl", "route-technical-grid");
   for (const [term, value] of rows) description.append(element("dt", "", term), element("dd", "", value ?? "unknown"));
   host.append(description);
-  const provenance = result.recommended?.provenance || result.provenance;
+  const provenance = result.recommended?.provenance || result.negative_provenance || result.provenance;
   if (provenance && typeof provenance === "object") {
     const exact = element("details", "route-provenance"); exact.append(element("summary", "", "Provenance and evidence"), element("pre", "", stableRouteJson(provenance))); host.append(exact);
   }
@@ -127,7 +134,16 @@ function renderRoutePanel() {
   const resultHost = $("#routeResult"); resultHost.hidden = !route.result;
   const recommended = $("#recommendedRouteBody"); recommended.replaceChildren();
   if (route.result?.recommended) renderRouteCandidate(recommended, route.result.recommended);
-  else if (route.result) recommended.append(element("p", "muted", "No proven route is available under the completed static analysis."));
+  else if (route.result) {
+    const message = route.result.complete === false
+      ? "Search incomplete. No reachability or infeasibility conclusion was published."
+      : route.result.status === "dynamic_or_unknown_possibility"
+        ? "No route is proven; unresolved dynamic or unknown behavior could change the result."
+        : route.result.status === "state_infeasible"
+          ? "The resolved static paths are state-infeasible under exact contradiction evidence."
+          : "No route exists in the exhaustively resolved static graph.";
+    recommended.append(element("p", "muted", message));
+  }
   const alternatives = $("#routeAlternatives"); alternatives.replaceChildren();
   for (const [index, candidate] of routeArray(route.result?.alternatives).entries()) {
     const record = element("details", "route-alternative"); record.append(element("summary", "", candidate.title || `Alternative ${index + 1}`));
@@ -189,7 +205,7 @@ async function runRouteSolve() {
     state.route.result = result; state.route.stale = state.route.sourceId !== state.route.activeSourceId; state.route.phase = state.route.stale ? "stale" : "complete"; renderRoutePanel();
   } catch (error) {
     if (token !== state.route.runToken) return;
-    const stale = String(error.code || "").toLocaleLowerCase().includes("stale") || error.status === 409;
+    const stale = String(error.code || "").toLocaleLowerCase().includes("stale");
     state.route.phase = stale ? "stale" : "failure"; state.route.stale = stale || Boolean(state.route.result); state.route.error = error.message; renderRoutePanel();
   }
 }
@@ -842,7 +858,11 @@ function bind() {
   $("#sceneMapButton").addEventListener("click", () => switchMode("scenes")); $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
   $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);
   $("#solveRoute").addEventListener("click", runRouteSolve); $("#retryRoute").addEventListener("click", runRouteSolve); $("#cancelRoute").addEventListener("click", cancelRouteSolve); $("#exportRouteJson").addEventListener("click", exportRouteJson);
-  $("#openRouteEvidence").addEventListener("click", () => { if (state.route.sourceId) openDetail(state.route.sourceId); });
+  $("#openRouteEvidence").addEventListener("click", () => {
+    const candidate = state.route.result?.recommended;
+    const target = candidate?.selected_occurrence_id || routeArray(candidate?.scene_ids).at(-1) || state.route.activeSourceId;
+    if (target) openDetail(target);
+  });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
   $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);

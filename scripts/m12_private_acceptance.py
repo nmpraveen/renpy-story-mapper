@@ -27,6 +27,8 @@ from renpy_story_mapper.project import Project
 MANIFEST_SCHEMA = "m12-private-target-selection-v1"
 REPORT_SCHEMA = "m12-private-acceptance-v1"
 TARGET_ROLES = frozenset({"hidden_or_gated", "ending", "persistent_lane"})
+HIDDEN_OR_GATED_KINDS = frozenset({"temporary_outcome", "exact_occurrence"})
+MIN_HIDDEN_OR_GATED_TARGETS = 3
 COMMITMENT_KINDS = frozenset({"terminal", "persistent_lane"})
 ROUTE_BADGES = frozenset(
     {
@@ -112,7 +114,7 @@ def run(
         "status": "passed",
         "authority": {
             "source_generation": authority.graph.source_generation,
-            "canonical_hash": authority.graph.authority_hash,
+            "canonical_hash": authority.canonical_hash,
             "scene_model_hash": authority.scene_model.structural_hash,
         },
         "coverage": {
@@ -187,8 +189,16 @@ def _load_selection(path: Path) -> tuple[dict[str, str], ...]:
         ):
             raise ValueError("private target selection contains an invalid target")
         result.append({"role": role, "kind": kind, "target_id": target_id})
-    if not result or not any(item["role"] == "hidden_or_gated" for item in result):
-        raise ValueError("private acceptance requires a selected hidden or gated target")
+    hidden_or_gated = [item for item in result if item["role"] == "hidden_or_gated"]
+    if len(hidden_or_gated) < MIN_HIDDEN_OR_GATED_TARGETS:
+        raise ValueError(
+            f"private acceptance requires at least {MIN_HIDDEN_OR_GATED_TARGETS} "
+            "selected hidden or gated targets"
+        )
+    if any(item["kind"] not in HIDDEN_OR_GATED_KINDS for item in hidden_or_gated):
+        raise ValueError(
+            "hidden or gated selections require temporary outcomes or exact occurrences"
+        )
     identities = [(item["kind"], item["target_id"]) for item in result]
     if len(identities) != len(set(identities)):
         raise ValueError("private target selection cannot contain duplicate destinations")

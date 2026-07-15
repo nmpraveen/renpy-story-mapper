@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from renpy_story_mapper.storage import canonical_json
@@ -202,7 +202,6 @@ class CanonicalGraph:
     facts: tuple[CanonicalFact, ...]
     evidence: tuple[SourceEvidence, ...]
     proofs: tuple[DerivedProof, ...]
-    authority_hash_override: str | None = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -227,19 +226,9 @@ class CanonicalGraph:
 
     @property
     def authority_hash(self) -> str:
-        if self.authority_hash_override is not None:
-            return self.authority_hash_override
         return hashlib.sha256(self.normalized_bytes()).hexdigest()
 
     def validate(self) -> None:
-        if self.authority_hash_override is not None and (
-            len(self.authority_hash_override) != 64
-            or any(
-                character not in "0123456789abcdef"
-                for character in self.authority_hash_override
-            )
-        ):
-            raise ValueError("canonical authority hash override must be a lowercase SHA-256")
         _unique((item.id for item in self.nodes), "canonical node")
         _unique((item.id for item in self.edges), "canonical edge")
         _unique((item.id for item in self.regions), "canonical region")
