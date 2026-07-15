@@ -1,0 +1,853 @@
+{
+  "accepted_boundaries": {
+    "accepted_by_rule_and_reason": [
+      {
+        "count": 28,
+        "reason": "M10 module ownership prevents disconnected source files from sharing a scene.",
+        "rule_id": "canonical_module_boundary",
+        "strength": "hard"
+      },
+      {
+        "count": 145,
+        "reason": "M10 procedure ownership prevents unrelated source definitions from sharing a scene.",
+        "rule_id": "canonical_procedure_entry",
+        "strength": "hard"
+      },
+      {
+        "count": 1,
+        "reason": "The first canonical atom starts the deterministic scene draft.",
+        "rule_id": "corpus_start",
+        "strength": "hard"
+      },
+      {
+        "count": 3598,
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "strength": "hard"
+      },
+      {
+        "count": 12,
+        "reason": "M10 classifies this atom as a persistent or terminal route-arm entry.",
+        "rule_id": "persistent_lane_entry",
+        "strength": "hard"
+      },
+      {
+        "count": 7,
+        "reason": "A source-authored visual context change supports a strong scene boundary.",
+        "rule_id": "visual_context_change",
+        "strength": "strong"
+      }
+    ],
+    "accepted_by_strength": {
+      "conflict": 0,
+      "hard": 3784,
+      "strong": 7,
+      "weak": 0
+    },
+    "accepted_total": 3791
+  },
+  "authority": {
+    "canonical_hash": "769c2931f284fa875a0b8d561d668fcfe21c4d7e0de83c3f09fad71e7d5f6a2f",
+    "scene_model_hash": "d2a5e160edf03827be81c8c48d25f65bb0f328c417b3b1967aadf75cbc8ffcd8",
+    "source_generation": "fea15ae2bc2ce1d8561c54549d8c8b69a7ed355ac93a06c6f077593868f3c77f"
+  },
+  "corpus": "private MsDenvers acceptance result",
+  "day1_choice_anchors": [
+    {
+      "arm_scene_counts": [
+        5,
+        4
+      ],
+      "canonical_region_id": "cregion_51235bca57647c763e02",
+      "choice_index": 1,
+      "menu_locator": "game/v0.01_clean.rpy:143:5",
+      "parent_scene_id": "scene_227a60f8472af75f8ed3",
+      "rejoin_locator": "game/v0.01_clean.rpy:165:5",
+      "rejoin_scene_id": "scene_1e4ff54905c0a98552fc",
+      "temporary_container_id": "branch_5061d629946e44848ae9"
+    },
+    {
+      "arm_scene_counts": [
+        15,
+        2
+      ],
+      "canonical_region_id": "cregion_0521f058e02b05ab4159",
+      "choice_index": 2,
+      "menu_locator": "game/v0.01_clean.rpy:191:5",
+      "parent_scene_id": "scene_23dab604272657c60e5a",
+      "rejoin_locator": "game/v0.01_clean.rpy:233:5",
+      "rejoin_scene_id": "scene_010042c4ae075a2b4d17",
+      "temporary_container_id": "branch_03303e1727595c14565c"
+    },
+    {
+      "arm_scene_counts": [
+        2,
+        19
+      ],
+      "canonical_region_id": "cregion_3f68c37a116a43986f92",
+      "choice_index": 3,
+      "menu_locator": "game/v0.01_clean.rpy:623:5",
+      "parent_scene_id": "scene_c05783e78640ed3742e2",
+      "rejoin_locator": "game/v0.01_clean.rpy:793:5",
+      "rejoin_scene_id": "scene_48c3c508bf6a8a5f37a4",
+      "temporary_container_id": "branch_7f9b5a0923dbad0d2355"
+    },
+    {
+      "arm_scene_counts": [
+        15,
+        31
+      ],
+      "canonical_region_id": "cregion_a376cd1da230ced585c9",
+      "choice_index": 4,
+      "menu_locator": "game/v0.01_clean.rpy:674:13",
+      "parent_scene_id": "scene_4383f1cc3c22a5eac230",
+      "rejoin_locator": "game/v0.01_clean.rpy:793:5",
+      "rejoin_scene_id": "scene_48c3c508bf6a8a5f37a4",
+      "temporary_container_id": "branch_8d07ba556d38a09de595"
+    }
+  ],
+  "evidence_kind": "M11 privacy-safe scene-quality diagnostic",
+  "privacy": {
+    "absolute_local_paths_included": false,
+    "commercial_source_or_assets_included": false,
+    "descriptions": "generic atom/source-kind counts only",
+    "dialogue_or_source_text_included": false
+  },
+  "representative_scenes": [
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_0c8906683480ffca21ae",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 6,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 1,
+          "role": "choice_parent"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:137:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:143:5",
+      "scene_id": "scene_227a60f8472af75f8ed3",
+      "scene_start_decision": {
+        "boundary_id": "boundary_0c8906683480ffca21ae",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, narration=3, technical=1, visual_change=1]; source kinds [menu=1, merge=1, scene=1, statement=3]; story-facing=5; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_5061d629946e44848ae9",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 1,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 1,
+          "role": "arm_0_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:144:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:144:9",
+      "scene_id": "scene_ba9bb807b757507c3935",
+      "scene_start_decision": {
+        "boundary_id": "boundary_1d6e2e278a515b40d057",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1]; source kinds [menu_choice=1]; story-facing=1; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_5061d629946e44848ae9",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 1,
+          "role": "arm_1_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:155:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:157:13",
+      "scene_id": "scene_819987374ff8a344657f",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f3bd8f1321cce7345e69",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, technical=1]; source kinds [menu_choice=1, merge=1]; story-facing=1; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_5061d629946e44848ae9",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f18c77e8906d77d9c627",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 3,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 1,
+          "role": "longest_arm_tail"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:152:13",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:154:13",
+      "scene_id": "scene_9d5010720a587b4e5cb3",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f18c77e8906d77d9c627",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=2, visual_change=1]; source kinds [scene=1, statement=2]; story-facing=3; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_5061d629946e44848ae9",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f9ee9245cb126dd20463",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 1,
+          "role": "exact_rejoin"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:165:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:166:5",
+      "scene_id": "scene_1e4ff54905c0a98552fc",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f9ee9245cb126dd20463",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=1, visual_change=1]; source kinds [scene=1, statement=1]; story-facing=2; supporting=0.",
+      "temporary_container_membership": []
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f99c435dd62aebd56fae",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 4,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 2,
+          "role": "choice_parent"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:188:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:191:5",
+      "scene_id": "scene_23dab604272657c60e5a",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f99c435dd62aebd56fae",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, narration=1, technical=1, visual_change=1]; source kinds [menu=1, merge=1, scene=1, statement=1]; story-facing=3; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_03303e1727595c14565c",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 2,
+          "role": "arm_0_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:192:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:193:13",
+      "scene_id": "scene_eb3b713c74b5eef353c3",
+      "scene_start_decision": {
+        "boundary_id": "boundary_cc682153450fd14a1de9",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, state_change=1]; source kinds [menu_choice=1, opaque=1]; story-facing=1; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_03303e1727595c14565c",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 1,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 2,
+          "role": "arm_1_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:224:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:224:9",
+      "scene_id": "scene_5f0c59a4c5be841bcfb4",
+      "scene_start_decision": {
+        "boundary_id": "boundary_0c5906f36d039d030b76",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1]; source kinds [menu_choice=1]; story-facing=1; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_03303e1727595c14565c",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f4ae0a863f3953aea59a",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 2,
+          "role": "longest_arm_tail"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:222:13",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:223:13",
+      "scene_id": "scene_8800bc3f9b6e08db16fd",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f4ae0a863f3953aea59a",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=1, visual_change=1]; source kinds [scene=1, statement=1]; story-facing=2; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_03303e1727595c14565c",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f47516b4dc04ea42572f",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 3,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 2,
+          "role": "exact_rejoin"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:233:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:235:5",
+      "scene_id": "scene_010042c4ae075a2b4d17",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f47516b4dc04ea42572f",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=2, visual_change=1]; source kinds [scene=1, statement=2]; story-facing=3; supporting=0.",
+      "temporary_container_membership": []
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_f664398d9dd52d296b9e",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 4,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 3,
+          "role": "choice_parent"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:620:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:623:5",
+      "scene_id": "scene_c05783e78640ed3742e2",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f664398d9dd52d296b9e",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, narration=1, technical=1, visual_change=1]; source kinds [menu=1, merge=1, scene=1, statement=1]; story-facing=3; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_7f9b5a0923dbad0d2355",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 3,
+          "role": "arm_0_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:624:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:625:13",
+      "scene_id": "scene_ea734f93ddd910866194",
+      "scene_start_decision": {
+        "boundary_id": "boundary_61a4e3fe98c2dde9c14a",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, state_change=1]; source kinds [menu_choice=1, opaque=1]; story-facing=1; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_7f9b5a0923dbad0d2355",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 4,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 3,
+          "role": "arm_1_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:628:9",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:631:13",
+      "scene_id": "scene_6e7d2710cf47ca9c4250",
+      "scene_start_decision": {
+        "boundary_id": "boundary_d19555e44b474499ac85",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, condition=1, state_change=1, technical=1]; source kinds [if=1, menu_choice=1, merge=1, opaque=1]; story-facing=1; supporting=3.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_7f9b5a0923dbad0d2355",
+          "role": "arm_local_scene"
+        },
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_849fbc9b0c7dba46171d",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_66df9688c9572c66c8c0",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 4,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 3,
+          "role": "longest_arm_tail"
+        },
+        {
+          "choice_index": 4,
+          "role": "choice_parent"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:671:13",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:674:13",
+      "scene_id": "scene_4383f1cc3c22a5eac230",
+      "scene_start_decision": {
+        "boundary_id": "boundary_66df9688c9572c66c8c0",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, narration=1, technical=1, visual_change=1]; source kinds [menu=1, merge=1, scene=1, statement=1]; story-facing=3; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_7f9b5a0923dbad0d2355",
+          "role": "arm_local_scene"
+        },
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_8d07ba556d38a09de595",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_a65de8658333e6765476",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 3,
+          "role": "exact_rejoin"
+        },
+        {
+          "choice_index": 4,
+          "role": "exact_rejoin"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:793:5",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:794:5",
+      "scene_id": "scene_48c3c508bf6a8a5f37a4",
+      "scene_start_decision": {
+        "boundary_id": "boundary_a65de8658333e6765476",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=1, visual_change=1]; source kinds [pause=1, scene=1]; story-facing=2; supporting=0.",
+      "temporary_container_membership": []
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 1,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 4,
+          "role": "arm_0_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:675:17",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:675:17",
+      "scene_id": "scene_b6188df9fbf3eea658fb",
+      "scene_start_decision": {
+        "boundary_id": "boundary_370fe20dd020fbdf8ecf",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1]; source kinds [menu_choice=1]; story-facing=1; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 0,
+          "container_id": "branch_8d07ba556d38a09de595",
+          "role": "arm_local_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 4,
+          "role": "arm_1_entry"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:705:17",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:707:21",
+      "scene_id": "scene_4373d8826b66f7be1ab0",
+      "scene_start_decision": {
+        "boundary_id": "boundary_f4f897771800b73c9155",
+        "reason": "No hard or strong deterministic scene transition is present.",
+        "rule_id": "continuation_candidate",
+        "status": "rejected",
+        "strength": "weak"
+      },
+      "source_description": "Generic structural description: atom kinds [choice=1, condition=1]; source kinds [if=1, menu_choice=1]; story-facing=1; supporting=1.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_8d07ba556d38a09de595",
+          "role": "arm_local_scene"
+        },
+        {
+          "arm_ordinal": null,
+          "container_id": "branch_d71982dc3199c9f0f964",
+          "role": "parent_scene"
+        }
+      ]
+    },
+    {
+      "accepted_boundary_reasons": [
+        {
+          "boundary_id": "boundary_8957e2c415c21a6d6291",
+          "reason": "A source-authored scene statement supplies a hard visual reset.",
+          "rule_id": "explicit_scene_reset",
+          "strength": "hard"
+        }
+      ],
+      "atom_count": 2,
+      "chapter": {
+        "id": "chapter_story",
+        "ordinal": 0
+      },
+      "choice_context": [
+        {
+          "choice_index": 4,
+          "role": "longest_arm_tail"
+        }
+      ],
+      "first_source_locator": "game/v0.01_clean.rpy:788:21",
+      "lane": {
+        "id": "lane_story_spine",
+        "kind": "spine"
+      },
+      "last_source_locator": "game/v0.01_clean.rpy:789:21",
+      "scene_id": "scene_0f8a32c8907af41b8842",
+      "scene_start_decision": {
+        "boundary_id": "boundary_8957e2c415c21a6d6291",
+        "reason": "A source-authored scene statement supplies a hard visual reset.",
+        "rule_id": "explicit_scene_reset",
+        "status": "accepted",
+        "strength": "hard"
+      },
+      "source_description": "Generic structural description: atom kinds [narration=1, visual_change=1]; source kinds [pause=1, scene=1]; story-facing=2; supporting=0.",
+      "temporary_container_membership": [
+        {
+          "arm_ordinal": 1,
+          "container_id": "branch_8d07ba556d38a09de595",
+          "role": "arm_local_scene"
+        }
+      ]
+    }
+  ],
+  "scene_atom_count_distribution": {
+    "maximum": 17,
+    "median": 2.0,
+    "p75": 2,
+    "p90": 3,
+    "p99": 5,
+    "percentile_method": "nearest-rank for p75/p90/p99; conventional median",
+    "scene_count": 4076,
+    "singleton_count": 337,
+    "singleton_percentage": 8.268
+  },
+  "schema_version": 1
+}

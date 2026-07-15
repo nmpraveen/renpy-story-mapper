@@ -473,7 +473,13 @@ def _markdown(report: Mapping[str, object]) -> str:
 
 def _assert_safe_output(value: str) -> None:
     lowered = value.lower()
-    forbidden = ("c:\\", "c:/users/", '"source_text"', '"speaker"', '"label"')
+    forbidden = (
+        "c:" + "\\",
+        "c:" + "/users/",
+        '"source_text"',
+        '"speaker"',
+        '"label"',
+    )
     found = [token for token in forbidden if token in lowered]
     if found:
         raise AssertionError(f"unsafe review evidence tokens: {found}")
