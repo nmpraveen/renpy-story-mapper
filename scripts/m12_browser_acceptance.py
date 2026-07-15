@@ -121,6 +121,13 @@ def _capture(
             )
             if selected["levelCount"] != 2 or selected["levels"] != ["detail_evidence", "route_map"]:
                 raise AssertionError(f"M12 introduced a third navigation level: {selected}")
+            session.wait(
+                "document.documentElement.dataset.activeLevel==='detail_evidence' && !document.querySelector('#detailView').hidden"
+            )
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait(
+                "document.documentElement.dataset.activeLevel==='route_map' && !document.querySelector('#routeMapView').hidden"
+            )
             session.wait("import('./app.js').then(m=>m.state.route.phase==='ready' && document.querySelector('#routeDestination').textContent==='Foyer')")
 
             action_text = session.evaluate("document.querySelector('#solveRoute').textContent")
@@ -165,8 +172,21 @@ def _capture(
             if not result["exportVisible"] or result["technicalSummary"] != "Technical status and evidence":
                 raise AssertionError(f"M12 omitted export or technical/evidence expansion: {result}")
             session.evaluate("document.querySelector('#routeTechnical').open=true; document.querySelector('.route-provenance').open=true")
+            session.evaluate(
+                "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))"
+            )
+            result_view = session.evaluate(
+                "({activeLevel:document.documentElement.dataset.activeLevel,routeMapHidden:document.querySelector('#routeMapView').hidden,detailHidden:document.querySelector('#detailView').hidden})"
+            )
+            if result_view != {
+                "activeLevel": "route_map",
+                "routeMapHidden": False,
+                "detailHidden": True,
+            }:
+                raise AssertionError(f"Route result was not visible before capture: {result_view}")
             result_shot = output / f"m12-route-result-{zoom}.png"
             DRIVER._screenshot(session, result_shot)
+            result_shot_hash = hashlib.sha256(result_shot.read_bytes()).hexdigest()
 
             session.evaluate("document.querySelector('#openRouteEvidence').click()")
             session.wait("document.documentElement.dataset.activeLevel==='detail_evidence' && !document.querySelector('#detailView').hidden")
@@ -175,8 +195,14 @@ def _capture(
             )
             if detail["activeLevel"] != "detail_evidence" or detail["levelCount"] != 2:
                 raise AssertionError(f"Detail/Evidence did not remain the second and final level: {detail}")
+            session.evaluate(
+                "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))"
+            )
             detail_shot = output / f"m12-route-evidence-{zoom}.png"
             DRIVER._screenshot(session, detail_shot)
+            detail_shot_hash = hashlib.sha256(detail_shot.read_bytes()).hexdigest()
+            if result_shot_hash == detail_shot_hash:
+                raise AssertionError("Route result and Detail/Evidence captures are unexpectedly identical")
             session.evaluate("document.querySelector('#backToRouteMap').click()")
             session.wait("document.documentElement.dataset.activeLevel==='route_map'")
 
@@ -214,6 +240,7 @@ def _capture(
                     "request_identity": result["requestIdentity"],
                     "provenance_node_count": len(result["provenance"]["node_ids"]),
                 },
+                "result_view": result_view,
                 "detail": detail,
                 "cached_replay": cached,
                 "layout": layout,
