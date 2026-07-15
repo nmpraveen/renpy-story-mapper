@@ -199,6 +199,7 @@ def solve_route(
     target_reverse_nodes = _resolved_reverse_nodes(
         {item.node_id for item in anchors}, incoming
     )
+    target_cone_nodes = _reverse_nodes({item.node_id for item in anchors}, incoming)
     values, initial_kinds = _initial_values(request.initial_state, projection)
     start = _SearchState(
         request.start_node_id,
@@ -233,7 +234,7 @@ def solve_route(
         scene_id: lane.id for lane in scene_model.lanes for scene_id in lane.scene_ids
     }
 
-    def record_candidates(candidate_state: _SearchState) -> None:
+    def record_candidates(candidate_state: _SearchState) -> bool:
         matching = [
             anchor
             for anchor in anchors
@@ -275,6 +276,7 @@ def solve_route(
             prior = candidates.get(signature)
             if prior is None or candidate.ranking_key < prior.ranking_key:
                 candidates[signature] = candidate
+        return bool(matching)
 
     while frontier:
         if cancelled is not None and cancelled():
@@ -295,9 +297,12 @@ def solve_route(
             break
 
         state = _apply_node_effects(state, node_by_id[state.node_id], fact_by_id, projection)
-        record_candidates(state)
+        if record_candidates(state):
+            continue
 
         for edge in outgoing.get(state.node_id, ()):
+            if edge.target_id not in target_cone_nodes:
+                continue
             next_state, contradiction, traversal_limit = _traverse_edge(
                 state,
                 edge,
@@ -320,7 +325,7 @@ def solve_route(
                 break
             if next_state is None:
                 continue
-            record_candidates(next_state)
+            completed = record_candidates(next_state)
             prefixes += 1
             if prefixes > request.limits.prefix_records:
                 limit_hit = "prefix_records"
@@ -329,6 +334,8 @@ def solve_route(
             if accounting > request.limits.accounting_units:
                 limit_hit = "accounting_units"
                 break
+            if completed:
+                continue
             serial += 1
             heapq.heappush(frontier, (_partial_rank(next_state), serial, next_state))
             peak_frontier = max(peak_frontier, len(frontier))
@@ -1319,6 +1326,22 @@ def _resolved_reverse_nodes(
         node_id = pending.popleft()
         for edge in incoming.get(node_id, ()):
             if edge.resolved and edge.source_id not in result:
+                result.add(edge.source_id)
+                pending.append(edge.source_id)
+    return result
+
+
+def _reverse_nodes(
+    targets: set[str], incoming: Mapping[str, Sequence[CanonicalEdge]]
+) -> set[str]:
+    """Return the structural reverse cone for one selected destination only."""
+
+    result = set(targets)
+    pending = deque(sorted(targets))
+    while pending:
+        node_id = pending.popleft()
+        for edge in incoming.get(node_id, ()):
+            if edge.source_id not in result:
                 result.add(edge.source_id)
                 pending.append(edge.source_id)
     return result
