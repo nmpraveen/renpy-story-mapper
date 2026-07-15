@@ -86,6 +86,7 @@ def test_m12_api_lists_solves_returns_and_reuses_exact_route(tmp_path: Path) -> 
             "/api/v1/m12/result",
             {"request_identity": started["request_identity"]},
         )
+        assert result["request_identity"] == started["request_identity"]
         assert result["status"] == "confirmed"
         assert result["badge"] == "Confirmed route"
         assert result["complete"] is True

@@ -94,6 +94,8 @@ def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -
     for element_id in ("cancelRoute", "retryRoute", "exportRouteJson", "routeStatus"):
         assert f'id="{element_id}"' in html
     assert "await api.cancelAnalysis()" in app
+    assert 'while (["pending", "running", "cancelling"].includes(task.state))' in app
+    assert "await waitForRouteTask(cancelling, state.route.runToken)" in app
     assert 'state.route.phase = "cancelled"' in app
     assert 'state.route.phase = state.route.stale ? "stale" : "complete"' in app
     assert 'route.cached ? "Cached route ready."' in app

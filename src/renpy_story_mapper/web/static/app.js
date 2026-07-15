@@ -161,7 +161,7 @@ function routeTask(value) { return value?.task || value || {}; }
 
 async function waitForRouteTask(initial, token) {
   let task = routeTask(initial);
-  while (["pending", "running"].includes(task.state)) {
+  while (["pending", "running", "cancelling"].includes(task.state)) {
     state.route.progressLabel = String(task.stage || "Solving route").replaceAll("_", " "); renderRoutePanel();
     await new Promise((resolve) => setTimeout(resolve, 350));
     if (token !== state.route.runToken) return null;
@@ -199,7 +199,12 @@ async function cancelRouteSolve() {
   const serverTaskStarted = state.route.phase === "running";
   state.route.phase = "cancelling"; renderRoutePanel();
   if (serverTaskStarted) {
-    try { await api.cancelAnalysis(); } catch (error) { state.route.error = error.message; }
+    try {
+      const cancelling = await api.cancelAnalysis();
+      await waitForRouteTask(cancelling, state.route.runToken);
+    } catch (error) {
+      state.route.phase = "failure"; state.route.error = error.message; renderRoutePanel(); return;
+    }
   }
   state.route.runToken += 1; state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel();
 }

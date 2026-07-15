@@ -202,6 +202,21 @@ def solve_route(
     )
     target_cone_nodes = _reverse_nodes({item.node_id for item in anchors}, incoming)
     values, initial_kinds = _initial_values(request.initial_state, projection)
+    occurrence_edge = _occurrence_edge_map(graph, scene_model)
+    scene_by_node, atom_by_node = _scene_ownership(scene_model)
+    lane_by_scene = {
+        scene_id: lane.id for lane in scene_model.lanes for scene_id in lane.scene_ids
+    }
+    persistent_lane_ids = {
+        lane.id for lane in scene_model.lanes if lane.kind is not LaneKind.SPINE
+    }
+    minimum_persistent_commitments = _required_persistent_floor(
+        anchors,
+        incoming,
+        scene_by_node,
+        lane_by_scene,
+        persistent_lane_ids,
+    )
     start = _SearchState(
         request.start_node_id,
         values,
@@ -219,7 +234,16 @@ def solve_route(
     )
     frontier: list[tuple[tuple[int | str, ...], int, _SearchState]] = []
     serial = 0
-    heapq.heappush(frontier, (_partial_rank(start), serial, start))
+    heapq.heappush(
+        frontier,
+        (
+            _partial_rank(
+                start, scene_by_node, minimum_persistent_commitments
+            ),
+            serial,
+            start,
+        ),
+    )
     retained: dict[tuple[object, ...], tuple[int | str, ...]] = {}
     candidates: dict[tuple[object, ...], RouteAlternative] = {}
     expanded = 0
@@ -228,12 +252,7 @@ def solve_route(
     accounting = _accounting_units(start)
     limit_hit: str | None = None
     exact_contradictions = 0
-
-    occurrence_edge = _occurrence_edge_map(graph, scene_model)
-    scene_by_node, atom_by_node = _scene_ownership(scene_model)
-    lane_by_scene = {
-        scene_id: lane.id for lane in scene_model.lanes for scene_id in lane.scene_ids
-    }
+    best_route_proven = False
 
     def record_candidates(candidate_state: _SearchState) -> bool:
         matching = [
@@ -280,11 +299,18 @@ def solve_route(
         return bool(matching)
 
     while frontier:
+        if candidates:
+            best_candidate = min(candidates.values(), key=lambda item: item.ranking_key)
+            if best_candidate.ranking_key[:7] <= frontier[0][0][:7]:
+                best_route_proven = True
+                break
         if cancelled is not None and cancelled():
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
         _, _, state = heapq.heappop(frontier)
         key = _state_key(state, projection)
-        state_rank = _partial_rank(state)
+        state_rank = _partial_rank(
+            state, scene_by_node, minimum_persistent_commitments
+        )
         previous = retained.get(key)
         if previous is not None and previous <= state_rank:
             continue
@@ -338,7 +364,18 @@ def solve_route(
             if completed:
                 continue
             serial += 1
-            heapq.heappush(frontier, (_partial_rank(next_state), serial, next_state))
+            heapq.heappush(
+                frontier,
+                (
+                    _partial_rank(
+                        next_state,
+                        scene_by_node,
+                        minimum_persistent_commitments,
+                    ),
+                    serial,
+                    next_state,
+                ),
+            )
             peak_frontier = max(peak_frontier, len(frontier))
             if len(frontier) > request.limits.frontier_states:
                 limit_hit = "frontier_states"
@@ -354,6 +391,7 @@ def solve_route(
     if discarded_alternatives:
         limit_hit = limit_hit or "alternatives"
         exhaustive = False
+    semantic_complete = limit_hit is None and (exhaustive or best_route_proven)
 
     usage = BudgetUsage(
         expanded_states=min(expanded, request.limits.expanded_states),
@@ -407,8 +445,18 @@ def solve_route(
         badge=badge_for_status(status, has_route=recommended is not None),
         recommended=recommended,
         alternatives=tuple(ordered_candidates[1:]),
-        complete=exhaustive,
-        termination_reason=("exhausted" if exhaustive else f"limit:{limit_hit or 'search'}"),
+        complete=semantic_complete,
+        termination_reason=(
+            "exhausted"
+            if exhaustive
+            else (
+                f"limit:{limit_hit}"
+                if limit_hit is not None
+                else (
+                    "best_route_proven" if best_route_proven else "limit:search"
+                )
+            )
+        ),
         exhaustive=exhaustive,
         closed_world=closed_world,
         budget_usage=usage,
@@ -744,7 +792,7 @@ def _traverse_edge(
         return None, False, "repetition_per_transition"
     stack = state.call_stack
     call_site = edge.attributes.get("call_site_id")
-    if edge.kind == "call_enter":
+    if edge.kind in {"call_enter", "call_summary"}:
         if not isinstance(call_site, str) or not call_site:
             return None, False, None
         if len(stack) >= limits.call_depth:
@@ -995,15 +1043,44 @@ def _route_alternative(
     edge_by_id = {item.id: item for item in graph.edges}
     evidence_by_id = {item.id: item for item in graph.evidence}
     scene_records = {item.id: item for item in scene_model.scenes}
+    atom_by_id = {item.id: item for item in scene_model.atoms}
+    scene_by_atom = {
+        atom_id: scene.id for scene in scene_model.scenes for atom_id in scene.atom_ids
+    }
+    occurrences_by_call_node: dict[str, list[CallSiteOccurrence]] = defaultdict(list)
+    for occurrence in scene_model.occurrences:
+        call_atom = atom_by_id.get(occurrence.call_atom_id)
+        if call_atom is not None:
+            occurrences_by_call_node[call_atom.primary_node_id].append(occurrence)
+
     scene_ids: list[str] = []
-    for node_id in state.node_ids:
-        scene_id = scene_by_node.get(node_id)
+
+    def append_scene(scene_id: str | None) -> None:
         if scene_id is not None and (not scene_ids or scene_ids[-1] != scene_id):
             scene_ids.append(scene_id)
+
+    append_scene(scene_by_node.get(state.node_ids[0]))
+    for edge_id, node_id in zip(state.edge_ids, state.node_ids[1:], strict=True):
+        edge = edge_by_id[edge_id]
+        if edge.kind == "call_summary":
+            selected_call_occurrence = _occurrence_for_call_edge(
+                edge, graph, occurrences_by_call_node
+            )
+            if selected_call_occurrence is not None:
+                for atom_id in selected_call_occurrence.referenced_atom_ids:
+                    append_scene(scene_by_atom.get(atom_id))
+        append_scene(scene_by_node.get(node_id))
     choices: list[str] = []
     for edge_id in state.edge_ids:
         edge = edge_by_id[edge_id]
-        if node_by_id[edge.source_id].kind is CanonicalNodeKind.CHOICE:
+        predicate = edge.attributes.get("predicate")
+        is_impossible_menu_fallthrough = (
+            isinstance(predicate, Mapping) and predicate.get("kind") == "menu_no_choice"
+        )
+        if (
+            node_by_id[edge.source_id].kind is CanonicalNodeKind.CHOICE
+            and not is_impossible_menu_fallthrough
+        ):
             caption = _visible_choice_text(edge, node_by_id[edge.source_id], evidence_by_id)
             if not choices or choices[-1] != caption:
                 choices.append(caption)
@@ -1066,7 +1143,18 @@ def _route_alternative(
     if selected_occurrence is not None:
         evidence_ids.update(selected_occurrence.provenance.evidence_ids)
         proof_ids.update(selected_occurrence.provenance.proof_ids)
-    occurrence_ids = ((state.selected_occurrence_id,) if state.selected_occurrence_id else ())
+    occurrence_ids = tuple(
+        sorted(
+            {
+                occurrence_id
+                for occurrence_id in (
+                    state.selected_occurrence_id,
+                    *(item.occurrence_id for item in call_contexts),
+                )
+                if occurrence_id is not None
+            }
+        )
+    )
     return RouteAlternative(
         state.node_ids,
         state.edge_ids,
@@ -1108,20 +1196,35 @@ def _call_contexts(
     scene_model: SceneModel,
 ) -> tuple[RouteCallContext, ...]:
     edges = {item.id: item for item in graph.edges}
-    occurrence_by_edge = {
-        edge_id: occurrence
-        for occurrence in scene_model.occurrences
-        for edge_id in occurrence.provenance.edge_ids
-    }
+    atoms = {item.id: item for item in scene_model.atoms}
+    occurrences_by_call_node: dict[str, list[CallSiteOccurrence]] = defaultdict(list)
+    for occurrence in scene_model.occurrences:
+        call_atom = atoms.get(occurrence.call_atom_id)
+        if call_atom is not None:
+            occurrences_by_call_node[call_atom.primary_node_id].append(occurrence)
     result: list[RouteCallContext] = []
     for edge_id in route_edge_ids:
         edge = edges[edge_id]
-        if edge.kind != "call_enter":
+        if edge.kind not in {"call_enter", "call_summary"}:
             continue
         call_site = edge.attributes.get("call_site_id")
         if not isinstance(call_site, str) or not call_site:
             continue
-        occurrence = occurrence_by_edge.get(edge.id)
+        enter = edge
+        if edge.kind == "call_summary":
+            enter = next(
+                (
+                    candidate
+                    for candidate in graph.edges
+                    if candidate.kind == "call_enter"
+                    and candidate.source_id == edge.source_id
+                    and candidate.attributes.get("call_site_id") == call_site
+                ),
+                edge,
+            )
+        selected_call_occurrence = _occurrence_for_call_edge(
+            enter, graph, occurrences_by_call_node
+        )
         return_edges = tuple(
             sorted(
                 candidate.id
@@ -1134,18 +1237,49 @@ def _call_contexts(
             RouteCallContext(
                 call_site,
                 edge.source_id,
-                edge.id,
-                edge.target_id,
+                enter.id,
+                enter.target_id,
                 return_edges,
                 (
-                    tuple(sorted(occurrence.guard_fact_ids))
-                    if occurrence is not None
+                    tuple(sorted(selected_call_occurrence.guard_fact_ids))
+                    if selected_call_occurrence is not None
                     else _strings(edge.attributes.get("gate_ids"))
                 ),
-                occurrence.id if occurrence is not None else None,
+                (
+                    selected_call_occurrence.id
+                    if selected_call_occurrence is not None
+                    else None
+                ),
             )
         )
     return tuple(result)
+
+
+def _occurrence_for_call_edge(
+    edge: CanonicalEdge,
+    graph: CanonicalGraph,
+    occurrences_by_call_node: Mapping[str, Sequence[CallSiteOccurrence]],
+) -> CallSiteOccurrence | None:
+    candidates = occurrences_by_call_node.get(edge.source_id, ())
+    if not candidates:
+        return None
+    edge_ids = {edge.id}
+    call_site = edge.attributes.get("call_site_id")
+    edge_ids.update(
+        item.id
+        for item in graph.edges
+        if item.source_id == edge.source_id
+        and item.attributes.get("call_site_id") == call_site
+        and item.kind in {"call_enter", "call_summary"}
+    )
+    return next(
+        (
+            occurrence
+            for occurrence in sorted(candidates, key=lambda item: item.id)
+            if edge_ids.intersection(occurrence.provenance.edge_ids)
+        ),
+        None,
+    )
 
 
 def _instructions(
@@ -1249,25 +1383,82 @@ def _visible_choice_text(
 
 
 def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[object, ...]:
+    requirements = tuple(
+        (
+            item.fact_id,
+            item.source.value,
+            item.satisfying_effect_id,
+            item.repeated_count,
+        )
+        for item in _dedupe_requirements(state.requirements)
+    )
     return (
         state.node_id,
         state.call_stack,
         projection.key_for(state.values),
-        tuple(sorted(state.transition_counts.items())),
+        tuple(
+            (key, state.values.get(key, "unknown"))
+            for key in sorted(state.value_sources)
+            if key in {item.key for item in projection.relevant_variables}
+        ),
+        requirements,
+        state.warnings,
+        state.persistent_lane_ids,
         state.selected_occurrence_id,
     )
 
 
-def _partial_rank(state: _SearchState) -> tuple[int | str, ...]:
+def _partial_rank(
+    state: _SearchState,
+    scene_by_node: Mapping[str, str],
+    minimum_persistent_commitments: int,
+) -> tuple[int | str, ...]:
+    scene_ids: list[str] = []
+    for node_id in state.node_ids:
+        scene_id = scene_by_node.get(node_id)
+        if scene_id is not None and (not scene_ids or scene_ids[-1] != scene_id):
+            scene_ids.append(scene_id)
+    requirements = _dedupe_requirements(state.requirements)
     return (
         len(state.warnings),
-        sum(item.source is RequirementSource.UNKNOWN for item in state.requirements),
-        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in state.requirements),
-        len(state.persistent_lane_ids),
+        sum(item.source is RequirementSource.UNKNOWN for item in requirements),
+        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in requirements),
+        max(len(state.persistent_lane_ids), minimum_persistent_commitments),
         state.loop_count,
+        len(scene_ids),
         len(state.edge_ids),
         "|".join(state.edge_ids),
     )
+
+
+def _required_persistent_floor(
+    anchors: Sequence[_TargetAnchor],
+    incoming: Mapping[str, Sequence[CanonicalEdge]],
+    scene_by_node: Mapping[str, str],
+    lane_by_scene: Mapping[str, str],
+    persistent_lane_ids: set[str],
+) -> int:
+    """Return one only when every nearest narrative target boundary is persistent."""
+
+    boundary_lanes: set[str | None] = set()
+    for anchor in anchors:
+        pending = deque([anchor.node_id])
+        seen = {anchor.node_id}
+        while pending:
+            node_id = pending.popleft()
+            scene_id = scene_by_node.get(node_id)
+            if scene_id is not None:
+                boundary_lanes.add(lane_by_scene.get(scene_id))
+                continue
+            predecessors = incoming.get(node_id, ())
+            if not predecessors:
+                boundary_lanes.add(None)
+                continue
+            for edge in predecessors:
+                if edge.source_id not in seen:
+                    seen.add(edge.source_id)
+                    pending.append(edge.source_id)
+    return 1 if boundary_lanes and boundary_lanes <= persistent_lane_ids else 0
 
 
 def _accounting_units(state: _SearchState) -> int:
@@ -1330,20 +1521,12 @@ def _anchor_structurally_reachable(
 
 
 def _solver_edges(edges: Sequence[CanonicalEdge]) -> tuple[CanonicalEdge, ...]:
-    """Avoid treating M10 call summaries as a shortcut around a resolved callee."""
+    """Retain M10's exact call branches and authoritative summary continuation."""
 
-    resolved_enters = {
-        (item.source_id, item.attributes.get("call_site_id"))
-        for item in edges
-        if item.kind == "call_enter" and item.resolved
-    }
     return tuple(
         item
         for item in edges
-        if not (
-            item.kind == "call_summary"
-            and (item.source_id, item.attributes.get("call_site_id")) in resolved_enters
-        )
+        if item.reachability is not ReachabilityStatus.PROVEN_UNREACHABLE
     )
 
 

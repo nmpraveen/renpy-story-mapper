@@ -266,6 +266,25 @@ class ProjectApi:
         if method == "GET" and path == "/api/v1/analysis/progress":
             with self._lock:
                 task = self._task
+                future = self._future
+                cancellation_pending = (
+                    self._cancel_event is not None and self._cancel_event.is_set()
+                )
+            if (
+                task is not None
+                and task.state not in {"pending", "running"}
+                and future is not None
+                and not future.done()
+            ):
+                task = TaskStatus(
+                    task.id,
+                    task.kind,
+                    "running",
+                    "cancelling" if cancellation_pending else "finalizing",
+                    min(task.percent, 99),
+                    False,
+                    task.error,
+                )
             return json_value(task) if task is not None else {"state": "idle", "percent": 0}
         if method == "POST" and path == "/api/v1/native-picker":
             kind = require_string(body, "kind", maximum=32)
@@ -446,13 +465,14 @@ class ProjectApi:
                     require_string(body, "target_id", maximum=512),
                 )
                 lookup = service.lookup(prepared)
-            self._remember_m12_identity(prepared.identity)
+            request_identity = prepared.request.identity
+            self._remember_m12_identity(request_identity, prepared.identity)
             if lookup.state is RouteCacheState.HIT:
                 assert lookup.result is not None
                 return json_value(
                     {
                         "cached": True,
-                        "request_identity": prepared.identity.identity_hash,
+                        "request_identity": request_identity,
                         "result": dict(lookup.result),
                     }
                 )
@@ -469,7 +489,7 @@ class ProjectApi:
             assert isinstance(started, dict)
             return {
                 "cached": False,
-                "request_identity": prepared.identity.identity_hash,
+                "request_identity": request_identity,
                 "analysis": started.get("analysis"),
             }
         if method == "POST" and path == M12_API_ROUTES["result"]:
@@ -981,11 +1001,13 @@ class ProjectApi:
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
 
-    def _remember_m12_identity(self, identity: RouteCacheIdentity) -> None:
+    def _remember_m12_identity(
+        self, request_identity: str, identity: RouteCacheIdentity
+    ) -> None:
         with self._lock:
-            self._m12_identities.pop(identity.identity_hash, None)
-            self._m12_identities[identity.identity_hash] = identity
-            self._m12_attempts.pop(identity.identity_hash, None)
+            self._m12_identities.pop(request_identity, None)
+            self._m12_identities[request_identity] = identity
+            self._m12_attempts.pop(request_identity, None)
             while len(self._m12_identities) > 64:
                 oldest = next(iter(self._m12_identities))
                 self._m12_identities.pop(oldest, None)
@@ -1004,7 +1026,7 @@ class ProjectApi:
         if outcome.diagnostic is not None:
             diagnostic = cast(dict[str, JsonValue], json_value(outcome.diagnostic.to_dict()))
             with self._lock:
-                self._m12_attempts[prepared.identity.identity_hash] = diagnostic
+                self._m12_attempts[prepared.request.identity] = diagnostic
         if outcome.result is None and not cancelled.is_set():
             raise RuntimeError("M12 solve ended without a normalized result")
 

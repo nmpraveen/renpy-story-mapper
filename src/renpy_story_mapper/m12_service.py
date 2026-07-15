@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -110,8 +111,12 @@ class M12SolveOutcome:
     diagnostic: RouteAttemptDiagnostic | None = None
 
     def to_dict(self) -> dict[str, object]:
+        request = self.identity.document.get("request")
+        if not isinstance(request, Mapping):
+            raise ValueError("route cache identity lacks its normalized request")
+        request_identity = hashlib.sha256(storage.canonical_json(request)).hexdigest()
         value: dict[str, object] = {
-            "request_identity": self.identity.identity_hash,
+            "request_identity": request_identity,
             "cached": self.cached,
             "result": None if self.result is None else dict(self.result),
         }

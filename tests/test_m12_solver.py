@@ -529,7 +529,7 @@ def test_multi_entry_scene_completion_uses_the_reached_narrative_anchor() -> Non
 
 def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
     graph, model = _authority(
-        ("root", "callee", "after"),
+        ("root", "callee", "return-site", "after"),
         (
             {
                 "id": "enter",
@@ -541,29 +541,34 @@ def test_resolved_call_summary_cannot_skip_ordered_callee_scenes() -> None:
             {
                 "id": "summary",
                 "source": "root",
-                "target": "after",
+                "target": "return-site",
                 "kind": "call_summary",
                 "call_site_id": "site",
             },
             {
                 "id": "return",
-                "source": "callee",
+                "source": "return-site",
                 "target": "after",
                 "kind": "call_return",
                 "call_site_id": "site",
             },
         ),
+        occurrence=("occurrence", "root", "callee", "enter"),
     )
     destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-after")
     result = solve_route(graph, model, _solve(graph, model, destination)).result
 
     assert result is not None and result.recommended is not None
-    assert result.recommended.edge_ids == ("enter", "return")
+    assert result.recommended.edge_ids == ("summary", "return")
     assert result.recommended.scene_ids == (
         "scene-root",
         "scene-callee",
+        "scene-return-site",
         "scene-after",
     )
+    assert result.recommended.call_contexts[0].call_edge_id == "enter"
+    assert result.recommended.call_contexts[0].occurrence_id == "occurrence"
+    assert result.recommended.provenance.occurrence_ids == ("occurrence",)
 
 
 def test_repeatable_destination_is_complete_when_reached_once() -> None:

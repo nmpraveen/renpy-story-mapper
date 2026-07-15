@@ -356,10 +356,13 @@ class RouteResult:
     diagnostics: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if self.complete != (self.termination_reason == "exhausted"):
-            raise ValueError("complete results require the deterministic exhausted reason")
-        if self.complete != self.exhaustive:
-            raise ValueError("complete and exhaustive must agree")
+        complete_reasons = {"exhausted", "best_route_proven"}
+        if self.complete != (self.termination_reason in complete_reasons):
+            raise ValueError("complete results require a deterministic completion reason")
+        if self.exhaustive != (self.termination_reason == "exhausted"):
+            raise ValueError("exhaustive results require deterministic exhaustion")
+        if self.exhaustive and not self.complete:
+            raise ValueError("exhaustive results must be semantically complete")
         if self.status is TechnicalStatus.INCOMPLETE and self.complete:
             raise ValueError("an incomplete status cannot be semantically complete")
         if self.status in {

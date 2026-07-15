@@ -123,6 +123,40 @@ def test_real_project_route_uses_visible_literal_choice_caption(tmp_path: Path) 
         assert choice_instructions == ['Choose "Practice first".']
 
 
+def test_real_persistent_and_terminal_routes_preserve_calls_and_human_choices(
+    tmp_path: Path,
+) -> None:
+    project, _source = _project(tmp_path)
+    with project:
+        service = M12RouteService(project)
+        persistent = next(
+            item
+            for item in service.destinations(query="Commit to blue", limit=50)["nodes"]
+            if item["kind"] == DestinationKind.PERSISTENT_LANE.value
+        )
+        terminal = next(
+            item
+            for item in service.destinations(query="blue_ending", limit=50)["nodes"]
+            if item["kind"] == DestinationKind.TERMINAL.value
+        )
+
+        for destination in (persistent, terminal):
+            outcome = service.solve(
+                service.prepare(str(destination["kind"]), str(destination["target_id"]))
+            )
+            assert outcome.result is not None
+            assert outcome.result["status"] == "confirmed"
+            assert outcome.result["complete"] is True
+            recommended = outcome.result["recommended"]
+            assert isinstance(recommended, dict)
+            assert "Commit to blue" in recommended["visible_choices"]
+            assert "Memory" in recommended["scene_titles"]
+            assert recommended["call_contexts"]
+            assert all(item["call_site_id"] for item in recommended["call_contexts"])
+            assert all(item["return_edge_ids"] for item in recommended["call_contexts"])
+            assert recommended["provenance"]["occurrence_ids"]
+
+
 def test_old_identity_is_rejected_after_current_authority_changes(tmp_path: Path) -> None:
     project, source = _project(tmp_path)
     project_path = project.path
