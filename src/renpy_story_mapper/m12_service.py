@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -30,7 +32,7 @@ from renpy_story_mapper.m11_scene_model import (
     LaneKind,
     SceneModel,
 )
-from renpy_story_mapper.m11_scene_projection import scene_model_from_phase_results
+from renpy_story_mapper.m11_scene_projection import scene_model_from_stored_results
 from renpy_story_mapper.m12_model import (
     DestinationKind,
     RouteDestination,
@@ -58,6 +60,7 @@ type CancelCheck = Callable[[], bool]
 class M12Authority:
     graph: CanonicalGraph
     scene_model: SceneModel
+    m11_publication_hash: str
 
     @property
     def m10_provenance(self) -> dict[str, object]:
@@ -74,6 +77,7 @@ class M12Authority:
             "schema": M11_SCENE_MODEL_SCHEMA,
             "schema_version": M11_SCENE_MODEL_SCHEMA_VERSION,
             "model_hash": self.scene_model.structural_hash,
+            "publication_hash": self.m11_publication_hash,
         }
 
 
@@ -132,6 +136,14 @@ class M12RouteService:
 
     def __init__(self, project: Project) -> None:
         self._project = project
+        self._authority: M12Authority | None = None
+
+    def _current_authority(self) -> M12Authority:
+        if self._authority is None or not _authority_is_current(
+            self._project, self._authority
+        ):
+            self._authority = load_m12_authority(self._project)
+        return self._authority
 
     def destinations(
         self,
@@ -142,7 +154,7 @@ class M12RouteService:
     ) -> dict[str, object]:
         if offset < 0 or not 1 <= limit <= MAX_DESTINATION_PAGE:
             raise ValueError("destination window is outside the supported bounds")
-        authority = load_m12_authority(self._project)
+        authority = self._current_authority()
         records = list(_destination_records(authority))
         requested = (query or "").strip()
         if requested:
@@ -182,7 +194,7 @@ class M12RouteService:
             destination = RouteDestination(DestinationKind(destination_kind), target_id)
         except ValueError as exc:
             raise ValueError("route destination is unsupported") from exc
-        authority = load_m12_authority(self._project)
+        authority = self._current_authority()
         request = bind_route_request(authority.graph, authority.scene_model, destination)
         identity = self._project.m12_persistence().identity(
             request.normalized_dict(),
@@ -270,7 +282,7 @@ class M12RouteService:
         )
 
     def _require_current(self, identity: RouteCacheIdentity) -> None:
-        authority = load_m12_authority(self._project)
+        authority = self._current_authority()
         document_authority = identity.document.get("authority")
         if not isinstance(document_authority, Mapping):
             raise ValueError("route cache identity authority is invalid")
@@ -284,10 +296,9 @@ def load_m12_authority(project: Project) -> M12Authority:
     """Load one exact current M10 graph and its complete bound M11 model."""
 
     raw_state = project.payload("m10_analysis_state", "authoritative")
-    raw_canonical = project.payload("m10_canonical_graph", "authoritative")
-    if not isinstance(raw_state, Mapping) or not isinstance(raw_canonical, Mapping):
+    if not isinstance(raw_state, Mapping):
         raise ValueError("M12 requires current M10 authority")
-    graph = canonical_graph_from_mapping(raw_canonical)
+    graph = _compact_canonical_graph(project, raw_state)
     if (
         raw_state.get("canonical_availability") != "current_complete"
         or raw_state.get("source_generation") != graph.source_generation
@@ -295,21 +306,185 @@ def load_m12_authority(project: Project) -> M12Authority:
         or raw_state.get("canonical_hash") != graph.authority_hash
     ):
         raise ValueError("M12 requires a current complete M10 canonical graph")
-    selection = project.m11_persistence().select(raw_canonical)
+    selection = project.m11_persistence().select_current(
+        source_generation=graph.source_generation,
+        canonical_schema=CANONICAL_GRAPH_SCHEMA,
+        canonical_hash=graph.authority_hash,
+    )
     if (
         selection.availability is not M11Availability.CURRENT_COMPLETE
         or selection.phase_results is None
     ):
         raise ValueError(f"M12 requires current complete M11 authority: {selection.reason}")
-    model = scene_model_from_phase_results(
-        raw_canonical,
-        selection.phase_results["story_atoms"],
-        selection.phase_results["scene_boundaries"],
-        selection.phase_results["scene_assembly"],
-    )
+    model = scene_model_from_stored_results(selection.phase_results)
     if model.binding.canonical_hash != graph.authority_hash:
         raise ValueError("M11 scene model is not bound to the current M10 graph")
-    return M12Authority(graph, model)
+    assert selection.model_hash is not None
+    return M12Authority(graph, model, selection.model_hash)
+
+
+def _authority_is_current(project: Project, authority: M12Authority) -> bool:
+    """Check compact authority pointers without decoding either large read model."""
+
+    raw_state = project.payload("m10_analysis_state", "authoritative")
+    if not isinstance(raw_state, Mapping):
+        return False
+    if (
+        raw_state.get("canonical_availability") != "current_complete"
+        or raw_state.get("source_generation") != authority.graph.source_generation
+        or raw_state.get("canonical_generation") != authority.graph.source_generation
+        or raw_state.get("canonical_hash") != authority.graph.authority_hash
+    ):
+        return False
+    row = project._require_open().execute(
+        "SELECT payload_hash FROM payloads WHERE collection=? AND record_key=?",
+        ("m10_canonical_graph", "authoritative"),
+    ).fetchone()
+    if row is None or str(row[0]) != authority.graph.authority_hash:
+        return False
+    persistence = project.m11_persistence()
+    state = persistence.analysis_state()
+    published = state.get("published") if isinstance(state, Mapping) else None
+    if (
+        not isinstance(published, Mapping)
+        or published.get("binding_hash") != authority.m11_publication_hash
+    ):
+        return False
+    return persistence.has_current_publication(
+        source_generation=authority.graph.source_generation,
+        canonical_schema=CANONICAL_GRAPH_SCHEMA,
+        canonical_hash=authority.graph.authority_hash,
+    )
+
+
+def _compact_canonical_graph(
+    project: Project, raw_state: Mapping[str, object]
+) -> CanonicalGraph:
+    """Stream only solver-relevant M10 fields from the verified canonical payload."""
+
+    connection = project._require_open()
+    row = connection.execute(
+        "SELECT payload_hash, "
+        "json_extract(payload_json, '$.source_generation'), "
+        "json_extract(payload_json, '$.schema'), "
+        "json_extract(payload_json, '$.schema_version'), "
+        "json_extract(payload_json, '$.origin_generations') "
+        "FROM payloads WHERE collection=? AND record_key=?",
+        ("m10_canonical_graph", "authoritative"),
+    ).fetchone()
+    if row is None:
+        raise ValueError("M12 requires current M10 authority")
+    canonical_hash = raw_state.get("canonical_hash")
+    if (
+        not isinstance(canonical_hash, str)
+        or str(row[0]) != canonical_hash
+        or row[1] != raw_state.get("source_generation")
+        or row[2] != CANONICAL_GRAPH_SCHEMA
+        or row[3] != CANONICAL_GRAPH_SCHEMA_VERSION
+    ):
+        raise ValueError("M12 requires a current complete M10 canonical graph")
+    origin_generations_value = json.loads(str(row[4]))
+    if not isinstance(origin_generations_value, Mapping):
+        raise storage.ProjectCorruptError("M10 canonical origins are invalid")
+    origin_generations = {
+        str(key): str(value) for key, value in origin_generations_value.items()
+    }
+
+    nodes = tuple(_compact_node(item) for item in _canonical_records(connection, "nodes"))
+    edges = tuple(_compact_edge(item) for item in _canonical_records(connection, "edges"))
+    facts = tuple(_fact(item) for item in _canonical_records(connection, "facts"))
+    evidence = tuple(_evidence(item) for item in _canonical_records(connection, "evidence"))
+    proofs = tuple(
+        _compact_proof(item) for item in _canonical_records(connection, "proofs")
+    )
+    graph = CanonicalGraph(
+        str(row[1]),
+        origin_generations,
+        nodes,
+        edges,
+        (),
+        facts,
+        evidence,
+        proofs,
+        authority_hash_override=canonical_hash,
+    )
+    graph.validate()
+    return graph
+
+
+def _canonical_records(
+    connection: sqlite3.Connection, field: str
+) -> Iterator[Mapping[str, object]]:
+    if field not in {"nodes", "edges", "facts", "evidence", "proofs"}:
+        raise ValueError("unsupported compact canonical field")
+    cursor = connection.execute(
+        "SELECT json_each.value FROM payloads, "
+        "json_each(payloads.payload_json, ?) "
+        "WHERE payloads.collection=? AND payloads.record_key=? "
+        "ORDER BY json_each.key",
+        (f"$.{field}", "m10_canonical_graph", "authoritative"),
+    )
+    for row in cursor:
+        value = json.loads(str(row[0]))
+        if not isinstance(value, Mapping):
+            raise storage.ProjectCorruptError(f"M10 canonical {field} record is invalid")
+        yield value
+
+
+def _compact_node(value: Mapping[str, object]) -> CanonicalNode:
+    attributes = _mapping(value.get("attributes"), "node.attributes")
+    compact_attributes = {
+        key: attributes[key]
+        for key in ("fact_ids", "reachability_witness", "resolved_static_reachable")
+        if key in attributes
+    }
+    return CanonicalNode(
+        _text(value, "id"),
+        CanonicalNodeKind(_text(value, "kind")),
+        _text(value, "graph_node_id"),
+        _string(value.get("label"), "node.label"),
+        ReachabilityStatus(_text(value, "reachability")),
+        _strings(value.get("evidence_ids"), "node.evidence_ids"),
+        _strings(value.get("proof_ids"), "node.proof_ids"),
+        (),
+        compact_attributes,
+    )
+
+
+def _compact_edge(value: Mapping[str, object]) -> CanonicalEdge:
+    resolved = value.get("resolved")
+    if not isinstance(resolved, bool):
+        raise ValueError("edge.resolved must be boolean")
+    attributes = _mapping(value.get("attributes"), "edge.attributes")
+    compact_attributes = {
+        key: attributes[key]
+        for key in ("gate_ids", "effect_ids", "predicate", "call_site_id")
+        if key in attributes
+    }
+    return CanonicalEdge(
+        _text(value, "id"),
+        _text(value, "source_id"),
+        _text(value, "target_id"),
+        _text(value, "kind"),
+        ReachabilityStatus(_text(value, "reachability")),
+        resolved,
+        _strings(value.get("evidence_ids"), "edge.evidence_ids"),
+        _strings(value.get("proof_ids"), "edge.proof_ids"),
+        (),
+        compact_attributes,
+    )
+
+
+def _compact_proof(value: Mapping[str, object]) -> DerivedProof:
+    """Retain only proof identity and kind needed by M12 authority checks."""
+
+    return DerivedProof(
+        _text(value, "id"),
+        _text(value, "kind"),
+        (),
+        (),
+        "",
+    )
 
 
 def canonical_graph_from_mapping(value: Mapping[str, object]) -> CanonicalGraph:
@@ -415,14 +590,11 @@ def _destination_records(authority: M12Authority) -> tuple[M12DestinationRecord,
                 },
             )
         )
-    supported: list[M12DestinationRecord] = []
-    for item in result:
-        try:
-            bind_route_request(graph, model, RouteDestination(item.kind, item.target_id))
-        except ValueError:
-            continue
-        supported.append(item)
-    return tuple(supported)
+    # These records are emitted only from validated M10/M11 authority types. Exact
+    # target anchoring is still revalidated on the one selected solve; doing that
+    # graph-wide for every catalog row would turn destination browsing into eager
+    # all-target preprocessing.
+    return tuple(result)
 
 
 def _origin(value: Mapping[str, object]) -> OriginReference:

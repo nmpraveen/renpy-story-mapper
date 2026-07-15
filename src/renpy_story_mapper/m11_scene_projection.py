@@ -1503,6 +1503,38 @@ def stored_scene_model_mapping(
     return model
 
 
+def scene_model_from_stored_results(
+    phase_results: Mapping[str, Mapping[str, object]],
+) -> SceneModel:
+    """Rehydrate a validated published model without decoding the large M10 payload."""
+
+    value = stored_scene_model_mapping(phase_results)
+    correction = value.get("correction_overlay")
+    correction_overlay = (
+        None
+        if correction is None
+        else _correction_overlay_from_value(_mapping(correction, "correction overlay"))
+    )
+    model = SceneModel(
+        _binding_from_value(_mapping(value.get("binding"), "scene model binding")),
+        tuple(_atom_from_value(item) for item in _records(value, "atoms")),
+        tuple(_boundary_from_value(item) for item in _records(value, "boundaries")),
+        tuple(_scene_from_value(item) for item in _records(value, "scenes")),
+        tuple(_branch_from_value(item) for item in _records(value, "temporary_branches")),
+        tuple(_occurrence_from_value(item) for item in _records(value, "occurrences")),
+        tuple(_lane_from_value(item) for item in _records(value, "lanes")),
+        tuple(_chapter_from_value(item) for item in _records(value, "chapters")),
+        tuple(_loop_from_value(item) for item in _records(value, "loop_hubs")),
+        _coverage_from_value(_mapping(value.get("coverage"), "scene model coverage")),
+        correction_overlay,
+    )
+    model.validate()
+    expected_hash = phase_results["scene_assembly"].get("scene_model_hash")
+    if expected_hash != model.structural_hash:
+        raise ValueError("published M11 scene model hash is invalid")
+    return model
+
+
 def _atom_from_value(value: Mapping[str, object]) -> StoryAtom:
     source_order = value.get("source_order")
     if not isinstance(source_order, Sequence) or isinstance(source_order, (str, bytes)):

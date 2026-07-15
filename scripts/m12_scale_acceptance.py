@@ -7,9 +7,15 @@ import hashlib
 import json
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 
+from renpy_story_mapper.m12_model import (
+    InitialStateValue,
+    InitialValueKind,
+    StateVariableIdentity,
+)
 from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.m12_solver import numeric_projection, solve_route
 from renpy_story_mapper.project import Project, create_ingested_project
@@ -218,7 +224,7 @@ def _measure_complex(
                 if recommended_value is not None
                 else None
             )
-            summaries[name] = {
+            summary: dict[str, object] = {
                 "query": query,
                 "destination_kind": destination["kind"],
                 "destination_id": destination["target_id"],
@@ -233,6 +239,39 @@ def _measure_complex(
                 "pure_expansion_replay_identical": True,
                 "cache_replay_identical": True,
             }
+            summaries[name] = summary
+            if name == "threshold_loop":
+                bounded_request = replace(
+                    prepared.request,
+                    initial_state=(
+                        InitialStateValue(
+                            StateVariableIdentity("store", "score", None),
+                            InitialValueKind.KNOWN,
+                            0,
+                            ("acceptance-explicit-entry",),
+                        ),
+                    ),
+                    limits=replace(
+                        prepared.request.limits,
+                        repetition_per_transition=3,
+                    ),
+                )
+                bounded_first = solve_route(
+                    authority.graph, authority.scene_model, bounded_request
+                )
+                bounded_second = solve_route(
+                    authority.graph, authority.scene_model, bounded_request
+                )
+                if bounded_first.result is None or bounded_second.result is None:
+                    raise AssertionError("bounded threshold replay returned no result")
+                if (
+                    bounded_first.result.normalized_bytes()
+                    != bounded_second.result.normalized_bytes()
+                ):
+                    raise AssertionError("bounded threshold replay changed normalized bytes")
+                summary["bounded_repetition_termination"] = (
+                    bounded_first.result.termination_reason
+                )
         projection = numeric_projection(
             authority.graph,
             {item.id for item in authority.graph.nodes},
@@ -243,7 +282,10 @@ def _measure_complex(
         raise AssertionError(
             "complex selected target did not retain a bounded material alternative"
         )
-    if threshold_summary["termination_reason"] != "limit:repetition_per_transition":
+    if (
+        threshold_summary.get("bounded_repetition_termination")
+        != "limit:repetition_per_transition"
+    ):
         raise AssertionError(
             "threshold loop did not terminate at its deterministic repetition bound"
         )

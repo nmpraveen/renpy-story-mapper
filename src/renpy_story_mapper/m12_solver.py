@@ -253,6 +253,7 @@ def solve_route(
     limit_hit: str | None = None
     exact_contradictions = 0
     best_route_proven = False
+    candidate_goal = min(request.limits.alternatives, 2) if len(anchors) > 1 else 1
 
     def record_candidates(candidate_state: _SearchState) -> bool:
         matching = [
@@ -303,7 +304,8 @@ def solve_route(
             best_candidate = min(candidates.values(), key=lambda item: item.ranking_key)
             if best_candidate.ranking_key[:7] <= frontier[0][0][:7]:
                 best_route_proven = True
-                break
+                if len(candidates) >= candidate_goal:
+                    break
         if cancelled is not None and cancelled():
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
         _, _, state = heapq.heappop(frontier)
