@@ -103,6 +103,26 @@ def test_cancel_and_emergency_abort_publish_no_result_or_cache_entry(tmp_path: P
         assert service.lookup(aborted).state is RouteCacheState.MISS
 
 
+def test_real_project_route_uses_visible_literal_choice_caption(tmp_path: Path) -> None:
+    project, _source = _project(tmp_path)
+    with project:
+        service = M12RouteService(project)
+        page = service.destinations(query="Courtyard", limit=50)
+        destination = next(item for item in page["nodes"] if item["kind"] == "generic_scene")
+        outcome = service.solve(
+            service.prepare(str(destination["kind"]), str(destination["target_id"]))
+        )
+
+        assert outcome.result is not None
+        recommended = outcome.result["recommended"]
+        assert isinstance(recommended, dict)
+        assert recommended["visible_choices"] == ["Practice first"]
+        choice_instructions = [
+            item["text"] for item in recommended["instructions"] if item["kind"] == "choice"
+        ]
+        assert choice_instructions == ['Choose "Practice first".']
+
+
 def test_old_identity_is_rejected_after_current_authority_changes(tmp_path: Path) -> None:
     project, source = _project(tmp_path)
     project_path = project.path

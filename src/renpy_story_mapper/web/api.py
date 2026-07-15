@@ -36,6 +36,8 @@ from renpy_story_mapper.m07_workflow import (
 )
 from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
+from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
+from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -72,6 +74,10 @@ from renpy_story_mapper.web.contracts import (
     M11_API_ROUTES,
     M11_DETAIL_REQUEST_FIELDS,
     M11_SCENE_MAP_REQUEST_FIELDS,
+    M12_API_ROUTES,
+    M12_DESTINATIONS_REQUEST_FIELDS,
+    M12_RESULT_REQUEST_FIELDS,
+    M12_SOLVE_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -206,6 +212,8 @@ class ProjectApi:
         self._m07_run_elapsed_seconds: float | None = None
         self._m07_run_cache_hits = 0
         self._m07_run_selected_ids: tuple[str, ...] = ()
+        self._m12_identities: dict[str, RouteCacheIdentity] = {}
+        self._m12_attempts: dict[str, dict[str, JsonValue]] = {}
 
     def close(self) -> None:
         self.cancel()
@@ -248,6 +256,7 @@ class ProjectApi:
                     "m08": dict(M08_API_ROUTES),
                     "m10": dict(M10_API_ROUTES),
                     "m11": dict(M11_API_ROUTES),
+                    "m12": dict(M12_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -413,6 +422,87 @@ class ProjectApi:
                     "view": "simplified",
                 }
             return json_value(detail)
+        if method == "POST" and path == M12_API_ROUTES["destinations"]:
+            exact_fields(body, allowed=M12_DESTINATIONS_REQUEST_FIELDS)
+            with Project.open(self._project()) as opened_project:
+                page = M12RouteService(opened_project).destinations(
+                    query=optional_string(body, "query", maximum=256),
+                    offset=bounded_int(
+                        body, "offset", default=0, minimum=0, maximum=2_000_000
+                    ),
+                    limit=bounded_int(body, "limit", default=30, minimum=1, maximum=50),
+                )
+            return json_value(page)
+        if method == "POST" and path == M12_API_ROUTES["solve"]:
+            exact_fields(
+                body,
+                allowed=M12_SOLVE_REQUEST_FIELDS,
+                required=M12_SOLVE_REQUEST_FIELDS,
+            )
+            with Project.open(self._project()) as opened_project:
+                service = M12RouteService(opened_project)
+                prepared = service.prepare(
+                    require_string(body, "destination_kind", maximum=64),
+                    require_string(body, "target_id", maximum=512),
+                )
+                lookup = service.lookup(prepared)
+            self._remember_m12_identity(prepared.identity)
+            if lookup.state is RouteCacheState.HIT:
+                assert lookup.result is not None
+                return json_value(
+                    {
+                        "cached": True,
+                        "request_identity": prepared.identity.identity_hash,
+                        "result": dict(lookup.result),
+                    }
+                )
+            if lookup.state is RouteCacheState.UNAVAILABLE:
+                raise ApiProblem(
+                    500,
+                    "m12_cache_unavailable",
+                    "The local route cache is unavailable.",
+                )
+            started = self._start(
+                "m12_route_solve",
+                lambda cancelled: self._m12_solve(prepared, cancelled),
+            )
+            assert isinstance(started, dict)
+            return {
+                "cached": False,
+                "request_identity": prepared.identity.identity_hash,
+                "analysis": started.get("analysis"),
+            }
+        if method == "POST" and path == M12_API_ROUTES["result"]:
+            exact_fields(
+                body,
+                allowed=M12_RESULT_REQUEST_FIELDS,
+                required=M12_RESULT_REQUEST_FIELDS,
+            )
+            request_identity = require_string(body, "request_identity", maximum=64)
+            with self._lock:
+                identity = self._m12_identities.get(request_identity)
+                attempt = self._m12_attempts.get(request_identity)
+            if identity is None:
+                raise ApiProblem(404, "m12_result_not_found", "The route result is unavailable.")
+            try:
+                with Project.open(self._project()) as opened_project:
+                    lookup = M12RouteService(opened_project).lookup_identity(identity)
+            except ValueError as exc:
+                raise ApiProblem(
+                    409,
+                    "m12_result_stale",
+                    "The route result is stale for the current project.",
+                ) from exc
+            if lookup.state is RouteCacheState.HIT:
+                assert lookup.result is not None
+                return json_value(dict(lookup.result))
+            if attempt is not None:
+                raise ApiProblem(
+                    409,
+                    "m12_attempt_incomplete",
+                    "The route attempt ended without a normalized result.",
+                )
+            raise ApiProblem(409, "m12_result_pending", "The route result is not ready.")
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             page = self._m07_workflow().route_map(
@@ -890,6 +980,33 @@ class ProjectApi:
         if not isinstance(route, dict):
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
+
+    def _remember_m12_identity(self, identity: RouteCacheIdentity) -> None:
+        with self._lock:
+            self._m12_identities.pop(identity.identity_hash, None)
+            self._m12_identities[identity.identity_hash] = identity
+            self._m12_attempts.pop(identity.identity_hash, None)
+            while len(self._m12_identities) > 64:
+                oldest = next(iter(self._m12_identities))
+                self._m12_identities.pop(oldest, None)
+                self._m12_attempts.pop(oldest, None)
+
+    def _m12_solve(
+        self,
+        prepared: M12PreparedSolve,
+        cancelled: threading.Event,
+    ) -> None:
+        with Project.open(self._project()) as project:
+            outcome = M12RouteService(project).solve(
+                prepared,
+                cancelled=cancelled.is_set,
+            )
+        if outcome.diagnostic is not None:
+            diagnostic = cast(dict[str, JsonValue], json_value(outcome.diagnostic.to_dict()))
+            with self._lock:
+                self._m12_attempts[prepared.identity.identity_hash] = diagnostic
+        if outcome.result is None and not cancelled.is_set():
+            raise RuntimeError("M12 solve ended without a normalized result")
 
     def _m11_payloads(
         self,

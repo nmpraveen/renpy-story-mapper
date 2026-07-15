@@ -62,7 +62,9 @@ def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> 
     assert 'id="routeTechnical"' in html
     assert "renderRouteCandidate" in app
     assert "selected_occurrence_id" in app
-    assert "provenance" in app
+    assert "Provenance and evidence" in app
+    assert "satisfying_effect_id" in app
+    assert "item?.source" in app
     assert "walkthrough" not in (api + app + html).casefold()
     assert ".innerHTML" not in app
     assert "replaceChildren" in app and "textContent" in app

@@ -16,6 +16,7 @@ from renpy_story_mapper.canonical_graph_contract import (
     CanonicalNode,
     CanonicalNodeKind,
     ReachabilityStatus,
+    SourceEvidence,
 )
 from renpy_story_mapper.m11_scene_model import (
     M11_SCENE_MODEL_SCHEMA,
@@ -992,6 +993,7 @@ def _route_alternative(
 ) -> RouteAlternative:
     node_by_id = {item.id: item for item in graph.nodes}
     edge_by_id = {item.id: item for item in graph.edges}
+    evidence_by_id = {item.id: item for item in graph.evidence}
     scene_records = {item.id: item for item in scene_model.scenes}
     scene_ids: list[str] = []
     for node_id in state.node_ids:
@@ -1002,9 +1004,9 @@ def _route_alternative(
     for edge_id in state.edge_ids:
         edge = edge_by_id[edge_id]
         if node_by_id[edge.source_id].kind is CanonicalNodeKind.CHOICE:
-            predicate = edge.attributes.get("predicate")
-            expression = predicate.get("expression") if isinstance(predicate, Mapping) else None
-            choices.append(str(expression or node_by_id[edge.source_id].label or edge.kind))
+            caption = _visible_choice_text(edge, node_by_id[edge.source_id], evidence_by_id)
+            if not choices or choices[-1] != caption:
+                choices.append(caption)
     persistent = tuple(
         lane
         for lane in dict.fromkeys(
@@ -1216,6 +1218,34 @@ def _scene_ownership(
             scene_by_node[atom.primary_node_id] = scene.id
             atom_by_node[atom.primary_node_id] = atom
     return scene_by_node, atom_by_node
+
+
+def _visible_choice_text(
+    edge: CanonicalEdge,
+    source: CanonicalNode,
+    evidence: Mapping[str, SourceEvidence],
+) -> str:
+    for evidence_id in edge.evidence_ids:
+        record = evidence.get(evidence_id)
+        if record is None:
+            continue
+        expression = record.source_text.strip()
+        if not expression.endswith(":"):
+            continue
+        try:
+            parsed = ast.parse(expression[:-1].strip(), mode="eval").body
+        except SyntaxError:
+            continue
+        caption = parsed.body if isinstance(parsed, ast.IfExp) else parsed
+        if isinstance(caption, ast.Constant):
+            value = caption.value
+            if isinstance(value, str):
+                return value
+    predicate = edge.attributes.get("predicate")
+    predicate_expression = (
+        predicate.get("expression") if isinstance(predicate, Mapping) else None
+    )
+    return str(predicate_expression or source.label or edge.kind)
 
 
 def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[object, ...]:

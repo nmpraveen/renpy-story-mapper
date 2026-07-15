@@ -53,13 +53,18 @@ function routeScenes(candidate) {
 function routeStartingAssumptions(candidate) {
   const direct = candidate.starting_assumptions || candidate.entry_preconditions || candidate.external_preconditions;
   if (Array.isArray(direct)) return direct;
-  return routeArray(candidate.requirements).filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.resolution || item?.status || item?.kind));
+  return routeArray(candidate.requirements).filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.source || item?.resolution || item?.status || item?.kind));
 }
 
 function routeSatisfyingEffects(candidate) {
   const direct = candidate.earlier_satisfying_effects || candidate.satisfying_effects || candidate.earlier_effects;
   if (Array.isArray(direct)) return direct;
-  return routeArray(candidate.requirements).map((item) => item?.satisfying_effect).filter(Boolean);
+  return routeArray(candidate.requirements).map((item) => {
+    if (item?.satisfying_effect) return item.satisfying_effect;
+    if (item?.satisfying_effect_id) return { text: `${item.expression} - effect ${item.satisfying_effect_id}` };
+    if (item?.repeated_count) return { text: `${item.expression} - repeated ${item.repeated_count} time(s)` };
+    return null;
+  }).filter(Boolean);
 }
 
 function appendRouteSection(host, title, values, ordered = false) {
@@ -76,7 +81,8 @@ function renderRouteCandidate(host, candidate) {
   appendRouteSection(host, "Starting assumptions", routeStartingAssumptions(candidate));
   appendRouteSection(host, "Ordered human scenes", routeScenes(candidate), true);
   appendRouteSection(host, "Visible choices", candidate.visible_choices, true);
-  appendRouteSection(host, "Repeated actions", candidate.repeated_actions || candidate.repeats, true);
+  const repeats = candidate.repeated_actions || candidate.repeats || (candidate.loop_count ? [`Repeat the supported action ${candidate.loop_count} additional time(s).`] : []);
+  appendRouteSection(host, "Repeated actions", repeats, true);
   appendRouteSection(host, "Requirements", candidate.requirements);
   appendRouteSection(host, "Earlier satisfying effects", routeSatisfyingEffects(candidate));
   appendRouteSection(host, "Persistent commitments", candidate.persistent_commitments || candidate.persistent_lane_ids);
@@ -94,7 +100,10 @@ function renderRouteTechnical(result) {
   const description = element("dl", "route-technical-grid");
   for (const [term, value] of rows) description.append(element("dt", "", term), element("dd", "", value ?? "unknown"));
   host.append(description);
-  appendRouteSection(host, "Provenance", result.recommended?.provenance || result.provenance);
+  const provenance = result.recommended?.provenance || result.provenance;
+  if (provenance && typeof provenance === "object") {
+    const exact = element("details", "route-provenance"); exact.append(element("summary", "", "Provenance and evidence"), element("pre", "", stableRouteJson(provenance))); host.append(exact);
+  }
   const accounting = element("details", "route-accounting"); accounting.append(element("summary", "", "Budgets and diagnostics"), element("pre", "", stableRouteJson({ budget_usage: result.budget_usage, diagnostics: result.diagnostics })));
   host.append(accounting);
 }
