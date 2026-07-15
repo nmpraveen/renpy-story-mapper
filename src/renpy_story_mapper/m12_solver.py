@@ -1339,6 +1339,7 @@ def _requirement_attribution(
                 RequirementSource.ENTRY_PRECONDITION,
                 variable,
                 supporting_effect_ids=source.effect_ids,
+                supporting_effect_counts=source.effect_counts,
                 entry_precondition=entry,
                 evidence_ids=evidence,
             )
@@ -1351,6 +1352,7 @@ def _requirement_attribution(
                 variable,
                 repeated_effect_id=source.last_effect_id,
                 supporting_effect_ids=source.effect_ids,
+                supporting_effect_counts=source.effect_counts,
                 repeated_count=source.repeated_count,
                 evidence_ids=evidence,
             )
@@ -1369,6 +1371,7 @@ def _requirement_attribution(
             variable,
             satisfying_effect_id=source.last_effect_id,
             supporting_effect_ids=source.effect_ids,
+            supporting_effect_counts=source.effect_counts,
             evidence_ids=evidence,
         )
     entry = initial.get(variable.key)
@@ -1591,18 +1594,18 @@ def _route_alternative(
     requirement_repeated_claims = tuple(
         RouteClaim(
             text=(
-                f"Apply effect {item.repeated_effect_id} "
-                f"{item.repeated_count} proven time(s)."
+                f"Apply contributing effect {effect_id} {count} proven time(s); "
+                "the entry assumption is still required."
+                if item.source is RequirementSource.ENTRY_PRECONDITION
+                else f"Apply effect {effect_id} {count} proven time(s)."
             ),
-            fact_id=item.repeated_effect_id,
-            evidence_ids=tuple(sorted(facts[item.repeated_effect_id].evidence_ids)),
-            repeated_count=item.repeated_count,
+            fact_id=effect_id,
+            evidence_ids=tuple(sorted(facts[effect_id].evidence_ids)),
+            repeated_count=count,
         )
         for item in requirements
-        if item.source is RequirementSource.REPEATED_EVENT
-        and item.repeated_effect_id is not None
-        and item.repeated_count is not None
-        and item.repeated_effect_id in facts
+        for effect_id, count in item.supporting_effect_counts
+        if count > 1 and effect_id in facts
     )
     repeated_claims = (*edge_repeated_claims, *requirement_repeated_claims)
     lane_records = {item.id: item for item in scene_model.lanes}
@@ -2065,6 +2068,7 @@ def _state_key(
             item.satisfying_effect_id,
             item.repeated_effect_id,
             item.supporting_effect_ids,
+            item.supporting_effect_counts,
             item.repeated_count,
         )
         for item in _dedupe_requirements(state.requirements)
@@ -2427,10 +2431,10 @@ def _dedupe_requirements(
 ) -> list[RequirementAttribution]:
     result: dict[tuple[str, str, str], RequirementAttribution] = {}
     priority = {
-        RequirementSource.PROVEN_EFFECT: 0,
-        RequirementSource.REPEATED_EVENT: 0,
+        RequirementSource.UNKNOWN: 0,
         RequirementSource.ENTRY_PRECONDITION: 1,
-        RequirementSource.UNKNOWN: 2,
+        RequirementSource.PROVEN_EFFECT: 2,
+        RequirementSource.REPEATED_EVENT: 2,
     }
     for item in requirements:
         key = (

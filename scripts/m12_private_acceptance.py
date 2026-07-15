@@ -285,8 +285,10 @@ def _exercise_target(service: M12RouteService, target: Mapping[str, str]) -> dic
         )
     if not replay.cached:
         raise AssertionError("selected private route did not reuse its exact cache entry")
-    first_bytes = storage.canonical_json(dict(first.result))
-    replay_bytes = storage.canonical_json(dict(replay.result))
+    first_bytes = _normalized_result_bytes(first.result)
+    replay_bytes = _normalized_result_bytes(replay.result)
+    if first_bytes != replay_bytes:
+        raise AssertionError("exact private replay changed normalized route bytes")
     return {
         "role": target["role"],
         "kind": target["kind"],
@@ -407,6 +409,10 @@ def _authority_requirement_facts(
 
 def _sequence(value: object) -> Sequence[object]:
     return value if isinstance(value, Sequence) and not isinstance(value, str | bytes) else ()
+
+
+def _normalized_result_bytes(result: Mapping[str, object]) -> bytes:
+    return storage.canonical_json(dict(result))
 
 
 def _fingerprint(path: Path) -> dict[str, object]:

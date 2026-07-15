@@ -228,6 +228,7 @@ class RequirementAttribution:
     satisfying_effect_id: str | None = None
     repeated_effect_id: str | None = None
     supporting_effect_ids: tuple[str, ...] = ()
+    supporting_effect_counts: tuple[tuple[str, int], ...] = ()
     repeated_count: int | None = None
     entry_precondition: InitialStateValue | None = None
     evidence_ids: tuple[str, ...] = ()
@@ -235,6 +236,12 @@ class RequirementAttribution:
     def __post_init__(self) -> None:
         if len(self.supporting_effect_ids) != len(set(self.supporting_effect_ids)):
             raise ValueError("supporting effect IDs must be unique")
+        if (
+            tuple(effect_id for effect_id, _count in self.supporting_effect_counts)
+            != self.supporting_effect_ids
+            or any(count < 1 for _effect_id, count in self.supporting_effect_counts)
+        ):
+            raise ValueError("supporting effect counts must exactly cover the effect chain")
         if self.source is RequirementSource.PROVEN_EFFECT:
             if (
                 self.satisfying_effect_id is None
@@ -252,6 +259,8 @@ class RequirementAttribution:
                 or self.repeated_count < 2
                 or self.entry_precondition is not None
                 or self.repeated_effect_id not in self.supporting_effect_ids
+                or dict(self.supporting_effect_counts)[self.repeated_effect_id]
+                != self.repeated_count
             ):
                 raise ValueError("repeated-event attribution requires its exact effect and count")
         elif self.source is RequirementSource.ENTRY_PRECONDITION:
@@ -281,6 +290,10 @@ class RequirementAttribution:
             "satisfying_effect_id": self.satisfying_effect_id,
             "repeated_effect_id": self.repeated_effect_id,
             "supporting_effect_ids": list(self.supporting_effect_ids),
+            "supporting_effect_counts": [
+                [effect_id, count]
+                for effect_id, count in self.supporting_effect_counts
+            ],
             "repeated_count": self.repeated_count,
             "entry_precondition": (
                 self.entry_precondition.to_dict()

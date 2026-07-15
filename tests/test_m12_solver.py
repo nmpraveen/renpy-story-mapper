@@ -745,6 +745,68 @@ def test_mixed_entry_value_and_internal_increment_remains_an_entry_precondition(
     )
 
 
+def test_mixed_entry_value_keeps_repeated_contributing_effect_count() -> None:
+    gate = _fact("mixed-repeat-gate", kind="requirement", expression="score >= 2", variable="score")
+    increment = _fact(
+        "mixed-repeat-increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {
+                "id": "mixed-repeat-first",
+                "source": "root",
+                "target": "first",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "mixed-repeat-second",
+                "source": "first",
+                "target": "second",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "mixed-repeat-finish",
+                "source": "second",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, increment),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    request = _solve(
+        graph,
+        model,
+        RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 0),),
+    )
+
+    result = solve_route(graph, model, request).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.PREREQUISITES
+    requirement = result.recommended.requirements[0]
+    assert requirement.source is RequirementSource.ENTRY_PRECONDITION
+    assert requirement.entry_precondition == request.initial_state[0]
+    assert requirement.supporting_effect_counts == ((increment.id, 2),)
+    repeat = next(
+        claim
+        for claim in result.recommended.repeated_action_claims
+        if claim.fact_id == increment.id
+    )
+    assert repeat.repeated_count == 2
+    assert any(
+        instruction.kind == "repeat" and instruction.fact_id == increment.id
+        for instruction in result.recommended.instructions
+    )
+
+
 def test_fully_internal_score_outranks_mixed_entry_and_effect_score() -> None:
     gate = _fact("mixed-rank-gate", kind="requirement", expression="score >= 2", variable="score")
     increment = _fact(
@@ -805,6 +867,117 @@ def test_fully_internal_score_outranks_mixed_entry_and_effect_score() -> None:
     mixed = next(item for item in result.alternatives if item.edge_ids[0] == "mixed-path")
     assert mixed.requirements[0].source is RequirementSource.ENTRY_PRECONDITION
     assert mixed.requirements[0].supporting_effect_ids == (increment.id,)
+
+
+def test_later_effect_cannot_erase_an_earlier_entry_requirement() -> None:
+    gate = _fact(
+        "chronology-entry-gate",
+        kind="requirement",
+        expression="score >= 2",
+        variable="score",
+    )
+    assignment = _fact(
+        "chronology-entry-assignment",
+        kind="effect",
+        expression="score = 2",
+        variable="score",
+        operation="assignment",
+        value=2,
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {
+                "id": "entry-first-gate",
+                "source": "root",
+                "target": "first",
+                "gates": (gate.id,),
+            },
+            {
+                "id": "entry-later-effect",
+                "source": "first",
+                "target": "second",
+                "effects": (assignment.id,),
+            },
+            {
+                "id": "entry-second-gate",
+                "source": "second",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, assignment),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    request = _solve(
+        graph,
+        model,
+        RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        initial=(InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 2),),
+    )
+
+    result = solve_route(graph, model, request).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.PREREQUISITES
+    assert result.recommended.requirements[0].source is RequirementSource.ENTRY_PRECONDITION
+    assert result.recommended.requirements[0].entry_precondition == request.initial_state[0]
+
+
+def test_later_effect_cannot_erase_an_earlier_unknown_requirement() -> None:
+    gate = _fact(
+        "chronology-unknown-gate",
+        kind="requirement",
+        expression="score >= 2",
+        variable="score",
+    )
+    assignment = _fact(
+        "chronology-unknown-assignment",
+        kind="effect",
+        expression="score = 2",
+        variable="score",
+        operation="assignment",
+        value=2,
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "target"),
+        (
+            {
+                "id": "unknown-first-gate",
+                "source": "root",
+                "target": "first",
+                "gates": (gate.id,),
+            },
+            {
+                "id": "unknown-later-effect",
+                "source": "first",
+                "target": "second",
+                "effects": (assignment.id,),
+            },
+            {
+                "id": "unknown-second-gate",
+                "source": "second",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, assignment),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(InitialStateValue(score, InitialValueKind.UNKNOWN),),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended.requirements[0].source is RequirementSource.UNKNOWN
 
 
 def test_exact_and_generic_shared_callee_report_the_selected_occurrence() -> None:

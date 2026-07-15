@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+import scripts.m12_private_acceptance as private_acceptance
 from scripts.m12_private_acceptance import (
     MANIFEST_SCHEMA,
     _authority_requirement_facts,
@@ -146,6 +147,31 @@ def test_private_harness_rejects_output_beside_private_inputs(tmp_path: Path) ->
             archive_path=archive,
             targets_path=manifest,
             output_path=baseline.parent / "unsafe-output",
+            walkthrough_path=walkthrough,
+        )
+
+
+def test_private_harness_rejects_changed_normalized_replay_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline, archive, manifest, walkthrough, output = _private_inputs(tmp_path)
+    original = private_acceptance._normalized_result_bytes
+    calls = 0
+
+    def unstable(result: dict[str, object]) -> bytes:
+        nonlocal calls
+        calls += 1
+        payload = original(result)
+        return payload + (b"changed" if calls == 2 else b"")
+
+    monkeypatch.setattr(private_acceptance, "_normalized_result_bytes", unstable)
+
+    with pytest.raises(AssertionError, match="changed normalized route bytes"):
+        run(
+            baseline_path=baseline,
+            archive_path=archive,
+            targets_path=manifest,
+            output_path=output,
             walkthrough_path=walkthrough,
         )
 

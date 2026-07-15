@@ -104,6 +104,7 @@ def test_material_requirement_has_exactly_one_support_category() -> None:
         RequirementSource.PROVEN_EFFECT,
         satisfying_effect_id="effect",
         supporting_effect_ids=("effect",),
+        supporting_effect_counts=(("effect", 1),),
     )
     repeated = RequirementAttribution(
         "fact",
@@ -111,6 +112,7 @@ def test_material_requirement_has_exactly_one_support_category() -> None:
         RequirementSource.REPEATED_EVENT,
         repeated_effect_id="effect",
         supporting_effect_ids=("effect",),
+        supporting_effect_counts=(("effect", 2),),
         repeated_count=2,
     )
     entry_value = InitialStateValue(
