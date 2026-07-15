@@ -6,6 +6,8 @@ import tracemalloc
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from renpy_story_mapper.control_flow import (
     FlowEdgeRole,
     RouteClassification,
@@ -506,6 +508,7 @@ def test_persistent_split_chain_has_bounded_direct_membership() -> None:
     )
 
 
+@pytest.mark.hardware_sensitive
 def test_2000_node_split_chain_runtime_and_memory_are_bounded() -> None:
     graph = _split_chain_graph(999)
     tracemalloc.start()
@@ -521,6 +524,7 @@ def test_2000_node_split_chain_runtime_and_memory_are_bounded() -> None:
     assert peak - before < 128 * 1024 * 1024
 
 
+@pytest.mark.hardware_sensitive
 def test_scale_harness_approximately_10k_nodes_15k_edges() -> None:
     # A direct inert M01-shaped fixture isolates the control algorithm from parser cost.
     count = 10_000

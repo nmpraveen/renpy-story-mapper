@@ -1564,6 +1564,7 @@ def test_enrichment_survives_draft_review_scoped_apply_and_reopen(tmp_path: Path
         assert {value.importance for value in values} == {"turning point"}
 
 
+@pytest.mark.hardware_sensitive
 def test_enrichment_validation_uses_member_indexes_with_ten_thousand_noise_rows(
     tmp_path: Path,
 ) -> None:
@@ -1952,6 +1953,7 @@ def test_cache_key_exactness_run_chunk_status_and_no_dialogue_duplication(tmp_pa
             assert "A storm begins." not in repr([tuple(row) for row in values])
 
 
+@pytest.mark.hardware_sensitive
 def test_synthetic_query_plans_use_bounded_indexes(tmp_path: Path) -> None:
     with _create(tmp_path) as project:
         service = project.organization_service()

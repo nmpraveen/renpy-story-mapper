@@ -1,0 +1,4 @@
+interface:
+  display_name: "RenPy Milestone"
+  short_description: "Run one evidence-backed milestone contract"
+  default_prompt: "Use $renpy-milestone to start or continue the current repository milestone contract."

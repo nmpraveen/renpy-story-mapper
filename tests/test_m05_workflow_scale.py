@@ -60,6 +60,7 @@ def _create(tmp_path: Path) -> Path:
     return project_path
 
 
+@pytest.mark.hardware_sensitive
 def test_bulk_evidence_and_facts_are_exact_indexed_and_noise_independent(
     tmp_path: Path,
 ) -> None:

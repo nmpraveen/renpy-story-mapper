@@ -153,6 +153,34 @@ Projects can be deleted explicitly after they are no longer needed:
 
 ## Tests and static checks
 
+Use the tiered Windows validation entry point for routine work:
+
+```powershell
+# Short edit loop: Ruff plus stable parser/semantic tests.
+.\scripts\validate.ps1 -Tier Fast
+
+# Scoped test selection; pass multiple targets as a PowerShell array.
+.\scripts\validate.ps1 -Tier Focused `
+  -PytestTarget tests\test_parser_graph.py,tests\test_semantic.py
+
+# Full deterministic repository, static, and package verification.
+.\scripts\validate.ps1 -Tier Release
+
+# Inspect commands and timeouts without executing them.
+.\scripts\validate.ps1 -Tier Release -DryRun
+```
+
+`Release` discovers the complete pytest tree and packaged JavaScript, excluding only tests marked
+`hardware_sensitive`. It builds an sdist and wheel through an isolated PEP 517 environment,
+installs the wheel into a temporary target, and verifies imports and all manifest-listed browser
+assets. Each command has a bounded timeout.
+
+Browser, private-corpus, and hardware-sensitive acceptance are explicit release opt-ins. Use
+`-IncludeBrowser`, `-IncludePrivate -PrivateScript <path>`, or `-IncludeHardwareSensitive` only when
+their environment and inputs are authorized and available.
+
+The equivalent individual commands remain:
+
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check src tests scripts
