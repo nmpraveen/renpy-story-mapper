@@ -6,7 +6,7 @@ Updated: 2026-07-15
 
 ## Current contract
 
-- Active milestone: None recorded by this workflow change.
+- Active milestone: None.
 - Contract: Not set.
 - Status: Idle.
 - Semantic review: Not started.
@@ -14,11 +14,13 @@ Updated: 2026-07-15
 - Integration head: Not set.
 - Pull request: Not set.
 
-This workflow change does not activate a product milestone. On explicit user approval, copy `docs/milestones/_TEMPLATE/` to the approved milestone directory, fill it from `docs/MASTER_PLAN.md`, and replace this section with links and current facts.
+M11 is the latest completed product milestone. It merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20) at commit `26502e88bd81b7a1934a6957724fd62f7ba5fbec` on 2026-07-15. No later product milestone is active or approved by this workflow change.
+
+On explicit user approval of a milestone with a safe done condition, copy `docs/milestones/_TEMPLATE/` to the approved milestone directory, fill it from `docs/MASTER_PLAN.md`, and replace this section with links and current facts.
 
 ## State rules
 
-1. Keep one active milestone contract and one matching native goal.
+1. Keep at most one active milestone contract and, after the user explicitly starts it, one matching native goal.
 2. Use these transitions: `Draft -> Semantic review -> Ready -> In progress -> Integration -> Verification -> PR ready -> Complete`.
 3. Use `Revise` when semantic review fails; return to `Semantic review` after correction. Use `Blocked` only with a recorded blocker and resume at the interrupted stage.
 4. Require a recorded semantic-review `PASS` before broad implementation.

@@ -16,17 +16,24 @@ description: Maintain and execute one evidence-backed Ren'Py Story Mapper milest
 
 Before product implementation, make `GOAL.md` contain one explicit done condition, deliverables, numbered acceptance criteria, exclusions, evidence requirements, and handoff rules. Make `TASKS.md` name owners, dependencies, affected area, and status.
 
-When the user explicitly starts implementation:
+Create a native Codex goal only when all of these are true:
 
-- Create a native Codex goal whose objective matches the approved done condition before changing product code. Keep it active if the later semantic decision is `REVISE`.
+- The user explicitly starts this approved milestone; approval, a branch, an issue, or a request to inspect or plan is not enough.
+- The contract has one safe, observable done condition that does not invent scope.
+- The goal objective exactly matches that done condition.
+
+Create it before changing product code. Keep it active if the later semantic decision is `REVISE`.
+
+After creation:
+
 - Record the goal in `docs/PROJECT_STATE.md` and keep it active through implementation, integration, verification, review, and PR preparation.
 - Do not complete the goal merely because code is authored, a worker committed, checks are planned, or a handoff was sent. Complete it only after the integrated diff satisfies acceptance, evidence is recorded, blocking review findings are resolved or explicitly accepted, required checks pass, and the PR is genuinely ready.
 
 If approved scope is too incomplete to state a done condition without invention, record `REVISE`, request the missing scope decision, and do not claim implementation has started or create a guessed goal.
 
-## Pass semantic review
+## Pass the single semantic-review gate
 
-Before broad implementation, fill `SEMANTIC_REVIEW.md` from repository evidence:
+This section is the authoritative early gate. Before broad implementation, fill `SEMANTIC_REVIEW.md` from repository evidence:
 
 - Verify each requirement against the approved plan and exclusions.
 - Identify architecture authority and boundaries, including code that must not change.

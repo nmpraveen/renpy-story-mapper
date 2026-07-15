@@ -592,13 +592,14 @@ def test_failed_new_m11_build_retains_old_publication_and_current_m10(
     project_path = tmp_path / "story.rsmproj"
     create_ingested_project(project_path, source).close()
     story_path = source / "story.rpy"
-    story_path.write_text(
-        story_path.read_text(encoding="utf-8").replace(
-            "The day begins.",
-            "The changed day begins.",
-        ),
-        encoding="utf-8",
+    original = story_path.read_text(encoding="utf-8")
+    changed = original.replace(
+        "The story opens.",
+        "The changed story opens.",
+        1,
     )
+    assert changed != original
+    story_path.write_text(changed, encoding="utf-8")
 
     def fail_boundaries(*_args: object, **_kwargs: object) -> dict[str, object]:
         raise RuntimeError("injected M11 boundary failure")

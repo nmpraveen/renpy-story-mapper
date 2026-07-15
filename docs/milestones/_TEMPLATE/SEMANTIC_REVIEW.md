@@ -35,8 +35,6 @@ Decision: PENDING
 
 - TODO; write `None` only after checking.
 
-## Decision
+## Gate decision
 
 `PASS` or `REVISE`: TODO rationale.
-
-Broad implementation may begin only after this decision is exactly `PASS`.

@@ -58,12 +58,13 @@ def test_release_dry_run_discovers_static_build_and_safe_acceptance() -> None:
     result = _dry_run("-Tier", "Release")
 
     assert result.returncode == 0, result.stderr
-    assert "Full pytest (900s)" in result.stdout
+    assert "Full deterministic pytest (900s)" in result.stdout
+    assert "not hardware_sensitive" in result.stdout
     assert "JavaScript syntax:" in result.stdout
-    assert "Isolated wheel build (300s)" in result.stdout
+    assert "Build isolated sdist and wheel (300s)" in result.stdout
+    assert "--sdist --wheel" in result.stdout
     assert "Install built wheel into isolated target (180s)" in result.stdout
-    assert "Deterministic scale acceptance:" in result.stdout
-    assert "_scale_acceptance.py" in result.stdout
+    assert "hardware-sensitive acceptance" not in result.stdout
     assert "private acceptance" not in result.stdout.casefold()
     assert "Opt-in browser acceptance" not in result.stdout
 
@@ -73,4 +74,30 @@ def test_release_browser_acceptance_requires_explicit_switch() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Opt-in browser acceptance:" in result.stdout
-    assert "_browser_acceptance.py" in result.stdout
+    assert "m11_browser_acceptance.py" in result.stdout
+
+
+def test_release_hardware_sensitive_acceptance_requires_explicit_switch() -> None:
+    result = _dry_run("-Tier", "Release", "-IncludeHardwareSensitive")
+
+    assert result.returncode == 0, result.stderr
+    assert "not hardware_sensitive" not in result.stdout
+    assert "Opt-in hardware-sensitive acceptance:" in result.stdout
+    assert "m11_scale_acceptance.py" in result.stdout
+
+
+def test_release_private_acceptance_requires_explicit_script() -> None:
+    script = ROOT / "scripts" / "m11_private_acceptance.py"
+    result = _dry_run(
+        "-Tier",
+        "Release",
+        "-IncludePrivate",
+        "-PrivateScript",
+        str(script),
+        "-PrivateArgument",
+        "--help",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Opt-in private acceptance: m11_private_acceptance.py" in result.stdout
+    assert "--help" in result.stdout

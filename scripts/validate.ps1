@@ -10,6 +10,14 @@ param(
 
     [string]$BrowserScript,
 
+    [switch]$IncludePrivate,
+
+    [string]$PrivateScript,
+
+    [string[]]$PrivateArgument,
+
+    [switch]$IncludeHardwareSensitive,
+
     [switch]$DryRun,
 
     [ValidateRange(0, 86400)]
@@ -255,6 +263,18 @@ if ($BrowserScript -and -not $IncludeBrowser) {
 if ($IncludeBrowser -and $Tier -ne "Release") {
     throw "Browser acceptance is available only with -Tier Release."
 }
+if ($PrivateScript -and -not $IncludePrivate) {
+    throw "-PrivateScript requires -IncludePrivate."
+}
+if ($IncludePrivate -and $Tier -ne "Release") {
+    throw "Private acceptance is available only with -Tier Release."
+}
+if ($IncludePrivate -and -not $PrivateScript) {
+    throw "-IncludePrivate requires an explicit -PrivateScript."
+}
+if ($IncludeHardwareSensitive -and $Tier -ne "Release") {
+    throw "Hardware-sensitive acceptance is available only with -Tier Release."
+}
 
 $PythonCommand = Resolve-PythonCommand
 $steps = New-Object System.Collections.Generic.List[object]
@@ -270,7 +290,8 @@ if ($Tier -eq "Fast") {
     $steps.Add((Add-Step -Name "Fast deterministic pytest" -FilePath $PythonCommand.FilePath `
         -DefaultTimeout 180 -Arguments (Python-Arguments @(
             "-m", "pytest", "-q", "tests/test_validation_script.py",
-            "tests/test_parser_graph.py", "tests/test_semantic.py"
+            "tests/test_workflow_contract.py", "tests/test_parser_graph.py",
+            "tests/test_semantic.py"
         ))))
 }
 elseif ($Tier -eq "Focused") {
@@ -281,8 +302,12 @@ elseif ($Tier -eq "Focused") {
         -DefaultTimeout 600 -Arguments (Python-Arguments $focusedArguments)))
 }
 else {
-    $steps.Add((Add-Step -Name "Full pytest" -FilePath $PythonCommand.FilePath -DefaultTimeout 900 `
-        -Arguments (Python-Arguments @("-m", "pytest"))))
+    $pytestArguments = @("-m", "pytest", "-q")
+    if (-not $IncludeHardwareSensitive) {
+        $pytestArguments += @("-m", "not hardware_sensitive")
+    }
+    $steps.Add((Add-Step -Name "Full deterministic pytest" -FilePath $PythonCommand.FilePath `
+        -DefaultTimeout 900 -Arguments (Python-Arguments $pytestArguments)))
     $steps.Add((Add-Step -Name "Ruff" -FilePath $PythonCommand.FilePath -DefaultTimeout 180 `
         -Arguments (Python-Arguments @("-m", "ruff", "check", "src", "tests", "scripts"))))
     $steps.Add((Add-Step -Name "Strict mypy" -FilePath $PythonCommand.FilePath -DefaultTimeout 300 `
@@ -315,21 +340,24 @@ else {
         -Arguments @("diff", "--check")))
 
     $distributionDirectory = Join-Path $TemporaryRoot "dist"
-    $steps.Add((Add-Step -Name "Isolated wheel build" -FilePath $PythonCommand.FilePath `
+    $steps.Add((Add-Step -Name "Build isolated sdist and wheel" -FilePath $PythonCommand.FilePath `
         -DefaultTimeout 300 -Arguments (Python-Arguments @(
-            "-m", "pip", "wheel", ".", "--no-deps", "--wheel-dir", $distributionDirectory
+            "-m", "build", "--sdist", "--wheel", "--outdir", $distributionDirectory, "."
         ))))
 
-    $scaleScripts = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "scripts") `
-        -Filter "*_scale_acceptance.py" -File | Sort-Object Name)
-    foreach ($scaleScript in $scaleScripts) {
-        $scaleOutput = Join-Path $TemporaryRoot ("scale-" + $scaleScript.BaseName)
-        $scaleOutputOption = Get-AcceptanceOutputOption $scaleScript
-        $steps.Add((Add-Step -Name ("Deterministic scale acceptance: {0}" -f $scaleScript.Name) `
-            -FilePath $PythonCommand.FilePath -DefaultTimeout 300 `
-            -Arguments (Python-Arguments @(
-                $scaleScript.FullName, $scaleOutputOption, $scaleOutput
-            ))))
+    if ($IncludeHardwareSensitive) {
+        $scaleScripts = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "scripts") `
+            -Filter "*_scale_acceptance.py" -File | Sort-Object Name)
+        foreach ($scaleScript in $scaleScripts) {
+            $scaleOutput = Join-Path $TemporaryRoot ("scale-" + $scaleScript.BaseName)
+            $scaleOutputOption = Get-AcceptanceOutputOption $scaleScript
+            $steps.Add((Add-Step `
+                -Name ("Opt-in hardware-sensitive acceptance: {0}" -f $scaleScript.Name) `
+                -FilePath $PythonCommand.FilePath -DefaultTimeout 300 `
+                -Arguments (Python-Arguments @(
+                    $scaleScript.FullName, $scaleOutputOption, $scaleOutput
+                ))))
+        }
     }
 
     if ($IncludeBrowser) {
@@ -352,6 +380,17 @@ else {
                 $selectedBrowserScript.FullName, $browserOutputOption, $browserOutput
             ))))
     }
+
+    if ($IncludePrivate) {
+        $selectedPrivateScript = Get-Item -LiteralPath $PrivateScript -ErrorAction Stop
+        if (-not $selectedPrivateScript.Name.EndsWith("_private_acceptance.py")) {
+            throw "-PrivateScript must name a *_private_acceptance.py harness."
+        }
+        $steps.Add((Add-Step -Name ("Opt-in private acceptance: {0}" -f `
+            $selectedPrivateScript.Name) -FilePath $PythonCommand.FilePath -DefaultTimeout 1800 `
+            -Arguments (Python-Arguments (@($selectedPrivateScript.FullName) + `
+                @($PrivateArgument)))))
+    }
 }
 
 $allPassed = $true
@@ -365,7 +404,7 @@ try {
             $allPassed = $false
         }
 
-        if ($Tier -eq "Release" -and $step.Name -eq "Isolated wheel build") {
+        if ($Tier -eq "Release" -and $step.Name -eq "Build isolated sdist and wheel") {
             if ($DryRun) {
                 $installTarget = Join-Path $TemporaryRoot "installed-wheel"
                 $plannedWheel = Join-Path $distributionDirectory "<built-wheel>.whl"
@@ -380,13 +419,15 @@ try {
                     -Arguments (Python-Arguments @("-I", "-c", "<isolated package verification>"))
                 [void](Invoke-Step $verifyStep)
             }
-            elseif ($step.Name -eq "Isolated wheel build" -and $Results[$Results.Count - 1].Status -eq "passed") {
+            elseif ($Results[$Results.Count - 1].Status -eq "passed") {
                 $wheels = @(Get-ChildItem -LiteralPath $distributionDirectory -Filter "*.whl" -File)
-                if ($wheels.Count -ne 1) {
-                    Write-Host ("Expected one wheel in {0}; found {1}." -f `
-                        $distributionDirectory, $wheels.Count)
+                $sdists = @(Get-ChildItem -LiteralPath $distributionDirectory `
+                    -Filter "*.tar.gz" -File)
+                if ($wheels.Count -ne 1 -or $sdists.Count -ne 1) {
+                    Write-Host ("Expected one wheel and one sdist in {0}; found {1} and {2}." -f `
+                        $distributionDirectory, $wheels.Count, $sdists.Count)
                     $Results.Add([pscustomobject]@{
-                        Name = "Locate built wheel"
+                        Name = "Locate built distributions"
                         Status = "failed"
                         Seconds = 0.0
                         ExitCode = 1
@@ -408,15 +449,20 @@ try {
                     else {
                         $verification = @"
 import importlib.resources as resources
+import json
 import sys
 sys.path.insert(0, r'$installTarget')
 import renpy_story_mapper
 import renpy_story_mapper.cli
 import renpy_story_mapper.web
 static = resources.files('renpy_story_mapper.web').joinpath('static')
-required = ('asset-manifest.json', 'index.html', 'app.js', 'styles.css')
+manifest_path = static.joinpath('asset-manifest.json')
+manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+required = ('asset-manifest.json', *manifest['assets'])
 missing = [name for name in required if not static.joinpath(name).is_file()]
 assert not missing, f'missing packaged browser assets: {missing}'
+notice = resources.files('renpy_story_mapper').joinpath('THIRD_PARTY_NOTICES.md')
+assert notice.is_file(), 'missing packaged third-party notice'
 print(f'isolated import: {renpy_story_mapper.__file__}')
 "@
                         $verifyStep = Add-Step `

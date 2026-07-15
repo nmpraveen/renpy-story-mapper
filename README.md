@@ -163,23 +163,21 @@ Use the tiered Windows validation entry point for routine work:
 .\scripts\validate.ps1 -Tier Focused `
   -PytestTarget tests\test_parser_graph.py,tests\test_semantic.py
 
-# Full deterministic repository, static, package, and scale verification.
+# Full deterministic repository, static, and package verification.
 .\scripts\validate.ps1 -Tier Release
 
 # Inspect commands and timeouts without executing them.
 .\scripts\validate.ps1 -Tier Release -DryRun
 ```
 
-`Release` discovers the complete pytest tree, packaged JavaScript, and deterministic
-`*_scale_acceptance.py` scripts, so later milestone additions join the gate without editing the
-orchestrator. It builds the wheel through pip's default isolated PEP 517 environment, installs it
-into a temporary target, and verifies imports and packaged browser assets. Each command has a
-bounded timeout; use `-TimeoutSeconds` only when a slower machine needs a deliberate override.
+`Release` discovers the complete pytest tree and packaged JavaScript, excluding only tests marked
+`hardware_sensitive`. It builds an sdist and wheel through an isolated PEP 517 environment,
+installs the wheel into a temporary target, and verifies imports and all manifest-listed browser
+assets. Each command has a bounded timeout.
 
-Real-browser acceptance is excluded by default. Request the newest committed browser harness with
-`-Tier Release -IncludeBrowser`, or combine that switch with `-BrowserScript <path>`. Private-corpus
-acceptance is never discovered or run by the entry point; invoke a private harness directly only
-when its inputs are explicitly authorized and available.
+Browser, private-corpus, and hardware-sensitive acceptance are explicit release opt-ins. Use
+`-IncludeBrowser`, `-IncludePrivate -PrivateScript <path>`, or `-IncludeHardwareSensitive` only when
+their environment and inputs are authorized and available.
 
 The equivalent individual commands remain:
 

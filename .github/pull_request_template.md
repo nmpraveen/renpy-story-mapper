@@ -1,6 +1,6 @@
-## Semantic review
+## Contract and evidence
 
-- [ ] Requirements and architecture are agreed, or this PR explains the proposed change.
-- [ ] Tests are scoped to the changed behavior and deterministic checks have been run.
-- [ ] Acceptance evidence is included for semantic or user-visible changes, or marked not applicable.
-- [ ] Known deferrals and follow-up ownership are listed, or there are none.
+- Contract: <!-- milestone GOAL.md, or N/A for non-milestone work -->
+- Semantic gate: <!-- SEMANTIC_REVIEW.md PASS, or N/A -->
+- Validation and acceptance evidence:
+- Known limitations or deferrals:

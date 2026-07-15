@@ -6,12 +6,12 @@
 - Treat `docs/PROJECT_STATE.md` as the current milestone pointer and lifecycle record.
 - Use `.agents/skills/renpy-milestone` whenever starting, executing, reviewing, handing off, or closing a milestone.
 - Keep exactly one active milestone contract. Do not infer approval from a branch name or add future product scope.
-- Before broad implementation, record a PASS or REVISE decision in the milestone's `SEMANTIC_REVIEW.md`.
+- Follow the skill's single early semantic-review gate before broad implementation.
 
 ## Dispatch policy
 
-- Dispatch every current milestone implementation task with model `gpt-5.6-sol`, reasoning effort `high`, and fast mode disabled.
-- Use the same settings for ambiguous requirements, architecture decisions, integration, debugging, security or correctness review, and acceptance review.
+- The dispatcher must explicitly pass model `gpt-5.6-sol`, thinking `high`, and fast mode disabled for every current milestone task.
+- Use the same explicit settings for architectural or ambiguous work, integration, debugging, and security, correctness, semantic, or acceptance review.
 - A faster model is allowed only for a future task explicitly classified as mechanical and bounded, with exact inputs, outputs, affected files, and a deterministic check. Escalate to `gpt-5.6-sol` High immediately if ambiguity or design judgment appears.
 - Repository prose cannot change Codex client settings. The dispatcher, thread creator, or tool invocation must pass model, reasoning effort, and fast-mode settings explicitly. Never claim these files changed the running model; if settings cannot be selected or verified, state that limitation rather than silently downgrading.
 
