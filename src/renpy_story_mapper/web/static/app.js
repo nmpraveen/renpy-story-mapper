@@ -220,16 +220,19 @@ async function runRouteSolve() {
 async function cancelRouteSolve() {
   if (!["resolving", "running"].includes(state.route.phase)) return;
   const serverTaskStarted = state.route.phase === "running";
+  state.route.runToken += 1; const cancelToken = state.route.runToken;
   state.route.phase = "cancelling"; renderRoutePanel();
   if (serverTaskStarted) {
     try {
       const cancelling = await api.cancelAnalysis();
-      await waitForRouteTask(cancelling, state.route.runToken);
+      await waitForRouteTask(cancelling, cancelToken);
     } catch (error) {
+      if (cancelToken !== state.route.runToken) return;
       state.route.phase = "failure"; state.route.error = error.message; renderRoutePanel(); return;
     }
   }
-  state.route.runToken += 1; state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel();
+  if (cancelToken !== state.route.runToken) return;
+  state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel();
 }
 
 function exportRouteJson() {

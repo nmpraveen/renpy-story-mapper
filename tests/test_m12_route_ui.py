@@ -116,7 +116,7 @@ def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -
         assert f'id="{element_id}"' in html
     assert "await api.cancelAnalysis()" in app
     assert 'while (["pending", "running", "cancelling"].includes(task.state))' in app
-    assert "await waitForRouteTask(cancelling, state.route.runToken)" in app
+    assert "await waitForRouteTask(cancelling, cancelToken)" in app
     assert 'state.route.phase = "cancelled"' in app
     assert 'state.route.phase = state.route.stale ? "stale" : "complete"' in app
     assert 'route.cached ? "Cached route ready."' in app
@@ -126,6 +126,7 @@ def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -
     assert "Search incomplete. No reachability or infeasibility conclusion was published." in app
     assert "state.route.result = result" in app
     assert "Boolean(state.route.result)" in app
+    assert "const cancelToken = state.route.runToken" in app
     assert 'role="status" aria-live="polite"' in html
 
 
