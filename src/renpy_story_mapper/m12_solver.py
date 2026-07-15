@@ -1,0 +1,1400 @@
+"""Pure, bounded, deterministic and conservative M12 route solver."""
+
+from __future__ import annotations
+
+import ast
+import heapq
+from collections import defaultdict, deque
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
+
+from renpy_story_mapper.canonical_graph_contract import (
+    CANONICAL_GRAPH_SCHEMA,
+    CanonicalEdge,
+    CanonicalFact,
+    CanonicalGraph,
+    CanonicalNode,
+    CanonicalNodeKind,
+    ReachabilityStatus,
+)
+from renpy_story_mapper.m11_scene_model import (
+    M11_SCENE_MODEL_SCHEMA,
+    CallSiteOccurrence,
+    LaneKind,
+    Scene,
+    SceneModel,
+    SceneRepeatability,
+    StoryAtom,
+)
+from renpy_story_mapper.m12_model import (
+    BudgetUsage,
+    DestinationKind,
+    DeterministicLimitProfile,
+    InitialStateValue,
+    InitialValueKind,
+    RequirementAttribution,
+    RequirementSource,
+    RouteAlternative,
+    RouteCallContext,
+    RouteDestination,
+    RouteInstruction,
+    RouteProvenance,
+    RouteRequest,
+    RouteResult,
+    SolveAttempt,
+    StateScalar,
+    StateVariableIdentity,
+    TechnicalStatus,
+    badge_for_status,
+)
+
+type CancelCheck = Callable[[], bool]
+_UNKNOWN = object()
+
+
+@dataclass(frozen=True)
+class NumericProjection:
+    relevant_variables: tuple[StateVariableIdentity, ...]
+    thresholds: Mapping[str, tuple[int | float, ...]]
+    exact_variables: tuple[str, ...]
+
+    def key_for(self, values: Mapping[str, object]) -> tuple[tuple[str, object], ...]:
+        projected: list[tuple[str, object]] = []
+        exact = set(self.exact_variables)
+        for variable in self.relevant_variables:
+            key = variable.key
+            value = values.get(key, _UNKNOWN)
+            if value is _UNKNOWN:
+                projected.append((key, "unknown"))
+            elif key in exact or not _is_number(value):
+                projected.append((key, value))
+            else:
+                projected.append((key, threshold_equivalence(value, self.thresholds.get(key, ()))))
+        return tuple(projected)
+
+
+@dataclass(frozen=True)
+class LoopAccelerationSummary:
+    same_transition_summary: bool
+    same_structural_context: bool
+    same_call_context: bool
+    relevant_one_shot_change: bool
+    relevant_branch_change: bool
+    unresolved_relevant_write: bool
+    repeated_effect_proven: bool
+    stopping_threshold_proven: bool
+
+
+@dataclass(frozen=True)
+class LoopAccelerationDecision:
+    eligible: bool
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _TargetAnchor:
+    node_id: str
+    occurrence_id: str | None = None
+    required_edge_id: str | None = None
+
+
+@dataclass
+class _SearchState:
+    node_id: str
+    values: dict[str, object]
+    value_sources: dict[str, tuple[str, int]]
+    initial_kinds: dict[str, InitialStateValue]
+    node_ids: tuple[str, ...]
+    edge_ids: tuple[str, ...]
+    requirements: tuple[RequirementAttribution, ...]
+    warnings: tuple[str, ...]
+    call_stack: tuple[str, ...]
+    transition_counts: dict[str, int]
+    selected_occurrence_id: str | None
+    persistent_lane_ids: tuple[str, ...]
+    loop_count: int
+
+
+def authoritative_start_nodes(graph: CanonicalGraph) -> tuple[str, ...]:
+    """Return only M10 nodes carrying configured-entry root proof and witness."""
+
+    proofs = {item.id: item for item in graph.proofs}
+    result: list[str] = []
+    for node in graph.nodes:
+        witness = node.attributes.get("reachability_witness")
+        if not isinstance(witness, Mapping) or witness.get("kind") != "root":
+            continue
+        if witness.get("node_id") != node.graph_node_id:
+            continue
+        if not any(
+            proof_id in proofs and proofs[proof_id].kind == "resolved_static_reachability"
+            for proof_id in node.proof_ids
+        ):
+            continue
+        if node.attributes.get("resolved_static_reachable") is True:
+            result.append(node.id)
+    return tuple(sorted(result))
+
+
+def bind_route_request(
+    graph: CanonicalGraph,
+    scene_model: SceneModel,
+    destination: RouteDestination,
+    *,
+    start_node_id: str | None = None,
+    initial_state: Sequence[InitialStateValue] = (),
+    limits: DeterministicLimitProfile | None = None,
+) -> RouteRequest:
+    """Bind a request to exact immutable M10/M11 authority."""
+
+    graph.validate()
+    scene_model.validate()
+    if scene_model.binding.source_generation != graph.source_generation:
+        raise ValueError("M11 source generation does not match M10")
+    if scene_model.binding.canonical_schema != CANONICAL_GRAPH_SCHEMA:
+        raise ValueError("M11 canonical schema binding does not match M10")
+    if scene_model.binding.canonical_hash != graph.authority_hash:
+        raise ValueError("M11 canonical hash binding does not match M10")
+    roots = authoritative_start_nodes(graph)
+    selected_start = start_node_id or (roots[0] if len(roots) == 1 else "")
+    if not selected_start or selected_start not in roots:
+        raise ValueError("M10 does not identify the requested authoritative starting context")
+    _map_destination(graph, scene_model, destination)
+    return RouteRequest(
+        source_generation=graph.source_generation,
+        canonical_schema=CANONICAL_GRAPH_SCHEMA,
+        canonical_hash=graph.authority_hash,
+        scene_schema=M11_SCENE_MODEL_SCHEMA,
+        scene_hash=scene_model.structural_hash,
+        start_node_id=selected_start,
+        destination=destination,
+        initial_state=tuple(initial_state),
+        limits=limits or DeterministicLimitProfile(),
+    )
+
+
+def solve_route(
+    graph: CanonicalGraph,
+    scene_model: SceneModel,
+    request: RouteRequest,
+    *,
+    cancelled: CancelCheck | None = None,
+) -> SolveAttempt:
+    """Solve one target without executing Ren'Py, creator code, providers, or requests."""
+
+    _validate_request_binding(graph, scene_model, request)
+    anchors = _map_destination(graph, scene_model, request.destination)
+    node_by_id = {item.id: item for item in graph.nodes}
+    fact_by_id = {item.id: item for item in graph.facts}
+    outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    incoming: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    solver_edges = _solver_edges(graph.edges)
+    for edge in solver_edges:
+        outgoing[edge.source_id].append(edge)
+        incoming[edge.target_id].append(edge)
+    for outgoing_edges in outgoing.values():
+        outgoing_edges.sort(key=lambda item: item.id)
+
+    projection = numeric_projection(graph, {item.node_id for item in anchors}, incoming, fact_by_id)
+    target_reverse_nodes = _resolved_reverse_nodes(
+        {item.node_id for item in anchors}, incoming
+    )
+    values, initial_kinds = _initial_values(request.initial_state, projection)
+    start = _SearchState(
+        request.start_node_id,
+        values,
+        {},
+        initial_kinds,
+        (request.start_node_id,),
+        (),
+        (),
+        (),
+        (),
+        {},
+        None,
+        (),
+        0,
+    )
+    frontier: list[tuple[tuple[int | str, ...], int, _SearchState]] = []
+    serial = 0
+    heapq.heappush(frontier, (_partial_rank(start), serial, start))
+    retained: dict[tuple[object, ...], tuple[int | str, ...]] = {}
+    candidates: dict[tuple[object, ...], RouteAlternative] = {}
+    expanded = 0
+    prefixes = 1
+    peak_frontier = 1
+    accounting = _accounting_units(start)
+    limit_hit: str | None = None
+    exact_contradictions = 0
+
+    occurrence_edge = _occurrence_edge_map(graph, scene_model)
+    scene_by_node, atom_by_node = _scene_ownership(scene_model)
+    lane_by_scene = {
+        scene_id: lane.id for lane in scene_model.lanes for scene_id in lane.scene_ids
+    }
+
+    def record_candidates(candidate_state: _SearchState) -> None:
+        matching = [
+            anchor
+            for anchor in anchors
+            if anchor.node_id == candidate_state.node_id
+            and (
+                anchor.required_edge_id is None
+                or (
+                    candidate_state.edge_ids
+                    and candidate_state.edge_ids[-1] == anchor.required_edge_id
+                )
+            )
+        ]
+        for anchor in matching:
+            selected_state = replace(
+                candidate_state,
+                selected_occurrence_id=(
+                    anchor.occurrence_id or candidate_state.selected_occurrence_id
+                ),
+            )
+            candidate = _route_alternative(
+                selected_state,
+                graph,
+                scene_model,
+                scene_by_node,
+                atom_by_node,
+                lane_by_scene,
+                fact_by_id,
+            )
+            signature = (
+                candidate.scene_ids,
+                candidate.visible_choices,
+                tuple(
+                    (item.fact_id, item.source.value)
+                    for item in candidate.requirements
+                ),
+                candidate.persistent_lane_ids,
+                candidate.selected_occurrence_id,
+            )
+            prior = candidates.get(signature)
+            if prior is None or candidate.ranking_key < prior.ranking_key:
+                candidates[signature] = candidate
+
+    while frontier:
+        if cancelled is not None and cancelled():
+            return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
+        _, _, state = heapq.heappop(frontier)
+        key = _state_key(state, projection)
+        state_rank = _partial_rank(state)
+        previous = retained.get(key)
+        if previous is not None and previous <= state_rank:
+            continue
+        retained[key] = state_rank
+        if len(retained) > request.limits.retained_states:
+            limit_hit = "retained_states"
+            break
+        expanded += 1
+        if expanded > request.limits.expanded_states:
+            limit_hit = "expanded_states"
+            break
+
+        state = _apply_node_effects(state, node_by_id[state.node_id], fact_by_id, projection)
+        record_candidates(state)
+
+        for edge in outgoing.get(state.node_id, ()):
+            next_state, contradiction, traversal_limit = _traverse_edge(
+                state,
+                edge,
+                node_by_id,
+                fact_by_id,
+                occurrence_edge,
+                lane_by_scene,
+                scene_by_node,
+                projection,
+                request.limits,
+            )
+            if (
+                contradiction
+                and edge.source_id in target_reverse_nodes
+                and edge.target_id in target_reverse_nodes
+            ):
+                exact_contradictions += 1
+            if traversal_limit is not None:
+                limit_hit = traversal_limit
+                break
+            if next_state is None:
+                continue
+            record_candidates(next_state)
+            prefixes += 1
+            if prefixes > request.limits.prefix_records:
+                limit_hit = "prefix_records"
+                break
+            accounting += _accounting_units(next_state)
+            if accounting > request.limits.accounting_units:
+                limit_hit = "accounting_units"
+                break
+            serial += 1
+            heapq.heappush(frontier, (_partial_rank(next_state), serial, next_state))
+            peak_frontier = max(peak_frontier, len(frontier))
+            if len(frontier) > request.limits.frontier_states:
+                limit_hit = "frontier_states"
+                break
+        if limit_hit is not None:
+            break
+
+    closed_world = _closed_world(graph)
+    exhaustive = limit_hit is None and not frontier
+    ordered_candidates = sorted(candidates.values(), key=lambda item: item.ranking_key)
+    discarded_alternatives = len(ordered_candidates) > request.limits.alternatives
+    ordered_candidates = ordered_candidates[: request.limits.alternatives]
+    if discarded_alternatives:
+        limit_hit = limit_hit or "alternatives"
+        exhaustive = False
+
+    usage = BudgetUsage(
+        expanded_states=min(expanded, request.limits.expanded_states),
+        retained_states=min(len(retained), request.limits.retained_states),
+        peak_frontier_states=min(peak_frontier, request.limits.frontier_states),
+        prefix_records=min(prefixes, request.limits.prefix_records),
+        accounting_units=min(accounting, request.limits.accounting_units),
+        limiting_dimension=limit_hit,
+    )
+    if ordered_candidates:
+        recommended = ordered_candidates[0]
+        if limit_hit is not None:
+            status = TechnicalStatus.INCOMPLETE
+        elif recommended.uncertainty_warnings or any(
+            item.source is RequirementSource.UNKNOWN for item in recommended.requirements
+        ):
+            status = TechnicalStatus.BEST_KNOWN
+        elif any(
+            item.source is RequirementSource.ENTRY_PRECONDITION
+            for item in recommended.requirements
+        ):
+            status = TechnicalStatus.PREREQUISITES
+        else:
+            status = TechnicalStatus.CONFIRMED
+        diagnostics = ((f"deterministic limit reached: {limit_hit}",) if limit_hit else ())
+    else:
+        recommended = None
+        structural = _anchor_structurally_reachable(
+            request.start_node_id, anchors, outgoing
+        )
+        if limit_hit is not None or not exhaustive:
+            status = TechnicalStatus.INCOMPLETE
+        elif not closed_world:
+            status = TechnicalStatus.DYNAMIC_POSSIBILITY
+        elif structural and exact_contradictions:
+            status = TechnicalStatus.STATE_INFEASIBLE
+        else:
+            status = TechnicalStatus.NO_STATIC_ROUTE
+        diagnostics = (
+            (f"deterministic limit reached: {limit_hit}",)
+            if limit_hit
+            else (
+                ("exact supported contradiction",)
+                if status is TechnicalStatus.STATE_INFEASIBLE
+                else ()
+            )
+        )
+    result = RouteResult(
+        request_identity=request.identity,
+        status=status,
+        badge=badge_for_status(status, has_route=recommended is not None),
+        recommended=recommended,
+        alternatives=tuple(ordered_candidates[1:]),
+        complete=exhaustive,
+        termination_reason=("exhausted" if exhaustive else f"limit:{limit_hit or 'search'}"),
+        exhaustive=exhaustive,
+        closed_world=closed_world,
+        budget_usage=usage,
+        diagnostics=diagnostics,
+    )
+    return SolveAttempt(result)
+
+
+def threshold_equivalence(
+    value: object, thresholds: Sequence[int | float]
+) -> str | int | float | bool | None:
+    """Return the comparison-equivalent class for a target-relevant numeric value."""
+
+    if not _is_number(value):
+        assert value is None or isinstance(value, str | bool)
+        return value
+    assert isinstance(value, int | float) and not isinstance(value, bool)
+    ordered = tuple(sorted(set(thresholds)))
+    if not ordered:
+        return "numeric"
+    for threshold in ordered:
+        if value == threshold:
+            return f"={threshold}"
+        if value < threshold:
+            return f"<{threshold}"
+    return f">{ordered[-1]}"
+
+
+def loop_acceleration_decision(summary: LoopAccelerationSummary) -> LoopAccelerationDecision:
+    checks = (
+        (summary.same_transition_summary, "iteration transition summary differs"),
+        (summary.same_structural_context, "cycle changes structural context"),
+        (summary.same_call_context, "cycle changes call context"),
+        (not summary.relevant_one_shot_change, "relevant one-shot state changes"),
+        (not summary.relevant_branch_change, "relevant branch structure changes"),
+        (not summary.unresolved_relevant_write, "unresolved write touches relevant state"),
+        (summary.repeated_effect_proven, "repeated effect is not proven"),
+        (summary.stopping_threshold_proven, "stopping threshold is not proven"),
+    )
+    reasons = tuple(reason for passed, reason in checks if not passed)
+    return LoopAccelerationDecision(not reasons, reasons)
+
+
+def numeric_projection(
+    graph: CanonicalGraph,
+    target_node_ids: set[str],
+    incoming: Mapping[str, Sequence[CanonicalEdge]] | None = None,
+    fact_by_id: Mapping[str, CanonicalFact] | None = None,
+) -> NumericProjection:
+    """Build a target-specific numeric abstraction over the reverse structural cone."""
+
+    incoming_map: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    if incoming is None:
+        for edge in graph.edges:
+            incoming_map[edge.target_id].append(edge)
+    else:
+        incoming_map = {key: list(values) for key, values in incoming.items()}
+    facts = fact_by_id or {item.id: item for item in graph.facts}
+    reverse_nodes = set(target_node_ids)
+    pending = deque(sorted(target_node_ids))
+    relevant_fact_ids: set[str] = set()
+    node_by_id = {item.id: item for item in graph.nodes}
+    while pending:
+        node_id = pending.popleft()
+        node = node_by_id.get(node_id)
+        if node is not None:
+            relevant_fact_ids.update(_strings(node.attributes.get("fact_ids")))
+        for edge in incoming_map.get(node_id, ()):
+            relevant_fact_ids.update(_strings(edge.attributes.get("gate_ids")))
+            relevant_fact_ids.update(_strings(edge.attributes.get("effect_ids")))
+            if edge.source_id not in reverse_nodes:
+                reverse_nodes.add(edge.source_id)
+                pending.append(edge.source_id)
+    variables: dict[str, StateVariableIdentity] = {}
+    thresholds: dict[str, set[int | float]] = defaultdict(set)
+    exact: set[str] = set()
+    for fact_id in sorted(relevant_fact_ids):
+        fact = facts.get(fact_id)
+        if fact is None or fact.kind != "requirement":
+            continue
+        expression = str(fact.attributes.get("original_expression", ""))
+        for identity in identities_in_expression(expression):
+            variables[identity.key] = identity
+        for identity, operator, literal in _comparison_terms(expression):
+            variables[identity.key] = identity
+            if isinstance(literal, int | float) and not isinstance(literal, bool):
+                thresholds[identity.key].add(literal)
+            if operator in {"eq", "ne"}:
+                exact.add(identity.key)
+    return NumericProjection(
+        tuple(sorted(variables.values())),
+        {key: tuple(sorted(value)) for key, value in sorted(thresholds.items())},
+        tuple(sorted(exact)),
+    )
+
+
+def identity_from_name(name: str) -> StateVariableIdentity:
+    parts = tuple(part for part in name.split(".") if part)
+    if not parts:
+        raise ValueError("state variable names cannot be empty")
+    if len(parts) == 1:
+        return StateVariableIdentity("store", parts[0], None)
+    scope = ".".join(parts[:-1])
+    persistent = True if parts[0] in {"persistent", "_persistent"} else None
+    return StateVariableIdentity(scope, parts[-1], persistent)
+
+
+def identities_in_expression(expression: str) -> tuple[StateVariableIdentity, ...]:
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return ()
+    names: dict[str, StateVariableIdentity] = {}
+
+    class _IdentityVisitor(ast.NodeVisitor):
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            name = _qualified_name(node)
+            if name is not None:
+                identity = identity_from_name(name)
+                names[identity.key] = identity
+
+        def visit_Name(self, node: ast.Name) -> None:
+            identity = identity_from_name(node.id)
+            names[identity.key] = identity
+
+    _IdentityVisitor().visit(tree)
+    return tuple(sorted(names.values()))
+
+
+def _validate_request_binding(
+    graph: CanonicalGraph, scene_model: SceneModel, request: RouteRequest
+) -> None:
+    if request.source_generation != graph.source_generation:
+        raise ValueError("route request source generation is stale")
+    if (
+        request.canonical_schema != CANONICAL_GRAPH_SCHEMA
+        or request.canonical_hash != graph.authority_hash
+    ):
+        raise ValueError("route request M10 binding is stale")
+    if (
+        request.scene_schema != M11_SCENE_MODEL_SCHEMA
+        or request.scene_hash != scene_model.structural_hash
+    ):
+        raise ValueError("route request M11 binding is stale")
+    if request.start_node_id not in authoritative_start_nodes(graph):
+        raise ValueError("route request lacks an M10-authoritative starting context")
+
+
+def _map_destination(
+    graph: CanonicalGraph, scene_model: SceneModel, destination: RouteDestination
+) -> tuple[_TargetAnchor, ...]:
+    nodes = {item.id: item for item in graph.nodes}
+    atoms = {item.id: item for item in scene_model.atoms}
+    scenes = {item.id: item for item in scene_model.scenes}
+    occurrences = {item.id: item for item in scene_model.occurrences}
+    edges = {item.id: item for item in graph.edges}
+
+    if destination.kind is DestinationKind.EXACT_OCCURRENCE:
+        occurrence = occurrences.get(destination.target_id)
+        if occurrence is None:
+            raise ValueError("exact occurrence destination is not present in M11")
+        anchor = _occurrence_anchor(occurrence, atoms, edges)
+        if anchor is None:
+            raise ValueError("M11 occurrence lacks a verified M10 call-entry anchor")
+        return (anchor,)
+    if destination.kind is DestinationKind.TERMINAL:
+        node = nodes.get(destination.target_id)
+        if node is None or node.kind is not CanonicalNodeKind.TERMINAL:
+            raise ValueError("terminal destination is not an M10 terminal")
+        return (_TargetAnchor(node.id),)
+    if destination.kind is DestinationKind.TEMPORARY_OUTCOME:
+        arm = next(
+            (
+                arm
+                for branch in scene_model.temporary_branches
+                for arm in branch.arms
+                if arm.id == destination.target_id
+            ),
+            None,
+        )
+        if arm is None:
+            raise ValueError("temporary outcome destination is not present in M11")
+        arm_anchors = _entry_anchors_for_atoms(arm.atom_ids, atoms, graph)
+        if not arm_anchors:
+            raise ValueError("temporary outcome lacks a verified narrative entry anchor")
+        return tuple(_TargetAnchor(item) for item in arm_anchors)
+    if destination.kind is DestinationKind.PERSISTENT_LANE:
+        lane = next((item for item in scene_model.lanes if item.id == destination.target_id), None)
+        if lane is None or lane.kind is LaneKind.SPINE or not lane.scene_ids:
+            raise ValueError("persistent destination is not an M11 persistent lane")
+        first_scene = scenes[lane.scene_ids[0]]
+        return _scene_anchors(first_scene, scene_model, graph)
+    if destination.kind in {DestinationKind.GENERIC_SCENE, DestinationKind.REPEATABLE_EVENT}:
+        scene = scenes.get(destination.target_id)
+        if scene is None:
+            raise ValueError("scene destination is not present in M11")
+        if (
+            destination.kind is DestinationKind.REPEATABLE_EVENT
+            and scene.repeatability is not SceneRepeatability.REPEATABLE
+        ):
+            raise ValueError("repeatable-event destination is not marked repeatable by M11")
+        scene_anchors = _scene_anchors(scene, scene_model, graph)
+        if not scene_anchors:
+            raise ValueError("scene destination lacks a verified narrative entry anchor")
+        return scene_anchors
+    raise ValueError(f"unsupported route destination: {destination.kind.value}")
+
+
+def _scene_anchors(
+    scene: Scene, scene_model: SceneModel, graph: CanonicalGraph
+) -> tuple[_TargetAnchor, ...]:
+    atoms = {item.id: item for item in scene_model.atoms}
+    scene_atom_ids = set(scene.atom_ids)
+    occurrence_anchors: list[_TargetAnchor] = []
+    edge_by_id = {item.id: item for item in graph.edges}
+    for occurrence in sorted(scene_model.occurrences, key=lambda item: item.id):
+        if scene_atom_ids.intersection(occurrence.referenced_atom_ids):
+            anchor = _occurrence_anchor(occurrence, atoms, edge_by_id)
+            if anchor is not None:
+                occurrence_anchors.append(anchor)
+    if occurrence_anchors:
+        return tuple(occurrence_anchors)
+    direct = _entry_anchors_for_atoms(scene.atom_ids, atoms, graph)
+    return tuple(_TargetAnchor(item) for item in direct)
+
+
+def _entry_anchors_for_atoms(
+    atom_ids: Sequence[str], atoms: Mapping[str, StoryAtom], graph: CanonicalGraph
+) -> tuple[str, ...]:
+    ordered = [atoms[item] for item in atom_ids if item in atoms and atoms[item].story_facing]
+    if not ordered:
+        return ()
+    owned_nodes = {atoms[item].primary_node_id for item in atom_ids if item in atoms}
+    incoming = defaultdict(list)
+    for edge in graph.edges:
+        incoming[edge.target_id].append(edge.source_id)
+    entries = [
+        atom.primary_node_id
+        for atom in ordered
+        if not incoming.get(atom.primary_node_id)
+        or any(source not in owned_nodes for source in incoming[atom.primary_node_id])
+    ]
+    if not entries:
+        entries = [ordered[0].primary_node_id]
+    return tuple(dict.fromkeys(entries))
+
+
+def _occurrence_anchor(
+    occurrence: CallSiteOccurrence,
+    atoms: Mapping[str, StoryAtom],
+    edges: Mapping[str, CanonicalEdge],
+) -> _TargetAnchor | None:
+    call_atom = atoms.get(occurrence.call_atom_id)
+    if call_atom is None:
+        return None
+    for edge_id in sorted(occurrence.provenance.edge_ids):
+        edge = edges.get(edge_id)
+        if (
+            edge is not None
+            and edge.kind == "call_enter"
+            and edge.source_id == call_atom.primary_node_id
+            and edge.target_id == occurrence.callee_entry_node_id
+        ):
+            return _TargetAnchor(edge.target_id, occurrence.id, edge.id)
+    return None
+
+
+def _occurrence_edge_map(
+    graph: CanonicalGraph, scene_model: SceneModel
+) -> dict[str, str]:
+    edges = {item.id: item for item in graph.edges}
+    atoms = {item.id: item for item in scene_model.atoms}
+    result: dict[str, str] = {}
+    for occurrence in scene_model.occurrences:
+        anchor = _occurrence_anchor(occurrence, atoms, edges)
+        if anchor is not None and anchor.required_edge_id is not None:
+            result[anchor.required_edge_id] = occurrence.id
+    return result
+
+
+def _initial_values(
+    items: Sequence[InitialStateValue],
+    projection: NumericProjection,
+) -> tuple[dict[str, object], dict[str, InitialStateValue]]:
+    values: dict[str, object] = {}
+    initial: dict[str, InitialStateValue] = {}
+    relevant = {item.key for item in projection.relevant_variables}
+    for item in items:
+        if item.variable.key not in relevant:
+            continue
+        initial[item.variable.key] = item
+        if item.kind is not InitialValueKind.UNKNOWN:
+            values[item.variable.key] = item.value
+    return values, initial
+
+
+def _apply_node_effects(
+    state: _SearchState,
+    node: CanonicalNode,
+    facts: Mapping[str, CanonicalFact],
+    projection: NumericProjection,
+) -> _SearchState:
+    values = dict(state.values)
+    sources = dict(state.value_sources)
+    warnings = list(state.warnings)
+    relevant = {item.key for item in projection.relevant_variables}
+    for fact_id in _strings(node.attributes.get("fact_ids")):
+        fact = facts.get(fact_id)
+        if fact is None or fact.kind != "effect":
+            continue
+        _apply_effect(fact, values, sources, warnings, relevant)
+    return replace(
+        state,
+        values=values,
+        value_sources=sources,
+        warnings=tuple(dict.fromkeys(warnings)),
+    )
+
+
+def _traverse_edge(
+    state: _SearchState,
+    edge: CanonicalEdge,
+    nodes: Mapping[str, CanonicalNode],
+    facts: Mapping[str, CanonicalFact],
+    occurrence_edges: Mapping[str, str],
+    lane_by_scene: Mapping[str, str],
+    scene_by_node: Mapping[str, str],
+    projection: NumericProjection,
+    limits: DeterministicLimitProfile,
+) -> tuple[_SearchState | None, bool, str | None]:
+    count = state.transition_counts.get(edge.id, 0) + 1
+    if count > limits.repetition_per_transition:
+        return None, False, "repetition_per_transition"
+    stack = state.call_stack
+    call_site = edge.attributes.get("call_site_id")
+    if edge.kind == "call_enter":
+        if not isinstance(call_site, str) or not call_site:
+            return None, False, None
+        if len(stack) >= limits.call_depth:
+            return None, False, "call_depth"
+        stack = (*stack, call_site)
+    elif edge.kind == "call_return":
+        if not isinstance(call_site, str) or not stack or stack[-1] != call_site:
+            return None, False, None
+        stack = stack[:-1]
+
+    requirements = list(state.requirements)
+    warnings = list(state.warnings)
+    contradiction = False
+    for fact_id in _strings(edge.attributes.get("gate_ids")):
+        fact = facts.get(fact_id)
+        if fact is None:
+            warnings.append(f"Missing M10 gate fact {fact_id}.")
+            continue
+        outcome, attribution = _evaluate_requirement(
+            fact, state.values, state.value_sources, state.initial_kinds
+        )
+        if outcome is False:
+            contradiction = True
+            return None, contradiction, None
+        requirements.append(attribution)
+        if outcome is None:
+            warnings.append(f"Requirement remains unknown: {attribution.expression}.")
+
+    values = dict(state.values)
+    sources = dict(state.value_sources)
+    relevant = {item.key for item in projection.relevant_variables}
+    for fact_id in _strings(edge.attributes.get("effect_ids")):
+        fact = facts.get(fact_id)
+        if fact is not None:
+            _apply_effect(fact, values, sources, warnings, relevant)
+    if not edge.resolved or edge.reachability is ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR:
+        warnings.append(f"Traversal {edge.id} depends on unresolved static behavior.")
+    target_node = nodes[edge.target_id]
+    if target_node.kind is CanonicalNodeKind.UNRESOLVED:
+        warnings.append(f"Node {target_node.id} represents unresolved static behavior.")
+
+    counts = dict(state.transition_counts)
+    counts[edge.id] = count
+    loops = state.loop_count + (1 if count > 1 else 0)
+    selected_occurrence = occurrence_edges.get(edge.id, state.selected_occurrence_id)
+    persistent = list(state.persistent_lane_ids)
+    target_scene = scene_by_node.get(edge.target_id)
+    if target_scene is not None:
+        lane = lane_by_scene.get(target_scene)
+        if lane is not None and lane not in persistent:
+            persistent.append(lane)
+    return (
+        _SearchState(
+            edge.target_id,
+            values,
+            sources,
+            state.initial_kinds,
+            (*state.node_ids, edge.target_id),
+            (*state.edge_ids, edge.id),
+            tuple(requirements),
+            tuple(dict.fromkeys(warnings)),
+            stack,
+            counts,
+            selected_occurrence,
+            tuple(persistent),
+            loops,
+        ),
+        contradiction,
+        None,
+    )
+
+
+def _evaluate_requirement(
+    fact: CanonicalFact,
+    values: Mapping[str, object],
+    value_sources: Mapping[str, tuple[str, int]],
+    initial: Mapping[str, InitialStateValue],
+) -> tuple[bool | None, RequirementAttribution]:
+    expression = str(fact.attributes.get("original_expression", ""))
+    identities = identities_in_expression(expression)
+    variable = identities[0] if len(identities) == 1 else None
+    evidence = tuple(sorted(fact.evidence_ids))
+    if fact.status != "proven":
+        return None, RequirementAttribution(
+            fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
+        )
+    outcome = _safe_condition(expression, values)
+    if outcome is not True:
+        return outcome, RequirementAttribution(
+            fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
+        )
+    source_ids = [
+        source
+        for item in identities
+        if (source := value_sources.get(item.key)) is not None
+    ]
+    if source_ids:
+        effect_id, count = sorted(source_ids)[-1]
+        if count > 1:
+            return True, RequirementAttribution(
+                fact.id,
+                expression,
+                RequirementSource.REPEATED_EVENT,
+                variable,
+                repeated_count=count,
+                evidence_ids=evidence,
+            )
+        return True, RequirementAttribution(
+            fact.id,
+            expression,
+            RequirementSource.PROVEN_EFFECT,
+            variable,
+            satisfying_effect_id=effect_id,
+            evidence_ids=evidence,
+        )
+    entry = [
+        value for item in identities if (value := initial.get(item.key)) is not None
+    ]
+    if entry and any(item.kind is InitialValueKind.ENTRY_PRECONDITION for item in entry):
+        return True, RequirementAttribution(
+            fact.id,
+            expression,
+            RequirementSource.ENTRY_PRECONDITION,
+            variable,
+            evidence_ids=evidence,
+        )
+    known = next((item for item in entry if item.kind is InitialValueKind.KNOWN), None)
+    if known is not None:
+        return True, RequirementAttribution(
+            fact.id,
+            expression,
+            RequirementSource.PROVEN_EFFECT,
+            variable,
+            satisfying_effect_id=f"initial:{known.evidence_ids[0]}",
+            evidence_ids=evidence,
+        )
+    return True, RequirementAttribution(
+        fact.id, expression, RequirementSource.UNKNOWN, variable, evidence_ids=evidence
+    )
+
+
+def _apply_effect(
+    fact: CanonicalFact,
+    values: dict[str, object],
+    sources: dict[str, tuple[str, int]],
+    warnings: list[str],
+    relevant: set[str],
+) -> None:
+    variable_name = fact.attributes.get("variable")
+    if not isinstance(variable_name, str) or not variable_name:
+        if fact.status != "proven":
+            warnings.append(f"Effect {fact.id} is unsupported and does not satisfy a gate.")
+        return
+    variable = identity_from_name(variable_name)
+    if variable.key not in relevant:
+        return
+    if fact.status != "proven":
+        values.pop(variable.key, None)
+        sources.pop(variable.key, None)
+        warnings.append(f"Effect {fact.id} on {variable.key} is not proven.")
+        return
+    operation = str(fact.attributes.get("operation", ""))
+    value = fact.attributes.get("value")
+    prior_count = sources.get(variable.key, (fact.id, 0))[1]
+    if operation == "assignment" and _is_scalar(value):
+        values[variable.key] = value
+        sources[variable.key] = (fact.id, 1)
+    elif (
+        operation in {"increment", "decrement"}
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+    ):
+        current = values.get(variable.key, _UNKNOWN)
+        if isinstance(current, int | float) and not isinstance(current, bool):
+            delta = value if operation == "increment" else -value
+            values[variable.key] = current + delta
+            sources[variable.key] = (fact.id, prior_count + 1)
+        else:
+            values.pop(variable.key, None)
+            sources.pop(variable.key, None)
+    else:
+        values.pop(variable.key, None)
+        sources.pop(variable.key, None)
+        warnings.append(f"Effect {fact.id} is not a supported literal state transition.")
+
+
+def _safe_condition(expression: str, values: Mapping[str, object]) -> bool | None:
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return None
+
+    def visit(node: ast.expr) -> object:
+        name = _qualified_name(node)
+        if name is not None:
+            return values.get(identity_from_name(name).key, _UNKNOWN)
+        if isinstance(node, ast.Constant) and _is_scalar(node.value):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            value = visit(node.operand)
+            return _UNKNOWN if value is _UNKNOWN else not bool(value)
+        if isinstance(node, ast.BoolOp):
+            results = [visit(item) for item in node.values]
+            if isinstance(node.op, ast.And):
+                if any(item is False for item in results):
+                    return False
+                return _UNKNOWN if _UNKNOWN in results else all(bool(item) for item in results)
+            if any(item is True for item in results):
+                return True
+            return _UNKNOWN if _UNKNOWN in results else any(bool(item) for item in results)
+        if isinstance(node, ast.Compare) and len(node.ops) == len(node.comparators) == 1:
+            left = visit(node.left)
+            right = visit(node.comparators[0])
+            if left is _UNKNOWN or right is _UNKNOWN:
+                return _UNKNOWN
+            try:
+                operator = node.ops[0]
+                if isinstance(operator, ast.Eq):
+                    return left == right
+                if isinstance(operator, ast.NotEq):
+                    return left != right
+                if isinstance(operator, ast.Gt):
+                    return left > right  # type: ignore[operator]
+                if isinstance(operator, ast.GtE):
+                    return left >= right  # type: ignore[operator]
+                if isinstance(operator, ast.Lt):
+                    return left < right  # type: ignore[operator]
+                if isinstance(operator, ast.LtE):
+                    return left <= right  # type: ignore[operator]
+            except TypeError:
+                return _UNKNOWN
+        return _UNKNOWN
+
+    result = visit(tree.body)
+    return result if isinstance(result, bool) else None
+
+
+def _route_alternative(
+    state: _SearchState,
+    graph: CanonicalGraph,
+    scene_model: SceneModel,
+    scene_by_node: Mapping[str, str],
+    atom_by_node: Mapping[str, StoryAtom],
+    lane_by_scene: Mapping[str, str],
+    facts: Mapping[str, CanonicalFact],
+) -> RouteAlternative:
+    node_by_id = {item.id: item for item in graph.nodes}
+    edge_by_id = {item.id: item for item in graph.edges}
+    scene_records = {item.id: item for item in scene_model.scenes}
+    scene_ids: list[str] = []
+    for node_id in state.node_ids:
+        scene_id = scene_by_node.get(node_id)
+        if scene_id is not None and (not scene_ids or scene_ids[-1] != scene_id):
+            scene_ids.append(scene_id)
+    choices: list[str] = []
+    for edge_id in state.edge_ids:
+        edge = edge_by_id[edge_id]
+        if node_by_id[edge.source_id].kind is CanonicalNodeKind.CHOICE:
+            predicate = edge.attributes.get("predicate")
+            expression = predicate.get("expression") if isinstance(predicate, Mapping) else None
+            choices.append(str(expression or node_by_id[edge.source_id].label or edge.kind))
+    persistent = tuple(
+        lane
+        for lane in dict.fromkeys(
+            lane_by_scene[item] for item in scene_ids if item in lane_by_scene
+        )
+        if any(
+            record.id == lane and record.kind is not LaneKind.SPINE
+            for record in scene_model.lanes
+        )
+    )
+    requirements = tuple(_dedupe_requirements(state.requirements))
+    warnings = tuple(state.warnings)
+    ranking = (
+        len(warnings),
+        sum(item.source is RequirementSource.UNKNOWN for item in requirements),
+        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in requirements),
+        len(persistent),
+        state.loop_count,
+        len(scene_ids),
+        len(state.edge_ids),
+        "|".join(state.edge_ids),
+    )
+    instructions = _instructions(
+        scene_ids,
+        scene_records,
+        choices,
+        requirements,
+        persistent,
+        warnings,
+        state.loop_count,
+    )
+    call_contexts = _call_contexts(state.edge_ids, graph, scene_model)
+    selected_occurrence = next(
+        (
+            item
+            for item in scene_model.occurrences
+            if item.id == state.selected_occurrence_id
+        ),
+        None,
+    )
+    fact_id_values = {item.fact_id for item in requirements}
+    if selected_occurrence is not None:
+        fact_id_values.update(selected_occurrence.guard_fact_ids)
+        fact_id_values.update(selected_occurrence.provenance.fact_ids)
+    fact_ids = tuple(sorted(fact_id_values))
+    evidence_ids: set[str] = set()
+    proof_ids: set[str] = set()
+    for node_id in state.node_ids:
+        evidence_ids.update(node_by_id[node_id].evidence_ids)
+        proof_ids.update(node_by_id[node_id].proof_ids)
+    for edge_id in state.edge_ids:
+        evidence_ids.update(edge_by_id[edge_id].evidence_ids)
+        proof_ids.update(edge_by_id[edge_id].proof_ids)
+    for fact_id in fact_ids:
+        if fact_id in facts:
+            evidence_ids.update(facts[fact_id].evidence_ids)
+    if selected_occurrence is not None:
+        evidence_ids.update(selected_occurrence.provenance.evidence_ids)
+        proof_ids.update(selected_occurrence.provenance.proof_ids)
+    occurrence_ids = ((state.selected_occurrence_id,) if state.selected_occurrence_id else ())
+    return RouteAlternative(
+        state.node_ids,
+        state.edge_ids,
+        tuple(scene_ids),
+        tuple(scene_records[item].title for item in scene_ids),
+        tuple(choices),
+        requirements,
+        persistent,
+        warnings,
+        instructions,
+        call_contexts,
+        state.selected_occurrence_id,
+        state.loop_count,
+        ranking,
+        RouteProvenance(
+            node_ids=tuple(sorted(set(state.node_ids))),
+            edge_ids=tuple(
+                sorted(
+                    set(state.edge_ids)
+                    | (
+                        set(selected_occurrence.provenance.edge_ids)
+                        if selected_occurrence is not None
+                        else set()
+                    )
+                )
+            ),
+            fact_ids=fact_ids,
+            evidence_ids=tuple(sorted(evidence_ids)),
+            proof_ids=tuple(sorted(proof_ids)),
+            scene_ids=tuple(sorted(set(scene_ids))),
+            occurrence_ids=occurrence_ids,
+        ),
+    )
+
+
+def _call_contexts(
+    route_edge_ids: Sequence[str],
+    graph: CanonicalGraph,
+    scene_model: SceneModel,
+) -> tuple[RouteCallContext, ...]:
+    edges = {item.id: item for item in graph.edges}
+    occurrence_by_edge = {
+        edge_id: occurrence
+        for occurrence in scene_model.occurrences
+        for edge_id in occurrence.provenance.edge_ids
+    }
+    result: list[RouteCallContext] = []
+    for edge_id in route_edge_ids:
+        edge = edges[edge_id]
+        if edge.kind != "call_enter":
+            continue
+        call_site = edge.attributes.get("call_site_id")
+        if not isinstance(call_site, str) or not call_site:
+            continue
+        occurrence = occurrence_by_edge.get(edge.id)
+        return_edges = tuple(
+            sorted(
+                candidate.id
+                for candidate in graph.edges
+                if candidate.kind == "call_return"
+                and candidate.attributes.get("call_site_id") == call_site
+            )
+        )
+        result.append(
+            RouteCallContext(
+                call_site,
+                edge.source_id,
+                edge.id,
+                edge.target_id,
+                return_edges,
+                (
+                    tuple(sorted(occurrence.guard_fact_ids))
+                    if occurrence is not None
+                    else _strings(edge.attributes.get("gate_ids"))
+                ),
+                occurrence.id if occurrence is not None else None,
+            )
+        )
+    return tuple(result)
+
+
+def _instructions(
+    scene_ids: Sequence[str],
+    scenes: Mapping[str, Scene],
+    choices: Sequence[str],
+    requirements: Sequence[RequirementAttribution],
+    persistent: Sequence[str],
+    warnings: Sequence[str],
+    loop_count: int,
+) -> tuple[RouteInstruction, ...]:
+    rows: list[tuple[str, str, str | None, str | None]] = []
+    for requirement in requirements:
+        if requirement.source is RequirementSource.ENTRY_PRECONDITION:
+            rows.append(
+                (
+                    "starting_assumption",
+                    f"Start with: {requirement.expression}.",
+                    None,
+                    requirement.fact_id,
+                )
+            )
+    for scene_id in scene_ids:
+        rows.append(("scene", f"Enter scene \"{scenes[scene_id].title}\".", scene_id, None))
+    for choice in choices:
+        rows.append(("choice", f"Choose \"{choice}\".", None, None))
+    if loop_count:
+        rows.append(
+            (
+                "repeat",
+                f"Repeat the supported action {loop_count} additional time(s).",
+                None,
+                None,
+            )
+        )
+    for requirement in requirements:
+        source = {
+            RequirementSource.PROVEN_EFFECT: "an earlier proven effect",
+            RequirementSource.REPEATED_EVENT: "a proven repeated-event count",
+            RequirementSource.ENTRY_PRECONDITION: "the explicit starting assumption",
+            RequirementSource.UNKNOWN: "unknown or unsupported state",
+        }[requirement.source]
+        rows.append(
+            (
+                "requirement",
+                f"Requirement: {requirement.expression} — {source}.",
+                None,
+                requirement.fact_id,
+            )
+        )
+    for lane in persistent:
+        rows.append(("commitment", f"Commit to persistent lane {lane}.", None, None))
+    for warning in warnings:
+        rows.append(("warning", f"Uncertainty: {warning}", None, None))
+    return tuple(
+        RouteInstruction(index + 1, kind, text, scene_id=scene_id, fact_id=fact_id)
+        for index, (kind, text, scene_id, fact_id) in enumerate(rows)
+    )
+
+
+def _scene_ownership(
+    scene_model: SceneModel,
+) -> tuple[dict[str, str], dict[str, StoryAtom]]:
+    atoms = {item.id: item for item in scene_model.atoms}
+    scene_by_node: dict[str, str] = {}
+    atom_by_node: dict[str, StoryAtom] = {}
+    for scene in scene_model.scenes:
+        for atom_id in scene.atom_ids:
+            atom = atoms[atom_id]
+            scene_by_node[atom.primary_node_id] = scene.id
+            atom_by_node[atom.primary_node_id] = atom
+    return scene_by_node, atom_by_node
+
+
+def _state_key(state: _SearchState, projection: NumericProjection) -> tuple[object, ...]:
+    return (
+        state.node_id,
+        state.call_stack,
+        projection.key_for(state.values),
+        tuple(sorted(state.transition_counts.items())),
+        state.selected_occurrence_id,
+    )
+
+
+def _partial_rank(state: _SearchState) -> tuple[int | str, ...]:
+    return (
+        len(state.warnings),
+        sum(item.source is RequirementSource.UNKNOWN for item in state.requirements),
+        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in state.requirements),
+        len(state.persistent_lane_ids),
+        state.loop_count,
+        len(state.edge_ids),
+        "|".join(state.edge_ids),
+    )
+
+
+def _accounting_units(state: _SearchState) -> int:
+    return (
+        1
+        + len(state.values)
+        + len(state.node_ids)
+        + len(state.edge_ids)
+        + len(state.requirements)
+        + len(state.call_stack)
+        + len(state.transition_counts)
+    )
+
+
+def _closed_world(graph: CanonicalGraph) -> bool:
+    open_statuses = {
+        ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR,
+        ReachabilityStatus.POSSIBLY_DEAD,
+        ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH,
+    }
+    return all(
+        item.resolved
+        and item.kind != "unresolved"
+        and item.reachability not in open_statuses
+        for item in graph.edges
+    ) and all(
+        item.kind is not CanonicalNodeKind.UNRESOLVED
+        and item.reachability not in open_statuses
+        for item in graph.nodes
+    )
+
+
+def _anchor_structurally_reachable(
+    start: str,
+    anchors: Sequence[_TargetAnchor],
+    outgoing: Mapping[str, Sequence[CanonicalEdge]],
+) -> bool:
+    if any(item.node_id == start and item.required_edge_id is None for item in anchors):
+        return True
+    pending = deque([start])
+    seen = {start}
+    while pending:
+        node = pending.popleft()
+        for edge in outgoing.get(node, ()):
+            if not edge.resolved:
+                continue
+            if any(
+                item.node_id == edge.target_id
+                and (
+                    item.required_edge_id is None
+                    or item.required_edge_id == edge.id
+                )
+                for item in anchors
+            ):
+                return True
+            if edge.target_id not in seen:
+                seen.add(edge.target_id)
+                pending.append(edge.target_id)
+    return False
+
+
+def _solver_edges(edges: Sequence[CanonicalEdge]) -> tuple[CanonicalEdge, ...]:
+    """Avoid treating M10 call summaries as a shortcut around a resolved callee."""
+
+    resolved_enters = {
+        (item.source_id, item.attributes.get("call_site_id"))
+        for item in edges
+        if item.kind == "call_enter" and item.resolved
+    }
+    return tuple(
+        item
+        for item in edges
+        if not (
+            item.kind == "call_summary"
+            and (item.source_id, item.attributes.get("call_site_id")) in resolved_enters
+        )
+    )
+
+
+def _resolved_reverse_nodes(
+    targets: set[str], incoming: Mapping[str, Sequence[CanonicalEdge]]
+) -> set[str]:
+    result = set(targets)
+    pending = deque(sorted(targets))
+    while pending:
+        node_id = pending.popleft()
+        for edge in incoming.get(node_id, ()):
+            if edge.resolved and edge.source_id not in result:
+                result.add(edge.source_id)
+                pending.append(edge.source_id)
+    return result
+
+
+def _comparison_terms(
+    expression: str,
+) -> tuple[tuple[StateVariableIdentity, str, StateScalar], ...]:
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return ()
+    result: list[tuple[StateVariableIdentity, str, StateScalar]] = []
+    operators = {
+        ast.Eq: "eq",
+        ast.NotEq: "ne",
+        ast.Gt: "gt",
+        ast.GtE: "ge",
+        ast.Lt: "lt",
+        ast.LtE: "le",
+    }
+    for node in ast.walk(tree):
+        if (
+            not isinstance(node, ast.Compare)
+            or len(node.ops) != 1
+            or len(node.comparators) != 1
+        ):
+            continue
+        name = _qualified_name(node.left)
+        literal = (
+            node.comparators[0].value
+            if isinstance(node.comparators[0], ast.Constant)
+            else _UNKNOWN
+        )
+        operator = operators.get(type(node.ops[0]))
+        if name is not None and operator is not None and _is_scalar(literal):
+            assert literal is None or isinstance(literal, str | int | float | bool)
+            result.append((identity_from_name(name), operator, literal))
+    return tuple(result)
+
+
+def _qualified_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _qualified_name(node.value)
+        return f"{parent}.{node.attr}" if parent is not None else None
+    return None
+
+
+def _dedupe_requirements(
+    requirements: Iterable[RequirementAttribution],
+) -> list[RequirementAttribution]:
+    result: dict[str, RequirementAttribution] = {}
+    priority = {
+        RequirementSource.PROVEN_EFFECT: 0,
+        RequirementSource.REPEATED_EVENT: 0,
+        RequirementSource.ENTRY_PRECONDITION: 1,
+        RequirementSource.UNKNOWN: 2,
+    }
+    for item in requirements:
+        prior = result.get(item.fact_id)
+        if prior is None or priority[item.source] < priority[prior.source]:
+            result[item.fact_id] = item
+    return [result[key] for key in sorted(result)]
+
+
+def _strings(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value):
+        return ()
+    return tuple(value)
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_scalar(value: object) -> bool:
+    return value is None or isinstance(value, str | int | float | bool)
