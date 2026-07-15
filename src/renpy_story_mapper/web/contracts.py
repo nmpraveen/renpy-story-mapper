@@ -108,6 +108,20 @@ M10_INSPECTION_MAP_REQUEST_FIELDS: Final = (
 )
 M10_DETAIL_REQUEST_FIELDS: Final = ("view", "element_id")
 
+M11_API_ROUTES: Final[dict[str, str]] = {
+    "scene_map": "/api/v1/m11/scene-map",
+    "detail": "/api/v1/m11/detail",
+}
+M11_SCENE_MAP_REQUEST_FIELDS: Final = (
+    "offset",
+    "limit",
+    "relationship_offset",
+    "relationship_limit",
+    "query",
+    "focus",
+)
+M11_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:

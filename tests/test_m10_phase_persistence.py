@@ -72,6 +72,10 @@ def test_successful_analysis_persists_one_generation_and_phase_progress(tmp_path
         ("canonical_graph", 85),
         ("simplified_projection", 92),
         ("inspection_projection", 96),
+        ("story_atoms", 97),
+        ("scene_boundaries", 98),
+        ("scene_assembly", 99),
+        ("scene_presentation", 99),
         ("complete", 100),
     ]
 

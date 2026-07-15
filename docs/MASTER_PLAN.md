@@ -1116,8 +1116,7 @@ Explicit exclusions:
 
 ### M10 - Canonical deterministic inspection graph
 
-Status: Complete and merged; final corrective hardening is under review on
-`codex/m10-final-hardening`.
+Status: Complete and merged through corrective hardening.
 
 M10 owns the generation-bound canonical graph, bounded simplified structural inspection,
 deterministic reachability and branch provenance, whole-authority search/focus, and safe local
@@ -1125,6 +1124,9 @@ browser inspection. It does not infer human chapters, solve arbitrary paths, or 
 claims.
 
 ### M11 - Human story scenes and chapters
+
+Status: Implementation and validation complete on `codex/m11-human-scenes`; pull-request
+creation is explicitly approved, and M12 remains blocked pending M11 review.
 
 M11 owns human story scenes and scene/chapter presentation derived from deterministic evidence.
 It may improve narrative readability without replacing the M10 canonical authority.
@@ -1218,8 +1220,8 @@ and unresolved items.
 
 - Repository: `nmpraveen/renpy-story-mapper`
 - Windows runtime: CPython 3.12
-- Canonical read-only sample:
-  `C:\Users\prave\University of Michigan Dropbox\Praveen Manivannan\Windows Mac portal\scripts.rpa`
+- Canonical read-only sample: the locally held private `scripts.rpa`; its machine-specific path is
+  deliberately excluded from repository documentation.
 - Never modify, replace, rename, unpack into, or write beside the canonical archive.
 - Put outputs in the repository worktree or a Windows temporary directory.
 - Before and after archive access, record SHA-256, size, and `LastWriteTimeUtc`.
@@ -1231,6 +1233,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Review and merge PR #19 from `codex/m10-final-hardening`. After PR #19 is merged and only with
-explicit user approval, begin M11 human story scenes and chapters. Do not start M11 while PR #19
-is under review.
+Create the approved M11 pull request from `codex/m11-human-scenes`, then wait for review. Do not
+merge it or begin M12 without separate user direction.
