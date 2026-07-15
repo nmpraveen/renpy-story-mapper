@@ -15,8 +15,8 @@ from renpy_story_mapper.storage import canonical_json
 
 M11_SCENE_MODEL_SCHEMA_VERSION = 1
 M11_SCENE_MODEL_SCHEMA = f"m11-scene-model-v{M11_SCENE_MODEL_SCHEMA_VERSION}"
-M11_ATOM_RULE_VERSION = "m11-atom-rules-v1"
-M11_BOUNDARY_RULE_VERSION = "m11-boundary-rules-v1"
+M11_ATOM_RULE_VERSION = "m11-atom-rules-v2"
+M11_BOUNDARY_RULE_VERSION = "m11-boundary-rules-v2"
 MAX_BOUNDARY_REASON_LENGTH = 500
 MAX_PROVENANCE_REFERENCES = 100_000
 

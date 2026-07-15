@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -48,6 +49,7 @@ from renpy_story_mapper.m11_scene_model import (
     TemporaryBranchContainer,
     stable_m11_id,
 )
+from renpy_story_mapper.state import StateCategory, infer_state_category
 from renpy_story_mapper.storage import canonical_json
 
 STORY_ATOMS_SCHEMA = "m11-story-atoms-v1"
@@ -66,6 +68,10 @@ _DAY_OR_CHAPTER = re.compile(
 _PROGRESSION_EFFECT = re.compile(
     r"\b(?:day|chapter|episode|act)\b\s*(?:\+=|=)", re.IGNORECASE
 )
+_MINIMUM_NARRATIVE_RUN = 3
+_ORDERING_IGNORED_EDGE_KINDS = frozenset({"call_enter"})
+_ORDERING_CYCLE_EDGE_KINDS = frozenset({"loop_back"})
+_MAX_RELATIONSHIP_CANONICAL_EDGE_IDS = 60
 
 
 @dataclass(frozen=True)
@@ -102,11 +108,12 @@ def build_story_atoms(
     facts = _records(root, "facts")
     evidence = {_text(item, "id"): item for item in _records(root, "evidence")}
 
-    atoms = tuple(
-        sorted(
-            (_atom_for_node(node, evidence) for node in nodes),
-            key=lambda item: (item.source_order, item.id),
-        )
+    projected_atoms = tuple(_atom_for_node(node, evidence) for node in nodes)
+    atoms = _canonical_story_atoms(
+        nodes,
+        edges,
+        regions,
+        projected_atoms,
     )
     atom_by_node = {item.primary_node_id: item.id for item in atoms}
     coverage = _canonical_coverage(
@@ -139,20 +146,34 @@ def build_scene_boundaries(
     _require_phase_binding(story_atoms, STORY_ATOMS_SCHEMA, binding)
     atoms = tuple(_atom_from_value(item) for item in _records(story_atoms, "atoms"))
     node_by_id = {_text(item, "id"): item for item in _records(root, "nodes")}
+    fact_by_id = {_text(item, "id"): item for item in _records(root, "facts")}
+    regions = _records(root, "regions")
     persistent_entries, persistent_merges = _persistent_boundary_nodes(root)
+    resolved_label_entries = _resolved_label_entry_support(root)
+    unresolved_targets = _unresolved_boundary_support(root)
+    atom_by_node = {item.primary_node_id: item for item in atoms}
+    scope_by_atom = _atom_scope_keys(regions, atom_by_node)
 
     decisions: list[BoundaryDecision] = []
     chapter_starts: list[str] = []
     prior_atom_id: str | None = None
-    pending_progression = False
-    pending_chapter = False
-    prior_label: str | None = None
+    pending_chapter_support: dict[tuple[str, str, int], Provenance] = {}
+    pending_location_support: dict[tuple[str, str, int], Provenance] = {}
+    pending_resolved_entry: dict[tuple[str, str, int], Provenance] = {}
+    pending_terminal: dict[tuple[str, str, int], Provenance] = {}
+    narrative_run: dict[tuple[str, str, int], int] = defaultdict(int)
+    prior_atom_by_scope: dict[tuple[str, str, int], StoryAtom] = {}
+    prior_label_by_scope: dict[tuple[str, str, int], str] = {}
     for index, atom in enumerate(atoms):
         node = node_by_id[atom.primary_node_id]
         attributes = _mapping(node.get("attributes"), "canonical node attributes")
         source_text = str(attributes.get("source_text", ""))
         source_kind = str(attributes.get("source_kind", ""))
         label = str(node.get("label", ""))
+        scope = scope_by_atom.get(atom.id, ("lane_story_spine", "", -1))
+        prior_scope_atom = prior_atom_by_scope.get(scope)
+        prior_label = prior_label_by_scope.get(scope)
+        fact_support = _fact_category_provenance(attributes, fact_by_id)
         accepted = False
         strength = BoundaryStrength.WEAK
         rule_id = "continuation_candidate"
@@ -176,41 +197,95 @@ def build_scene_boundaries(
             rule_id = "persistent_lane_merge"
             reason = "This exact M10 merge returns presentation ownership to the parent lane."
             structural_provenance = persistent_merges[atom.primary_node_id]
-        elif pending_chapter and atom.story_facing:
+        elif scope in pending_chapter_support and _is_chapter_anchor(atom, source_kind):
             accepted = True
             strength = BoundaryStrength.HARD
             rule_id = "explicit_chapter_progression"
-            reason = "The chapter begins at the next narrative atom after its source marker."
+            reason = "Proven progression begins a chapter at the next narrative scene anchor."
             chapter_starts.append(atom.id)
-            pending_progression = False
-            pending_chapter = False
-        elif (
-            pending_progression
-            and atom.story_facing
-            and source_kind in {"scene", "show"}
-        ):
-            accepted = True
-            strength = BoundaryStrength.STRONG
-            rule_id = "reinforced_progression"
-            reason = "A visual transition reinforces progression at the next narrative atom."
-            chapter_starts.append(atom.id)
-            pending_progression = False
-        elif source_kind == "scene":
-            accepted = True
-            strength = BoundaryStrength.HARD
-            rule_id = "explicit_scene_reset"
-            reason = "A source-authored scene statement supplies a hard visual reset."
-        elif source_kind in {"show", "hide"}:
-            accepted = True
-            strength = BoundaryStrength.STRONG
-            rule_id = "visual_context_change"
-            reason = "A source-authored visual context change supports a strong scene boundary."
+            structural_provenance = pending_chapter_support.pop(scope)
         elif source_kind in {"module_start", "module_end"}:
             accepted = True
             strength = BoundaryStrength.HARD
             rule_id = "canonical_module_boundary"
             reason = "M10 module ownership prevents disconnected source files from sharing a scene."
-        elif source_kind == "label" or (
+        elif (
+            atom.kind is AtomKind.UNRESOLVED
+            or str(node.get("reachability")) == "unresolved_dynamic_behavior"
+            or atom.primary_node_id in unresolved_targets
+        ):
+            accepted = True
+            strength = BoundaryStrength.HARD
+            rule_id = "unresolved_safety"
+            reason = (
+                "M10 marks this story transition unresolved, so presentation "
+                "cannot merge across it."
+            )
+            structural_provenance = unresolved_targets.get(atom.primary_node_id)
+        elif scope in pending_terminal:
+            accepted = True
+            strength = BoundaryStrength.HARD
+            rule_id = "terminal_transition"
+            reason = "The atom after an M10 terminal begins separate presentation ownership."
+            structural_provenance = pending_terminal[scope]
+        elif source_kind == "scene" and scope in pending_location_support:
+            accepted = True
+            strength = BoundaryStrength.STRONG
+            rule_id = "reinforced_location_transition"
+            reason = "A proven location effect reinforces this source-authored scene reset."
+            structural_provenance = pending_location_support[scope]
+        elif source_kind == "scene" and scope in pending_resolved_entry:
+            accepted = True
+            strength = BoundaryStrength.STRONG
+            rule_id = "reinforced_resolved_transfer"
+            reason = (
+                "An exact resolved M10 story transfer reinforces this "
+                "source-authored scene reset."
+            )
+            structural_provenance = pending_resolved_entry[scope]
+        elif source_kind == "scene":
+            strength = BoundaryStrength.STRONG
+            if narrative_run[scope] >= _MINIMUM_NARRATIVE_RUN:
+                accepted = True
+                rule_id = "minimum_narrative_run"
+                reason = (
+                    "A source-authored scene reset follows the versioned minimum "
+                    f"narrative run of {_MINIMUM_NARRATIVE_RUN} atoms."
+                )
+            else:
+                rule_id = "scene_reset_candidate"
+                reason = (
+                    "A source-authored scene reset remains a strong candidate without "
+                    "enough deterministic reinforcement to cut the human scene."
+                )
+        elif source_kind in {"show", "hide"}:
+            strength = BoundaryStrength.WEAK
+            rule_id = "routine_visual_change"
+            reason = "Routine show and hide operations remain weak retained visual candidates."
+        elif source_kind == "label":
+            continuation = (
+                None
+                if prior_scope_atom is None
+                else resolved_label_entries.get(atom.primary_node_id, {}).get(
+                    prior_scope_atom.primary_node_id
+                )
+            )
+            if continuation is None:
+                accepted = True
+                strength = BoundaryStrength.HARD
+                rule_id = "canonical_procedure_entry"
+                reason = (
+                    "M10 has no normal resolved story predecessor for this procedure entry."
+                )
+            else:
+                strength = BoundaryStrength.WEAK
+                rule_id = "resolved_label_continuation"
+                reason = (
+                    "An exact resolved M10 story edge continues through this label without "
+                    "forcing a human-scene cut."
+                )
+                structural_provenance = continuation
+        elif (
             label != prior_label
             and source_kind in {"call_return_site", "procedure_return_boundary"}
         ):
@@ -244,14 +319,42 @@ def build_scene_boundaries(
                 rule_id,
             )
         )
+
+        if accepted:
+            narrative_run[scope] = 0
+        if atom.kind in {AtomKind.DIALOGUE, AtomKind.NARRATION}:
+            narrative_run[scope] += 1
+
+        if source_kind == "label":
+            if rule_id == "resolved_label_continuation" and structural_provenance is not None:
+                pending_resolved_entry[scope] = structural_provenance
+            else:
+                pending_resolved_entry.pop(scope, None)
+        elif source_kind == "scene" or (
+            atom.story_facing and source_kind not in {"show", "hide", "with"}
+        ):
+            pending_resolved_entry.pop(scope, None)
+            pending_location_support.pop(scope, None)
+
         if source_kind == "label" and _DAY_OR_CHAPTER.search(label):
-            pending_chapter = True
-        elif _PROGRESSION_EFFECT.search(source_text):
-            pending_progression = True
-        elif pending_progression and atom.story_facing:
-            pending_progression = False
+            pending_chapter_support[scope] = atom.provenance
+        progression = fact_support.get(StateCategory.PROGRESSION)
+        if progression is not None or _PROGRESSION_EFFECT.search(source_text):
+            pending_chapter_support[scope] = progression or atom.provenance
+        location = fact_support.get(StateCategory.LOCATION)
+        if location is not None:
+            pending_location_support[scope] = location
+
+        if atom.kind is AtomKind.TERMINAL or source_kind in {
+            "return",
+            "procedure_return_boundary",
+        }:
+            pending_terminal[scope] = atom.provenance
+        else:
+            pending_terminal.pop(scope, None)
         prior_atom_id = atom.id
-        prior_label = label
+        prior_atom_by_scope[scope] = atom
+        prior_label_by_scope[scope] = label
 
     return {
         "schema": SCENE_BOUNDARIES_SCHEMA,
@@ -362,6 +465,7 @@ def _assemble_model(
     node_by_id = {_text(item, "id"): item for item in nodes}
     atom_by_node = {item.primary_node_id: item for item in atoms}
     atom_by_id = {item.id: item for item in atoms}
+    atom_rank = {item.id: index for index, item in enumerate(atoms)}
     boundary_by_atom = {item.after_atom_id: item for item in boundaries}
     called_labels = {
         str(node_by_id[_text(edge, "target_id")].get("label", ""))
@@ -434,6 +538,7 @@ def _assemble_model(
         node_by_id,
         atom_by_node,
         atom_by_id,
+        atom_rank,
         scene_by_atom,
         {item.id: item for item in scenes},
     )
@@ -441,6 +546,7 @@ def _assemble_model(
         regions,
         edges,
         atom_by_node,
+        atom_rank,
         scene_by_atom,
         scene_context_by_id,
         occurrences,
@@ -597,6 +703,46 @@ def _lane_specs(
     }
 
 
+def _atom_scope_keys(
+    regions: Sequence[Mapping[str, object]],
+    atom_by_node: Mapping[str, StoryAtom],
+) -> dict[str, tuple[str, str, int]]:
+    """Return deterministic lane/temporary-arm scopes for local run counters."""
+
+    _specs, atom_lane = _lane_specs(regions, atom_by_node)
+    temporary, _parents = _temporary_region_index(regions)
+    arm_candidates: dict[str, list[tuple[int, str, int]]] = defaultdict(list)
+    for region in temporary:
+        region_id = _text(region, "id")
+        split_node_id = _text(region, "split_node_id")
+        merge_node_id = _text(region, "merge_node_id")
+        for arm in _records(
+            _mapping(region.get("attributes"), "region attributes"), "arms"
+        ):
+            ordinal = _integer(arm, "ordinal")
+            node_ids = {
+                _text(arm, "entry_node_id"),
+                *_strings(arm.get("member_node_ids")),
+            } - {split_node_id, merge_node_id}
+            atom_ids = {
+                atom_by_node[node_id].id
+                for node_id in node_ids
+                if node_id in atom_by_node
+            }
+            for atom_id in atom_ids:
+                arm_candidates[atom_id].append((len(atom_ids), region_id, ordinal))
+
+    result: dict[str, tuple[str, str, int]] = {}
+    for atom in atom_by_node.values():
+        selected_arm = min(arm_candidates.get(atom.id, ((0, "", -1),)))
+        result[atom.id] = (
+            atom_lane.get(atom.id, "lane_story_spine"),
+            selected_arm[1],
+            selected_arm[2],
+        )
+    return result
+
+
 def _lanes(
     specs: Mapping[str, _LaneSpec],
     scenes: Sequence[Scene],
@@ -627,6 +773,7 @@ def _call_occurrences(
     node_by_id: Mapping[str, Mapping[str, object]],
     atom_by_node: Mapping[str, StoryAtom],
     atom_by_id: Mapping[str, StoryAtom],
+    atom_rank: Mapping[str, int],
     scene_by_atom: Mapping[str, str],
     scene_by_id: Mapping[str, Scene],
 ) -> list[CallSiteOccurrence]:
@@ -641,7 +788,7 @@ def _call_occurrences(
         }:
             atoms_by_label[label].append(atom)
     for values in atoms_by_label.values():
-        values.sort(key=lambda item: (item.source_order, item.id))
+        values.sort(key=lambda item: (atom_rank[item.id], item.id))
 
     result: list[CallSiteOccurrence] = []
     seen: set[tuple[str, str, str]] = set()
@@ -818,6 +965,7 @@ def _temporary_branches(
     regions: Sequence[Mapping[str, object]],
     edges: Sequence[Mapping[str, object]],
     atom_by_node: Mapping[str, StoryAtom],
+    atom_rank: Mapping[str, int],
     scene_by_atom: Mapping[str, str],
     scene_context_by_id: Mapping[str, tuple[str, int] | None],
     occurrences: Sequence[CallSiteOccurrence],
@@ -861,7 +1009,7 @@ def _temporary_branches(
             )
             arm_atoms = sorted(
                 (atom_by_node[item] for item in node_ids if item in atom_by_node),
-                key=lambda item: (item.source_order, item.id),
+                key=lambda item: (atom_rank[item.id], item.id),
             )
             atom_ids = tuple(
                 item.id for item in arm_atoms if item.id != continuation
@@ -1146,6 +1294,37 @@ def build_scene_presentation(
         for atom_id in _strings(scene.get("atom_ids"))
     }
     relationships: list[dict[str, object]] = []
+    flow_edge_ids: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for edge in _records(root, "edges"):
+        if (
+            not bool(edge.get("resolved", True))
+            or str(edge.get("kind", "")) in _ORDERING_IGNORED_EDGE_KINDS
+        ):
+            continue
+        source_scene = scene_by_atom_id.get(
+            stable_m11_id("atom", _text(edge, "source_id"))
+        )
+        target_scene = scene_by_atom_id.get(
+            stable_m11_id("atom", _text(edge, "target_id"))
+        )
+        if (
+            source_scene is None
+            or target_scene is None
+            or source_scene == target_scene
+            or source_scene not in visible_ids
+            or target_scene not in visible_ids
+        ):
+            continue
+        flow_edge_ids[(source_scene, target_scene)].append(_text(edge, "id"))
+    for (source_scene, target_scene), edge_ids in sorted(flow_edge_ids.items()):
+        relationships.append(
+            _presentation_relationship(
+                "scene_flow",
+                source_scene,
+                target_scene,
+                canonical_edge_ids=tuple(sorted(set(edge_ids))),
+            )
+        )
     for branch in branches:
         branch_id = _text(branch, "id")
         parent_scene_id = _text(branch, "parent_scene_id")
@@ -1574,6 +1753,101 @@ def _atom_for_node(
     )
 
 
+def _canonical_story_atoms(
+    nodes: Sequence[Mapping[str, object]],
+    edges: Sequence[Mapping[str, object]],
+    regions: Sequence[Mapping[str, object]],
+    atoms: Sequence[StoryAtom],
+) -> tuple[StoryAtom, ...]:
+    """Linearize exact M10 precedence; use route/source order only for ties."""
+
+    atom_by_node = {atom.primary_node_id: atom for atom in atoms}
+    node_by_id = {_text(node, "id"): node for node in nodes}
+
+    loop_return_edges = {
+        _text(edge, "id")
+        for region in regions
+        if str(region.get("kind", "")) == "loop_choice"
+        for edge in edges
+        if _text(edge, "target_id") == _text(region, "split_node_id")
+        and _text(edge, "source_id")
+        in {
+            _text(region, "split_node_id"),
+            *_strings(region.get("member_node_ids")),
+        }
+    }
+
+    route_order_by_label: dict[str, int] = {}
+    for node in nodes:
+        attributes = _mapping(node.get("attributes"), "canonical node attributes")
+        route = attributes.get("route")
+        if not isinstance(route, Mapping):
+            continue
+        order = route.get("order")
+        if not isinstance(order, int) or isinstance(order, bool):
+            continue
+        label = str(node.get("label", ""))
+        route_order_by_label[label] = min(route_order_by_label.get(label, order), order)
+
+    def priority(node_id: str) -> tuple[int, tuple[str, int, int, str], str]:
+        node = node_by_id[node_id]
+        attributes = _mapping(node.get("attributes"), "canonical node attributes")
+        route = attributes.get("route")
+        route_order: int | None = None
+        if isinstance(route, Mapping):
+            candidate = route.get("order")
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                route_order = candidate
+        if route_order is None:
+            route_order = route_order_by_label.get(str(node.get("label", "")), 2**31 - 1)
+        atom = atom_by_node[node_id]
+        return (route_order, atom.source_order, atom.id)
+
+    successors: dict[str, set[str]] = defaultdict(set)
+    indegree = {node_id: 0 for node_id in atom_by_node}
+    for edge in edges:
+        edge_id = _text(edge, "id")
+        source_id = _text(edge, "source_id")
+        target_id = _text(edge, "target_id")
+        if (
+            edge_id in loop_return_edges
+            or str(edge.get("kind", "")) in _ORDERING_IGNORED_EDGE_KINDS
+            or str(edge.get("kind", "")) in _ORDERING_CYCLE_EDGE_KINDS
+            or not bool(edge.get("resolved", True))
+            or source_id == target_id
+            or source_id not in atom_by_node
+            or target_id not in atom_by_node
+            or target_id in successors[source_id]
+        ):
+            continue
+        successors[source_id].add(target_id)
+        indegree[target_id] += 1
+
+    ready: list[tuple[tuple[int, tuple[str, int, int, str], str], str]] = []
+    remaining = set(atom_by_node)
+    for node_id, count in indegree.items():
+        if count == 0:
+            heapq.heappush(ready, (priority(node_id), node_id))
+
+    ordered: list[StoryAtom] = []
+    while remaining:
+        if not ready:
+            # Exact graphs can retain non-loop cycles around procedures. Breaking the
+            # smallest remaining tie only linearizes presentation; it adds no edge.
+            node_id = min(remaining, key=priority)
+        else:
+            _key, node_id = heapq.heappop(ready)
+            if node_id not in remaining:
+                continue
+        remaining.remove(node_id)
+        ordered.append(atom_by_node[node_id])
+        for target_id in sorted(successors.get(node_id, ()), key=priority):
+            indegree[target_id] -= 1
+            if indegree[target_id] == 0 and target_id in remaining:
+                heapq.heappush(ready, (priority(target_id), target_id))
+    return tuple(ordered)
+
+
 def _atom_classification(
     node_kind: str,
     source_kind: str,
@@ -1790,6 +2064,104 @@ def _persistent_boundary_nodes(
     )
 
 
+def _resolved_label_entry_support(
+    canonical: Mapping[str, object],
+) -> dict[str, dict[str, Provenance]]:
+    """Index exact M10 story transfers that continue into a label entry."""
+
+    nodes = _records(canonical, "nodes")
+    label_nodes = {
+        _text(node, "id")
+        for node in nodes
+        if str(
+            _mapping(node.get("attributes"), "canonical node attributes").get(
+                "source_kind", ""
+            )
+        )
+        == "label"
+    }
+    support: dict[str, dict[str, list[Provenance]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for edge in _records(canonical, "edges"):
+        source_id = _text(edge, "source_id")
+        target_id = _text(edge, "target_id")
+        if (
+            target_id not in label_nodes
+            or not bool(edge.get("resolved", True))
+            or str(edge.get("kind", "")) not in {"flow", "jump"}
+        ):
+            continue
+        support[target_id][source_id].append(_edge_provenance(edge))
+    return {
+        target_id: {
+            source_id: _merge_provenance(values)
+            for source_id, values in by_source.items()
+        }
+        for target_id, by_source in support.items()
+    }
+
+
+def _unresolved_boundary_support(
+    canonical: Mapping[str, object],
+) -> dict[str, Provenance]:
+    """Index exact unresolved M10 edges by their presentation-safe target."""
+
+    support: dict[str, list[Provenance]] = defaultdict(list)
+    for edge in _records(canonical, "edges"):
+        if (
+            bool(edge.get("resolved", True))
+            and str(edge.get("kind", "")) != "unresolved"
+            and str(edge.get("reachability", "")) != "unresolved_dynamic_behavior"
+        ):
+            continue
+        support[_text(edge, "target_id")].append(_edge_provenance(edge))
+    return {
+        node_id: _merge_provenance(values) for node_id, values in support.items()
+    }
+
+
+def _fact_category_provenance(
+    attributes: Mapping[str, object],
+    fact_by_id: Mapping[str, Mapping[str, object]],
+) -> dict[StateCategory, Provenance]:
+    """Return proven semantic state categories using the existing M10 fact taxonomy."""
+
+    support: dict[StateCategory, list[Provenance]] = defaultdict(list)
+    for fact_id in _strings(attributes.get("fact_ids")):
+        fact = fact_by_id.get(fact_id)
+        if fact is None or str(fact.get("status", "")) != "proven":
+            continue
+        fact_attributes = _mapping(fact.get("attributes"), "canonical fact attributes")
+        variable = fact_attributes.get("variable")
+        if not isinstance(variable, str) or not variable:
+            continue
+        category = infer_state_category(variable)
+        if category not in {StateCategory.LOCATION, StateCategory.PROGRESSION}:
+            continue
+        support[category].append(
+            Provenance(
+                fact_ids=(fact_id,),
+                evidence_ids=tuple(sorted(_strings(fact.get("evidence_ids")))),
+            )
+        )
+    return {
+        category: _merge_provenance(values) for category, values in support.items()
+    }
+
+
+def _is_chapter_anchor(atom: StoryAtom, source_kind: str) -> bool:
+    if source_kind in {"show", "hide", "with", "label"}:
+        return False
+    return atom.story_facing or atom.kind in {
+        AtomKind.CHOICE,
+        AtomKind.CALL,
+        AtomKind.LOOP,
+        AtomKind.TERMINAL,
+        AtomKind.UNRESOLVED,
+    }
+
+
 def _merge_continuation(
     merge_node_id: str,
     edges: Sequence[Mapping[str, object]],
@@ -1863,13 +2235,26 @@ def _scene_title(
     return f"Scene {ordinal + 1}"
 
 
-def _presentation_relationship(kind: str, source_id: str, target_id: str) -> dict[str, object]:
-    return {
+def _presentation_relationship(
+    kind: str,
+    source_id: str,
+    target_id: str,
+    *,
+    canonical_edge_ids: Sequence[str] = (),
+) -> dict[str, object]:
+    value: dict[str, object] = {
         "id": stable_m11_id("relationship", kind, source_id, target_id),
         "kind": kind,
         "source_id": source_id,
         "target_id": target_id,
     }
+    if canonical_edge_ids:
+        edge_ids = tuple(sorted(set(canonical_edge_ids)))
+        value["canonical_edge_ids"] = list(
+            edge_ids[:_MAX_RELATIONSHIP_CANONICAL_EDGE_IDS]
+        )
+        value["canonical_edge_count"] = len(edge_ids)
+    return value
 
 
 def _source_order(

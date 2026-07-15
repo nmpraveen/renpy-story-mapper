@@ -88,10 +88,20 @@ def run(output_dir: Path) -> dict[str, object]:
             measurement["canonical_records"], "canonical records"
         ):
             raise AssertionError("M11 canonical coverage is not exact")
-        if measurement["workload"] == "scene_rich" and _as_int(
-            measurement["scenes"], "scenes"
-        ) < _as_int(measurement["statements"], "statements"):
-            raise AssertionError("scene-rich acceptance did not emit one scene per hard boundary")
+        if measurement["workload"] == "scene_rich":
+            linear = by_workload_count[("linear", _as_int(measurement["statements"], "statements"))]
+            if _as_int(measurement["scenes"], "scenes") <= _as_int(
+                linear["scenes"], "linear scenes"
+            ):
+                raise AssertionError("scene-rich acceptance lost reinforced scene transitions")
+            if not _as_int(
+                measurement["accepted_scene_candidates"], "accepted scene candidates"
+            ) or not _as_int(
+                measurement["rejected_scene_candidates"], "rejected scene candidates"
+            ):
+                raise AssertionError(
+                    "scene-rich acceptance did not retain both accepted and rejected candidates"
+                )
     report: dict[str, object] = {
         "schema_version": 1,
         "status": "passed",
@@ -149,6 +159,7 @@ def _measure(output_dir: Path, statements: int, workload: str) -> dict[str, obje
         if rebuilt_assembly != selection.phase_results["scene_assembly"]:
             raise AssertionError("replayed M11 assembly/validation changed persisted output")
     model = stored_scene_model_mapping(selection.phase_results)
+    boundaries = _records(model.get("boundaries"), "boundaries")
     coverage = _mapping(model.get("coverage"), "coverage")
     collections = ("nodes", "edges", "regions", "facts")
     canonical_records = sum(len(_records(canonical.get(key), key)) for key in collections)
@@ -163,6 +174,21 @@ def _measure(output_dir: Path, statements: int, workload: str) -> dict[str, obje
         "canonical_records": canonical_records,
         "story_atoms": len(_records(model.get("atoms"), "atoms")),
         "scenes": len(_records(model.get("scenes"), "scenes")),
+        "accepted_scene_candidates": sum(
+            item.get("status") == "accepted"
+            and item.get("rule_id")
+            in {
+                "minimum_narrative_run",
+                "reinforced_location_transition",
+                "reinforced_resolved_transfer",
+            }
+            for item in boundaries
+        ),
+        "rejected_scene_candidates": sum(
+            item.get("status") == "rejected"
+            and item.get("rule_id") == "scene_reset_candidate"
+            for item in boundaries
+        ),
         "coverage_entries": len(_records(coverage.get("entries"), "coverage entries")),
         "scene_model_bytes": len(canonical_json(dict(model))),
         "m11_payload_bytes": sum(int(row[0]) for row in rows),

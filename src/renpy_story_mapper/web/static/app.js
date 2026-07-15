@@ -109,6 +109,13 @@ function aiLane(node) {
   return { id: "ai-story-spine", kind: "spine", label: "Story spine" };
 }
 
+function sceneNodeOrder(node) {
+  const pageOrder = Number(node.page_order);
+  if (node.page_order !== null && node.page_order !== undefined && node.page_order !== "" && Number.isFinite(pageOrder)) return pageOrder;
+  const ordinal = Number(node.ordinal);
+  return Number.isFinite(ordinal) ? ordinal : 0;
+}
+
 function normalizedPage(page, mode = state.mode) {
   if (mode === "scenes") {
     const laneLabels = { spine: "Story spine", persistent_route: "Persistent route", terminal_route: "Terminal route" };
@@ -123,7 +130,7 @@ function normalizedPage(page, mode = state.mode) {
         : node.occurrence_id
           ? `Call-site occurrence · ${node.referenced_atom_ids?.length || 0} referenced atoms`
           : `${node.atom_ids?.length || 0} story atoms · ${String(node.boundary_strength || "continuation").replaceAll("_", " ")} boundary`;
-      return { ...node, presentation_kind: presentationKind, kind, role: presentationKind, lane_kind: lane.kind === "spine" ? "spine" : "persistent", lane_label: lane.label, summary };
+      return { ...node, order: sceneNodeOrder(node), presentation_kind: presentationKind, kind, role: presentationKind, lane_kind: lane.kind === "spine" ? "spine" : "persistent", lane_label: lane.label, summary };
     });
     return {
       ...page,

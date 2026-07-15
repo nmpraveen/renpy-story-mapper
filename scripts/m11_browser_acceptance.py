@@ -76,7 +76,7 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 "document.querySelectorAll('.station').length > 0 && document.querySelector('#sceneMapButton').getAttribute('aria-pressed') === 'true'"
             )
             default = session.evaluate(
-                "import('./app.js').then(m=>({mode:m.state.mode,badge:document.querySelector('#projectBadge').textContent,title:document.querySelector('#mapTitle').textContent,nodes:m.state.page.nodes.length,relationships:m.state.page.edges.length,chapterBands:m.state.page.chapter_bands.length,chapterIndexHidden:document.querySelector('#chapterIndex').hidden,laneCount:document.querySelectorAll('#laneList .line-key').length,status:document.querySelector('#pageStatus').textContent,nextDisabled:document.querySelector('#nextPage').disabled}))"
+                "import('./app.js').then(m=>{const sceneNodes=m.graph.nodes.filter(node=>node.presentation_kind==='scene_occurrence'&&!node.occurrence_id); const laneCounts=new Map(); for(const node of sceneNodes) laneCounts.set(node.lane_id,(laneCounts.get(node.lane_id)||0)+1); const sameLaneId=[...laneCounts].sort((left,right)=>right[1]-left[1]||String(left[0]).localeCompare(String(right[0])))[0]?.[0]; const sameLaneScenes=sceneNodes.filter(node=>node.lane_id===sameLaneId); const coordinate=node=>{const position=m.graph.positions.get(node.id); return `${position?.x}:${position?.y}`;}; const coordinates=sameLaneScenes.map(coordinate); const allCoordinates=m.graph.nodes.map(coordinate); const byLane=new Map(); for(const node of m.graph.nodes){const values=byLane.get(node.lane_id)||[]; values.push(node); byLane.set(node.lane_id,values);} const duplicatePairs=[...byLane.values()].flatMap(nodes=>nodes.flatMap((left,index)=>nodes.slice(index+1).filter(right=>coordinate(left)===coordinate(right)).map(right=>[left.id,right.id]))); const cards=[...document.querySelectorAll('.station')]; return {mode:m.state.mode,badge:document.querySelector('#projectBadge').textContent,title:document.querySelector('#mapTitle').textContent,nodes:m.state.page.nodes.length,relationships:m.state.page.edges.length,chapterBands:m.state.page.chapter_bands.length,chapterIndexHidden:document.querySelector('#chapterIndex').hidden,laneCount:document.querySelectorAll('#laneList .line-key').length,persistentCards:m.graph.nodes.filter(node=>node.lane_kind==='persistent').length,status:document.querySelector('#pageStatus').textContent,nextDisabled:document.querySelector('#nextPage').disabled,renderedCards:cards.length,renderedCardIds:cards.map(card=>card.dataset.elementId),loadedNodeIds:m.graph.nodes.map(node=>node.id),sameLaneId,sameLaneCount:sameLaneScenes.length,sameLaneCoordinates:coordinates,distinctGraphPositions:new Set(allCoordinates).size,distinctSameLaneCoordinates:new Set(coordinates).size,duplicateSameLanePairs:duplicatePairs,pageOrderMapped:m.graph.nodes.every(node=>Number.isFinite(node.order)&&Number(node.order)===Number(node.page_order))};})"
             )
             if (
                 default["mode"] != "scenes"
@@ -87,19 +87,42 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                 or default["chapterIndexHidden"]
             ):
                 raise AssertionError(f"M11 was not the bounded primary scene view: {default}")
+            if (
+                default["sameLaneCount"] < 10
+                or default["renderedCards"] != default["nodes"]
+                or set(default["renderedCardIds"]) != set(default["loadedNodeIds"])
+                or default["distinctGraphPositions"] != default["nodes"]
+                or default["distinctSameLaneCoordinates"] != default["sameLaneCount"]
+                or default["duplicateSameLanePairs"]
+                or not default["pageOrderMapped"]
+            ):
+                raise AssertionError(f"M11 same-lane scene cards overlap or are missing: {default}")
             map_shot = output / f"m11-scenes-{zoom}.png"
             DRIVER._screenshot(session, map_shot)
 
-            if not default["nextDisabled"]:
+            route_page = {
+                "offset": 0,
+                "nodes": default["nodes"],
+                "relationships": default["relationships"],
+                "persistentCards": default["persistentCards"],
+                "nextDisabled": default["nextDisabled"],
+            }
+            while not route_page["persistentCards"] and not route_page["nextDisabled"]:
+                prior_offset = route_page["offset"]
                 session.evaluate("document.querySelector('#nextPage').click()")
-                session.wait("import('./app.js').then(m=>m.state.offset>=30)")
-                paged = session.evaluate(
-                    "import('./app.js').then(m=>({offset:m.state.offset,nodes:m.state.page.nodes.length,relationships:m.state.page.edges.length}))"
+                session.wait(f"import('./app.js').then(m=>m.state.offset>{prior_offset})")
+                route_page = session.evaluate(
+                    "import('./app.js').then(m=>({offset:m.state.offset,nodes:m.state.page.nodes.length,relationships:m.state.page.edges.length,persistentCards:m.graph.nodes.filter(node=>node.lane_kind==='persistent').length,nextDisabled:document.querySelector('#nextPage').disabled}))"
                 )
-                if paged["nodes"] > 30 or paged["relationships"] > 180:
-                    raise AssertionError(f"M11 pagination exceeded browser bounds: {paged}")
-            else:
-                paged = {"offset": 0, "nodes": default["nodes"], "relationships": default["relationships"]}
+                if route_page["nodes"] > 30 or route_page["relationships"] > 180:
+                    raise AssertionError(f"M11 pagination exceeded browser bounds: {route_page}")
+            if not route_page["persistentCards"]:
+                raise AssertionError(f"M11 persistent lane has no rendered scene card: {route_page}")
+            session.evaluate(
+                "import('./app.js').then(m=>{const node=m.graph.nodes.filter(item=>item.lane_kind==='persistent').sort((left,right)=>left.order-right.order)[0]; const position=m.graph.positions.get(node.id); m.graph.scale=.5; m.graph.offset={x:260-position.x*.5,y:20}; m.graph.transform(); document.querySelector('#mapViewport').scrollIntoView({block:'center'});})"
+            )
+            route_shot = output / f"m11-scenes-cards-{zoom}.png"
+            DRIVER._screenshot(session, route_shot)
 
             session.evaluate(
                 "document.querySelector('#sceneMapButton').click(); const input=document.querySelector('#searchInput'); input.value='Temporary choice'; input.dispatchEvent(new Event('input',{bubbles:true}));"
@@ -107,18 +130,19 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
             session.wait(
                 "import('./app.js').then(m=>m.state.mode==='scenes' && m.graph.nodes.some(n=>n.presentation_kind==='temporary_branch'))"
             )
-            branch_id = session.evaluate(
-                "import('./app.js').then(m=>{const node=m.graph.nodes.find(n=>n.presentation_kind==='temporary_branch'); document.querySelector(`[data-element-id=\"${CSS.escape(node.id)}\"]`).click(); return node.id;})"
+            session.evaluate(
+                "Promise.all([import('./app.js'),import('./api.js')]).then(async ([m,{LocalApi}])=>{const api=new LocalApi(); const nodes=m.graph.nodes.filter(n=>n.presentation_kind==='temporary_branch'); const details=await Promise.all(nodes.map(async node=>({node,detail:await api.sceneDetail(node.id)}))); const selected=details.find(item=>item.detail.temporary_branch?.arms?.some(arm=>(arm.scene_ids?.length||0)>=2)); if(!selected) throw new Error('No temporary multi-scene branch is visible'); window.__m11EvidenceBranchId=String(selected.node.id); document.querySelector(`[data-element-id=\"${CSS.escape(selected.node.id)}\"]`).click(); return true;})"
             )
             session.wait(
-                f"import('./app.js').then(m=>m.state.detail?.element?.id==={json.dumps(branch_id)} && !document.querySelector('#detailView').hidden)"
+                "import('./app.js').then(m=>Boolean(window.__m11EvidenceBranchId) && m.state.detail?.element?.id===window.__m11EvidenceBranchId && !document.querySelector('#detailView').hidden)"
             )
             detail = session.evaluate(
-                "import('./app.js').then(m=>({level:m.state.detail.level,temporary:m.state.detail.temporary_branch!==null,atoms:m.state.detail.atoms.length,armLocal:m.state.detail.arm_local_scenes.length,evidence:m.state.detail.evidence.length,canonicalEscapes:m.state.detail.canonical_escape_ids.length,interpretationHidden:document.querySelector('#interpretationPanel').hidden,escapeHidden:document.querySelector('#canonicalEscapeButton').hidden}))"
+                "import('./app.js').then(m=>({level:m.state.detail.level,temporary:m.state.detail.temporary_branch!==null,atoms:m.state.detail.atoms.length,armLocal:m.state.detail.arm_local_scenes.length,armSceneCounts:m.state.detail.temporary_branch.arms.map(arm=>arm.scene_ids.length),evidence:m.state.detail.evidence.length,canonicalEscapes:m.state.detail.canonical_escape_ids.length,interpretationHidden:document.querySelector('#interpretationPanel').hidden,escapeHidden:document.querySelector('#canonicalEscapeButton').hidden}))"
             )
             if (
                 detail["level"] != "scene_detail"
                 or not detail["temporary"]
+                or max(detail["armSceneCounts"], default=0) < 2
                 or not detail["canonicalEscapes"]
                 or not detail["interpretationHidden"]
                 or detail["escapeHidden"]
@@ -148,14 +172,19 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, A
                     "height": DRIVER.VIEWPORTS[zoom][1],
                 },
                 "default": default,
-                "paged": paged,
+                "paged": route_page,
                 "detail": detail,
                 "canonical_escape": canonical_escape,
                 "layout": layout,
                 "browser_requests": request_count,
                 "remote_requests": remote,
                 "allowed_browser_errors": allowed_errors,
-                "screenshots": [map_shot.name, detail_shot.name, escape_shot.name],
+                "screenshots": [
+                    map_shot.name,
+                    route_shot.name,
+                    detail_shot.name,
+                    escape_shot.name,
+                ],
             }
         finally:
             session.close()

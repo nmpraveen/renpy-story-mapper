@@ -10,8 +10,13 @@ label start:
 
     menu:
         "Visit town":
+            "The walk toward town begins."
+            "The walk toward town continues."
+            "The town comes into view."
             scene park
             "The park is the first arm-local scene."
+            "The park visit continues."
+            "The park visit reaches its end."
             scene cafe
             "The cafe is the second arm-local scene."
         "Stay home":

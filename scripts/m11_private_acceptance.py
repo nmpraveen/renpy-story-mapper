@@ -12,6 +12,7 @@ import time
 import urllib.request
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from itertools import pairwise
 from pathlib import Path
 from types import ModuleType
 from unittest import mock
@@ -545,16 +546,52 @@ def _validate_manifest_against_m11(
         checked_rejoins += 1
 
     atom_by_id = {atom.id: atom for atom in model.atoms}
-    scene_labels = [
-        {
-            str(nodes[atom_by_id[atom_id].primary_node_id].get("label", ""))
-            for atom_id in scene.atom_ids
-            if atom_by_id[atom_id].story_facing
+    canonical_edges = _records(canonical.get("edges"), "canonical edges")
+    canonical_adjacency: dict[str, set[str]] = {}
+    for edge in canonical_edges:
+        if not bool(edge.get("resolved", True)) or edge.get("kind") == "call_enter":
+            continue
+        source_id = str(edge.get("source_id", ""))
+        target_id = str(edge.get("target_id", ""))
+        canonical_adjacency.setdefault(source_id, set()).add(target_id)
+    for scene in model.scenes:
+        scene_node_ids = {
+            atom_by_id[atom_id].primary_node_id for atom_id in scene.atom_ids
         }
-        for scene in model.scenes
-    ]
-    if any(len(labels) > 1 for labels in scene_labels):
-        raise AssertionError("private scene crosses unrelated canonical procedures")
+        story_labels = list(
+            dict.fromkeys(
+                str(nodes[atom_by_id[atom_id].primary_node_id].get("label", ""))
+                for atom_id in scene.atom_ids
+                if atom_by_id[atom_id].story_facing
+            )
+        )
+        for prior_label, next_label in pairwise(story_labels):
+            prior_nodes = {
+                node_id
+                for node_id in scene_node_ids
+                if str(nodes[node_id].get("label", "")) == prior_label
+            }
+            next_entries = {
+                node_id
+                for node_id in scene_node_ids
+                if str(nodes[node_id].get("label", "")) == next_label
+                and _mapping(
+                    nodes[node_id].get("attributes"), "canonical node attributes"
+                ).get("source_kind")
+                == "label"
+            }
+            reachable = set(prior_nodes)
+            pending = list(prior_nodes)
+            while pending:
+                source_id = pending.pop()
+                for target_id in canonical_adjacency.get(source_id, ()):
+                    if target_id in scene_node_ids and target_id not in reachable:
+                        reachable.add(target_id)
+                        pending.append(target_id)
+            if not reachable & next_entries:
+                raise AssertionError(
+                    "private scene crosses labels without exact resolved M10 continuation"
+                )
 
     persistent_regions = {
         region_id: region

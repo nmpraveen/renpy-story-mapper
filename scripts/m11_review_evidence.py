@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import statistics
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -31,14 +32,39 @@ def main() -> int:
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--before-report", type=Path)
     arguments = parser.parse_args()
-    report = generate(arguments.project, arguments.manifest, arguments.output_dir)
+    report = generate(
+        arguments.project,
+        arguments.manifest,
+        arguments.output_dir,
+        before_report_path=arguments.before_report,
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
 
-def generate(project_path: Path, manifest_path: Path, output_dir: Path) -> dict[str, object]:
+def generate(
+    project_path: Path,
+    manifest_path: Path,
+    output_dir: Path,
+    *,
+    before_report_path: Path | None = None,
+) -> dict[str, object]:
     manifest = _mapping(json.loads(manifest_path.read_text(encoding="utf-8")), "manifest")
+    before_report = (
+        None
+        if before_report_path is None
+        else _mapping(
+            json.loads(before_report_path.read_text(encoding="utf-8")),
+            "before report",
+        )
+    )
+    if before_report is not None and "before_after_correction" in before_report:
+        history = _mapping(
+            before_report["before_after_correction"], "before/after history"
+        )
+        before_report = _mapping(history["before"], "original before report")
     with Project.open(project_path.resolve(strict=True)) as project:
         canonical = _mapping(
             project.payload("m10_canonical_graph", "authoritative"), "canonical graph"
@@ -94,9 +120,9 @@ def generate(project_path: Path, manifest_path: Path, output_dir: Path) -> dict[
         ],
     }
 
-    representative_scenes, choice_anchors = _representative_scenes(model, manifest)
+    representative_sequences, choice_anchors = _representative_scenes(model, manifest)
     report: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "evidence_kind": "M11 privacy-safe scene-quality diagnostic",
         "corpus": "private MsDenvers acceptance result",
         "privacy": {
@@ -113,8 +139,21 @@ def generate(project_path: Path, manifest_path: Path, output_dir: Path) -> dict[
         "scene_atom_count_distribution": distribution,
         "accepted_boundaries": boundary_evidence,
         "day1_choice_anchors": choice_anchors,
-        "representative_scenes": representative_scenes,
+        "representative_scene_sequences": representative_sequences,
     }
+    if before_report is not None:
+        report["before_after_correction"] = {
+            "before": {
+                "scene_atom_count_distribution": before_report[
+                    "scene_atom_count_distribution"
+                ],
+                "accepted_boundaries": before_report["accepted_boundaries"],
+            },
+            "after": {
+                "scene_atom_count_distribution": distribution,
+                "accepted_boundaries": boundary_evidence,
+            },
+        }
     encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
     _assert_safe_output(encoded)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -216,6 +255,87 @@ def _representative_scenes(
     if not MIN_REPRESENTATIVE_SCENES <= len(selected_ids) <= MAX_REPRESENTATIVE_SCENES:
         raise AssertionError(f"representative scene selection produced {len(selected_ids)} records")
 
+    anchor_by_choice = {
+        _integer(anchor["choice_index"], "choice index"): anchor for anchor in anchors
+    }
+
+    def sequence_scene(scene_id: str) -> dict[str, object]:
+        item = scene_by_id[scene_id]
+        item_atoms = [atom_by_id[atom_id] for atom_id in item.atom_ids]
+        item_boundary = boundary_by_id[item.boundary_id]
+        return {
+            "scene_id": item.id,
+            "atom_count": len(item_atoms),
+            "first_source_locator": _locator(item_atoms[0]),
+            "last_source_locator": _locator(item_atoms[-1]),
+            "boundary_status": item_boundary.status.value,
+            "boundary_strength": item_boundary.strength.value,
+            "boundary_rule_id": item_boundary.rule_id,
+        }
+
+    def bounded_path(scene_ids: Sequence[str], focal_id: str) -> tuple[list[str], int]:
+        unique = list(dict.fromkeys(scene_ids))
+        if len(unique) <= 5:
+            return unique, 0
+        focal = unique.index(focal_id) if focal_id in unique else 0
+        indexes = {0, len(unique) - 1, focal}
+        if focal > 0:
+            indexes.add(focal - 1)
+        if focal + 1 < len(unique):
+            indexes.add(focal + 1)
+        selected = [unique[index] for index in sorted(indexes)]
+        return selected, len(unique) - len(selected)
+
+    def sequence_paths(
+        scene_id: str, scene_contexts: Sequence[Mapping[str, object]]
+    ) -> list[dict[str, object]]:
+        paths: list[dict[str, object]] = []
+        seen: set[tuple[int, int, tuple[str, ...]]] = set()
+        for context in scene_contexts:
+            choice_index = _integer(context["choice_index"], "choice index")
+            anchor = anchor_by_choice[choice_index]
+            branch = branch_by_id[str(anchor["temporary_container_id"])]
+            role = str(context["role"])
+            arm_ordinal: int | None = None
+            match = re.match(r"arm_(\d+)_", role)
+            if match is not None:
+                arm_ordinal = int(match.group(1))
+            candidate_arms = [
+                arm
+                for arm in branch.arms
+                if arm_ordinal is None
+                or arm.ordinal == arm_ordinal
+                or scene_id in arm.scene_ids
+            ]
+            for arm in candidate_arms:
+                continuation_scene = (
+                    scene_by_atom.get(branch.continuation_atom_id)
+                    if branch.continuation_atom_id is not None
+                    else None
+                )
+                full_ids = [branch.parent_scene_id, *arm.scene_ids]
+                if continuation_scene is not None:
+                    full_ids.append(continuation_scene.id)
+                if scene_id not in full_ids:
+                    continue
+                selected_ids, omitted = bounded_path(full_ids, scene_id)
+                identity = (choice_index, arm.ordinal, tuple(selected_ids))
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                paths.append(
+                    {
+                        "choice_index": choice_index,
+                        "arm_ordinal": arm.ordinal,
+                        "focal_scene_id": scene_id,
+                        "ordered_scenes": [sequence_scene(item) for item in selected_ids],
+                        "omitted_intermediate_scene_count": omitted,
+                    }
+                )
+        if not paths:
+            raise AssertionError(f"representative scene {scene_id} lacks a structural path")
+        return paths
+
     records: list[dict[str, object]] = []
     for scene_id in selected_ids:
         scene = scene_by_id[scene_id]
@@ -270,6 +390,7 @@ def _representative_scenes(
                 },
                 "temporary_container_membership": memberships,
                 "choice_context": contexts[scene.id],
+                "structural_scene_paths": sequence_paths(scene.id, contexts[scene.id]),
                 "source_description": _generic_description(
                     atom_kinds, source_kinds, story_facing, len(atoms)
                 ),
@@ -334,7 +455,9 @@ def _markdown(report: Mapping[str, object]) -> str:
     boundaries = _mapping(report["accepted_boundaries"], "accepted boundaries")
     strengths = _mapping(boundaries["accepted_by_strength"], "boundary strengths")
     rules = _records(boundaries["accepted_by_rule_and_reason"], "boundary rules")
-    scenes = _records(report["representative_scenes"], "representative scenes")
+    scenes = _records(
+        report["representative_scene_sequences"], "representative scene sequences"
+    )
     lines = [
         "# M11 scene-quality review evidence",
         "",
@@ -357,14 +480,72 @@ def _markdown(report: Mapping[str, object]) -> str:
         f"| Maximum atoms | {distribution['maximum']} |",
         "",
         f"Percentiles: {distribution['percentile_method']}.",
-        "",
-        "## Accepted boundaries",
-        "",
-        f"Accepted total: **{boundaries['accepted_total']}**.",
-        "",
-        "| Strength | Accepted |",
-        "| --- | ---: |",
     ]
+    comparison = report.get("before_after_correction")
+    if isinstance(comparison, Mapping):
+        before = _mapping(comparison["before"], "before correction")
+        after = _mapping(comparison["after"], "after correction")
+        before_distribution = _mapping(
+            before["scene_atom_count_distribution"], "before distribution"
+        )
+        after_distribution = _mapping(
+            after["scene_atom_count_distribution"], "after distribution"
+        )
+        before_boundaries = _mapping(before["accepted_boundaries"], "before boundaries")
+        after_boundaries = _mapping(after["accepted_boundaries"], "after boundaries")
+        before_rules = {
+            str(item["rule_id"]): _integer(item["count"], "before rule count")
+            for item in _records(
+                before_boundaries["accepted_by_rule_and_reason"], "before rules"
+            )
+        }
+        after_rules = {
+            str(item["rule_id"]): _integer(item["count"], "after rule count")
+            for item in _records(
+                after_boundaries["accepted_by_rule_and_reason"], "after rules"
+            )
+        }
+        lines.extend(
+            [
+                "",
+                "## Before/after bounded correction",
+                "",
+                "| Scene distribution | Before | After |",
+                "| --- | ---: | ---: |",
+                f"| Scenes | {before_distribution['scene_count']} | "
+                f"{after_distribution['scene_count']} |",
+                f"| Singleton scenes | {before_distribution['singleton_count']} "
+                f"({before_distribution['singleton_percentage']}%) | "
+                f"{after_distribution['singleton_count']} "
+                f"({after_distribution['singleton_percentage']}%) |",
+                f"| Median | {before_distribution['median']} | "
+                f"{after_distribution['median']} |",
+                f"| p75 | {before_distribution['p75']} | {after_distribution['p75']} |",
+                f"| p90 | {before_distribution['p90']} | {after_distribution['p90']} |",
+                f"| p99 | {before_distribution['p99']} | {after_distribution['p99']} |",
+                f"| Maximum | {before_distribution['maximum']} | "
+                f"{after_distribution['maximum']} |",
+                "",
+                "| Accepted boundary rule | Before | After |",
+                "| --- | ---: | ---: |",
+            ]
+        )
+        lines.extend(
+            f"| `{rule_id}` | {before_rules.get(rule_id, 0)} | "
+            f"{after_rules.get(rule_id, 0)} |"
+            for rule_id in sorted(set(before_rules) | set(after_rules))
+        )
+    lines.extend(
+        [
+            "",
+            "## Accepted boundaries",
+            "",
+            f"Accepted total: **{boundaries['accepted_total']}**.",
+            "",
+            "| Strength | Accepted |",
+            "| --- | ---: |",
+        ]
+    )
     lines.extend(f"| {strength} | {strengths[strength]} |" for strength in STRENGTHS)
     lines.extend(
         [
@@ -380,14 +561,15 @@ def _markdown(report: Mapping[str, object]) -> str:
     lines.extend(
         [
             "",
-            "## Representative Day 1 choice and rejoin scenes",
+            "## Representative Day 1 choice and rejoin scene sequences",
             "",
-            f"The {len(scenes)} records below cover the four independently reviewed choice/rejoin "
-            "anchors. Descriptions are intentionally structural rather than narrative.",
+            f"The {len(scenes)} sequence records below cover the four independently reviewed "
+            "choice/rejoin anchors. Each record includes bounded ordered paths through the exact "
+            "temporary arm and rejoin; descriptions are structural rather than narrative.",
             "",
             "| Scene | Lane / chapter | Atoms | First -> last locator | Boundary | "
-            "Temporary membership | Choice context | Description |",
-            "| --- | --- | ---: | --- | --- | --- | --- | --- |",
+            "Temporary membership | Ordered structural path(s) | Choice context | Description |",
+            "| --- | --- | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for scene in scenes:
@@ -419,12 +601,35 @@ def _markdown(report: Mapping[str, object]) -> str:
         context_text = "; ".join(
             f"choice {item['choice_index']} {item['role']}" for item in contexts
         )
+        paths = _records(scene["structural_scene_paths"], "structural scene paths")
+        path_texts: list[str] = []
+        for path in paths:
+            ordered = _records(path["ordered_scenes"], "ordered structural scenes")
+            focal_id = str(path["focal_scene_id"])
+            sequence = " -> ".join(
+                (
+                    f"**`{item['scene_id']}`**"
+                    if item["scene_id"] == focal_id
+                    else f"`{item['scene_id']}`"
+                )
+                for item in ordered
+            )
+            omitted = _integer(
+                path["omitted_intermediate_scene_count"], "omitted scene count"
+            )
+            if omitted:
+                sequence += f" ({omitted} intermediate scene(s) omitted)"
+            path_texts.append(
+                f"choice {path['choice_index']} arm {path['arm_ordinal']}: {sequence}"
+            )
+        path_text = "<br>".join(path_texts)
         lines.append(
             f"| `{scene['scene_id']}` | `{lane['id']}` ({lane['kind']}) / "
             f"`{chapter['id']}` | {scene['atom_count']} | "
             f"`{scene['first_source_locator']}` -> `{scene['last_source_locator']}` | "
             f"{boundary_text} | "
-            f"{membership_text} | {context_text} | {scene['source_description']} |"
+            f"{membership_text} | {path_text} | {context_text} | "
+            f"{scene['source_description']} |"
         )
     lines.extend(
         [
@@ -440,7 +645,8 @@ def _markdown(report: Mapping[str, object]) -> str:
             "",
             "| Review requirement | 100% evidence | 200% evidence |",
             "| --- | --- | --- |",
-            "| Common spine and separate persistent/terminal lanes | `m11-scenes-100.png` | "
+            "| Common spine and separate persistent/terminal lanes | `m11-scenes-100.png`, "
+            "`m11-scenes-cards-100.png` | `m11-scenes-200.png`, "
             "`m11-scenes-cards-200.png` |",
             "| Temporary multi-scene branch | `m11-scene-detail-100.png` | "
             "`m11-scene-detail-200.png` |",
@@ -451,6 +657,8 @@ def _markdown(report: Mapping[str, object]) -> str:
             "### 100%",
             "",
             "![M11 scene overview at 100%](screenshots/m11-scenes-100.png)",
+            "",
+            "![M11 persistent lanes at 100%](screenshots/m11-scenes-cards-100.png)",
             "",
             "![M11 temporary branch detail at 100%](screenshots/m11-scene-detail-100.png)",
             "",
