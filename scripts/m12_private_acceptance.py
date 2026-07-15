@@ -21,6 +21,7 @@ from types import ModuleType
 from unittest import mock
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.canonical_graph_contract import CanonicalFact
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project
 
@@ -30,6 +31,11 @@ TARGET_ROLES = frozenset({"hidden_or_gated", "ending", "persistent_lane"})
 HIDDEN_OR_GATED_KINDS = frozenset({"temporary_outcome", "exact_occurrence"})
 MIN_HIDDEN_OR_GATED_TARGETS = 3
 COMMITMENT_KINDS = frozenset({"terminal", "persistent_lane"})
+ROLE_KINDS = {
+    "hidden_or_gated": HIDDEN_OR_GATED_KINDS,
+    "ending": frozenset({"terminal"}),
+    "persistent_lane": frozenset({"persistent_lane"}),
+}
 ROUTE_BADGES = frozenset(
     {
         "Confirmed route",
@@ -197,10 +203,8 @@ def _load_selection(path: Path) -> tuple[dict[str, str], ...]:
             f"private acceptance requires at least {MIN_HIDDEN_OR_GATED_TARGETS} "
             "selected hidden or gated targets"
         )
-    if any(item["kind"] not in HIDDEN_OR_GATED_KINDS for item in hidden_or_gated):
-        raise ValueError(
-            "hidden or gated selections require temporary outcomes or exact occurrences"
-        )
+    if any(item["kind"] not in ROLE_KINDS[item["role"]] for item in result):
+        raise ValueError("private target role does not match its destination kind")
     identities = [(item["kind"], item["target_id"]) for item in result]
     if len(identities) != len(set(identities)):
         raise ValueError("private target selection cannot contain duplicate destinations")
@@ -325,10 +329,8 @@ def _authority_hidden_or_gated(
             None,
         )
         if occurrence is not None and occurrence.guard_fact_ids:
-            guarded = [facts[item] for item in occurrence.guard_fact_ids if item in facts]
-            if len(guarded) == len(occurrence.guard_fact_ids) and all(
-                item.evidence_ids for item in guarded
-            ):
+            guarded = _proven_requirement_facts(occurrence.guard_fact_ids, facts)
+            if len(guarded) == len(occurrence.guard_fact_ids):
                 return {
                     "basis": "m11_occurrence_guard",
                     "fact_count": len(guarded),
@@ -336,19 +338,23 @@ def _authority_hidden_or_gated(
                         {evidence_id for item in guarded for evidence_id in item.evidence_ids}
                     ),
                 }
-    requirements = _sequence(recommended.get("requirements")) if recommended else ()
-    proven_requirements = []
-    for item in requirements:
-        if not isinstance(item, Mapping):
-            continue
-        fact_id = item.get("fact_id")
-        fact = facts.get(fact_id) if isinstance(fact_id, str) else None
-        evidence = _sequence(item.get("evidence_ids"))
-        if fact is not None and fact.evidence_ids and set(evidence) <= set(fact.evidence_ids):
-            proven_requirements.append(fact)
+    edges = {item.id: item for item in graph.edges}
+    path_edge_ids = _sequence(recommended.get("edge_ids")) if recommended else ()
+    if not path_edge_ids or any(
+        not isinstance(edge_id, str) or edge_id not in edges for edge_id in path_edge_ids
+    ):
+        return None
+    gate_fact_ids = tuple(
+        fact_id
+        for edge_id in path_edge_ids
+        if isinstance(edge_id, str)
+        for fact_id in _sequence(edges[edge_id].attributes.get("gate_ids"))
+        if isinstance(fact_id, str)
+    )
+    proven_requirements = _proven_requirement_facts(gate_fact_ids, facts)
     if proven_requirements:
         return {
-            "basis": "m10_route_requirement",
+            "basis": "m10_route_gate",
             "fact_count": len(proven_requirements),
             "evidence_count": len(
                 {
@@ -359,6 +365,22 @@ def _authority_hidden_or_gated(
             ),
         }
     return None
+
+
+def _proven_requirement_facts(
+    fact_ids: Sequence[str], facts: Mapping[str, CanonicalFact]
+) -> tuple[CanonicalFact, ...]:
+    result: list[CanonicalFact] = []
+    for fact_id in dict.fromkeys(fact_ids):
+        fact = facts.get(fact_id)
+        if (
+            fact is not None
+            and fact.kind == "requirement"
+            and fact.status == "proven"
+            and fact.evidence_ids
+        ):
+            result.append(fact)
+    return tuple(result)
 
 
 def _sequence(value: object) -> Sequence[object]:

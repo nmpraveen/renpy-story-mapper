@@ -145,12 +145,40 @@ def test_private_harness_rejects_output_beside_private_inputs(tmp_path: Path) ->
         )
 
 
-def test_private_harness_fails_conservatively_without_hidden_target(tmp_path: Path) -> None:
+def test_private_harness_rejects_fewer_than_three_hidden_or_gated_targets(
+    tmp_path: Path,
+) -> None:
     baseline, archive, manifest, walkthrough, output = _private_inputs(tmp_path)
     raw = json.loads(manifest.read_text(encoding="utf-8"))
-    raw["targets"] = [item for item in raw["targets"] if item["role"] != "hidden_or_gated"]
+    hidden_seen = 0
+    retained = []
+    for item in raw["targets"]:
+        if item["role"] == "hidden_or_gated":
+            hidden_seen += 1
+            if hidden_seen > 2:
+                continue
+        retained.append(item)
+    raw["targets"] = retained
     manifest.write_text(json.dumps(raw), encoding="utf-8")
-    with pytest.raises(ValueError, match="hidden or gated"):
+    with pytest.raises(ValueError, match="at least 3 selected hidden or gated"):
+        run(
+            baseline_path=baseline,
+            archive_path=archive,
+            targets_path=manifest,
+            output_path=output,
+            walkthrough_path=walkthrough,
+        )
+
+
+def test_private_harness_rejects_role_kind_mismatch(tmp_path: Path) -> None:
+    baseline, archive, manifest, walkthrough, output = _private_inputs(tmp_path)
+    raw = json.loads(manifest.read_text(encoding="utf-8"))
+    commitment = next(item for item in raw["targets"] if item["role"] != "hidden_or_gated")
+    commitment["role"] = (
+        "ending" if commitment["kind"] == "persistent_lane" else "persistent_lane"
+    )
+    manifest.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError, match="role does not match"):
         run(
             baseline_path=baseline,
             archive_path=archive,
