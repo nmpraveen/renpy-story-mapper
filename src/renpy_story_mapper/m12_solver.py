@@ -1566,19 +1566,21 @@ def _route_alternative(
     )
     requirements = tuple(_dedupe_requirements(state.requirements))
     satisfying_effect_claims = tuple(
-        RouteClaim(
-            text=f"{item.expression} — supporting effect {effect_id}",
-            fact_id=effect_id,
-            evidence_ids=tuple(sorted(facts[effect_id].evidence_ids)),
+        dict.fromkeys(
+            RouteClaim(
+                text=f"{item.expression} — supporting effect {effect_id}",
+                fact_id=effect_id,
+                evidence_ids=tuple(sorted(facts[effect_id].evidence_ids)),
+            )
+            for item in requirements
+            if item.source in {
+                RequirementSource.PROVEN_EFFECT,
+                RequirementSource.REPEATED_EVENT,
+                RequirementSource.ENTRY_PRECONDITION,
+            }
+            for effect_id in item.supporting_effect_ids
+            if effect_id in facts
         )
-        for item in requirements
-        if item.source in {
-            RequirementSource.PROVEN_EFFECT,
-            RequirementSource.REPEATED_EVENT,
-            RequirementSource.ENTRY_PRECONDITION,
-        }
-        for effect_id in item.supporting_effect_ids
-        if effect_id in facts
     )
     warnings = tuple(state.warnings)
     edge_repeated_claims = tuple(
@@ -1653,7 +1655,7 @@ def _route_alternative(
     ranking = (
         len(warnings),
         sum(item.source is RequirementSource.UNKNOWN for item in requirements),
-        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in requirements),
+        len(_entry_preconditions(requirements)),
         len(persistent),
         state.loop_count,
         len(scene_ids),
@@ -1859,19 +1861,16 @@ def _instructions(
     warnings: Sequence[RouteClaim],
 ) -> tuple[RouteInstruction, ...]:
     rows: list[dict[str, object]] = []
-    for requirement in requirements:
-        if requirement.source is RequirementSource.ENTRY_PRECONDITION:
-            entry = requirement.entry_precondition
-            assert entry is not None
-            rows.append({
-                "kind": "starting_assumption",
-                "text": (
-                    f"Start with {entry.variable.key} = "
-                    f"{json.dumps(entry.value, ensure_ascii=False, sort_keys=True)}."
-                ),
-                "fact_id": requirement.fact_id,
-                "evidence_ids": requirement.evidence_ids,
-            })
+    for entry, fact_id, evidence_ids in _entry_preconditions(requirements):
+        rows.append({
+            "kind": "starting_assumption",
+            "text": (
+                f"Start with {entry.variable.key} = "
+                f"{json.dumps(entry.value, ensure_ascii=False, sort_keys=True)}."
+            ),
+            "fact_id": fact_id,
+            "evidence_ids": evidence_ids,
+        })
     for scene in scenes:
         rows.append({
             "kind": "scene",
@@ -2128,7 +2127,7 @@ def _partial_rank(
     return (
         len(state.warnings),
         sum(item.source is RequirementSource.UNKNOWN for item in requirements),
-        sum(item.source is RequirementSource.ENTRY_PRECONDITION for item in requirements),
+        len(_entry_preconditions(requirements)),
         max(len(state.persistent_lane_ids), minimum_persistent_commitments),
         state.loop_count,
         len(scene_ids),
@@ -2437,6 +2436,20 @@ def _dedupe_requirements(
         seen.add(item)
         result.append(item)
     return result
+
+
+def _entry_preconditions(
+    requirements: Iterable[RequirementAttribution],
+) -> tuple[tuple[InitialStateValue, str, tuple[str, ...]], ...]:
+    result: list[tuple[InitialStateValue, str, tuple[str, ...]]] = []
+    seen: set[InitialStateValue] = set()
+    for item in requirements:
+        entry = item.entry_precondition
+        if entry is None or entry in seen:
+            continue
+        seen.add(entry)
+        result.append((entry, item.fact_id, item.evidence_ids))
+    return tuple(result)
 
 
 def _strings(value: object) -> tuple[str, ...]:

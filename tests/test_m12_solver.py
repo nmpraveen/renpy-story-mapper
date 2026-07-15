@@ -1049,6 +1049,103 @@ def test_revisited_gate_retains_entry_requirement_after_possible_write() -> None
     )
 
 
+def test_revisited_gate_counts_one_external_assumption_as_effects_accumulate() -> None:
+    gate = _fact(
+        "chronology-accumulating-gate",
+        kind="requirement",
+        expression="score >= 1",
+        variable="score",
+    )
+    increment = _fact(
+        "chronology-accumulating-increment",
+        kind="effect",
+        expression="score += 1",
+        variable="score",
+        operation="increment",
+        value=1,
+    )
+    flag_gate = _fact(
+        "chronology-flag-gate",
+        kind="requirement",
+        expression="flag == 1",
+        variable="flag",
+    )
+    graph, model = _authority(
+        ("root", "first", "second", "detour1", "detour2", "detour3", "target"),
+        (
+            {
+                "id": "accumulating-first-effect",
+                "source": "root",
+                "target": "first",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "accumulating-first-gate",
+                "source": "first",
+                "target": "second",
+                "gates": (gate.id,),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "accumulating-second-gate",
+                "source": "second",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+            {
+                "id": "detour-start",
+                "source": "root",
+                "target": "detour1",
+            },
+            {
+                "id": "detour-middle",
+                "source": "detour1",
+                "target": "detour2",
+            },
+            {
+                "id": "detour-end",
+                "source": "detour2",
+                "target": "detour3",
+            },
+            {
+                "id": "detour-gate",
+                "source": "detour3",
+                "target": "target",
+                "gates": (flag_gate.id,),
+            },
+        ),
+        facts=(gate, increment, flag_gate),
+    )
+    score = StateVariableIdentity("store", "score", None)
+    flag = StateVariableIdentity("store", "flag", None)
+    score_entry = InitialStateValue(score, InitialValueKind.ENTRY_PRECONDITION, 0)
+    flag_entry = InitialStateValue(flag, InitialValueKind.ENTRY_PRECONDITION, 1)
+
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(score_entry, flag_entry),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    route = result.recommended
+    assert result.status is TechnicalStatus.PREREQUISITES
+    assert route.edge_ids[0] == "accumulating-first-effect"
+    assert [item.supporting_effect_counts for item in route.requirements] == [
+        ((increment.id, 1),),
+        ((increment.id, 2),),
+    ]
+    assert route.ranking_key[2] == 1
+    assert sum(item.kind == "starting_assumption" for item in route.instructions) == 1
+    assert len(route.satisfying_effect_claims) == 1
+    assert route.repeated_action_claims[-1].repeated_count == 2
+
+
 def test_exact_and_generic_shared_callee_report_the_selected_occurrence() -> None:
     graph, model = _authority(
         ("root", "callee", "after"),
