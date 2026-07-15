@@ -2,7 +2,7 @@ import {
   ENDPOINTS, ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE,
   assertBoundedWindowResolution, assertDetail, assertOrganization,
   assertPreparedOrganization, assertRoutePage, assertWindowSelectionRequest,
-  assertAIStoryDetail, assertAIStoryMap, assertMapComparison,
+  assertAIStoryDetail, assertAIStoryMap, assertMapComparison, assertSceneDetail, assertSceneMap,
   exactOrganizationBudgets,
 } from "./contract.js";
 
@@ -131,6 +131,15 @@ export class LocalApi {
   async inspectionDetail(view, elementId) {
     if (!["simplified", "canonical"].includes(view)) throw new TypeError("Unknown inspection view");
     return assertDetail(await this.request(ENDPOINTS.inspectionDetail, { method: "POST", body: { view, element_id: elementId } }));
+  }
+  async sceneMap(offset = 0, limit = ROUTE_PAGE_SIZE, relationshipOffset = 0, relationshipLimit = ROUTE_EDGE_PAGE_SIZE, { query = null, focus = null } = {}) {
+    const body = { offset, limit, relationship_offset: relationshipOffset, relationship_limit: relationshipLimit };
+    if (query) body.query = query;
+    if (focus) body.focus = focus;
+    return assertSceneMap(await this.request(ENDPOINTS.sceneMap, { method: "POST", body }));
+  }
+  async sceneDetail(elementId) {
+    return assertSceneDetail(await this.request(ENDPOINTS.sceneDetail, { method: "POST", body: { element_id: elementId } }));
   }
   async aiStoryMap(nodeOffset = 0, nodeLimit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE, edgeCursor = null) {
     const body = { node_offset: nodeOffset, node_limit: nodeLimit, edge_offset: edgeOffset, edge_limit: edgeLimit };

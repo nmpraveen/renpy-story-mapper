@@ -128,22 +128,25 @@ export class RouteGraph {
       const targetPoint = target ? { x: target.x, y: target.y + 26 } : { x: maxX, y: source.y + 26 };
       this.edgePositions.set(edge.id, { source: sourcePoint, target: targetPoint, missingSource, missingTarget });
       const midpoint = { x: (sourcePoint.x + targetPoint.x) / 2, y: (sourcePoint.y + targetPoint.y) / 2 };
-      const button = document.createElement("button");
-      button.type = "button";
+      const interactive = edge.interactive !== false;
+      const button = document.createElement(interactive ? "button" : "span");
+      if (interactive) button.type = "button";
       button.className = missingSource || missingTarget ? "continuation-portal" : "edge-stop";
-      button.dataset.elementId = edge.id;
+      if (interactive) button.dataset.elementId = edge.id;
       button.dataset.role = edge.role || edge.presentation_role || "transition";
       button.dataset.continuation = missingSource ? "previous" : missingTarget ? "next" : "";
       button.style.left = `${(missingSource ? sourcePoint.x : missingTarget ? targetPoint.x : midpoint.x) - 14}px`;
       button.style.top = `${(missingSource ? sourcePoint.y : missingTarget ? targetPoint.y : midpoint.y) - 14}px`;
-      button.tabIndex = -1;
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", "false");
+      if (interactive) {
+        button.tabIndex = -1;
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", "false");
+      } else button.setAttribute("aria-hidden", "true");
       const continuation = missingSource ? `Continues from ${edge.source_title || edge.source_id} on another page` : missingTarget ? `Continues to ${edge.target_title || edge.target_id} on another page` : "Route segment";
       const detail = [edge.role || edge.presentation_role, edge.gate_ids?.length ? `${edge.gate_ids.length} gate` : "", edge.effect_ids?.length ? `${edge.effect_ids.length} effect` : "", edge.technical_hops ? `${edge.technical_hops} technical steps` : ""].filter(Boolean).join(", ");
-      button.setAttribute("aria-label", `${continuation}: ${detail || "flow"}. Open Detail and Evidence.`);
+      if (interactive) button.setAttribute("aria-label", `${continuation}: ${detail || "flow"}. Open Detail and Evidence.`);
       button.textContent = missingSource ? "←" : missingTarget ? "→" : edge.gate_ids?.length ? "G" : edge.effect_ids?.length ? "+" : edge.technical_hops ? String(edge.technical_hops) : "·";
-      button.addEventListener("click", () => { this.select(edge.id, true); this.onOpen?.(edge); });
+      if (interactive) button.addEventListener("click", () => { this.select(edge.id, true); this.onOpen?.(edge); });
       this.world.append(button);
     }
     this.bounds = { width: maxX + 30, height: laneTop + laneRows.length * LANE_STEP + 50 };
@@ -153,7 +156,7 @@ export class RouteGraph {
     this.fit();
   }
 
-  elements() { return [...this.nodes, ...this.edges]; }
+  elements() { return [...this.nodes, ...this.edges.filter((edge) => edge.interactive !== false)]; }
   shape(kind) { return kind === "choice" || kind === "choice_outcome" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : "●"; }
   span(className, value) { const span = document.createElement("span"); span.className = className; span.textContent = String(value); return span; }
 

@@ -119,6 +119,10 @@ button:disabled { cursor: default; opacity: .45; }
 .map-layout { min-height: 0; grid-area: map; display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); }
 .line-index { overflow: auto; border-right: 1px solid var(--rule); background: var(--sheet); padding: 1rem; }
 .line-index h2 { margin: 0 0 .7rem; font-family: Georgia, serif; font-size: 20px; font-weight: 400; }
+.chapter-index { margin-bottom: .8rem; border-bottom: 1px solid var(--rule); padding-bottom: .65rem; }
+.chapter-index h3 { margin: 0 0 .35rem; color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.chapter-record { display: grid; width: 100%; gap: .1rem; border: 0; background: transparent; padding: .3rem 0; text-align: left; font-size: 12px; }
+.chapter-record span { color: var(--muted); font-size: 10px; }
 .line-key { display: grid; width: 100%; grid-template-columns: 2.25rem 1fr; align-items: center; gap: .45rem; border: 0; background: transparent; padding: .5rem 0; text-align: left; font-size: 13px; }
 .swatch { display: block; height: 2px; background: var(--ink); }
 .swatch.detour { border-top: 2px dotted var(--accent); background: transparent; }

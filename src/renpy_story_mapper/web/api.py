@@ -34,6 +34,8 @@ from renpy_story_mapper.m07_workflow import (
     ProviderFactory,
     validate_persisted_assembly,
 )
+from renpy_story_mapper.m11_persistence import M11Availability
+from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -67,6 +69,9 @@ from renpy_story_mapper.web.contracts import (
     M10_API_ROUTES,
     M10_DETAIL_REQUEST_FIELDS,
     M10_INSPECTION_MAP_REQUEST_FIELDS,
+    M11_API_ROUTES,
+    M11_DETAIL_REQUEST_FIELDS,
+    M11_SCENE_MAP_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -84,6 +89,7 @@ from renpy_story_mapper.web.contracts import (
     string_tuple,
 )
 from renpy_story_mapper.web.inspection_api import inspection_detail, inspection_page
+from renpy_story_mapper.web.scene_api import scene_detail, scene_page
 from renpy_story_mapper.web.state import UserStateStore
 
 MAX_M07_SELECTION_ITEMS: Final = 64
@@ -241,6 +247,7 @@ class ProjectApi:
                     "m07": dict(M07_API_ROUTES),
                     "m08": dict(M08_API_ROUTES),
                     "m10": dict(M10_API_ROUTES),
+                    "m11": dict(M11_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -339,6 +346,73 @@ class ProjectApi:
                     "m10_element_not_found",
                     "The inspection element is unavailable.",
                 ) from exc
+        if method == "POST" and path == M11_API_ROUTES["scene_map"]:
+            exact_fields(body, allowed=M11_SCENE_MAP_REQUEST_FIELDS)
+            scene_model_value, presentation, _canonical, generation, canonical_hash, reason = (
+                self._m11_payloads(include_canonical=False)
+            )
+            page = scene_page(
+                scene_model_value,
+                presentation,
+                current_source_generation=generation,
+                current_canonical_hash=canonical_hash,
+                offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
+                limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
+                relationship_offset=bounded_int(
+                    body,
+                    "relationship_offset",
+                    default=0,
+                    minimum=0,
+                    maximum=2_000_000,
+                ),
+                relationship_limit=bounded_int(
+                    body,
+                    "relationship_limit",
+                    default=180,
+                    minimum=1,
+                    maximum=180,
+                ),
+                query=optional_string(body, "query", maximum=256),
+                focus=optional_string(body, "focus", maximum=512),
+            )
+            if page.get("status") == "unavailable":
+                page["reason"] = reason or page.get("reason")
+                page["fallback"] = {
+                    "route": M10_API_ROUTES["inspection_map"],
+                    "view": "simplified",
+                }
+            return json_value(page)
+        if method == "POST" and path == M11_API_ROUTES["detail"]:
+            exact_fields(
+                body,
+                allowed=M11_DETAIL_REQUEST_FIELDS,
+                required=M11_DETAIL_REQUEST_FIELDS,
+            )
+            scene_model_value, presentation, canonical, generation, canonical_hash, reason = (
+                self._m11_payloads(include_canonical=True)
+            )
+            try:
+                detail = scene_detail(
+                    scene_model_value,
+                    presentation,
+                    canonical,
+                    current_source_generation=generation,
+                    current_canonical_hash=canonical_hash,
+                    element_id=require_string(body, "element_id", maximum=512),
+                )
+            except KeyError as exc:
+                raise ApiProblem(
+                    404,
+                    "m11_element_not_found",
+                    "The scene element is unavailable.",
+                ) from exc
+            if detail.get("status") == "unavailable":
+                detail["reason"] = reason or detail.get("reason")
+                detail["fallback"] = {
+                    "route": M10_API_ROUTES["inspection_map"],
+                    "view": "simplified",
+                }
+            return json_value(detail)
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             page = self._m07_workflow().route_map(
@@ -816,6 +890,99 @@ class ProjectApi:
         if not isinstance(route, dict):
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
+
+    def _m11_payloads(
+        self,
+        *,
+        include_canonical: bool,
+    ) -> tuple[
+        dict[str, object] | None,
+        dict[str, object] | None,
+        dict[str, object] | None,
+        str,
+        str,
+        str | None,
+    ]:
+        """Load a current M11 publication; map requests avoid canonical decoding."""
+
+        with Project.open(self._project()) as project:
+            raw_state = project.payload("m10_analysis_state", "authoritative")
+            if not isinstance(raw_state, dict):
+                raise ValueError("the project has no valid M10 generation state")
+            source_generation = raw_state.get("source_generation")
+            canonical_generation = raw_state.get("canonical_generation")
+            canonical_hash = raw_state.get("canonical_hash")
+            generation = source_generation if isinstance(source_generation, str) else "unknown"
+            authority_hash = canonical_hash if isinstance(canonical_hash, str) else "0" * 64
+            row = project._require_open().execute(
+                """SELECT payload_hash FROM payloads
+                   WHERE collection='m10_canonical_graph' AND record_key='authoritative'"""
+            ).fetchone()
+            if (
+                raw_state.get("canonical_availability") != "current_complete"
+                or canonical_generation != generation
+                or row is None
+                or str(row["payload_hash"]) != authority_hash
+            ):
+                return (
+                    None,
+                    None,
+                    None,
+                    generation,
+                    authority_hash,
+                    "m10_canonical_not_current",
+                )
+            selection = project.m11_persistence().select_current(
+                source_generation=generation,
+                canonical_schema=CANONICAL_GRAPH_SCHEMA,
+                canonical_hash=authority_hash,
+            )
+            if (
+                selection.availability is not M11Availability.CURRENT_COMPLETE
+                or selection.phase_results is None
+            ):
+                return (
+                    None,
+                    None,
+                    None,
+                    generation,
+                    authority_hash,
+                    selection.reason,
+                )
+            try:
+                model = stored_scene_model_mapping(selection.phase_results)
+                raw_presentation = selection.phase_results["scene_presentation"]
+                presentation = dict(raw_presentation)
+            except (KeyError, TypeError, ValueError):
+                return (
+                    None,
+                    None,
+                    None,
+                    generation,
+                    authority_hash,
+                    "m11_publication_invalid",
+                )
+            canonical: dict[str, object] | None = None
+            if include_canonical:
+                raw_canonical = project.payload("m10_canonical_graph", "authoritative")
+                if not isinstance(raw_canonical, dict):
+                    return (
+                        None,
+                        None,
+                        None,
+                        generation,
+                        authority_hash,
+                        "canonical_missing",
+                    )
+                canonical = raw_canonical
+            return (
+                model,
+                presentation,
+                canonical,
+                generation,
+                authority_hash,
+                None,
+            )
 
     def _m10_payloads(
         self,

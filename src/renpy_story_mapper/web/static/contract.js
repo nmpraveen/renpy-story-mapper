@@ -29,6 +29,8 @@ export const ENDPOINTS = Object.freeze({
   mapComparison: "/api/v1/m08/comparison",
   inspectionMap: "/api/v1/m10/inspection-map",
   inspectionDetail: "/api/v1/m10/detail",
+  sceneMap: "/api/v1/m11/scene-map",
+  sceneDetail: "/api/v1/m11/detail",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -178,6 +180,51 @@ export function assertDetail(detail) {
   }
   if (detail.level && detail.level !== "detail_evidence") throw new TypeError("Unexpected semantic level");
   return detail;
+}
+
+function membershipReferenceCount(value) {
+  if (Array.isArray(value)) return value.reduce((total, item) => total + membershipReferenceCount(item), 0);
+  if (!object(value)) return 0;
+  return Object.entries(value).reduce((total, [key, item]) => total + (key.endsWith("_ids") && Array.isArray(item) && item.every((reference) => typeof reference === "string") ? item.length : membershipReferenceCount(item)), 0);
+}
+
+export function assertSceneMap(value) {
+  if (!object(value) || !["available", "unavailable"].includes(value.status)) throw new TypeError("Invalid M11 Scene Map response");
+  digest(value.canonical_hash, "M11 Scene Map canonical_hash");
+  if (value.status === "unavailable") {
+    if (typeof value.reason !== "string" || !object(value.fallback) || value.fallback.view !== "simplified") throw new TypeError("M11 Scene Map fallback is unavailable");
+    return value;
+  }
+  if (value.level !== "scene_map" || !Array.isArray(value.nodes) || !Array.isArray(value.relationships) || !Array.isArray(value.chapter_bands) || !Array.isArray(value.lanes)) throw new TypeError("M11 Scene Map page is incomplete");
+  if (value.nodes.length > RENDER_LIMITS.nodes || value.relationships.length > RENDER_LIMITS.edges) throw new RangeError("M11 Scene Map exceeds the packaged rendering boundary");
+  digest(value.scene_model_hash, "M11 Scene Map model hash");
+  for (const key of ["offset", "limit", "relationship_offset", "relationship_limit", "page_relationship_total", "total_nodes", "total_relationships"]) {
+    if (!Number.isInteger(value[key]) || value[key] < 0) throw new TypeError(`Invalid M11 Scene Map ${key}`);
+  }
+  if (value.limit < 1 || value.limit > RENDER_LIMITS.nodes || value.relationship_limit < 1 || value.relationship_limit > RENDER_LIMITS.edges || value.nodes.length > value.limit || value.relationships.length > value.relationship_limit) throw new RangeError("M11 Scene Map slice is inconsistent");
+  if (value.membership_reference_limit !== 240 || !Number.isInteger(value.membership_reference_count) || value.membership_reference_count < 0 || value.membership_reference_count > value.membership_reference_limit) throw new RangeError("M11 Scene Map membership references are unbounded");
+  if (membershipReferenceCount([value.nodes, value.chapter_bands, value.lanes]) !== value.membership_reference_count) throw new TypeError("M11 Scene Map membership reference count is inexact");
+  for (const key of ["next_offset", "relationship_next_offset"]) {
+    if (value[key] !== null && (!Number.isInteger(value[key]) || value[key] < 0)) throw new TypeError(`Invalid M11 Scene Map ${key}`);
+  }
+  const nodeIds = new Set(value.nodes.map((node) => node.id));
+  if (value.relationships.some((relationship) => !nodeIds.has(relationship.source_id) && !nodeIds.has(relationship.target_id))) throw new TypeError("M11 Scene Map returned an unrelated relationship");
+  return value;
+}
+
+export function assertSceneDetail(value) {
+  if (value?.status === "unavailable") return assertSceneMap(value);
+  if (!object(value) || value.level !== "scene_detail" || value.status !== "available" || !Array.isArray(value.atoms) || !Array.isArray(value.temporary_branches) || !Array.isArray(value.arm_local_scenes) || !Array.isArray(value.call_occurrences) || !Array.isArray(value.loop_hubs) || !Array.isArray(value.related_scenes) || !Array.isArray(value.canonical_escape_ids) || !Array.isArray(value.canonical_records) || !Array.isArray(value.evidence)) throw new TypeError("Invalid M11 Scene Detail response");
+  digest(value.canonical_hash, "M11 Scene Detail canonical_hash");
+  for (const records of [value.atoms, value.temporary_branches, value.arm_local_scenes, value.call_occurrences, value.loop_hubs, value.canonical_escape_ids, value.canonical_records, value.evidence]) {
+    if (records.length > 60) throw new RangeError("M11 Scene Detail exceeds its bounded response limits");
+  }
+  if (value.related_scenes.length > 60 || value.membership_reference_limit !== 60 || !Number.isInteger(value.membership_reference_count) || value.membership_reference_count < 0 || value.membership_reference_count > value.membership_reference_limit) throw new RangeError("M11 Scene Detail membership references are unbounded");
+  const membershipRoots = [value.scene, value.temporary_branch, value.selected_occurrence, value.lane, value.chapter, value.boundary, value.atoms, value.temporary_branches, value.arm_local_scenes, value.call_occurrences, value.loop_hubs, value.related_scenes];
+  if (membershipReferenceCount(membershipRoots) !== value.membership_reference_count) throw new TypeError("M11 Scene Detail membership reference count is inexact");
+  if (value.canonical_record_reference_limit !== 60 || !Number.isInteger(value.canonical_record_reference_count) || value.canonical_record_reference_count < 0 || value.canonical_record_reference_count > value.canonical_record_reference_limit) throw new RangeError("M11 Scene Detail canonical record references are unbounded");
+  if (membershipReferenceCount([value.canonical_records, value.evidence]) !== value.canonical_record_reference_count) throw new TypeError("M11 Scene Detail canonical record reference count is inexact");
+  return value;
 }
 
 export function assertAIStoryMap(value) {
