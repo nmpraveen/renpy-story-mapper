@@ -171,27 +171,37 @@ def _capture(
                 raise AssertionError(f"M12 omitted exact M10/M11 provenance: {result}")
             if not result["exportVisible"] or result["technicalSummary"] != "Technical status and evidence":
                 raise AssertionError(f"M12 omitted export or technical/evidence expansion: {result}")
+            claim = session.evaluate(
+                "(()=>{const details=document.querySelector('#recommendedRouteBody .route-claim'); if(!details) throw new Error('route claim details are missing'); details.open=true; const value=JSON.parse(details.querySelector('pre').textContent); return {evidenceIds:value.evidence_ids||[],edgeId:value.edge_id||null,factId:value.fact_id||null};})()"
+            )
+            if not claim["evidenceIds"]:
+                raise AssertionError(f"M12 route claim omitted exact evidence IDs: {claim}")
             session.evaluate("document.querySelector('#routeTechnical').open=true; document.querySelector('.route-provenance').open=true")
             session.evaluate(
-                "document.querySelector('#routePanel').scrollIntoView({block:'start'})"
+                "document.querySelector('#recommendedRoute').scrollIntoView({block:'start'})"
             )
             session.evaluate(
                 "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))"
             )
             result_view = session.evaluate(
-                "(()=>{const rect=document.querySelector('#routePanel').getBoundingClientRect(); return {activeLevel:document.documentElement.dataset.activeLevel,routeMapHidden:document.querySelector('#routeMapView').hidden,detailHidden:document.querySelector('#detailView').hidden,panelInViewport:rect.bottom>0&&rect.top<window.innerHeight};})()"
+                "(()=>{const panel=document.querySelector('#routePanel').getBoundingClientRect(); const result=document.querySelector('#recommendedRoute').getBoundingClientRect(); return {activeLevel:document.documentElement.dataset.activeLevel,routeMapHidden:document.querySelector('#routeMapView').hidden,detailHidden:document.querySelector('#detailView').hidden,panelInViewport:panel.bottom>0&&panel.top<window.innerHeight,resultInViewport:result.bottom>0&&result.top<window.innerHeight};})()"
             )
             if result_view != {
                 "activeLevel": "route_map",
                 "routeMapHidden": False,
                 "detailHidden": True,
                 "panelInViewport": True,
+                "resultInViewport": True,
             }:
                 raise AssertionError(f"Route result was not visible before capture: {result_view}")
             result_shot = output / f"m12-route-result-{zoom}.png"
             DRIVER._screenshot(session, result_shot)
             result_shot_hash = hashlib.sha256(result_shot.read_bytes()).hexdigest()
 
+            session.evaluate(
+                "import('./app.js').then(m=>{const other=m.graph.nodes.find(item=>item.title==='Courtyard'); if(!other) throw new Error('alternate selection is unavailable'); document.querySelector(`[data-element-id=\"${CSS.escape(other.id)}\"]`).click();})"
+            )
+            session.wait("import('./app.js').then(m=>m.state.route.phase==='stale' && m.state.route.sourceId!==m.state.route.activeSourceId)")
             session.evaluate("document.querySelector('#openRouteEvidence').click()")
             session.wait("document.documentElement.dataset.activeLevel==='detail_evidence' && !document.querySelector('#detailView').hidden")
             detail = session.evaluate(
@@ -199,6 +209,10 @@ def _capture(
             )
             if detail["activeLevel"] != "detail_evidence" or detail["levelCount"] != 2:
                 raise AssertionError(f"Detail/Evidence did not remain the second and final level: {detail}")
+            if detail["detailId"] != selected["id"]:
+                raise AssertionError(
+                    f"Detail/Evidence followed the mutable selection instead of the solved route: {detail}"
+                )
             session.evaluate(
                 "document.querySelector('#detailView').scrollIntoView({block:'start'})"
             )
@@ -212,6 +226,10 @@ def _capture(
                 raise AssertionError("Route result and Detail/Evidence captures are unexpectedly identical")
             session.evaluate("document.querySelector('#backToRouteMap').click()")
             session.wait("document.documentElement.dataset.activeLevel==='route_map'")
+            session.evaluate(
+                "import('./app.js').then(m=>document.querySelector(`[data-element-id=\"${CSS.escape(m.state.route.activeSourceId)}\"]`).click())"
+            )
+            session.wait("import('./app.js').then(m=>m.state.route.sourceId===m.state.route.activeSourceId)")
 
             session.evaluate("document.querySelector('#exportRouteJson').click()")
             exported = _wait_for_download(output)
@@ -246,6 +264,7 @@ def _capture(
                     "section_titles": result["orderedSections"],
                     "request_identity": result["requestIdentity"],
                     "provenance_node_count": len(result["provenance"]["node_ids"]),
+                    "claim_evidence_count": len(claim["evidenceIds"]),
                 },
                 "result_view": result_view,
                 "detail": detail,

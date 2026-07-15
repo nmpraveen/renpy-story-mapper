@@ -29,6 +29,7 @@ def test_route_panel_stays_inside_the_existing_two_level_workspace() -> None:
     assert ">Open Detail / Evidence</button>" in html
     assert "state.route.activeSourceId" in app
     assert "candidate?.selected_occurrence_id" in app
+    assert "routeArray(candidate?.scene_ids).at(-1)" in app
     assert "third" not in html.casefold()
 
 
@@ -114,6 +115,7 @@ def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -
     assert 'route.cached ? "Cached route ready."' in app
     assert 'route.phase = stale ? "stale" : "failure"' in app
     assert 'error.status === 409' not in app
+    assert 'String(error.code || "").toLocaleLowerCase().includes("stale")' in app
     assert "Search incomplete. No reachability or infeasibility conclusion was published." in app
     assert "state.route.result = result" in app
     assert "Boolean(state.route.result)" in app

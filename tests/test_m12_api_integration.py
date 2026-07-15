@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from renpy_story_mapper.project import create_ingested_project, refresh_ingested_project
+from renpy_story_mapper.m12_service import M12RouteService
+from renpy_story_mapper.project import (
+    Project,
+    create_ingested_project,
+    refresh_ingested_project,
+)
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.state import UserStateStore
 
@@ -144,5 +149,42 @@ def test_m12_api_rejects_unknown_fields_and_stale_results(tmp_path: Path) -> Non
             )
         assert raised.value.status == 409
         assert raised.value.code == "m12_result_stale"
+    finally:
+        api.close()
+
+
+def test_m12_api_reports_emergency_attempt_as_uncached_and_retryable(tmp_path: Path) -> None:
+    source, project_path = _project(tmp_path)
+    api = _api(tmp_path, source, project_path)
+    try:
+        destination = _foyer_destination(api)
+        with Project.open(project_path) as project:
+            prepared = M12RouteService(project).prepare(
+                str(destination["kind"]), str(destination["target_id"])
+            )
+        request_identity = prepared.request.identity
+        api._remember_m12_identity(request_identity, prepared.identity)
+        api._m12_attempts[request_identity] = {
+            "schema": "m12-route-attempt-diagnostic-v1",
+            "identity_hash": prepared.identity.identity_hash,
+            "status": "emergency_abort",
+            "reason": "emergency wall-clock abort",
+            "volatile_metrics": {},
+            "cached": False,
+        }
+
+        with pytest.raises(ApiProblem) as raised:
+            api.dispatch(
+                "POST",
+                "/api/v1/m12/result",
+                {"request_identity": request_identity},
+            )
+
+        assert raised.value.status == 409
+        assert raised.value.code == "m12_attempt_incomplete"
+        assert raised.value.message == (
+            "The emergency wall-clock guard stopped the route attempt. "
+            "No normalized result was published or cached."
+        )
     finally:
         api.close()

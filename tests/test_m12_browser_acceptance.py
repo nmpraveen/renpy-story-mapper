@@ -41,6 +41,7 @@ def test_m12_real_browser_harness_covers_the_local_route_workflow() -> None:
         "retryRoute",
         "routeTechnical",
         "route-provenance",
+        "route-claim",
         "openRouteEvidence",
         "exportRouteJson",
         "detail_evidence",
@@ -50,6 +51,8 @@ def test_m12_real_browser_harness_covers_the_local_route_workflow() -> None:
         "creator_or_game_executions",
         "source_fingerprints",
         "_browser_diagnostics",
+        "resultInViewport",
+        "mutable selection instead of the solved route",
         "sha256",
         "--output-dir",
     ):

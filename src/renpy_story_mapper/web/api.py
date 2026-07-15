@@ -517,10 +517,26 @@ class ProjectApi:
                 assert lookup.result is not None
                 return json_value(dict(lookup.result))
             if attempt is not None:
+                attempt_status = attempt.get("status")
+                if attempt_status == "emergency_abort":
+                    attempt_message = (
+                        "The emergency wall-clock guard stopped the route attempt. "
+                        "No normalized result was published or cached."
+                    )
+                elif attempt_status == "cancelled":
+                    attempt_message = (
+                        "The route attempt was cancelled. "
+                        "No normalized result was published or cached."
+                    )
+                else:
+                    attempt_message = (
+                        "The route attempt ended without a normalized result. "
+                        "Retrying this destination is safe."
+                    )
                 raise ApiProblem(
                     409,
                     "m12_attempt_incomplete",
-                    "The route attempt ended without a normalized result.",
+                    attempt_message,
                 )
             raise ApiProblem(409, "m12_result_pending", "The route result is not ready.")
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
