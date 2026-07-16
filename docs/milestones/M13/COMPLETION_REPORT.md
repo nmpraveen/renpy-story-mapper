@@ -1,79 +1,56 @@
 # M13 optional AI narrative layer completion report
 
-Status: Verification in progress
+Status: Verification blocked; not PR-ready
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Validated product commit: `859328e1cbe8933809bd49001d681d1f7f6701d4`
+Runtime freeze: `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`
 
 Pull request: Not created; explicit user approval is required
 
 ## Outcome
 
-The release-critical M13 implementation is integrated. The optional browser Narrative layer now
-binds exact M10/M11/M12 authority to independent durable scene jobs, validates and salvages claims
-individually, batches only provider transport, reduces bounded artifacts through a deterministic
-segment fan-in tree, preserves mutually exclusive routes, stores a lazy claim DAG, and presents
-coverage, jobs, consent, citations, and route-aware hierarchy artifacts without changing or
-requiring the deterministic product.
+The release-critical M13 runtime implementation is frozen and its local/provider-free verification
+is green. Focused tests, full Release, complete private-scale simulation, and real Chrome at
+100%/200% pass. The single permitted post-rereview correction cycle is committed.
 
-Provider-free private-scale acceptance, real Chrome acceptance, and the full Windows release suite
-pass. M13 is not yet PR ready: the prepared live-provider sample requires exact manifest consent,
-a separately configured independent review remains, and final evidence reconciliation must be
-completed. The native infographic is complete. No PR has been created.
+M13 is not complete or PR-ready. The one independent corrective rereview returned FAIL at the
+prior freeze; no final-head independent PASS exists. The one exactly approved live run failed
+without artifacts or replay and exposed an unstable consent-manifest identity across the approval
+boundary. Per the user's severity/time controls, no retry or second correction/review cycle was
+started.
 
 ## Acceptance evidence
 
 | Criteria | Result | Evidence |
 |---|---|---|
-| 1-13 | Pass | `VALIDATION_REPORT.md`; contracts, authority, validation, batching, persistence, segments, hierarchy, contradiction, and pipeline tests |
-| 14-16 | Pass in provider-free/mocked acceptance | Sterile provider, consent, budget, identity, prompt, and privacy tests; live call pending exact consent |
-| 17-19 | Pass | Real Chrome 100%/200%; complete current private-corpus simulation and exact zero-call replay |
-| 20 | Pending | Exact prepared live manifest has made zero submissions and awaits user confirmation |
-| 21 | Pass for completed acceptance | Authority and private-input snapshots unchanged; zero execution and unauthorized remote counters |
-| 22 | Partial | Release suite passed; separately configured independent review pending |
-| 23 | In progress | Reports/product commit and native infographic durable; final PR-readiness reconciliation pending |
+| 1-13 | Local pass; independent closure incomplete | 70 focused tests, Release 966/7, private/browser acceptance at `e0fd3bf` |
+| 14-16 | Blocked | Provider-free checks pass; exact-consent identity changes after grant and live run failed |
+| 17-19 | Pass | Chrome 100%/200% and complete 1,812-scene provider-free/private simulation |
+| 20 | Fail/incomplete | One live run failed; no accepted artifacts and no zero-call replay |
+| 21 | Pass for completed gates | Authority/private inputs unchanged; no unauthorized completed-gate actions |
+| 22 | Partial | Local suites/package pass; independent final-head PASS and live acceptance absent |
+| 23 | In progress | Evidence is reconciled and infographic durable; PR is not ready or created |
 
-## Validation
+## Final validation snapshot
 
-| Command / review | Result | Artifact or notes |
-|---|---|---|
-| Focused final authority and hierarchy set | 62 passed | Claim validation, contradictions, hierarchy, reductions, pipeline, provider, and API |
-| Full Windows release suite | 951 passed, 7 deselected | Ruff, strict mypy over 91 files, `pip check`, JavaScript, package build/install/import/assets/notices passed |
-| Provider-free private-scale acceptance | Passed | 1,812 scenes; report SHA-256 `351b952e5f7dba443190202fa2461b3f41f3b70e2870dbbc9ff9820f7f095279` |
-| Bounded live/private acceptance | Awaiting exact consent | Preview SHA-256 `50fe3389870e568a409f0cb9de13fc8f12dfc75e1c6636c5982e64396ba085e9`; zero submissions |
-| Real Chrome 100%/200% | Passed | Report SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273` |
-| Native milestone infographic | Complete | `INFOGRAPHIC.png`, SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
-| Independent review | Pending | Current primary adversarial report is not represented as independent |
+| Check | Result |
+|---|---|
+| Focused M13 authority/reduction/validation | 70 passed |
+| Full Windows Release | 966 passed, 7 deselected; all quality/package gates passed |
+| Provider-free private scale | Passed; report SHA-256 `31f91a5704dc221018ea955af7beef33cdd9425a39c9d2777ef22ff11b4dd114` |
+| Chrome 100%/200% | Passed; report SHA-256 `dd873f0fcaa6532c317fef982a366b94151864052d27458c45803dddf7691437` |
+| Live preview | Zero-submit preview SHA-256 `406ee106aa7f1bc68001d49c928856963ff67e3cdd6916270d19283285f38fb6` |
+| Live run/replay | Failed before any artifact; replay not run |
+| Independent review | Corrective rereview FAIL; no final-head PASS |
+| Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Review findings
+## Blocking state
 
-- Three P1 findings were corrected in `859328e`: contradiction enforcement at publication,
-  bounded Detail/Evidence handling for large exact M12 citations, and exact M12 factual semantic
-  preservation in hierarchy claims.
-- No P0 or P1 finding remains from the integrated primary adversarial pass.
-- `REVIEW_REPORT.md` records why a separately configured independent pass is still required.
-
-## Integration and PR state
-
-- Integrated diff reviewed against contract and exclusions: Yes, in the primary adversarial pass
-- Provider-free, private-scale, browser, package, and full Windows checks passed: Yes
-- P0/P1 findings from the primary pass resolved: Yes
-- Exact consented live acceptance complete: No
-- Separately configured independent review complete: No
-- PR genuinely ready: No
-
-## Remaining limitations
-
-- Exact live-provider acceptance is approval-gated by the prepared consent manifest. Completed
-  local work remains durable, and no provider call has occurred.
-- A correctly configured read-only external-model review was rejected before transmission because
-  it would send private repository code outside the machine. Independent review remains a release
-  gate and requires explicit informed user approval; no workaround was attempted.
-- Optional weak-boundary suggestions, LM Studio/local-provider integration, and export polish are
-  deferred. Their absence does not block the core M13 hierarchy.
-- At most one targeted repair is supported. The default scheduler favors claim-local salvage and
-  independent item retry and does not automatically spend a repair call.
-
-Complete the native Codex goal only when `PR genuinely ready` is `Yes` and the rows above contain
-durable evidence.
+- Fixing consent-manifest identity or changing runtime behavior requires a new, separately approved
+  bounded correction because the authorized single corrective cycle has been consumed.
+- A future live attempt requires a fresh exact preview/manifest and explicit consent; the failed
+  manifest must not be reused.
+- A future independent review must cover the eventual final runtime head and return no P0/P1.
+- The native Codex goal remains active. Complete it only when `PR genuinely ready` is `Yes`.
+- No pull request was created or merged.

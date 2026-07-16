@@ -10,9 +10,9 @@ Updated: 2026-07-16
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification.
+- Status: Verification; blocked on live-provider acceptance and consent-manifest identity.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: active thread goal `019f6a76-1675-7ad3-bcbc-8741693751a3`, matching the exact
+- Native Codex goal: active task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5`, matching the exact
   M13 done condition.
 - Pull request: Not created; explicit user approval is required before creation or merge.
 
@@ -23,14 +23,23 @@ route-aware hierarchy, release-priority order, full provider-free private-scale 
 bounded live acceptance, and privacy-safe storage. The single early semantic gate passed; work is
 proceeding in the contract's release-critical order.
 
-The integrated product head is `859328e1cbe8933809bd49001d681d1f7f6701d4`. The full Windows
-release suite, complete provider-free private-corpus simulation, and real Chrome acceptance at
-100%/200% pass. Exact bounded live-provider acceptance remains gated by the prepared consent
-manifest and has made zero submissions. A separately configured read-only review was rejected
-before transmission because it would send private repository code to an external model service;
-it requires explicit informed user approval. The native infographic is complete. Live acceptance,
-independent review, and final evidence reconciliation remain before `PR ready`; no pull request
-has been created.
+The frozen runtime correction head is `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`.
+Final-head focused tests passed 70 tests, and Release passed 966 tests with 7 hardware-sensitive
+tests deselected plus Ruff, strict mypy, dependency, JavaScript, whitespace, isolated package
+build/install/import, asset, and notice checks. Provider-free acceptance passed all 1,812 private
+scenes, and real Chrome acceptance passed at 100%/200% with zero remote requests and zero-call
+simulator replay.
+
+The one independently configured corrective rereview used `gpt-5.6-sol`, High reasoning, fast
+mode disabled, ephemeral/read-only execution, and range `04082c0..9889035`; it returned `FAIL`
+with two P1 findings. The single permitted corrective cycle produced `e0fd3bf` and focused/Release/
+private/browser checks pass, but no second independent verdict was authorized. The fresh live
+manifest was explicitly approved, including external transmission risk. Its one execution failed:
+74 jobs, 222 transient-failure attempts, 24 provider calls, zero recorded tokens, no artifacts,
+and no replay. It also demonstrated that the previewed consent ID `m13_consent_3bb95e...` changed
+to unpreviewed granted ID `m13_consent_d2b91d...` in persisted provider requests. Per the bounded
+severity policy, no retry or second correction loop was started. The native goal remains active,
+the native infographic is complete, and no pull request has been created.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

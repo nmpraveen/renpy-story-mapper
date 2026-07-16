@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: In progress (semantic review PASS)
+Status: Verification blocked (semantic review PASS)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval, and its twelve binding amendment sections
@@ -154,14 +154,14 @@ the existing map, scene view, evidence workspace, or route solver.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Pass; `VALIDATION_REPORT.md`, product head `859328e` |
-| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Pass; focused/full suites and private-scale report in `VALIDATION_REPORT.md` |
-| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Pass; focused/full suites and primary adversarial corrections in `859328e` |
-| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Pass in mocked/provider-free acceptance; bounded live submission awaits exact manifest consent |
-| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Pass; browser report SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273`; optional weak-boundary overlay deferred |
-| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Provider-free/private pass; live criterion 20 pending exact consent; details and hashes in `VALIDATION_REPORT.md` |
-| 22 | Focused/full Windows suite, package inspection, independent review | Suites/package pass; separately configured independent review pending |
-| 23 | Reports, integration commit, infographic, PR state | In progress; reports/product head and native infographic are durable; final review/live evidence pending, no PR created |
+| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Local pass at runtime freeze `e0fd3bf`; focused 70 and Release 966/7; independent final-head closure absent |
+| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Pass at `e0fd3bf`; Release plus provider-free 1,812-scene acceptance |
+| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Local pass after the single corrective cycle; corrective rereview at prior freeze was FAIL and no second independent verdict was authorized |
+| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Provider-free pass; live attempt failed and exposed unstable preview/granted consent IDs |
+| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Pass at `e0fd3bf`; browser report SHA-256 `dd873f0fcaa6532c317fef982a366b94151864052d27458c45803dddf7691437`; optional overlay deferred |
+| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private/provider-free pass; criterion 20 live run failed before replay; `LIVE_ACCEPTANCE_FAILURE.md` |
+| 22 | Focused/full Windows suite, package inspection, independent review | Local suites/package pass; blocking independent final-head PASS is absent |
+| 23 | Reports, integration commit, infographic, PR state | Evidence reconciled to `e0fd3bf`; native infographic durable; milestone not PR-ready and no PR created |
 
 ## Release-critical sequence
 

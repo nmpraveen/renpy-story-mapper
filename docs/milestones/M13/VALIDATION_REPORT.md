@@ -1,10 +1,10 @@
 # M13 validation report
 
-Status: Verification in progress; provider-free product acceptance passed
+Status: Verification blocked after one live-provider failure
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Validated product commit: `859328e1cbe8933809bd49001d681d1f7f6701d4`
+Runtime freeze: `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`
 
 Validation date: 2026-07-16
 
@@ -12,102 +12,78 @@ Validation date: 2026-07-16
 
 | Criteria | Result | Durable evidence |
 |---|---|---|
-| 1-5 | Pass | Stable logical/input/cache identities, exact authority binding, deterministic E/C handle maps, content-addressed claims, claim-local validation, deterministic-title fallback, one-repair maximum, and partial-salvage tests |
-| 6-9 | Pass | Independent batch-item commit/retry/split tests, durable queue/cache/attempt records, cancellation preservation, deterministic recursive segments, lazy bounded claim-DAG resolution, and linear-growth assertions |
-| 10-13 | Pass | Bounded chapter/route/ending/plot/character fan-in, exact M12 leaf semantics, separated persistent routes, contextual contradiction identity, factual conflict salvage, and interpretive review warnings |
-| 14-16 | Pass in mocked/provider-free acceptance | Provider-independent boundary, sterile structured Codex CLI adapter, runtime requested/resolved identity, no fallback, consent/budget/timeout/cancellation tests, versioned prompts, sanitized storage, and raw-debug-off defaults |
-| 17-18 | Pass | Real Chrome at 100% and 200%, optional Narrative overlay, two semantic levels, lazy citations, job drawer, deterministic-title restoration, zero-call replay; optional weak-boundary overlays intentionally deferred |
-| 19 | Pass | Complete current private-corpus provider-free simulation: 1,812 scenes, batching, hierarchy, retries, partial publication, cancellation, invalidation, exact cache replay, route separation, and linear storage/provenance growth |
-| 20 | Pending exact consent | Representative live manifest prepared without transmission; `provider_submit_calls` is zero. Exact manifest-bound confirmation is required before the bounded live run |
-| 21 | Pass for provider-free/private/browser runs | Source/archive and M10/M11/M12 authority snapshots unchanged; zero Ren'Py/game/creator/runtime execution; no unauthorized remote request |
-| 22 | Partially pass | Release suite and browser/private/package checks pass. A separately configured external-model review remains pending explicit informed approval to transmit private repository code |
-| 23 | In progress | Reports, validated product commit, and native infographic are durable. Independent review, final live evidence, and PR-readiness reconciliation remain |
+| 1-5 | Local pass; independent closure incomplete | 70 focused tests and 966/7 Release at `e0fd3bf`; `CORRECTIVE_REREVIEW_REPORT.md` records the prior-freeze FAIL and single correction |
+| 6-13 | Pass locally | Release plus 1,812-scene provider-free acceptance; exact authority, bounds, route/time context, claim DAG, and hierarchy checks |
+| 14-16 | Provider-free pass; live blocked | Provider boundary and privacy checks pass locally; live run failed with only sanitized transient errors and exposed unstable consent-manifest identity |
+| 17-18 | Pass | Chrome at 100%/200%, zero remote requests/errors/overflow and zero-call simulator replay; weak-boundary overlay deferred by contract |
+| 19 | Pass | Full current private shape, faults, cancellation, invalidation, route separation, linear storage, and zero-call replay |
+| 20 | Fail/incomplete | One exactly approved live run produced no artifacts and no replay; `LIVE_ACCEPTANCE_FAILURE.md` |
+| 21 | Pass for local/private/browser; live incomplete | Private inputs and deterministic authority unchanged in completed gates; live sample source retained unchanged |
+| 22 | Partial | Focused/Release/package/browser/privacy/private gates pass; no independent PASS at final head; live gate fails |
+| 23 | In progress | Exact evidence and limitations are durable; active native goal retained; no PR created |
 
-## Commands and results
+## Exact commands and results
 
 | Command / check | Result | Artifact or notes |
 |---|---|---|
-| Focused M13 validation, contradiction, hierarchy, reduction, pipeline, provider, and API tests | 62 passed | Final authority/contradiction corrections at validated product commit |
-| `.\scripts\validate.ps1 -Tier Release -Python 'C:\Users\prave\AppData\Local\Programs\Python\Python312\python.exe'` | 951 passed, 7 deselected in 179.16 seconds; total 194.7 seconds | Ruff passed; strict mypy passed across 91 source files; `pip check`, JavaScript checks, whitespace, isolated sdist/wheel build, install/import, assets, and notices passed |
-| `scripts/m13_provider_free_acceptance.py` against the accepted current private project | Passed | `tmp/m13-provider-free-private-reviewed/acceptance.json`, SHA-256 `351b952e5f7dba443190202fa2461b3f41f3b70e2870dbbc9ff9820f7f095279` |
-| `scripts/m13_browser_acceptance.py` | Passed at 100% and 200% Chrome zoom | `tmp/m13-browser-acceptance-reviewed/acceptance.json`, SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273` |
-| `scripts/m13_live_acceptance.py` preview | Prepared; no submission | `tmp/m13-live-provider-acceptance/consent-preview.json`, SHA-256 `50fe3389870e568a409f0cb9de13fc8f12dfc75e1c6636c5982e64396ba085e9` |
-| Native image generation | Complete | `INFOGRAPHIC.png`, 1,619,429 bytes, SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
-| `git diff --check f67df8a7..859328e` | Passed | No whitespace errors |
+| Focused M13 authority/reduction/validation set | 70 passed in 37.65 seconds | Includes inherited route/time scope, mandatory-authority bounds, duplicate representations, and exact proxy scope |
+| `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release` | Passed at `e0fd3bf`: 966 passed, 7 deselected in 178.22 seconds | Ruff; strict mypy over 91 files; `pip check`; four JavaScript checks; whitespace; isolated sdist/wheel build, install, import, assets, and notices all passed |
+| `scripts/m13_provider_free_acceptance.py --minimum-scenes 1812` against the accepted private project | Passed | `tmp/m13-provider-free-private-e0fd3bf/acceptance.json`; SHA-256 `31f91a5704dc221018ea955af7beef33cdd9425a39c9d2777ef22ff11b4dd114` |
+| `scripts/m13_browser_acceptance.py --output-dir tmp/m13-parallel-browser-e0fd3bf/worker-019f6d0f-b146-7f12-9294-3af8f7bc0bc7` | Passed once, 23.194 seconds | 100%/200%; report SHA-256 `dd873f0fcaa6532c317fef982a366b94151864052d27458c45803dddf7691437` |
+| `scripts/m13_live_acceptance.py` preview for `gpt-5.6-sol` | Prepared with zero submissions | Preparation `m13_preparation_f331d17b9e6bc8f3a476a2166c74a4fd8092d9b2fecc20f920fd5858080c4dc6`; preview SHA-256 `406ee106aa7f1bc68001d49c928856963ff67e3cdd6916270d19283285f38fb6` |
+| Same live command with exact `--confirm-preparation-id` after two explicit approvals | Failed, exit 1, about 37 seconds | 74 failed jobs; 222 transient attempts; 24 provider calls; zero tokens; no artifacts; replay not reached |
+| Native image generation | Complete | `INFOGRAPHIC.png`; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Private provider-free acceptance
+The first live command request was policy-rejected before process launch and made zero provider
+calls. After the user explicitly approved external transmission of the synthetic repository-derived
+facts, the unchanged command launched once. No retry followed its runtime failure.
 
-- The accepted project contained 1,812 scenes, 9,120 atoms, one chapter, 13 lanes, 102 temporary
-  branches, and five occurrences.
-- The complete hierarchy estimated 2,590 logical jobs. It published 1,812 scene, 354 segment, 323
-  chapter, 12 route, 43 ending, 32 character, and one route-aware plot artifact.
-- All 2,568 factual claims had owned evidence. The report published 2,600 claims with zero unknown
-  or out-of-scope references and zero claim-DAG cycles.
-- The fault matrix covered malformed items, transient failure, provider/content refusal, batch
-  splitting, partial claim publication, cancellation after 16 validated scenes, identity
-  invalidation, and preservation of prior accepted artifacts.
-- Exact cache replay succeeded with zero simulated provider calls. Serialized M13 state was
-  18,007,124 bytes, with approximately linear artifact and provenance growth.
-- The accepted baseline project remained SHA-256
-  `b0362db6be0a885936bfe7053917aa49812dd55ed9ea47c6f63da11a72b6bf07`.
-  Private `scripts.rpa` and `extras.rpa` remained unchanged at
-  `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303` and
-  `53da12dd0437e981c9c702478b318cc0b6b0b08dbbc47f85b9dc0977456a7753`.
-- Network, remote-provider, subprocess, Ren'Py/game/creator-code, and runtime-tracing counters were
-  zero. Raw debug payload retention was false, and no private path was recorded.
+## Final-head provider-free/private evidence
 
-## Browser acceptance
+- Corpus: 1,812 scenes, 9,120 atoms, one chapter, 13 lanes, 102 temporary branches, and five
+  occurrences.
+- Full hierarchy: 2,590 logical jobs; 1,812 scene, 354 segment, 323 chapter, 12 route, 43 ending,
+  32 character, and one plot artifact.
+- Claims: 2,600 published; 2,568 factual; all factual claims owned evidence; zero unknown/out-of-
+  scope references and zero DAG cycles.
+- Fault matrix: batch refusal/split, malformed and transient retry, content refusal recovery,
+  partial publication, cancellation after 16 scenes, identity invalidation, and preservation of
+  valid prior artifacts.
+- Replay: zero simulated/provider calls and successful terminal state.
+- Safety: zero network, remote-provider, subprocess, creator/game, and runtime-tracing executions;
+  raw debug retention false; private paths absent; isolated working project removed.
+- Storage remained approximately linear; serialized M13 state was 18,635,071 bytes.
 
-- Chrome passed at 1440x900/100% and effective 720x450/200%, without horizontal overflow,
-  browser errors, or remote requests.
-- Cloud AI and the Narrative overlay were off by default. The consent card showed provider/model,
-  exact selected scope, fact-only mode, 87 logical jobs, estimated calls and tokens, hard limits,
-  and M12 inclusion before any run could be submitted.
-- The production workflow published 27/27 scene artifacts and the full hierarchy through a
-  structured offline provider. Detail/Evidence lazily resolved both scene and plot citations.
-- Turning Narrative off restored the deterministic M11 title. Exact replay reported zero provider
-  calls at both zoom levels. Source, authority, M12, and packaged static-asset snapshots were
-  unchanged.
+## Final-head browser evidence
 
-## Live manifest awaiting consent
+- Chrome passed at 1440x900/100% and effective 720x450/200%.
+- Coverage was 27/27 scenes at both zooms, with route-aware plot/citations, deterministic-title
+  restoration, zero errors, zero remote requests, and no horizontal overflow.
+- Exact simulator cache replay made zero calls. Source, M10/M11/M12 authority, and packaged static
+  assets were unchanged.
 
-The preview is bound to preparation
-`m13_preparation_5119c7f7d4333738b432ac46cb90b240730ea392ca3fd4dba5490e8141b354ab`
-and consent manifest
-`m13_consent_3bb95e7426f079172fb8e99e25485a2820a41d05f717a16dc103e037bac67cf3`.
-It selects a synthetic 27-scene fact-only sample covering common spine, temporary branch,
-persistent routes, occurrences, loop context, 14 endings, one M12 result, four exact prerequisite
-strings, and one complete route-aware reduction. The conservative estimate is 87 logical jobs,
-63 provider calls, 324,994 input tokens, and 81,600 output tokens. Hard limits are 80 calls,
-400,000 input tokens, 150,000 output tokens, 550,000 total tokens, 1,800 seconds, and concurrency
-one. Reliable price data is unavailable, so no monetary limit is represented as known. No provider
-submission has occurred.
+## Live preview and failure
 
-## Review findings and dispositions
+The exact preview selected 27 synthetic scenes, fact-only mode, M12 included, 87 logical jobs,
+63 estimated calls, 324,994 input tokens, and 81,600 output tokens. Limits were 80 calls, 400,000
+input, 150,000 output, 550,000 total tokens, 1,800 seconds, and concurrency one. Cost was
+unavailable and no monetary limit was represented as known. Provider settings were `{}`; provider
+High reasoning and fast-mode state were not encoded or verifiable.
 
-- P1: publication originally did not apply contextual contradiction salvage. Fixed in `859328e`;
-  later same-context factual conflicts are omitted claim-locally, while interpretive disagreements
-  remain visible review warnings.
-- P1: a large exact M12 citation could exceed Detail/Evidence response bounds. Fixed in `859328e`
-  with a deterministic hash-bound bounded projection and lazy authority resolution.
-- P1: exact M12 authority language needed stronger semantic preservation. Fixed in `859328e` by
-  requiring hierarchy factual claims to copy one exact M12 leaf's text and normalized semantics;
-  AI interpretation remains separately labeled.
-- No unresolved P0 or P1 finding remains from the integrated primary adversarial pass. This is not
-  represented as the contract's separately configured independent review.
+The live run persisted a terminal failed run with 74 failed jobs, 222 `transient_failure` attempts,
+24 provider calls, zero input/output tokens, zero artifacts, and no replay. The prepared preview
+named consent manifest `m13_consent_3bb95e7426f079172fb8e99e25485a2820a41d05f717a16dc103e037bac67cf3`,
+but granted provider requests persisted `m13_consent_d2b91df4b7e1ec713725e17b4f6cd29d632723ea71171578320e720523089cb8`.
+The ID changes because `consent_granted` participates in the manifest hash. This violates the
+contract's exact preview-bound consent expectation and is a blocking P1 alongside the failed live
+acceptance. Per the one-cycle limit, neither was corrected or retried.
 
-## Remaining gates and limitations
+## Remaining blockers and limitations
 
-- Live provider acceptance remains blocked on exact user confirmation of the prepared manifest.
-  The preview itself proves zero submission.
-- A separate read-only review was prepared with explicit `gpt-5.6-sol`, high reasoning, fast mode
-  disabled, and an inner read-only sandbox. It was rejected before transmission because it would
-  send private repository code to an external model service. No review data left the machine, and
-  the review remains pending explicit informed approval rather than being routed around the
-  safeguard.
-- The validator supports zero or one targeted claim/schema repair. The integrated scheduler
-  normally performs claim-local salvage and independent item retry; it does not issue a repair call
-  merely because repair is permitted.
-- Weak-boundary suggestions, LM Studio/local-provider support, and export polish are intentionally
-  deferred optional work. Bounded character participation and route-aware interpretations are
-  included.
+- Criterion 15: previewed and transmitted consent-manifest identities are not stable.
+- Criterion 20: the one live run failed and zero-call replay did not execute.
+- Criterion 22: the independently configured rereview returned FAIL at `9889035`; the single
+  corrective cycle passes local gates at `e0fd3bf`, but no final-head independent PASS exists.
+- The root task API did not expose a fast-mode selector; provider reasoning/fast state was not
+  encoded by the preview. No claim is made that these settings were verified for the live call.
+- No pull request was created.
