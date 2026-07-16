@@ -1,13 +1,15 @@
 # M12 - Route-to-target solving and path requirements
 
-Status: PR ready
+Status: PR ready after PR #22 changes requested
 
 Scope authority: `docs/MASTER_PLAN.md`, M12 approved proposal, and the user's 2026-07-15
 binding amendments
 
 Baseline: `fa8c543f648e085403f7448ab5e89f9b6e6c4fb6`
 
-Validated product head: `1df83098872fb63d434ff3e59a79e0f286944260`
+Changes-requested base: `a02151ebc45d2d05efc6d582a8757fbca87aa6d5`
+
+Validated product head: `40c10fd9bb31e9303efeb302dacd081e1007911c`
 
 ## Done condition
 
@@ -111,15 +113,35 @@ without enumerating playthroughs, inventing state, or claiming unsupported satis
 
 ## Required evidence
 
+### PR #22 changes-requested merge gate
+
+The user reproduced four remaining blockers at changes-requested base
+`a02151ebc45d2d05efc6d582a8757fbca87aa6d5`. PR readiness now additionally requires:
+
+1. Chronological intersection of a bounded supported constraint state for boolean truth/falsity,
+   literal equality/exclusion, numeric lower/upper bounds, and exact contradiction fact IDs.
+   Empty intersections prune the search state; unsupported expressions remain unknown.
+2. Successful matching call-summary continuation pops the completed top call frame while nested,
+   shared-callee, recursive, malformed, and unresolved behavior remains conservative.
+3. Search states store bounded parent-pointer prefix IDs rather than full node/edge paths. Normal
+   v1 budgets complete deterministic 500/1,000/2,000-edge routes with approximately linear prefix
+   and accounting growth, while normalized route output remains deterministic.
+4. Conservative exact loop acceleration is wired only for M10-authorized, structurally stable,
+   call-context-stable cycles with proven repeated effects, proven thresholds, and no relevant
+   one-shot, branch-changing, possible, or unresolved write.
+
+The focused additions, full M12 suite, Release, browser, persistence, fault, private acceptance,
+linear scale runs, and an exact grind above 16 repetitions must pass before PR readiness returns.
+
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1-4 | Binding, entry, destination, determinism, and authority contract tests | Pass; focused M12 suite and `VALIDATION_REPORT.md` |
-| 5-11 | State, call-context, timing, loop, threshold, and contradiction fixture tests | Pass; focused M12 suite and named fixtures in `VALIDATION_REPORT.md` |
-| 12-15 | Budget replay, ranking, alternatives, status, and scale metrics | Pass; byte-identical scale runs in `VALIDATION_REPORT.md` |
+| 5-11 | State, call-context, timing, loop, threshold, and contradiction fixture tests | Pass; 58 solver tests include the requested constraint, call-frame, phase-aware, and safe/unsafe loop regressions |
+| 12-15 | Budget replay, ranking, alternatives, status, and scale metrics | Pass; exact 500/1,000/2,000-edge routes complete with approximately 2x accounting/prefix growth |
 | 16 | Cache/write counters, migration/open behavior, cancellation and injected failures | Pass; 32 persistence/fault/private-harness tests and emergency replay evidence |
 | 17-18 | API/real-browser checks, screenshots, bounded provenance traversal, export hashes | Pass; Chrome 100%/200% artifacts and hashes in `VALIDATION_REPORT.md` |
-| 19 | Named synthetic test matrix with commands and counts | Pass; 97 focused M12 tests, one opt-in browser skip exercised separately |
-| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Pass; approval-gated PR #22 is open and unmerged; see `COMPLETION_REPORT.md` |
+| 19 | Named synthetic test matrix with commands and counts | Pass; 123 focused M12 tests, one opt-in browser skip exercised separately |
+| 20 | Fast/Focused/Release, private fingerprints, review, completion, and PR state | Pass; correction evidence is durable and PR #22 remains open and unmerged |
 
 ## Exclusions
 

@@ -98,3 +98,11 @@ Decision: PASS
 control/state records, and sufficient M11 narrative/occurrence/lane records to implement every
 approved target kind. Missing variable-identity and closed-world facts have an explicit conservative
 representation and do not require changing M10 or M11. Broad implementation may begin.
+
+## PR #22 changes-requested alignment note
+
+The 2026-07-15 requested corrections do not reopen or repeat the semantic gate. They directly
+enforce already-approved criteria: accumulated supported contradictions (AC9/AC14), exact call
+context (AC10), bounded prefix/accounting behavior (AC12), and conservative loop acceleration
+(AC11). They require no M10/M11 authority change, arbitrary solver, runtime tracing, AI, or M13
+scope. The original single decision remains `PASS`.

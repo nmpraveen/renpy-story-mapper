@@ -2,79 +2,65 @@
 
 Status: PR ready
 
-Validated product commit: `1df83098872fb63d434ff3e59a79e0f286944260`
+Validated product commit: `40c10fd9bb31e9303efeb302dacd081e1007911c`
 
 Pull request: [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22), open and unmerged
 
+Changes-requested base: `a02151ebc45d2d05efc6d582a8757fbca87aa6d5`
+
 ## Outcome
 
-M12 implements an on-demand, deterministic, bounded, cacheable static route solver over exact
-M10/M11 authority. From an authoritative entry or explicit supported starting context, the
-browser can select supported destinations and present ordered human scenes, visible choices,
-templated instructions, exact prerequisite/effect attribution, persistent commitments,
-conservative uncertainty, alternatives, expandable evidence, safe cancellation, cache replay,
-and versioned JSON export without executing Ren'Py, the game, creator code, a provider, or a
-remote request.
+M12 provides an on-demand, deterministic, bounded, cacheable static answer to “How do I reach this
+scene or outcome?” From M10-authoritative state and M11/M10 destinations, it returns ordered human
+scenes, visible choices, deterministic instructions, requirements and earlier satisfying effects,
+persistent commitments, conservative uncertainty, exact provenance, alternatives, evidence,
+cancellation, cache replay, and JSON export without executing Ren'Py, the game, creator code, a
+provider, or a remote request.
 
-## Acceptance evidence
+All four changes requested on PR #22 are resolved without redesigning M12 or changing M10/M11
+authority, persistence, cancellation, cache, UI, evidence, or export:
 
-| Criterion | Result | Evidence |
-|---|---|---|
-| 1-4 | Pass | Exact authority/request identity, authoritative starts, destination catalog, selected occurrences, normalized replay in focused tests and `VALIDATION_REPORT.md` |
-| 5-11 | Pass | State identity, initialization, chronology, numeric thresholds, internal prerequisite ranking, call context, and loop safety fixtures |
-| 12-16 | Pass | Versioned deterministic limits, byte-identical scale runs, conservative statuses, atomic persistence, cache/failure/cancellation tests |
-| 17-18 | Pass | Real-browser 100%/200% workflow, four badges, two levels, exact evidence, cache replay, cancellation, deterministic export |
-| 19 | Pass | 97 focused M12 tests plus separately executed browser acceptance and the complete amended direct-test matrix |
-| 20 | Pass | Fast, Focused, Release, scale, browser, persistence/fault, real private acceptance, input immutability, zero-execution counters, and final reviews |
+1. Supported requirements now intersect chronologically and contradictory states are pruned.
+2. Completed generic call frames are popped, including correct nested return behavior.
+3. Search paths use parent-linked bounded prefixes and scale approximately linearly.
+4. Exact M10-authorized loops accelerate conservatively, including exact intermediate-node exits.
 
-## Validation
+## Final acceptance
 
-| Command / review | Result | Artifact or notes |
-|---|---|---|
-| Fast | Pass; 39 tests | Ruff passed |
-| Focused | Pass; 97 tests, 1 opt-in browser skip | All 12 `test_m12*.py` files; browser run separately |
-| Release | Pass; 762 tests, 6 hardware-sensitive deselected | Ruff, strict mypy, dependency, JS, whitespace, build/install/import/assets all passed |
-| Scale | Pass | Two byte-identical reports, SHA-256 `97f5194e6a2264d8006126f87088c13bb6dd3891cf217d8c76f5a2b0f1f2fcbc` |
-| Browser | Pass | Report SHA-256 `0256aeefd8b34df69c3da7b1fcc91009c01b98b7ce516e6847dfea80a58c4207` |
-| Persistence/fault/private harness tests | Pass; 32 tests | Atomicity, isolation, cancellation, emergency behavior, private boundaries |
-| Emergency replay | Pass; 10/10 | Uncached abort, no normalized result, prior cache preserved |
-| Real private acceptance | Pass | Five selected targets; report SHA-256 `194551a06be474bfaec41f6e5f01a75c6d0240b02cfa6d28c296dc50791d892e` |
-| Final semantic review | Pass | Exact baseline through `1df83098872fb63d434ff3e59a79e0f286944260`; no semantic finding |
-| Final delivery review | Pass | Same exact range; no product, correctness, security, UI, or delivery finding |
+| Check | Result |
+|---|---|
+| Direct solver and scale corrections | 64 passed |
+| Fast | 39 passed |
+| Focused M12 | 123 passed, 1 opt-in browser wrapper skipped and run separately |
+| Release | 788 passed, 6 hardware-sensitive deselected; Ruff, strict mypy, JavaScript, dependency, package, isolated install/import, assets, and notices passed |
+| Persistence/fault/private harness | 32 passed; emergency abort replay 10/10 |
+| 500/1,000/2,000 linear routes | Passed under normal v1 budgets with approximately 2x accounting/prefix growth |
+| Exact grind over 16 repetitions | Passed at exact repeat count 25 |
+| Real Chrome | Passed at 100% and 200%, including cache, cancellation, evidence, layout, and export |
+| Real private acceptance | Passed for five selected targets with unchanged inputs and zero execution/remote counters |
+| Final independent review | `PASS` on literal diff `a02151e..40c10fd`; no blocking finding |
 
-## Review findings
+Exact commands, counts, hashes, artifacts, limitations, and the before/after review record are in
+[`VALIDATION_REPORT.md`](VALIDATION_REPORT.md).
 
-- Safe cancellation: final delivery review identified a result-publication race. Resolved in
-  `ea52f92`; both browser zoom runs now cancel with a null result and usable Retry.
-- Requirement chronology: final semantic review identified loss of an earlier entry assumption
-  after a possible write and repeated gate. Resolved in `5faa12a` with exact chronological
-  attributions and a deterministic regression.
-- External-precondition ranking: adversarial review identified repeated uses of one starting
-  assumption being overcounted. Resolved in `1df8309`; distinct assumptions rank once, the
-  shorter equal-assumption route wins, one start instruction is rendered, and ordered repeated
-  scene/choice/repeat evidence remains intact.
-- Browser integrity: an intermediate Release run identified the pre-fix `app.js` hash in the
-  asset manifest. Resolved in `69c1928`; the final Release run passed.
-- Both final independent reviews returned `PASS`. No accepted or unresolved blocking finding
-  remains.
+## Review resolution
 
-## Integration and PR state
+The final reviewer identified an intermediate-loop exit that needed a partial-cycle phase. Before
+the fix, the solver could overshoot trust 25 or incorrectly call the route state-infeasible. Commit
+`40c10fd` tracks the exact phase at each exit. Both `trust >= 25` and
+`trust >= 25 and trust < 27` now return the shortest exact route: 13 forward edges, 12 return edges,
+and trust 25. The independent re-review returned `PASS`.
 
-- Integrated diff reviewed against contract and exclusions: Yes
-- Required checks passed: Yes
-- Blocking findings resolved or explicitly accepted: Yes
-- PR genuinely ready: Yes
+## Integration and lifecycle
 
-## Remaining limitations
+- Integrated diff reviewed against the amended M12 contract and exclusions: Yes
+- Required checks and evidence complete: Yes
+- Blocking findings resolved: Yes
+- Existing PR #22 updated; no second branch or PR: Yes
+- PR merged: No; merge remains approval-gated to the user
+- Repository lifecycle: `PR ready`; repository `Complete` remains reserved for post-merge reconciliation
 
-- M10 authority does not establish every variable's scope/default/persistent initialization.
-  M12 remains unknown or uses an explicit external precondition rather than inventing state.
-- Private terminal and persistent-lane destinations remain dynamic/unknown where M10 does not
-  provide closed-world evidence.
-- Optional thin Markdown output was omitted; deterministic JSON and the browser presentation are
-  complete.
-- Task controls did not expose verifiable model/reasoning/fast-mode selectors. No model-selection
-  product logic was added.
-
-The approval-gated PR exists, its URL and evidence are durable, and the repository lifecycle is
-`PR ready`. Repository `Complete` remains reserved for reconciliation after the user merges it.
+The earlier native goal was completed at the prior genuine PR-ready state. The user explicitly
+requested a bounded continuation rather than an M12 restart, so no replacement goal was created.
+Task controls still did not expose verifiable model/reasoning/fast-mode selectors; no product logic
+was added for that orchestration limitation.

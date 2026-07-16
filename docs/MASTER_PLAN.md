@@ -2,8 +2,9 @@
 
 Last revised: 2026-07-15
 
-Status: M01 through M11 are complete and merged. M12 is PR ready under its approved milestone
-contract in [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22) as of 2026-07-15.
+Status: M01 through M11 are complete and merged. M12 is PR ready again after resolving the four
+changes requested on [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22) as of
+2026-07-15.
 
 ## 1. Product goal
 
