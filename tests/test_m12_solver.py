@@ -2731,6 +2731,100 @@ def test_exact_loop_acceleration_respects_multiple_relevant_thresholds() -> None
     assert result.recommended.repeated_action_claims[0].repeated_count == 5
 
 
+def _intermediate_cycle_exit_result(expression: str) -> RouteResult:
+    gate = _fact(
+        "phase-exit-gate",
+        kind="requirement",
+        expression=expression,
+        variable="trust",
+    )
+    initial = _fact(
+        "phase-exit-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "phase-exit-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "body", "target"),
+        (
+            {
+                "id": "phase-root-to-body",
+                "source": "root",
+                "target": "body",
+                "kind": "loop_body",
+                "effects": (increment.id,),
+            },
+            {
+                "id": "phase-body-to-root",
+                "source": "body",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "phase-finish",
+                "source": "body",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+    assert result is not None
+    return result
+
+
+def test_exact_loop_acceleration_uses_intermediate_exit_phase() -> None:
+    result = _intermediate_cycle_exit_result("trust >= 25")
+
+    assert result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.complete is True
+    assert result.recommended.edge_ids.count("phase-root-to-body") == 13
+    assert result.recommended.edge_ids.count("phase-body-to-root") == 12
+    assert result.recommended.requirements[0].supporting_effect_counts[-1] == (
+        "phase-exit-increment",
+        25,
+    )
+
+
+def test_intermediate_loop_exit_window_cannot_be_false_state_infeasible() -> None:
+    result = _intermediate_cycle_exit_result("trust >= 25 and trust < 27")
+
+    assert result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.complete is True
+    assert result.recommended.edge_ids.count("phase-root-to-body") == 13
+    assert result.recommended.edge_ids.count("phase-body-to-root") == 12
+    assert result.recommended.requirements[0].supporting_effect_counts[-1] == (
+        "phase-exit-increment",
+        25,
+    )
+
+
 def test_relevant_one_shot_loop_effect_is_not_accelerated() -> None:
     gate = _fact(
         "one-shot-gate",

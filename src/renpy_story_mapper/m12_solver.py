@@ -1714,39 +1714,42 @@ def _exact_loop_acceleration(
     relevant = {item.key for item in projection.relevant_variables}
     effect_facts: list[CanonicalFact] = []
     deltas: dict[str, int | float] = {}
+    phase_deltas: dict[str, dict[str, int | float]] = {}
+    phase_edge_counts: dict[str, int] = {}
     relevant_one_shot = False
     unresolved_write = False
-    transition_effect_ids: list[str] = []
-    for edge in cycle_edges:
-        transition_effect_ids.extend(_strings(edge.attributes.get("effect_ids")))
+    for edge_index, edge in enumerate(cycle_edges):
+        phase_deltas[edge.source_id] = dict(deltas)
+        phase_edge_counts[edge.source_id] = edge_index
+        transition_effect_ids = [*_strings(edge.attributes.get("effect_ids"))]
         transition_effect_ids.extend(
             fact_id
             for fact_id in _strings(nodes[edge.target_id].attributes.get("fact_ids"))
             if facts.get(fact_id) is not None
             and facts[fact_id].attributes.get("initialization") is not True
         )
-    for fact_id in transition_effect_ids:
-        fact = facts.get(fact_id)
-        if fact is None or fact.kind != "effect":
-            unresolved_write = True
-            continue
-        variable_name = fact.attributes.get("variable")
-        if not isinstance(variable_name, str) or not variable_name:
-            unresolved_write = True
-            continue
-        variable_key = identity_from_name(variable_name).key
-        if variable_key not in relevant:
-            continue
-        delta = _numeric_effect_delta(fact)
-        if fact.status != "proven" or delta is None:
-            relevant_one_shot = fact.status == "proven"
-            unresolved_write = unresolved_write or fact.status != "proven"
-            continue
-        if not _is_number(state.values.get(variable_key, _UNKNOWN)):
-            unresolved_write = True
-            continue
-        effect_facts.append(fact)
-        deltas[variable_key] = deltas.get(variable_key, 0) + delta
+        for fact_id in transition_effect_ids:
+            fact = facts.get(fact_id)
+            if fact is None or fact.kind != "effect":
+                unresolved_write = True
+                continue
+            variable_name = fact.attributes.get("variable")
+            if not isinstance(variable_name, str) or not variable_name:
+                unresolved_write = True
+                continue
+            variable_key = identity_from_name(variable_name).key
+            if variable_key not in relevant:
+                continue
+            delta = _numeric_effect_delta(fact)
+            if fact.status != "proven" or delta is None:
+                relevant_one_shot = fact.status == "proven"
+                unresolved_write = unresolved_write or fact.status != "proven"
+                continue
+            if not _is_number(state.values.get(variable_key, _UNKNOWN)):
+                unresolved_write = True
+                continue
+            effect_facts.append(fact)
+            deltas[variable_key] = deltas.get(variable_key, 0) + delta
 
     cycle_edge_ids = {item.id for item in cycle_edges}
     cycle_source_ids = {item.source_id for item in cycle_edges}
@@ -1763,6 +1766,9 @@ def _exact_loop_acceleration(
         deltas,
         exit_edges,
         facts,
+        phase_deltas,
+        phase_edge_counts,
+        len(cycle_edges),
     )
     repetitions = stopping[0] if stopping is not None else None
     authority_proven = bool(loop_ids) or node.kind is CanonicalNodeKind.LOOP
@@ -1855,9 +1861,17 @@ def _exact_stopping_repetitions(
     deltas: Mapping[str, int | float],
     exit_edges: Sequence[CanonicalEdge],
     facts: Mapping[str, CanonicalFact],
+    phase_deltas: Mapping[str, Mapping[str, int | float]],
+    phase_edge_counts: Mapping[str, int],
+    cycle_edge_count: int,
 ) -> tuple[int, str] | None:
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, str, str, int]] = []
     for exit_edge in sorted(exit_edges, key=lambda item: item.id):
+        exit_phase_deltas = phase_deltas.get(exit_edge.source_id)
+        phase_edge_count = phase_edge_counts.get(exit_edge.source_id)
+        if exit_phase_deltas is None or phase_edge_count is None:
+            continue
+        phase_values = _values_after_repetitions(values, exit_phase_deltas, 1)
         gate_ids = _strings(exit_edge.attributes.get("gate_ids"))
         if not exit_edge.resolved or not gate_ids:
             continue
@@ -1871,16 +1885,18 @@ def _exact_stopping_repetitions(
                 break
             expression = str(fact.attributes.get("original_expression", ""))
             parsed_terms = _supported_constraint_terms(expression)
-            if not parsed_terms or _safe_condition(expression, values) is None:
+            if not parsed_terms or _safe_condition(expression, phase_values) is None:
                 supported = False
                 break
             expressions.append(expression)
             terms.extend(parsed_terms)
-        if not supported or all(_safe_condition(item, values) is True for item in expressions):
+        if not supported or all(
+            _safe_condition(item, phase_values) is True for item in expressions
+        ):
             continue
         required: list[int] = []
         for term in terms:
-            repetitions = _minimum_term_repetitions(term, values, deltas)
+            repetitions = _minimum_term_repetitions(term, phase_values, deltas)
             if repetitions is None:
                 supported = False
                 break
@@ -1890,11 +1906,22 @@ def _exact_stopping_repetitions(
         repetitions = max(required, default=0)
         if repetitions < 1:
             continue
-        projected = _values_after_repetitions(values, deltas, repetitions)
+        projected = _values_after_repetitions(phase_values, deltas, repetitions)
         if not all(_safe_condition(item, projected) is True for item in expressions):
             continue
-        candidates.append((repetitions, exit_edge.source_id))
-    return min(candidates) if candidates else None
+        emitted_edge_count = (repetitions * cycle_edge_count) + phase_edge_count
+        candidates.append(
+            (
+                emitted_edge_count,
+                exit_edge.id,
+                exit_edge.source_id,
+                repetitions,
+            )
+        )
+    if not candidates:
+        return None
+    _edge_count, _exit_edge_id, source_id, repetitions = min(candidates)
+    return repetitions, source_id
 
 
 def _minimum_term_repetitions(
