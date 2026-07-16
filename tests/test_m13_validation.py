@@ -8,6 +8,7 @@ from renpy_story_mapper.narrative.contracts import (
     AuthorityReference,
     AuthoritySystem,
     ClaimClass,
+    ClaimContextScope,
     ClaimPolarity,
     ClaimSemantics,
     ClaimSupport,
@@ -303,6 +304,58 @@ def test_multi_temporal_claim_requires_ordered_summary_scope() -> None:
     assert rejected.artifact is None
     assert accepted.artifact is not None
     assert accepted.artifact.claims[0].context_scope.value == "ordered_summary"
+
+
+def test_inherited_comparison_and_ordered_scopes_cannot_be_re_atomized() -> None:
+    context = StructuralContext(
+        temporal_anchor="support-set:bounded",
+        structural_fingerprint="support-set:bounded",
+    )
+    job = LogicalJobSpec(
+        LogicalJobKind.PLOT,
+        "whole-plot-parent",
+        StructuralContext(temporal_anchor="whole-plot-parent"),
+        ordered_child_artifact_ids=("artifact-child",),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=("comparison-child", "ordered-child"),
+    )
+
+    for child_id, inherited_scope in (
+        ("comparison-child", ClaimContextScope.COMPARISON),
+        ("ordered-child", ClaimContextScope.ORDERED_SUMMARY),
+    ):
+        validation = ValidationContext(
+            job,
+            "parent-input-revision",
+            handles,
+            deterministic_title="Whole plot",
+            expected_child_ids=("artifact-child",),
+            available_child_ids=("artifact-child",),
+            claim_contexts=((child_id, context),),
+            claim_context_scopes=((child_id, inherited_scope),),
+        )
+        result = validate_and_salvage(
+            _provider_artifact(
+                job.job_id,
+                [
+                    _provider_claim(
+                        evidence=[],
+                        children=["C1" if child_id == "comparison-child" else "C2"],
+                        text="The inherited synthesis is one atomic chronology.",
+                        value="flattened",
+                    )
+                ],
+            ),
+            validation,
+        )
+
+        assert result.artifact is None
+        assert result.rejected_reason == "no_safe_claims"
 
 
 def test_plot_claims_omit_only_same_child_context_factual_conflict() -> None:

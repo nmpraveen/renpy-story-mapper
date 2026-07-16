@@ -94,6 +94,7 @@ class ValidationContext:
     available_child_ids: tuple[str, ...] = ()
     authority_claims: tuple[NarrativeClaim, ...] = ()
     claim_contexts: tuple[tuple[str, StructuralContext], ...] = ()
+    claim_context_scopes: tuple[tuple[str, ClaimContextScope], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.input_revision_id.strip():
@@ -131,6 +132,11 @@ class ValidationContext:
             raise ValueError("validation claim contexts must have unique claim IDs")
         if not set(contextual_ids) <= available_handles:
             raise ValueError("validation claim contexts must be prompt-local children")
+        scoped_ids = tuple(claim_id for claim_id, _scope in self.claim_context_scopes)
+        if len(scoped_ids) != len(set(scoped_ids)):
+            raise ValueError("validation claim context scopes must have unique claim IDs")
+        if not set(scoped_ids) <= available_handles:
+            raise ValueError("validation claim context scopes must be prompt-local children")
 
     def context_for_claim(self, claim: NarrativeClaim) -> StructuralContext | None:
         """Resolve one claim's immediate child context without flattening its provenance."""
@@ -177,6 +183,20 @@ class ValidationContext:
             if claim_id in by_id
         }
         return tuple(unique[key] for key in sorted(unique))
+
+    def inherited_scopes_for_claim(
+        self, claim: NarrativeClaim
+    ) -> tuple[ClaimContextScope, ...]:
+        """Return immediate child scopes so comparisons cannot be re-atomized."""
+
+        by_id = dict(self.claim_context_scopes)
+        return tuple(
+            dict.fromkeys(
+                by_id[claim_id]
+                for claim_id in claim.support.child_claim_ids
+                if claim_id in by_id
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -475,6 +495,15 @@ def _validate_claim_context_scope(
     """Reject cross-route chronology unless the claim is an explicit comparison."""
 
     contexts = context.contexts_for_claim(claim)
+    inherited_scopes = context.inherited_scopes_for_claim(claim)
+    if ClaimContextScope.COMPARISON in inherited_scopes:
+        if claim.context_scope is not ClaimContextScope.COMPARISON:
+            raise ValueError("comparison support cannot be re-atomized")
+    elif (
+        ClaimContextScope.ORDERED_SUMMARY in inherited_scopes
+        and claim.context_scope is ClaimContextScope.ATOMIC
+    ):
+        raise ValueError("ordered summary support cannot be re-atomized")
     if not contexts:
         if claim.context_scope is not ClaimContextScope.ATOMIC:
             raise ValueError("direct claims must use atomic context scope")

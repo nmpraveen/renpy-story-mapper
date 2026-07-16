@@ -33,6 +33,7 @@ from renpy_story_mapper.narrative.contracts import (
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
 from renpy_story_mapper.narrative.hierarchy import (
+    MAX_MANDATORY_CLAIMS_PER_HIERARCHY_JOB,
     ChronologyPolicy,
     HierarchyJobDescriptor,
     HierarchyPathContext,
@@ -58,7 +59,7 @@ from renpy_story_mapper.narrative.workflow import M13SchedulerPersistenceSink
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.storage import canonical_json
 
-HIERARCHY_PROVIDER_INPUT_SCHEMA = "m13-hierarchy-provider-input-v2"
+HIERARCHY_PROVIDER_INPUT_SCHEMA = "m13-hierarchy-provider-input-v3"
 MAX_DIRECT_CHILD_CLAIMS = 1_024
 MAX_PROPAGATED_CLAIMS_PER_ARTIFACT = 32
 MAX_PERSISTED_CLAIM_CONTEXTS = 256
@@ -146,6 +147,7 @@ class PreparedHierarchyJob:
     estimated_output_tokens: int = DEFAULT_HIERARCHY_OUTPUT_TOKENS
     authority_claims: tuple[NarrativeClaim, ...] = ()
     claim_contexts: tuple[tuple[str, StructuralContext], ...] = ()
+    claim_context_scopes: tuple[tuple[str, ClaimContextScope], ...] = ()
 
     def __post_init__(self) -> None:
         if self.job.spec != self.descriptor.spec:
@@ -170,6 +172,11 @@ class PreparedHierarchyJob:
             raise ValueError("prepared hierarchy claim contexts must be unique")
         if not set(contextual_ids) <= set(self.descriptor.child_claim_ids):
             raise ValueError("prepared claim contexts exceed immediate artifact claims")
+        scoped_ids = tuple(claim_id for claim_id, _scope in self.claim_context_scopes)
+        if len(scoped_ids) != len(set(scoped_ids)):
+            raise ValueError("prepared hierarchy claim context scopes must be unique")
+        if not set(scoped_ids) <= set(self.descriptor.child_claim_ids):
+            raise ValueError("prepared claim context scopes exceed immediate artifact claims")
 
     def scheduled(
         self,
@@ -239,6 +246,7 @@ def prepare_hierarchy_job(
         raise ValueError("runtime hierarchy children differ from deterministic availability")
     claim_records: dict[str, Mapping[str, object]] = {}
     claim_contexts: dict[str, StructuralContext] = {}
+    claim_context_scopes: dict[str, ClaimContextScope] = {}
     for child_id in available:
         available_child = children[child_id]
         child_contexts = _runtime_claim_contexts(available_child)
@@ -247,6 +255,9 @@ def prepare_hierarchy_job(
                 raise ValueError("two child artifacts expose the same immediate claim")
             claim_records[claim_id] = artifact_claim
             claim_contexts[claim_id] = child_contexts[claim_id]
+            claim_context_scopes[claim_id] = ClaimContextScope(
+                _required_text(artifact_claim, "context_scope")
+            )
     required_claims: dict[str, NarrativeClaim] = {}
     for claim_id in descriptor.mandatory_child_claim_ids:
         required_claims[claim_id] = _runtime_narrative_claim(claim_records[claim_id])
@@ -344,6 +355,10 @@ def prepare_hierarchy_job(
         claim_contexts=tuple(
             (claim_id, claim_contexts[claim_id]) for claim_id in sorted(claim_contexts)
         ),
+        claim_context_scopes=tuple(
+            (claim_id, claim_context_scopes[claim_id])
+            for claim_id in sorted(claim_context_scopes)
+        ),
     )
 
 
@@ -381,6 +396,7 @@ def execute_hierarchy_jobs(
             available_child_ids=item.descriptor.available_child_artifact_ids,
             authority_claims=item.authority_claims,
             claim_contexts=item.claim_contexts,
+            claim_context_scopes=item.claim_context_scopes,
         )
         for item in prepared
     }
@@ -523,10 +539,11 @@ def _runtime_from_prepared(
             optional.append(claim_id)
     if represented_authority != authority_ids:
         raise ValueError("published hierarchy artifact lost exact M12 authority claims")
-    if len(mandatory) > MAX_PROPAGATED_CLAIMS_PER_ARTIFACT:
+    if len(mandatory) > MAX_MANDATORY_CLAIMS_PER_HIERARCHY_JOB:
         raise ValueError("exact M12 authority claims exceed propagation capacity")
+    optional_capacity = max(0, MAX_PROPAGATED_CLAIMS_PER_ARTIFACT - len(mandatory))
     claim_ids = tuple(
-        (*mandatory, *optional[: MAX_PROPAGATED_CLAIMS_PER_ARTIFACT - len(mandatory)])
+        (*mandatory, *optional[:optional_capacity])
     )
     descriptor = prepared.descriptor
     return RuntimeNarrativeArtifact(

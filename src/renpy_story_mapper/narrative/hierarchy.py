@@ -35,6 +35,7 @@ from renpy_story_mapper.narrative.contracts import (
 
 DEFAULT_HIERARCHY_PARTITION_VERSION = "m13-hierarchy-partition-v1"
 HIERARCHY_REDUCTION_TARGET_CHILDREN = 24
+MAX_MANDATORY_CLAIMS_PER_HIERARCHY_JOB = 256
 
 
 def _require_identifier(value: str, *, name: str, maximum: int = 500) -> None:
@@ -479,9 +480,12 @@ class HierarchyJobDescriptor:
         if not set(self.mandatory_child_claim_ids) <= set(self.child_claim_ids):
             raise ValueError("Mandatory child claims must belong to immediate artifacts.")
         _require_unique(self.authority_leaf_claim_ids, name="authority leaf claim ID")
-        if len(self.mandatory_child_claim_ids) + len(self.authority_leaf_claim_ids) > 32:
+        if (
+            len(self.mandatory_child_claim_ids) + len(self.authority_leaf_claim_ids)
+            > MAX_MANDATORY_CLAIMS_PER_HIERARCHY_JOB
+        ):
             raise ValueError(
-                "One hierarchy job cannot propagate more than 32 exact M12 authority claims."
+                "One hierarchy job cannot propagate more than 256 exact M12 authority claims."
             )
         if set(self.child_claim_ids) & set(self.authority_leaf_claim_ids):
             raise ValueError("Artifact and authority claim allowlists cannot overlap.")

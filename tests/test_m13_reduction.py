@@ -423,3 +423,25 @@ def test_exact_m12_claims_are_reserved_in_the_32_claim_propagation_window(
             for child_claim_id in plot_claims[claim_id]["support"]["child_claim_ids"]
         }
         assert represented_route_claims == set(runtime_result.mandatory_claim_ids)
+
+
+def test_hierarchy_descriptor_accepts_mandatory_authority_above_optional_window() -> None:
+    path = HierarchyPathContext(StorySection.COMMON, persistent_lane_id="lane-spine")
+    mandatory = tuple(f"mandatory-{ordinal}" for ordinal in range(33))
+    child = HierarchyArtifactInput(
+        artifact_id="bounded-authority-artifact",
+        job_kind=LogicalJobKind.SUMMARY_SEGMENT,
+        claim_ids=mandatory,
+        mandatory_claim_ids=mandatory,
+        estimated_tokens=100,
+        path=path,
+        chronology_index=0,
+        temporal_anchor="bounded-authority",
+    )
+
+    descriptor = plan_common_story_job(
+        (child,),
+        HierarchyPartitionConfig("en-US", "reader"),
+    ).jobs[0]
+
+    assert descriptor.mandatory_child_claim_ids == mandatory
