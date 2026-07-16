@@ -33,6 +33,12 @@ packages = ["src/renpy_story_mapper"]
 [tool.hatch.build.targets.wheel.force-include]
 "THIRD_PARTY_NOTICES.md" = "renpy_story_mapper/THIRD_PARTY_NOTICES.md"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/docs/handoffs",
+  "/output",
+]
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]

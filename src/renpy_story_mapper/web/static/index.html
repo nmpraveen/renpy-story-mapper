@@ -58,6 +58,19 @@
               <div id="mapViewport" class="map-viewport" tabindex="0" role="application" aria-label="Story map. Arrow keys move selection. Enter opens Detail and Evidence. Plus or minus zooms; zero fits."><canvas id="edgeCanvas" aria-hidden="true"></canvas><div id="mapWorld" class="map-world" role="listbox" aria-label="Story map elements"></div></div>
               <footer class="map-status"><span id="visibleStatus">0 events</span><span id="selectionStatus">No selection</span><span>Pan · Zoom · Fit</span></footer>
             </section>
+
+            <aside id="routePanel" class="route-panel" aria-labelledby="routePanelTitle">
+              <header class="route-panel-heading"><div><p class="eyebrow">Route</p><h2 id="routePanelTitle">Reach this scene</h2></div><span id="routeBadge" class="route-badge" hidden></span></header>
+              <p id="routeDestination" class="route-destination">Select a scene or M10 record.</p>
+              <button id="solveRoute" class="accent-button route-action" type="button" disabled>How do I reach this?</button>
+              <p id="routeStatus" class="route-status" role="status" aria-live="polite">Select a supported destination.</p>
+              <div class="route-controls"><button id="cancelRoute" class="secondary-button" type="button" hidden>Cancel</button><button id="retryRoute" class="secondary-button" type="button" hidden>Retry</button><button id="exportRouteJson" class="secondary-button" type="button" hidden>Export JSON</button></div>
+              <div id="routeResult" class="route-result" hidden>
+                <section id="recommendedRoute" aria-labelledby="recommendedRouteTitle"><h3 id="recommendedRouteTitle">Recommended route</h3><div id="recommendedRouteBody"></div></section>
+                <section id="routeAlternativesSection" aria-labelledby="routeAlternativesTitle" hidden><h3 id="routeAlternativesTitle">Alternatives</h3><div id="routeAlternatives"></div></section>
+                <details id="routeTechnical"><summary>Technical status and evidence</summary><div id="routeTechnicalBody"></div><button id="openRouteEvidence" class="quiet-button" type="button">Open Detail / Evidence</button></details>
+              </div>
+            </aside>
           </div>
 
           <aside id="organizationPanel" class="organization-panel" aria-labelledby="organizationTitle">

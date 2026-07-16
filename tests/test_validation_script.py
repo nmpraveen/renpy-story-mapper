@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "validate.ps1"
 POWERSHELL = shutil.which("powershell")
+
+
+def test_sdist_excludes_local_acceptance_trees() -> None:
+    configuration = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    exclusions = configuration["tool"]["hatch"]["build"]["targets"]["sdist"]["exclude"]
+
+    assert "/output" in exclusions
+    assert "/docs/handoffs" in exclusions
 
 
 def _dry_run(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -74,7 +83,7 @@ def test_release_browser_acceptance_requires_explicit_switch() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Opt-in browser acceptance:" in result.stdout
-    assert "m11_browser_acceptance.py" in result.stdout
+    assert "m12_browser_acceptance.py" in result.stdout
 
 
 def test_release_hardware_sensitive_acceptance_requires_explicit_switch() -> None:

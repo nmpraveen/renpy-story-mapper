@@ -177,6 +177,27 @@ Bounded route-search results are exposed as
 render boundary. Global navigation can supply `global_navigation.next: {offset, edge_offset}`.
 Local filtering and ordinary paging remain available when no global result is active.
 
+## M12 route-to-target panel
+
+Bootstrap advertises the three local M12 paths under `routes.m12` as exactly `destinations`,
+`solve`, and `result`. The browser validates that each is a versioned local API path before using
+it. No route endpoint is inferred from a selected element.
+
+- Destinations accepts `{offset, limit}` or `{query, offset, limit}` and returns bounded nodes as
+  `{kind, target_id, title, subtitle}`.
+- Solve accepts exactly `{destination_kind, target_id}`. A cache hit returns
+  `{cached: true, request_identity, result}`. A new solve returns
+  `{cached: false, request_identity, analysis}` and uses the existing analysis progress and cancel
+  lifecycle.
+- Result accepts exactly `{request_identity}` and returns the normalized deterministic route.
+
+The panel is part of `route_map`; it is not another semantic level. It shows one recommended
+route, bounded alternatives, the four approved user badges, deterministic instructions, separated
+assumptions/scenes/choices/repeats/requirements/effects/commitments/warnings, and expandable
+technical evidence. JSON export recursively sorts object keys and exports only the normalized
+result. Selection changes mark an existing result stale; cancellation and failure do not replace
+that result. Detail traversal reuses the existing Detail/Evidence workspace and canonical escape.
+
 ## Local shell and acceptance
 
 Bootstrap, opaque native pickers, project create/open/refresh, analysis progress/cancel, settings,

@@ -6,17 +6,25 @@ Updated: 2026-07-15
 
 ## Current contract
 
-- Active milestone: None.
-- Contract: Not set.
-- Status: Idle.
-- Semantic review: Not started.
-- Native Codex goal: None.
-- Integration head: Not set.
-- Pull request: Not set.
+- Active milestone: M12 - Route-to-target solving and path requirements.
+- Contract: [`docs/milestones/M12/GOAL.md`](milestones/M12/GOAL.md).
+- Status: PR ready.
+- Verification context: all four changes requested on PR #22 are resolved and revalidated.
+- Semantic review: `PASS` on 2026-07-15 in [`SEMANTIC_REVIEW.md`](milestones/M12/SEMANTIC_REVIEW.md).
+- Native Codex goal: Task goal `019f66ba-d396-7192-a445-a7277e84edf5` completed at the prior PR-ready state; no replacement goal was created because the user required a targeted continuation rather than an M12 restart.
+- Changes-requested base: `a02151ebc45d2d05efc6d582a8757fbca87aa6d5`.
+- Validated product head: `40c10fd9bb31e9303efeb302dacd081e1007911c`.
+- Pull request: [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22), open, unmerged, and ready for final user review after the correction push.
 
-M11 is the latest completed product milestone. It merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20) at commit `26502e88bd81b7a1934a6957724fd62f7ba5fbec` on 2026-07-15. No later product milestone is active or approved by this workflow change.
-
-On explicit user approval of a milestone with a safe done condition, copy `docs/milestones/_TEMPLATE/` to the approved milestone directory, fill it from `docs/MASTER_PLAN.md`, and replace this section with links and current facts.
+The user explicitly approved and activated M12 on 2026-07-15. M11 remains the latest completed
+product milestone and merged through [PR #20](https://github.com/nmpraveen/renpy-story-mapper/pull/20)
+at `26502e88bd81b7a1934a6957724fd62f7ba5fbec`. M12 passed its single early semantic gate,
+implementation, Fast/Focused/Release, scale/browser/private acceptance, and both final reviews at
+the prior head. The user then reproduced four merge blockers in constraint intersection, call-frame
+completion, prefix accounting, and loop acceleration. Those bounded corrections now pass focused,
+Release, browser, persistence/fault, scale, grind, private acceptance, and final review. The final
+review's intermediate-loop phase finding was fixed in `40c10fd` and the exact re-review returned
+`PASS`.
 
 ## State rules
 

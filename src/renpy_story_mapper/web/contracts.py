@@ -122,6 +122,15 @@ M11_SCENE_MAP_REQUEST_FIELDS: Final = (
 )
 M11_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
 
+M12_API_ROUTES: Final[dict[str, str]] = {
+    "destinations": "/api/v1/m12/destinations",
+    "solve": "/api/v1/m12/solve",
+    "result": "/api/v1/m12/result",
+}
+M12_DESTINATIONS_REQUEST_FIELDS: Final = ("query", "offset", "limit")
+M12_SOLVE_REQUEST_FIELDS: Final = ("destination_kind", "target_id")
+M12_RESULT_REQUEST_FIELDS: Final = ("request_identity",)
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:
