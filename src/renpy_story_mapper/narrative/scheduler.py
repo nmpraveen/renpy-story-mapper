@@ -1,4 +1,4 @@
-"""Durable, provider-neutral scheduling for independent M13 scene jobs.
+"""Durable, provider-neutral scheduling for independent M13 logical jobs.
 
 The scheduler is intentionally synchronous in v1.  One active call is a hard,
 deterministic subset of every consented positive concurrency ceiling, while
@@ -42,7 +42,6 @@ from renpy_story_mapper.narrative.contracts import (
     CostConfidence,
     JsonValue,
     LogicalJob,
-    LogicalJobKind,
     LogicalJobState,
     ProviderIdentity,
     canonical_hash,
@@ -142,7 +141,11 @@ class SchedulerPolicy:
 
 @dataclass(frozen=True)
 class ScheduledSceneJob:
-    """One independently cached scene job plus its in-memory structured input."""
+    """One independently cached logical job plus its in-memory structured input.
+
+    The historical class name remains source-compatible with the scene-first scheduler slice;
+    hierarchy jobs use the same transport-neutral record without changing logical ownership.
+    """
 
     logical_job: LogicalJob
     cache_identity: CacheIdentity
@@ -154,8 +157,6 @@ class ScheduledSceneJob:
     estimated_cost_micros: int | None = None
 
     def __post_init__(self) -> None:
-        if self.logical_job.spec.kind is not LogicalJobKind.SCENE:
-            raise ValueError("the scene scheduler accepts only logical scene jobs")
         if not self.scope_id or self.scope_id != self.scope_id.strip():
             raise ValueError("scope_id must be a non-empty trimmed string")
         if self.ordinal < 0:
@@ -467,7 +468,7 @@ Clock = Callable[[], float]
 
 
 class NarrativeScheduler:
-    """Cache-first bounded state machine for independent logical scene jobs."""
+    """Cache-first bounded state machine for independent M13 logical jobs."""
 
     def __init__(
         self,
@@ -489,6 +490,7 @@ class NarrativeScheduler:
         validate_output: OutputValidator,
         *,
         cancelled: CancelledCallback = lambda: False,
+        initial_usage: SchedulerUsage | None = None,
     ) -> SchedulerRunResult:
         ordered = tuple(sorted(jobs, key=lambda item: (item.ordinal, item.logical_job_id)))
         self._validate_start(ordered, consent)
@@ -501,7 +503,7 @@ class NarrativeScheduler:
         }
         records: dict[str, SchedulerJobRecord] = {}
         job_by_id = {job.logical_job_id: job for job in ordered}
-        usage = SchedulerUsage(cost_micros=0)
+        usage = SchedulerUsage(cost_micros=0) if initial_usage is None else initial_usage
 
         if cancelled():
             self._mark_unfinished(
@@ -1075,18 +1077,18 @@ class NarrativeScheduler:
         if not consent.consent_granted:
             raise SchedulerConfigurationError("cloud consent is disabled")
         if not jobs:
-            raise SchedulerConfigurationError("a scheduler run requires at least one scene job")
+            raise SchedulerConfigurationError("a scheduler run requires at least one logical job")
         ids = tuple(job.logical_job_id for job in jobs)
         if len(ids) != len(set(ids)):
-            raise SchedulerConfigurationError("logical scene job IDs must be unique")
+            raise SchedulerConfigurationError("logical job IDs must be unique")
         ordinals = tuple(job.ordinal for job in jobs)
         if len(ordinals) != len(set(ordinals)):
-            raise SchedulerConfigurationError("scene transport ordinals must be unique")
-        if consent.estimate.logical_job_count != len(jobs):
-            raise SchedulerConfigurationError("consent logical-job count does not match the run")
+            raise SchedulerConfigurationError("logical transport ordinals must be unique")
+        if consent.estimate.logical_job_count < len(jobs):
+            raise SchedulerConfigurationError("run exceeds the consented logical-job count")
         scopes = set(consent.selected_scope_ids)
         if any(job.scope_id not in scopes for job in jobs):
-            raise SchedulerConfigurationError("a scene job is outside the consented scope")
+            raise SchedulerConfigurationError("a logical job is outside the consented scope")
         if any(job.cache_identity.provider != consent.provider for job in jobs):
             raise SchedulerConfigurationError("a cache identity differs from consented provider")
         prompt_versions = {job.cache_identity.prompt_template_version for job in jobs}
