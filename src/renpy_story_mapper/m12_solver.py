@@ -54,7 +54,7 @@ from renpy_story_mapper.m12_model import (
 
 type CancelCheck = Callable[[], bool]
 type _RankKey = tuple[int | str, ...]
-type _MaterialPrefixSignature = tuple[tuple[str, ...], tuple[str, ...]]
+type _MaterialPrefixSignature = tuple[int, int]
 _UNKNOWN = object()
 
 
@@ -185,6 +185,168 @@ class _ConstraintTerm:
     value: StateScalar
 
 
+@dataclass(frozen=True)
+class _InternedSequenceRecord:
+    parent_id: int | None
+    value: str | None
+
+
+class _InternedSequenceStore:
+    """Intern exact material sequences with one bounded record per new token."""
+
+    def __init__(self) -> None:
+        self._records = [_InternedSequenceRecord(None, None)]
+        self._index: dict[tuple[int, str], int] = {}
+
+    def append(self, parent_id: int, value: str) -> tuple[int, bool]:
+        key = (parent_id, value)
+        existing = self._index.get(key)
+        if existing is not None:
+            return existing, False
+        sequence_id = len(self._records)
+        self._records.append(_InternedSequenceRecord(parent_id, value))
+        self._index[key] = sequence_id
+        return sequence_id, True
+
+
+@dataclass(frozen=True)
+class _RoutePrefix:
+    """One parent-linked retained route step plus bounded incremental summaries."""
+
+    parent_id: int | None
+    node_id: str
+    incoming_edge_id: str | None
+    incoming_repetitions: int
+    edge_count: int
+    scene_count: int
+    last_scene_id: str | None
+    scene_signature_id: int
+    material_edge_signature_id: int
+    accounting_units: int
+
+
+class _RoutePrefixStore:
+    """Linear-growth parent pointers; full paths exist only for accepted routes."""
+
+    def __init__(self, start_node_id: str, scene_by_node: Mapping[str, str]) -> None:
+        self._scenes = _InternedSequenceStore()
+        self._material_edges = _InternedSequenceStore()
+        start_scene = scene_by_node.get(start_node_id)
+        scene_signature = 0
+        sequence_units = 0
+        if start_scene is not None:
+            scene_signature, created = self._scenes.append(0, start_scene)
+            sequence_units += 2 if created else 0
+        self._records = [
+            _RoutePrefix(
+                None,
+                start_node_id,
+                None,
+                0,
+                0,
+                1 if start_scene is not None else 0,
+                start_scene,
+                scene_signature,
+                0,
+                10 + sequence_units,
+            )
+        ]
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def record(self, prefix_id: int) -> _RoutePrefix:
+        return self._records[prefix_id]
+
+    def append(
+        self,
+        parent_id: int,
+        node_id: str,
+        edge_id: str,
+        *,
+        scene_id: str | None,
+        material_edge: bool,
+        repetitions: int = 1,
+    ) -> int:
+        if repetitions < 1:
+            raise ValueError("route-prefix repetitions must be positive")
+        parent = self.record(parent_id)
+        scene_signature = parent.scene_signature_id
+        material_signature = parent.material_edge_signature_id
+        scene_count = parent.scene_count
+        last_scene = parent.last_scene_id
+        sequence_units = 0
+        if scene_id is not None and scene_id != last_scene:
+            scene_signature, created = self._scenes.append(scene_signature, scene_id)
+            scene_count += 1
+            last_scene = scene_id
+            sequence_units += 2 if created else 0
+        if material_edge:
+            for _ in range(repetitions):
+                material_signature, created = self._material_edges.append(
+                    material_signature, edge_id
+                )
+                sequence_units += 2 if created else 0
+        prefix_id = len(self._records)
+        self._records.append(
+            _RoutePrefix(
+                parent_id,
+                node_id,
+                edge_id,
+                repetitions,
+                parent.edge_count + repetitions,
+                scene_count,
+                last_scene,
+                scene_signature,
+                material_signature,
+                10 + sequence_units,
+            )
+        )
+        return prefix_id
+
+    def last_edge_id(self, prefix_id: int) -> str | None:
+        return self.record(prefix_id).incoming_edge_id
+
+    def transition_count(self, prefix_id: int, edge_id: str) -> int:
+        total = 0
+        current: int | None = prefix_id
+        while current is not None:
+            record = self.record(current)
+            if record.incoming_edge_id == edge_id:
+                total += record.incoming_repetitions
+            current = record.parent_id
+        return total
+
+    def transition_counts(self, prefix_id: int) -> dict[str, int]:
+        result: dict[str, int] = {}
+        current: int | None = prefix_id
+        while current is not None:
+            record = self.record(current)
+            if record.incoming_edge_id is not None:
+                result[record.incoming_edge_id] = (
+                    result.get(record.incoming_edge_id, 0)
+                    + record.incoming_repetitions
+                )
+            current = record.parent_id
+        return result
+
+    def reconstruct(self, prefix_id: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        chain: list[_RoutePrefix] = []
+        current: int | None = prefix_id
+        while current is not None:
+            record = self.record(current)
+            chain.append(record)
+            current = record.parent_id
+        chain.reverse()
+        node_ids = [chain[0].node_id]
+        edge_ids: list[str] = []
+        for record in chain[1:]:
+            assert record.incoming_edge_id is not None
+            edge_ids.extend((record.incoming_edge_id,) * record.incoming_repetitions)
+            node_ids.extend((record.node_id,) * record.incoming_repetitions)
+        return tuple(node_ids), tuple(edge_ids)
+
+
 @dataclass
 class _SearchState:
     node_id: str
@@ -192,12 +354,10 @@ class _SearchState:
     value_sources: dict[str, _ValueSource]
     initial_kinds: dict[str, InitialStateValue]
     constraints: _ConstraintState
-    node_ids: tuple[str, ...]
-    edge_ids: tuple[str, ...]
+    prefix_id: int
     requirements: tuple[RequirementAttribution, ...]
     warnings: tuple[str, ...]
     call_stack: tuple[str, ...]
-    transition_counts: dict[str, int]
     selected_occurrence_id: str | None
     persistent_lane_ids: tuple[str, ...]
     loop_count: int
@@ -354,18 +514,17 @@ def solve_route(
         lane_by_scene,
         persistent_lane_ids,
     )
+    prefix_store = _RoutePrefixStore(request.start_node_id, scene_by_node)
     start = _SearchState(
         request.start_node_id,
         values,
         value_sources,
         initial_kinds,
         constraints,
-        (request.start_node_id,),
+        0,
         (),
         (),
         (),
-        (),
-        {},
         None,
         (),
         0,
@@ -376,7 +535,7 @@ def solve_route(
         frontier,
         (
             _partial_rank(
-                start, scene_by_node, minimum_persistent_commitments
+                start, prefix_store, minimum_persistent_commitments
             ),
             serial,
             start,
@@ -389,9 +548,8 @@ def solve_route(
     retained_count = 0
     candidates: dict[tuple[object, ...], RouteAlternative] = {}
     expanded = 0
-    prefixes = 1
     peak_frontier = 1
-    accounting = _accounting_units(start)
+    accounting = _accounting_units(start) + prefix_store.record(0).accounting_units
     limit_hit: str | None = None
     bounded_limit_hit: str | None = None
     expanded_node_ids: set[str] = set()
@@ -411,8 +569,8 @@ def solve_route(
             and (
                 anchor.required_edge_id is None
                 or (
-                    candidate_state.edge_ids
-                    and candidate_state.edge_ids[-1] == anchor.required_edge_id
+                    prefix_store.last_edge_id(candidate_state.prefix_id)
+                    == anchor.required_edge_id
                 )
             )
         ]
@@ -431,6 +589,7 @@ def solve_route(
                 atom_by_node,
                 lane_by_scene,
                 fact_by_id,
+                prefix_store,
             )
             signature = (
                 candidate.scene_ids,
@@ -456,11 +615,9 @@ def solve_route(
             return SolveAttempt(None, cancelled=True, diagnostic="cancelled before completion")
         _, _, state = heapq.heappop(frontier)
         key = _state_key(state, projection)
-        prefix_signature = _material_prefix_signature(
-            state, scene_by_node, material_edge_ids
-        )
+        prefix_signature = _material_prefix_signature(state, prefix_store)
         state_rank = _partial_rank(
-            state, scene_by_node, minimum_persistent_commitments
+            state, prefix_store, minimum_persistent_commitments
         )
         retained_bucket = retained.setdefault(key, [])
         matching_index = next(
@@ -507,8 +664,9 @@ def solve_route(
             if edge.target_id in target_cone_nodes
             and _matches_target_entry_context(edge, anchors)
         ]
-        if state.call_stack and state.edge_ids:
-            prior_edge = edge_by_id[state.edge_ids[-1]]
+        prior_edge_id = prefix_store.last_edge_id(state.prefix_id)
+        if state.call_stack and prior_edge_id is not None:
+            prior_edge = edge_by_id[prior_edge_id]
             if (
                 prior_edge.kind == "call_return"
                 and prior_edge.attributes.get("call_site_id") is None
@@ -525,6 +683,8 @@ def solve_route(
                     node_by_id,
                     lane_by_scene,
                     scene_by_node,
+                    material_edge_ids,
+                    prefix_store,
                     request.limits,
                 )
                 contradiction_fact_ids_for_edge: tuple[str, ...] = ()
@@ -539,6 +699,8 @@ def solve_route(
                     lane_by_scene,
                     scene_by_node,
                     projection,
+                    material_edge_ids,
+                    prefix_store,
                     request.limits,
                 )
             if (
@@ -556,11 +718,13 @@ def solve_route(
                     unsupported_block = True
                 continue
             completed = record_candidates(next_state)
-            prefixes += 1
-            if prefixes > request.limits.prefix_records:
+            if len(prefix_store) > request.limits.prefix_records:
                 limit_hit = "prefix_records"
                 break
-            accounting += _accounting_units(next_state)
+            accounting += (
+                _accounting_units(next_state)
+                + prefix_store.record(next_state.prefix_id).accounting_units
+            )
             if accounting > request.limits.accounting_units:
                 limit_hit = "accounting_units"
                 break
@@ -572,7 +736,7 @@ def solve_route(
                 (
                     _partial_rank(
                         next_state,
-                        scene_by_node,
+                        prefix_store,
                         minimum_persistent_commitments,
                     ),
                     serial,
@@ -603,7 +767,7 @@ def solve_route(
         expanded_states=min(expanded, request.limits.expanded_states),
         retained_states=min(retained_count, request.limits.retained_states),
         peak_frontier_states=min(peak_frontier, request.limits.frontier_states),
-        prefix_records=min(prefixes, request.limits.prefix_records),
+        prefix_records=min(len(prefix_store), request.limits.prefix_records),
         accounting_units=min(accounting, request.limits.accounting_units),
         limiting_dimension=limit_hit,
     )
@@ -1439,9 +1603,11 @@ def _traverse_edge(
     lane_by_scene: Mapping[str, str],
     scene_by_node: Mapping[str, str],
     projection: NumericProjection,
+    material_edge_ids: set[str],
+    prefix_store: _RoutePrefixStore,
     limits: DeterministicLimitProfile,
 ) -> tuple[_SearchState | None, tuple[str, ...], str | None]:
-    count = state.transition_counts.get(edge.id, 0) + 1
+    count = prefix_store.transition_count(state.prefix_id, edge.id) + 1
     if count > limits.repetition_per_transition:
         return None, (), "repetition_per_transition"
     stack = state.call_stack
@@ -1458,7 +1624,9 @@ def _traverse_edge(
                 return None, (), None
             if stack and stack[-1] == call_site:
                 stack = stack[:-1]
-            elif not _follows_matching_resumed_summary(state, edge, edges):
+            elif not _follows_matching_resumed_summary(
+                state, edge, edges, prefix_store
+            ):
                 return None, (), None
 
     requirements = list(state.requirements)
@@ -1520,8 +1688,6 @@ def _traverse_edge(
     if node_warning is not None:
         warnings.append(node_warning)
 
-    counts = dict(state.transition_counts)
-    counts[edge.id] = count
     loops = state.loop_count + (1 if count > 1 else 0)
     selected_occurrence = occurrence_edges.get(edge.id, state.selected_occurrence_id)
     persistent = list(state.persistent_lane_ids)
@@ -1530,6 +1696,13 @@ def _traverse_edge(
         lane = lane_by_scene.get(target_scene)
         if lane is not None and lane not in persistent:
             persistent.append(lane)
+    prefix_id = prefix_store.append(
+        state.prefix_id,
+        edge.target_id,
+        edge.id,
+        scene_id=target_scene,
+        material_edge=edge.id in material_edge_ids,
+    )
     return (
         _SearchState(
             edge.target_id,
@@ -1537,12 +1710,10 @@ def _traverse_edge(
             sources,
             state.initial_kinds,
             constraints,
-            (*state.node_ids, edge.target_id),
-            (*state.edge_ids, edge.id),
+            prefix_id,
             tuple(requirements),
             tuple(dict.fromkeys(warnings)),
             stack,
-            counts,
             selected_occurrence,
             tuple(persistent),
             loops,
@@ -1558,6 +1729,8 @@ def _resume_call_summary(
     nodes: Mapping[str, CanonicalNode],
     lane_by_scene: Mapping[str, str],
     scene_by_node: Mapping[str, str],
+    material_edge_ids: set[str],
+    prefix_store: _RoutePrefixStore,
     limits: DeterministicLimitProfile,
 ) -> tuple[_SearchState | None, str | None]:
     call_site = edge.attributes.get("call_site_id")
@@ -1568,7 +1741,7 @@ def _resume_call_summary(
         or state.call_stack[-1] != call_site
     ):
         return None, None
-    count = state.transition_counts.get(edge.id, 0) + 1
+    count = prefix_store.transition_count(state.prefix_id, edge.id) + 1
     if count > limits.repetition_per_transition:
         return None, "repetition_per_transition"
     warnings = list(state.warnings)
@@ -1585,14 +1758,19 @@ def _resume_call_summary(
     node_warning = _reachability_warning("Node", target_node.id, target_node.reachability)
     if node_warning is not None:
         warnings.append(node_warning)
-    counts = dict(state.transition_counts)
-    counts[edge.id] = count
     persistent = list(state.persistent_lane_ids)
     target_scene = scene_by_node.get(edge.target_id)
     if target_scene is not None:
         lane = lane_by_scene.get(target_scene)
         if lane is not None and lane not in persistent:
             persistent.append(lane)
+    prefix_id = prefix_store.append(
+        state.prefix_id,
+        edge.target_id,
+        edge.id,
+        scene_id=target_scene,
+        material_edge=edge.id in material_edge_ids,
+    )
     return (
         _SearchState(
             edge.target_id,
@@ -1600,12 +1778,10 @@ def _resume_call_summary(
             dict(state.value_sources),
             state.initial_kinds,
             state.constraints,
-            (*state.node_ids, edge.target_id),
-            (*state.edge_ids, edge.id),
+            prefix_id,
             state.requirements,
             tuple(dict.fromkeys(warnings)),
             state.call_stack[:-1],
-            counts,
             state.selected_occurrence_id,
             tuple(persistent),
             state.loop_count + (1 if count > 1 else 0),
@@ -1618,12 +1794,14 @@ def _follows_matching_resumed_summary(
     state: _SearchState,
     edge: CanonicalEdge,
     edges: Mapping[str, CanonicalEdge],
+    prefix_store: _RoutePrefixStore,
 ) -> bool:
     """Accept M10's synthetic continuation edge after its frame was popped."""
 
-    if not state.edge_ids:
+    previous_edge_id = prefix_store.last_edge_id(state.prefix_id)
+    if previous_edge_id is None:
         return False
-    previous = edges.get(state.edge_ids[-1])
+    previous = edges.get(previous_edge_id)
     return bool(
         previous is not None
         and previous.kind == "call_summary"
@@ -1952,11 +2130,14 @@ def _route_alternative(
     atom_by_node: Mapping[str, StoryAtom],
     lane_by_scene: Mapping[str, str],
     facts: Mapping[str, CanonicalFact],
+    prefix_store: _RoutePrefixStore,
 ) -> RouteAlternative:
     node_by_id = {item.id: item for item in graph.nodes}
     edge_by_id = {item.id: item for item in graph.edges}
     evidence_by_id = {item.id: item for item in graph.evidence}
     scene_records = {item.id: item for item in scene_model.scenes}
+    node_ids, edge_ids = prefix_store.reconstruct(state.prefix_id)
+    transition_counts = prefix_store.transition_counts(state.prefix_id)
 
     scene_ids: list[str] = []
 
@@ -1964,11 +2145,11 @@ def _route_alternative(
         if scene_id is not None and (not scene_ids or scene_ids[-1] != scene_id):
             scene_ids.append(scene_id)
 
-    append_scene(scene_by_node.get(state.node_ids[0]))
-    for _edge_id, node_id in zip(state.edge_ids, state.node_ids[1:], strict=True):
+    append_scene(scene_by_node.get(node_ids[0]))
+    for _edge_id, node_id in zip(edge_ids, node_ids[1:], strict=True):
         append_scene(scene_by_node.get(node_id))
     choice_edges: list[tuple[str, str]] = []
-    for edge_id in state.edge_ids:
+    for edge_id in edge_ids:
         edge = edge_by_id[edge_id]
         predicate = edge.attributes.get("predicate")
         is_impossible_menu_fallthrough = (
@@ -2022,7 +2203,7 @@ def _route_alternative(
             node_by_id,
             repeated_count=count - 1,
         )
-        for edge_id, count in sorted(state.transition_counts.items())
+        for edge_id, count in sorted(transition_counts.items())
         if count > 1
     )
     requirement_repeated_claims = tuple(
@@ -2053,7 +2234,8 @@ def _route_alternative(
         for lane_id in persistent
     )
     warning_claims = tuple(
-        _warning_claim(warning, state, graph, facts) for warning in warnings
+        _warning_claim(warning, node_ids, edge_ids, graph, facts)
+        for warning in warnings
     )
     scene_claims = tuple(
         RouteClaim(
@@ -2064,7 +2246,7 @@ def _route_alternative(
                     set(scene_records[scene_id].provenance.evidence_ids)
                     | {
                         evidence_id
-                        for node_id in state.node_ids
+                        for node_id in node_ids
                         if scene_by_node.get(node_id) == scene_id
                         for evidence_id in node_by_id[node_id].evidence_ids
                     }
@@ -2075,7 +2257,7 @@ def _route_alternative(
                     set(scene_records[scene_id].provenance.proof_ids)
                     | {
                         proof_id
-                        for node_id in state.node_ids
+                        for node_id in node_ids
                         if scene_by_node.get(node_id) == scene_id
                         for proof_id in node_by_id[node_id].proof_ids
                     }
@@ -2091,8 +2273,8 @@ def _route_alternative(
         len(persistent),
         state.loop_count,
         len(scene_ids),
-        len(state.edge_ids),
-        "|".join(state.edge_ids),
+        len(edge_ids),
+        "|".join(edge_ids),
     )
     instructions = _instructions(
         scene_claims,
@@ -2102,7 +2284,7 @@ def _route_alternative(
         persistent_claims,
         warning_claims,
     )
-    call_contexts = _call_contexts(state.edge_ids, graph, scene_model)
+    call_contexts = _call_contexts(edge_ids, graph, scene_model)
     selected_occurrence = next(
         (
             item
@@ -2123,10 +2305,10 @@ def _route_alternative(
     fact_ids = tuple(sorted(fact_id_values))
     evidence_ids: set[str] = set()
     proof_ids: set[str] = set()
-    for node_id in state.node_ids:
+    for node_id in node_ids:
         evidence_ids.update(node_by_id[node_id].evidence_ids)
         proof_ids.update(node_by_id[node_id].proof_ids)
-    for edge_id in state.edge_ids:
+    for edge_id in edge_ids:
         evidence_ids.update(edge_by_id[edge_id].evidence_ids)
         proof_ids.update(edge_by_id[edge_id].proof_ids)
     for fact_id in fact_ids:
@@ -2148,8 +2330,8 @@ def _route_alternative(
         )
     )
     return RouteAlternative(
-        state.node_ids,
-        state.edge_ids,
+        node_ids,
+        edge_ids,
         tuple(scene_ids),
         tuple(scene_records[item].title for item in scene_ids),
         tuple(choices),
@@ -2162,10 +2344,10 @@ def _route_alternative(
         state.loop_count,
         ranking,
         RouteProvenance(
-            node_ids=tuple(sorted(set(state.node_ids))),
+            node_ids=tuple(sorted(set(node_ids))),
             edge_ids=tuple(
                 sorted(
-                    set(state.edge_ids)
+                    set(edge_ids)
                     | (
                         set(selected_occurrence.provenance.edge_ids)
                         if selected_occurrence is not None
@@ -2405,18 +2587,19 @@ def _edge_claim(
 
 def _warning_claim(
     warning: str,
-    state: _SearchState,
+    node_ids: Sequence[str],
+    edge_ids: Sequence[str],
     graph: CanonicalGraph,
     facts: Mapping[str, CanonicalFact],
 ) -> RouteClaim:
     edges = {item.id: item for item in graph.edges}
     nodes = {item.id: item for item in graph.nodes}
-    for edge_id in state.edge_ids:
+    for edge_id in edge_ids:
         edge = edges[edge_id]
         gate_ids = _strings(edge.attributes.get("gate_ids"))
         if edge_id in warning or any(fact_id in warning for fact_id in gate_ids):
             return _edge_claim(warning, edge, nodes)
-    for node_id in state.node_ids:
+    for node_id in node_ids:
         node = nodes[node_id]
         if node_id in warning:
             return RouteClaim(
@@ -2530,32 +2713,23 @@ def _state_key(
 
 def _material_prefix_signature(
     state: _SearchState,
-    scene_by_node: Mapping[str, str],
-    material_edge_ids: set[str],
+    prefix_store: _RoutePrefixStore,
 ) -> _MaterialPrefixSignature:
     """Identify route-visible diversity separately from semantic dominance."""
 
-    scene_prefix: list[str] = []
-    for node_id in state.node_ids:
-        scene_id = scene_by_node.get(node_id)
-        if scene_id is not None and (not scene_prefix or scene_prefix[-1] != scene_id):
-            scene_prefix.append(scene_id)
-    material_edges = tuple(
-        edge_id for edge_id in state.edge_ids if edge_id in material_edge_ids
+    prefix = prefix_store.record(state.prefix_id)
+    return (
+        prefix.scene_signature_id,
+        prefix.material_edge_signature_id,
     )
-    return tuple(scene_prefix), material_edges
 
 
 def _partial_rank(
     state: _SearchState,
-    scene_by_node: Mapping[str, str],
+    prefix_store: _RoutePrefixStore,
     minimum_persistent_commitments: int,
 ) -> tuple[int | str, ...]:
-    scene_ids: list[str] = []
-    for node_id in state.node_ids:
-        scene_id = scene_by_node.get(node_id)
-        if scene_id is not None and (not scene_ids or scene_ids[-1] != scene_id):
-            scene_ids.append(scene_id)
+    prefix = prefix_store.record(state.prefix_id)
     requirements = _dedupe_requirements(state.requirements)
     return (
         len(state.warnings),
@@ -2563,9 +2737,9 @@ def _partial_rank(
         len(_entry_preconditions(requirements)),
         max(len(state.persistent_lane_ids), minimum_persistent_commitments),
         state.loop_count,
-        len(scene_ids),
-        len(state.edge_ids),
-        "|".join(state.edge_ids),
+        prefix.scene_count,
+        prefix.edge_count,
+        state.prefix_id,
     )
 
 
@@ -2603,11 +2777,8 @@ def _accounting_units(state: _SearchState) -> int:
     return (
         1
         + len(state.values)
-        + len(state.node_ids)
-        + len(state.edge_ids)
         + len(state.requirements)
         + len(state.call_stack)
-        + len(state.transition_counts)
         + sum(
             1
             + len(item.equality)
