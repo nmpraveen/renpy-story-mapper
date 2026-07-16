@@ -83,7 +83,7 @@ def test_release_browser_acceptance_requires_explicit_switch() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Opt-in browser acceptance:" in result.stdout
-    assert "m12_browser_acceptance.py" in result.stdout
+    assert "m13_browser_acceptance.py" in result.stdout
 
 
 def test_release_hardware_sensitive_acceptance_requires_explicit_switch() -> None:
