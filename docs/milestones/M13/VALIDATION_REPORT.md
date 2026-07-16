@@ -21,7 +21,7 @@ Validation date: 2026-07-16
 | 20 | Pending exact consent | Representative live manifest prepared without transmission; `provider_submit_calls` is zero. Exact manifest-bound confirmation is required before the bounded live run |
 | 21 | Pass for provider-free/private/browser runs | Source/archive and M10/M11/M12 authority snapshots unchanged; zero Ren'Py/game/creator/runtime execution; no unauthorized remote request |
 | 22 | Partially pass | Release suite and browser/private/package checks pass. A separately configured external-model review remains pending explicit informed approval to transmit private repository code |
-| 23 | In progress | Reports and validated product commit are durable. Native infographic, independent review, final live evidence, and PR-readiness reconciliation remain |
+| 23 | In progress | Reports, validated product commit, and native infographic are durable. Independent review, final live evidence, and PR-readiness reconciliation remain |
 
 ## Commands and results
 
@@ -32,6 +32,7 @@ Validation date: 2026-07-16
 | `scripts/m13_provider_free_acceptance.py` against the accepted current private project | Passed | `tmp/m13-provider-free-private-reviewed/acceptance.json`, SHA-256 `351b952e5f7dba443190202fa2461b3f41f3b70e2870dbbc9ff9820f7f095279` |
 | `scripts/m13_browser_acceptance.py` | Passed at 100% and 200% Chrome zoom | `tmp/m13-browser-acceptance-reviewed/acceptance.json`, SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273` |
 | `scripts/m13_live_acceptance.py` preview | Prepared; no submission | `tmp/m13-live-provider-acceptance/consent-preview.json`, SHA-256 `50fe3389870e568a409f0cb9de13fc8f12dfc75e1c6636c5982e64396ba085e9` |
+| Native image generation | Complete | `INFOGRAPHIC.png`, 1,619,429 bytes, SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 | `git diff --check f67df8a7..859328e` | Passed | No whitespace errors |
 
 ## Private provider-free acceptance

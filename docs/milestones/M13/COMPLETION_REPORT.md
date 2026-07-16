@@ -19,8 +19,8 @@ requiring the deterministic product.
 
 Provider-free private-scale acceptance, real Chrome acceptance, and the full Windows release suite
 pass. M13 is not yet PR ready: the prepared live-provider sample requires exact manifest consent,
-a separately configured independent review remains, and the native infographic/final evidence
-reconciliation must be completed. No PR has been created.
+a separately configured independent review remains, and final evidence reconciliation must be
+completed. The native infographic is complete. No PR has been created.
 
 ## Acceptance evidence
 
@@ -32,7 +32,7 @@ reconciliation must be completed. No PR has been created.
 | 20 | Pending | Exact prepared live manifest has made zero submissions and awaits user confirmation |
 | 21 | Pass for completed acceptance | Authority and private-input snapshots unchanged; zero execution and unauthorized remote counters |
 | 22 | Partial | Release suite passed; separately configured independent review pending |
-| 23 | In progress | Reports/product commit durable; infographic and final PR-readiness reconciliation pending |
+| 23 | In progress | Reports/product commit and native infographic durable; final PR-readiness reconciliation pending |
 
 ## Validation
 
@@ -43,6 +43,7 @@ reconciliation must be completed. No PR has been created.
 | Provider-free private-scale acceptance | Passed | 1,812 scenes; report SHA-256 `351b952e5f7dba443190202fa2461b3f41f3b70e2870dbbc9ff9820f7f095279` |
 | Bounded live/private acceptance | Awaiting exact consent | Preview SHA-256 `50fe3389870e568a409f0cb9de13fc8f12dfc75e1c6636c5982e64396ba085e9`; zero submissions |
 | Real Chrome 100%/200% | Passed | Report SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273` |
+| Native milestone infographic | Complete | `INFOGRAPHIC.png`, SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 | Independent review | Pending | Current primary adversarial report is not represented as independent |
 
 ## Review findings

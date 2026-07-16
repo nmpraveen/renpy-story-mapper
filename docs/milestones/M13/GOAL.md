@@ -161,7 +161,7 @@ the existing map, scene view, evidence workspace, or route solver.
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Pass; browser report SHA-256 `2b938d37b152456cf3646f23ebda98d73ccc79c79379394ec35aa4df01a88273`; optional weak-boundary overlay deferred |
 | 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Provider-free/private pass; live criterion 20 pending exact consent; details and hashes in `VALIDATION_REPORT.md` |
 | 22 | Focused/full Windows suite, package inspection, independent review | Suites/package pass; separately configured independent review pending |
-| 23 | Reports, integration commit, infographic, PR state | In progress; reports/product head durable, infographic/final review/live evidence pending, no PR created |
+| 23 | Reports, integration commit, infographic, PR state | In progress; reports/product head and native infographic are durable; final review/live evidence pending, no PR created |
 
 ## Release-critical sequence
 
