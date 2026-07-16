@@ -72,7 +72,8 @@ function renderNarrativeClaims(host, artifact) {
   for (const claim of artifact.claims || []) {
     const article = element("article", "narrative-claim"); article.dataset.claimClass = claim.claim_class;
     const label = claim.claim_class === "factual" ? "Factual claim" : claim.claim_class === "interpretive" ? "AI interpretation" : "Review suggestion";
-    article.append(element("strong", "", label), element("p", "", claim.text));
+    const scope = claim.context_scope === "comparison" ? " · route comparison" : claim.context_scope === "ordered_summary" ? " · ordered summary" : "";
+    article.append(element("strong", "", `${label}${scope}`), element("p", "", claim.text));
     const button = element("button", "quiet-button", "Show citations"); button.type = "button";
     button.addEventListener("click", () => revealNarrativeCitations(claim, article, button));
     article.append(button); host.append(article);

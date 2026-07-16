@@ -9,6 +9,7 @@ from enum import StrEnum
 from renpy_story_mapper.narrative.contracts import (
     ArtifactPublication,
     ClaimClass,
+    ClaimContextScope,
     ClaimPolarity,
     ClaimSemantics,
     ClaimSupport,
@@ -25,10 +26,12 @@ from renpy_story_mapper.narrative.contracts import (
 from renpy_story_mapper.narrative.evidence import HandleBindingError, PromptHandleTable
 
 MAX_PROVIDER_CLAIMS = 256
+MAX_PUBLISHED_CLAIMS = 256
 _ARTIFACT_FIELDS = frozenset({"logical_job_id", "title", "summary", "claims"})
 _CLAIM_FIELDS = frozenset(
     {
         "claim_class",
+        "context_scope",
         "text",
         "evidence_handles",
         "child_claim_handles",
@@ -118,12 +121,11 @@ class ValidationContext:
         if not set(authority_ids) <= available_handles:
             raise ValueError("validation authority claims must be prompt-local children")
         if any(
-            claim.job_kind is not LogicalJobKind.AUTHORITY_FACT
-            or claim.claim_class is not ClaimClass.FACTUAL
+            claim.claim_class is not ClaimClass.FACTUAL
             or claim.semantics is None
             for claim in self.authority_claims
         ):
-            raise ValueError("validation authority claims must be normalized factual leaves")
+            raise ValueError("validation authority claims must be normalized exact factual claims")
         contextual_ids = tuple(claim_id for claim_id, _context in self.claim_contexts)
         if len(contextual_ids) != len(set(contextual_ids)):
             raise ValueError("validation claim contexts must have unique claim IDs")
@@ -133,12 +135,7 @@ class ValidationContext:
     def context_for_claim(self, claim: NarrativeClaim) -> StructuralContext | None:
         """Resolve one claim's immediate child context without flattening its provenance."""
 
-        by_id = dict(self.claim_contexts)
-        contexts = tuple(
-            by_id[claim_id]
-            for claim_id in claim.support.child_claim_ids
-            if claim_id in by_id
-        )
+        contexts = self.contexts_for_claim(claim)
         if not contexts:
             return None
         unique = {
@@ -169,6 +166,17 @@ class ValidationContext:
             temporal_anchor=temporal_anchor,
             structural_fingerprint=f"support-set:{support_hash}",
         )
+
+    def contexts_for_claim(self, claim: NarrativeClaim) -> tuple[StructuralContext, ...]:
+        """Return unique immediate child contexts in stable order."""
+
+        by_id = dict(self.claim_contexts)
+        unique = {
+            canonical_hash(by_id[claim_id].to_dict()): by_id[claim_id]
+            for claim_id in claim.support.child_claim_ids
+            if claim_id in by_id
+        }
+        return tuple(unique[key] for key in sorted(unique))
 
 
 @dataclass(frozen=True)
@@ -293,7 +301,8 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
 
     claims, contradiction_issues = _salvage_contextual_contradictions(claims, context)
     issues.extend(contradiction_issues)
-    claims = _ensure_exact_authority_claims(claims, context)
+    claims, limit_issues = _ensure_exact_authority_claims(claims, context)
+    issues.extend(limit_issues)
 
     if not claims:
         issue = ValidationIssue("no_safe_claims", ValidationSeverity.UNSAFE)
@@ -357,11 +366,11 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
 def _ensure_exact_authority_claims(
     claims: list[NarrativeClaim],
     context: ValidationContext,
-) -> list[NarrativeClaim]:
+) -> tuple[list[NarrativeClaim], tuple[ValidationIssue, ...]]:
     """Publish every exact M12 leaf as a deterministic parent claim when omitted by AI."""
 
     if not context.authority_claims:
-        return claims
+        return claims, ()
     represented: set[str] = set()
     authority_by_id = {claim.claim_id: claim for claim in context.authority_claims}
     for claim in claims:
@@ -386,6 +395,7 @@ def _ensure_exact_authority_claims(
                 job_kind=context.job.kind,
                 ordinal=next_ordinal,
                 claim_class=ClaimClass.FACTUAL,
+                context_scope=ClaimContextScope.ATOMIC,
                 text=exact.text,
                 support=ClaimSupport(
                     kind=SupportKind.CHILD_CLAIMS,
@@ -395,7 +405,32 @@ def _ensure_exact_authority_claims(
             )
         )
         next_ordinal += 1
-    return result
+
+    authority_ids = set(authority_by_id)
+    mandatory: list[NarrativeClaim] = []
+    optional: list[NarrativeClaim] = []
+    represented_ids: set[str] = set()
+    for claim in result:
+        cited = authority_ids.intersection(claim.support.child_claim_ids)
+        if cited and claim.claim_class is ClaimClass.FACTUAL:
+            mandatory.append(claim)
+            represented_ids.update(cited)
+        else:
+            optional.append(claim)
+    if represented_ids != authority_ids:
+        raise ValueError("exact authority claims were not represented after deterministic salvage")
+    if len(mandatory) > MAX_PUBLISHED_CLAIMS:
+        raise ValueError("exact authority claims exceed the published artifact bound")
+    remaining = MAX_PUBLISHED_CLAIMS - len(mandatory)
+    kept_optional = optional[:remaining]
+    omitted = optional[remaining:]
+    kept_ids = {claim.claim_id for claim in (*kept_optional, *mandatory)}
+    bounded = [claim for claim in result if claim.claim_id in kept_ids]
+    issues = tuple(
+        ValidationIssue("claim_limit_exceeded", ValidationSeverity.CLAIM, claim.ordinal)
+        for claim in omitted
+    )
+    return bounded, issues
 
 
 def _validate_claim(
@@ -404,6 +439,7 @@ def _validate_claim(
     if not isinstance(raw, Mapping) or set(raw) != _CLAIM_FIELDS:
         raise ValueError("claim shape is invalid")
     claim_class = ClaimClass(_required_text(raw, "claim_class", 40))
+    context_scope = ClaimContextScope(_required_text(raw, "context_scope", 40))
     polarity = ClaimPolarity(_required_text(raw, "polarity", 40))
     evidence_handles = _handle_tuple(raw.get("evidence_handles"), "evidence_handles")
     child_handles = _handle_tuple(raw.get("child_claim_handles"), "child_claim_handles")
@@ -422,12 +458,49 @@ def _validate_claim(
         job_kind=context.job.kind,
         ordinal=ordinal,
         claim_class=claim_class,
+        context_scope=context_scope,
         text=_required_text(raw, "text", 1_000),
         support=support,
         semantics=semantics,
     )
     _validate_exact_authority_claim(claim, context.authority_claims)
+    _validate_claim_context_scope(claim, context)
     return claim
+
+
+def _validate_claim_context_scope(
+    claim: NarrativeClaim,
+    context: ValidationContext,
+) -> None:
+    """Reject cross-route chronology unless the claim is an explicit comparison."""
+
+    contexts = context.contexts_for_claim(claim)
+    if not contexts:
+        if claim.context_scope is not ClaimContextScope.ATOMIC:
+            raise ValueError("direct claims must use atomic context scope")
+        return
+
+    routes = {item.route_id for item in contexts if item.route_id is not None}
+    lanes = {item.lane_id for item in contexts if item.lane_id is not None}
+    anchors = {
+        item.temporal_anchor for item in contexts if item.temporal_anchor is not None
+    }
+    arms_by_container: dict[str, set[str]] = {}
+    for item in contexts:
+        if item.temporary_container_id is not None and item.temporary_arm_id is not None:
+            arms_by_container.setdefault(item.temporary_container_id, set()).add(
+                item.temporary_arm_id
+            )
+    exclusive_arms = any(len(arms) > 1 for arms in arms_by_container.values())
+    route_conflict = len(routes) > 1 or len(lanes) > 1
+    if route_conflict or exclusive_arms:
+        if claim.context_scope is not ClaimContextScope.COMPARISON:
+            raise ValueError("mutually exclusive contexts require comparison scope")
+        return
+    if claim.context_scope is ClaimContextScope.ATOMIC and (
+        len(contexts) > 1 or len(anchors) > 1
+    ):
+        raise ValueError("multi-context factual synthesis requires an explicit scope")
 
 
 def _validate_exact_authority_claim(

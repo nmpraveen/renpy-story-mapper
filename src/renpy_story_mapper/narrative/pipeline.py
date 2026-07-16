@@ -153,6 +153,10 @@ class _ArtifactCandidate:
     def claim_ids(self) -> tuple[str, ...]:
         return () if self.runtime is None else self.runtime.claim_ids
 
+    @property
+    def mandatory_claim_ids(self) -> tuple[str, ...]:
+        return () if self.runtime is None else self.runtime.mandatory_claim_ids
+
     def hierarchy_input(self) -> HierarchyArtifactInput:
         return HierarchyArtifactInput(
             artifact_id=self.artifact_id,
@@ -162,6 +166,7 @@ class _ArtifactCandidate:
             path=self.path,
             chronology_index=self.chronology_index,
             temporal_anchor=self.temporal_anchor,
+            mandatory_claim_ids=self.mandatory_claim_ids,
             chapter_id=self.chapter_id,
             chapter_ordinal=self.chapter_ordinal,
             occurrence_id=self.occurrence_id,
@@ -1294,6 +1299,12 @@ def _segment_hierarchy_descriptor(
         ChronologyPolicy.LINEAR,
         entries,
         tuple(claim_id for item in ordered if item.available for claim_id in item.claim_ids),
+        tuple(
+            claim_id
+            for item in ordered
+            if item.available
+            for claim_id in item.mandatory_claim_ids
+        ),
         (),
         (),
         segment.estimated_input_tokens,
@@ -1514,6 +1525,12 @@ def _hierarchy_reduction_descriptor(
     claim_ids = tuple(
         claim_id for item in children if item.available for claim_id in item.claim_ids
     )
+    mandatory_claim_ids = tuple(
+        claim_id
+        for item in children
+        if item.available
+        for claim_id in item.mandatory_claim_ids
+    )
     if len(claim_ids) != len(set(claim_ids)):
         raise ValueError("hierarchy reduction children repeat an immediate claim")
     return HierarchyJobDescriptor(
@@ -1522,6 +1539,7 @@ def _hierarchy_reduction_descriptor(
         chronology_policy,
         entries,
         claim_ids,
+        mandatory_claim_ids,
         (),
         (),
         config.prompt_overhead_tokens

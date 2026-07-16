@@ -166,6 +166,7 @@ class HierarchyArtifactInput:
     path: HierarchyPathContext
     chronology_index: int
     temporal_anchor: str
+    mandatory_claim_ids: tuple[str, ...] = ()
     chapter_id: str | None = None
     chapter_ordinal: int | None = None
     occurrence_id: str | None = None
@@ -180,6 +181,9 @@ class HierarchyArtifactInput:
     def __post_init__(self) -> None:
         _require_identifier(self.artifact_id, name="artifact_id")
         _require_unique(self.claim_ids, name="claim_id")
+        _require_unique(self.mandatory_claim_ids, name="mandatory claim_id")
+        if not set(self.mandatory_claim_ids) <= set(self.claim_ids):
+            raise ValueError("Mandatory claims must be exposed immediate child claims.")
         _require_identifier(self.temporal_anchor, name="temporal_anchor")
         for name, value in (
             ("chapter_id", self.chapter_id),
@@ -219,6 +223,7 @@ class HierarchyArtifactInput:
             "chapter_ordinal": self.chapter_ordinal,
             "chronology_index": self.chronology_index,
             "temporal_anchor": self.temporal_anchor,
+            "mandatory_claim_ids": list(self.mandatory_claim_ids),
             "occurrence_id": self.occurrence_id,
             "call_site_id": self.call_site_id,
             "loop_id": self.loop_id,
@@ -456,6 +461,7 @@ class HierarchyJobDescriptor:
     chronology_policy: ChronologyPolicy
     section_entries: tuple[HierarchySectionEntry, ...]
     child_claim_ids: tuple[str, ...]
+    mandatory_child_claim_ids: tuple[str, ...]
     authority_leaf_claim_ids: tuple[str, ...]
     m12_authority: tuple[M12RouteAuthority, ...]
     estimated_input_tokens: int
@@ -469,7 +475,14 @@ class HierarchyJobDescriptor:
         if entry_ids != self.spec.ordered_child_artifact_ids:
             raise ValueError("Section entries must exactly match ordered child artifacts.")
         _require_unique(self.child_claim_ids, name="child claim ID")
+        _require_unique(self.mandatory_child_claim_ids, name="mandatory child claim ID")
+        if not set(self.mandatory_child_claim_ids) <= set(self.child_claim_ids):
+            raise ValueError("Mandatory child claims must belong to immediate artifacts.")
         _require_unique(self.authority_leaf_claim_ids, name="authority leaf claim ID")
+        if len(self.mandatory_child_claim_ids) + len(self.authority_leaf_claim_ids) > 32:
+            raise ValueError(
+                "One hierarchy job cannot propagate more than 32 exact M12 authority claims."
+            )
         if set(self.child_claim_ids) & set(self.authority_leaf_claim_ids):
             raise ValueError("Artifact and authority claim allowlists cannot overlap.")
         if self.estimated_input_tokens <= 0:
@@ -1166,6 +1179,12 @@ def _plan_one_job(
     child_claim_ids = tuple(
         claim_id for child in children if child.available for claim_id in child.claim_ids
     )
+    mandatory_child_claim_ids = tuple(
+        claim_id
+        for child in children
+        if child.available
+        for claim_id in child.mandatory_claim_ids
+    )
     if len(child_claim_ids) != len(set(child_claim_ids)):
         raise ValueError("A child claim cannot be owned by multiple direct artifacts.")
     authority_claim_ids = tuple(
@@ -1220,6 +1239,7 @@ def _plan_one_job(
         chronology_policy=chronology_policy,
         section_entries=entries,
         child_claim_ids=child_claim_ids,
+        mandatory_child_claim_ids=mandatory_child_claim_ids,
         authority_leaf_claim_ids=authority_claim_ids,
         m12_authority=tuple(leaf.authority for leaf in authority_leaves),
         estimated_input_tokens=token_count,

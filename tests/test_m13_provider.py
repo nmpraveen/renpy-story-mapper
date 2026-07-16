@@ -257,6 +257,7 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     ]
     assert envelope["successful_item_payload"]["claims"]["exact_keys"] == [
         "claim_class",
+        "context_scope",
         "text",
         "evidence_handles",
         "child_claim_handles",
@@ -267,6 +268,7 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     ]
     assert "Scene claims use E handles" in envelope["evidence"]
     assert "hierarchy claims use C handles" in envelope["evidence"]
+    assert "Never present comparison contexts as one chronology" in envelope["context_scope"]
     assert "must copy that one claim's text" in envelope["m12_exactness"]
     assert "must use claim_class interpretive" in envelope["m12_exactness"]
     assert envelope["targeted_repair_payload"]["exact_keys"] == [
@@ -286,6 +288,7 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
         "claims",
     ]
     assert "ordinal" in schema["$defs"]["replacement_claim"]["required"]
+    assert "context_scope" in schema["$defs"]["claim"]["required"]
     assert "raw" not in response.__dict__
 
 

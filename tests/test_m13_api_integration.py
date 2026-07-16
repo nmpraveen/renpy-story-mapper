@@ -69,6 +69,7 @@ class _Provider:
                         "claims": [
                             {
                                 "claim_class": "factual",
+                                "context_scope": "atomic",
                                 "text": "A directly supported narrative fact.",
                                 "evidence_handles": (
                                     ["E1"] if item.payload["job_kind"] == "scene" else []

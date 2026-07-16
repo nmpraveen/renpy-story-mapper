@@ -1,0 +1,37 @@
+{
+  "template_version": "m13-narrative-batch-prompt-v4",
+  "instruction": "Complete each logical job independently and return one keyed result item for that job. Never merge jobs, scenes, owners, routes, or chronologies. A transport batch is not a narrative unit.",
+  "security": "Use only the structured records in this request. Do not use tools, web, MCP, commands, files, applications, runtime tracing, or outside knowledge.",
+  "authority": "M10 graph facts, M11 human structure, and M12 route status and prerequisite wording remain authoritative. Do not change their IDs, ownership, membership, chronology, route correctness, status, or wording. M13-only character_ids on an M10 evidence handle are a deterministic participation projection from that exact owned statement; they do not change M11 membership. Clearly distinguish factual claims from interpretation.",
+  "evidence": "Use only prompt-local evidence or child-claim handles supplied inside the same logical job. Copy handles exactly. Never invent, infer, reuse across jobs, or expand a handle into an authority ID. Scene claims use E handles in evidence_handles and an empty child_claim_handles array. Segment, chapter, route, ending, plot, and character hierarchy claims use C handles in child_claim_handles and an empty evidence_handles array. Never mix E and C support in one claim.",
+  "context_scope": "Use atomic for one structural context, ordered_summary only for multiple chronological contexts on the same compatible route, and comparison only for an explicit comparison across persistent routes or mutually exclusive temporary arms. Never present comparison contexts as one chronology. Direct scene claims must use atomic.",
+  "m12_exactness": "An exact_m12_authority_claim is immutable authority. A factual claim citing one of its C handles must copy that one claim's text, subject, predicate, polarity, and normalized_value exactly. Never combine multiple exact M12 authority claims into one factual claim. Any paraphrase, synthesis, implication, or interpretation of M12 material must use claim_class interpretive and must not upgrade or weaken the supplied status, badge, prerequisite, conclusion, uncertainty, conditionality, completeness, or negative result.",
+  "output": "Return exactly one JSON object satisfying the response schema. Each output item must repeat exactly one logical_job_id from its own input item. Use content_refusal for an item that cannot be completed; do not refuse valid sibling jobs.",
+  "successful_item_payload": {
+    "exact_keys": ["logical_job_id", "title", "summary", "claims"],
+    "logical_job_id": "Copy the owning logical_job_id exactly.",
+    "title": "A concise non-empty title of at most 200 characters.",
+    "summary": "A concise non-empty summary of at most 4000 characters.",
+    "claims": {
+      "maximum_items": 256,
+      "exact_keys": ["claim_class", "context_scope", "text", "evidence_handles", "child_claim_handles", "subject", "predicate", "polarity", "normalized_value"],
+      "claim_class": "Exactly factual, interpretive, or review_suggestion.",
+      "context_scope": "Exactly atomic, ordered_summary, or comparison.",
+      "text": "A non-empty claim of at most 1000 characters.",
+      "evidence_handles": "Unique prompt-local E handles owned by this scene job, or an empty array for a hierarchy claim.",
+      "child_claim_handles": "Unique prompt-local C handles owned by this hierarchy job, or an empty array for a scene claim.",
+      "subject": "A non-empty normalized subject of at most 320 characters.",
+      "predicate": "A non-empty normalized predicate of at most 320 characters.",
+      "polarity": "Exactly positive, negative, or neutral.",
+      "normalized_value": "A non-empty normalized value of at most 320 characters."
+    }
+  },
+  "targeted_repair_payload": {
+    "use_only_when": "The logical job input explicitly identifies a targeted repair request. A whole-artifact repair still uses successful_item_payload.",
+    "exact_keys": ["logical_job_id", "title", "summary", "claims"],
+    "logical_job_id": "Copy the owning logical_job_id exactly.",
+    "title": "Return a valid corrected title or copy the prior valid title.",
+    "summary": "Return a valid corrected summary or copy the prior valid summary.",
+    "claims": "Return only requested invalid claim replacements. Each replacement has exact keys ordinal, claim_class, context_scope, text, evidence_handles, child_claim_handles, subject, predicate, polarity, normalized_value. Ordinal must be one explicitly requested invalid ordinal."
+  }
+}

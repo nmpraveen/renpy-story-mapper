@@ -198,7 +198,7 @@ class SimulatedNarrativeProvider:
                     )
                 )
                 continue
-            handle = _first_support_handle(item.payload)
+            handle, exact_claim = _first_support(item.payload)
             if handle is None:
                 self.automatic_refusals += 1
                 outputs.append(
@@ -215,6 +215,7 @@ class SimulatedNarrativeProvider:
                 job_kind,
                 handle,
                 self.content_variant,
+                exact_claim=exact_claim,
             )
             if (
                 job_kind == "scene"
@@ -618,19 +619,45 @@ def _artifact_payload(
     job_kind: str,
     handle: str,
     variant: str,
+    *,
+    exact_claim: Mapping[str, object] | None = None,
 ) -> dict[str, JsonValue]:
     return {
         "logical_job_id": logical_job_id,
         "title": f"Simulated {job_kind.replace('_', ' ')}",
         "summary": "A bounded provider-free acceptance artifact.",
-        "claims": [_claim_payload(job_kind, handle, variant)],
+        "claims": [
+            _claim_payload(job_kind, handle, variant, exact_claim=exact_claim)
+        ],
     }
 
 
-def _claim_payload(job_kind: str, handle: str, variant: str) -> dict[str, JsonValue]:
+def _claim_payload(
+    job_kind: str,
+    handle: str,
+    variant: str,
+    *,
+    exact_claim: Mapping[str, object] | None = None,
+) -> dict[str, JsonValue]:
     scene = job_kind == "scene"
+    if exact_claim is not None:
+        semantics = exact_claim.get("semantics")
+        if not isinstance(semantics, Mapping):
+            raise AssertionError("exact simulated M12 claim lacks normalized semantics")
+        return {
+            "claim_class": "factual",
+            "context_scope": str(exact_claim.get("context_scope", "atomic")),
+            "text": _required_text(exact_claim, "text"),
+            "evidence_handles": [],
+            "child_claim_handles": [handle],
+            "subject": _required_text(semantics, "subject"),
+            "predicate": _required_text(semantics, "predicate"),
+            "polarity": _required_text(semantics, "polarity"),
+            "normalized_value": _required_text(semantics, "normalized_value"),
+        }
     return {
         "claim_class": "interpretive" if job_kind == "character" else "factual",
+        "context_scope": "atomic",
         "text": f"A supported {job_kind} claim for {variant}.",
         "evidence_handles": [handle] if scene else [],
         "child_claim_handles": [] if scene else [handle],
@@ -641,23 +668,33 @@ def _claim_payload(job_kind: str, handle: str, variant: str) -> dict[str, JsonVa
     }
 
 
-def _first_support_handle(payload: Mapping[str, object]) -> str | None:
+def _first_support(
+    payload: Mapping[str, object],
+) -> tuple[str | None, Mapping[str, object] | None]:
     if payload.get("job_kind") == "scene":
         for record in _mapping_records(payload.get("support_records")):
             handle = record.get("handle")
             if isinstance(handle, str) and handle.startswith("E"):
-                return handle
-        return None
+                return handle, None
+        return None, None
+    exact_by_handle = {
+        handle: claim
+        for claim in _mapping_records(payload.get("exact_m12_authority_claims"))
+        if isinstance((handle := claim.get("handle")), str) and handle.startswith("C")
+    }
     for child in _mapping_records(payload.get("child_artifacts")):
         for claim in _mapping_records(child.get("claims")):
             handle = claim.get("handle")
-            if isinstance(handle, str) and handle.startswith("C"):
-                return handle
-    for claim in _mapping_records(payload.get("exact_m12_authority_claims")):
-        handle = claim.get("handle")
-        if isinstance(handle, str) and handle.startswith("C"):
-            return handle
-    return None
+            if (
+                isinstance(handle, str)
+                and handle.startswith("C")
+                and handle not in exact_by_handle
+            ):
+                return handle, None
+    if exact_by_handle:
+        handle = sorted(exact_by_handle)[0]
+        return handle, exact_by_handle[handle]
+    return None, None
 
 
 def _route_invariants(

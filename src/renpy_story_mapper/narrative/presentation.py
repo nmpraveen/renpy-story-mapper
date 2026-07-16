@@ -14,6 +14,7 @@ from renpy_story_mapper.narrative.contracts import (
     AuthorityReference,
     AuthoritySystem,
     ClaimClass,
+    ClaimContextScope,
     ClaimPolarity,
     ClaimSemantics,
     ClaimSupport,
@@ -333,6 +334,7 @@ def _claim(payload: Mapping[str, object]) -> NarrativeClaim:
         job_kind=LogicalJobKind(_text(payload, "job_kind")),
         ordinal=ordinal,
         claim_class=ClaimClass(_text(payload, "claim_class")),
+        context_scope=ClaimContextScope(_text(payload, "context_scope")),
         text=_text(payload, "text"),
         support=support,
         semantics=semantics,
@@ -344,6 +346,7 @@ def _claim_summary(payload: Mapping[str, object]) -> dict[str, object]:
     return {
         "claim_id": claim.claim_id,
         "claim_class": claim.claim_class.value,
+        "context_scope": claim.context_scope.value,
         "text": claim.text,
         "semantics": None if claim.semantics is None else claim.semantics.to_dict(),
         "support_kind": claim.support.kind.value,

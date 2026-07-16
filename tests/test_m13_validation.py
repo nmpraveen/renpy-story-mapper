@@ -78,9 +78,11 @@ def _provider_claim(
     polarity: str = "positive",
     text: str = "Alice is present.",
     subject: str = "Alice",
+    context_scope: str = "atomic",
 ) -> dict[str, object]:
     return {
         "claim_class": claim_class,
+        "context_scope": context_scope,
         "text": text,
         "evidence_handles": ["E1"] if evidence is None else evidence,
         "child_claim_handles": [] if children is None else children,
@@ -209,6 +211,98 @@ def test_plot_claims_keep_exclusive_route_and_temporal_contexts_separate() -> No
     assert temporal_result.artifact is not None
     assert temporal_result.artifact.publication is ArtifactPublication.COMPLETE
     assert len(temporal_result.artifact.claims) == 2
+
+
+def test_cross_route_claim_is_rejected_unless_explicitly_a_comparison() -> None:
+    context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:route-a",
+        ),
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-b",
+            route_id="route-b",
+            temporal_anchor="chapter-2:route-b",
+        ),
+    )
+    atomic = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        text="Both route events happen in one chronology.",
+        value="merged",
+    )
+    comparison = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        context_scope="comparison",
+        text="Route A and route B differ at this point.",
+        value="different",
+    )
+
+    rejected = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [atomic]),
+        context,
+    )
+    accepted = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [comparison]),
+        context,
+    )
+
+    assert rejected.artifact is None
+    assert rejected.rejected_reason == "no_safe_claims"
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in rejected.issues)
+    assert accepted.artifact is not None
+    assert accepted.artifact.claims[0].context_scope.value == "comparison"
+    assert accepted.artifact.claims[0].support.child_claim_ids == (
+        "claim-left",
+        "claim-right",
+    )
+
+
+def test_multi_temporal_claim_requires_ordered_summary_scope() -> None:
+    context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:early",
+        ),
+        StructuralContext(
+            chapter_id="chapter-5",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-5:late",
+        ),
+    )
+    atomic = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        text="Alice changes over time.",
+        value="changes",
+    )
+    ordered = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        context_scope="ordered_summary",
+        text="Alice changes between the early and late anchors.",
+        value="changes",
+    )
+
+    rejected = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [atomic]),
+        context,
+    )
+    accepted = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [ordered]),
+        context,
+    )
+
+    assert rejected.artifact is None
+    assert accepted.artifact is not None
+    assert accepted.artifact.claims[0].context_scope.value == "ordered_summary"
 
 
 def test_plot_claims_omit_only_same_child_context_factual_conflict() -> None:
@@ -473,6 +567,7 @@ def _m12_provider_claim(
     assert exact.semantics is not None
     return {
         "claim_class": claim_class,
+        "context_scope": "atomic",
         "text": exact.text if value == exact.text else "The route is fully proven.",
         "evidence_handles": [],
         "child_claim_handles": ["C1"],
@@ -535,6 +630,37 @@ def test_omitted_m12_fact_is_added_as_exact_deterministic_parent_claim() -> None
     assert proxy.text == exact.text
     assert proxy.semantics == exact.semantics
     assert proxy.support.child_claim_ids == (exact.claim_id,)
+
+
+def test_exact_m12_claim_reserves_space_inside_final_256_claim_bound() -> None:
+    context, exact = _m12_context()
+    provider_claims = [
+        _provider_claim(
+            claim_class="interpretive",
+            evidence=[],
+            children=["C1"],
+            subject=f"interpretation-{ordinal}",
+            text=f"Interpretation {ordinal} remains non-authoritative.",
+            value=f"interpretation-{ordinal}",
+        )
+        for ordinal in range(256)
+    ]
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, provider_claims),
+        context,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 256
+    assert any(
+        claim.claim_class is ClaimClass.FACTUAL
+        and claim.text == exact.text
+        and claim.support.child_claim_ids == (exact.claim_id,)
+        for claim in result.artifact.claims
+    )
+    assert sum(issue.code == "claim_limit_exceeded" for issue in result.issues) == 1
 
 
 def _persisted_claim(

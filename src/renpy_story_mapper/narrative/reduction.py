@@ -15,13 +15,20 @@ from typing import cast
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.contracts import (
     CacheIdentity,
+    ClaimClass,
+    ClaimContextScope,
+    ClaimPolarity,
+    ClaimSemantics,
+    ClaimSupport,
     ConsentManifest,
     InputRevision,
     JsonValue,
     LogicalJob,
+    LogicalJobKind,
     NarrativeClaim,
     ProviderIdentity,
     StructuralContext,
+    SupportKind,
     canonical_hash,
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
@@ -73,6 +80,7 @@ class RuntimeNarrativeArtifact:
     path: HierarchyPathContext
     chronology_index: int
     temporal_anchor: str
+    mandatory_claim_ids: tuple[str, ...] = ()
     chapter_id: str | None = None
     chapter_ordinal: int | None = None
     occurrence_id: str | None = None
@@ -88,6 +96,10 @@ class RuntimeNarrativeArtifact:
             raise ValueError("runtime artifacts require stable artifact and job identities")
         if len(self.claim_ids) != len(set(self.claim_ids)):
             raise ValueError("runtime artifacts cannot repeat immediate claims")
+        if len(self.mandatory_claim_ids) != len(set(self.mandatory_claim_ids)):
+            raise ValueError("runtime artifacts cannot repeat mandatory claims")
+        if not set(self.mandatory_claim_ids) <= set(self.claim_ids):
+            raise ValueError("runtime mandatory claims must be immediate claims")
         if self.estimated_tokens < 1:
             raise ValueError("runtime artifact token estimate must be positive")
         if not 0 <= self.covered_leaf_count <= self.expected_leaf_count:
@@ -147,7 +159,11 @@ class PreparedHierarchyJob:
         authority_ids = tuple(claim.claim_id for claim in self.authority_claims)
         if len(authority_ids) != len(set(authority_ids)):
             raise ValueError("prepared hierarchy authority claims must be unique")
-        if not set(authority_ids) <= set(self.descriptor.authority_leaf_claim_ids):
+        required_allowlist = {
+            *self.descriptor.authority_leaf_claim_ids,
+            *self.descriptor.mandatory_child_claim_ids,
+        }
+        if not set(authority_ids) <= required_allowlist:
             raise ValueError("prepared authority claims exceed the descriptor allowlist")
         contextual_ids = tuple(claim_id for claim_id, _context in self.claim_contexts)
         if len(contextual_ids) != len(set(contextual_ids)):
@@ -213,7 +229,7 @@ def prepare_hierarchy_job(
 
     if not deterministic_title.strip() or not deterministic_summary.strip():
         raise ValueError("hierarchy deterministic fallbacks must be non-empty")
-    authority_claims = {} if authority_claims is None else authority_claims
+    direct_authority_claims = {} if authority_claims is None else authority_claims
     available = tuple(
         child_id
         for child_id in descriptor.child_artifact_ids
@@ -231,10 +247,14 @@ def prepare_hierarchy_job(
                 raise ValueError("two child artifacts expose the same immediate claim")
             claim_records[claim_id] = artifact_claim
             claim_contexts[claim_id] = child_contexts[claim_id]
-    for claim_id, authority_claim in authority_claims.items():
+    required_claims: dict[str, NarrativeClaim] = {}
+    for claim_id in descriptor.mandatory_child_claim_ids:
+        required_claims[claim_id] = _runtime_narrative_claim(claim_records[claim_id])
+    for claim_id, authority_claim in direct_authority_claims.items():
         if claim_id in claim_records:
             raise ValueError("authority and artifact claims cannot overlap")
         claim_records[claim_id] = authority_claim.to_dict()
+        required_claims[claim_id] = authority_claim
     if set(claim_records) != set(descriptor.allowed_support_claim_ids):
         raise ValueError("hierarchy claim records differ from the descriptor allowlist")
     if len(claim_records) > MAX_DIRECT_CHILD_CLAIMS:
@@ -279,7 +299,7 @@ def prepare_hierarchy_job(
         child_records.append(record)
     exact_authority_claims = [
         _prompt_claim(handle_by_claim[claim_id], claim.to_dict())
-        for claim_id, claim in sorted(authority_claims.items())
+        for claim_id, claim in sorted(required_claims.items())
     ]
     payload: dict[str, JsonValue] = {
         "schema": HIERARCHY_PROVIDER_INPUT_SCHEMA,
@@ -319,7 +339,7 @@ def prepare_hierarchy_job(
         ordinal=ordinal,
         estimated_input_tokens=max(1, math.ceil(len(encoded) / CHARS_PER_ESTIMATED_TOKEN)),
         authority_claims=tuple(
-            authority_claims[claim_id] for claim_id in sorted(authority_claims)
+            required_claims[claim_id] for claim_id in sorted(required_claims)
         ),
         claim_contexts=tuple(
             (claim_id, claim_contexts[claim_id]) for claim_id in sorted(claim_contexts)
@@ -478,9 +498,35 @@ def _runtime_from_prepared(
     claims = payload.get("claims")
     if not isinstance(claims, list):
         raise ValueError("published hierarchy artifact claims are malformed")
+    claim_records = _mappings(claims)
+    authority_ids = {claim.claim_id for claim in prepared.authority_claims}
+    mandatory: list[str] = []
+    optional: list[str] = []
+    represented_authority: set[str] = set()
+    for item in claim_records:
+        claim_id = _required_text(item, "claim_id")
+        support = item.get("support")
+        children = (
+            support.get("child_claim_ids", [])
+            if isinstance(support, Mapping)
+            else []
+        )
+        cited = {
+            child_id
+            for child_id in children
+            if isinstance(child_id, str) and child_id in authority_ids
+        }
+        if cited and item.get("claim_class") == "factual":
+            mandatory.append(claim_id)
+            represented_authority.update(cited)
+        else:
+            optional.append(claim_id)
+    if represented_authority != authority_ids:
+        raise ValueError("published hierarchy artifact lost exact M12 authority claims")
+    if len(mandatory) > MAX_PROPAGATED_CLAIMS_PER_ARTIFACT:
+        raise ValueError("exact M12 authority claims exceed propagation capacity")
     claim_ids = tuple(
-        _required_text(item, "claim_id")
-        for item in _mappings(claims)[:MAX_PROPAGATED_CLAIMS_PER_ARTIFACT]
+        (*mandatory, *optional[: MAX_PROPAGATED_CLAIMS_PER_ARTIFACT - len(mandatory)])
     )
     descriptor = prepared.descriptor
     return RuntimeNarrativeArtifact(
@@ -492,6 +538,7 @@ def _runtime_from_prepared(
         path=descriptor.path,
         chronology_index=descriptor.chronology_index,
         temporal_anchor=prepared.job.spec.context.temporal_anchor or descriptor.spec.owner_id,
+        mandatory_claim_ids=tuple(mandatory),
         chapter_id=prepared.job.spec.context.chapter_id,
         chapter_ordinal=descriptor.chapter_ordinal,
         occurrence_id=prepared.job.spec.context.occurrence_id,
@@ -507,6 +554,43 @@ def _runtime_from_prepared(
     )
 
 
+def _runtime_narrative_claim(payload: Mapping[str, object]) -> NarrativeClaim:
+    """Rehydrate one validated immediate claim selected for exact M12 passthrough."""
+
+    support_raw = payload.get("support")
+    semantics_raw = payload.get("semantics")
+    ordinal = payload.get("ordinal")
+    if (
+        not isinstance(support_raw, Mapping)
+        or support_raw.get("kind") != SupportKind.CHILD_CLAIMS.value
+        or not isinstance(semantics_raw, Mapping)
+        or not isinstance(ordinal, int)
+        or isinstance(ordinal, bool)
+    ):
+        raise ValueError("mandatory runtime claim is malformed")
+    child_ids = support_raw.get("child_claim_ids")
+    if not isinstance(child_ids, list) or any(not isinstance(item, str) for item in child_ids):
+        raise ValueError("mandatory runtime claim support is malformed")
+    return NarrativeClaim(
+        logical_job_id=_required_text(payload, "logical_job_id"),
+        job_kind=LogicalJobKind(_required_text(payload, "job_kind")),
+        ordinal=ordinal,
+        claim_class=ClaimClass(_required_text(payload, "claim_class")),
+        context_scope=ClaimContextScope(_required_text(payload, "context_scope")),
+        text=_required_text(payload, "text"),
+        support=ClaimSupport(
+            SupportKind.CHILD_CLAIMS,
+            child_claim_ids=tuple(cast(list[str], child_ids)),
+        ),
+        semantics=ClaimSemantics(
+            subject=_required_text(semantics_raw, "subject"),
+            predicate=_required_text(semantics_raw, "predicate"),
+            polarity=ClaimPolarity(_required_text(semantics_raw, "polarity")),
+            normalized_value=_required_text(semantics_raw, "normalized_value"),
+        ),
+    )
+
+
 def _prompt_claim(
     handle: str,
     claim: Mapping[str, object],
@@ -516,6 +600,7 @@ def _prompt_claim(
     result: dict[str, JsonValue] = {
         "handle": handle,
         "claim_class": _required_text(claim, "claim_class"),
+        "context_scope": _required_text(claim, "context_scope"),
         "text": _required_text(claim, "text"),
         "semantics": cast(JsonValue, dict(semantics)) if isinstance(semantics, Mapping) else None,
     }

@@ -96,22 +96,27 @@ class CompleteHierarchyProvider:
                 )
                 continue
             claim_class = "interpretive" if job_kind == "character" else "factual"
-            child_handles = [
+            artifact_handles = [
                 str(claim["handle"])
                 for child in payload.get("child_artifacts", [])
                 for claim in child.get("claims", [])
-            ] + [
+            ]
+            exact_handles = [
                 str(claim["handle"])
                 for claim in payload.get("exact_m12_authority_claims", [])
             ]
+            synthesis_handles = [
+                handle for handle in artifact_handles if handle not in set(exact_handles)
+            ]
             claims = []
-            if scene or child_handles:
+            if scene or synthesis_handles:
                 claims = [
                     {
                         "claim_class": claim_class,
+                        "context_scope": "atomic",
                         "text": f"Supported {job_kind} claim {index + 1}.",
                         "evidence_handles": ["E1"] if scene else [],
-                        "child_claim_handles": [] if scene else [child_handles[0]],
+                        "child_claim_handles": [] if scene else [synthesis_handles[0]],
                         "subject": job_kind,
                         "predicate": "has supported result",
                         "polarity": "positive",

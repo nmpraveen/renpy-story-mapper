@@ -97,6 +97,7 @@ class DeterministicNarrativeProvider:
 def _claim(handle: str, *, value: str) -> dict[str, object]:
     return {
         "claim_class": "factual",
+        "context_scope": "atomic",
         "text": f"The scene has supported value {value}.",
         "evidence_handles": [handle],
         "child_claim_handles": [],

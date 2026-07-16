@@ -54,6 +54,14 @@ class ClaimClass(StrEnum):
     REVIEW_SUGGESTION = "review_suggestion"
 
 
+class ClaimContextScope(StrEnum):
+    """How one claim relates multiple immediate structural contexts."""
+
+    ATOMIC = "atomic"
+    ORDERED_SUMMARY = "ordered_summary"
+    COMPARISON = "comparison"
+
+
 class ClaimPolarity(StrEnum):
     POSITIVE = "positive"
     NEGATIVE = "negative"
@@ -477,6 +485,7 @@ class NarrativeClaim:
     text: str
     support: ClaimSupport
     semantics: ClaimSemantics | None = None
+    context_scope: ClaimContextScope = ClaimContextScope.ATOMIC
 
     def __post_init__(self) -> None:
         _require_text(self.logical_job_id, "claim logical job ID")
@@ -506,6 +515,7 @@ class NarrativeClaim:
             "job_kind": self.job_kind.value,
             "ordinal": self.ordinal,
             "claim_class": self.claim_class.value,
+            "context_scope": self.context_scope.value,
             "text": self.text,
             "support": self.support.to_dict(),
             "semantics": None if self.semantics is None else self.semantics.to_dict(),
@@ -519,6 +529,7 @@ class NarrativeClaim:
             "job_kind": self.job_kind.value,
             "ordinal": self.ordinal,
             "claim_class": self.claim_class.value,
+            "context_scope": self.context_scope.value,
             "text": self.text,
             "support": self.support.to_dict(),
             "semantics": None if self.semantics is None else self.semantics.to_dict(),
