@@ -32,6 +32,7 @@ from renpy_story_mapper.narrative.contracts import (
 )
 
 DEFAULT_HIERARCHY_PARTITION_VERSION = "m13-hierarchy-partition-v1"
+HIERARCHY_REDUCTION_TARGET_CHILDREN = 24
 
 
 def _require_identifier(value: str, *, name: str, maximum: int = 500) -> None:

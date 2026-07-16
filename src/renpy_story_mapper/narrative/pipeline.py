@@ -29,6 +29,7 @@ from renpy_story_mapper.narrative.contracts import (
     canonical_hash,
 )
 from renpy_story_mapper.narrative.hierarchy import (
+    HIERARCHY_REDUCTION_TARGET_CHILDREN,
     ChronologyPolicy,
     EndingSpec,
     HierarchyArtifactInput,
@@ -1400,7 +1401,7 @@ def _partition_hierarchy_candidates(
 ) -> tuple[tuple[_ArtifactCandidate, ...], ...]:
     if not children:
         raise ValueError("hierarchy reduction requires at least one child")
-    target_children = min(24, config.maximum_children)
+    target_children = min(HIERARCHY_REDUCTION_TARGET_CHILDREN, config.maximum_children)
     group_count = max(1, math.ceil(len(children) / target_children))
     base, remainder = divmod(len(children), group_count)
     balanced: list[tuple[_ArtifactCandidate, ...]] = []
