@@ -716,6 +716,130 @@ def test_exact_m12_claim_reserves_space_inside_final_256_claim_bound() -> None:
     assert sum(issue.code == "claim_limit_exceeded" for issue in result.issues) == 1
 
 
+def test_exact_m12_fact_cannot_adopt_unrelated_child_context() -> None:
+    context, exact = _m12_context()
+    other_claim_id = "unrelated-common-child"
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(exact.claim_id, other_claim_id),
+    )
+    handle_by_id = {item.claim_id: item.handle for item in handles.child_claim_handles}
+    mixed = _m12_provider_claim(exact, claim_class="factual", value=exact.text)
+    mixed["child_claim_handles"] = [
+        handle_by_id[exact.claim_id],
+        handle_by_id[other_claim_id],
+    ]
+    validation = replace(
+        context,
+        handles=handles,
+        claim_contexts=(
+            (
+                other_claim_id,
+                StructuralContext(
+                    lane_id="lane-common",
+                    temporal_anchor="common-story",
+                ),
+            ),
+        ),
+        claim_context_scopes=((other_claim_id, ClaimContextScope.ATOMIC),),
+    )
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [mixed]),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 1
+    assert result.artifact.claims[0].support.child_claim_ids == (exact.claim_id,)
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in result.issues)
+
+
+def test_256_duplicate_authority_representations_salvage_without_overflow() -> None:
+    context, _exact = _m12_context()
+    authority = M12RouteAuthority(
+        result_identity="result-many",
+        route_id="route-a",
+        persistent_lane_id="lane-a",
+        status=TechnicalStatus.BEST_KNOWN,
+        badge=RouteBadge.BEST_KNOWN,
+    )
+    exact_claims = make_m12_authority_leaf(
+        authority,
+        locale="en-US",
+        perspective="neutral",
+    ).claims
+    first, second = exact_claims
+    unrelated_ids = tuple(f"unrelated-{ordinal:03d}" for ordinal in range(256))
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=tuple((first.claim_id, second.claim_id, *unrelated_ids)),
+    )
+    handle_by_id = {item.claim_id: item.handle for item in handles.child_claim_handles}
+    provider_claims: list[dict[str, object]] = []
+    assert first.semantics is not None
+    for unrelated_id in unrelated_ids:
+        provider_claims.append(
+            {
+                "claim_class": "factual",
+                "context_scope": "atomic",
+                "text": first.text,
+                "evidence_handles": [],
+                "child_claim_handles": [
+                    handle_by_id[first.claim_id],
+                    handle_by_id[unrelated_id],
+                ],
+                "subject": first.semantics.subject,
+                "predicate": first.semantics.predicate,
+                "polarity": first.semantics.polarity.value,
+                "normalized_value": first.semantics.normalized_value,
+            }
+        )
+    validation = replace(
+        context,
+        handles=handles,
+        authority_claims=exact_claims,
+    )
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, provider_claims),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 2
+    assert {claim.support.child_claim_ids for claim in result.artifact.claims} == {
+        (first.claim_id,),
+        (second.claim_id,),
+    }
+    assert sum(
+        issue.code == "invalid_or_unsupported_claim" for issue in result.issues
+    ) == 256
+
+
+def test_deterministic_authority_proxy_preserves_inherited_scope() -> None:
+    context, exact = _m12_context()
+    scoped = replace(exact, context_scope=ClaimContextScope.COMPARISON)
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(scoped.claim_id,),
+    )
+    validation = replace(context, handles=handles, authority_claims=(scoped,))
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, []),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.claims[0].context_scope is ClaimContextScope.COMPARISON
+
+
 def _persisted_claim(
     job: LogicalJobSpec,
     *,

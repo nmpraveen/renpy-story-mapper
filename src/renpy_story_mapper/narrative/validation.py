@@ -415,7 +415,7 @@ def _ensure_exact_authority_claims(
                 job_kind=context.job.kind,
                 ordinal=next_ordinal,
                 claim_class=ClaimClass.FACTUAL,
-                context_scope=ClaimContextScope.ATOMIC,
+                context_scope=exact.context_scope,
                 text=exact.text,
                 support=ClaimSupport(
                     kind=SupportKind.CHILD_CLAIMS,
@@ -427,18 +427,30 @@ def _ensure_exact_authority_claims(
         next_ordinal += 1
 
     authority_ids = set(authority_by_id)
-    mandatory: list[NarrativeClaim] = []
+    mandatory_by_authority: dict[str, NarrativeClaim] = {}
     optional: list[NarrativeClaim] = []
     represented_ids: set[str] = set()
+    issues: list[ValidationIssue] = []
     for claim in result:
         cited = authority_ids.intersection(claim.support.child_claim_ids)
         if cited and claim.claim_class is ClaimClass.FACTUAL:
-            mandatory.append(claim)
-            represented_ids.update(cited)
+            authority_id = next(iter(cited))
+            if authority_id in mandatory_by_authority:
+                issues.append(
+                    ValidationIssue(
+                        "duplicate_authority_representation",
+                        ValidationSeverity.CLAIM,
+                        claim.ordinal,
+                    )
+                )
+            else:
+                mandatory_by_authority[authority_id] = claim
+                represented_ids.add(authority_id)
         else:
             optional.append(claim)
     if represented_ids != authority_ids:
         raise ValueError("exact authority claims were not represented after deterministic salvage")
+    mandatory = list(mandatory_by_authority.values())
     if len(mandatory) > MAX_PUBLISHED_CLAIMS:
         raise ValueError("exact authority claims exceed the published artifact bound")
     remaining = MAX_PUBLISHED_CLAIMS - len(mandatory)
@@ -446,11 +458,11 @@ def _ensure_exact_authority_claims(
     omitted = optional[remaining:]
     kept_ids = {claim.claim_id for claim in (*kept_optional, *mandatory)}
     bounded = [claim for claim in result if claim.claim_id in kept_ids]
-    issues = tuple(
+    issues.extend(
         ValidationIssue("claim_limit_exceeded", ValidationSeverity.CLAIM, claim.ordinal)
         for claim in omitted
     )
-    return bounded, issues
+    return bounded, tuple(issues)
 
 
 def _validate_claim(
@@ -547,8 +559,8 @@ def _validate_exact_authority_claim(
         if item in authority_by_id
     )
     if cited:
-        if len(cited) != 1:
-            raise ValueError("one factual claim cannot combine exact M12 authority claims")
+        if len(cited) != 1 or len(claim.support.child_claim_ids) != 1:
+            raise ValueError("one factual M12 claim must cite only one exact authority claim")
         exact = cited[0]
         if claim.text != exact.text or claim.semantics != exact.semantics:
             raise ValueError("factual M12 claims must preserve exact authority language")
