@@ -10,10 +10,11 @@ Updated: 2026-07-16
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Blocked in verification on live-provider acceptance, consent-manifest identity, and the
-  missing independent final-head `PASS`.
+- Status: Integration; the user approved the narrow M13 recovery for consent identity, explicit
+  provider settings, schema compatibility, and fail-fast provider handling.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: blocked task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5`; not complete.
+- Native Codex goal: existing task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` resumed in this
+  same task by explicit user approval; no second goal was created and it is not complete.
 - Pull request: Not created; explicit user approval is required before creation or merge.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
@@ -41,6 +42,17 @@ to unpreviewed granted ID `m13_consent_d2b91d...` in persisted provider requests
 severity policy, no retry or second correction loop was started. After the same terminal condition
 persisted for three consecutive goal turns, the native goal was marked blocked. The native
 infographic is complete, and no pull request has been created.
+
+The user subsequently approved a narrowly scoped recovery and resumed the same coordinator task.
+Recovery integration starts from evidence-only head `4e2bf7a452b5f6c62f73ab1115a48b75bfd3ad82`
+while `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8` remains the prior runtime baseline. Task A
+`019f6d5a-b372-71d2-a5a4-956e4654d8bc` owns consent identity and settings plumbing in
+`C:\Users\prave\.codex\worktrees\ff39\Renpy`; Task B
+`019f6d5a-b33b-7aa0-b64b-56bd73ce580c` owns schema/provider/fail-fast recovery in
+`C:\Users\prave\.codex\worktrees\97ee\Renpy`. Both started active from exact base `4e2bf7a`.
+Integrate A then B, inspect their actual diffs and focused evidence, and freeze a new runtime head
+before any expensive acceptance. No remote canary, story-provider call, external code review, or
+pull request is authorized without its separate exact approval gate.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its
