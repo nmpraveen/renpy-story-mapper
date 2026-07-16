@@ -15,6 +15,7 @@ from renpy_story_mapper.narrative.batching import (
     pack_scene_jobs,
 )
 from renpy_story_mapper.narrative.contracts import (
+    AuthorityBinding,
     AuthorityReference,
     AuthoritySystem,
     BudgetLimits,
@@ -110,6 +111,7 @@ def prepare_scene_jobs(
     authority: NarrativeAuthority,
     *,
     mode: NarrativeInputMode,
+    include_m12_material: bool = True,
     selected_scene_ids: tuple[str, ...] | None = None,
     locale: str = "und",
     perspective: str = "default",
@@ -125,7 +127,7 @@ def prepare_scene_jobs(
     packets = project_scene_inputs(
         authority.canonical,
         authority.scene_model,
-        m12_results=authority.m12_results,
+        m12_results=authority.m12_results if include_m12_material else (),
         mode=mode,
         max_story_text_chars=max_story_text_chars,
         source_archive_hash=authority.binding.source_archive_hash,
@@ -153,6 +155,7 @@ def prepare_scene_jobs(
                 locale=locale,
                 perspective=perspective,
                 output_tokens=output_tokens_per_scene,
+                authority_binding=authority.binding,
             )
         )
     return tuple(prepared)
@@ -230,6 +233,7 @@ def _prepare_scene(
     locale: str,
     perspective: str,
     output_tokens: int,
+    authority_binding: AuthorityBinding,
 ) -> PreparedSceneJob:
     context = _structural_context(packet)
     spec = LogicalJobSpec(
@@ -280,7 +284,7 @@ def _prepare_scene(
     if set(handle_by_reference) != set(support_data):
         raise ValueError("scene support handle projection is incomplete")
     revision = InputRevision(
-        packet.authority,
+        authority_binding,
         M13_SCENE_PROVIDER_INPUT_SCHEMA,
         canonical_hash(payload),
     )

@@ -561,6 +561,8 @@ class M13Persistence:
         artifact: Mapping[str, object],
         cache_identity: Mapping[str, object],
         cache_metadata: Mapping[str, object] | None = None,
+        attempt_id: str | None = None,
+        attempt: Mapping[str, object] | None = None,
         authority_binding: Mapping[str, object],
         cancelled: Callable[[], bool] | None = None,
     ) -> ValidatedPublication:
@@ -573,6 +575,10 @@ class M13Persistence:
 
         _validate_record_id(job_id)
         _validate_record_id(artifact_id)
+        if (attempt_id is None) != (attempt is None):
+            raise ValueError("validated attempt ID and payload must be supplied together")
+        if attempt_id is not None:
+            _validate_record_id(attempt_id)
         claim_ids = tuple(sorted(claims))
         edge_ids = tuple(sorted(claim_edges))
         for record_id in (*claim_ids, *edge_ids):
@@ -647,6 +653,20 @@ class M13Persistence:
             )
             for edge_id in edge_ids
         )
+        if attempt_id is not None and attempt is not None:
+            envelopes.append(
+                (
+                    RecordKind.ATTEMPT,
+                    attempt_id,
+                    _build_envelope(
+                        RecordKind.ATTEMPT,
+                        attempt_id,
+                        attempt,
+                        authority_binding,
+                    ),
+                    True,
+                )
+            )
         envelopes.extend(
             (
                 (
