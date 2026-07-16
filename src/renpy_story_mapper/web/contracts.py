@@ -131,6 +131,15 @@ M12_DESTINATIONS_REQUEST_FIELDS: Final = ("query", "offset", "limit")
 M12_SOLVE_REQUEST_FIELDS: Final = ("destination_kind", "target_id")
 M12_RESULT_REQUEST_FIELDS: Final = ("request_identity",)
 
+M13_API_ROUTES: Final[dict[str, str]] = {
+    "snapshot": "/api/v1/m13/snapshot",
+    "artifact": "/api/v1/m13/artifact",
+    "citations": "/api/v1/m13/citations",
+}
+M13_SNAPSHOT_REQUEST_FIELDS: Final = ("offset", "limit")
+M13_ARTIFACT_REQUEST_FIELDS: Final = ("artifact_id",)
+M13_CITATIONS_REQUEST_FIELDS: Final = ("claim_id",)
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:

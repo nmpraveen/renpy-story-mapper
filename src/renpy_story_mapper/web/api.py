@@ -38,6 +38,12 @@ from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.narrative.evidence import ClaimDagError
+from renpy_story_mapper.narrative.presentation import (
+    narrative_artifact_detail,
+    narrative_claim_citations,
+    narrative_snapshot,
+)
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -78,6 +84,10 @@ from renpy_story_mapper.web.contracts import (
     M12_DESTINATIONS_REQUEST_FIELDS,
     M12_RESULT_REQUEST_FIELDS,
     M12_SOLVE_REQUEST_FIELDS,
+    M13_API_ROUTES,
+    M13_ARTIFACT_REQUEST_FIELDS,
+    M13_CITATIONS_REQUEST_FIELDS,
+    M13_SNAPSHOT_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -257,6 +267,7 @@ class ProjectApi:
                     "m10": dict(M10_API_ROUTES),
                     "m11": dict(M11_API_ROUTES),
                     "m12": dict(M12_API_ROUTES),
+                    "m13": dict(M13_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -539,6 +550,59 @@ class ProjectApi:
                     attempt_message,
                 )
             raise ApiProblem(409, "m12_result_pending", "The route result is not ready.")
+        if method == "POST" and path == M13_API_ROUTES["snapshot"]:
+            exact_fields(body, allowed=M13_SNAPSHOT_REQUEST_FIELDS)
+            with Project.open(self._project()) as opened_project:
+                snapshot = narrative_snapshot(
+                    opened_project,
+                    offset=bounded_int(
+                        body,
+                        "offset",
+                        default=0,
+                        minimum=0,
+                        maximum=2_000_000,
+                    ),
+                    limit=bounded_int(body, "limit", default=100, minimum=1, maximum=200),
+                )
+            return json_value(snapshot)
+        if method == "POST" and path == M13_API_ROUTES["artifact"]:
+            exact_fields(
+                body,
+                allowed=M13_ARTIFACT_REQUEST_FIELDS,
+                required=M13_ARTIFACT_REQUEST_FIELDS,
+            )
+            try:
+                with Project.open(self._project()) as opened_project:
+                    detail = narrative_artifact_detail(
+                        opened_project,
+                        require_string(body, "artifact_id", maximum=160),
+                    )
+            except KeyError as exc:
+                raise ApiProblem(
+                    404,
+                    "m13_artifact_not_found",
+                    "The current narrative artifact is unavailable.",
+                ) from exc
+            return json_value(detail)
+        if method == "POST" and path == M13_API_ROUTES["citations"]:
+            exact_fields(
+                body,
+                allowed=M13_CITATIONS_REQUEST_FIELDS,
+                required=M13_CITATIONS_REQUEST_FIELDS,
+            )
+            try:
+                with Project.open(self._project()) as opened_project:
+                    citations = narrative_claim_citations(
+                        opened_project,
+                        require_string(body, "claim_id", maximum=160),
+                    )
+            except (ClaimDagError, KeyError) as exc:
+                raise ApiProblem(
+                    404,
+                    "m13_claim_not_found",
+                    "The current narrative claim is unavailable.",
+                ) from exc
+            return json_value(citations)
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             page = self._m07_workflow().route_map(
