@@ -2059,7 +2059,7 @@ def _composite_identity(prefix: str, values: tuple[str, ...]) -> str | None:
         return None
     if len(values) == 1:
         return values[0]
-    return f"{prefix}:{canonical_hash({'values': values})[:24]}"
+    return f"{prefix}:{canonical_hash({'values': list(values)})[:24]}"
 
 
 def _records(owner: Mapping[str, object], key: str) -> tuple[Mapping[str, object], ...]:

@@ -14,6 +14,7 @@ from renpy_story_mapper.narrative.contracts import (
 from renpy_story_mapper.narrative.hierarchy import HierarchyPartitionConfig
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
+    _composite_identity,
     _m12_leaves,
     _route_specs,
     project_scene_placements,
@@ -38,6 +39,17 @@ from renpy_story_mapper.narrative.workflow import (
 from renpy_story_mapper.project import Project, create_ingested_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
+
+
+def test_composite_occurrence_identity_normalizes_strict_json_arrays() -> None:
+    values = ("occurrence-first", "occurrence-second")
+
+    identity = _composite_identity("occurrence-set", values)
+
+    assert identity is not None
+    assert identity.startswith("occurrence-set:")
+    assert identity == _composite_identity("occurrence-set", values)
+    assert identity != _composite_identity("occurrence-set", tuple(reversed(values)))
 
 
 @dataclass
