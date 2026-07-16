@@ -10,10 +10,10 @@ Updated: 2026-07-16
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification; blocked on live-provider acceptance and consent-manifest identity.
+- Status: Blocked in verification on live-provider acceptance, consent-manifest identity, and the
+  missing independent final-head `PASS`.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: active task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5`, matching the exact
-  M13 done condition.
+- Native Codex goal: blocked task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5`; not complete.
 - Pull request: Not created; explicit user approval is required before creation or merge.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
@@ -38,8 +38,9 @@ manifest was explicitly approved, including external transmission risk. Its one 
 74 jobs, 222 transient-failure attempts, 24 provider calls, zero recorded tokens, no artifacts,
 and no replay. It also demonstrated that the previewed consent ID `m13_consent_3bb95e...` changed
 to unpreviewed granted ID `m13_consent_d2b91d...` in persisted provider requests. Per the bounded
-severity policy, no retry or second correction loop was started. The native goal remains active,
-the native infographic is complete, and no pull request has been created.
+severity policy, no retry or second correction loop was started. After the same terminal condition
+persisted for three consecutive goal turns, the native goal was marked blocked. The native
+infographic is complete, and no pull request has been created.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

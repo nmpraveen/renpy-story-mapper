@@ -11,7 +11,7 @@ tests and will be recorded in each delegated handoff if delegation is used.
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
-| Contract and native goal | Primary | `GOAL.md`, lifecycle pointer, exact native goal | Approved scope | Complete | Fresh active task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5`; baseline/branch recorded |
+| Contract and native goal | Primary | `GOAL.md`, lifecycle pointer, exact native goal | Approved scope | Blocked | Task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` marked blocked after the same terminal condition persisted for three consecutive goal turns; not complete |
 | Semantic review | Primary | Requirements, architecture, expected files/tests/evidence | Contract recorded | Complete | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-16 |
 | Contracts and evidence handles | Primary | M13 immutable contracts, claim DAG, handles, prompt schemas/templates, focused tests | Semantic review `PASS` | Complete | `7880b48`, `066bb42`, `86fa76a`, `859328e`; exact E/C handle, cache, claim, M12, and contradiction tests |
 | Scene jobs and partial salvage | Primary | Independent scene projection, claim validation/repair/salvage, tests | Contracts | Complete | `2fa0a60`, `8d8a354`, `859328e`; claim-local salvage, deterministic title fallback, zero/one repair seam |
