@@ -219,6 +219,36 @@ def test_claim_contract_enforces_leaf_evidence_and_ancestor_child_claims() -> No
         )
 
 
+def test_claim_identity_binds_accepted_content_and_direct_support() -> None:
+    original = NarrativeClaim(
+        "scene-job",
+        LogicalJobKind.SCENE,
+        0,
+        ClaimClass.FACTUAL,
+        "First accepted wording.",
+        ClaimSupport(SupportKind.DIRECT_EVIDENCE, (_evidence(),)),
+    )
+    regenerated = replace(original, text="Different accepted wording.")
+    different_support = replace(
+        original,
+        support=ClaimSupport(
+            SupportKind.DIRECT_EVIDENCE,
+            (
+                AuthorityReference(
+                    AuthoritySystem.M10,
+                    "evidence",
+                    "evidence-two",
+                    "scene-owner",
+                ),
+            ),
+        ),
+    )
+
+    assert original.claim_id != regenerated.claim_id
+    assert original.claim_id != different_support.claim_id
+    assert original.claim_id == replace(original).claim_id
+
+
 def test_partial_artifact_retains_valid_claims_and_explicit_coverage_warning() -> None:
     claim = NarrativeClaim(
         "segment-job",

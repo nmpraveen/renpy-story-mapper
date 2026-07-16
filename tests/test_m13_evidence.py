@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -199,17 +200,26 @@ def test_claim_dag_deduplicates_shared_leaf_evidence_but_not_claim_identity() ->
 
 
 def test_claim_dag_rejects_cycles_unknown_children_and_out_of_scope_claims() -> None:
-    seed_a = _ancestor(job_id="segment-a", ordinal=0, children=("placeholder-a",))
-    seed_b = _ancestor(job_id="segment-b", ordinal=0, children=("placeholder-b",))
-    claim_a = replace(
-        seed_a,
-        support=ClaimSupport(SupportKind.CHILD_CLAIMS, child_claim_ids=(seed_b.claim_id,)),
+    # Content-addressed claims cannot form a valid cycle without a hash fixed point. Keep the
+    # resolver's corruption defense covered with forged stored identities instead.
+    claim_a = SimpleNamespace(
+        claim_id="forged-claim-a",
+        support=ClaimSupport(
+            SupportKind.CHILD_CLAIMS,
+            child_claim_ids=("forged-claim-b",),
+        ),
     )
-    claim_b = replace(
-        seed_b,
-        support=ClaimSupport(SupportKind.CHILD_CLAIMS, child_claim_ids=(seed_a.claim_id,)),
+    claim_b = SimpleNamespace(
+        claim_id="forged-claim-b",
+        support=ClaimSupport(
+            SupportKind.CHILD_CLAIMS,
+            child_claim_ids=("forged-claim-a",),
+        ),
     )
-    cyclic = {claim_a.claim_id: claim_a, claim_b.claim_id: claim_b}
+    cyclic = cast(
+        dict[str, NarrativeClaim],
+        {claim_a.claim_id: claim_a, claim_b.claim_id: claim_b},
+    )
 
     with pytest.raises(ClaimDagError, match="cycle"):
         resolve_claim_evidence(claim_a.claim_id, cyclic)

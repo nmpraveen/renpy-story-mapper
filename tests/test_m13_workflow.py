@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from renpy_story_mapper.m12_service import M12RouteService
+from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
 from renpy_story_mapper.narrative.contracts import BudgetLimits, ProviderIdentity, ProviderSettings
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
@@ -36,6 +37,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
 class DeterministicNarrativeProvider:
     calls: list[ProviderRequest] = field(default_factory=list)
     partial_first_item: bool = False
+    claim_value_prefix: str = "scene"
     cancel_calls: int = 0
 
     def status(self) -> ProviderStatus:
@@ -64,7 +66,7 @@ class DeterministicNarrativeProvider:
         )
         output: list[ProviderOutputItem] = []
         for index, item in enumerate(request.items):
-            claims = [_claim("E1", value=f"scene-{index}")]
+            claims = [_claim("E1", value=f"{self.claim_value_prefix}-{index}")]
             if self.partial_first_item and not self.calls[:-1] and index == 0:
                 claims.append(_claim("E999", value="unsupported"))
             output.append(
@@ -284,3 +286,64 @@ def test_exact_replay_after_reopen_makes_zero_provider_calls(tmp_path: Path) -> 
         assert replay_result.record.usage.provider_calls == 0
         assert all(item.cache_replay for item in replay_result.jobs)
         assert tuple(item.artifact_id for item in replay_result.jobs) == artifact_ids
+
+
+def test_model_invalidation_can_persist_different_accepted_claim_content(
+    tmp_path: Path,
+) -> None:
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=False)
+        raw_scenes = authority.scene_model["scenes"]
+        assert isinstance(raw_scenes, list)
+        scene_id = str(raw_scenes[0]["id"])
+
+        first_provider = DeterministicNarrativeProvider(claim_value_prefix="first")
+        first = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="claim-generation-first",
+            requested_model="simulated-provider-identity-a",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        first_result = run_prepared_scene_jobs(
+            project,
+            first_provider,
+            first,
+            grant_narrative_consent(project, first),
+            policy=_policy(),
+        )
+
+        second_provider = DeterministicNarrativeProvider(claim_value_prefix="second")
+        second = prepare_narrative_scene_run(
+            project,
+            second_provider,
+            run_id="claim-generation-second",
+            requested_model="simulated-provider-identity-b",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        second_result = run_prepared_scene_jobs(
+            project,
+            second_provider,
+            second,
+            grant_narrative_consent(project, second),
+            policy=_policy(),
+        )
+
+        assert first_provider.calls and second_provider.calls
+        assert first_result.jobs[0].artifact_id != second_result.jobs[0].artifact_id
+        claim_records = project.m13_persistence().list_records(RecordKind.CLAIM)
+        texts = {
+            str(item.payload["text"])
+            for item in claim_records
+            if item.state is LookupState.HIT and item.payload is not None
+        }
+        assert any("first-0" in text for text in texts)
+        assert any("second-0" in text for text in texts)

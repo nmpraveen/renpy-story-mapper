@@ -15,6 +15,7 @@ from enum import StrEnum
 from renpy_story_mapper.storage import canonical_json
 
 M13_CONTRACT_VERSION = "m13-narrative-contract-v1"
+M13_CLAIM_IDENTITY_VERSION = "m13-claim-content-v1"
 M13_PARTITION_VERSION = "m13-summary-partition-v1"
 M13_CACHE_VERSION = "m13-narrative-cache-v1"
 
@@ -495,10 +496,19 @@ class NarrativeClaim:
 
     @property
     def claim_id(self) -> str:
+        # Claims are immutable DAG nodes, not ordinal slots. Provider/model invalidation may
+        # legitimately produce different accepted prose for the same logical job and ordinal;
+        # normalized content plus direct support prevents a durable identity collision.
         identity = {
             "contract_version": M13_CONTRACT_VERSION,
+            "identity_version": M13_CLAIM_IDENTITY_VERSION,
             "logical_job_id": self.logical_job_id,
+            "job_kind": self.job_kind.value,
             "ordinal": self.ordinal,
+            "claim_class": self.claim_class.value,
+            "text": self.text,
+            "support": self.support.to_dict(),
+            "semantics": None if self.semantics is None else self.semantics.to_dict(),
         }
         return f"m13_claim_{canonical_hash(identity)[:24]}"
 
