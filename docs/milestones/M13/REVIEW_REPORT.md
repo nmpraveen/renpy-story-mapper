@@ -27,8 +27,10 @@ corrections.
 
 ## Independence statement
 
-This document is deliberately not labeled an independent review. The repository requires review
-dispatch with explicit `gpt-5.6-sol`, high reasoning, and fast mode disabled. The current
-collaboration controls do not expose or verify those selectors. A separately configured read-only
-review of the literal final integration head remains a release gate; its findings and commands
-must be appended before M13 is marked PR ready.
+This document is deliberately not labeled an independent review. A separate read-only review was
+prepared with explicit `gpt-5.6-sol`, high reasoning, fast mode disabled, and an inner read-only
+sandbox. Execution was rejected before transmission because it would send private repository code
+to an external model service. No review data left the machine, and no workaround was attempted.
+That review of the literal final integration head remains a release gate and now requires the
+user's explicit informed approval; its findings and commands must be appended before M13 is marked
+PR ready.

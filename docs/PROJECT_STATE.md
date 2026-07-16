@@ -26,8 +26,10 @@ proceeding in the contract's release-critical order.
 The integrated product head is `859328e1cbe8933809bd49001d681d1f7f6701d4`. The full Windows
 release suite, complete provider-free private-corpus simulation, and real Chrome acceptance at
 100%/200% pass. Exact bounded live-provider acceptance remains gated by the prepared consent
-manifest and has made zero submissions. A separately configured independent review and the native
-infographic also remain before `PR ready`; no pull request has been created.
+manifest and has made zero submissions. A separately configured read-only review was rejected
+before transmission because it would send private repository code to an external model service;
+it requires explicit informed user approval. The native infographic also remains before
+`PR ready`; no pull request has been created.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

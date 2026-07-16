@@ -20,7 +20,7 @@ Validation date: 2026-07-16
 | 19 | Pass | Complete current private-corpus provider-free simulation: 1,812 scenes, batching, hierarchy, retries, partial publication, cancellation, invalidation, exact cache replay, route separation, and linear storage/provenance growth |
 | 20 | Pending exact consent | Representative live manifest prepared without transmission; `provider_submit_calls` is zero. Exact manifest-bound confirmation is required before the bounded live run |
 | 21 | Pass for provider-free/private/browser runs | Source/archive and M10/M11/M12 authority snapshots unchanged; zero Ren'Py/game/creator/runtime execution; no unauthorized remote request |
-| 22 | Partially pass | Release suite and browser/private/package checks pass. A separately configured independent review remains pending because the current collaboration surface cannot assert the required dispatcher settings |
+| 22 | Partially pass | Release suite and browser/private/package checks pass. A separately configured external-model review remains pending explicit informed approval to transmit private repository code |
 | 23 | In progress | Reports and validated product commit are durable. Native infographic, independent review, final live evidence, and PR-readiness reconciliation remain |
 
 ## Commands and results
@@ -99,9 +99,11 @@ submission has occurred.
 
 - Live provider acceptance remains blocked on exact user confirmation of the prepared manifest.
   The preview itself proves zero submission.
-- A separately configured independent review remains pending. The available collaboration surface
-  does not expose model, reasoning-effort, or fast-mode selectors, so the repository dispatch
-  requirement cannot be truthfully asserted through it.
+- A separate read-only review was prepared with explicit `gpt-5.6-sol`, high reasoning, fast mode
+  disabled, and an inner read-only sandbox. It was rejected before transmission because it would
+  send private repository code to an external model service. No review data left the machine, and
+  the review remains pending explicit informed approval rather than being routed around the
+  safeguard.
 - The validator supports zero or one targeted claim/schema repair. The integrated scheduler
   normally performs claim-local salvage and independent item retry; it does not issue a repair call
   merely because repair is permitted.

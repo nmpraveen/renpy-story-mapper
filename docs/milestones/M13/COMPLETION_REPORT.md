@@ -66,8 +66,9 @@ reconciliation must be completed. No PR has been created.
 
 - Exact live-provider acceptance is approval-gated by the prepared consent manifest. Completed
   local work remains durable, and no provider call has occurred.
-- The collaboration surface cannot assert the repository's required review dispatcher settings;
-  independent review remains a release gate rather than being silently downgraded.
+- A correctly configured read-only external-model review was rejected before transmission because
+  it would send private repository code outside the machine. Independent review remains a release
+  gate and requires explicit informed user approval; no workaround was attempted.
 - Optional weak-boundary suggestions, LM Studio/local-provider integration, and export polish are
   deferred. Their absence does not block the core M13 hierarchy.
 - At most one targeted repair is supported. The default scheduler favors claim-local salvage and

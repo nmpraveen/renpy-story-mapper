@@ -22,7 +22,7 @@ tests and will be recorded in each delegated handoff if delegation is used.
 | Character interpretation | Primary | Bounded participation/roles/route-aware arcs | Core hierarchy complete | Complete | `81fcacb`, `a5d9c5f`; common and route-specific roles remain separate and evidence-bound |
 | Optional boundary/local/export work | Primary | Only if core gates are already complete | Release-critical work complete | Complete | Intentionally deferred as non-blocking: no weak-boundary overlay, LM Studio adapter, or export polish |
 | Integration and verification | Primary | Integrated diff, Windows suites, browser/package/private acceptance | Implementation complete | In progress | Product head `859328e`; Release 951 passed/7 deselected; provider-free private and Chrome pass; live/independent gates remain |
-| Independent review | Pending assignment | Read-only contract/security/correctness/acceptance review | Verified integration head | Pending | No P0/P1 required |
+| Independent review | Pending assignment | Read-only contract/security/correctness/acceptance review | Verified integration head | Pending | Correctly configured external review was rejected before transmission as private-code exfiltration; explicit informed user approval is required; no P0/P1 required |
 | PR readiness | Primary | Evidence audit, reports, infographic, PR preparation | Verification and review passed | Pending | Live consented acceptance, independent review, infographic, and final evidence audit remain; PR must not be created without approval |
 
 Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`. Record why a task is
