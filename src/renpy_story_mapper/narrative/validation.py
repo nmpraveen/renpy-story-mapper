@@ -11,12 +11,16 @@ from renpy_story_mapper.narrative.contracts import (
     ClaimClass,
     ClaimPolarity,
     ClaimSemantics,
+    ClaimSupport,
     Coverage,
     JsonValue,
     LogicalJobKind,
     LogicalJobSpec,
     NarrativeArtifact,
     NarrativeClaim,
+    StructuralContext,
+    SupportKind,
+    canonical_hash,
 )
 from renpy_story_mapper.narrative.evidence import HandleBindingError, PromptHandleTable
 
@@ -86,6 +90,7 @@ class ValidationContext:
     expected_child_ids: tuple[str, ...] = ()
     available_child_ids: tuple[str, ...] = ()
     authority_claims: tuple[NarrativeClaim, ...] = ()
+    claim_contexts: tuple[tuple[str, StructuralContext], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.input_revision_id.strip():
@@ -119,6 +124,51 @@ class ValidationContext:
             for claim in self.authority_claims
         ):
             raise ValueError("validation authority claims must be normalized factual leaves")
+        contextual_ids = tuple(claim_id for claim_id, _context in self.claim_contexts)
+        if len(contextual_ids) != len(set(contextual_ids)):
+            raise ValueError("validation claim contexts must have unique claim IDs")
+        if not set(contextual_ids) <= available_handles:
+            raise ValueError("validation claim contexts must be prompt-local children")
+
+    def context_for_claim(self, claim: NarrativeClaim) -> StructuralContext | None:
+        """Resolve one claim's immediate child context without flattening its provenance."""
+
+        by_id = dict(self.claim_contexts)
+        contexts = tuple(
+            by_id[claim_id]
+            for claim_id in claim.support.child_claim_ids
+            if claim_id in by_id
+        )
+        if not contexts:
+            return None
+        unique = {
+            canonical_hash(context.to_dict()): context
+            for context in contexts
+        }
+        ordered = tuple(unique[key] for key in sorted(unique))
+        if len(ordered) == 1:
+            return ordered[0]
+        support_hash = canonical_hash([context.to_dict() for context in ordered])
+
+        def shared(name: str) -> str | None:
+            values = {getattr(context, name) for context in ordered}
+            return next(iter(values)) if len(values) == 1 else None
+
+        temporal_anchor = shared("temporal_anchor")
+        if temporal_anchor is None:
+            temporal_anchor = f"support-set:{support_hash[:24]}"
+        return StructuralContext(
+            chapter_id=shared("chapter_id"),
+            lane_id=shared("lane_id"),
+            route_id=shared("route_id"),
+            temporary_container_id=shared("temporary_container_id"),
+            temporary_arm_id=shared("temporary_arm_id"),
+            occurrence_id=shared("occurrence_id"),
+            call_site_id=shared("call_site_id"),
+            loop_id=shared("loop_id"),
+            temporal_anchor=temporal_anchor,
+            structural_fingerprint=f"support-set:{support_hash}",
+        )
 
 
 @dataclass(frozen=True)
@@ -243,6 +293,7 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
 
     claims, contradiction_issues = _salvage_contextual_contradictions(claims, context)
     issues.extend(contradiction_issues)
+    claims = _ensure_exact_authority_claims(claims, context)
 
     if not claims:
         issue = ValidationIssue("no_safe_claims", ValidationSeverity.UNSAFE)
@@ -301,6 +352,50 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
         False,
         tuple(invalid_fields),
     )
+
+
+def _ensure_exact_authority_claims(
+    claims: list[NarrativeClaim],
+    context: ValidationContext,
+) -> list[NarrativeClaim]:
+    """Publish every exact M12 leaf as a deterministic parent claim when omitted by AI."""
+
+    if not context.authority_claims:
+        return claims
+    represented: set[str] = set()
+    authority_by_id = {claim.claim_id: claim for claim in context.authority_claims}
+    for claim in claims:
+        if claim.claim_class is not ClaimClass.FACTUAL:
+            continue
+        for child_id in claim.support.child_claim_ids:
+            exact = authority_by_id.get(child_id)
+            if (
+                exact is not None
+                and claim.text == exact.text
+                and claim.semantics == exact.semantics
+            ):
+                represented.add(child_id)
+    next_ordinal = max((claim.ordinal for claim in claims), default=-1) + 1
+    result = list(claims)
+    for exact in context.authority_claims:
+        if exact.claim_id in represented:
+            continue
+        result.append(
+            NarrativeClaim(
+                logical_job_id=context.job.job_id,
+                job_kind=context.job.kind,
+                ordinal=next_ordinal,
+                claim_class=ClaimClass.FACTUAL,
+                text=exact.text,
+                support=ClaimSupport(
+                    kind=SupportKind.CHILD_CLAIMS,
+                    child_claim_ids=(exact.claim_id,),
+                ),
+                semantics=exact.semantics,
+            )
+        )
+        next_ordinal += 1
+    return result
 
 
 def _validate_claim(
@@ -379,7 +474,10 @@ def _salvage_contextual_contradictions(
     """Omit only later same-context factual conflicts and retain interpretive warnings."""
 
     findings = contradiction_findings(
-        tuple(ContextualClaim(claim, context.job) for claim in claims)
+        tuple(
+            ContextualClaim(claim, context.job, context.context_for_claim(claim))
+            for claim in claims
+        )
     )
     by_id = {claim.claim_id: claim for claim in claims}
     omitted: set[str] = set()
@@ -535,12 +633,13 @@ class ContradictionIdentity:
 class ContextualClaim:
     claim: NarrativeClaim
     job: LogicalJobSpec
+    context_override: StructuralContext | None = None
 
     def identity(self) -> ContradictionIdentity:
         semantics = self.claim.semantics
         if semantics is None:
             raise ValueError("contextual contradiction checks require normalized claim semantics")
-        context = self.job.context
+        context = self.context_override or self.job.context
         return ContradictionIdentity(
             lane_id=context.lane_id,
             route_id=context.route_id,

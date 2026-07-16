@@ -739,6 +739,7 @@ def run_complete_narrative(
         reduction_artifacts=(
             tuple(item.hierarchy_input() for item in plot_inputs) if reduced_plot else ()
         ),
+        m12_authority_leaves=m12_leaves.get(None, ()),
     )
     if plot_plan.reductions:
         raise ValueError("plot fan-in remained oversized after reduction")
@@ -763,6 +764,11 @@ def run_complete_narrative(
         cancelled=cancelled,
         title=lambda _descriptor: "Whole plot",
         summary=lambda _descriptor: "Whole-plot summary unavailable.",
+        authority_claims={
+            claim.claim_id: claim
+            for leaf in m12_leaves.get(None, ())
+            for claim in leaf.claims
+        },
     )
     if plot_level is not None:
         phases.append(plot_level.scheduler)
@@ -1640,9 +1646,9 @@ def _m12_leaves(
     *,
     locale: str,
     perspective: str,
-) -> dict[str, tuple[M12AuthorityLeaf, ...]]:
+) -> dict[str | None, tuple[M12AuthorityLeaf, ...]]:
     route_ids = {item.route_id for item in routes}
-    selected: dict[str, list[M12AuthorityLeaf]] = defaultdict(list)
+    selected: dict[str | None, list[M12AuthorityLeaf]] = defaultdict(list)
     for result in results:
         result_identity = _text(result, "request_identity")
         status = TechnicalStatus(_text(result, "status"))
@@ -1652,6 +1658,7 @@ def _m12_leaves(
             for key in ("recommended", "alternatives")
             for item in _route_result_records(result.get(key), key)
         )
+        matched_route = False
         for route_id in sorted(route_ids):
             relevant = tuple(
                 item
@@ -1664,6 +1671,7 @@ def _m12_leaves(
             )
             if not relevant:
                 continue
+            matched_route = True
             prerequisites = _exact_m12_texts(
                 relevant,
                 ("requirements", "persistent_commitment_claims", "uncertainty_warnings"),
@@ -1701,12 +1709,46 @@ def _m12_leaves(
                     perspective=perspective,
                 )
             )
-    grouped: dict[str, tuple[M12AuthorityLeaf, ...]] = {}
-    for route_id, leaves in selected.items():
+        if not matched_route:
+            diagnostics = result.get("diagnostics", [])
+            if not isinstance(diagnostics, list):
+                raise ValueError("M12 diagnostics must be an array")
+            conclusions = tuple(
+                dict.fromkeys(
+                    (
+                        *(
+                            (str(result["termination_reason"]),)
+                            if isinstance(result.get("termination_reason"), str)
+                            else ()
+                        ),
+                        *tuple(
+                            item for item in diagnostics if isinstance(item, str) and item.strip()
+                        ),
+                    )
+                )
+            )
+            authority = M12RouteAuthority(
+                result_identity,
+                None,
+                None,
+                status,
+                badge,
+                (),
+                conclusions,
+            )
+            selected[None].append(
+                make_m12_authority_leaf(
+                    authority,
+                    locale=locale,
+                    perspective=perspective,
+                )
+            )
+    grouped: dict[str | None, tuple[M12AuthorityLeaf, ...]] = {}
+    for scope_route_id, leaves in selected.items():
         ordered = tuple(sorted(leaves, key=lambda item: item.authority.result_identity))
         if len(ordered) > 32:
-            raise ValueError("A route cannot bind more than 32 current M12 results.")
-        grouped[route_id] = ordered
+            raise ValueError("A hierarchy scope cannot bind more than 32 current M12 results.")
+        grouped[scope_route_id] = ordered
     return grouped
 
 
@@ -1734,7 +1776,7 @@ def _exact_m12_texts(
                 if isinstance(item, str):
                     text = item
                 elif isinstance(item, Mapping):
-                    value = item.get("text")
+                    value = item.get("expression" if field == "requirements" else "text")
                     text = value if isinstance(value, str) else ""
                 else:
                     text = ""

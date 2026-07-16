@@ -100,6 +100,37 @@ def _provider_artifact(job_id: str, claims: list[object]) -> dict[str, object]:
     }
 
 
+def _plot_context(
+    left_context: StructuralContext,
+    right_context: StructuralContext,
+) -> ValidationContext:
+    job = LogicalJobSpec(
+        LogicalJobKind.PLOT,
+        "whole-plot",
+        StructuralContext(temporal_anchor="whole-plot-route-aware"),
+        ordered_child_artifact_ids=("artifact-left", "artifact-right"),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=("claim-left", "claim-right"),
+    )
+    return ValidationContext(
+        job,
+        "plot-input-revision",
+        handles,
+        deterministic_title="Whole plot",
+        expected_child_ids=("artifact-left", "artifact-right"),
+        available_child_ids=("artifact-left", "artifact-right"),
+        claim_contexts=(
+            ("claim-left", left_context),
+            ("claim-right", right_context),
+        ),
+    )
+
+
 def test_valid_scene_output_publishes_complete_owned_claims() -> None:
     context = _scene_context()
 
@@ -116,6 +147,99 @@ def test_valid_scene_output_publishes_complete_owned_claims() -> None:
     assert result.artifact.claims[0].semantics == ClaimSemantics(
         "Alice", "presence", ClaimPolarity.POSITIVE, "present"
     )
+
+
+def test_plot_claims_keep_exclusive_route_and_temporal_contexts_separate() -> None:
+    route_context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:route-a",
+        ),
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-b",
+            route_id="route-b",
+            temporal_anchor="chapter-2:route-b",
+        ),
+    )
+    temporal_context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:early",
+        ),
+        StructuralContext(
+            chapter_id="chapter-5",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-5:late",
+        ),
+    )
+    claims = [
+        _provider_claim(
+            evidence=[],
+            children=["C1"],
+            text="Alice trusts Bob.",
+            value="trusts",
+        ),
+        _provider_claim(
+            evidence=[],
+            children=["C2"],
+            text="Alice distrusts Bob.",
+            value="distrusts",
+            polarity="negative",
+        ),
+    ]
+
+    route_result = validate_and_salvage(
+        _provider_artifact(route_context.job.job_id, claims),
+        route_context,
+    )
+    temporal_result = validate_and_salvage(
+        _provider_artifact(temporal_context.job.job_id, claims),
+        temporal_context,
+    )
+
+    assert route_result.artifact is not None
+    assert route_result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(route_result.artifact.claims) == 2
+    assert temporal_result.artifact is not None
+    assert temporal_result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(temporal_result.artifact.claims) == 2
+
+
+def test_plot_claims_omit_only_same_child_context_factual_conflict() -> None:
+    context = StructuralContext(
+        chapter_id="chapter-2",
+        lane_id="lane-a",
+        route_id="route-a",
+        temporal_anchor="chapter-2:route-a",
+    )
+    plot = _plot_context(context, context)
+    result = validate_and_salvage(
+        _provider_artifact(
+            plot.job.job_id,
+            [
+                _provider_claim(evidence=[], children=["C1"], value="present"),
+                _provider_claim(
+                    evidence=[],
+                    children=["C2"],
+                    text="Alice is absent.",
+                    value="absent",
+                    polarity="negative",
+                ),
+            ],
+        ),
+        plot,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 1
+    assert any(issue.code == "factual_contradiction_omitted" for issue in result.issues)
 
 
 def test_invalid_title_and_unsupported_interpretation_salvage_valid_factual_work() -> None:
@@ -385,10 +509,32 @@ def test_exact_m12_fact_must_preserve_status_while_interpretation_may_summarize(
 
     assert exact_result.artifact is not None
     assert exact_result.artifact.claims[0].text == exact.text
-    assert altered.artifact is None
-    assert altered.rejected_reason == "no_safe_claims"
+    assert altered.artifact is not None
+    assert altered.artifact.publication is ArtifactPublication.PARTIAL
+    assert [claim.text for claim in altered.artifact.claims] == [exact.text]
+    assert altered.artifact.claims[0].support.child_claim_ids == (exact.claim_id,)
     assert interpreted.artifact is not None
     assert interpreted.artifact.claims[0].claim_class is ClaimClass.INTERPRETIVE
+    assert interpreted.artifact.claims[1].claim_class is ClaimClass.FACTUAL
+    assert interpreted.artifact.claims[1].text == exact.text
+    assert interpreted.artifact.claims[1].support.child_claim_ids == (exact.claim_id,)
+
+
+def test_omitted_m12_fact_is_added_as_exact_deterministic_parent_claim() -> None:
+    context, exact = _m12_context()
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, []),
+        context,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(result.artifact.claims) == 1
+    proxy = result.artifact.claims[0]
+    assert proxy.claim_class is ClaimClass.FACTUAL
+    assert proxy.text == exact.text
+    assert proxy.semantics == exact.semantics
+    assert proxy.support.child_claim_ids == (exact.claim_id,)
 
 
 def _persisted_claim(

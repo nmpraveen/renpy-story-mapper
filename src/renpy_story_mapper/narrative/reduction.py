@@ -21,6 +21,7 @@ from renpy_story_mapper.narrative.contracts import (
     LogicalJob,
     NarrativeClaim,
     ProviderIdentity,
+    StructuralContext,
     canonical_hash,
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
@@ -50,9 +51,10 @@ from renpy_story_mapper.narrative.workflow import M13SchedulerPersistenceSink
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.storage import canonical_json
 
-HIERARCHY_PROVIDER_INPUT_SCHEMA = "m13-hierarchy-provider-input-v1"
+HIERARCHY_PROVIDER_INPUT_SCHEMA = "m13-hierarchy-provider-input-v2"
 MAX_DIRECT_CHILD_CLAIMS = 1_024
 MAX_PROPAGATED_CLAIMS_PER_ARTIFACT = 32
+MAX_PERSISTED_CLAIM_CONTEXTS = 256
 CHARS_PER_ESTIMATED_TOKEN = 4
 DEFAULT_HIERARCHY_OUTPUT_TOKENS = 1_000
 
@@ -131,6 +133,7 @@ class PreparedHierarchyJob:
     estimated_input_tokens: int
     estimated_output_tokens: int = DEFAULT_HIERARCHY_OUTPUT_TOKENS
     authority_claims: tuple[NarrativeClaim, ...] = ()
+    claim_contexts: tuple[tuple[str, StructuralContext], ...] = ()
 
     def __post_init__(self) -> None:
         if self.job.spec != self.descriptor.spec:
@@ -146,6 +149,11 @@ class PreparedHierarchyJob:
             raise ValueError("prepared hierarchy authority claims must be unique")
         if not set(authority_ids) <= set(self.descriptor.authority_leaf_claim_ids):
             raise ValueError("prepared authority claims exceed the descriptor allowlist")
+        contextual_ids = tuple(claim_id for claim_id, _context in self.claim_contexts)
+        if len(contextual_ids) != len(set(contextual_ids)):
+            raise ValueError("prepared hierarchy claim contexts must be unique")
+        if not set(contextual_ids) <= set(self.descriptor.child_claim_ids):
+            raise ValueError("prepared claim contexts exceed immediate artifact claims")
 
     def scheduled(
         self,
@@ -214,12 +222,15 @@ def prepare_hierarchy_job(
     if available != descriptor.available_child_artifact_ids:
         raise ValueError("runtime hierarchy children differ from deterministic availability")
     claim_records: dict[str, Mapping[str, object]] = {}
+    claim_contexts: dict[str, StructuralContext] = {}
     for child_id in available:
         available_child = children[child_id]
+        child_contexts = _runtime_claim_contexts(available_child)
         for claim_id, artifact_claim in available_child.claims().items():
             if claim_id in claim_records:
                 raise ValueError("two child artifacts expose the same immediate claim")
             claim_records[claim_id] = artifact_claim
+            claim_contexts[claim_id] = child_contexts[claim_id]
     for claim_id, authority_claim in authority_claims.items():
         if claim_id in claim_records:
             raise ValueError("authority and artifact claims cannot overlap")
@@ -259,6 +270,7 @@ def prepare_hierarchy_job(
                 _prompt_claim(
                     handle_by_claim[claim_id],
                     runtime_child.claims()[claim_id],
+                    claim_contexts[claim_id],
                 )
                 for claim_id in runtime_child.claim_ids
             ]
@@ -309,6 +321,9 @@ def prepare_hierarchy_job(
         authority_claims=tuple(
             authority_claims[claim_id] for claim_id in sorted(authority_claims)
         ),
+        claim_contexts=tuple(
+            (claim_id, claim_contexts[claim_id]) for claim_id in sorted(claim_contexts)
+        ),
     )
 
 
@@ -345,6 +360,7 @@ def execute_hierarchy_jobs(
             expected_child_ids=item.descriptor.child_artifact_ids,
             available_child_ids=item.descriptor.available_child_artifact_ids,
             authority_claims=item.authority_claims,
+            claim_contexts=item.claim_contexts,
         )
         for item in prepared
     }
@@ -360,6 +376,19 @@ def execute_hierarchy_jobs(
         artifact = result.artifact
         item = prepared_by_job[job.logical_job_id]
         payload = artifact.normalized_dict()
+        validation_context = contexts[job.logical_job_id]
+        payload["claim_contexts"] = cast(
+            JsonValue,
+            [
+                {
+                    "claim_id": claim.claim_id,
+                    "context": (
+                        validation_context.context_for_claim(claim) or job.logical_job.spec.context
+                    ).to_dict(),
+                }
+                for claim in artifact.claims
+            ],
+        )
         payload["hierarchy"] = cast(
             JsonValue,
             {
@@ -478,14 +507,84 @@ def _runtime_from_prepared(
     )
 
 
-def _prompt_claim(handle: str, claim: Mapping[str, object]) -> JsonValue:
+def _prompt_claim(
+    handle: str,
+    claim: Mapping[str, object],
+    context: StructuralContext | None = None,
+) -> JsonValue:
     semantics = claim.get("semantics")
-    return {
+    result: dict[str, JsonValue] = {
         "handle": handle,
         "claim_class": _required_text(claim, "claim_class"),
         "text": _required_text(claim, "text"),
         "semantics": cast(JsonValue, dict(semantics)) if isinstance(semantics, Mapping) else None,
     }
+    if context is not None:
+        result["structural_context"] = cast(JsonValue, context.to_dict())
+    return result
+
+
+def _runtime_claim_contexts(
+    artifact: RuntimeNarrativeArtifact,
+) -> dict[str, StructuralContext]:
+    fallback = StructuralContext(
+        chapter_id=artifact.chapter_id,
+        lane_id=artifact.path.persistent_lane_id,
+        route_id=artifact.path.route_id,
+        temporary_container_id=artifact.path.temporary_container_id,
+        temporary_arm_id=artifact.path.temporary_arm_id,
+        occurrence_id=artifact.occurrence_id,
+        call_site_id=artifact.call_site_id,
+        loop_id=artifact.loop_id,
+        temporal_anchor=artifact.temporal_anchor,
+        structural_fingerprint=canonical_hash(
+            {
+                "artifact_id": artifact.artifact_id,
+                "path": artifact.path.to_dict(),
+                "structure_manifest_id": artifact.structure_manifest_id,
+            }
+        ),
+    )
+    raw = artifact.payload.get("claim_contexts")
+    if raw is None:
+        return {claim_id: fallback for claim_id in artifact.claim_ids}
+    if not isinstance(raw, list) or len(raw) > MAX_PERSISTED_CLAIM_CONTEXTS:
+        raise ValueError("runtime artifact claim contexts are malformed or unbounded")
+    parsed: dict[str, StructuralContext] = {}
+    expected_fields = set(StructuralContext().to_dict())
+    for item in raw:
+        if not isinstance(item, Mapping) or set(item) != {"claim_id", "context"}:
+            raise ValueError("runtime artifact claim context record is malformed")
+        claim_id = item.get("claim_id")
+        context_raw = item.get("context")
+        if (
+            not isinstance(claim_id, str)
+            or claim_id in parsed
+            or not isinstance(context_raw, Mapping)
+            or set(context_raw) != expected_fields
+        ):
+            raise ValueError("runtime artifact claim context binding is malformed")
+        values: dict[str, str | None] = {}
+        for key in expected_fields:
+            value = context_raw.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError("runtime artifact claim context value is malformed")
+            values[key] = value
+        parsed[claim_id] = StructuralContext(
+            chapter_id=values["chapter_id"],
+            lane_id=values["lane_id"],
+            route_id=values["route_id"],
+            temporary_container_id=values["temporary_container_id"],
+            temporary_arm_id=values["temporary_arm_id"],
+            occurrence_id=values["occurrence_id"],
+            call_site_id=values["call_site_id"],
+            loop_id=values["loop_id"],
+            temporal_anchor=values["temporal_anchor"],
+            structural_fingerprint=values["structural_fingerprint"],
+        )
+    if not set(artifact.claim_ids) <= set(parsed):
+        raise ValueError("runtime artifact is missing propagated claim contexts")
+    return {claim_id: parsed[claim_id] for claim_id in artifact.claim_ids}
 
 
 def _required_text(value: Mapping[str, object], key: str) -> str:

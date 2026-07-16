@@ -494,7 +494,8 @@ class NarrativeScheduler:
     ) -> SchedulerRunResult:
         ordered = tuple(sorted(jobs, key=lambda item: (item.ordinal, item.logical_job_id)))
         self._validate_start(ordered, consent)
-        started_at = self._clock()
+        usage = SchedulerUsage(cost_micros=0) if initial_usage is None else initial_usage
+        started_at = self._clock() - usage.elapsed_ms / 1_000
         histories = {
             job.logical_job_id: list(
                 self._sink.attempt_history(consent.run_id, job.logical_job_id)
@@ -503,7 +504,6 @@ class NarrativeScheduler:
         }
         records: dict[str, SchedulerJobRecord] = {}
         job_by_id = {job.logical_job_id: job for job in ordered}
-        usage = SchedulerUsage(cost_micros=0) if initial_usage is None else initial_usage
 
         if cancelled():
             self._mark_unfinished(
@@ -1451,7 +1451,10 @@ class NarrativeScheduler:
             provider_calls=current.provider_calls,
             input_tokens=current.input_tokens + latest.input_tokens,
             output_tokens=current.output_tokens + latest.output_tokens,
-            elapsed_ms=max(latest.elapsed_ms, int((self._clock() - started_at) * 1_000)),
+            elapsed_ms=max(
+                current.elapsed_ms + latest.elapsed_ms,
+                int((self._clock() - started_at) * 1_000),
+            ),
             cost_micros=cost,
             peak_concurrency=current.peak_concurrency,
         )

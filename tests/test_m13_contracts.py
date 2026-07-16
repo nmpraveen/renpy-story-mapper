@@ -280,6 +280,8 @@ def test_partial_artifact_retains_valid_claims_and_explicit_coverage_warning() -
 
     assert artifact.coverage.child_coverage_basis_points == 5_000
     assert artifact.normalized_dict()["used_deterministic_title"] is True
+    assert artifact.normalized_dict()["title_class"] == "deterministic_fallback"
+    assert artifact.normalized_dict()["summary_class"] == "interpretive"
     assert artifact.artifact_id == replace(artifact).artifact_id
     with pytest.raises(ValueError, match="coverage warning"):
         replace(artifact, warnings=())

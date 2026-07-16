@@ -21,6 +21,7 @@ from renpy_story_mapper.narrative.hierarchy import (
     HierarchyPathContext,
     StorySection,
     plan_chapter_jobs,
+    plan_common_story_job,
 )
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.provider import (
@@ -183,6 +184,10 @@ def test_hierarchy_execution_uses_only_c_handles_and_persists_direct_claim_edges
         encoded = canonical_json(prepared.payload)
         assert child_claim_id.encode() not in encoded
         assert b'"handle":"C1"' in encoded
+        child_context = dict(prepared.claim_contexts)[child_claim_id]
+        assert child_context.chapter_id == "chapter-1"
+        assert child_context.temporal_anchor == "scene:0"
+        assert child_context.lane_id == "lane-spine"
         consent = ConsentManifest(
             run_id="hierarchy-run",
             provider=identity,
@@ -222,6 +227,40 @@ def test_hierarchy_execution_uses_only_c_handles_and_persists_direct_claim_edges
         support = claim.payload["support"]
         assert isinstance(support, dict)
         assert support["child_claim_ids"] == [child_claim_id]
+        parent_runtime = result.artifacts[0]
+        claim_contexts = parent_runtime.payload["claim_contexts"]
+        assert isinstance(claim_contexts, list)
+        assert claim_contexts[0]["claim_id"] == parent_claim_id
+        assert claim_contexts[0]["context"]["temporal_anchor"] == "scene:0"
+        next_input = HierarchyArtifactInput(
+            artifact_id=parent_runtime.artifact_id,
+            job_kind=LogicalJobKind.CHAPTER,
+            claim_ids=parent_runtime.claim_ids,
+            estimated_tokens=parent_runtime.estimated_tokens,
+            path=parent_runtime.path,
+            chronology_index=parent_runtime.chronology_index,
+            temporal_anchor=parent_runtime.temporal_anchor,
+            chapter_id=parent_runtime.chapter_id,
+            chapter_ordinal=parent_runtime.chapter_ordinal,
+        )
+        next_descriptor = plan_common_story_job(
+            (next_input,),
+            HierarchyPartitionConfig("en-US", "reader"),
+        ).jobs[0]
+        next_prepared = prepare_hierarchy_job(
+            next_descriptor,
+            {parent_runtime.artifact_id: parent_runtime},
+            authority,
+            scope_id="selected-scope",
+            ordinal=1,
+            deterministic_title="Common story",
+            deterministic_summary="Common story summary unavailable.",
+        )
+        next_children = next_prepared.payload["child_artifacts"]
+        assert isinstance(next_children, list)
+        nested_claims = next_children[0]["claims"]
+        assert isinstance(nested_claims, list)
+        assert nested_claims[0]["structural_context"]["temporal_anchor"] == "scene:0"
         edges = project.m13_persistence().list_records(
             RecordKind.CLAIM_EDGE,
             authority_binding=authority.binding.to_dict(),

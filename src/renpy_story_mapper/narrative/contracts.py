@@ -623,7 +623,11 @@ class NarrativeArtifact:
             "job_kind": self.job_kind.value,
             "publication": self.publication.value,
             "title": self.title,
+            "title_class": (
+                "deterministic_fallback" if self.used_deterministic_title else "interpretive"
+            ),
             "summary": self.summary,
+            "summary_class": "interpretive",
             "claims": [claim.to_dict() for claim in self.claims],
             "coverage": self.coverage.to_dict(),
             "warnings": list(self.warnings),

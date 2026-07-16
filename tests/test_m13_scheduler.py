@@ -49,6 +49,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerRunRecord,
     SchedulerRunState,
     SchedulerSink,
+    SchedulerUsage,
     ValidatedLogicalOutput,
 )
 
@@ -728,6 +729,40 @@ def test_call_limit_after_partial_batch_preserves_valid_work_and_blocks_retry() 
     assert result.jobs[1].state is LogicalJobState.FAILED
     assert result.jobs[1].error_code == "hard_limit"
     assert len(sink.published) == 1
+
+
+def test_initial_elapsed_usage_enforces_one_cumulative_pipeline_timeout() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+    provider = ScriptedProvider(
+        identity,
+        lambda request, _number: _response(
+            request,
+            identity,
+            (_success_item(request.items[0].logical_job_id, 0),),
+        ),
+    )
+    sink = MemorySink()
+
+    result = _scheduler(provider, sink).run(
+        (job,),
+        _consent(identity, logical_jobs=1, timeout_seconds=60),
+        _validator,
+        initial_usage=SchedulerUsage(
+            provider_calls=2,
+            input_tokens=20,
+            output_tokens=10,
+            elapsed_ms=60_000,
+            cost_micros=0,
+            peak_concurrency=1,
+        ),
+    )
+
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.error_code == "hard_limit"
+    assert result.record.usage.elapsed_ms >= 60_000
+    assert provider.requests == []
+    assert result.jobs[0].error_code == "hard_limit"
 
 
 def test_postflight_token_overrun_publishes_nothing_and_stops_at_hard_limit() -> None:

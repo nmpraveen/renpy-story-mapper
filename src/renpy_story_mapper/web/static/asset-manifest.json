@@ -4,8 +4,8 @@
   "assets": {
     "API_CONTRACT.md": "be9f10f4167d250861b6c21bfb288c9647c243613485da7de3d5c1ca86405ae2",
     "api.js": "1dc02785d1846dc48fcc2d0c3e459d113937fa6edf6adad817212249de614c49",
-    "app.js": "ae7042461d1b3abb9cfab5608c4819c7c381f0c957352b27c1ffb13fb87a5dd5",
-    "contract.js": "55a0957c5d9972352d81d6d22874c3413c1be37b05e16be36765468e4e4090e7",
+    "app.js": "4cf7b5b8a79b9f9626db28a1c6a12f0b09724b6dd35e73c8c6611fa2f639621e",
+    "contract.js": "d7b3834bde487b922d10f4379ca08eac85e5c316f9e7e17721026d45ee8863ff",
     "graph.js": "4fecfeddd9a0c584ffbb40c9df9b80ecda131672cf0bdd90902beb0b3278bc3d",
     "index.html": "8e9e744bdc3ca198dfcd0ac86c520c064c156f4a0b49a57fa3e287fb223fe562",
     "styles.css": "d7eee3ebb60ec19a4938ebe5e70b249da97407d9e833b1deb9e4a2c56f51b691"

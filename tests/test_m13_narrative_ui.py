@@ -48,6 +48,11 @@ def test_narrative_detail_separates_claim_classes_and_loads_citations_lazily() -
     assert 'api.narrativeCitations(claim.claim_id)' in app
     assert "Show citations" in app
     assert "deterministic authority unchanged" in app
+    assert "AI interpretation; deterministic authority unchanged" in app
+    assert "Route-aware structure" in app
+    assert "Persistent route" in app
+    assert "Temporary branch" in app
+    assert "Unresolved or missing coverage" in app
     assert "narrativeArtifact.warnings" in app
     assert '[data-claim-class="interpretive"]' in styles
     assert '[data-claim-class="review_suggestion"]' in styles
@@ -103,7 +108,8 @@ def test_narrative_api_behavior_preserves_exact_request_shapes_and_limits() -> N
         if (path.endsWith("artifact")) return {{
           schema: "m13-narrative-artifact-detail-v1", status: "available",
           authority_hash: hash, artifact_id: "artifact-a", logical_job_id: "job-a",
-          kind: "scene", publication: "complete", title: "Title", summary: "Summary",
+          kind: "scene", publication: "complete", title: "Title",
+          title_class: "interpretive", summary: "Summary", summary_class: "interpretive",
           claims: [], coverage: {{}}, warnings: [], used_deterministic_title: false
         }};
         if (path.endsWith("citations")) return {{

@@ -11,7 +11,10 @@ from renpy_story_mapper.narrative.contracts import (
     ProviderIdentity,
     ProviderSettings,
 )
-from renpy_story_mapper.narrative.hierarchy import HierarchyPartitionConfig
+from renpy_story_mapper.narrative.hierarchy import (
+    HierarchyPartitionConfig,
+    PersistentRouteSpec,
+)
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
     _composite_identity,
@@ -446,6 +449,65 @@ def test_m12_leaf_projection_keeps_multiple_relevant_result_identities(
             str(duplicate["request_identity"]),
         }
         assert all(item.authority.status.value == original["status"] for item in relevant)
+
+
+def test_m12_leaf_projection_keeps_exact_requirement_expression() -> None:
+    result = {
+        "request_identity": "m12-prerequisite-result",
+        "status": "route_with_prerequisites",
+        "badge": "Route with prerequisites",
+        "recommended": {
+            "persistent_lane_ids": ["route-a"],
+            "requirements": [
+                {"expression": "route_points >= 2", "text": "not authoritative"}
+            ],
+            "persistent_commitment_claims": [{"text": "Commit to Route A."}],
+            "uncertainty_warnings": [],
+        },
+        "alternatives": [],
+        "termination_reason": "best_route_proven",
+        "diagnostics": [],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (PersistentRouteSpec("route-a", "route-a", 0, "Route A"),),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    assert leaves["route-a"][0].authority.prerequisite_texts == (
+        "route_points >= 2",
+        "Commit to Route A.",
+    )
+
+
+def test_m12_leaf_projection_keeps_negative_result_without_route() -> None:
+    result = {
+        "request_identity": "m12-negative-result",
+        "status": "no_route_in_resolved_static_graph",
+        "badge": "No proven route",
+        "recommended": None,
+        "alternatives": [],
+        "termination_reason": "exhaustive",
+        "diagnostics": ["No statically resolved route reaches the destination."],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (PersistentRouteSpec("route-a", "route-a", 0, "Route A"),),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    leaf = leaves[None][0]
+    assert leaf.authority.route_id is None
+    assert leaf.authority.persistent_lane_id is None
+    assert leaf.authority.status.value == "no_route_in_resolved_static_graph"
+    assert leaf.authority.conclusion_texts == (
+        "exhaustive",
+        "No statically resolved route reaches the destination.",
+    )
 
 
 def test_character_artifacts_keep_common_and_route_specific_roles_separate(

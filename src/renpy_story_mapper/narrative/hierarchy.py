@@ -293,8 +293,8 @@ class M12RouteAuthority:
     """Exact M12 language included in an authority leaf without reinterpretation."""
 
     result_identity: str
-    route_id: str
-    persistent_lane_id: str
+    route_id: str | None
+    persistent_lane_id: str | None
     status: TechnicalStatus
     badge: RouteBadge
     prerequisite_texts: tuple[str, ...] = ()
@@ -302,8 +302,14 @@ class M12RouteAuthority:
 
     def __post_init__(self) -> None:
         _require_identifier(self.result_identity, name="M12 result identity")
-        _require_identifier(self.route_id, name="route_id")
-        _require_identifier(self.persistent_lane_id, name="persistent_lane_id")
+        if (self.route_id is None) != (self.persistent_lane_id is None):
+            raise ValueError(
+                "M12 route and lane context must either both be present or both absent."
+            )
+        if self.route_id is not None:
+            _require_identifier(self.route_id, name="route_id")
+            assert self.persistent_lane_id is not None
+            _require_identifier(self.persistent_lane_id, name="persistent_lane_id")
         _require_unique(self.prerequisite_texts, name="M12 prerequisite text")
         _require_unique(self.conclusion_texts, name="M12 conclusion text")
 
@@ -330,7 +336,10 @@ class M12AuthorityLeaf:
     def __post_init__(self) -> None:
         if self.job.kind is not LogicalJobKind.AUTHORITY_FACT:
             raise ValueError("M12 authority leaves require an authority-fact logical job.")
-        if self.job.context.route_id != self.authority.route_id:
+        if (
+            self.job.context.route_id != self.authority.route_id
+            or self.job.context.lane_id != self.authority.persistent_lane_id
+        ):
             raise ValueError("M12 authority leaf route binding is inconsistent.")
         if any(
             claim.logical_job_id != self.job.job_id
@@ -390,7 +399,8 @@ def make_m12_authority_leaf(
             for ordinal, text in enumerate(authority.conclusion_texts)
         ),
     )
-    subject = f"m12-route-result:{authority.result_identity}:route:{authority.route_id}"
+    route_scope = authority.route_id or "unassigned"
+    subject = f"m12-route-result:{authority.result_identity}:route:{route_scope}"
     claims = tuple(
         NarrativeClaim(
             logical_job_id=job.job_id,
@@ -919,6 +929,7 @@ def plan_plot_job(
     *,
     owner_id: str = "whole-plot",
     reduction_artifacts: tuple[HierarchyArtifactInput, ...] = (),
+    m12_authority_leaves: tuple[M12AuthorityLeaf, ...] = (),
 ) -> HierarchyLevelPlan:
     """Plan a bounded route-aware plot; raw scenes and full-project text are impossible."""
 
@@ -982,6 +993,13 @@ def plan_plot_job(
             )
     if any(child.job_kind is LogicalJobKind.SCENE for child in all_children):
         raise ValueError("Plot jobs never consume raw scene artifacts.")
+    leaves = _normalize_m12_authority_leaves(None, m12_authority_leaves)
+    if any(
+        leaf.authority.route_id is not None
+        or leaf.authority.persistent_lane_id is not None
+        for leaf in leaves
+    ):
+        raise ValueError("Plot-level M12 authority must be unassigned to a persistent route.")
 
     children = (
         common_story_artifact,
@@ -1001,7 +1019,7 @@ def plan_plot_job(
             path=path,
             chronology_policy=ChronologyPolicy.ROUTE_AWARE,
             children=children,
-            authority_leaves=(),
+            authority_leaves=leaves,
             config=config,
             chapter_id=None,
             chapter_ordinal=None,

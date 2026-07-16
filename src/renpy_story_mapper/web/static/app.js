@@ -79,12 +79,37 @@ function renderNarrativeClaims(host, artifact) {
   }
 }
 
+function narrativeSectionLabel(entry) {
+  const path = entry?.path || {}; const section = path.section;
+  if (section === "persistent_route") return `Persistent route · ${path.route_id || "unresolved"}`;
+  if (section === "temporary_branch") return `Temporary branch · ${path.temporary_container_id || "bounded detour"}`;
+  if (section === "ending") return `Ending · ${path.ending_id || "unresolved"}${path.route_id ? ` · ${path.route_id}` : ""}`;
+  if (section === "unresolved") return "Unresolved or missing coverage";
+  return "Shared story";
+}
+
+function renderNarrativeHierarchy(host, artifact) {
+  const entries = artifact.hierarchy?.section_entries;
+  if (!Array.isArray(entries) || !entries.length) return;
+  const section = element("section", "narrative-hierarchy");
+  section.append(element("strong", "", "Route-aware structure"));
+  for (const entry of entries.slice(0, 32)) {
+    const stateLabel = entry.available === false ? " · missing" : "";
+    section.append(element("span", "", `${narrativeSectionLabel(entry)}${stateLabel}`));
+  }
+  host.append(section);
+}
+
 async function expandNarrativeJob(job, host, button) {
   if (!job.artifact) return;
   button.disabled = true;
   try {
     const artifact = await api.narrativeArtifact(job.artifact.artifact_id);
-    host.append(element("p", "", artifact.summary));
+    host.append(
+      element("strong", "", artifact.summary_class === "interpretive" ? "AI interpretation" : "Narrative summary"),
+      element("p", "", artifact.summary),
+    );
+    renderNarrativeHierarchy(host, artifact);
     for (const warning of artifact.warnings || []) host.append(element("span", "correction", warning));
     renderNarrativeClaims(host, artifact); button.remove();
   } catch (error) { button.disabled = false; toast(error.message); }
@@ -991,7 +1016,7 @@ async function openDetail(elementId) {
     for (const claim of claims) { const article = element("article", "interpretation claim"); article.append(element("strong", "", claim.label || "Evidence-backed claim"), element("p", "", claim.text || claim.claim || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ") || "not supplied"}`)); interpretations.append(article); }
     if (narrativeArtifact) {
       const summary = element("article", "interpretation candidate");
-      summary.append(element("strong", "", `${narrativeArtifact.publication === "partial" ? "Partial narrative" : "Narrative summary"} · deterministic authority unchanged`), element("p", "", narrativeArtifact.summary));
+      summary.append(element("strong", "", `${narrativeArtifact.publication === "partial" ? "Partial narrative" : "Narrative summary"} · AI interpretation; deterministic authority unchanged`), element("p", "", narrativeArtifact.summary));
       for (const warning of narrativeArtifact.warnings || []) summary.append(element("span", "correction", warning));
       interpretations.append(summary); renderNarrativeClaims(interpretations, narrativeArtifact);
     }

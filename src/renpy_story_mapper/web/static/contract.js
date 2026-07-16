@@ -252,7 +252,7 @@ export function assertNarrativeSnapshot(value) {
 }
 
 export function assertNarrativeArtifact(value) {
-  if (!object(value) || value.schema !== "m13-narrative-artifact-detail-v1" || value.status !== "available" || typeof value.artifact_id !== "string" || typeof value.logical_job_id !== "string" || typeof value.kind !== "string" || typeof value.publication !== "string" || typeof value.title !== "string" || typeof value.summary !== "string" || !Array.isArray(value.claims) || value.claims.length > 256 || !object(value.coverage) || !Array.isArray(value.warnings)) throw new TypeError("Invalid M13 Narrative artifact detail");
+  if (!object(value) || value.schema !== "m13-narrative-artifact-detail-v1" || value.status !== "available" || typeof value.artifact_id !== "string" || typeof value.logical_job_id !== "string" || typeof value.kind !== "string" || typeof value.publication !== "string" || typeof value.title !== "string" || !["interpretive", "deterministic_fallback"].includes(value.title_class) || typeof value.summary !== "string" || value.summary_class !== "interpretive" || !Array.isArray(value.claims) || value.claims.length > 256 || !object(value.coverage) || !Array.isArray(value.warnings)) throw new TypeError("Invalid M13 Narrative artifact detail");
   digest(value.authority_hash, "M13 Narrative artifact authority_hash");
   for (const claim of value.claims) if (!object(claim) || typeof claim.claim_id !== "string" || !["factual", "interpretive", "review_suggestion"].includes(claim.claim_class) || typeof claim.text !== "string" || !["direct_evidence", "child_claims"].includes(claim.support_kind)) throw new TypeError("Invalid M13 Narrative claim");
   return value;

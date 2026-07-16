@@ -165,6 +165,13 @@ def narrative_artifact_detail(project: Project, artifact_id: str) -> dict[str, o
     ]
     if len(m12_authority) > 32:
         raise ValueError("narrative M12 authority annotations are unbounded")
+    used_deterministic_title = bool(artifact.get("used_deterministic_title", False))
+    title_class = artifact.get("title_class")
+    if title_class not in {"interpretive", "deterministic_fallback"}:
+        title_class = "deterministic_fallback" if used_deterministic_title else "interpretive"
+    summary_class = artifact.get("summary_class")
+    if summary_class != "interpretive":
+        summary_class = "interpretive"
     return {
         "schema": "m13-narrative-artifact-detail-v1",
         "status": "available",
@@ -174,11 +181,13 @@ def narrative_artifact_detail(project: Project, artifact_id: str) -> dict[str, o
         "kind": _text(artifact, "job_kind"),
         "publication": _text(artifact, "publication"),
         "title": _text(artifact, "title"),
+        "title_class": title_class,
         "summary": _text(artifact, "summary"),
+        "summary_class": summary_class,
         "claims": claims,
         "coverage": dict(coverage),
         "warnings": list(warnings),
-        "used_deterministic_title": bool(artifact.get("used_deterministic_title", False)),
+        "used_deterministic_title": used_deterministic_title,
         "hierarchy": hierarchy,
         "m12_authority": m12_authority,
     }
