@@ -118,12 +118,80 @@ class _ValueSource:
         return dict(self.effect_counts)[self.last_effect_id]
 
 
+type _NumericBound = tuple[int | float, bool, tuple[str, ...]]
+type _ExcludedLiteral = tuple[StateScalar, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class _VariableConstraint:
+    """One normalized, bounded conjunction for a supported state variable."""
+
+    variable_key: str
+    equality: tuple[StateScalar, ...] = ()
+    equality_fact_ids: tuple[str, ...] = ()
+    exclusions: tuple[_ExcludedLiteral, ...] = ()
+    lower: _NumericBound | None = None
+    upper: _NumericBound | None = None
+
+
+@dataclass(frozen=True)
+class _ConstraintState:
+    """Chronological supported gate constraints retained in deterministic order."""
+
+    variables: tuple[_VariableConstraint, ...] = ()
+
+    def for_key(self, variable_key: str) -> _VariableConstraint:
+        return next(
+            (
+                item
+                for item in self.variables
+                if item.variable_key == variable_key
+            ),
+            _VariableConstraint(variable_key),
+        )
+
+    def replacing(self, constraint: _VariableConstraint) -> _ConstraintState:
+        retained = [
+            item for item in self.variables if item.variable_key != constraint.variable_key
+        ]
+        retained.append(constraint)
+        return _ConstraintState(
+            tuple(sorted(retained, key=lambda item: item.variable_key))
+        )
+
+    def without(self, variable_key: str) -> _ConstraintState:
+        return _ConstraintState(
+            tuple(item for item in self.variables if item.variable_key != variable_key)
+        )
+
+    def normalized_key(self) -> tuple[object, ...]:
+        return tuple(
+            (
+                item.variable_key,
+                item.equality,
+                item.equality_fact_ids,
+                item.exclusions,
+                item.lower,
+                item.upper,
+            )
+            for item in self.variables
+        )
+
+
+@dataclass(frozen=True)
+class _ConstraintTerm:
+    variable_key: str
+    operator: str
+    value: StateScalar
+
+
 @dataclass
 class _SearchState:
     node_id: str
     values: dict[str, object]
     value_sources: dict[str, _ValueSource]
     initial_kinds: dict[str, InitialStateValue]
+    constraints: _ConstraintState
     node_ids: tuple[str, ...]
     edge_ids: tuple[str, ...]
     requirements: tuple[RequirementAttribution, ...]
@@ -270,6 +338,7 @@ def solve_route(
         request.initial_state,
         projection,
     )
+    constraints = _constraints_from_values(values, value_sources)
     occurrence_edge = _occurrence_edge_map(graph, scene_model)
     scene_by_node, atom_by_node = _scene_ownership(scene_model)
     lane_by_scene = {
@@ -290,6 +359,7 @@ def solve_route(
         values,
         value_sources,
         initial_kinds,
+        constraints,
         (request.start_node_id,),
         (),
         (),
@@ -457,11 +527,12 @@ def solve_route(
                     scene_by_node,
                     request.limits,
                 )
-                contradiction = None
+                contradiction_fact_ids_for_edge: tuple[str, ...] = ()
             else:
-                next_state, contradiction, traversal_limit = _traverse_edge(
+                next_state, contradiction_fact_ids_for_edge, traversal_limit = _traverse_edge(
                     state,
                     edge,
+                    edge_by_id,
                     node_by_id,
                     fact_by_id,
                     occurrence_edge,
@@ -471,17 +542,17 @@ def solve_route(
                     request.limits,
                 )
             if (
-                contradiction is not None
+                contradiction_fact_ids_for_edge
                 and edge.source_id in target_reverse_nodes
                 and edge.target_id in target_reverse_nodes
             ):
-                contradiction_fact_ids.add(contradiction.id)
+                contradiction_fact_ids.update(contradiction_fact_ids_for_edge)
                 contradiction_edge_ids.add(edge.id)
             if traversal_limit is not None:
                 bounded_limit_hit = bounded_limit_hit or traversal_limit
                 continue
             if next_state is None:
-                if contradiction is None:
+                if not contradiction_fact_ids_for_edge:
                     unsupported_block = True
                 continue
             completed = record_candidates(next_state)
@@ -1032,6 +1103,298 @@ def _initial_values(
     return values, sources, initial
 
 
+def _constraints_from_values(
+    values: Mapping[str, object],
+    sources: Mapping[str, _ValueSource],
+) -> _ConstraintState:
+    constraints = _ConstraintState()
+    for variable_key in sorted(values):
+        value = values[variable_key]
+        if not _is_scalar(value):
+            continue
+        source = sources.get(variable_key)
+        constraints = _constraint_with_exact_value(
+            constraints,
+            variable_key,
+            cast(StateScalar, value),
+            source.effect_ids if source is not None else (),
+        )
+    return constraints
+
+
+def _constraint_with_exact_value(
+    constraints: _ConstraintState,
+    variable_key: str,
+    value: StateScalar,
+    fact_ids: Iterable[str],
+) -> _ConstraintState:
+    return constraints.replacing(
+        _VariableConstraint(
+            variable_key,
+            equality=(value,),
+            equality_fact_ids=tuple(sorted(set(fact_ids))),
+        )
+    )
+
+
+def _supported_constraint_terms(expression: str) -> tuple[_ConstraintTerm, ...]:
+    """Extract only a safe conjunction of names and literal comparisons."""
+
+    try:
+        root = ast.parse(expression, mode="eval").body
+    except SyntaxError:
+        return ()
+
+    def collect(node: ast.expr) -> list[_ConstraintTerm]:
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            return [term for child in node.values for term in collect(child)]
+        name = _qualified_name(node)
+        if name is not None:
+            return [_ConstraintTerm(identity_from_name(name).key, "eq", True)]
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            operand_name = _qualified_name(node.operand)
+            if operand_name is not None:
+                return [
+                    _ConstraintTerm(
+                        identity_from_name(operand_name).key,
+                        "eq",
+                        False,
+                    )
+                ]
+            return []
+        if (
+            not isinstance(node, ast.Compare)
+            or len(node.ops) != 1
+            or len(node.comparators) != 1
+        ):
+            return []
+        operator = node.ops[0]
+        left_name = _qualified_name(node.left)
+        right = node.comparators[0]
+        if left_name is not None and isinstance(right, ast.Constant):
+            parsed_operator = _constraint_operator(operator)
+            literal = right.value
+        elif isinstance(node.left, ast.Constant):
+            right_name = _qualified_name(right)
+            if right_name is None:
+                return []
+            left_name = right_name
+            parsed_operator = _reverse_constraint_operator(operator)
+            literal = node.left.value
+        else:
+            return []
+        if parsed_operator is None or not _is_scalar(literal):
+            return []
+        if parsed_operator in {"gt", "ge", "lt", "le"} and not _is_number(literal):
+            return []
+        return [
+            _ConstraintTerm(
+                identity_from_name(left_name).key,
+                parsed_operator,
+                cast(StateScalar, literal),
+            )
+        ]
+
+    return tuple(collect(root))
+
+
+def _constraint_operator(operator: ast.cmpop) -> str | None:
+    return {
+        ast.Eq: "eq",
+        ast.NotEq: "ne",
+        ast.Gt: "gt",
+        ast.GtE: "ge",
+        ast.Lt: "lt",
+        ast.LtE: "le",
+    }.get(type(operator))
+
+
+def _reverse_constraint_operator(operator: ast.cmpop) -> str | None:
+    return {
+        ast.Eq: "eq",
+        ast.NotEq: "ne",
+        ast.Gt: "lt",
+        ast.GtE: "le",
+        ast.Lt: "gt",
+        ast.LtE: "ge",
+    }.get(type(operator))
+
+
+def _intersect_supported_constraints(
+    constraints: _ConstraintState,
+    terms: Sequence[_ConstraintTerm],
+    fact_id: str,
+) -> tuple[_ConstraintState, tuple[str, ...]]:
+    result = constraints
+    for term in terms:
+        result, contradiction_ids = _intersect_supported_constraint(
+            result,
+            term,
+            fact_id,
+        )
+        if contradiction_ids:
+            return constraints, contradiction_ids
+    return result, ()
+
+
+def _intersect_supported_constraint(
+    constraints: _ConstraintState,
+    term: _ConstraintTerm,
+    fact_id: str,
+) -> tuple[_ConstraintState, tuple[str, ...]]:
+    current = constraints.for_key(term.variable_key)
+    fact_ids = (fact_id,)
+    equality = current.equality
+    equality_fact_ids = current.equality_fact_ids
+    exclusions = list(current.exclusions)
+    lower = current.lower
+    upper = current.upper
+
+    if term.operator == "eq":
+        if equality and not _literal_equal(equality[0], term.value):
+            return constraints, _contradiction_ids(equality_fact_ids, fact_ids)
+        excluded = _matching_exclusion(exclusions, term.value)
+        if excluded is not None:
+            return constraints, _contradiction_ids(excluded[1], fact_ids)
+        lower_outcome = _value_satisfies_bound(term.value, lower, lower_bound=True)
+        if lower_outcome is False and lower is not None:
+            return constraints, _contradiction_ids(lower[2], fact_ids)
+        upper_outcome = _value_satisfies_bound(term.value, upper, lower_bound=False)
+        if upper_outcome is False and upper is not None:
+            return constraints, _contradiction_ids(upper[2], fact_ids)
+        if equality:
+            equality_fact_ids = _contradiction_ids(equality_fact_ids, fact_ids)
+        else:
+            equality = (term.value,)
+            equality_fact_ids = fact_ids
+    elif term.operator == "ne":
+        if equality and _literal_equal(equality[0], term.value):
+            return constraints, _contradiction_ids(equality_fact_ids, fact_ids)
+        excluded = _matching_exclusion(exclusions, term.value)
+        if excluded is None:
+            exclusions.append((term.value, fact_ids))
+        else:
+            exclusions[exclusions.index(excluded)] = (
+                excluded[0],
+                _contradiction_ids(excluded[1], fact_ids),
+            )
+    elif term.operator in {"gt", "ge", "lt", "le"}:
+        assert _is_number(term.value)
+        bound: _NumericBound = (
+            cast(int | float, term.value),
+            term.operator in {"ge", "le"},
+            fact_ids,
+        )
+        is_lower = term.operator in {"gt", "ge"}
+        if equality:
+            outcome = _value_satisfies_bound(
+                equality[0],
+                bound,
+                lower_bound=is_lower,
+            )
+            if outcome is False:
+                return constraints, _contradiction_ids(equality_fact_ids, fact_ids)
+        if is_lower:
+            lower = _stronger_lower(lower, bound)
+        else:
+            upper = _stronger_upper(upper, bound)
+        if lower is not None and upper is not None and _bounds_are_empty(lower, upper):
+            return constraints, _contradiction_ids(lower[2], upper[2])
+    else:
+        return constraints, ()
+
+    normalized = _VariableConstraint(
+        term.variable_key,
+        equality=equality,
+        equality_fact_ids=tuple(sorted(set(equality_fact_ids))),
+        exclusions=tuple(
+            sorted(
+                exclusions,
+                key=lambda item: _literal_sort_key(item[0]),
+            )
+        ),
+        lower=lower,
+        upper=upper,
+    )
+    return constraints.replacing(normalized), ()
+
+
+def _matching_exclusion(
+    exclusions: Sequence[_ExcludedLiteral],
+    value: StateScalar,
+) -> _ExcludedLiteral | None:
+    return next(
+        (item for item in exclusions if _literal_equal(item[0], value)),
+        None,
+    )
+
+
+def _stronger_lower(
+    current: _NumericBound | None,
+    candidate: _NumericBound,
+) -> _NumericBound:
+    if current is None or candidate[0] > current[0]:
+        return candidate
+    if candidate[0] < current[0]:
+        return current
+    inclusive = current[1] and candidate[1]
+    return (
+        current[0],
+        inclusive,
+        _contradiction_ids(current[2], candidate[2]),
+    )
+
+
+def _stronger_upper(
+    current: _NumericBound | None,
+    candidate: _NumericBound,
+) -> _NumericBound:
+    if current is None or candidate[0] < current[0]:
+        return candidate
+    if candidate[0] > current[0]:
+        return current
+    inclusive = current[1] and candidate[1]
+    return (
+        current[0],
+        inclusive,
+        _contradiction_ids(current[2], candidate[2]),
+    )
+
+
+def _bounds_are_empty(lower: _NumericBound, upper: _NumericBound) -> bool:
+    return lower[0] > upper[0] or (
+        lower[0] == upper[0] and not (lower[1] and upper[1])
+    )
+
+
+def _value_satisfies_bound(
+    value: StateScalar,
+    bound: _NumericBound | None,
+    *,
+    lower_bound: bool,
+) -> bool | None:
+    if bound is None:
+        return True
+    try:
+        if lower_bound:
+            return value >= bound[0] if bound[1] else value > bound[0]  # type: ignore[operator]
+        return value <= bound[0] if bound[1] else value < bound[0]  # type: ignore[operator]
+    except TypeError:
+        return None
+
+
+def _literal_equal(left: StateScalar, right: StateScalar) -> bool:
+    return left == right
+
+
+def _literal_sort_key(value: StateScalar) -> tuple[str, str]:
+    return type(value).__name__, json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _contradiction_ids(*fact_id_groups: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted({fact_id for group in fact_id_groups for fact_id in group}))
+
+
 def _apply_node_effects(
     state: _SearchState,
     node: CanonicalNode,
@@ -1040,6 +1403,7 @@ def _apply_node_effects(
 ) -> _SearchState:
     values = dict(state.values)
     sources = dict(state.value_sources)
+    constraints = state.constraints
     warnings = list(state.warnings)
     relevant = {item.key for item in projection.relevant_variables}
     for fact_id in _strings(node.attributes.get("fact_ids")):
@@ -1048,11 +1412,19 @@ def _apply_node_effects(
             continue
         if fact.attributes.get("initialization") is True:
             continue
-        _apply_effect(fact, values, sources, warnings, relevant)
+        constraints = _apply_effect(
+            fact,
+            values,
+            sources,
+            constraints,
+            warnings,
+            relevant,
+        )
     return replace(
         state,
         values=values,
         value_sources=sources,
+        constraints=constraints,
         warnings=tuple(dict.fromkeys(warnings)),
     )
 
@@ -1060,6 +1432,7 @@ def _apply_node_effects(
 def _traverse_edge(
     state: _SearchState,
     edge: CanonicalEdge,
+    edges: Mapping[str, CanonicalEdge],
     nodes: Mapping[str, CanonicalNode],
     facts: Mapping[str, CanonicalFact],
     occurrence_edges: Mapping[str, str],
@@ -1067,39 +1440,54 @@ def _traverse_edge(
     scene_by_node: Mapping[str, str],
     projection: NumericProjection,
     limits: DeterministicLimitProfile,
-) -> tuple[_SearchState | None, CanonicalFact | None, str | None]:
+) -> tuple[_SearchState | None, tuple[str, ...], str | None]:
     count = state.transition_counts.get(edge.id, 0) + 1
     if count > limits.repetition_per_transition:
-        return None, None, "repetition_per_transition"
+        return None, (), "repetition_per_transition"
     stack = state.call_stack
     call_site = edge.attributes.get("call_site_id")
     if edge.kind in {"call_enter", "call_summary"}:
         if not isinstance(call_site, str) or not call_site:
-            return None, None, None
+            return None, (), None
         if len(stack) >= limits.call_depth:
-            return None, None, "call_depth"
+            return None, (), "call_depth"
         stack = (*stack, call_site)
     elif edge.kind == "call_return":
         if call_site is not None:
-            if not isinstance(call_site, str) or not stack or stack[-1] != call_site:
-                return None, None, None
-            stack = stack[:-1]
+            if not isinstance(call_site, str):
+                return None, (), None
+            if stack and stack[-1] == call_site:
+                stack = stack[:-1]
+            elif not _follows_matching_resumed_summary(state, edge, edges):
+                return None, (), None
 
     requirements = list(state.requirements)
     warnings = list(state.warnings)
+    constraints = state.constraints
     for fact_id in _strings(edge.attributes.get("gate_ids")):
         fact = facts.get(fact_id)
         if fact is None:
             warnings.append(f"Missing M10 gate fact {fact_id}.")
             continue
+        if fact.status == "proven":
+            expression = str(fact.attributes.get("original_expression", ""))
+            supported_terms = _supported_constraint_terms(expression)
+            if supported_terms:
+                constraints, contradiction_ids = _intersect_supported_constraints(
+                    constraints,
+                    supported_terms,
+                    fact.id,
+                )
+                if contradiction_ids:
+                    return None, contradiction_ids, None
         outcome, attributions = _evaluate_requirement(
             fact, state.values, state.value_sources, state.initial_kinds
         )
         if outcome is False:
-            return None, fact, None
+            return None, (fact.id,), None
         requirements.extend(attributions)
         if outcome is None:
-            expression = fact.attributes.get("original_expression", "")
+            expression = str(fact.attributes.get("original_expression", ""))
             warnings.append(f"Requirement remains unknown: {expression}.")
 
     values = dict(state.values)
@@ -1108,7 +1496,14 @@ def _traverse_edge(
     for fact_id in _strings(edge.attributes.get("effect_ids")):
         fact = facts.get(fact_id)
         if fact is not None:
-            _apply_effect(fact, values, sources, warnings, relevant)
+            constraints = _apply_effect(
+                fact,
+                values,
+                sources,
+                constraints,
+                warnings,
+                relevant,
+            )
     if not edge.resolved:
         warnings.append(f"Traversal {edge.id} depends on unresolved static behavior.")
     reachability_warning = (
@@ -1141,6 +1536,7 @@ def _traverse_edge(
             values,
             sources,
             state.initial_kinds,
+            constraints,
             (*state.node_ids, edge.target_id),
             (*state.edge_ids, edge.id),
             tuple(requirements),
@@ -1151,7 +1547,7 @@ def _traverse_edge(
             tuple(persistent),
             loops,
         ),
-        None,
+        (),
         None,
     )
 
@@ -1203,17 +1599,37 @@ def _resume_call_summary(
             dict(state.values),
             dict(state.value_sources),
             state.initial_kinds,
+            state.constraints,
             (*state.node_ids, edge.target_id),
             (*state.edge_ids, edge.id),
             state.requirements,
             tuple(dict.fromkeys(warnings)),
-            state.call_stack,
+            state.call_stack[:-1],
             counts,
             state.selected_occurrence_id,
             tuple(persistent),
             state.loop_count + (1 if count > 1 else 0),
         ),
         None,
+    )
+
+
+def _follows_matching_resumed_summary(
+    state: _SearchState,
+    edge: CanonicalEdge,
+    edges: Mapping[str, CanonicalEdge],
+) -> bool:
+    """Accept M10's synthetic continuation edge after its frame was popped."""
+
+    if not state.edge_ids:
+        return False
+    previous = edges.get(state.edge_ids[-1])
+    return bool(
+        previous is not None
+        and previous.kind == "call_summary"
+        and previous.target_id == edge.source_id
+        and previous.attributes.get("call_site_id")
+        == edge.attributes.get("call_site_id")
     )
 
 
@@ -1405,28 +1821,35 @@ def _apply_effect(
     fact: CanonicalFact,
     values: dict[str, object],
     sources: dict[str, _ValueSource],
+    constraints: _ConstraintState,
     warnings: list[str],
     relevant: set[str],
-) -> None:
+) -> _ConstraintState:
     variable_name = fact.attributes.get("variable")
     if not isinstance(variable_name, str) or not variable_name:
         if fact.status != "proven":
             warnings.append(f"Effect {fact.id} is unsupported and does not satisfy a gate.")
-        return
+        return constraints
     variable = identity_from_name(variable_name)
     if variable.key not in relevant:
-        return
+        return constraints
     if fact.status != "proven":
         values.pop(variable.key, None)
         sources.pop(variable.key, None)
         warnings.append(f"Effect {fact.id} on {variable.key} is not proven.")
-        return
+        return constraints.without(variable.key)
     operation = str(fact.attributes.get("operation", ""))
     value = fact.attributes.get("value")
     prior_source = sources.get(variable.key)
     if operation == "assignment" and _is_scalar(value):
         values[variable.key] = value
         sources[variable.key] = _ValueSource((fact.id,), ((fact.id, 1),), fact.id)
+        constraints = _constraint_with_exact_value(
+            constraints,
+            variable.key,
+            cast(StateScalar, value),
+            (fact.id,),
+        )
     elif (
         operation in {"increment", "decrement"}
         and isinstance(value, int | float)
@@ -1452,13 +1875,22 @@ def _apply_effect(
                     else False
                 ),
             )
+            constraints = _constraint_with_exact_value(
+                constraints,
+                variable.key,
+                cast(StateScalar, values[variable.key]),
+                sources[variable.key].effect_ids,
+            )
         else:
             values.pop(variable.key, None)
             sources.pop(variable.key, None)
+            constraints = constraints.without(variable.key)
     else:
         values.pop(variable.key, None)
         sources.pop(variable.key, None)
+        constraints = constraints.without(variable.key)
         warnings.append(f"Effect {fact.id} is not a supported literal state transition.")
+    return constraints
 
 
 def _safe_condition(expression: str, values: Mapping[str, object]) -> bool | None:
@@ -2076,6 +2508,7 @@ def _state_key(
         state.node_id,
         state.call_stack,
         projection.key_for(state.values),
+        state.constraints.normalized_key(),
         tuple(
             (
                 key,
@@ -2175,6 +2608,15 @@ def _accounting_units(state: _SearchState) -> int:
         + len(state.requirements)
         + len(state.call_stack)
         + len(state.transition_counts)
+        + sum(
+            1
+            + len(item.equality)
+            + len(item.equality_fact_ids)
+            + len(item.exclusions)
+            + (1 if item.lower is not None else 0)
+            + (1 if item.upper is not None else 0)
+            for item in state.constraints.variables
+        )
         + sum(len(source.effect_ids) for source in state.value_sources.values())
     )
 

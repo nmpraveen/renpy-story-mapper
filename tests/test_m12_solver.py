@@ -48,6 +48,7 @@ from renpy_story_mapper.m12_model import (
     RequirementSource,
     RouteDestination,
     RouteRequest,
+    RouteResult,
     StateVariableIdentity,
     TechnicalStatus,
 )
@@ -1589,7 +1590,7 @@ def test_call_resume_projection_preserves_internal_gate_and_effect_semantics() -
     assert contradiction is not None
     assert contradiction.status is TechnicalStatus.STATE_INFEASIBLE
     assert contradiction.negative_provenance is not None
-    assert contradiction.negative_provenance.fact_ids == (gate.id,)
+    assert contradiction.negative_provenance.fact_ids == (gate.id, initial_flag.id)
 
     effect_edges = (dict(base_edges[0], effects=(set_flag.id,)), *base_edges[1:])
     effect_graph, effect_model = _authority(
@@ -1741,7 +1742,7 @@ def test_state_infeasible_requires_exhaustive_closed_world_contradiction() -> No
     assert result.termination_reason == "exhaustive"
     assert result.diagnostics == ("exact supported contradiction",)
     assert result.negative_provenance is not None
-    assert result.negative_provenance.fact_ids == (gate.id,)
+    assert result.negative_provenance.fact_ids == (gate.id, initial_score.id)
     assert normalized_result_bytes(result.normalized_dict()) == result.normalized_bytes()
     with pytest.raises(ValueError, match="exhaustive closed-world"):
         replace(
@@ -1987,3 +1988,608 @@ def test_cancellation_publishes_no_normalized_result() -> None:
 
     assert attempt.cancelled is True
     assert attempt.result is None
+
+
+def _solve_two_supported_gates(
+    first: CanonicalFact,
+    second: CanonicalFact,
+    *,
+    first_effects: Sequence[str] = (),
+    limits: DeterministicLimitProfile | None = None,
+) -> tuple[CanonicalGraph, RouteResult]:
+    facts: list[CanonicalFact] = [first, second]
+    if first_effects:
+        effect_by_id = {
+            "set-x-false": _fact(
+                "set-x-false",
+                kind="effect",
+                expression="x = False",
+                variable="x",
+                operation="assignment",
+                value=False,
+            )
+        }
+        facts.extend(effect_by_id[item] for item in first_effects)
+    graph, model = _authority(
+        ("root", "middle", "target"),
+        (
+            {
+                "id": "first-gate",
+                "source": "root",
+                "target": "middle",
+                "gates": (first.id,),
+                "effects": tuple(first_effects),
+            },
+            {
+                "id": "second-gate",
+                "source": "middle",
+                "target": "target",
+                "gates": (second.id,),
+            },
+        ),
+        facts=tuple(facts),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            limits=limits,
+        ),
+    ).result
+    assert result is not None
+    return graph, result
+
+
+def test_supported_boolean_truth_then_falsity_is_pruned() -> None:
+    truth = _fact("truth", kind="requirement", expression="x", variable="x")
+    falsity = _fact("falsity", kind="requirement", expression="not x", variable="x")
+
+    _, result = _solve_two_supported_gates(truth, falsity)
+
+    assert result.status is TechnicalStatus.STATE_INFEASIBLE
+    assert result.recommended is None
+    assert result.negative_provenance is not None
+    assert result.negative_provenance.fact_ids == ("falsity", "truth")
+
+
+def test_supported_numeric_lower_and_upper_contradiction_is_pruned() -> None:
+    lower = _fact(
+        "lower",
+        kind="requirement",
+        expression="score >= 5",
+        variable="score",
+    )
+    upper = _fact(
+        "upper",
+        kind="requirement",
+        expression="score < 5",
+        variable="score",
+    )
+
+    _, result = _solve_two_supported_gates(lower, upper)
+
+    assert result.status is TechnicalStatus.STATE_INFEASIBLE
+    assert result.negative_provenance is not None
+    assert result.negative_provenance.fact_ids == ("lower", "upper")
+
+
+def test_compatible_numeric_interval_remains_a_best_known_route() -> None:
+    lower = _fact(
+        "lower",
+        kind="requirement",
+        expression="score >= 5",
+        variable="score",
+    )
+    upper = _fact(
+        "upper",
+        kind="requirement",
+        expression="score < 10",
+        variable="score",
+    )
+
+    _, result = _solve_two_supported_gates(lower, upper)
+
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended is not None
+    assert result.recommended.edge_ids == ("first-gate", "second-gate")
+
+
+def test_conflicting_categorical_equalities_are_pruned() -> None:
+    first = _fact(
+        "route-a",
+        kind="requirement",
+        expression='route == "a"',
+        variable="route",
+    )
+    second = _fact(
+        "route-b",
+        kind="requirement",
+        expression='route == "b"',
+        variable="route",
+    )
+
+    _, result = _solve_two_supported_gates(first, second)
+
+    assert result.status is TechnicalStatus.STATE_INFEASIBLE
+    assert result.negative_provenance is not None
+    assert result.negative_provenance.fact_ids == ("route-a", "route-b")
+
+
+def test_literal_equality_and_exclusion_contradiction_is_pruned() -> None:
+    equality = _fact(
+        "route-a",
+        kind="requirement",
+        expression='route == "a"',
+        variable="route",
+    )
+    exclusion = _fact(
+        "not-route-a",
+        kind="requirement",
+        expression='route != "a"',
+        variable="route",
+    )
+
+    _, result = _solve_two_supported_gates(equality, exclusion)
+
+    assert result.status is TechnicalStatus.STATE_INFEASIBLE
+    assert result.negative_provenance is not None
+    assert result.negative_provenance.fact_ids == ("not-route-a", "route-a")
+
+
+def test_proven_intervening_effect_replaces_the_prior_constraint() -> None:
+    truth = _fact("truth", kind="requirement", expression="x", variable="x")
+    falsity = _fact("falsity", kind="requirement", expression="not x", variable="x")
+
+    _, result = _solve_two_supported_gates(
+        truth,
+        falsity,
+        first_effects=("set-x-false",),
+    )
+
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended is not None
+    assert result.recommended.edge_ids == ("first-gate", "second-gate")
+    assert result.recommended.requirements[-1].satisfying_effect_id == "set-x-false"
+
+
+def test_unsupported_creator_expression_stays_unknown_not_contradictory() -> None:
+    creator = _fact(
+        "creator",
+        kind="requirement",
+        expression="creator_check(x)",
+        variable="x",
+    )
+    falsity = _fact("falsity", kind="requirement", expression="not x", variable="x")
+
+    _, result = _solve_two_supported_gates(creator, falsity)
+
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended is not None
+    assert any("creator_check" in item for item in result.recommended.uncertainty_warnings)
+
+
+def test_accumulated_state_infeasible_requires_exhaustive_closed_world_completion() -> None:
+    truth = _fact("truth", kind="requirement", expression="x", variable="x")
+    falsity = _fact("falsity", kind="requirement", expression="not x", variable="x")
+
+    _, bounded = _solve_two_supported_gates(
+        truth,
+        falsity,
+        limits=DeterministicLimitProfile(expanded_states=1),
+    )
+    _, exhaustive = _solve_two_supported_gates(truth, falsity)
+
+    assert bounded.status is TechnicalStatus.INCOMPLETE
+    assert bounded.exhaustive is False
+    assert exhaustive.status is TechnicalStatus.STATE_INFEASIBLE
+    assert exhaustive.complete and exhaustive.exhaustive and exhaustive.closed_world
+
+
+def test_at_least_forty_sequential_calls_do_not_accumulate_completed_frames() -> None:
+    call_count = 40
+    nodes = ["root"]
+    edges: list[dict[str, object]] = []
+    caller = "root"
+    for index in range(call_count):
+        callee = f"callee-{index}"
+        callee_exit = f"callee-exit-{index}"
+        return_site = f"return-site-{index}"
+        continuation = f"caller-{index + 1}" if index + 1 < call_count else "target"
+        nodes.extend((callee, callee_exit, return_site, continuation))
+        site = f"site-{index}"
+        edges.extend(
+            (
+                {
+                    "id": f"enter-{index}",
+                    "source": caller,
+                    "target": callee,
+                    "kind": "call_enter",
+                    "call_site_id": site,
+                },
+                {
+                    "id": f"procedure-return-{index}",
+                    "source": callee,
+                    "target": callee_exit,
+                    "kind": "call_return",
+                },
+                {
+                    "id": f"summary-{index}",
+                    "source": caller,
+                    "target": return_site,
+                    "kind": "call_summary",
+                    "call_site_id": site,
+                },
+                {
+                    "id": f"resume-{index}",
+                    "source": return_site,
+                    "target": continuation,
+                    "kind": "call_return",
+                    "call_site_id": site,
+                },
+            )
+        )
+        caller = continuation
+    graph, model = _authority(tuple(dict.fromkeys(nodes)), tuple(edges))
+
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.budget_usage.limiting_dimension is None
+    assert len(result.recommended.edge_ids) == call_count * 4
+
+
+def _nested_call_authority() -> tuple[CanonicalGraph, SceneModel]:
+    return _authority(
+        (
+            "root",
+            "outer",
+            "inner",
+            "inner-exit",
+            "inner-return-site",
+            "outer-after-inner",
+            "outer-exit",
+            "outer-return-site",
+            "target",
+        ),
+        (
+            {
+                "id": "outer-enter",
+                "source": "root",
+                "target": "outer",
+                "kind": "call_enter",
+                "call_site_id": "outer-site",
+            },
+            {
+                "id": "inner-enter",
+                "source": "outer",
+                "target": "inner",
+                "kind": "call_enter",
+                "call_site_id": "inner-site",
+            },
+            {
+                "id": "inner-procedure-return",
+                "source": "inner",
+                "target": "inner-exit",
+                "kind": "call_return",
+            },
+            {
+                "id": "inner-summary",
+                "source": "outer",
+                "target": "inner-return-site",
+                "kind": "call_summary",
+                "call_site_id": "inner-site",
+            },
+            {
+                "id": "inner-resume",
+                "source": "inner-return-site",
+                "target": "outer-after-inner",
+                "kind": "call_return",
+                "call_site_id": "inner-site",
+            },
+            {
+                "id": "outer-procedure-return",
+                "source": "outer-after-inner",
+                "target": "outer-exit",
+                "kind": "call_return",
+            },
+            {
+                "id": "outer-summary",
+                "source": "root",
+                "target": "outer-return-site",
+                "kind": "call_summary",
+                "call_site_id": "outer-site",
+            },
+            {
+                "id": "outer-resume",
+                "source": "outer-return-site",
+                "target": "target",
+                "kind": "call_return",
+                "call_site_id": "outer-site",
+            },
+        ),
+    )
+
+
+def test_nested_calls_pop_only_the_completed_top_frame() -> None:
+    graph, model = _nested_call_authority()
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.budget_usage.limiting_dimension is None
+
+
+def test_nested_call_returns_to_the_correct_outer_continuation() -> None:
+    graph, model = _nested_call_authority()
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.edge_ids == (
+        "outer-enter",
+        "inner-enter",
+        "inner-procedure-return",
+        "inner-summary",
+        "inner-resume",
+        "outer-procedure-return",
+        "outer-summary",
+        "outer-resume",
+    )
+
+
+def test_shared_callee_resume_isolated_by_caller_call_site() -> None:
+    graph, model = _authority(
+        (
+            "root",
+            "caller-a",
+            "caller-b",
+            "shared",
+            "shared-exit",
+            "return-a",
+            "return-b",
+            "target-a",
+            "target-b",
+        ),
+        (
+            {"id": "choose-a", "source": "root", "target": "caller-a"},
+            {"id": "choose-b", "source": "root", "target": "caller-b"},
+            {
+                "id": "enter-a",
+                "source": "caller-a",
+                "target": "shared",
+                "kind": "call_enter",
+                "call_site_id": "site-a",
+            },
+            {
+                "id": "enter-b",
+                "source": "caller-b",
+                "target": "shared",
+                "kind": "call_enter",
+                "call_site_id": "site-b",
+            },
+            {
+                "id": "shared-return",
+                "source": "shared",
+                "target": "shared-exit",
+                "kind": "call_return",
+            },
+            {
+                "id": "summary-a",
+                "source": "caller-a",
+                "target": "return-a",
+                "kind": "call_summary",
+                "call_site_id": "site-a",
+            },
+            {
+                "id": "summary-b",
+                "source": "caller-b",
+                "target": "return-b",
+                "kind": "call_summary",
+                "call_site_id": "site-b",
+            },
+            {
+                "id": "resume-a",
+                "source": "return-a",
+                "target": "target-a",
+                "kind": "call_return",
+                "call_site_id": "site-a",
+            },
+            {
+                "id": "resume-b",
+                "source": "return-b",
+                "target": "target-b",
+                "kind": "call_return",
+                "call_site_id": "site-b",
+            },
+        ),
+        node_kinds={"root": CanonicalNodeKind.CHOICE},
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target-a"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.recommended.edge_ids == (
+        "choose-a",
+        "enter-a",
+        "shared-return",
+        "summary-a",
+        "resume-a",
+    )
+
+
+def test_genuine_recursion_still_reaches_the_call_depth_bound() -> None:
+    depth_gate = _fact(
+        "depth-gate",
+        kind="requirement",
+        expression="depth >= 10",
+        variable="depth",
+    )
+    initial_depth = _fact(
+        "initial-depth",
+        kind="effect",
+        expression="default depth = 0",
+        variable="depth",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment_depth = _fact(
+        "increment-depth",
+        kind="effect",
+        expression="depth += 1",
+        variable="depth",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        (
+            "root",
+            "recursive",
+            "procedure-exit",
+            "recursive-return-site",
+            "root-return-site",
+            "target",
+        ),
+        (
+            {
+                "id": "root-enter",
+                "source": "root",
+                "target": "recursive",
+                "kind": "call_enter",
+                "call_site_id": "root-site",
+            },
+            {
+                "id": "recursive-enter",
+                "source": "recursive",
+                "target": "recursive",
+                "kind": "call_enter",
+                "call_site_id": "recursive-site",
+                "effects": (increment_depth.id,),
+            },
+            {
+                "id": "procedure-return",
+                "source": "recursive",
+                "target": "procedure-exit",
+                "kind": "call_return",
+            },
+            {
+                "id": "recursive-summary",
+                "source": "recursive",
+                "target": "recursive-return-site",
+                "kind": "call_summary",
+                "call_site_id": "recursive-site",
+            },
+            {
+                "id": "recursive-resume",
+                "source": "recursive-return-site",
+                "target": "recursive",
+                "kind": "call_return",
+                "call_site_id": "recursive-site",
+            },
+            {
+                "id": "root-summary",
+                "source": "root",
+                "target": "root-return-site",
+                "kind": "call_summary",
+                "call_site_id": "root-site",
+            },
+            {
+                "id": "root-resume",
+                "source": "root-return-site",
+                "target": "target",
+                "kind": "call_return",
+                "call_site_id": "root-site",
+                "gates": (depth_gate.id,),
+            },
+        ),
+        facts=(depth_gate, initial_depth, increment_depth),
+        node_facts={"root": (initial_depth.id,)},
+    )
+    depth = StateVariableIdentity("store", "depth", None)
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+            initial=(
+                InitialStateValue(
+                    depth,
+                    InitialValueKind.KNOWN,
+                    0,
+                    ("evidence-initial-depth",),
+                ),
+            ),
+            limits=DeterministicLimitProfile(call_depth=4),
+        ),
+    ).result
+
+    assert result is not None
+    assert result.status is TechnicalStatus.INCOMPLETE
+    assert result.budget_usage.limiting_dimension == "call_depth"
+    assert result.complete is False
+
+
+@pytest.mark.parametrize("resolved", (True, False))
+def test_malformed_or_unresolved_return_remains_conservative(resolved: bool) -> None:
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "orphan-return",
+                "source": "root",
+                "target": "target",
+                "kind": "call_return",
+                "call_site_id": "missing-site",
+                "resolved": resolved,
+            },
+        ),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None
+    assert result.recommended is None
+    assert result.status is TechnicalStatus.DYNAMIC_POSSIBILITY
