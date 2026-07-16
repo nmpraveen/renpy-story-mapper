@@ -94,6 +94,7 @@ def _authority(
     node_kinds: Mapping[str, CanonicalNodeKind] | None = None,
     repeatable_scenes: Sequence[str] = (),
     occurrence: tuple[str, str, str, str] | None = None,
+    loop_nodes: Sequence[str] = (),
 ) -> tuple[CanonicalGraph, SceneModel]:
     node_facts = node_facts or {}
     node_kinds = node_kinds or {}
@@ -127,6 +128,7 @@ def _authority(
         attributes: dict[str, object] = {
             "resolved_static_reachable": True,
             "fact_ids": list(node_facts.get(node_id, ())),
+            "loop_ids": ["loop-test"] if node_id in loop_nodes else [],
         }
         proof_ids: tuple[str, ...] = ()
         if node_id == "root":
@@ -161,6 +163,7 @@ def _authority(
             "effect_ids": list(spec.get("effects", ())),
             "predicate": spec.get("predicate"),
             "call_site_id": spec.get("call_site_id"),
+            "semantic_roles": list(spec.get("semantic_roles", ())),
         }
         edges.append(
             CanonicalEdge(
@@ -2593,3 +2596,434 @@ def test_malformed_or_unresolved_return_remains_conservative(resolved: bool) -> 
     assert result is not None
     assert result.recommended is None
     assert result.status is TechnicalStatus.DYNAMIC_POSSIBILITY
+
+
+def test_exact_monotone_grind_above_repetition_bound_accelerates_once() -> None:
+    gate = _fact(
+        "trust-threshold",
+        kind="requirement",
+        expression="trust >= 25",
+        variable="trust",
+    )
+    initial = _fact(
+        "trust-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "trust-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "grind",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "finish",
+                "source": "root",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.complete is True
+    assert result.recommended.edge_ids.count("grind") == 25
+    assert result.recommended.requirements[0].supporting_effect_counts == (
+        (initial.id, 1),
+        (increment.id, 25),
+    )
+    repeat_instructions = [
+        item for item in result.recommended.instructions if item.kind == "repeat"
+    ]
+    assert len(repeat_instructions) == 1
+    assert result.recommended.repeated_action_claims[0].repeated_count == 25
+
+
+def test_exact_loop_acceleration_respects_multiple_relevant_thresholds() -> None:
+    gate = _fact(
+        "trust-window",
+        kind="requirement",
+        expression="trust >= 5 and trust < 10",
+        variable="trust",
+    )
+    initial = _fact(
+        "window-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "window-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "window-grind",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "window-finish",
+                "source": "root",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.CONFIRMED
+    assert result.recommended.edge_ids.count("window-grind") == 5
+    assert result.recommended.repeated_action_claims[0].repeated_count == 5
+
+
+def test_relevant_one_shot_loop_effect_is_not_accelerated() -> None:
+    gate = _fact(
+        "one-shot-gate",
+        kind="requirement",
+        expression="trust >= 25 and unlocked",
+        variable="trust",
+    )
+    initial_trust = _fact(
+        "one-shot-trust-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    initial_unlocked = _fact(
+        "one-shot-flag-initial",
+        kind="effect",
+        expression="default unlocked = False",
+        variable="unlocked",
+        operation="assignment",
+        value=False,
+        initialization=True,
+    )
+    increment = _fact(
+        "one-shot-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    one_shot = _fact(
+        "one-shot-assignment",
+        kind="effect",
+        expression="unlocked = True",
+        variable="unlocked",
+        operation="assignment",
+        value=True,
+    )
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "unsafe-one-shot-loop",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id, one_shot.id),
+            },
+            {
+                "id": "unsafe-one-shot-finish",
+                "source": "root",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial_trust, initial_unlocked, increment, one_shot),
+        node_facts={"root": (initial_trust.id, initial_unlocked.id)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None
+    assert result.status is TechnicalStatus.INCOMPLETE
+    assert result.budget_usage.limiting_dimension == "repetition_per_transition"
+
+
+def test_unresolved_relevant_loop_write_is_not_accelerated() -> None:
+    gate = _fact(
+        "unresolved-loop-gate",
+        kind="requirement",
+        expression="trust >= 25",
+        variable="trust",
+    )
+    initial = _fact(
+        "unresolved-loop-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "unresolved-loop-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    unresolved = _fact(
+        "unresolved-loop-write",
+        kind="effect",
+        expression="trust += creator_delta",
+        variable="trust",
+        operation="increment",
+        value=1,
+        status="possible",
+    )
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "unresolved-loop",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id, unresolved.id),
+            },
+            {
+                "id": "unresolved-loop-finish",
+                "source": "root",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial, increment, unresolved),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None and result.recommended is not None
+    assert result.status is TechnicalStatus.BEST_KNOWN
+    assert result.recommended.edge_ids.count("unresolved-loop") == 1
+    assert result.recommended.repeated_action_claims == ()
+    assert any("not proven" in item for item in result.recommended.uncertainty_warnings)
+
+
+def test_changing_loop_branch_structure_is_not_accelerated() -> None:
+    gate = _fact(
+        "branch-loop-gate",
+        kind="requirement",
+        expression="trust >= 25",
+        variable="trust",
+    )
+    initial = _fact(
+        "branch-loop-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "branch-loop-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    graph, model = _authority(
+        ("root", "target"),
+        (
+            {
+                "id": "branch-loop-a",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "branch-loop-b",
+                "source": "root",
+                "target": "root",
+                "kind": "loop_back",
+                "semantic_roles": ("loop_back",),
+                "effects": (increment.id,),
+            },
+            {
+                "id": "branch-loop-finish",
+                "source": "root",
+                "target": "target",
+                "gates": (gate.id,),
+            },
+        ),
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    result = solve_route(
+        graph,
+        model,
+        _solve(
+            graph,
+            model,
+            RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target"),
+        ),
+    ).result
+
+    assert result is not None
+    assert result.status is TechnicalStatus.INCOMPLETE
+    assert result.budget_usage.limiting_dimension is not None
+
+
+def test_safe_acceleration_matches_bounded_explicit_small_loop_state() -> None:
+    gate = _fact(
+        "equivalent-loop-gate",
+        kind="requirement",
+        expression="trust >= 3",
+        variable="trust",
+    )
+    initial = _fact(
+        "equivalent-loop-initial",
+        kind="effect",
+        expression="default trust = 0",
+        variable="trust",
+        operation="assignment",
+        value=0,
+        initialization=True,
+    )
+    increment = _fact(
+        "equivalent-loop-increment",
+        kind="effect",
+        expression="trust += 1",
+        variable="trust",
+        operation="increment",
+        value=1,
+    )
+    edges = (
+        {
+            "id": "equivalent-loop",
+            "source": "root",
+            "target": "root",
+            "kind": "loop_back",
+            "semantic_roles": ("loop_back",),
+            "effects": (increment.id,),
+        },
+        {
+            "id": "equivalent-finish",
+            "source": "root",
+            "target": "target",
+            "gates": (gate.id,),
+        },
+    )
+    accelerated_graph, accelerated_model = _authority(
+        ("root", "target"),
+        edges,
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+        loop_nodes=("root",),
+    )
+    explicit_graph, explicit_model = _authority(
+        ("root", "target"),
+        edges,
+        facts=(gate, initial, increment),
+        node_facts={"root": (initial.id,)},
+    )
+    destination = RouteDestination(DestinationKind.GENERIC_SCENE, "scene-target")
+    accelerated = solve_route(
+        accelerated_graph,
+        accelerated_model,
+        _solve(accelerated_graph, accelerated_model, destination),
+    ).result
+    explicit = solve_route(
+        explicit_graph,
+        explicit_model,
+        _solve(
+            explicit_graph,
+            explicit_model,
+            destination,
+            limits=DeterministicLimitProfile(repetition_per_transition=4),
+        ),
+    ).result
+
+    assert accelerated is not None and accelerated.recommended is not None
+    assert explicit is not None and explicit.recommended is not None
+    assert accelerated.recommended.edge_ids == explicit.recommended.edge_ids
+    assert (
+        accelerated.recommended.requirements[0].supporting_effect_counts
+        == explicit.recommended.requirements[0].supporting_effect_counts
+    )

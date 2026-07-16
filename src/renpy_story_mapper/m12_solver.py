@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import heapq
 import json
+import math
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -95,6 +96,13 @@ class LoopAccelerationSummary:
 class LoopAccelerationDecision:
     eligible: bool
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _ExactLoopAcceleration:
+    edge: CanonicalEdge
+    repetitions: int
+    effect_facts: tuple[CanonicalFact, ...]
 
 
 @dataclass(frozen=True)
@@ -330,6 +338,22 @@ class _RoutePrefixStore:
             current = record.parent_id
         return result
 
+    def accelerated_counts(self, prefix_id: int) -> dict[str, int]:
+        result: dict[str, int] = {}
+        current: int | None = prefix_id
+        while current is not None:
+            record = self.record(current)
+            if (
+                record.incoming_edge_id is not None
+                and record.incoming_repetitions > 1
+            ):
+                result[record.incoming_edge_id] = (
+                    result.get(record.incoming_edge_id, 0)
+                    + record.incoming_repetitions
+                )
+            current = record.parent_id
+        return result
+
     def reconstruct(self, prefix_id: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
         chain: list[_RoutePrefix] = []
         current: int | None = prefix_id
@@ -361,6 +385,7 @@ class _SearchState:
     selected_occurrence_id: str | None
     persistent_lane_ids: tuple[str, ...]
     loop_count: int
+    suppressed_loop_edge_id: str | None
 
 
 def authoritative_start_nodes(graph: CanonicalGraph) -> tuple[str, ...]:
@@ -528,6 +553,7 @@ def solve_route(
         None,
         (),
         0,
+        None,
     )
     frontier: list[tuple[tuple[int | str, ...], int, _SearchState]] = []
     serial = 0
@@ -658,12 +684,28 @@ def solve_route(
         if record_candidates(state):
             continue
 
-        traversal_options = [
-            (edge, False)
+        acceleration = _exact_loop_acceleration(
+            state,
+            outgoing.get(state.node_id, ()),
+            node_by_id,
+            fact_by_id,
+            projection,
+            target_cone_nodes,
+            anchors,
+        )
+        accelerated_edge_id = acceleration.edge.id if acceleration is not None else None
+        traversal_options: list[
+            tuple[CanonicalEdge, bool, _ExactLoopAcceleration | None]
+        ] = [
+            (edge, False, None)
             for edge in outgoing.get(state.node_id, ())
             if edge.target_id in target_cone_nodes
             and _matches_target_entry_context(edge, anchors)
+            and edge.id != state.suppressed_loop_edge_id
+            and edge.id != accelerated_edge_id
         ]
+        if acceleration is not None:
+            traversal_options.append((acceleration.edge, False, acceleration))
         prior_edge_id = prefix_store.last_edge_id(state.prefix_id)
         if state.call_stack and prior_edge_id is not None:
             prior_edge = edge_by_id[prior_edge_id]
@@ -673,10 +715,29 @@ def solve_route(
                 and state.call_stack[-1] in call_summaries
                 and call_summaries[state.call_stack[-1]].target_id in target_cone_nodes
             ):
-                traversal_options.append((call_summaries[state.call_stack[-1]], True))
-        for edge, is_resume in traversal_options:
+                traversal_options.append(
+                    (call_summaries[state.call_stack[-1]], True, None)
+                )
+        traversal_options.sort(key=lambda item: (item[0].id, item[1], item[2] is None))
+        for edge, is_resume, accelerated in traversal_options:
             traversed_edge_ids.add(edge.id)
-            if is_resume:
+            next_state: _SearchState | None
+            contradiction_fact_ids_for_edge: tuple[str, ...]
+            traversal_limit: str | None
+            if accelerated is not None:
+                next_state = _traverse_accelerated_loop(
+                    state,
+                    accelerated,
+                    occurrence_edge,
+                    lane_by_scene,
+                    scene_by_node,
+                    projection,
+                    material_edge_ids,
+                    prefix_store,
+                )
+                contradiction_fact_ids_for_edge = ()
+                traversal_limit = None
+            elif is_resume:
                 next_state, traversal_limit = _resume_call_summary(
                     state,
                     edge,
@@ -687,7 +748,7 @@ def solve_route(
                     prefix_store,
                     request.limits,
                 )
-                contradiction_fact_ids_for_edge: tuple[str, ...] = ()
+                contradiction_fact_ids_for_edge = ()
             else:
                 next_state, contradiction_fact_ids_for_edge, traversal_limit = _traverse_edge(
                     state,
@@ -1593,6 +1654,304 @@ def _apply_node_effects(
     )
 
 
+def _exact_loop_acceleration(
+    state: _SearchState,
+    outgoing: Sequence[CanonicalEdge],
+    nodes: Mapping[str, CanonicalNode],
+    facts: Mapping[str, CanonicalFact],
+    projection: NumericProjection,
+    target_cone_nodes: set[str],
+    anchors: Sequence[_TargetAnchor],
+) -> _ExactLoopAcceleration | None:
+    """Return one exact M10-authorized monotone self-loop acceleration, if any."""
+
+    node = nodes[state.node_id]
+    loop_ids = set(_strings(node.attributes.get("loop_ids")))
+    loop_edges = tuple(
+        edge
+        for edge in outgoing
+        if edge.source_id == state.node_id
+        and edge.target_id == state.node_id
+        and (
+            edge.kind == "loop_back"
+            or "loop_back" in set(_strings(edge.attributes.get("semantic_roles")))
+        )
+    )
+    edge = loop_edges[0] if len(loop_edges) == 1 else None
+    if edge is None:
+        return None
+
+    relevant = {item.key for item in projection.relevant_variables}
+    effect_facts: list[CanonicalFact] = []
+    deltas: dict[str, int | float] = {}
+    relevant_one_shot = False
+    unresolved_write = False
+    for fact_id in _strings(edge.attributes.get("effect_ids")):
+        fact = facts.get(fact_id)
+        if fact is None or fact.kind != "effect":
+            unresolved_write = True
+            continue
+        variable_name = fact.attributes.get("variable")
+        if not isinstance(variable_name, str) or not variable_name:
+            unresolved_write = True
+            continue
+        variable_key = identity_from_name(variable_name).key
+        if variable_key not in relevant:
+            continue
+        delta = _numeric_effect_delta(fact)
+        if fact.status != "proven" or delta is None:
+            relevant_one_shot = fact.status == "proven"
+            unresolved_write = unresolved_write or fact.status != "proven"
+            continue
+        if not _is_number(state.values.get(variable_key, _UNKNOWN)):
+            unresolved_write = True
+            continue
+        effect_facts.append(fact)
+        deltas[variable_key] = deltas.get(variable_key, 0) + delta
+
+    repetitions = _exact_stopping_repetitions(
+        state.values,
+        deltas,
+        tuple(
+            candidate
+            for candidate in outgoing
+            if candidate.id != edge.id
+            and candidate.target_id in target_cone_nodes
+            and _matches_target_entry_context(candidate, anchors)
+        ),
+        facts,
+    )
+    decision = loop_acceleration_decision(
+        LoopAccelerationSummary(
+            same_transition_summary=(
+                edge.resolved
+                and not _strings(edge.attributes.get("gate_ids"))
+                and len(loop_edges) == 1
+            ),
+            same_structural_context=bool(loop_ids) and edge.source_id == edge.target_id,
+            same_call_context=edge.kind
+            not in {"call_enter", "call_summary", "call_return"},
+            relevant_one_shot_change=relevant_one_shot,
+            relevant_branch_change=(
+                len(loop_edges) != 1
+                or bool(_strings(edge.attributes.get("gate_ids")))
+            ),
+            unresolved_relevant_write=unresolved_write,
+            repeated_effect_proven=bool(effect_facts) and bool(deltas),
+            stopping_threshold_proven=repetitions is not None,
+        )
+    )
+    if not decision.eligible or repetitions is None:
+        return None
+    return _ExactLoopAcceleration(edge, repetitions, tuple(effect_facts))
+
+
+def _numeric_effect_delta(fact: CanonicalFact) -> int | float | None:
+    value = fact.attributes.get("value")
+    operation = str(fact.attributes.get("operation", ""))
+    if not _is_number(value) or operation not in {"increment", "decrement"}:
+        return None
+    assert isinstance(value, int | float) and not isinstance(value, bool)
+    return value if operation == "increment" else -value
+
+
+def _exact_stopping_repetitions(
+    values: Mapping[str, object],
+    deltas: Mapping[str, int | float],
+    exit_edges: Sequence[CanonicalEdge],
+    facts: Mapping[str, CanonicalFact],
+) -> int | None:
+    candidates: list[int] = []
+    for exit_edge in sorted(exit_edges, key=lambda item: item.id):
+        gate_ids = _strings(exit_edge.attributes.get("gate_ids"))
+        if not exit_edge.resolved or not gate_ids:
+            continue
+        expressions: list[str] = []
+        terms: list[_ConstraintTerm] = []
+        supported = True
+        for fact_id in gate_ids:
+            fact = facts.get(fact_id)
+            if fact is None or fact.kind != "requirement" or fact.status != "proven":
+                supported = False
+                break
+            expression = str(fact.attributes.get("original_expression", ""))
+            parsed_terms = _supported_constraint_terms(expression)
+            if not parsed_terms or _safe_condition(expression, values) is None:
+                supported = False
+                break
+            expressions.append(expression)
+            terms.extend(parsed_terms)
+        if not supported or all(_safe_condition(item, values) is True for item in expressions):
+            continue
+        required: list[int] = []
+        for term in terms:
+            repetitions = _minimum_term_repetitions(term, values, deltas)
+            if repetitions is None:
+                supported = False
+                break
+            required.append(repetitions)
+        if not supported:
+            continue
+        repetitions = max(required, default=0)
+        if repetitions < 1:
+            continue
+        projected = _values_after_repetitions(values, deltas, repetitions)
+        if not all(_safe_condition(item, projected) is True for item in expressions):
+            continue
+        candidates.append(repetitions)
+    return min(candidates) if candidates else None
+
+
+def _minimum_term_repetitions(
+    term: _ConstraintTerm,
+    values: Mapping[str, object],
+    deltas: Mapping[str, int | float],
+) -> int | None:
+    current = values.get(term.variable_key, _UNKNOWN)
+    if _constraint_term_truth(term, current) is True:
+        return 0
+    delta = deltas.get(term.variable_key)
+    if not _is_number(current) or not _is_number(term.value) or not _is_number(delta):
+        return None
+    assert isinstance(current, int | float) and not isinstance(current, bool)
+    assert isinstance(term.value, int | float) and not isinstance(term.value, bool)
+    assert isinstance(delta, int | float) and not isinstance(delta, bool)
+    if delta == 0:
+        return None
+    if term.operator == "eq":
+        quotient = (term.value - current) / delta
+        repetitions = int(quotient)
+        return repetitions if repetitions > 0 and quotient == repetitions else None
+    if term.operator == "ne":
+        return 1
+    if term.operator == "ge" and delta > 0:
+        return max(1, math.ceil((term.value - current) / delta))
+    if term.operator == "gt" and delta > 0:
+        return max(1, math.floor((term.value - current) / delta) + 1)
+    if term.operator == "le" and delta < 0:
+        return max(1, math.ceil((current - term.value) / -delta))
+    if term.operator == "lt" and delta < 0:
+        return max(1, math.floor((current - term.value) / -delta) + 1)
+    return None
+
+
+def _constraint_term_truth(term: _ConstraintTerm, value: object) -> bool | None:
+    if value is _UNKNOWN:
+        return None
+    try:
+        if term.operator == "eq":
+            return _literal_equal(cast(StateScalar, value), term.value)
+        if term.operator == "ne":
+            return not _literal_equal(cast(StateScalar, value), term.value)
+        if term.operator == "ge":
+            return bool(value >= term.value)  # type: ignore[operator]
+        if term.operator == "gt":
+            return bool(value > term.value)  # type: ignore[operator]
+        if term.operator == "le":
+            return bool(value <= term.value)  # type: ignore[operator]
+        if term.operator == "lt":
+            return bool(value < term.value)  # type: ignore[operator]
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _values_after_repetitions(
+    values: Mapping[str, object],
+    deltas: Mapping[str, int | float],
+    repetitions: int,
+) -> dict[str, object]:
+    projected = dict(values)
+    for variable_key, delta in deltas.items():
+        current = projected.get(variable_key, _UNKNOWN)
+        if _is_number(current):
+            assert isinstance(current, int | float) and not isinstance(current, bool)
+            projected[variable_key] = current + (delta * repetitions)
+    return projected
+
+
+def _traverse_accelerated_loop(
+    state: _SearchState,
+    acceleration: _ExactLoopAcceleration,
+    occurrence_edges: Mapping[str, str],
+    lane_by_scene: Mapping[str, str],
+    scene_by_node: Mapping[str, str],
+    projection: NumericProjection,
+    material_edge_ids: set[str],
+    prefix_store: _RoutePrefixStore,
+) -> _SearchState:
+    edge = acceleration.edge
+    repetitions = acceleration.repetitions
+    values = dict(state.values)
+    sources = dict(state.value_sources)
+    constraints = state.constraints
+    relevant = {item.key for item in projection.relevant_variables}
+    for fact in acceleration.effect_facts:
+        variable_name = cast(str, fact.attributes["variable"])
+        variable_key = identity_from_name(variable_name).key
+        if variable_key not in relevant:
+            continue
+        delta = _numeric_effect_delta(fact)
+        current = values.get(variable_key, _UNKNOWN)
+        assert delta is not None and _is_number(current)
+        assert isinstance(current, int | float) and not isinstance(current, bool)
+        values[variable_key] = current + (delta * repetitions)
+        prior_source = sources.get(variable_key)
+        prior_effect_ids = prior_source.effect_ids if prior_source is not None else ()
+        effect_ids = tuple(dict.fromkeys((*prior_effect_ids, fact.id)))
+        effect_counts = dict(prior_source.effect_counts) if prior_source is not None else {}
+        effect_counts[fact.id] = effect_counts.get(fact.id, 0) + repetitions
+        sources[variable_key] = _ValueSource(
+            effect_ids,
+            tuple((effect_id, effect_counts[effect_id]) for effect_id in effect_ids),
+            fact.id,
+            (
+                prior_source.depends_on_entry_precondition
+                if prior_source is not None
+                else False
+            ),
+        )
+        constraints = _constraint_with_exact_value(
+            constraints,
+            variable_key,
+            cast(StateScalar, values[variable_key]),
+            sources[variable_key].effect_ids,
+        )
+    target_scene = scene_by_node.get(edge.target_id)
+    persistent = list(state.persistent_lane_ids)
+    if target_scene is not None:
+        lane = lane_by_scene.get(target_scene)
+        if lane is not None and lane not in persistent:
+            persistent.append(lane)
+    prior_count = prefix_store.transition_count(state.prefix_id, edge.id)
+    prefix_id = prefix_store.append(
+        state.prefix_id,
+        edge.target_id,
+        edge.id,
+        scene_id=target_scene,
+        material_edge=edge.id in material_edge_ids,
+        repetitions=repetitions,
+    )
+    added_loop_count = max(0, prior_count + repetitions - 1) - max(
+        0, prior_count - 1
+    )
+    return _SearchState(
+        edge.target_id,
+        values,
+        sources,
+        state.initial_kinds,
+        constraints,
+        prefix_id,
+        state.requirements,
+        state.warnings,
+        state.call_stack,
+        occurrence_edges.get(edge.id, state.selected_occurrence_id),
+        tuple(persistent),
+        state.loop_count + added_loop_count,
+        edge.id,
+    )
+
+
 def _traverse_edge(
     state: _SearchState,
     edge: CanonicalEdge,
@@ -1717,6 +2076,7 @@ def _traverse_edge(
             selected_occurrence,
             tuple(persistent),
             loops,
+            None,
         ),
         (),
         None,
@@ -1785,6 +2145,7 @@ def _resume_call_summary(
             state.selected_occurrence_id,
             tuple(persistent),
             state.loop_count + (1 if count > 1 else 0),
+            None,
         ),
         None,
     )
@@ -2196,12 +2557,26 @@ def _route_alternative(
         )
     )
     warnings = tuple(state.warnings)
+    accelerated_counts = prefix_store.accelerated_counts(state.prefix_id)
+    accelerated_effect_ids = {
+        fact_id
+        for edge_id in accelerated_counts
+        for fact_id in _strings(edge_by_id[edge_id].attributes.get("effect_ids"))
+    }
     edge_repeated_claims = tuple(
         _edge_claim(
-            f"Repeat the supported action {count - 1} additional time(s).",
+            (
+                f"Repeat the supported action {accelerated_counts[edge_id]} proven time(s)."
+                if edge_id in accelerated_counts
+                else f"Repeat the supported action {count - 1} additional time(s)."
+            ),
             edge_by_id[edge_id],
             node_by_id,
-            repeated_count=count - 1,
+            repeated_count=(
+                accelerated_counts[edge_id]
+                if edge_id in accelerated_counts
+                else count - 1
+            ),
         )
         for edge_id, count in sorted(transition_counts.items())
         if count > 1
@@ -2220,7 +2595,7 @@ def _route_alternative(
         )
         for item in requirements
         for effect_id, count in item.supporting_effect_counts
-        if count > 1 and effect_id in facts
+        if count > 1 and effect_id in facts and effect_id not in accelerated_effect_ids
     )
     repeated_claims = (*edge_repeated_claims, *requirement_repeated_claims)
     lane_records = {item.id: item for item in scene_model.lanes}
@@ -2708,6 +3083,7 @@ def _state_key(
         state.warnings,
         state.persistent_lane_ids,
         state.selected_occurrence_id,
+        state.suppressed_loop_edge_id,
     )
 
 
@@ -2779,6 +3155,7 @@ def _accounting_units(state: _SearchState) -> int:
         + len(state.values)
         + len(state.requirements)
         + len(state.call_stack)
+        + (1 if state.suppressed_loop_edge_id is not None else 0)
         + sum(
             1
             + len(item.equality)
