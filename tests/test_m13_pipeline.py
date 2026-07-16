@@ -11,6 +11,7 @@ from renpy_story_mapper.narrative.contracts import (
     ProviderIdentity,
     ProviderSettings,
 )
+from renpy_story_mapper.narrative.hierarchy import HierarchyPartitionConfig
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
     _m12_leaves,
@@ -29,6 +30,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.segments import SegmentPartitionConfig
 from renpy_story_mapper.narrative.workflow import (
     grant_narrative_consent,
     prepare_narrative_scene_run,
@@ -240,6 +242,101 @@ def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path
         assert replay.record.usage.provider_calls == 0
         assert replay.artifacts == first.artifacts
         assert all(item.cache_replay for item in replay.jobs)
+
+
+def test_complete_pipeline_reduces_every_oversized_hierarchy_level(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-pipeline.rsmproj"
+    segment_config = SegmentPartitionConfig(
+        "und",
+        "default",
+        minimum_children=1,
+        target_children=2,
+        maximum_children=2,
+        maximum_input_tokens=100_000,
+    )
+    hierarchy_config = HierarchyPartitionConfig(
+        "und",
+        "default",
+        maximum_children=2,
+        maximum_input_tokens=100_000,
+    )
+
+    first_provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="tiny-fan-in",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        result = run_complete_narrative(
+            project,
+            first_provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+            segment_config=segment_config,
+            hierarchy_config=hierarchy_config,
+        )
+
+        assert result.record.state.value == "succeeded"
+        assert result.unresolved_codes == ()
+        assert result.artifacts.plot_artifact_id is not None
+        generic_reductions = 0
+        for artifact_id in result.artifacts.segment_artifact_ids:
+            lookup = project.m13_persistence().lookup(RecordKind.ARTIFACT, artifact_id)
+            assert lookup.state is LookupState.HIT
+            assert lookup.payload is not None
+            hierarchy = lookup.payload["hierarchy"]
+            assert len(hierarchy["section_entries"]) <= 2
+            if any(
+                entry["job_kind"] in {"chapter", "route", "ending"}
+                for entry in hierarchy["section_entries"]
+            ):
+                generic_reductions += 1
+        assert generic_reductions > 0
+
+        plot = project.m13_persistence().lookup(
+            RecordKind.ARTIFACT,
+            result.artifacts.plot_artifact_id,
+        )
+        assert plot.payload is not None
+        assert len(plot.payload["hierarchy"]["section_entries"]) <= 2
+        assert (
+            plot.payload["hierarchy"]["chronology_policy"]
+            == "shared_then_separate_routes_and_endings"
+        )
+
+    replay_provider = CompleteHierarchyProvider()
+    with Project.open(project_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            replay_provider,
+            run_id="tiny-fan-in-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        replay = run_complete_narrative(
+            project,
+            replay_provider,
+            prepared,
+            grant_narrative_consent(project, prepared),
+            policy=SchedulerPolicy(_batch_limits()),
+            segment_config=segment_config,
+            hierarchy_config=hierarchy_config,
+        )
+        assert replay_provider.requests == []
+        assert replay.artifacts == result.artifacts
 
 
 def test_content_refusal_is_job_local_and_retry_reuses_valid_artifacts(

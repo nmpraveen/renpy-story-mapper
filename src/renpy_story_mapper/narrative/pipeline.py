@@ -83,6 +83,7 @@ from renpy_story_mapper.project import Project
 from renpy_story_mapper.storage import canonical_json
 
 CancelledCallback = Callable[[], bool]
+HIERARCHY_REDUCTION_PARTITION_VERSION = "m13-hierarchy-reduction-v1"
 
 
 @dataclass(frozen=True)
@@ -340,19 +341,75 @@ def run_complete_narrative(
     )
     common_candidate: _ArtifactCandidate | None = None
     if shared_chapters:
+        common_lanes = {
+            item.path.persistent_lane_id
+            for item in shared_chapters
+            if item.path.persistent_lane_id is not None
+        }
+        if len(common_lanes) > 1:
+            raise ValueError("shared chapter candidates cross common M11 lanes")
+        common_path = HierarchyPathContext(
+            StorySection.COMMON,
+            persistent_lane_id=next(iter(common_lanes), None),
+        )
+        common_policy = (
+            ChronologyPolicy.STRUCTURED_ALTERNATIVES
+            if any(
+                item.path.section is StorySection.TEMPORARY_BRANCH
+                or (
+                    item.runtime is not None
+                    and item.runtime.contains_structured_alternatives
+                )
+                for item in shared_chapters
+            )
+            else ChronologyPolicy.LINEAR
+        )
+        shared_inputs, reduction_phases, reduction_ids, usage = _reduce_hierarchy_fan_in(
+            project,
+            provider,
+            prepared,
+            consent,
+            shared_chapters,
+            purpose="common-story",
+            target_path=common_path,
+            chronology_policy=common_policy,
+            reserved_children=(),
+            policy=policy,
+            config=hierarchy_config,
+            pricing=pricing,
+            scope_id=scope_id,
+            initial_usage=usage,
+            cancelled=cancelled,
+        )
+        phases.extend(reduction_phases)
+        all_segment_ids.extend(reduction_ids)
+        if any(_terminal_phase(item.record, cancelled) for item in reduction_phases):
+            return _finish_pipeline(
+                project,
+                consent,
+                phases,
+                PipelineArtifactSet(
+                    scene_artifact_ids,
+                    tuple(dict.fromkeys(all_segment_ids)),
+                    tuple(
+                        item.artifact_id for item in chapter_candidates if item.available
+                    ),
+                ),
+                tuple((*unresolved, "common_reduction_stopped")),
+            )
         common_plan = plan_common_story_job(
-            tuple(item.hierarchy_input() for item in shared_chapters),
+            tuple(item.hierarchy_input() for item in shared_inputs),
             hierarchy_config,
         )
         if common_plan.reductions:
-            unresolved.append("common_story_reduction_required")
+            raise ValueError("common-story fan-in remained oversized after reduction")
         common_level = _execute_descriptors(
             project,
             provider,
             prepared,
             consent,
             common_plan.jobs,
-            {item.artifact_id: item for item in shared_chapters},
+            {item.artifact_id: item for item in shared_inputs},
             policy=policy,
             scope_id=scope_id,
             initial_usage=usage,
@@ -409,18 +466,55 @@ def run_complete_narrative(
                 StorySection.UNRESOLVED,
             }
         )
+        route_inputs, reduction_phases, reduction_ids, usage = _reduce_hierarchy_fan_in(
+            project,
+            provider,
+            prepared,
+            consent,
+            route_chapter_children,
+            purpose=f"persistent-route:{route.route_id}",
+            target_path=HierarchyPathContext(
+                StorySection.PERSISTENT_ROUTE,
+                persistent_lane_id=route.persistent_lane_id,
+                route_id=route.route_id,
+            ),
+            chronology_policy=ChronologyPolicy.ROUTE_AWARE,
+            reserved_children=(common_candidate,),
+            policy=policy,
+            config=hierarchy_config,
+            pricing=pricing,
+            scope_id=scope_id,
+            initial_usage=usage,
+            cancelled=cancelled,
+        )
+        phases.extend(reduction_phases)
+        all_segment_ids.extend(reduction_ids)
+        if any(_terminal_phase(item.record, cancelled) for item in reduction_phases):
+            return _finish_pipeline(
+                project,
+                consent,
+                phases,
+                PipelineArtifactSet(
+                    scene_artifact_ids=scene_artifact_ids,
+                    segment_artifact_ids=tuple(dict.fromkeys(all_segment_ids)),
+                    chapter_artifact_ids=tuple(
+                        item.artifact_id for item in chapter_candidates if item.available
+                    ),
+                    common_story_artifact_id=common_candidate.artifact_id,
+                ),
+                tuple((*unresolved, "route_reduction_stopped")),
+            )
         plan = plan_persistent_route_job(
             route,
             common_candidate.hierarchy_input(),
-            tuple(item.hierarchy_input() for item in route_chapter_children),
+            tuple(item.hierarchy_input() for item in route_inputs),
             hierarchy_config,
             m12_authority_leaves=m12_leaves.get(route.route_id, ()),
         )
         if plan.reductions:
-            unresolved.append("route_reduction_required")
-            continue
+            raise ValueError("persistent-route fan-in remained oversized after reduction")
         route_descriptors.extend(plan.jobs)
-        route_children.update({item.artifact_id: item for item in route_chapter_children})
+        route_children.update({item.artifact_id: item for item in route_inputs})
     route_level = _execute_descriptors(
         project,
         provider,
@@ -478,9 +572,57 @@ def run_complete_narrative(
         if route_id is not None and route_candidate is None:
             unresolved.append("ending_route_unavailable")
             continue
+        ending_inputs, reduction_phases, reduction_ids, usage = _reduce_hierarchy_fan_in(
+            project,
+            provider,
+            prepared,
+            consent,
+            ending_members,
+            purpose=f"ending:{ending_id}:{route_id or 'common'}",
+            target_path=HierarchyPathContext(
+                StorySection.ENDING,
+                persistent_lane_id=lane_id,
+                route_id=route_id,
+                ending_id=ending_id,
+            ),
+            chronology_policy=(
+                ChronologyPolicy.ROUTE_AWARE
+                if route_id is not None
+                else ChronologyPolicy.LINEAR
+            ),
+            reserved_children=(
+                () if route_candidate is None else (route_candidate,)
+            ),
+            policy=policy,
+            config=hierarchy_config,
+            pricing=pricing,
+            scope_id=scope_id,
+            initial_usage=usage,
+            cancelled=cancelled,
+        )
+        phases.extend(reduction_phases)
+        all_segment_ids.extend(reduction_ids)
+        if any(_terminal_phase(item.record, cancelled) for item in reduction_phases):
+            return _finish_pipeline(
+                project,
+                consent,
+                phases,
+                PipelineArtifactSet(
+                    scene_artifact_ids=scene_artifact_ids,
+                    segment_artifact_ids=tuple(dict.fromkeys(all_segment_ids)),
+                    chapter_artifact_ids=tuple(
+                        item.artifact_id for item in chapter_candidates if item.available
+                    ),
+                    common_story_artifact_id=common_candidate.artifact_id,
+                    route_artifact_ids=tuple(
+                        item.artifact_id for item in route_candidates if item.available
+                    ),
+                ),
+                tuple((*unresolved, "ending_reduction_stopped")),
+            )
         plan = plan_ending_job(
             spec,
-            tuple(item.hierarchy_input() for item in ending_members),
+            tuple(item.hierarchy_input() for item in ending_inputs),
             hierarchy_config,
             route_artifact=(None if route_candidate is None else route_candidate.hierarchy_input()),
             m12_authority_leaves=(
@@ -488,11 +630,10 @@ def run_complete_narrative(
             ),
         )
         if plan.reductions:
-            unresolved.append("ending_reduction_required")
-            continue
+            raise ValueError("ending fan-in remained oversized after reduction")
         ending_specs.append(spec)
         ending_descriptors.extend(plan.jobs)
-        ending_children.update({item.artifact_id: item for item in ending_members})
+        ending_children.update({item.artifact_id: item for item in ending_inputs})
         if route_candidate is not None:
             ending_children[route_candidate.artifact_id] = route_candidate
     ending_level = _execute_descriptors(
@@ -529,61 +670,169 @@ def run_complete_narrative(
         (*segment_roots, *chapter_candidates, *route_candidates, *ending_candidates),
         common_candidate,
     )
-    plot_plan = plan_plot_job(
-        common_candidate.hierarchy_input(),
-        tuple(item.hierarchy_input() for item in accepted_routes),
-        tuple(item.hierarchy_input() for item in accepted_endings),
-        tuple(item.hierarchy_input() for item in unresolved_inputs),
-        hierarchy_config,
-    )
-    if plot_plan.reductions:
-        unresolved.append("plot_reduction_required")
-    else:
-        plot_children = {
-            item.artifact_id: item
-            for item in (
-                common_candidate,
-                *accepted_routes,
-                *accepted_endings,
-                *unresolved_inputs,
-            )
-        }
-        plot_level = _execute_descriptors(
+    plot_direct_children = (*accepted_routes, *accepted_endings, *unresolved_inputs)
+    plot_inputs, plot_reduction_phases, plot_reduction_ids, usage = (
+        _reduce_hierarchy_fan_in(
             project,
             provider,
             prepared,
             consent,
-            plot_plan.jobs,
-            plot_children,
+            plot_direct_children,
+            purpose="whole-plot",
+            target_path=HierarchyPathContext(
+                StorySection.COMMON,
+                persistent_lane_id=common_candidate.path.persistent_lane_id,
+            ),
+            chronology_policy=ChronologyPolicy.ROUTE_AWARE,
+            reserved_children=(common_candidate,),
             policy=policy,
+            config=hierarchy_config,
+            pricing=pricing,
             scope_id=scope_id,
             initial_usage=usage,
-            pricing=pricing,
             cancelled=cancelled,
-            title=lambda _descriptor: "Whole plot",
-            summary=lambda _descriptor: "Whole-plot summary unavailable.",
         )
-        if plot_level is not None:
-            phases.append(plot_level.scheduler)
-            usage = plot_level.scheduler.record.usage
-            plot_candidate = plot_level.candidates[0]
+    )
+    phases.extend(plot_reduction_phases)
+    all_segment_ids.extend(plot_reduction_ids)
+    if any(_terminal_phase(item.record, cancelled) for item in plot_reduction_phases):
+        return _finish_pipeline(
+            project,
+            consent,
+            phases,
+            PipelineArtifactSet(
+                scene_artifact_ids=scene_artifact_ids,
+                segment_artifact_ids=tuple(dict.fromkeys(all_segment_ids)),
+                chapter_artifact_ids=tuple(
+                    item.artifact_id for item in chapter_candidates if item.available
+                ),
+                common_story_artifact_id=common_candidate.artifact_id,
+                route_artifact_ids=tuple(
+                    item.artifact_id for item in route_candidates if item.available
+                ),
+                ending_artifact_ids=tuple(
+                    item.artifact_id for item in ending_candidates if item.available
+                ),
+            ),
+            tuple((*unresolved, "plot_reduction_stopped")),
+        )
+    reduced_plot = bool(plot_reduction_phases)
+    plot_plan = plan_plot_job(
+        common_candidate.hierarchy_input(),
+        (
+            ()
+            if reduced_plot
+            else tuple(item.hierarchy_input() for item in accepted_routes)
+        ),
+        (
+            ()
+            if reduced_plot
+            else tuple(item.hierarchy_input() for item in accepted_endings)
+        ),
+        (
+            ()
+            if reduced_plot
+            else tuple(item.hierarchy_input() for item in unresolved_inputs)
+        ),
+        hierarchy_config,
+        reduction_artifacts=(
+            tuple(item.hierarchy_input() for item in plot_inputs) if reduced_plot else ()
+        ),
+    )
+    if plot_plan.reductions:
+        raise ValueError("plot fan-in remained oversized after reduction")
+    plot_children = {
+        item.artifact_id: item
+        for item in (
+            common_candidate,
+            *(plot_inputs if reduced_plot else plot_direct_children),
+        )
+    }
+    plot_level = _execute_descriptors(
+        project,
+        provider,
+        prepared,
+        consent,
+        plot_plan.jobs,
+        plot_children,
+        policy=policy,
+        scope_id=scope_id,
+        initial_usage=usage,
+        pricing=pricing,
+        cancelled=cancelled,
+        title=lambda _descriptor: "Whole plot",
+        summary=lambda _descriptor: "Whole-plot summary unavailable.",
+    )
+    if plot_level is not None:
+        phases.append(plot_level.scheduler)
+        usage = plot_level.scheduler.record.usage
+        plot_candidate = plot_level.candidates[0]
 
     character_candidates: tuple[_ArtifactCandidate, ...] = ()
     if include_characters and not cancelled():
-        character_descriptors, character_children = _character_plans(
+        character_groups = _character_candidate_groups(
             placements,
             common_candidate,
             route_candidates,
             ending_candidates,
-            hierarchy_config,
         )
+        character_descriptors: list[HierarchyJobDescriptor] = []
+        character_children: dict[str, _ArtifactCandidate] = {}
+        for character_id, selected in character_groups:
+            route_aware = len({item.path.route_id for item in selected}) > 1 or any(
+                item.path.section
+                in {StorySection.TEMPORARY_BRANCH, StorySection.ENDING}
+                or (
+                    item.runtime is not None
+                    and item.runtime.contains_structured_alternatives
+                )
+                for item in selected
+            )
+            character_inputs, reduction_phases, reduction_ids, usage = (
+                _reduce_hierarchy_fan_in(
+                    project,
+                    provider,
+                    prepared,
+                    consent,
+                    selected,
+                    purpose=f"character-role:{character_id}",
+                    target_path=HierarchyPathContext(StorySection.COMMON),
+                    chronology_policy=(
+                        ChronologyPolicy.ROUTE_AWARE
+                        if route_aware
+                        else ChronologyPolicy.LINEAR
+                    ),
+                    reserved_children=(),
+                    policy=policy,
+                    config=hierarchy_config,
+                    pricing=pricing,
+                    scope_id=scope_id,
+                    initial_usage=usage,
+                    cancelled=cancelled,
+                )
+            )
+            phases.extend(reduction_phases)
+            all_segment_ids.extend(reduction_ids)
+            if any(_terminal_phase(item.record, cancelled) for item in reduction_phases):
+                break
+            character_plan = plan_character_role_job(
+                character_id,
+                tuple(item.hierarchy_input() for item in character_inputs),
+                hierarchy_config,
+            )
+            if character_plan.reductions:
+                raise ValueError("character fan-in remained oversized after reduction")
+            character_descriptors.extend(character_plan.jobs)
+            character_children.update(
+                {item.artifact_id: item for item in character_inputs}
+            )
         if character_descriptors:
             character_level = _execute_descriptors(
                 project,
                 provider,
                 prepared,
                 consent,
-                character_descriptors,
+                tuple(character_descriptors),
                 character_children,
                 policy=policy,
                 scope_id=scope_id,
@@ -1048,6 +1297,238 @@ def _segment_hierarchy_descriptor(
     )
 
 
+def _reduce_hierarchy_fan_in(
+    project: Project,
+    provider: NarrativeProvider,
+    prepared_run: PreparedNarrativeRun,
+    consent: ConsentManifest,
+    children: Sequence[_ArtifactCandidate],
+    *,
+    purpose: str,
+    target_path: HierarchyPathContext,
+    chronology_policy: ChronologyPolicy,
+    reserved_children: Sequence[_ArtifactCandidate],
+    policy: SchedulerPolicy,
+    config: HierarchyPartitionConfig,
+    pricing: ProviderPricing | None,
+    scope_id: str,
+    initial_usage: SchedulerUsage,
+    cancelled: CancelledCallback,
+) -> tuple[
+    tuple[_ArtifactCandidate, ...],
+    tuple[SchedulerRunResult, ...],
+    tuple[str, ...],
+    SchedulerUsage,
+]:
+    """Dynamically reduce accepted higher-level artifacts through bounded internal segments."""
+
+    current = tuple(sorted(children, key=_candidate_order))
+    reserved = tuple(reserved_children)
+    phases: list[SchedulerRunResult] = []
+    artifact_ids: list[str] = []
+    usage = initial_usage
+    level = 0
+    while _hierarchy_fan_in_oversized(current, reserved, config):
+        groups = _partition_hierarchy_candidates(current, config)
+        descriptors = tuple(
+            _hierarchy_reduction_descriptor(
+                group,
+                purpose=purpose,
+                level=level,
+                ordinal=ordinal,
+                target_path=target_path,
+                chronology_policy=chronology_policy,
+                config=config,
+            )
+            for ordinal, group in enumerate(groups)
+        )
+        child_index = {item.artifact_id: item for item in current}
+        executed = _execute_descriptors(
+            project,
+            provider,
+            prepared_run,
+            consent,
+            descriptors,
+            child_index,
+            policy=policy,
+            scope_id=scope_id,
+            initial_usage=usage,
+            pricing=pricing,
+            cancelled=cancelled,
+            title=lambda _descriptor: "Internal hierarchy segment",
+            summary=lambda _descriptor: "Bounded hierarchy reduction unavailable.",
+        )
+        if executed is None:
+            raise ValueError("hierarchy reduction produced no executable descriptors")
+        phases.append(executed.scheduler)
+        usage = executed.scheduler.record.usage
+        artifact_ids.extend(item.artifact_id for item in executed.candidates if item.available)
+        previous_measure = (
+            len(current),
+            sum(item.estimated_tokens for item in current if item.available),
+        )
+        current = tuple(sorted(executed.candidates, key=_candidate_order))
+        next_measure = (
+            len(current),
+            sum(item.estimated_tokens for item in current if item.available),
+        )
+        if not (next_measure[0] < previous_measure[0] or next_measure[1] < previous_measure[1]):
+            raise ValueError("hierarchy reduction cannot make bounded fan-in progress")
+        level += 1
+        if _terminal_phase(executed.scheduler.record, cancelled):
+            break
+    return current, tuple(phases), tuple(artifact_ids), usage
+
+
+def _hierarchy_fan_in_oversized(
+    children: Sequence[_ArtifactCandidate],
+    reserved: Sequence[_ArtifactCandidate],
+    config: HierarchyPartitionConfig,
+) -> bool:
+    combined = (*reserved, *children)
+    return (
+        len(combined) > config.maximum_children
+        or config.prompt_overhead_tokens
+        + sum(item.estimated_tokens for item in combined if item.available)
+        > config.maximum_input_tokens
+    )
+
+
+def _partition_hierarchy_candidates(
+    children: tuple[_ArtifactCandidate, ...],
+    config: HierarchyPartitionConfig,
+) -> tuple[tuple[_ArtifactCandidate, ...], ...]:
+    if not children:
+        raise ValueError("hierarchy reduction requires at least one child")
+    target_children = min(24, config.maximum_children)
+    group_count = max(1, math.ceil(len(children) / target_children))
+    base, remainder = divmod(len(children), group_count)
+    balanced: list[tuple[_ArtifactCandidate, ...]] = []
+    offset = 0
+    for index in range(group_count):
+        size = base + (1 if index < remainder else 0)
+        balanced.append(children[offset : offset + size])
+        offset += size
+    capacity = config.maximum_input_tokens - config.prompt_overhead_tokens
+    result: list[tuple[_ArtifactCandidate, ...]] = []
+    for group in balanced:
+        pending: list[_ArtifactCandidate] = []
+        tokens = 0
+        for child in group:
+            child_tokens = child.estimated_tokens if child.available else 0
+            if child_tokens > capacity:
+                raise ValueError("one hierarchy child exceeds the reduction token capacity")
+            if pending and (
+                len(pending) >= config.maximum_children or tokens + child_tokens > capacity
+            ):
+                result.append(tuple(pending))
+                pending = []
+                tokens = 0
+            pending.append(child)
+            tokens += child_tokens
+        if pending:
+            result.append(tuple(pending))
+    return tuple(result)
+
+
+def _hierarchy_reduction_descriptor(
+    children: tuple[_ArtifactCandidate, ...],
+    *,
+    purpose: str,
+    level: int,
+    ordinal: int,
+    target_path: HierarchyPathContext,
+    chronology_policy: ChronologyPolicy,
+    config: HierarchyPartitionConfig,
+) -> HierarchyJobDescriptor:
+    if not children or any(item.job_kind is LogicalJobKind.SCENE for item in children):
+        raise ValueError("higher hierarchy segments require non-scene child artifacts")
+    child_ids = tuple(item.artifact_id for item in children)
+    material = {
+        "artifact_kind": "m13_hierarchy_summary_segment",
+        "partition_version": HIERARCHY_REDUCTION_PARTITION_VERSION,
+        "purpose": purpose,
+        "level": level,
+        "locale": config.locale,
+        "perspective": config.perspective,
+        "target_path": target_path.to_dict(),
+        "chronology_policy": chronology_policy.value,
+        "ordered_child_artifact_ids": list(child_ids),
+        "ordered_child_contexts": [item.hierarchy_input().context_dict() for item in children],
+    }
+    fingerprint = canonical_hash(material)
+    chapter_ids = {item.chapter_id for item in children if item.chapter_id is not None}
+    occurrence_ids = {item.occurrence_id for item in children if item.occurrence_id is not None}
+    call_ids = {item.call_site_id for item in children if item.call_site_id is not None}
+    loop_ids = {item.loop_id for item in children if item.loop_id is not None}
+    occurrence_id = next(iter(occurrence_ids)) if len(occurrence_ids) == 1 else None
+    call_site_id = (
+        next(iter(call_ids)) if occurrence_id is not None and len(call_ids) == 1 else None
+    )
+    spec = LogicalJobSpec(
+        kind=LogicalJobKind.SUMMARY_SEGMENT,
+        owner_id=f"m13-hierarchy-segment-{fingerprint}",
+        context=StructuralContext(
+            chapter_id=next(iter(chapter_ids)) if len(chapter_ids) == 1 else None,
+            lane_id=target_path.persistent_lane_id,
+            route_id=target_path.route_id,
+            temporary_container_id=target_path.temporary_container_id,
+            temporary_arm_id=target_path.temporary_arm_id,
+            occurrence_id=occurrence_id,
+            call_site_id=call_site_id,
+            loop_id=next(iter(loop_ids)) if len(loop_ids) == 1 else None,
+            temporal_anchor=f"hierarchy-reduction:{purpose}:{fingerprint[:24]}",
+            structural_fingerprint=fingerprint,
+        ),
+        ordered_child_artifact_ids=child_ids,
+        locale=config.locale,
+        perspective=config.perspective,
+        partition_version=HIERARCHY_REDUCTION_PARTITION_VERSION,
+    )
+    entries = tuple(
+        HierarchySectionEntry(
+            artifact_id=item.artifact_id,
+            job_kind=item.job_kind,
+            path=item.path,
+            chapter_id=item.chapter_id,
+            chapter_ordinal=item.chapter_ordinal,
+            chronology_index=item.chronology_index,
+            temporal_anchor=item.temporal_anchor,
+            available=item.available,
+            contains_structured_alternatives=(
+                False if item.runtime is None else item.runtime.contains_structured_alternatives
+            ),
+            structure_manifest_id=(
+                None if item.runtime is None else item.runtime.structure_manifest_id
+            ),
+        )
+        for item in children
+    )
+    claim_ids = tuple(
+        claim_id for item in children if item.available for claim_id in item.claim_ids
+    )
+    if len(claim_ids) != len(set(claim_ids)):
+        raise ValueError("hierarchy reduction children repeat an immediate claim")
+    return HierarchyJobDescriptor(
+        spec,
+        target_path,
+        chronology_policy,
+        entries,
+        claim_ids,
+        (),
+        (),
+        config.prompt_overhead_tokens
+        + sum(item.estimated_tokens for item in children if item.available),
+        sum(item.expected_leaf_count for item in children),
+        sum(item.covered_leaf_count for item in children),
+        chapter_ordinal=min(
+            (item.chapter_ordinal for item in children if item.chapter_ordinal is not None),
+            default=None,
+        ),
+        chronology_index=min(item.chronology_index for item in children),
+    )
+
+
 def _execute_descriptors(
     project: Project,
     provider: NarrativeProvider,
@@ -1113,7 +1594,10 @@ def _execute_descriptors(
             else _expected_artifact_id(descriptor.job_id, record.input_revision_id)
         )
         segment_context = None
-        if descriptor.spec.kind is LogicalJobKind.SUMMARY_SEGMENT:
+        if (
+            descriptor.spec.kind is LogicalJobKind.SUMMARY_SEGMENT
+            and descriptor.spec.owner_id.startswith("m13-segment-")
+        ):
             context = descriptor.spec.context
             if context.chapter_id is None or context.temporal_anchor is None:
                 raise ValueError("summary segment lost its deterministic context")
@@ -1281,13 +1765,12 @@ def _route_specs(
     )
 
 
-def _character_plans(
+def _character_candidate_groups(
     placements: Sequence[ScenePlacement],
     common: _ArtifactCandidate,
     routes: Sequence[_ArtifactCandidate],
     endings: Sequence[_ArtifactCandidate],
-    config: HierarchyPartitionConfig,
-) -> tuple[tuple[HierarchyJobDescriptor, ...], dict[str, _ArtifactCandidate]]:
+) -> tuple[tuple[str, tuple[_ArtifactCandidate, ...]], ...]:
     character_paths: dict[str, set[tuple[str | None, str | None]]] = defaultdict(set)
     common_characters: set[str] = set()
     for placement in placements:
@@ -1299,8 +1782,7 @@ def _character_plans(
     ending_by_key = {
         (item.path.route_id, item.path.ending_id): item for item in endings if item.available
     }
-    descriptors: list[HierarchyJobDescriptor] = []
-    children: dict[str, _ArtifactCandidate] = {}
+    groups: list[tuple[str, tuple[_ArtifactCandidate, ...]]] = []
     for character in sorted(character_paths):
         selected: list[_ArtifactCandidate] = []
         if character in common_characters:
@@ -1315,16 +1797,8 @@ def _character_plans(
         selected = list({item.artifact_id: item for item in selected}.values())
         if not selected:
             continue
-        plan = plan_character_role_job(
-            character,
-            tuple(item.hierarchy_input() for item in selected),
-            config,
-        )
-        if plan.reductions:
-            continue
-        descriptors.extend(plan.jobs)
-        children.update({item.artifact_id: item for item in selected})
-    return tuple(descriptors), children
+        groups.append((character, tuple(sorted(selected, key=_candidate_order))))
+    return tuple(groups)
 
 
 def _unresolved_plot_inputs(

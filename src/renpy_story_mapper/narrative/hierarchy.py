@@ -683,8 +683,11 @@ def plan_common_story_job(
     if not chapter_artifacts:
         raise ValueError("Common story planning requires chapter artifacts.")
     for child in chapter_artifacts:
-        if child.job_kind is not LogicalJobKind.CHAPTER:
-            raise ValueError("The common story consumes only chapter artifacts.")
+        if child.job_kind not in {
+            LogicalJobKind.CHAPTER,
+            LogicalJobKind.SUMMARY_SEGMENT,
+        }:
+            raise ValueError("The common story consumes only chapter or reduction artifacts.")
         if child.path.route_id is not None or child.path.section not in {
             StorySection.COMMON,
             StorySection.TEMPORARY_BRANCH,
@@ -760,8 +763,13 @@ def plan_persistent_route_job(
     ):
         raise ValueError("Persistent routes require one accepted shared-story route artifact.")
     for child in route_chapter_artifacts:
-        if child.job_kind is not LogicalJobKind.CHAPTER:
-            raise ValueError("Persistent route jobs consume shared-story and chapter artifacts.")
+        if child.job_kind not in {
+            LogicalJobKind.CHAPTER,
+            LogicalJobKind.SUMMARY_SEGMENT,
+        }:
+            raise ValueError(
+                "Persistent route jobs consume shared-story, chapter, or reduction artifacts."
+            )
         if child.path.route_id != route.route_id:
             raise ValueError("A persistent route cannot consume another route's chapter.")
         if child.path.persistent_lane_id != route.persistent_lane_id:
@@ -894,6 +902,7 @@ def plan_plot_job(
     config: HierarchyPartitionConfig,
     *,
     owner_id: str = "whole-plot",
+    reduction_artifacts: tuple[HierarchyArtifactInput, ...] = (),
 ) -> HierarchyLevelPlan:
     """Plan a bounded route-aware plot; raw scenes and full-project text are impossible."""
 
@@ -902,6 +911,7 @@ def plan_plot_job(
         *route_artifacts,
         *ending_artifacts,
         *unresolved_artifacts,
+        *reduction_artifacts,
     )
     _require_globally_unique_artifacts(all_children)
     if (
@@ -943,6 +953,17 @@ def plan_plot_job(
             or child.path.section is not StorySection.UNRESOLVED
         ):
             raise ValueError("Plot unresolved inputs require bounded chapter or segment artifacts.")
+    for child in reduction_artifacts:
+        if (
+            child.job_kind is not LogicalJobKind.SUMMARY_SEGMENT
+            or child.path.section is not StorySection.COMMON
+            or child.path.route_id is not None
+            or not child.contains_structured_alternatives
+            or child.structure_manifest_id is None
+        ):
+            raise ValueError(
+                "Plot reduction inputs must preserve route-aware alternatives in bounded segments."
+            )
     if any(child.job_kind is LogicalJobKind.SCENE for child in all_children):
         raise ValueError("Plot jobs never consume raw scene artifacts.")
 
@@ -951,6 +972,7 @@ def plan_plot_job(
         *tuple(sorted(route_artifacts, key=lambda child: child.ordering_key)),
         *tuple(sorted(ending_artifacts, key=lambda child: child.ordering_key)),
         *tuple(sorted(unresolved_artifacts, key=lambda child: child.ordering_key)),
+        *tuple(sorted(reduction_artifacts, key=lambda child: child.ordering_key)),
     )
     path = HierarchyPathContext(
         StorySection.COMMON,
@@ -995,6 +1017,7 @@ def plan_character_role_job(
     children = tuple(sorted(artifacts, key=lambda child: child.ordering_key))
     route_aware = len({child.path.route_id for child in children}) > 1 or any(
         child.path.section in {StorySection.TEMPORARY_BRANCH, StorySection.ENDING}
+        or child.contains_structured_alternatives
         for child in children
     )
     path = HierarchyPathContext(StorySection.COMMON)

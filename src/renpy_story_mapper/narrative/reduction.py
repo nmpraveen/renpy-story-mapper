@@ -25,6 +25,7 @@ from renpy_story_mapper.narrative.contracts import (
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
 from renpy_story_mapper.narrative.hierarchy import (
+    ChronologyPolicy,
     HierarchyJobDescriptor,
     HierarchyPathContext,
     M12AuthorityLeaf,
@@ -460,7 +461,8 @@ def _runtime_from_prepared(
         expected_leaf_count=descriptor.expected_leaf_count,
         covered_leaf_count=descriptor.covered_leaf_count,
         contains_structured_alternatives=(
-            descriptor.chronology_policy.value == "structured_alternative_arms"
+            descriptor.chronology_policy is not ChronologyPolicy.LINEAR
+            or any(entry.contains_structured_alternatives for entry in descriptor.section_entries)
         ),
         structure_manifest_id=descriptor.structure_manifest_id,
     )
