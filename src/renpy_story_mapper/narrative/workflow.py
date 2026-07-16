@@ -60,6 +60,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerRunResult,
     ValidatedLogicalOutput,
 )
+from renpy_story_mapper.narrative.sizing import estimate_complete_run
 from renpy_story_mapper.narrative.validation import ValidationContext, validate_and_salvage
 from renpy_story_mapper.project import Project
 
@@ -162,16 +163,25 @@ def prepare_narrative_scene_run(
         perspective=perspective,
     )
     scene_run = plan_scene_run(prepared_jobs, batch_limits=batch_limits, pricing=pricing)
-    scheduled = tuple(
-        _scheduled_scene_job(item, identity, pricing)
-        for item in scene_run.jobs
+    scope_id = (
+        "project:all-current-scenes"
+        if selected_scene_ids is None
+        else "scene-selection:" + canonical_hash({"scene_ids": sorted(selected_scene_ids)})[:24]
     )
-    scope_ids = tuple(item.job.spec.owner_id for item in scene_run.jobs)
-    consent = build_cloud_consent(
+    scheduled = tuple(
+        _scheduled_scene_job(item, identity, pricing, scope_id=scope_id) for item in scene_run.jobs
+    )
+    complete_estimate = estimate_complete_run(
         scene_run,
+        authority.scene_model,
+        pricing=pricing,
+    )
+    manifest_run = replace(scene_run, estimate=complete_estimate)
+    consent = build_cloud_consent(
+        manifest_run,
         run_id=run_id,
         provider=identity,
-        selected_scope_ids=scope_ids,
+        selected_scope_ids=(scope_id,),
         privacy_mode=(
             PrivacyMode.FACT_ONLY
             if mode is NarrativeInputMode.FACT_ONLY
@@ -329,9 +339,9 @@ class M13SchedulerPersistenceSink:
             authority_binding=self._authority,
         )
         if self._histories is not None:
-            self._histories.setdefault(
-                (record.run_id, record.logical_job_id), []
-            ).append(record.outcome)
+            self._histories.setdefault((record.run_id, record.logical_job_id), []).append(
+                record.outcome
+            )
 
     def record_batch(self, record: SchedulerBatchRecord) -> None:
         record_id = "m13_batch_" + canonical_hash(
@@ -423,12 +433,9 @@ class M13SchedulerPersistenceSink:
                 parsed = AttemptOutcome(outcome)
             except ValueError:
                 continue
-            indexed.setdefault((run_id, logical_job_id), []).append(
-                (attempt_number, parsed)
-            )
+            indexed.setdefault((run_id, logical_job_id), []).append((attempt_number, parsed))
         return {
-            key: [outcome for _number, outcome in sorted(values)]
-            for key, values in indexed.items()
+            key: [outcome for _number, outcome in sorted(values)] for key, values in indexed.items()
         }
 
 
@@ -436,6 +443,8 @@ def _scheduled_scene_job(
     prepared: PreparedSceneJob,
     provider: ProviderIdentity,
     pricing: ProviderPricing | None,
+    *,
+    scope_id: str,
 ) -> ScheduledSceneJob:
     revision = prepared.job.input_revision
     identity = CacheIdentity(
@@ -458,7 +467,7 @@ def _scheduled_scene_job(
     return ScheduledSceneJob(
         logical_job=prepared.job,
         cache_identity=identity,
-        scope_id=prepared.job.spec.owner_id,
+        scope_id=scope_id,
         provider_input=prepared.payload,
         ordinal=prepared.ordinal,
         estimated_input_tokens=prepared.estimated_input_tokens,

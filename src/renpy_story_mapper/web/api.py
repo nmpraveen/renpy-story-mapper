@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol, cast
 
@@ -38,11 +39,28 @@ from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.narrative.batching import BatchLimits
+from renpy_story_mapper.narrative.contracts import BudgetLimits
 from renpy_story_mapper.narrative.evidence import ClaimDagError
+from renpy_story_mapper.narrative.pipeline import (
+    NarrativePipelineResult,
+    run_complete_narrative,
+)
 from renpy_story_mapper.narrative.presentation import (
     narrative_artifact_detail,
     narrative_claim_citations,
     narrative_snapshot,
+)
+from renpy_story_mapper.narrative.projection import NarrativeInputMode
+from renpy_story_mapper.narrative.provider import (
+    CodexCliNarrativeProvider,
+    NarrativeProvider,
+)
+from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.workflow import (
+    PreparedNarrativeRun,
+    grant_narrative_consent,
+    prepare_narrative_scene_run,
 )
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
@@ -86,8 +104,12 @@ from renpy_story_mapper.web.contracts import (
     M12_SOLVE_REQUEST_FIELDS,
     M13_API_ROUTES,
     M13_ARTIFACT_REQUEST_FIELDS,
+    M13_BATCH_LIMIT_FIELDS,
     M13_CITATIONS_REQUEST_FIELDS,
+    M13_LIMIT_FIELDS,
+    M13_PREPARE_REQUEST_FIELDS,
     M13_SNAPSHOT_REQUEST_FIELDS,
+    M13_START_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -167,6 +189,16 @@ class DialogAdapter(Protocol):
     def choose_save_project(self) -> Path | None: ...
 
 
+type M13ProviderFactory = Callable[[], NarrativeProvider]
+
+
+@dataclass(frozen=True)
+class _PreparedM13WebRun:
+    prepared: PreparedNarrativeRun
+    provider: NarrativeProvider
+    policy: SchedulerPolicy
+
+
 class SelectionRegistry:
     """Per-launch opaque references; paths are never serialized to the browser."""
 
@@ -197,6 +229,7 @@ class ProjectApi:
         *,
         state_store: UserStateStore | None = None,
         m07_provider_factory: ProviderFactory | None = None,
+        m13_provider_factory: M13ProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -224,6 +257,11 @@ class ProjectApi:
         self._m07_run_selected_ids: tuple[str, ...] = ()
         self._m12_identities: dict[str, RouteCacheIdentity] = {}
         self._m12_attempts: dict[str, dict[str, JsonValue]] = {}
+        self._m13_provider_factory = m13_provider_factory or _default_m13_provider_factory
+        self._m13_prepared: _PreparedM13WebRun | None = None
+        self._m13_preview: dict[str, JsonValue] | None = None
+        self._m13_active_provider: NarrativeProvider | None = None
+        self._m13_result: NarrativePipelineResult | None = None
 
     def close(self) -> None:
         self.cancel()
@@ -237,6 +275,10 @@ class ProjectApi:
         with self._lock:
             if self._cancel_event is not None:
                 self._cancel_event.set()
+            provider = self._m13_active_provider
+        if provider is not None:
+            with suppress(Exception):
+                provider.cancel()
 
     def dispatch(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if method == "GET" and path == "/api/v1/bootstrap":
@@ -346,16 +388,12 @@ class ProjectApi:
                     canonical,
                     analysis_state,
                     view=require_string(body, "view", maximum=16),
-                    offset=bounded_int(
-                        body, "offset", default=0, minimum=0, maximum=2_000_000
-                    ),
+                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
                     limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
                     edge_offset=bounded_int(
                         body, "edge_offset", default=0, minimum=0, maximum=2_000_000
                     ),
-                    edge_limit=bounded_int(
-                        body, "edge_limit", default=180, minimum=1, maximum=180
-                    ),
+                    edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
                     query=optional_string(body, "query", maximum=256),
                     focus=optional_string(body, "focus", maximum=512),
                     projection_unavailable_reason=projection_reason,
@@ -457,9 +495,7 @@ class ProjectApi:
             with Project.open(self._project()) as opened_project:
                 page = M12RouteService(opened_project).destinations(
                     query=optional_string(body, "query", maximum=256),
-                    offset=bounded_int(
-                        body, "offset", default=0, minimum=0, maximum=2_000_000
-                    ),
+                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
                     limit=bounded_int(body, "limit", default=30, minimum=1, maximum=50),
                 )
             return json_value(page)
@@ -550,6 +586,32 @@ class ProjectApi:
                     attempt_message,
                 )
             raise ApiProblem(409, "m12_result_pending", "The route result is not ready.")
+        if method == "POST" and path == M13_API_ROUTES["prepare"]:
+            exact_fields(
+                body,
+                allowed=M13_PREPARE_REQUEST_FIELDS,
+                required=(
+                    "requested_model",
+                    "mode",
+                    "include_m12_material",
+                    "limits",
+                    "batch_limits",
+                ),
+            )
+            return json_value(self._m13_prepare(body))
+        if method == "POST" and path == M13_API_ROUTES["start"]:
+            exact_fields(
+                body,
+                allowed=M13_START_REQUEST_FIELDS,
+                required=M13_START_REQUEST_FIELDS,
+            )
+            return json_value(self._m13_start(body))
+        if method == "POST" and path == M13_API_ROUTES["status"]:
+            exact_fields(body, allowed=())
+            return json_value(self._m13_status())
+        if method == "POST" and path == M13_API_ROUTES["cancel"]:
+            exact_fields(body, allowed=())
+            return json_value(self._m13_cancel())
         if method == "POST" and path == M13_API_ROUTES["snapshot"]:
             exact_fields(body, allowed=M13_SNAPSHOT_REQUEST_FIELDS)
             with Project.open(self._project()) as opened_project:
@@ -611,9 +673,7 @@ class ProjectApi:
                 edge_offset=bounded_int(
                     body, "edge_offset", default=0, minimum=0, maximum=2_000_000
                 ),
-                edge_limit=bounded_int(
-                    body, "edge_limit", default=180, minimum=1, maximum=180
-                ),
+                edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
             )
             return json_value(self._story_display_route_page(page))
         if method == "POST" and path == M07_API_ROUTES["route_search"]:
@@ -889,6 +949,265 @@ class ProjectApi:
             "kind": selection.kind,
         }
 
+    def _m13_prepare(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        with self._lock:
+            if self._future is not None and not self._future.done():
+                raise ApiProblem(409, "operation_busy", "Another project operation is in progress.")
+        limits_value = object_value(body, "limits")
+        exact_fields(
+            limits_value,
+            allowed=M13_LIMIT_FIELDS,
+            required=M13_LIMIT_FIELDS[:-1],
+            name="M13 limits",
+        )
+        batch_value = object_value(body, "batch_limits")
+        exact_fields(
+            batch_value,
+            allowed=M13_BATCH_LIMIT_FIELDS,
+            required=M13_BATCH_LIMIT_FIELDS,
+            name="M13 batch limits",
+        )
+        max_cost = optional_bounded_int(
+            limits_value,
+            "max_cost_micros",
+            minimum=0,
+            maximum=10_000_000_000,
+        )
+        if max_cost is not None:
+            raise ApiProblem(
+                409,
+                "m13_cost_unavailable",
+                "This provider does not expose reliable preflight pricing; "
+                "use call and token limits.",
+            )
+        limits = BudgetLimits(
+            max_provider_calls=bounded_int(
+                limits_value,
+                "max_provider_calls",
+                default=5_000,
+                minimum=1,
+                maximum=100_000,
+            ),
+            max_input_tokens=bounded_int(
+                limits_value,
+                "max_input_tokens",
+                default=50_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            max_output_tokens=bounded_int(
+                limits_value,
+                "max_output_tokens",
+                default=20_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            max_total_tokens=bounded_int(
+                limits_value,
+                "max_total_tokens",
+                default=70_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            timeout_seconds=bounded_int(
+                limits_value,
+                "timeout_seconds",
+                default=3_600,
+                minimum=1,
+                maximum=86_400,
+            ),
+            max_concurrency=bounded_int(
+                limits_value,
+                "max_concurrency",
+                default=4,
+                minimum=1,
+                maximum=32,
+            ),
+        )
+        batch_limits = BatchLimits(
+            maximum_items=bounded_int(
+                batch_value,
+                "maximum_items",
+                default=16,
+                minimum=1,
+                maximum=64,
+            ),
+            maximum_input_chars=bounded_int(
+                batch_value,
+                "maximum_input_chars",
+                default=500_000,
+                minimum=1,
+                maximum=500_000,
+            ),
+            maximum_input_tokens=bounded_int(
+                batch_value,
+                "maximum_input_tokens",
+                default=100_000,
+                minimum=1,
+                maximum=200_000,
+            ),
+        )
+        mode_value = require_string(body, "mode", maximum=32)
+        try:
+            mode = NarrativeInputMode(mode_value)
+        except ValueError as exc:
+            raise ValueError("unsupported M13 privacy mode") from exc
+        selected_scene_ids = (
+            required_string_tuple(body, "selected_scene_ids", maximum_items=5_000)
+            if "selected_scene_ids" in body
+            else None
+        )
+        provider = self._m13_provider_factory()
+        with Project.open(self._project()) as opened_project:
+            prepared = prepare_narrative_scene_run(
+                opened_project,
+                provider,
+                run_id=f"m13-run-{uuid.uuid4().hex}",
+                requested_model=require_string(body, "requested_model", maximum=200),
+                mode=mode,
+                include_m12_material=boolean(body, "include_m12_material"),
+                limits=limits,
+                batch_limits=batch_limits,
+                selected_scene_ids=selected_scene_ids,
+                locale=optional_string(body, "locale", maximum=64) or "und",
+                perspective=optional_string(body, "perspective", maximum=128) or "default",
+            )
+        web_run = _PreparedM13WebRun(prepared, provider, SchedulerPolicy(batch_limits))
+        preview = prepared.preview_dict()
+        preview["requires_confirm_cloud"] = True
+        preview["selected_scene_count"] = len(prepared.scene_run.jobs)
+        preview["cloud_enabled"] = False
+        with self._lock:
+            self._m13_prepared = web_run
+            self._m13_preview = dict(preview)
+            self._m13_result = None
+        return preview
+
+    def _m13_start(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        preparation_id = require_string(body, "preparation_id", maximum=160)
+        if not boolean(body, "confirm_cloud"):
+            raise ApiProblem(
+                409,
+                "m13_consent_required",
+                "The exact M13 cloud manifest was not confirmed.",
+            )
+        with self._lock:
+            web_run = self._m13_prepared
+            if web_run is None or not secrets.compare_digest(
+                web_run.prepared.preparation_id,
+                preparation_id,
+            ):
+                raise ApiProblem(
+                    409,
+                    "m13_preparation_stale",
+                    "The M13 preparation is missing or stale.",
+                )
+            if not web_run.prepared.provider_status.available:
+                raise ApiProblem(
+                    409,
+                    "m13_provider_unavailable",
+                    "The selected M13 provider is unavailable.",
+                )
+            self._m13_prepared = None
+            self._m13_active_provider = web_run.provider
+        try:
+            started = self._start(
+                "m13_narrative",
+                lambda cancelled: self._m13_execute(web_run, cancelled),
+            )
+        except Exception:
+            with self._lock:
+                self._m13_prepared = web_run
+                self._m13_active_provider = None
+            raise
+        status = self._m13_status()
+        status["analysis"] = started.get("analysis") if isinstance(started, dict) else None
+        return status
+
+    def _m13_execute(
+        self,
+        web_run: _PreparedM13WebRun,
+        cancelled: threading.Event,
+    ) -> None:
+        try:
+            with Project.open(self._project()) as opened_project:
+                consent = grant_narrative_consent(opened_project, web_run.prepared)
+                result = run_complete_narrative(
+                    opened_project,
+                    web_run.provider,
+                    web_run.prepared,
+                    consent,
+                    policy=web_run.policy,
+                    cancelled=cancelled.is_set,
+                )
+            with self._lock:
+                self._m13_result = result
+        finally:
+            with self._lock:
+                if self._m13_active_provider is web_run.provider:
+                    self._m13_active_provider = None
+
+    def _m13_status(self) -> dict[str, object]:
+        with self._lock:
+            task = (
+                self._task
+                if self._task is not None and self._task.kind == "m13_narrative"
+                else None
+            )
+            preview = None if self._m13_preview is None else dict(self._m13_preview)
+            result = self._m13_result
+            cancellation_pending = self._cancel_event is not None and self._cancel_event.is_set()
+            prepared = self._m13_prepared is not None
+        if task is not None and task.state == "running":
+            state = "cancelling" if cancellation_pending else "running"
+        elif result is not None:
+            state = result.record.state.value
+        elif task is not None and task.state == "failed":
+            state = "failed"
+        elif task is not None and task.state == "cancelled":
+            state = "cancelled"
+        elif prepared:
+            state = "prepared"
+        else:
+            state = "disabled"
+        return {
+            "schema": "m13-run-status-v1",
+            "state": state,
+            "cloud_enabled": state in {"running", "cancelling"},
+            "provider_transmission_active": state in {"running", "cancelling"},
+            "preparation": preview,
+            "task": task,
+            "latest_run": None if result is None else result.record.to_dict(),
+            "artifacts": None if result is None else result.artifacts,
+            "unresolved_codes": [] if result is None else list(result.unresolved_codes),
+            "durable_completed_work_preserved": True,
+        }
+
+    def _m13_cancel(self) -> dict[str, object]:
+        with self._lock:
+            task = self._task
+            if task is None or task.kind != "m13_narrative" or task.state != "running":
+                provider = None
+                active = False
+            else:
+                active = True
+                if self._cancel_event is not None:
+                    self._cancel_event.set()
+                provider = self._m13_active_provider
+                self._task = TaskStatus(
+                    task.id,
+                    task.kind,
+                    task.state,
+                    "cancelling",
+                    task.percent,
+                    False,
+                    task.error,
+                )
+        if active and provider is not None:
+            with suppress(Exception):
+                provider.cancel()
+        return self._m13_status()
+
     def _recent_projects(self) -> list[JsonValue]:
         result: list[JsonValue] = []
         for path in self._state_store.recent_projects():
@@ -1005,6 +1324,7 @@ class ProjectApi:
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
+            self._clear_m13_locked()
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -1036,6 +1356,7 @@ class ProjectApi:
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
+            self._clear_m13_locked()
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -1047,11 +1368,11 @@ class ProjectApi:
             project,
             source,
             cancel_check=cancelled.is_set,
-            progress=lambda stage, percent: self._deterministic_progress(
-                "refresh", stage, percent
-            ),
+            progress=lambda stage, percent: self._deterministic_progress("refresh", stage, percent),
         )
         self._clear_m07_run_metrics()
+        with self._lock:
+            self._clear_m13_locked()
 
     def _deterministic_progress(self, kind: str, stage: str, percent: int) -> None:
         with self._lock:
@@ -1081,9 +1402,7 @@ class ProjectApi:
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
 
-    def _remember_m12_identity(
-        self, request_identity: str, identity: RouteCacheIdentity
-    ) -> None:
+    def _remember_m12_identity(self, request_identity: str, identity: RouteCacheIdentity) -> None:
         with self._lock:
             self._m12_identities.pop(request_identity, None)
             self._m12_identities[request_identity] = identity
@@ -1133,10 +1452,14 @@ class ProjectApi:
             canonical_hash = raw_state.get("canonical_hash")
             generation = source_generation if isinstance(source_generation, str) else "unknown"
             authority_hash = canonical_hash if isinstance(canonical_hash, str) else "0" * 64
-            row = project._require_open().execute(
-                """SELECT payload_hash FROM payloads
+            row = (
+                project._require_open()
+                .execute(
+                    """SELECT payload_hash FROM payloads
                    WHERE collection='m10_canonical_graph' AND record_key='authoritative'"""
-            ).fetchone()
+                )
+                .fetchone()
+            )
             if (
                 raw_state.get("canonical_availability") != "current_complete"
                 or canonical_generation != generation
@@ -1217,9 +1540,8 @@ class ProjectApi:
             analysis_state = project.payload("m10_analysis_state", "authoritative")
         if not isinstance(analysis_state, dict):
             raise ValueError("the project has no valid M10 generation state")
-        if (
-            analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION
-            or not isinstance(analysis_state.get("source_generation"), str)
+        if analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION or not isinstance(
+            analysis_state.get("source_generation"), str
         ):
             raise ValueError("the project has an incompatible M10 generation state")
         canonical = (
@@ -1264,8 +1586,7 @@ class ProjectApi:
             projection_reason = "projection_canonical_hash_mismatch"
         elif (
             analysis_state.get("simplified_generation") != projection["source_generation"]
-            or analysis_state.get("simplified_canonical_hash")
-            != projection["canonical_graph_hash"]
+            or analysis_state.get("simplified_canonical_hash") != projection["canonical_graph_hash"]
         ):
             projection = None
             projection_reason = "projection_analysis_state_mismatch"
@@ -1510,6 +1831,12 @@ class ProjectApi:
         self._m07_run_elapsed_seconds = None
         self._m07_run_cache_hits = 0
         self._m07_run_selected_ids = ()
+
+    def _clear_m13_locked(self) -> None:
+        self._m13_prepared = None
+        self._m13_preview = None
+        self._m13_active_provider = None
+        self._m13_result = None
 
     def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
         node_offset = bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000)
@@ -2500,6 +2827,12 @@ def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     from renpy_story_mapper.organization.provider import CodexCliProvider
 
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+
+def _default_m13_provider_factory() -> NarrativeProvider:
+    """Construct the sterile v1 cloud adapter without selecting a repository model."""
+
+    return CodexCliNarrativeProvider()
 
 
 def _budget_policy(body: dict[str, JsonValue], *, with_finite_defaults: bool) -> BudgetPolicy:

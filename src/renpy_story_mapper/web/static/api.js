@@ -3,6 +3,8 @@ import {
   assertBoundedWindowResolution, assertDetail, assertOrganization,
   assertPreparedOrganization, assertRoutePage, assertWindowSelectionRequest,
   assertAIStoryDetail, assertAIStoryMap, assertMapComparison, assertSceneDetail, assertSceneMap,
+  assertNarrativeArtifact, assertNarrativeCitations, assertNarrativePreparation,
+  assertNarrativeRunStatus, assertNarrativeSnapshot,
   exactOrganizationBudgets,
 } from "./contract.js";
 
@@ -13,6 +15,14 @@ export const DEFAULT_ORGANIZATION_BUDGETS = Object.freeze({
   soft_seconds: 600, hard_seconds: 900, soft_tokens: 1500000, hard_tokens: 2000000, hard_calls: 48,
 });
 const budgetKeys = Object.keys(DEFAULT_ORGANIZATION_BUDGETS);
+export const DEFAULT_NARRATIVE_LIMITS = Object.freeze({
+  max_provider_calls: 5000, max_input_tokens: 50000000, max_output_tokens: 20000000,
+  max_total_tokens: 70000000, timeout_seconds: 3600, max_concurrency: 4,
+  max_cost_micros: null,
+});
+export const DEFAULT_NARRATIVE_BATCH_LIMITS = Object.freeze({
+  maximum_items: 16, maximum_input_chars: 500000, maximum_input_tokens: 100000,
+});
 
 function exactBudgets(value) {
   const budgets = exactOrganizationBudgets(value);
@@ -186,6 +196,42 @@ export class LocalApi {
   }
   async sceneDetail(elementId) {
     return assertSceneDetail(await this.request(ENDPOINTS.sceneDetail, { method: "POST", body: { element_id: elementId } }));
+  }
+  async narrativeSnapshot(offset = 0, limit = 200) {
+    return assertNarrativeSnapshot(await this.request(ENDPOINTS.narrativeSnapshot, { method: "POST", body: { offset, limit } }));
+  }
+  async narrativeArtifact(artifactId) {
+    if (typeof artifactId !== "string" || !artifactId) throw new TypeError("Narrative artifact ID is required");
+    return assertNarrativeArtifact(await this.request(ENDPOINTS.narrativeArtifact, { method: "POST", body: { artifact_id: artifactId } }));
+  }
+  async narrativeCitations(claimId) {
+    if (typeof claimId !== "string" || !claimId) throw new TypeError("Narrative claim ID is required");
+    return assertNarrativeCitations(await this.request(ENDPOINTS.narrativeCitations, { method: "POST", body: { claim_id: claimId } }));
+  }
+  async prepareNarrative(options) {
+    if (!options || typeof options !== "object" || Array.isArray(options)) throw new TypeError("Narrative run options are required");
+    const requestedModel = String(options.requested_model || "").trim();
+    if (!requestedModel || requestedModel.length > 200) throw new TypeError("Enter the exact provider model to request");
+    if (!["fact_only", "story_text"].includes(options.mode) || typeof options.include_m12_material !== "boolean") throw new TypeError("Select a valid Narrative privacy mode");
+    const limits = { ...options.limits }; const batch = { ...options.batch_limits };
+    for (const key of Object.keys(DEFAULT_NARRATIVE_LIMITS).filter((item) => item !== "max_cost_micros")) if (!Number.isInteger(limits[key]) || limits[key] < 1) throw new TypeError(`Narrative ${key} must be a positive integer`);
+    if (limits.max_cost_micros !== null) throw new TypeError("Cost limiting is unavailable for this provider; use call, token, and time limits");
+    for (const key of Object.keys(DEFAULT_NARRATIVE_BATCH_LIMITS)) if (!Number.isInteger(batch[key]) || batch[key] < 1) throw new TypeError(`Narrative ${key} must be a positive integer`);
+    const body = { requested_model: requestedModel, mode: options.mode, include_m12_material: options.include_m12_material, limits, batch_limits: batch };
+    if (options.selected_scene_ids) body.selected_scene_ids = [...options.selected_scene_ids];
+    if (options.locale) body.locale = options.locale;
+    if (options.perspective) body.perspective = options.perspective;
+    return assertNarrativePreparation(await this.request(ENDPOINTS.narrativePrepare, { method: "POST", body }));
+  }
+  async startNarrative(preparationId) {
+    if (typeof preparationId !== "string" || !preparationId) throw new TypeError("Narrative preparation ID is required");
+    return assertNarrativeRunStatus(await this.request(ENDPOINTS.narrativeStart, { method: "POST", body: { preparation_id: preparationId, confirm_cloud: true } }));
+  }
+  async narrativeStatus() {
+    return assertNarrativeRunStatus(await this.request(ENDPOINTS.narrativeStatus, { method: "POST", body: {} }));
+  }
+  async cancelNarrative() {
+    return assertNarrativeRunStatus(await this.request(ENDPOINTS.narrativeCancel, { method: "POST", body: {} }));
   }
   async routeDestinations(query = null, offset = 0, limit = ROUTE_PAGE_SIZE) {
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1) throw new TypeError("Invalid M12 destination page");

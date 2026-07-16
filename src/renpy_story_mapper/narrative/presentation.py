@@ -147,6 +147,20 @@ def narrative_artifact_detail(project: Project, artifact_id: str) -> dict[str, o
     claims = [_claim_summary(_mapping(item, "artifact claim")) for item in claims_raw]
     coverage = _mapping(artifact.get("coverage"), "artifact coverage")
     warnings = _strings(artifact.get("warnings"), "artifact warnings")
+    hierarchy_raw = artifact.get("hierarchy")
+    hierarchy = None
+    if hierarchy_raw is not None:
+        hierarchy = dict(_mapping(hierarchy_raw, "artifact hierarchy"))
+        entries = _sequence(hierarchy.get("section_entries"), "hierarchy section entries")
+        if len(entries) > 32:
+            raise ValueError("narrative hierarchy section entries are unbounded")
+    m12_raw = artifact.get("m12_authority", ())
+    m12_authority = [
+        dict(_mapping(item, "artifact M12 authority"))
+        for item in _sequence(m12_raw, "artifact M12 authority")
+    ]
+    if len(m12_authority) > 32:
+        raise ValueError("narrative M12 authority annotations are unbounded")
     return {
         "schema": "m13-narrative-artifact-detail-v1",
         "status": "available",
@@ -161,6 +175,8 @@ def narrative_artifact_detail(project: Project, artifact_id: str) -> dict[str, o
         "coverage": dict(coverage),
         "warnings": list(warnings),
         "used_deterministic_title": bool(artifact.get("used_deterministic_title", False)),
+        "hierarchy": hierarchy,
+        "m12_authority": m12_authority,
     }
 
 

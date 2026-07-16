@@ -135,10 +135,39 @@ M13_API_ROUTES: Final[dict[str, str]] = {
     "snapshot": "/api/v1/m13/snapshot",
     "artifact": "/api/v1/m13/artifact",
     "citations": "/api/v1/m13/citations",
+    "prepare": "/api/v1/m13/prepare",
+    "start": "/api/v1/m13/start",
+    "status": "/api/v1/m13/status",
+    "cancel": "/api/v1/m13/cancel",
 }
 M13_SNAPSHOT_REQUEST_FIELDS: Final = ("offset", "limit")
 M13_ARTIFACT_REQUEST_FIELDS: Final = ("artifact_id",)
 M13_CITATIONS_REQUEST_FIELDS: Final = ("claim_id",)
+M13_PREPARE_REQUEST_FIELDS: Final = (
+    "requested_model",
+    "mode",
+    "include_m12_material",
+    "selected_scene_ids",
+    "locale",
+    "perspective",
+    "limits",
+    "batch_limits",
+)
+M13_START_REQUEST_FIELDS: Final = ("preparation_id", "confirm_cloud")
+M13_LIMIT_FIELDS: Final = (
+    "max_provider_calls",
+    "max_input_tokens",
+    "max_output_tokens",
+    "max_total_tokens",
+    "timeout_seconds",
+    "max_concurrency",
+    "max_cost_micros",
+)
+M13_BATCH_LIMIT_FIELDS: Final = (
+    "maximum_items",
+    "maximum_input_chars",
+    "maximum_input_tokens",
+)
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-import { LocalApi, stableRouteJson } from "./api.js";
+import { DEFAULT_NARRATIVE_BATCH_LIMITS, DEFAULT_NARRATIVE_LIMITS, LocalApi, stableRouteJson } from "./api.js";
 import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
 import { RouteGraph } from "./graph.js";
 
@@ -11,6 +11,8 @@ const state = {
   project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
   analysisStatus: null,
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null, detailRunToken: 0,
+  narrativeEnabled: false, narrativeSnapshot: null, narrativeJobs: [], narrativeByOwner: new Map(),
+  narrativeRun: null, narrativePreparation: null, narrativeLastRequest: null, narrativePollToken: 0,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
@@ -21,6 +23,233 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = String(text);
   return node;
+}
+
+function narrativeForOwner(ownerId) {
+  return state.narrativeByOwner.get(ownerId)?.artifact || null;
+}
+
+function narrativeForElement(elementId, detail = null) {
+  const pageNode = state.page?.nodes.find((node) => node.id === elementId);
+  const ownerId = pageNode?.scene_id || detail?.scene?.id || elementId;
+  return narrativeForOwner(ownerId) || narrativeForOwner(elementId);
+}
+
+function renderNarrativeCoverage() {
+  const host = $("#narrativeCoverage"); host.replaceChildren();
+  const coverage = state.narrativeSnapshot?.coverage;
+  if (!coverage) { host.append(element("span", "muted", "Narrative authority is unavailable.")); return; }
+  const percent = Number(coverage.scene_coverage_basis_points || 0) / 100;
+  host.append(
+    element("strong", "", `${percent.toLocaleString(undefined, { maximumFractionDigits: 2 })}% scene coverage`),
+    element("span", "", `${coverage.published_scene_jobs || 0} of ${coverage.expected_scene_jobs || 0} scene jobs published`),
+    element("span", "", `${coverage.stale_jobs || 0} stale · ${coverage.unavailable_jobs || 0} unavailable`),
+    element("span", "", `${coverage.m12_selected_results || 0} current M12 result(s) included`),
+  );
+}
+
+async function revealNarrativeCitations(claim, host, button) {
+  button.disabled = true; button.textContent = "Loading citations…";
+  try {
+    const response = await api.narrativeCitations(claim.claim_id);
+    const citations = element("div", "narrative-citations");
+    for (const citation of response.citations) {
+      const record = citation.record || {}; const source = record.source || {};
+      const item = element("article", "narrative-citation");
+      item.append(element("strong", "", `${citation.authority.toUpperCase()} · ${citation.record_kind} · ${citation.record_id}`));
+      const sourceText = record.source_text || record.text || record.excerpt;
+      if (sourceText) item.append(element("pre", "", sourceText));
+      else item.append(element("pre", "", stableRouteJson(record)));
+      if (source.path || source.relative_path || source.start_line) item.append(element("span", "", `${source.path || source.relative_path || "source"}:${source.start_line || source.start?.line || "?"}`));
+      citations.append(item);
+    }
+    if (!citations.children.length) citations.append(element("span", "muted", "No direct citation leaves were resolved."));
+    host.append(citations); button.remove();
+  } catch (error) { button.disabled = false; button.textContent = "Retry citations"; toast(error.message); }
+}
+
+function renderNarrativeClaims(host, artifact) {
+  for (const claim of artifact.claims || []) {
+    const article = element("article", "narrative-claim"); article.dataset.claimClass = claim.claim_class;
+    const label = claim.claim_class === "factual" ? "Factual claim" : claim.claim_class === "interpretive" ? "AI interpretation" : "Review suggestion";
+    article.append(element("strong", "", label), element("p", "", claim.text));
+    const button = element("button", "quiet-button", "Show citations"); button.type = "button";
+    button.addEventListener("click", () => revealNarrativeCitations(claim, article, button));
+    article.append(button); host.append(article);
+  }
+}
+
+async function expandNarrativeJob(job, host, button) {
+  if (!job.artifact) return;
+  button.disabled = true;
+  try {
+    const artifact = await api.narrativeArtifact(job.artifact.artifact_id);
+    host.append(element("p", "", artifact.summary));
+    for (const warning of artifact.warnings || []) host.append(element("span", "correction", warning));
+    renderNarrativeClaims(host, artifact); button.remove();
+  } catch (error) { button.disabled = false; toast(error.message); }
+}
+
+function renderNarrativeDrawer() {
+  renderNarrativeCoverage();
+  const host = $("#narrativeJobList"); host.replaceChildren();
+  const jobs = state.narrativeJobs.slice(0, 120);
+  for (const job of jobs) {
+    const record = element("article", "narrative-job");
+    record.append(element("strong", "", job.artifact?.title || job.owner_id), element("span", "", `${job.kind.replaceAll("_", " ")} · ${job.state.replaceAll("_", " ")}`));
+    if (job.artifact) {
+      const button = element("button", "quiet-button", "Open summary and claims"); button.type = "button";
+      button.addEventListener("click", () => expandNarrativeJob(job, record, button)); record.append(button);
+    } else if (job.latest_error?.code) record.append(element("span", "correction", job.latest_error.code.replaceAll("_", " ")));
+    host.append(record);
+  }
+  if (!jobs.length) host.append(element("p", "muted", "No narrative jobs have been published. The deterministic product remains fully available."));
+  if (state.narrativeJobs.length > jobs.length) host.append(element("p", "muted", `${state.narrativeJobs.length - jobs.length} more jobs are retained; this drawer is intentionally bounded.`));
+}
+
+const NARRATIVE_ACTIVE_STATES = new Set(["running", "cancelling"]);
+const NARRATIVE_RETRY_STATES = new Set(["partial", "failed", "cancelled", "hard_limit"]);
+
+function narrativeRunRequest() {
+  const positiveInteger = (selector, label) => {
+    const value = Number($(selector).value);
+    if (!Number.isInteger(value) || value < 1) throw new TypeError(`${label} must be a positive integer`);
+    return value;
+  };
+  const total = positiveInteger("#narrativeTokenLimit", "Total token limit");
+  const input = Math.max(1, Math.floor(total * 5 / 7));
+  const output = Math.max(1, total - input);
+  return {
+    requested_model: $("#narrativeModel").value.trim(),
+    mode: $("#narrativeMode").value,
+    include_m12_material: $("#narrativeIncludeM12").checked,
+    limits: {
+      ...DEFAULT_NARRATIVE_LIMITS,
+      max_provider_calls: positiveInteger("#narrativeCallLimit", "Provider call limit"),
+      max_input_tokens: input,
+      max_output_tokens: output,
+      max_total_tokens: total,
+      timeout_seconds: positiveInteger("#narrativeTimeLimit", "Time limit"),
+      max_concurrency: positiveInteger("#narrativeConcurrency", "Concurrency limit"),
+    },
+    batch_limits: { ...DEFAULT_NARRATIVE_BATCH_LIMITS },
+  };
+}
+
+function renderNarrativeRun() {
+  const run = state.narrativeRun; const status = $("#narrativeRunStatus");
+  const active = NARRATIVE_ACTIVE_STATES.has(run?.state);
+  $("#prepareNarrative").disabled = active;
+  $("#cancelNarrative").hidden = !active;
+  $("#retryNarrative").hidden = !NARRATIVE_RETRY_STATES.has(run?.state) || !state.narrativeLastRequest;
+  if (!run || run.state === "disabled") status.textContent = "Cloud AI is off. Preparing a manifest sends no story material.";
+  else if (run.state === "prepared") status.textContent = "Prepared locally. No story material has been sent; confirmation is still required.";
+  else if (run.state === "running") status.textContent = "Narrative jobs are running. Valid results are committed independently.";
+  else if (run.state === "cancelling") status.textContent = "Cancelling provider work. Validated completed artifacts are being preserved.";
+  else {
+    const latest = run.latest_run || {}; const usage = latest.usage || {};
+    const counts = `${Number(latest.succeeded_jobs || 0)} complete, ${Number(latest.partial_jobs || 0)} partial, ${Number(latest.failed_jobs || 0) + Number(latest.refused_jobs || 0)} unavailable`;
+    status.textContent = `${run.state.replaceAll("_", " ")} - ${counts}; ${Number(usage.provider_calls || 0)} provider call(s).`;
+  }
+}
+
+function showNarrativeConsent(prepared) {
+  const facts = $("#narrativeConsentFacts"); facts.replaceChildren();
+  const estimate = prepared.estimate; const limits = prepared.limits; const provider = prepared.provider;
+  const cost = estimate.estimated_cost_micros === null ? "Unavailable for this adapter" : `$${(estimate.estimated_cost_micros / 1000000).toFixed(2)} (${estimate.cost_confidence})`;
+  const rows = [
+    ["Provider", `${provider.provider} / ${provider.adapter} ${provider.adapter_version}`],
+    ["Requested / resolved model", `${provider.requested_model} / ${provider.resolved_model}`],
+    ["Selected scope", prepared.selected_scope_ids.join(", ")],
+    ["Privacy mode", prepared.privacy_mode === "fact_only" ? "Fact only" : "Story text"],
+    ["Logical jobs", estimate.logical_job_count.toLocaleString()],
+    ["Estimated provider calls", estimate.provider_call_count.toLocaleString()],
+    ["Estimated tokens", `${estimate.input_tokens.toLocaleString()} input / ${estimate.output_tokens.toLocaleString()} output`],
+    ["Estimated cost", cost],
+    ["Hard limits", `${limits.max_provider_calls.toLocaleString()} calls / ${limits.max_total_tokens.toLocaleString()} tokens / ${limits.timeout_seconds.toLocaleString()} seconds / ${limits.max_concurrency} concurrent`],
+    ["M12 material", prepared.includes_m12_material ? "Included" : "Not included"],
+  ];
+  for (const [label, value] of rows) facts.append(element("dt", "", label), element("dd", "", value));
+  $("#confirmNarrative").disabled = !prepared.provider_available;
+  $("#narrativeConsentDialog").showModal();
+  if (!prepared.provider_available) toast("The selected provider is unavailable; no story material can be sent");
+}
+
+async function prepareNarrativeRequest(request) {
+  state.narrativeLastRequest = request;
+  state.narrativePreparation = await api.prepareNarrative(request);
+  state.narrativeRun = await api.narrativeStatus();
+  renderNarrativeRun(); showNarrativeConsent(state.narrativePreparation);
+}
+
+async function prepareNarrativeRun(event) {
+  event?.preventDefault();
+  try { await prepareNarrativeRequest(narrativeRunRequest()); }
+  catch (error) { toast(error.message); }
+}
+
+async function confirmNarrativeRun(event) {
+  event.preventDefault();
+  const preparationId = state.narrativePreparation?.preparation_id;
+  if (!preparationId) { toast("Narrative preparation is unavailable"); return; }
+  $("#narrativeConsentDialog").close();
+  try {
+    state.narrativeRun = await api.startNarrative(preparationId);
+    state.narrativePreparation = null; renderNarrativeRun(); pollNarrativeRun();
+  } catch (error) { toast(error.message); }
+}
+
+async function pollNarrativeRun() {
+  const token = ++state.narrativePollToken; let ticks = 0;
+  while (token === state.narrativePollToken && NARRATIVE_ACTIVE_STATES.has(state.narrativeRun?.state)) {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    if (token !== state.narrativePollToken) return;
+    try {
+      state.narrativeRun = await api.narrativeStatus(); ticks += 1; renderNarrativeRun();
+      if (ticks % 4 === 0) await loadNarrative();
+    } catch (error) { toast(error.message); return; }
+  }
+  if (token === state.narrativePollToken) { await loadNarrative(); renderNarrativeRun(); }
+}
+
+async function cancelNarrativeRun() {
+  try { state.narrativeRun = await api.cancelNarrative(); renderNarrativeRun(); toast("Cancellation requested; validated work is preserved"); }
+  catch (error) { toast(error.message); }
+}
+
+async function retryNarrativeRun() {
+  if (!state.narrativeLastRequest) { toast("No prior Narrative scope is available"); return; }
+  try { await prepareNarrativeRequest(state.narrativeLastRequest); }
+  catch (error) { toast(error.message); }
+}
+
+async function loadNarrativeRunStatus() {
+  try {
+    state.narrativeRun = await api.narrativeStatus(); renderNarrativeRun();
+    if (NARRATIVE_ACTIVE_STATES.has(state.narrativeRun.state)) pollNarrativeRun();
+  } catch (_error) { state.narrativeRun = null; renderNarrativeRun(); }
+}
+
+async function loadNarrative() {
+  const jobs = []; let offset = 0; let first = null; let pages = 0;
+  try {
+    while (pages < 50) {
+      const page = await api.narrativeSnapshot(offset, 200);
+      if (!first) first = page;
+      if (page.status !== "available") break;
+      if (page.authority_hash !== first.authority_hash) throw new Error("Narrative authority changed while paging");
+      jobs.push(...page.jobs); pages += 1;
+      if (page.next_offset === null) break;
+      offset = page.next_offset;
+    }
+    state.narrativeSnapshot = first;
+    state.narrativeJobs = jobs;
+    state.narrativeByOwner = new Map(jobs.map((job) => [job.owner_id, job]));
+  } catch (_error) {
+    state.narrativeSnapshot = null; state.narrativeJobs = []; state.narrativeByOwner = new Map();
+  }
+  $("#narrativeToggle").disabled = !state.narrativeSnapshot || state.narrativeSnapshot.status !== "available";
+  renderNarrativeDrawer();
 }
 
 const graph = new RouteGraph({
@@ -462,6 +691,9 @@ async function resetRoutePaging() {
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const available = await resetRoutePaging();
+  await loadNarrative();
+  await loadNarrativeRunStatus();
+  if (available) renderMap();
   await loadOrganization();
   return available;
 }
@@ -571,7 +803,14 @@ function renderChapters() {
 
 function renderMap() {
   if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
-  const { nodes, edges } = visiblePage();
+  const visible = visiblePage();
+  const nodes = state.mode === "scenes" && state.narrativeEnabled
+    ? visible.nodes.map((node) => {
+      const artifact = narrativeForOwner(node.scene_id || node.id);
+      return artifact ? { ...node, deterministic_title: node.title, deterministic_summary: node.summary, title: artifact.title, summary: artifact.summary, narrative_artifact_id: artifact.artifact_id, narrative_publication: artifact.publication } : node;
+    })
+    : visible.nodes;
+  const edges = visible.edges;
   graph.setData(nodes, edges, state.selectedId, state.page?.lanes || []);
   renderLanes(nodes); renderChapters(); state.selectedId = graph.selectedId;
   const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
@@ -586,7 +825,13 @@ function renderMap() {
   $("#generationStatus").hidden = !generation;
   if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
   const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
-  if (state.mode === "scenes") summary.append(element("strong", "", "Scene hierarchy"), element("span", "", `${state.page.chapter_bands?.length || 0} chapters · ${state.page.lanes?.length || 0} lanes`), element("span", "", `${nodes.filter((node) => node.presentation_kind === "temporary_branch").length} temporary choices on this page`));
+  if (state.mode === "scenes") {
+    summary.append(element("strong", "", "Scene hierarchy"), element("span", "", `${state.page.chapter_bands?.length || 0} chapters · ${state.page.lanes?.length || 0} lanes`), element("span", "", `${nodes.filter((node) => node.presentation_kind === "temporary_branch").length} temporary choices on this page`));
+    if (state.narrativeEnabled && state.narrativeSnapshot?.coverage) {
+      const narrative = state.narrativeSnapshot.coverage;
+      summary.append(element("span", "", `Narrative ${Number(narrative.scene_coverage_basis_points || 0) / 100}% · ${narrative.published_scene_jobs || 0}/${narrative.expected_scene_jobs || 0} scenes`));
+    }
+  }
   else if (state.mode === "ai") summary.append(element("strong", "", "Story coverage"), element("span", "", `${coverage.ai_owned_route_nodes || 0} AI-organized nodes`), element("span", "", `${coverage.technical_fallback_route_nodes || 0} technical fallback nodes`));
   else if (["inspection", "canonical"].includes(state.mode)) summary.append(element("strong", "", state.mode === "canonical" ? "Canonical authority" : "Inspection coverage"), element("span", "", `${coverage.control_nodes ?? "—"} canonical records`), element("span", "", `${coverage.suppressed_records ?? 0} presentation suppressions`));
   else summary.append(element("strong", "", "Technical authority"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps`));
@@ -717,6 +962,13 @@ async function openDetail(elementId) {
       return;
     }
     if (sceneMode) detail = normalizedSceneDetail(detail, elementId);
+    let narrativeArtifact = null;
+    const narrativeSummary = sceneMode && state.narrativeEnabled ? narrativeForElement(elementId, detail) : null;
+    if (narrativeSummary) {
+      narrativeArtifact = await api.narrativeArtifact(narrativeSummary.artifact_id);
+      if (token !== state.detailRunToken) return;
+      detail = { ...detail, narrative_artifact: narrativeArtifact, element: { ...detail.element, deterministic_title: detail.element.title, deterministic_summary: detail.element.summary, title: narrativeArtifact.title, summary: narrativeArtifact.summary } };
+    }
     state.detail = detail; state.selectedId = elementId;
     const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.presentation_role || selected.role || selected.kind || "Story element").replaceAll("_", " ");
     $("#detailKind").textContent = String(selected.source_kind || selected.presentation_role || selected.kind || selected.role || "route element").replaceAll("_", " ");
@@ -732,10 +984,17 @@ async function openDetail(elementId) {
     addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements || allFacts.filter((item) => String(item.kind || "").includes("gate") || String(item.type || "").includes("require")), "gate"); addFactGroup(facts, "Effects", detail.effects || allFacts.filter((item) => String(item.kind || "").includes("effect")), "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
     const interpretations = $("#interpretations"); interpretations.replaceChildren();
     $("#interpretationPanel").hidden = sceneMode;
+    if (narrativeArtifact) $("#interpretationPanel").hidden = false;
     const candidates = detail.ai_candidates || detail.candidates || selected.ai_candidates || [];
     const claims = detail.claims || candidates.flatMap((candidate) => candidate.claims || []);
     for (const candidate of candidates) { const article = element("article", "interpretation candidate"); article.append(element("strong", "", candidate.title || candidate.label || "Candidate"), element("p", "", candidate.summary || candidate.text || "")); if (candidate.correction) article.append(element("span", "correction", `Correction: ${candidate.correction.title || candidate.correction.text || "provided"}`)); if (candidate.pinned) article.append(element("span", "pin", "Pinned by reviewer")); interpretations.append(article); }
     for (const claim of claims) { const article = element("article", "interpretation claim"); article.append(element("strong", "", claim.label || "Evidence-backed claim"), element("p", "", claim.text || claim.claim || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ") || "not supplied"}`)); interpretations.append(article); }
+    if (narrativeArtifact) {
+      const summary = element("article", "interpretation candidate");
+      summary.append(element("strong", "", `${narrativeArtifact.publication === "partial" ? "Partial narrative" : "Narrative summary"} · deterministic authority unchanged`), element("p", "", narrativeArtifact.summary));
+      for (const warning of narrativeArtifact.warnings || []) summary.append(element("span", "correction", warning));
+      interpretations.append(summary); renderNarrativeClaims(interpretations, narrativeArtifact);
+    }
     if (!interpretations.children.length) interpretations.append(element("p", "muted", "No AI interpretation is attached; the technical map is authoritative."));
     const evidence = $("#evidenceList"); evidence.replaceChildren();
     for (const record of detail.evidence || []) {
@@ -866,6 +1125,21 @@ function bind() {
     searchM10WholeGraph.timer = setTimeout(() => searchM10WholeGraph().catch((error) => toast(error.message)), 180);
   });
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
+  $("#narrativeToggle").addEventListener("change", (event) => {
+    state.narrativeEnabled = event.target.checked;
+    if (state.mode !== "scenes" && state.narrativeEnabled) toast("Narrative overlays appear on the deterministic Scenes view");
+    renderMap();
+  });
+  $("#narrativeJobsButton").addEventListener("click", () => {
+    const drawer = $("#narrativeDrawer"); drawer.hidden = !drawer.hidden;
+    $("#narrativeJobsButton").setAttribute("aria-expanded", String(!drawer.hidden));
+    if (!drawer.hidden) renderNarrativeDrawer();
+  });
+  $("#closeNarrativeDrawer").addEventListener("click", () => { $("#narrativeDrawer").hidden = true; $("#narrativeJobsButton").setAttribute("aria-expanded", "false"); });
+  $("#narrativeRunForm").addEventListener("submit", prepareNarrativeRun);
+  $("#confirmNarrative").addEventListener("click", confirmNarrativeRun);
+  $("#cancelNarrative").addEventListener("click", cancelNarrativeRun);
+  $("#retryNarrative").addEventListener("click", retryNarrativeRun);
   for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
   $("#sceneMapButton").addEventListener("click", () => switchMode("scenes")); $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
   $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);

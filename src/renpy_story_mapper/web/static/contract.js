@@ -31,6 +31,13 @@ export const ENDPOINTS = Object.freeze({
   inspectionDetail: "/api/v1/m10/detail",
   sceneMap: "/api/v1/m11/scene-map",
   sceneDetail: "/api/v1/m11/detail",
+  narrativeSnapshot: "/api/v1/m13/snapshot",
+  narrativeArtifact: "/api/v1/m13/artifact",
+  narrativeCitations: "/api/v1/m13/citations",
+  narrativePrepare: "/api/v1/m13/prepare",
+  narrativeStart: "/api/v1/m13/start",
+  narrativeStatus: "/api/v1/m13/status",
+  narrativeCancel: "/api/v1/m13/cancel",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -224,6 +231,64 @@ export function assertSceneDetail(value) {
   if (membershipReferenceCount(membershipRoots) !== value.membership_reference_count) throw new TypeError("M11 Scene Detail membership reference count is inexact");
   if (value.canonical_record_reference_limit !== 60 || !Number.isInteger(value.canonical_record_reference_count) || value.canonical_record_reference_count < 0 || value.canonical_record_reference_count > value.canonical_record_reference_limit) throw new RangeError("M11 Scene Detail canonical record references are unbounded");
   if (membershipReferenceCount([value.canonical_records, value.evidence]) !== value.canonical_record_reference_count) throw new TypeError("M11 Scene Detail canonical record reference count is inexact");
+  return value;
+}
+
+export function assertNarrativeSnapshot(value) {
+  if (!object(value) || !["available", "unavailable"].includes(value.status) || value.schema !== "m13-narrative-snapshot-v1" || value.cloud_enabled !== false || !Array.isArray(value.jobs) || value.jobs.length > 200) throw new TypeError("Invalid M13 Narrative snapshot");
+  if (!Number.isInteger(value.offset) || value.offset < 0 || !Number.isInteger(value.limit) || value.limit < 1 || value.limit > 200 || !Number.isInteger(value.total) || value.total < value.jobs.length) throw new TypeError("Invalid M13 Narrative job window");
+  if (value.next_offset !== null && (!Number.isInteger(value.next_offset) || value.next_offset <= value.offset)) throw new TypeError("Invalid M13 Narrative next offset");
+  if (value.status === "unavailable") {
+    if (typeof value.reason !== "string" || value.jobs.length || value.total !== 0) throw new TypeError("Invalid unavailable M13 Narrative snapshot");
+    return value;
+  }
+  digest(value.authority_hash, "M13 Narrative authority_hash");
+  if (!object(value.coverage) || !object(value.state_counts)) throw new TypeError("M13 Narrative coverage is unavailable");
+  for (const job of value.jobs) {
+    if (!object(job) || typeof job.job_id !== "string" || typeof job.kind !== "string" || typeof job.owner_id !== "string" || typeof job.state !== "string" || (job.artifact !== null && !object(job.artifact))) throw new TypeError("Invalid M13 Narrative job");
+    if (job.artifact && (typeof job.artifact.artifact_id !== "string" || typeof job.artifact.title !== "string" || typeof job.artifact.summary !== "string" || !object(job.artifact.coverage) || !Array.isArray(job.artifact.warnings))) throw new TypeError("Invalid M13 Narrative artifact summary");
+  }
+  return value;
+}
+
+export function assertNarrativeArtifact(value) {
+  if (!object(value) || value.schema !== "m13-narrative-artifact-detail-v1" || value.status !== "available" || typeof value.artifact_id !== "string" || typeof value.logical_job_id !== "string" || typeof value.kind !== "string" || typeof value.publication !== "string" || typeof value.title !== "string" || typeof value.summary !== "string" || !Array.isArray(value.claims) || value.claims.length > 256 || !object(value.coverage) || !Array.isArray(value.warnings)) throw new TypeError("Invalid M13 Narrative artifact detail");
+  digest(value.authority_hash, "M13 Narrative artifact authority_hash");
+  for (const claim of value.claims) if (!object(claim) || typeof claim.claim_id !== "string" || !["factual", "interpretive", "review_suggestion"].includes(claim.claim_class) || typeof claim.text !== "string" || !["direct_evidence", "child_claims"].includes(claim.support_kind)) throw new TypeError("Invalid M13 Narrative claim");
+  return value;
+}
+
+export function assertNarrativeCitations(value) {
+  if (!object(value) || value.schema !== "m13-narrative-claim-citations-v1" || value.status !== "available" || typeof value.claim_id !== "string" || !Array.isArray(value.traversed_claim_ids) || value.traversed_claim_ids.length > 256 || !Number.isInteger(value.maximum_depth) || value.maximum_depth < 0 || !Array.isArray(value.citations) || value.citations.length > 60) throw new TypeError("Invalid M13 Narrative citations");
+  digest(value.authority_hash, "M13 Narrative citation authority_hash");
+  for (const citation of value.citations) if (!object(citation) || !["m10", "m11", "m12"].includes(citation.authority) || typeof citation.record_kind !== "string" || typeof citation.record_id !== "string" || typeof citation.owner_id !== "string" || !object(citation.record)) throw new TypeError("Invalid M13 Narrative citation");
+  return value;
+}
+
+export function assertNarrativePreparation(value) {
+  if (!object(value) || value.schema !== "m13-run-preparation-v1" || typeof value.preparation_id !== "string" || !value.preparation_id || typeof value.run_id !== "string" || !value.run_id) throw new TypeError("Invalid M13 Narrative preparation");
+  digest(value.authority_hash, "M13 Narrative preparation authority_hash");
+  if (!object(value.provider) || typeof value.provider.provider !== "string" || typeof value.provider.adapter !== "string" || typeof value.provider.adapter_version !== "string" || typeof value.provider.requested_model !== "string" || typeof value.provider.resolved_model !== "string" || !object(value.provider.settings)) throw new TypeError("Invalid M13 Narrative provider identity");
+  if (typeof value.provider_available !== "boolean" || !Array.isArray(value.selected_scope_ids) || value.selected_scope_ids.length !== 1 || value.selected_scope_ids.some((item) => typeof item !== "string" || !item)) throw new TypeError("Invalid M13 Narrative selected scope");
+  if (!["fact_only", "story_text"].includes(value.privacy_mode) || typeof value.includes_m12_material !== "boolean" || value.consent_granted !== false || value.requires_confirm_cloud !== true || value.cloud_enabled !== false || !Number.isInteger(value.selected_scene_count) || value.selected_scene_count < 1) throw new TypeError("Invalid M13 Narrative consent state");
+  const estimate = value.estimate;
+  if (!object(estimate) || !["unavailable", "estimated", "reliable"].includes(estimate.cost_confidence)) throw new TypeError("Invalid M13 Narrative estimate");
+  for (const key of ["logical_job_count", "provider_call_count", "input_tokens", "output_tokens"]) if (!Number.isInteger(estimate[key]) || estimate[key] < 0) throw new TypeError(`Invalid M13 Narrative estimate ${key}`);
+  if ((estimate.estimated_cost_micros !== null && (!Number.isInteger(estimate.estimated_cost_micros) || estimate.estimated_cost_micros < 0)) || (estimate.cost_confidence === "unavailable" && estimate.estimated_cost_micros !== null)) throw new TypeError("Invalid M13 Narrative cost estimate");
+  const limits = value.limits;
+  if (!object(limits)) throw new TypeError("Invalid M13 Narrative limits");
+  for (const key of ["max_provider_calls", "max_input_tokens", "max_output_tokens", "max_total_tokens", "timeout_seconds", "max_concurrency"]) if (!Number.isInteger(limits[key]) || limits[key] < 1) throw new TypeError(`Invalid M13 Narrative limit ${key}`);
+  if (limits.max_cost_micros !== null && (!Number.isInteger(limits.max_cost_micros) || limits.max_cost_micros < 0)) throw new TypeError("Invalid M13 Narrative cost limit");
+  return value;
+}
+
+export function assertNarrativeRunStatus(value) {
+  const states = ["disabled", "prepared", "running", "cancelling", "succeeded", "partial", "failed", "cancelled", "hard_limit"];
+  if (!object(value) || value.schema !== "m13-run-status-v1" || !states.includes(value.state) || typeof value.cloud_enabled !== "boolean" || typeof value.provider_transmission_active !== "boolean" || value.cloud_enabled !== ["running", "cancelling"].includes(value.state) || value.provider_transmission_active !== value.cloud_enabled || value.durable_completed_work_preserved !== true) throw new TypeError("Invalid M13 Narrative run status");
+  if (value.preparation !== null) assertNarrativePreparation(value.preparation);
+  if (value.latest_run !== null && (!object(value.latest_run) || typeof value.latest_run.run_id !== "string" || typeof value.latest_run.state !== "string")) throw new TypeError("Invalid M13 Narrative latest run");
+  if (value.artifacts !== null && !object(value.artifacts)) throw new TypeError("Invalid M13 Narrative artifact set");
+  if (!Array.isArray(value.unresolved_codes) || value.unresolved_codes.some((item) => typeof item !== "string")) throw new TypeError("Invalid M13 Narrative unresolved codes");
   return value;
 }
 

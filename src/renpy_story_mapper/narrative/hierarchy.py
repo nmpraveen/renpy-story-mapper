@@ -228,9 +228,9 @@ class HierarchyArtifactInput:
     def ordering_key(self) -> tuple[int, int, int, str, str, str, str, str, str]:
         chapter = self.chapter_ordinal if self.chapter_ordinal is not None else 1_000_000_000
         return (
-            _SECTION_ORDER[self.path.section],
             chapter,
             self.chronology_index,
+            _SECTION_ORDER[self.path.section],
             self.path.route_id or "",
             self.path.persistent_lane_id or "",
             self.path.temporary_container_id or "",
@@ -620,20 +620,37 @@ def plan_chapter_jobs(
     """Plan one bounded chapter-section job per exact route/branch context."""
 
     _require_globally_unique_artifacts(segment_artifacts)
-    groups: dict[tuple[int, str, str], list[HierarchyArtifactInput]] = defaultdict(list)
+    groups: dict[tuple[int, str, str, str], list[HierarchyArtifactInput]] = defaultdict(list)
     for child in segment_artifacts:
         if child.job_kind is not LogicalJobKind.SUMMARY_SEGMENT:
             raise ValueError("Chapter jobs consume summary segments, never raw scene artifacts.")
         if child.chapter_id is None or child.chapter_ordinal is None:
             raise ValueError("Chapter segment inputs require exact chapter ownership.")
-        groups[(child.chapter_ordinal, child.chapter_id, child.path.identity)].append(child)
+        # A path may leave for a temporary arm and later reappear after its rejoin.  The
+        # deterministic temporal anchor is therefore part of chapter-section ownership: folding
+        # both runs together would erase the branch position even though M11 membership remains
+        # unchanged.
+        groups[
+            (
+                child.chapter_ordinal,
+                child.chapter_id,
+                child.path.identity,
+                child.temporal_anchor,
+            )
+        ].append(child)
 
     jobs: list[HierarchyJobDescriptor] = []
     reductions: list[HierarchyReductionRequirement] = []
-    for (chapter_ordinal, chapter_id, _path_identity), pending in sorted(groups.items()):
+    for (
+        chapter_ordinal,
+        chapter_id,
+        _path_identity,
+        temporal_anchor,
+    ), pending in sorted(groups.items()):
         children = tuple(sorted(pending, key=lambda child: child.ordering_key))
         path = children[0].path
-        owner_id = f"chapter:{chapter_id}:{path.identity[:16]}"
+        anchor_fingerprint = canonical_hash({"temporal_anchor": temporal_anchor})[:12]
+        owner_id = f"chapter:{chapter_id}:{path.identity[:16]}:{anchor_fingerprint}"
         job, reduction = _plan_one_job(
             kind=LogicalJobKind.CHAPTER,
             owner_id=owner_id,
@@ -645,7 +662,7 @@ def plan_chapter_jobs(
             chapter_id=chapter_id,
             chapter_ordinal=chapter_ordinal,
             chronology_index=min(child.chronology_index for child in children),
-            temporal_anchor=f"chapter:{chapter_id}:{path.identity[:16]}",
+            temporal_anchor=(f"chapter:{chapter_id}:{path.identity[:16]}:{anchor_fingerprint}"),
         )
         if job is not None:
             jobs.append(job)
@@ -690,9 +707,7 @@ def plan_common_story_job(
         child.path.section is StorySection.TEMPORARY_BRANCH for child in children
     )
     policy = (
-        ChronologyPolicy.STRUCTURED_ALTERNATIVES
-        if has_alternatives
-        else ChronologyPolicy.LINEAR
+        ChronologyPolicy.STRUCTURED_ALTERNATIVES if has_alternatives else ChronologyPolicy.LINEAR
     )
     return _single_level_plan(
         _plan_one_job(
@@ -900,10 +915,14 @@ def plan_plot_job(
             raise ValueError("Plot planning cannot repeat an ending artifact.")
         ending_keys.add(key)
     for child in unresolved_artifacts:
-        if child.job_kind not in {
-            LogicalJobKind.CHAPTER,
-            LogicalJobKind.SUMMARY_SEGMENT,
-        } or child.path.section is not StorySection.UNRESOLVED:
+        if (
+            child.job_kind
+            not in {
+                LogicalJobKind.CHAPTER,
+                LogicalJobKind.SUMMARY_SEGMENT,
+            }
+            or child.path.section is not StorySection.UNRESOLVED
+        ):
             raise ValueError("Plot unresolved inputs require bounded chapter or segment artifacts.")
     if any(child.job_kind is LogicalJobKind.SCENE for child in all_children):
         raise ValueError("Plot jobs never consume raw scene artifacts.")
@@ -1069,10 +1088,7 @@ def _plan_one_job(
         )
 
     child_claim_ids = tuple(
-        claim_id
-        for child in children
-        if child.available
-        for claim_id in child.claim_ids
+        claim_id for child in children if child.available for claim_id in child.claim_ids
     )
     if len(child_claim_ids) != len(set(child_claim_ids)):
         raise ValueError("A child claim cannot be owned by multiple direct artifacts.")
@@ -1083,17 +1099,17 @@ def _plan_one_job(
         raise ValueError("M12 authority leaf claims must be unique.")
 
     child_contexts = [child.context_dict() for child in children]
-    fingerprint = canonical_hash({
-        "partition_version": config.partition_version,
-        "intended_kind": kind.value,
-        "owner_id": owner_id,
-        "path": path.to_dict(),
-        "chronology_policy": chronology_policy.value,
-        "ordered_child_contexts": child_contexts,
-        "m12_result_identities": [
-            leaf.authority.result_identity for leaf in authority_leaves
-        ],
-    })
+    fingerprint = canonical_hash(
+        {
+            "partition_version": config.partition_version,
+            "intended_kind": kind.value,
+            "owner_id": owner_id,
+            "path": path.to_dict(),
+            "chronology_policy": chronology_policy.value,
+            "ordered_child_contexts": child_contexts,
+            "m12_result_identities": [leaf.authority.result_identity for leaf in authority_leaves],
+        }
+    )
     occurrence_id = _shared_optional(children, "occurrence_id")
     call_site_id = _shared_optional(children, "call_site_id")
     loop_id = _shared_optional(children, "loop_id")
@@ -1138,9 +1154,7 @@ def _plan_one_job(
     ), None
 
 
-def _shared_optional(
-    children: tuple[HierarchyArtifactInput, ...], field_name: str
-) -> str | None:
+def _shared_optional(children: tuple[HierarchyArtifactInput, ...], field_name: str) -> str | None:
     values = {getattr(child, field_name) for child in children}
     if len(values) != 1:
         return None

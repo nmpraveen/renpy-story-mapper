@@ -198,6 +198,42 @@ technical evidence. JSON export recursively sorts object keys and exports only t
 result. Selection changes mark an existing result stale; cancellation and failure do not replace
 that result. Detail traversal reuses the existing Detail/Evidence workspace and canonical escape.
 
+## M13 optional Narrative overlay
+
+The Narrative toggle overlays validated M13 titles and summaries on the deterministic M11 Scenes
+view. Turning it off restores the unchanged M11 presentation. The job drawer and narrative claims
+remain inside `route_map` and `detail_evidence`; they do not create a third semantic level. Claim
+labels distinguish factual claims, AI interpretation, and review suggestions. Citations are
+resolved lazily through the persisted claim DAG only after a user opens them.
+
+- `POST /api/v1/m13/snapshot` accepts only `{offset?, limit?}` with at most 200 current-authority
+  job summaries. It reports scene coverage, job states, stale/unavailable counts, and M12 coverage.
+- `POST /api/v1/m13/artifact` accepts exactly `{artifact_id}` and returns at most 256 validated
+  claim summaries plus publication and coverage warnings.
+- `POST /api/v1/m13/citations` accepts exactly `{claim_id}` and lazily resolves at most 256 claims
+  and 60 direct M10/M11/M12 authority records.
+- `POST /api/v1/m13/prepare` accepts one exact model, privacy mode, M12 toggle, selected scene
+  scope, hard limits, and deterministic transport-batch limits. It performs provider-free sizing
+  of the complete hierarchy and returns a disabled `m13-run-preparation-v1` manifest with provider
+  and requested/resolved model identity, logical-job and estimated-call counts, input/output token
+  estimates, cost confidence, selected scope, and all limits. Cost is visibly unavailable when the
+  adapter cannot estimate it reliably; no cost limit may then be implied.
+- `POST /api/v1/m13/start` accepts exactly `{preparation_id, confirm_cloud:true}`. The preparation
+  ID binds that single confirmation to the manifest shown in the browser. No missing, stale, false,
+  or provider-unavailable confirmation starts a run.
+- `POST /api/v1/m13/status` and `POST /api/v1/m13/cancel` accept `{}`. Status distinguishes prepared,
+  running, cancelling, succeeded, partial, failed, cancelled, and hard-limit outcomes. Cancellation
+  reaches the active provider and preserves every independently validated artifact. Retrying prepares
+  a new exact consent manifest; accepted cache entries replay without provider calls, so only missing
+  or failed jobs remain provider work.
+
+Cloud AI is disabled by default. These read endpoints are provider-free and never transmit story
+material. Unknown, stale, corrupt, foreign-owner, or oversized records fail closed. Browser
+rendering never changes M10, M11, or M12 authority and never treats mutually exclusive routes as
+one chronology. The run drawer keeps deterministic views useful with Narrative disabled and displays
+provider/model, scope, fact-only or story-text mode, M12 inclusion, estimated calls and tokens, cost
+availability, and call/token/time/concurrency limits before the one manifest-bound confirmation.
+
 ## Local shell and acceptance
 
 Bootstrap, opaque native pickers, project create/open/refresh, analysis progress/cancel, settings,

@@ -51,6 +51,7 @@ from renpy_story_mapper.storage import canonical_json
 
 HIERARCHY_PROVIDER_INPUT_SCHEMA = "m13-hierarchy-provider-input-v1"
 MAX_DIRECT_CHILD_CLAIMS = 1_024
+MAX_PROPAGATED_CLAIMS_PER_ARTIFACT = 32
 CHARS_PER_ESTIMATED_TOKEN = 4
 DEFAULT_HIERARCHY_OUTPUT_TOKENS = 1_000
 
@@ -109,9 +110,9 @@ class RuntimeNarrativeArtifact:
             if not isinstance(claim_id, str) or claim_id in result:
                 raise ValueError("runtime artifact claim identity is malformed")
             result[claim_id] = dict(value)
-        if tuple(result) != self.claim_ids:
+        if not set(self.claim_ids) <= set(result):
             raise ValueError("runtime artifact immediate claim index changed")
-        return result
+        return {claim_id: result[claim_id] for claim_id in self.claim_ids}
 
 
 @dataclass(frozen=True)
@@ -336,6 +337,7 @@ def execute_hierarchy_jobs(
         )
         for item in prepared
     }
+    prepared_by_job = {item.job.spec.job_id: item for item in prepared}
 
     def validate(
         job: ScheduledSceneJob,
@@ -345,11 +347,28 @@ def execute_hierarchy_jobs(
         if result.artifact is None:
             raise ValueError(result.rejected_reason or "hierarchy output is not publishable")
         artifact = result.artifact
+        item = prepared_by_job[job.logical_job_id]
+        payload = artifact.normalized_dict()
+        payload["hierarchy"] = cast(
+            JsonValue,
+            {
+                "chronology_policy": item.descriptor.chronology_policy.value,
+                "path": item.descriptor.path.to_dict(),
+                "structure_manifest_id": item.descriptor.structure_manifest_id,
+                "section_entries": [
+                    entry.to_dict() for entry in item.descriptor.section_entries
+                ],
+            },
+        )
+        payload["m12_authority"] = cast(
+            JsonValue,
+            [record.to_dict() for record in item.descriptor.m12_authority],
+        )
         return ValidatedLogicalOutput(
             logical_job_id=job.logical_job_id,
-            artifact_id=artifact.artifact_id,
+            artifact_id=f"m13_artifact_{canonical_hash(payload)}",
             publication=artifact.publication,
-            payload=artifact.normalized_dict(),
+            payload=payload,
             validated_claim_count=len(artifact.claims),
             invalid_claim_count=artifact.coverage.invalid_claim_count,
         )
@@ -419,7 +438,10 @@ def _runtime_from_prepared(
     claims = payload.get("claims")
     if not isinstance(claims, list):
         raise ValueError("published hierarchy artifact claims are malformed")
-    claim_ids = tuple(_required_text(item, "claim_id") for item in _mappings(claims))
+    claim_ids = tuple(
+        _required_text(item, "claim_id")
+        for item in _mappings(claims)[:MAX_PROPAGATED_CLAIMS_PER_ARTIFACT]
+    )
     descriptor = prepared.descriptor
     return RuntimeNarrativeArtifact(
         artifact_id=artifact_id,

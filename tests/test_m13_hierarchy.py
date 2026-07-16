@@ -98,7 +98,7 @@ def _segment(
         estimated_tokens=tokens,
         path=path,
         chronology_index=chronology,
-        temporal_anchor=f"anchor-{chapter}-{chronology}",
+        temporal_anchor=f"anchor-{chapter}",
         chapter_id=f"chapter-{chapter}",
         chapter_ordinal=chapter,
         available=available,
@@ -127,12 +127,8 @@ def _m12(route_id: str = "route-a") -> M12RouteAuthority:
         persistent_lane_id=f"lane-{route_id}",
         status=TechnicalStatus.BEST_KNOWN,
         badge=RouteBadge.BEST_KNOWN,
-        prerequisite_texts=(
-            "Prerequisite: finish the shared occurrence before committing.",
-        ),
-        conclusion_texts=(
-            "This remains the best-known route; completeness is not proven.",
-        ),
+        prerequisite_texts=("Prerequisite: finish the shared occurrence before committing.",),
+        conclusion_texts=("This remains the best-known route; completeness is not proven.",),
     )
 
 
@@ -223,8 +219,7 @@ def test_chapter_jobs_are_segment_only_and_never_mix_exclusive_paths() -> None:
             descriptor.path.identity
         }
         assert all(
-            entry.job_kind is LogicalJobKind.SUMMARY_SEGMENT
-            for entry in descriptor.section_entries
+            entry.job_kind is LogicalJobKind.SUMMARY_SEGMENT for entry in descriptor.section_entries
         )
         assert descriptor.spec.context.structural_fingerprint is not None
     route_jobs = {
@@ -426,8 +421,7 @@ def test_ending_and_plot_keep_routes_endings_and_missing_coverage_separate() -> 
 
 def test_oversized_or_over_token_groups_request_reduction_without_creating_a_job() -> None:
     children = tuple(
-        _segment(f"segment-{index}", path=_common_path(), chronology=index)
-        for index in range(33)
+        _segment(f"segment-{index}", path=_common_path(), chronology=index) for index in range(33)
     )
     count_plan = plan_chapter_jobs(children, _config())
     replay = plan_chapter_jobs(tuple(reversed(children)), _config())
@@ -436,14 +430,24 @@ def test_oversized_or_over_token_groups_request_reduction_without_creating_a_job
     assert count_plan.jobs == ()
     assert count_plan.reductions[0].reason_codes == ("child_count_limit",)
     assert count_plan.reductions[0].request_id == replay.reductions[0].request_id
-    assert count_plan.reductions[0].request_id != plan_chapter_jobs(
-        children,
-        _config(locale="fr-FR"),
-    ).reductions[0].request_id
-    assert count_plan.reductions[0].request_id != plan_chapter_jobs(
-        children,
-        _config(partition_version="hierarchy-partition-v2"),
-    ).reductions[0].request_id
+    assert (
+        count_plan.reductions[0].request_id
+        != plan_chapter_jobs(
+            children,
+            _config(locale="fr-FR"),
+        )
+        .reductions[0]
+        .request_id
+    )
+    assert (
+        count_plan.reductions[0].request_id
+        != plan_chapter_jobs(
+            children,
+            _config(partition_version="hierarchy-partition-v2"),
+        )
+        .reductions[0]
+        .request_id
+    )
 
     token_plan = plan_chapter_jobs(
         (

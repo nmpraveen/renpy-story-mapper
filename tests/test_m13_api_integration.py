@@ -1,10 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
+from renpy_story_mapper.narrative.provider import (
+    PROMPT_TEMPLATE_VERSION,
+    RESPONSE_SCHEMA_VERSION,
+    ProviderOutputItem,
+    ProviderRequest,
+    ProviderResponse,
+    ProviderStatus,
+    ProviderUsage,
+)
 from renpy_story_mapper.project import create_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.state import UserStateStore
@@ -24,13 +35,75 @@ class _Dialogs:
         return None
 
 
-def _api(tmp_path: Path) -> ProjectApi:
+@dataclass
+class _Provider:
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    def status(self) -> ProviderStatus:
+        return ProviderStatus(True, "test-cloud", "test-adapter", "test-adapter-v1")
+
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        del cancelled
+        self.requests.append(request)
+        identity = ProviderIdentity(
+            "test-cloud",
+            "test-adapter",
+            "test-adapter-v1",
+            request.requested_model,
+            request.requested_model,
+            ProviderSettings(),
+        )
+        return ProviderResponse(
+            request.request_id,
+            identity,
+            tuple(
+                ProviderOutputItem(
+                    item.logical_job_id,
+                    index,
+                    {
+                        "logical_job_id": item.logical_job_id,
+                        "title": f"Narrative {index + 1}",
+                        "summary": "A bounded validated narrative summary.",
+                        "claims": [
+                            {
+                                "claim_class": "factual",
+                                "text": "A directly supported narrative fact.",
+                                "evidence_handles": (
+                                    ["E1"] if item.payload["job_kind"] == "scene" else []
+                                ),
+                                "child_claim_handles": (
+                                    [] if item.payload["job_kind"] == "scene" else ["C1"]
+                                ),
+                                "subject": "story",
+                                "predicate": "contains",
+                                "polarity": "positive",
+                                "normalized_value": "supported",
+                            }
+                        ],
+                    },
+                )
+                for index, item in enumerate(request.items)
+            ),
+            ProviderUsage(10, 5, 1),
+            PROMPT_TEMPLATE_VERSION,
+            RESPONSE_SCHEMA_VERSION,
+        )
+
+    def cancel(self) -> None:
+        return
+
+
+def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
     source = tmp_path / "game"
     source.mkdir()
     (source / "story.rpy").write_bytes(FIXTURE.read_bytes())
     project_path = tmp_path / "story.rsmproj"
     create_ingested_project(project_path, source).close()
-    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    api = ProjectApi(
+        _Dialogs(),
+        state_store=UserStateStore(tmp_path / "state.json"),
+        m13_provider_factory=(None if provider is None else lambda: provider),
+    )
     api._retain_project_path(project_path, source)
     return api
 
@@ -43,6 +116,10 @@ def test_m13_api_advertises_bounded_provider_free_snapshot(tmp_path: Path) -> No
             "snapshot": "/api/v1/m13/snapshot",
             "artifact": "/api/v1/m13/artifact",
             "citations": "/api/v1/m13/citations",
+            "prepare": "/api/v1/m13/prepare",
+            "start": "/api/v1/m13/start",
+            "status": "/api/v1/m13/status",
+            "cancel": "/api/v1/m13/cancel",
         }
         snapshot = api.dispatch(
             "POST",
@@ -84,5 +161,70 @@ def test_m13_api_fails_closed_for_unknown_artifact_and_claim(tmp_path: Path) -> 
             )
         assert claim_error.value.status == 404
         assert claim_error.value.code == "m13_claim_not_found"
+    finally:
+        api.close()
+
+
+def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    api = _api(tmp_path, provider)
+    request = {
+        "requested_model": "runtime-model",
+        "mode": "fact_only",
+        "include_m12_material": True,
+        "limits": {
+            "max_provider_calls": 500,
+            "max_input_tokens": 20_000_000,
+            "max_output_tokens": 20_000_000,
+            "max_total_tokens": 40_000_000,
+            "timeout_seconds": 300,
+            "max_concurrency": 4,
+            "max_cost_micros": None,
+        },
+        "batch_limits": {
+            "maximum_items": 16,
+            "maximum_input_chars": 500_000,
+            "maximum_input_tokens": 100_000,
+        },
+    }
+    try:
+        preview = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        assert preview["consent_granted"] is False
+        assert preview["cloud_enabled"] is False
+        assert preview["requires_confirm_cloud"] is True
+        assert preview["selected_scope_ids"] == ["project:all-current-scenes"]
+        assert preview["estimate"]["logical_job_count"] > preview["selected_scene_count"]
+        assert preview["estimate"]["provider_call_count"] > 0
+        assert preview["estimate"]["cost_confidence"] == "unavailable"
+        assert provider.requests == []
+
+        with pytest.raises(ApiProblem) as consent_error:
+            api.dispatch(
+                "POST",
+                "/api/v1/m13/start",
+                {"preparation_id": preview["preparation_id"], "confirm_cloud": False},
+            )
+        assert consent_error.value.code == "m13_consent_required"
+        assert provider.requests == []
+
+        started = api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": preview["preparation_id"], "confirm_cloud": True},
+        )
+        assert started["state"] in {"running", "succeeded"}
+        deadline = time.monotonic() + 20
+        while True:
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert status["state"] == "succeeded"
+        assert status["latest_run"]["usage"]["provider_calls"] > 0
+        assert status["durable_completed_work_preserved"] is True
+        assert provider.requests
     finally:
         api.close()
