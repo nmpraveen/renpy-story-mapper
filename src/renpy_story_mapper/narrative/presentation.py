@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -32,6 +33,9 @@ MAX_NARRATIVE_JOBS_PAGE = 200
 MAX_NARRATIVE_CLAIMS = 256
 MAX_NARRATIVE_CITATIONS = 60
 MAX_CITATION_BYTES = 64_000
+MAX_BOUNDED_CITATION_TEXTS = 64
+MAX_BOUNDED_CITATION_TEXT_CHARS = 24_000
+MAX_BOUNDED_CITATION_ITEM_CHARS = 4_000
 
 
 def narrative_snapshot(
@@ -351,15 +355,115 @@ def _citation(
     reference: AuthorityReference,
 ) -> dict[str, object]:
     record = _authority_record(authority, reference)
-    if len(canonical_json(record)) > MAX_CITATION_BYTES:
-        raise ValueError("citation authority record exceeds the browser bound")
+    encoded = canonical_json(record)
+    presented = (
+        dict(record)
+        if len(encoded) <= MAX_CITATION_BYTES
+        else _bounded_authority_record(record, encoded)
+    )
+    if len(canonical_json(presented)) > MAX_CITATION_BYTES:
+        raise ValueError("bounded citation authority record exceeds the browser bound")
     return {
         "authority": reference.authority.value,
         "record_kind": reference.record_kind,
         "record_id": reference.record_id,
         "owner_id": reference.owner_id,
-        "record": dict(record),
+        "record": presented,
     }
+
+
+def _bounded_authority_record(
+    record: Mapping[str, object],
+    encoded: bytes,
+) -> dict[str, object]:
+    """Project an oversized authority record without losing its exact identity or hash."""
+
+    exact_scalar_keys = (
+        "schema",
+        "schema_version",
+        "id",
+        "request_identity",
+        "kind",
+        "status",
+        "badge",
+        "complete",
+        "termination_reason",
+        "exhaustive",
+        "closed_world",
+        "title",
+        "name",
+        "source_path",
+        "start_line",
+        "end_line",
+    )
+    exact_fields = {
+        key: value
+        for key in exact_scalar_keys
+        if (value := record.get(key)) is None or isinstance(value, str | bool | int | float)
+        if key in record
+    }
+    support_texts, support_total, support_truncated = _bounded_support_texts(record)
+    return {
+        "schema": "m13-bounded-authority-citation-v1",
+        "record_sha256": hashlib.sha256(encoded).hexdigest(),
+        "record_size_bytes": len(encoded),
+        "record_truncated_for_presentation": True,
+        "exact_fields": exact_fields,
+        "support_texts": list(support_texts),
+        "support_text_total": support_total,
+        "support_texts_truncated": support_truncated,
+    }
+
+
+def _bounded_support_texts(
+    value: object,
+) -> tuple[tuple[str, ...], int, bool]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    total = 0
+    characters = 0
+    support_keys = {
+        "conclusion_texts",
+        "instructions",
+        "persistent_commitment_claims",
+        "prerequisite_texts",
+        "requirements",
+        "uncertainty_warnings",
+    }
+
+    def consider(text: str) -> None:
+        nonlocal total, characters
+        if not text.strip() or text in seen:
+            return
+        seen.add(text)
+        total += 1
+        if (
+            len(selected) >= MAX_BOUNDED_CITATION_TEXTS
+            or len(text) > MAX_BOUNDED_CITATION_ITEM_CHARS
+            or characters + len(text) > MAX_BOUNDED_CITATION_TEXT_CHARS
+        ):
+            return
+        selected.append(text)
+        characters += len(text)
+
+    def walk(current: object, key: str | None = None) -> None:
+        if isinstance(current, Mapping):
+            if key in support_keys:
+                text = current.get("text")
+                if isinstance(text, str):
+                    consider(text)
+            for child_key, child in current.items():
+                walk(child, str(child_key))
+        elif isinstance(current, list | tuple):
+            for child in current:
+                if key in support_keys and isinstance(child, str):
+                    consider(child)
+                walk(child, key)
+        elif key in support_keys and isinstance(current, str):
+            consider(current)
+
+    walk(value)
+    return tuple(selected), total, len(selected) < total
 
 
 def _authority_record(

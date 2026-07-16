@@ -22,6 +22,8 @@ from renpy_story_mapper.narrative.contracts import (
     AuthorityReference,
     AuthoritySystem,
     ClaimClass,
+    ClaimPolarity,
+    ClaimSemantics,
     ClaimSupport,
     LogicalJobKind,
     LogicalJobSpec,
@@ -376,12 +378,19 @@ def make_m12_authority_leaf(
         record_id=authority.result_identity,
         owner_id=job.owner_id,
     )
-    exact_texts = (
-        authority.status.value,
-        authority.badge.value,
-        *authority.prerequisite_texts,
-        *authority.conclusion_texts,
+    exact_records = (
+        ("status", authority.status.value),
+        ("badge", authority.badge.value),
+        *(
+            (f"prerequisite:{ordinal}", text)
+            for ordinal, text in enumerate(authority.prerequisite_texts)
+        ),
+        *(
+            (f"conclusion:{ordinal}", text)
+            for ordinal, text in enumerate(authority.conclusion_texts)
+        ),
     )
+    subject = f"m12-route-result:{authority.result_identity}:route:{authority.route_id}"
     claims = tuple(
         NarrativeClaim(
             logical_job_id=job.job_id,
@@ -393,8 +402,14 @@ def make_m12_authority_leaf(
                 kind=SupportKind.DIRECT_EVIDENCE,
                 direct_evidence=(reference,),
             ),
+            semantics=ClaimSemantics(
+                subject=subject,
+                predicate=predicate,
+                polarity=ClaimPolarity.NEUTRAL,
+                normalized_value=text,
+            ),
         )
-        for ordinal, text in enumerate(exact_texts)
+        for ordinal, (predicate, text) in enumerate(exact_records)
     )
     return M12AuthorityLeaf(authority=authority, job=job, claims=claims)
 

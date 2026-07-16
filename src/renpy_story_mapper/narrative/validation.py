@@ -40,6 +40,7 @@ _REPAIR_FIELDS = frozenset({"logical_job_id", "title", "summary", "claims"})
 class ValidationSeverity(StrEnum):
     CLAIM = "claim"
     FIELD = "field"
+    REVIEW = "review"
     UNSAFE = "unsafe"
 
 
@@ -84,6 +85,7 @@ class ValidationContext:
     deterministic_summary: str = "Narrative summary unavailable."
     expected_child_ids: tuple[str, ...] = ()
     available_child_ids: tuple[str, ...] = ()
+    authority_claims: tuple[NarrativeClaim, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.input_revision_id.strip():
@@ -102,6 +104,21 @@ class ValidationContext:
             raise ValueError("validation child order must match the logical job")
         if self.handles.scope_id != self.job.job_id:
             raise ValueError("prompt handles must be bound to the logical job")
+        authority_ids = tuple(claim.claim_id for claim in self.authority_claims)
+        if len(authority_ids) != len(set(authority_ids)):
+            raise ValueError("validation authority claims must be unique")
+        available_handles = {
+            item.claim_id for item in self.handles.child_claim_handles
+        }
+        if not set(authority_ids) <= available_handles:
+            raise ValueError("validation authority claims must be prompt-local children")
+        if any(
+            claim.job_kind is not LogicalJobKind.AUTHORITY_FACT
+            or claim.claim_class is not ClaimClass.FACTUAL
+            or claim.semantics is None
+            for claim in self.authority_claims
+        ):
+            raise ValueError("validation authority claims must be normalized factual leaves")
 
 
 @dataclass(frozen=True)
@@ -139,7 +156,14 @@ def validate_and_salvage(
     first = _validate_once(raw, context)
     repair_attempts = 0
     current = first
-    if repair is not None and first.issues and first.rejected_reason != "authority_binding_invalid":
+    repairable = tuple(
+        issue for issue in first.issues if issue.severity is not ValidationSeverity.REVIEW
+    )
+    if (
+        repair is not None
+        and repairable
+        and first.rejected_reason != "authority_binding_invalid"
+    ):
         request = _repair_request(first, context)
         repair_attempts = 1
         try:
@@ -152,7 +176,10 @@ def validate_and_salvage(
         else:
             merged = _merge_repair(raw, repaired, request)
             current = _validate_once(merged, context)
-            if current.issues:
+            if any(
+                issue.severity is not ValidationSeverity.REVIEW
+                for issue in current.issues
+            ):
                 current = _with_issue(
                     current,
                     ValidationIssue("repair_exhausted", ValidationSeverity.FIELD),
@@ -214,6 +241,9 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
         else:
             claims.append(claim)
 
+    claims, contradiction_issues = _salvage_contextual_contradictions(claims, context)
+    issues.extend(contradiction_issues)
+
     if not claims:
         issue = ValidationIssue("no_safe_claims", ValidationSeverity.UNSAFE)
         return _PassResult(
@@ -237,7 +267,10 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
         valid_claim_count=len(claims),
         invalid_claim_count=invalid_count,
     )
-    partial = bool(issues or missing)
+    partial = bool(
+        missing
+        or any(issue.severity is not ValidationSeverity.REVIEW for issue in issues)
+    )
     warnings: list[str] = []
     if invalid_count:
         warnings.append(f"{invalid_count} invalid claim(s) omitted")
@@ -248,6 +281,8 @@ def _validate_once(raw: object, context: ValidationContext) -> _PassResult:
     if missing:
         percentage = coverage.child_coverage_basis_points / 100
         warnings.append(f"Child coverage is {percentage:g}%")
+    if any(issue.severity is ValidationSeverity.REVIEW for issue in issues):
+        warnings.append("Interpretive disagreement requires review")
     artifact = NarrativeArtifact(
         logical_job_id=context.job.job_id,
         input_revision_id=context.input_revision_id,
@@ -287,7 +322,7 @@ def _validate_claim(
         polarity=polarity,
         normalized_value=_required_text(raw, "normalized_value", 320),
     )
-    return NarrativeClaim(
+    claim = NarrativeClaim(
         logical_job_id=context.job.job_id,
         job_kind=context.job.kind,
         ordinal=ordinal,
@@ -296,6 +331,87 @@ def _validate_claim(
         support=support,
         semantics=semantics,
     )
+    _validate_exact_authority_claim(claim, context.authority_claims)
+    return claim
+
+
+def _validate_exact_authority_claim(
+    claim: NarrativeClaim,
+    authority_claims: tuple[NarrativeClaim, ...],
+) -> None:
+    """Prevent factual paraphrase from changing exact M12 status or prerequisite authority."""
+
+    if not authority_claims or claim.claim_class is not ClaimClass.FACTUAL:
+        return
+    authority_by_id = {item.claim_id: item for item in authority_claims}
+    cited = tuple(
+        authority_by_id[item]
+        for item in claim.support.child_claim_ids
+        if item in authority_by_id
+    )
+    if cited:
+        if len(cited) != 1:
+            raise ValueError("one factual claim cannot combine exact M12 authority claims")
+        exact = cited[0]
+        if claim.text != exact.text or claim.semantics != exact.semantics:
+            raise ValueError("factual M12 claims must preserve exact authority language")
+    semantics = claim.semantics
+    assert semantics is not None
+    for exact in authority_claims:
+        exact_semantics = exact.semantics
+        assert exact_semantics is not None
+        if (
+            semantics.subject.casefold() == exact_semantics.subject.casefold()
+            and semantics.predicate.casefold() == exact_semantics.predicate.casefold()
+            and (
+                semantics.polarity is not exact_semantics.polarity
+                or semantics.normalized_value.casefold()
+                != exact_semantics.normalized_value.casefold()
+            )
+        ):
+            raise ValueError("factual M12 semantics contradict exact authority")
+
+
+def _salvage_contextual_contradictions(
+    claims: list[NarrativeClaim],
+    context: ValidationContext,
+) -> tuple[list[NarrativeClaim], tuple[ValidationIssue, ...]]:
+    """Omit only later same-context factual conflicts and retain interpretive warnings."""
+
+    findings = contradiction_findings(
+        tuple(ContextualClaim(claim, context.job) for claim in claims)
+    )
+    by_id = {claim.claim_id: claim for claim in claims}
+    omitted: set[str] = set()
+    issues: list[ValidationIssue] = []
+    review_pairs: set[tuple[str, str]] = set()
+    for finding in findings:
+        if finding.severity is ContradictionSeverity.REVIEW_WARNING:
+            pair = (
+                min(finding.left_claim_id, finding.right_claim_id),
+                max(finding.left_claim_id, finding.right_claim_id),
+            )
+            if pair not in review_pairs:
+                review_pairs.add(pair)
+                issues.append(
+                    ValidationIssue(
+                        "interpretive_disagreement",
+                        ValidationSeverity.REVIEW,
+                    )
+                )
+            continue
+        right = by_id[finding.right_claim_id]
+        if right.claim_id in omitted:
+            continue
+        omitted.add(right.claim_id)
+        issues.append(
+            ValidationIssue(
+                "factual_contradiction_omitted",
+                ValidationSeverity.CLAIM,
+                right.ordinal,
+            )
+        )
+    return [claim for claim in claims if claim.claim_id not in omitted], tuple(issues)
 
 
 def _repair_request(result: _PassResult, context: ValidationContext) -> RepairRequest:

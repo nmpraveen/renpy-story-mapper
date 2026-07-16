@@ -130,6 +130,7 @@ class PreparedHierarchyJob:
     ordinal: int
     estimated_input_tokens: int
     estimated_output_tokens: int = DEFAULT_HIERARCHY_OUTPUT_TOKENS
+    authority_claims: tuple[NarrativeClaim, ...] = ()
 
     def __post_init__(self) -> None:
         if self.job.spec != self.descriptor.spec:
@@ -140,6 +141,11 @@ class PreparedHierarchyJob:
             raise ValueError("hierarchy payload differs from its normalized input revision")
         if self.ordinal < 0 or self.estimated_input_tokens < 1:
             raise ValueError("hierarchy scheduling estimates are invalid")
+        authority_ids = tuple(claim.claim_id for claim in self.authority_claims)
+        if len(authority_ids) != len(set(authority_ids)):
+            raise ValueError("prepared hierarchy authority claims must be unique")
+        if not set(authority_ids) <= set(self.descriptor.authority_leaf_claim_ids):
+            raise ValueError("prepared authority claims exceed the descriptor allowlist")
 
     def scheduled(
         self,
@@ -300,6 +306,9 @@ def prepare_hierarchy_job(
         scope_id=scope_id,
         ordinal=ordinal,
         estimated_input_tokens=max(1, math.ceil(len(encoded) / CHARS_PER_ESTIMATED_TOKEN)),
+        authority_claims=tuple(
+            authority_claims[claim_id] for claim_id in sorted(authority_claims)
+        ),
     )
 
 
@@ -335,6 +344,7 @@ def execute_hierarchy_jobs(
             deterministic_summary=item.deterministic_summary,
             expected_child_ids=item.descriptor.child_artifact_ids,
             available_child_ids=item.descriptor.available_child_artifact_ids,
+            authority_claims=item.authority_claims,
         )
         for item in prepared
     }

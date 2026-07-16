@@ -147,6 +147,18 @@ def test_m12_authority_leaf_preserves_exact_status_badge_and_prerequisite_langua
         *authority.conclusion_texts,
     )
     assert all(claim.claim_class.value == "factual" for claim in leaf.claims)
+    assert tuple(claim.semantics.predicate for claim in leaf.claims if claim.semantics) == (
+        "status",
+        "badge",
+        "prerequisite:0",
+        "conclusion:0",
+    )
+    assert all(
+        claim.semantics is not None
+        and claim.semantics.polarity.value == "neutral"
+        and claim.semantics.normalized_value == claim.text
+        for claim in leaf.claims
+    )
     assert all(claim.support.kind is SupportKind.DIRECT_EVIDENCE for claim in leaf.claims)
     assert all(
         claim.support.direct_evidence[0].authority is AuthoritySystem.M12
@@ -196,6 +208,8 @@ def test_m12_nonconfirmed_statuses_are_never_upgraded(
     assert leaf.authority.badge is badge
     assert leaf.claims[0].text == status.value
     assert leaf.claims[1].text == badge.value
+    assert leaf.claims[0].semantics is not None
+    assert leaf.claims[0].semantics.normalized_value == status.value
 
 
 def test_chapter_jobs_are_segment_only_and_never_mix_exclusive_paths() -> None:

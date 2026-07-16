@@ -30,7 +30,7 @@ from renpy_story_mapper.organization.sterile_runner import (
     SterileRunResult,
 )
 
-PROMPT_TEMPLATE_VERSION = "m13-narrative-batch-prompt-v2"
+PROMPT_TEMPLATE_VERSION = "m13-narrative-batch-prompt-v3"
 RESPONSE_SCHEMA_VERSION = "m13-narrative-batch-response-v1"
 ADAPTER_NAME = "codex_cli_structured"
 ADAPTER_VERSION = "m13-codex-cli-adapter-v1"
@@ -40,7 +40,7 @@ HARD_MAXIMUM_INPUT_BYTES = 2_000_000
 HARD_MAXIMUM_OUTPUT_BYTES = 2_000_000
 HARD_MAXIMUM_BATCH_ITEMS = 64
 
-_PROMPT_RESOURCE = "narrative_batch_v2.json"
+_PROMPT_RESOURCE = "narrative_batch_v3.json"
 _SCHEMA_RESOURCE = "narrative_batch_v1.schema.json"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 

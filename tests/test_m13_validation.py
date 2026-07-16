@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from renpy_story_mapper.m12_model import RouteBadge, TechnicalStatus
 from renpy_story_mapper.narrative.contracts import (
     ArtifactPublication,
     AuthorityReference,
@@ -17,6 +18,7 @@ from renpy_story_mapper.narrative.contracts import (
     SupportKind,
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
+from renpy_story_mapper.narrative.hierarchy import M12RouteAuthority, make_m12_authority_leaf
 from renpy_story_mapper.narrative.validation import (
     ContextualClaim,
     ContradictionSeverity,
@@ -75,13 +77,14 @@ def _provider_claim(
     value: str = "present",
     polarity: str = "positive",
     text: str = "Alice is present.",
+    subject: str = "Alice",
 ) -> dict[str, object]:
     return {
         "claim_class": claim_class,
         "text": text,
         "evidence_handles": ["E1"] if evidence is None else evidence,
         "child_claim_handles": [] if children is None else children,
-        "subject": "Alice",
+        "subject": subject,
         "predicate": "presence",
         "polarity": polarity,
         "normalized_value": value,
@@ -145,7 +148,9 @@ def test_invalid_title_and_unsupported_interpretation_salvage_valid_factual_work
 def test_one_targeted_repair_replaces_only_invalid_claim_and_title() -> None:
     context = _scene_context()
     valid = _provider_claim()
-    invalid = _provider_claim(evidence=["E404"], text="Bob is absent.", value="absent")
+    invalid = _provider_claim(
+        evidence=["E404"], text="Bob is absent.", value="absent", subject="Bob"
+    )
     raw = _provider_artifact(context.job.job_id, [valid, invalid])
     raw["title"] = ""
     requests: list[RepairRequest] = []
@@ -161,6 +166,7 @@ def test_one_targeted_repair_replaces_only_invalid_claim_and_title() -> None:
                     **_provider_claim(
                         text="Bob is absent.",
                         value="absent",
+                        subject="Bob",
                     ),
                 }
             ],
@@ -247,6 +253,142 @@ def test_zero_supported_claims_rejects_unsafe_artifact() -> None:
 
     assert result.artifact is None
     assert result.rejected_reason == "no_safe_claims"
+
+
+def test_same_context_factual_conflict_omits_only_later_claim() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [
+            _provider_claim(value="present", text="Alice is present."),
+            _provider_claim(value="absent", text="Alice is absent."),
+        ],
+    )
+
+    result = validate_and_salvage(raw, context)
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert [claim.text for claim in result.artifact.claims] == ["Alice is present."]
+    assert result.artifact.coverage.invalid_claim_count == 1
+    assert any(issue.code == "factual_contradiction_omitted" for issue in result.issues)
+
+
+def test_interpretive_disagreement_is_published_as_review_warning() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [
+            _provider_claim(
+                claim_class="interpretive",
+                value="protective",
+                text="Alice seems protective.",
+            ),
+            _provider_claim(
+                claim_class="interpretive",
+                value="controlling",
+                text="Alice seems controlling.",
+            ),
+        ],
+    )
+
+    result = validate_and_salvage(raw, context, repair=lambda _request: None)
+
+    assert result.repair_attempts == 0
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(result.artifact.claims) == 2
+    assert result.artifact.warnings == ("Interpretive disagreement requires review",)
+    assert any(issue.code == "interpretive_disagreement" for issue in result.issues)
+
+
+def _m12_context() -> tuple[ValidationContext, NarrativeClaim]:
+    authority = M12RouteAuthority(
+        result_identity="result-a",
+        route_id="route-a",
+        persistent_lane_id="lane-a",
+        status=TechnicalStatus.BEST_KNOWN,
+        badge=RouteBadge.BEST_KNOWN,
+        prerequisite_texts=("Prerequisite remains conditional.",),
+    )
+    leaf = make_m12_authority_leaf(authority, locale="en-US", perspective="neutral")
+    exact = leaf.claims[0]
+    job = LogicalJobSpec(
+        LogicalJobKind.ROUTE,
+        "route-a",
+        StructuralContext(lane_id="lane-a", route_id="route-a"),
+        ordered_child_artifact_ids=("route-child",),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(exact.claim_id,),
+    )
+    return (
+        ValidationContext(
+            job,
+            "route-input-revision",
+            handles,
+            deterministic_title="Route A",
+            expected_child_ids=("route-child",),
+            available_child_ids=("route-child",),
+            authority_claims=(exact,),
+        ),
+        exact,
+    )
+
+
+def _m12_provider_claim(
+    exact: NarrativeClaim,
+    *,
+    claim_class: str,
+    value: str,
+) -> dict[str, object]:
+    assert exact.semantics is not None
+    return {
+        "claim_class": claim_class,
+        "text": exact.text if value == exact.text else "The route is fully proven.",
+        "evidence_handles": [],
+        "child_claim_handles": ["C1"],
+        "subject": exact.semantics.subject,
+        "predicate": exact.semantics.predicate,
+        "polarity": exact.semantics.polarity.value,
+        "normalized_value": value,
+    }
+
+
+def test_exact_m12_fact_must_preserve_status_while_interpretation_may_summarize() -> None:
+    context, exact = _m12_context()
+    exact_result = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="factual", value=exact.text)],
+        ),
+        context,
+    )
+    altered = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="factual", value="confirmed")],
+        ),
+        context,
+    )
+    interpreted = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="interpretive", value="uncertain")],
+        ),
+        context,
+    )
+
+    assert exact_result.artifact is not None
+    assert exact_result.artifact.claims[0].text == exact.text
+    assert altered.artifact is None
+    assert altered.rejected_reason == "no_safe_claims"
+    assert interpreted.artifact is not None
+    assert interpreted.artifact.claims[0].claim_class is ClaimClass.INTERPRETIVE
 
 
 def _persisted_claim(

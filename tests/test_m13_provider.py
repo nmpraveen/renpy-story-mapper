@@ -267,6 +267,8 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     ]
     assert "Scene claims use E handles" in envelope["evidence"]
     assert "hierarchy claims use C handles" in envelope["evidence"]
+    assert "must copy that one claim's text" in envelope["m12_exactness"]
+    assert "must use claim_class interpretive" in envelope["m12_exactness"]
     assert envelope["targeted_repair_payload"]["exact_keys"] == [
         "logical_job_id",
         "title",
