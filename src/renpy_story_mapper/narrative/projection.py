@@ -9,6 +9,7 @@ provenance or by its referenced M10 facts.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -26,6 +27,14 @@ MAX_SCENE_RECORDS: Final = 2_000
 MAX_M12_RESULTS_PER_SCENE: Final = 16
 MAX_M12_ALTERNATIVES_PER_RESULT: Final = 8
 MAX_M12_ROUTE_MEMBERS: Final = 64
+M13_CHARACTER_PARTICIPATION_VERSION: Final = "m13-character-participation-v1"
+
+_DIALOGUE_SPEAKER = re.compile(
+    r"^(?P<speaker>[A-Za-z_]\w*)(?:\s+[A-Za-z_]\w*)*\s+"
+    r"(?:[rRuU]{0,2})(?P<quote>\"\"\"|'''|\"|')(?P<text>.*)(?P=quote)(?:\s+.*)?$",
+    re.DOTALL,
+)
+_NON_CHARACTER_SPEAKERS = frozenset({"centered", "extend", "narrator"})
 
 class NarrativeInputMode(StrEnum):
     """The exact privacy scope selected for one consented run."""
@@ -40,11 +49,20 @@ class SceneEvidence:
 
     evidence_id: str
     source_text: str | None
+    character_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.character_ids != tuple(sorted(set(self.character_ids))):
+            raise ValueError("evidence character IDs must be unique and sorted")
+        if any(not item.strip() or len(item) > 200 for item in self.character_ids):
+            raise ValueError("evidence character IDs must be bounded non-empty text")
 
     def to_dict(self) -> dict[str, object]:
         value: dict[str, object] = {"evidence_id": self.evidence_id}
         if self.source_text is not None:
             value["source_text"] = self.source_text
+        if self.character_ids:
+            value["character_ids"] = list(self.character_ids)
         return value
 
 
@@ -222,8 +240,12 @@ def project_scene_inputs(
         scene_evidence, omitted = _bounded_evidence(
             tuple(sorted(direct_evidence_ids)),
             evidence,
+            evidence_characters=_scene_evidence_characters(scene_atoms, nodes),
             mode=mode,
             max_story_text_chars=max_story_text_chars,
+        )
+        character_ids = tuple(
+            sorted({character for item in scene_evidence for character in item.character_ids})
         )
         packets.append(
             SceneInputPacket(
@@ -245,6 +267,10 @@ def project_scene_inputs(
                     "loop_hub_id": scene.get("loop_hub_id"),
                     "repeatability": scene.get("repeatability"),
                     "definition_only": bool(scene.get("definition_only", False)),
+                    "m13_character_participation": {
+                        "version": M13_CHARACTER_PARTICIPATION_VERSION,
+                        "character_ids": list(character_ids),
+                    },
                 },
                 atom_records=tuple(_provider_atom(item, occurrences) for item in scene_atoms),
                 fact_records=fact_records,
@@ -287,6 +313,7 @@ def _bounded_evidence(
     evidence_ids: tuple[str, ...],
     evidence: Mapping[str, Mapping[str, object]],
     *,
+    evidence_characters: Mapping[str, tuple[str, ...]],
     mode: NarrativeInputMode,
     max_story_text_chars: int,
 ) -> tuple[tuple[SceneEvidence, ...], tuple[str, ...]]:
@@ -295,16 +322,55 @@ def _bounded_evidence(
     remaining = max_story_text_chars
     for evidence_id in evidence_ids:
         record = _known(evidence, evidence_id, "M10 evidence")
+        character_ids = evidence_characters.get(evidence_id, ())
         if mode is NarrativeInputMode.FACT_ONLY:
-            included.append(SceneEvidence(evidence_id, None))
+            included.append(SceneEvidence(evidence_id, None, character_ids))
             continue
         text = _text(record, "source_text")
         if len(text) > remaining:
             omitted.append(evidence_id)
             continue
-        included.append(SceneEvidence(evidence_id, text))
+        included.append(SceneEvidence(evidence_id, text, character_ids))
         remaining -= len(text)
     return tuple(included), tuple(omitted)
+
+
+def _scene_evidence_characters(
+    atoms: Sequence[Mapping[str, object]],
+    nodes: Mapping[str, Mapping[str, object]],
+) -> dict[str, tuple[str, ...]]:
+    """Derive inert speaker participation from exact M11 ownership and M10 node evidence."""
+
+    result: dict[str, set[str]] = {}
+    for atom in atoms:
+        node = _known(nodes, _text(atom, "primary_node_id"), "M10 node")
+        speaker = atom.get("speaker")
+        if not isinstance(speaker, str) or not speaker.strip():
+            attributes = _mapping(node.get("attributes", {}), "M10 node attributes")
+            source_kind = attributes.get("source_kind", atom.get("source_kind"))
+            source_text = attributes.get("source_text")
+            match = (
+                _DIALOGUE_SPEAKER.match(source_text.strip())
+                if source_kind == "statement"
+                and isinstance(source_text, str)
+                and 0 < len(source_text) <= MAX_SCENE_TEXT_CHARS
+                else None
+            )
+            speaker = None if match is None else match.group("speaker")
+        if (
+            not isinstance(speaker, str)
+            or not speaker.strip()
+            or speaker.casefold() in _NON_CHARACTER_SPEAKERS
+        ):
+            continue
+        provenance = _mapping(atom.get("provenance", {}), "M11 atom provenance")
+        evidence_ids = {
+            *_string_tuple(provenance.get("evidence_ids", ()), "M11 atom evidence IDs"),
+            *_string_tuple(node.get("evidence_ids", ()), "M10 node evidence IDs"),
+        }
+        for evidence_id in evidence_ids:
+            result.setdefault(evidence_id, set()).add(speaker)
+    return {key: tuple(sorted(value)) for key, value in sorted(result.items())}
 
 
 def _branch_memberships(

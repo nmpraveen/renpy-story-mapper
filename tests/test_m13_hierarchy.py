@@ -303,6 +303,63 @@ def test_shared_story_is_planned_once_and_persistent_route_uses_immediate_claims
         )
 
 
+def test_route_job_preserves_every_bounded_m12_result_without_flattening() -> None:
+    common_chapter = plan_chapter_jobs(
+        (_segment("common", path=_common_path()),),
+        _config(),
+    ).jobs[0]
+    common = _accepted(
+        plan_common_story_job(
+            (
+                _accepted(
+                    common_chapter,
+                    artifact_id="common-chapter-artifact",
+                    claim_id="common-chapter-claim",
+                ),
+            ),
+            _config(),
+        ).jobs[0],
+        artifact_id="common-story-artifact",
+        claim_id="common-story-claim",
+    )
+    first = make_m12_authority_leaf(_m12(), locale="en-US", perspective="reader")
+    second_authority = replace(
+        _m12(),
+        result_identity="result-route-a-second-target",
+        status=TechnicalStatus.PREREQUISITES,
+        badge=RouteBadge.PREREQUISITES,
+        prerequisite_texts=("Exact second-target prerequisite.",),
+    )
+    second = make_m12_authority_leaf(
+        second_authority,
+        locale="en-US",
+        perspective="reader",
+    )
+
+    descriptor = plan_persistent_route_job(
+        PersistentRouteSpec("route-a", "lane-route-a", 0, "Route A"),
+        common,
+        (),
+        _config(),
+        m12_authority_leaves=(first, second),
+    ).jobs[0]
+
+    assert descriptor.m12_authority == (first.authority, second.authority)
+    assert descriptor.authority_leaf_claim_ids == first.claim_ids + second.claim_ids
+    assert "Exact second-target prerequisite." in {
+        claim.text for claim in (*first.claims, *second.claims)
+    }
+    with pytest.raises(ValueError, match="either one"):
+        plan_persistent_route_job(
+            PersistentRouteSpec("route-a", "lane-route-a", 0, "Route A"),
+            common,
+            (),
+            _config(),
+            m12_authority_leaf=first,
+            m12_authority_leaves=(second,),
+        )
+
+
 def test_ending_and_plot_keep_routes_endings_and_missing_coverage_separate() -> None:
     common_chapter = plan_chapter_jobs(
         (_segment("common", path=_common_path()),),

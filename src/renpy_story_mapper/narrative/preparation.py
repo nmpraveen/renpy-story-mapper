@@ -345,7 +345,10 @@ def _scene_support(
             evidence.evidence_id,
             owner,
         )
-        records[reference] = {"source_text": evidence.source_text}
+        records[reference] = {
+            "source_text": evidence.source_text,
+            "character_ids": list(evidence.character_ids),
+        }
     for route in packet.m12_records:
         route_id = _record_id(route, "M12 route result", key="request_identity")
         reference = AuthorityReference(AuthoritySystem.M12, "route_result", route_id, owner)

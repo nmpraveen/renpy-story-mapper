@@ -310,6 +310,35 @@ def test_structural_context_preserves_lane_and_temporary_arm_ownership() -> None
     assert scene_2.structural_context["temporary_contexts"] == [
         {"container_id": "branch-1", "arm_id": "arm-0", "arm_ordinal": 0}
     ]
+    assert scene_2.structural_context["m13_character_participation"] == {
+        "version": "m13-character-participation-v1",
+        "character_ids": ["Bob"],
+    }
+    assert scene_2.evidence[0].character_ids == ("Bob",)
+
+
+def test_character_participation_falls_back_to_owned_m10_statement_evidence() -> None:
+    canonical, scene_model = _authority()
+    nodes = canonical["nodes"]
+    assert isinstance(nodes, list)
+    first_node = nodes[0]
+    assert isinstance(first_node, dict)
+    first_node["attributes"] = {
+        "source_kind": "statement",
+        "source_text": 'alice "Alice arrives."',
+    }
+    binding = scene_model["binding"]
+    assert isinstance(binding, dict)
+    binding["canonical_hash"] = hashlib.sha256(canonical_json(canonical)).hexdigest()
+
+    scene = project_scene_inputs(canonical, scene_model, **_AUTHORITY_KWARGS)[0]
+
+    assert scene.structural_context["m13_character_participation"] == {
+        "version": "m13-character-participation-v1",
+        "character_ids": ["alice"],
+    }
+    assert scene.evidence[0].source_text is None
+    assert scene.evidence[0].character_ids == ("alice",)
 
 
 def test_relevant_m12_status_and_prerequisite_are_preserved_exactly() -> None:

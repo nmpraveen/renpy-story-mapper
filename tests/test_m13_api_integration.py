@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -10,6 +11,7 @@ from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSet
 from renpy_story_mapper.narrative.provider import (
     PROMPT_TEMPLATE_VERSION,
     RESPONSE_SCHEMA_VERSION,
+    ProviderCancelledError,
     ProviderOutputItem,
     ProviderRequest,
     ProviderResponse,
@@ -91,6 +93,30 @@ class _Provider:
 
     def cancel(self) -> None:
         return
+
+
+@dataclass
+class _BlockingAfterFirstProvider(_Provider):
+    first_completed: Event = field(default_factory=Event)
+    second_started: Event = field(default_factory=Event)
+    release: Event = field(default_factory=Event)
+    cancel_calls: int = 0
+
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        if not self.requests:
+            response = super().submit(request, cancelled)
+            self.first_completed.set()
+            return response
+        self.requests.append(request)
+        self.second_started.set()
+        while not self.release.wait(0.01):
+            if callable(cancelled) and cancelled():
+                raise ProviderCancelledError("cancelled", "M13 provider call cancelled")
+        raise ProviderCancelledError("cancelled", "M13 provider call cancelled")
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+        self.release.set()
 
 
 def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
@@ -227,4 +253,63 @@ def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
         assert status["durable_completed_work_preserved"] is True
         assert provider.requests
     finally:
+        api.close()
+
+
+def test_m13_api_cancellation_reaches_provider_and_preserves_validated_artifacts(
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingAfterFirstProvider()
+    api = _api(tmp_path, provider)
+    request = {
+        "requested_model": "runtime-model",
+        "mode": "fact_only",
+        "include_m12_material": True,
+        "limits": {
+            "max_provider_calls": 500,
+            "max_input_tokens": 20_000_000,
+            "max_output_tokens": 20_000_000,
+            "max_total_tokens": 40_000_000,
+            "timeout_seconds": 300,
+            "max_concurrency": 1,
+            "max_cost_micros": None,
+        },
+        "batch_limits": {
+            "maximum_items": 1,
+            "maximum_input_chars": 500_000,
+            "maximum_input_tokens": 100_000,
+        },
+    }
+    try:
+        preview = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": preview["preparation_id"], "confirm_cloud": True},
+        )
+        assert provider.first_completed.wait(10)
+        assert provider.second_started.wait(10)
+
+        cancelling = api.dispatch("POST", "/api/v1/m13/cancel", {})
+        assert cancelling["state"] in {"cancelling", "cancelled"}
+        deadline = time.monotonic() + 20
+        while True:
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+
+        snapshot = api.dispatch(
+            "POST",
+            "/api/v1/m13/snapshot",
+            {"offset": 0, "limit": 200},
+        )
+        assert status["state"] == "cancelled"
+        assert status["durable_completed_work_preserved"] is True
+        assert provider.cancel_calls >= 1
+        assert snapshot["coverage"]["published_scene_jobs"] >= 1
+        assert any(job["artifact"] is not None for job in snapshot["jobs"])
+    finally:
+        provider.release.set()
         api.close()

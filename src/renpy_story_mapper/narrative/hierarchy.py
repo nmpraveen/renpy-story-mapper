@@ -726,6 +726,21 @@ def plan_common_story_job(
     )
 
 
+def _normalize_m12_authority_leaves(
+    single: M12AuthorityLeaf | None,
+    multiple: tuple[M12AuthorityLeaf, ...],
+) -> tuple[M12AuthorityLeaf, ...]:
+    if single is not None and multiple:
+        raise ValueError("Supply either one M12 authority leaf or the plural bounded set.")
+    leaves = (single,) if single is not None else multiple
+    if len(leaves) > 32:
+        raise ValueError("A hierarchy job cannot consume more than 32 M12 authority leaves.")
+    identities = tuple(item.authority.result_identity for item in leaves)
+    if len(identities) != len(set(identities)):
+        raise ValueError("M12 authority leaves must have unique result identities.")
+    return leaves
+
+
 def plan_persistent_route_job(
     route: PersistentRouteSpec,
     shared_story_artifact: HierarchyArtifactInput,
@@ -733,6 +748,7 @@ def plan_persistent_route_job(
     config: HierarchyPartitionConfig,
     *,
     m12_authority_leaf: M12AuthorityLeaf | None = None,
+    m12_authority_leaves: tuple[M12AuthorityLeaf, ...] = (),
 ) -> HierarchyLevelPlan:
     """Plan one route without importing chapters from mutually exclusive routes."""
 
@@ -756,9 +772,11 @@ def plan_persistent_route_job(
             StorySection.UNRESOLVED,
         }:
             raise ValueError("Route chapters require route-owned narrative sections.")
-    if m12_authority_leaf is not None and (
-        m12_authority_leaf.authority.route_id != route.route_id
-        or m12_authority_leaf.authority.persistent_lane_id != route.persistent_lane_id
+    leaves = _normalize_m12_authority_leaves(m12_authority_leaf, m12_authority_leaves)
+    if any(
+        leaf.authority.route_id != route.route_id
+        or leaf.authority.persistent_lane_id != route.persistent_lane_id
+        for leaf in leaves
     ):
         raise ValueError("M12 authority leaf belongs to another route.")
 
@@ -771,7 +789,6 @@ def plan_persistent_route_job(
         persistent_lane_id=route.persistent_lane_id,
         route_id=route.route_id,
     )
-    leaves = () if m12_authority_leaf is None else (m12_authority_leaf,)
     return _single_level_plan(
         _plan_one_job(
             kind=LogicalJobKind.ROUTE,
@@ -796,6 +813,7 @@ def plan_ending_job(
     *,
     route_artifact: HierarchyArtifactInput | None = None,
     m12_authority_leaf: M12AuthorityLeaf | None = None,
+    m12_authority_leaves: tuple[M12AuthorityLeaf, ...] = (),
 ) -> HierarchyLevelPlan:
     """Plan one route-owned or common ending with exact prerequisite authority."""
 
@@ -828,10 +846,12 @@ def plan_ending_job(
             or child.path.persistent_lane_id != ending.persistent_lane_id
         ):
             raise ValueError("Ending child route ownership is inconsistent.")
-    if m12_authority_leaf is not None and (
+    leaves = _normalize_m12_authority_leaves(m12_authority_leaf, m12_authority_leaves)
+    if any(
         ending.route_id is None
-        or m12_authority_leaf.authority.route_id != ending.route_id
-        or m12_authority_leaf.authority.persistent_lane_id != ending.persistent_lane_id
+        or leaf.authority.route_id != ending.route_id
+        or leaf.authority.persistent_lane_id != ending.persistent_lane_id
+        for leaf in leaves
     ):
         raise ValueError("M12 authority leaf does not belong to the ending route.")
     if not expected:
@@ -845,7 +865,6 @@ def plan_ending_job(
         route_id=ending.route_id,
         ending_id=ending.ending_id,
     )
-    leaves = () if m12_authority_leaf is None else (m12_authority_leaf,)
     return _single_level_plan(
         _plan_one_job(
             kind=LogicalJobKind.ENDING,

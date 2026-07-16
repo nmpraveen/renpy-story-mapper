@@ -50,6 +50,7 @@ from renpy_story_mapper.narrative.hierarchy import (
 )
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.preparation import ProviderPricing
+from renpy_story_mapper.narrative.projection import M13_CHARACTER_PARTICIPATION_VERSION
 from renpy_story_mapper.narrative.provider import NarrativeProvider
 from renpy_story_mapper.narrative.reduction import (
     MAX_PROPAGATED_CLAIMS_PER_ARTIFACT,
@@ -227,7 +228,11 @@ def run_complete_narrative(
         raise ValueError("hierarchy configuration differs from the consented narrative scope")
 
     selected_scene_ids = tuple(item.job.spec.owner_id for item in prepared.scene_run.jobs)
-    placements = project_scene_placements(prepared.authority.scene_model, selected_scene_ids)
+    placements = project_scene_placements(
+        prepared.authority.scene_model,
+        selected_scene_ids,
+        character_ids_by_scene=_prepared_character_ids(prepared),
+    )
     placement_by_scene = {item.scene_id: item for item in placements}
     scope_id = consent.selected_scope_ids[0]
     phases: list[SchedulerRunResult] = []
@@ -376,15 +381,19 @@ def run_complete_narrative(
             tuple(dict.fromkeys(unresolved)),
         )
 
-    route_specs = _route_specs(prepared.authority.scene_model)
+    selected_route_ids = {
+        item.path.route_id for item in placements if item.path.route_id is not None
+    }
+    route_specs = _route_specs(prepared.authority.scene_model, selected_route_ids)
     m12_leaves = _m12_leaves(
         prepared.authority.m12_results,
         route_specs,
         locale=locale,
         perspective=perspective,
     )
-    for leaf in m12_leaves.values():
-        persist_m12_authority_leaf(project, prepared.authority, leaf)
+    for leaves in m12_leaves.values():
+        for leaf in leaves:
+            persist_m12_authority_leaf(project, prepared.authority, leaf)
 
     route_descriptors: list[HierarchyJobDescriptor] = []
     route_children: dict[str, _ArtifactCandidate] = {common_candidate.artifact_id: common_candidate}
@@ -405,7 +414,7 @@ def run_complete_narrative(
             common_candidate.hierarchy_input(),
             tuple(item.hierarchy_input() for item in route_chapter_children),
             hierarchy_config,
-            m12_authority_leaf=m12_leaves.get(route.route_id),
+            m12_authority_leaves=m12_leaves.get(route.route_id, ()),
         )
         if plan.reductions:
             unresolved.append("route_reduction_required")
@@ -427,7 +436,10 @@ def run_complete_narrative(
         title=lambda descriptor: _route_title(route_specs, descriptor),
         summary=lambda _descriptor: "Persistent-route summary unavailable.",
         authority_claims={
-            claim.claim_id: claim for leaf in m12_leaves.values() for claim in leaf.claims
+            claim.claim_id: claim
+            for leaves in m12_leaves.values()
+            for leaf in leaves
+            for claim in leaf.claims
         },
     )
     route_candidates: tuple[_ArtifactCandidate, ...] = ()
@@ -471,7 +483,9 @@ def run_complete_narrative(
             tuple(item.hierarchy_input() for item in ending_members),
             hierarchy_config,
             route_artifact=(None if route_candidate is None else route_candidate.hierarchy_input()),
-            m12_authority_leaf=(None if route_id is None else m12_leaves.get(route_id)),
+            m12_authority_leaves=(
+                () if route_id is None else m12_leaves.get(route_id, ())
+            ),
         )
         if plan.reductions:
             unresolved.append("ending_reduction_required")
@@ -496,7 +510,10 @@ def run_complete_narrative(
         title=lambda descriptor: _planned_ending_title(ending_specs, descriptor),
         summary=lambda _descriptor: "Ending summary unavailable.",
         authority_claims={
-            claim.claim_id: claim for leaf in m12_leaves.values() for claim in leaf.claims
+            claim.claim_id: claim
+            for leaves in m12_leaves.values()
+            for leaf in leaves
+            for claim in leaf.claims
         },
     )
     ending_candidates: tuple[_ArtifactCandidate, ...] = ()
@@ -607,9 +624,32 @@ def run_complete_narrative(
     )
 
 
+def _prepared_character_ids(
+    prepared: PreparedNarrativeRun,
+) -> dict[str, tuple[str, ...]]:
+    result: dict[str, tuple[str, ...]] = {}
+    for item in prepared.scene_run.jobs:
+        context = item.payload.get("structural_context")
+        if not isinstance(context, Mapping):
+            raise ValueError("prepared scene structural context is malformed")
+        participation = context.get("m13_character_participation")
+        if (
+            not isinstance(participation, Mapping)
+            or participation.get("version") != M13_CHARACTER_PARTICIPATION_VERSION
+        ):
+            raise ValueError("prepared scene character participation is missing or stale")
+        result[item.job.spec.owner_id] = _string_tuple(
+            participation.get("character_ids"),
+            "prepared character IDs",
+        )
+    return result
+
+
 def project_scene_placements(
     scene_model: Mapping[str, object],
     selected_scene_ids: Sequence[str] | None = None,
+    *,
+    character_ids_by_scene: Mapping[str, Sequence[str]] | None = None,
 ) -> tuple[ScenePlacement, ...]:
     """Derive route-safe M13 organization from M11 records without mutating membership."""
 
@@ -620,10 +660,20 @@ def project_scene_placements(
     occurrences = _index(_records(scene_model, "occurrences"), "M11 occurrence")
     branches = _records(scene_model, "temporary_branches")
     selected = None if selected_scene_ids is None else set(selected_scene_ids)
-    if selected is not None:
-        known = {_text(item, "id") for item in scenes}
-        if not selected or selected - known:
-            raise ValueError("M13 placement scope contains an unknown M11 scene")
+    known_scene_ids = {_text(item, "id") for item in scenes}
+    if selected is not None and (not selected or selected - known_scene_ids):
+        raise ValueError("M13 placement scope contains an unknown M11 scene")
+    projected_characters: dict[str, tuple[str, ...]] = {}
+    for scene_id, values in (character_ids_by_scene or {}).items():
+        if scene_id not in known_scene_ids:
+            raise ValueError("M13 character participation owns an unknown M11 scene")
+        normalized = tuple(values)
+        if (
+            len(normalized) != len(set(normalized))
+            or any(not isinstance(item, str) or not item.strip() for item in normalized)
+        ):
+            raise ValueError("M13 character participation IDs are malformed")
+        projected_characters[scene_id] = normalized
     branch_membership = _temporary_membership(branches)
     ordered = sorted(
         (item for item in scenes if selected is None or _text(item, "id") in selected),
@@ -736,12 +786,13 @@ def project_scene_placements(
             call_context_id=call_id,
             loop_id=loop_id,
         )
+        m11_speakers = tuple(
+            speaker
+            for atom_id in _string_tuple(scene.get("atom_ids"), "scene atom IDs")
+            if (speaker := _optional_text(_known(atoms, atom_id).get("speaker"))) is not None
+        )
         speakers = tuple(
-            dict.fromkeys(
-                speaker
-                for atom_id in _string_tuple(scene.get("atom_ids"), "scene atom IDs")
-                if (speaker := _optional_text(_known(atoms, atom_id).get("speaker"))) is not None
-            )
+            dict.fromkeys((*m11_speakers, *projected_characters.get(scene_id, ())))
         )
         result.append(
             ScenePlacement(
@@ -1104,9 +1155,9 @@ def _m12_leaves(
     *,
     locale: str,
     perspective: str,
-) -> dict[str, M12AuthorityLeaf]:
+) -> dict[str, tuple[M12AuthorityLeaf, ...]]:
     route_ids = {item.route_id for item in routes}
-    selected: dict[str, M12AuthorityLeaf] = {}
+    selected: dict[str, list[M12AuthorityLeaf]] = defaultdict(list)
     for result in results:
         result_identity = _text(result, "request_identity")
         status = TechnicalStatus(_text(result, "status"))
@@ -1126,7 +1177,7 @@ def _m12_leaves(
                     "M12 persistent lane IDs",
                 )
             )
-            if not relevant or route_id in selected:
+            if not relevant:
                 continue
             prerequisites = _exact_m12_texts(
                 relevant,
@@ -1158,12 +1209,20 @@ def _m12_leaves(
                 prerequisites,
                 conclusions,
             )
-            selected[route_id] = make_m12_authority_leaf(
-                authority,
-                locale=locale,
-                perspective=perspective,
+            selected[route_id].append(
+                make_m12_authority_leaf(
+                    authority,
+                    locale=locale,
+                    perspective=perspective,
+                )
             )
-    return selected
+    grouped: dict[str, tuple[M12AuthorityLeaf, ...]] = {}
+    for route_id, leaves in selected.items():
+        ordered = tuple(sorted(leaves, key=lambda item: item.authority.result_identity))
+        if len(ordered) > 32:
+            raise ValueError("A route cannot bind more than 32 current M12 results.")
+        grouped[route_id] = ordered
+    return grouped
 
 
 def _route_result_records(value: object, label: str) -> tuple[Mapping[str, object], ...]:
@@ -1199,12 +1258,16 @@ def _exact_m12_texts(
     return tuple(texts)
 
 
-def _route_specs(scene_model: Mapping[str, object]) -> tuple[PersistentRouteSpec, ...]:
+def _route_specs(
+    scene_model: Mapping[str, object],
+    selected_route_ids: set[str] | None = None,
+) -> tuple[PersistentRouteSpec, ...]:
     lanes = _records(scene_model, "lanes")
     routes = [
         item
         for item in lanes
         if item.get("kind") in {LaneKind.PERSISTENT_ROUTE.value, LaneKind.TERMINAL_SPLIT.value}
+        and (selected_route_ids is None or _text(item, "id") in selected_route_ids)
     ]
     routes.sort(key=lambda item: (_integer(item, "arm_ordinal", default=0), _text(item, "id")))
     return tuple(

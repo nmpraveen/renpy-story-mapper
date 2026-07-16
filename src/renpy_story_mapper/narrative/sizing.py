@@ -9,6 +9,7 @@ from typing import cast
 from renpy_story_mapper.m11_scene_model import LaneKind
 from renpy_story_mapper.narrative.contracts import CostConfidence, RunEstimate
 from renpy_story_mapper.narrative.preparation import PreparedSceneRun, ProviderPricing
+from renpy_story_mapper.narrative.projection import M13_CHARACTER_PARTICIPATION_VERSION
 
 SEGMENT_TARGET_CHILDREN = 24
 HIERARCHY_OUTPUT_TOKENS = 1_000
@@ -78,12 +79,29 @@ def estimate_complete_run(
             segment_jobs += level
         segment_roots += level
 
-    route_count = sum(
-        item.get("kind") in {LaneKind.PERSISTENT_ROUTE.value, LaneKind.TERMINAL_SPLIT.value}
-        for item in lanes
-    )
+    lane_by_id = _index(lanes)
+    selected_route_ids: set[str] = set()
+    for scene in scenes:
+        current: str | None = _text(scene, "lane_id")
+        seen: set[str] = set()
+        while current is not None:
+            if current in seen:
+                raise ValueError("M11 lane ancestry contains a cycle")
+            seen.add(current)
+            lane = lane_by_id[current]
+            if lane.get("kind") in {
+                LaneKind.PERSISTENT_ROUTE.value,
+                LaneKind.TERMINAL_SPLIT.value,
+            }:
+                selected_route_ids.add(current)
+            parent = lane.get("parent_lane_id")
+            current = parent if isinstance(parent, str) and parent else None
+    route_count = len(selected_route_ids)
     terminal_lane_ids = {
-        _text(item, "id") for item in lanes if item.get("kind") == LaneKind.TERMINAL_SPLIT.value
+        _text(item, "id")
+        for item in lanes
+        if item.get("kind") == LaneKind.TERMINAL_SPLIT.value
+        and _text(item, "id") in selected_route_ids
     }
     ending_keys: set[tuple[str, str]] = set()
     for scene in scenes:
@@ -99,14 +117,20 @@ def estimate_complete_run(
         for terminal in terminals:
             ending_keys.add((lane_id, terminal))
     ending_count = len(ending_keys)
-    speakers = {
-        speaker
-        for scene in scenes
-        for atom_id in _strings(scene.get("atom_ids"), "scene atom IDs")
-        if (speaker := atoms[atom_id].get("speaker")) is not None
-        and isinstance(speaker, str)
-        and speaker.strip()
-    }
+    speakers: set[str] = set()
+    for item in scene_run.jobs:
+        context = item.payload.get("structural_context")
+        if not isinstance(context, Mapping):
+            raise ValueError("prepared scene structural context is malformed")
+        participation = context.get("m13_character_participation")
+        if (
+            not isinstance(participation, Mapping)
+            or participation.get("version") != M13_CHARACTER_PARTICIPATION_VERSION
+        ):
+            raise ValueError("prepared scene character participation is missing or stale")
+        speakers.update(
+            _strings(participation.get("character_ids"), "prepared character IDs")
+        )
     chapter_jobs = len(runs)
     fixed_jobs = (1 if scenes else 0) + route_count + ending_count + (1 if scenes else 0)
     hierarchy_jobs = segment_jobs + chapter_jobs + fixed_jobs + len(speakers)
