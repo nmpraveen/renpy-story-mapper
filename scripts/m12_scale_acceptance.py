@@ -12,6 +12,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from renpy_story_mapper.m12_model import (
+    DeterministicLimitProfile,
     InitialStateValue,
     InitialValueKind,
     StateVariableIdentity,
@@ -24,14 +25,40 @@ from renpy_story_mapper.storage import canonical_json
 ROOT = Path(__file__).resolve().parents[1]
 COMPLEX_FIXTURE = ROOT / "tests" / "fixtures" / "m12" / "route_targets.rpy"
 STATEMENT_COUNTS = (24, 48, 96)
+LINEAR_EDGE_COUNTS = (500, 1_000, 2_000)
 MAX_EXPANSION_GROWTH = 3.0
+MIN_APPROXIMATE_DOUBLING = 1.75
+MAX_APPROXIMATE_DOUBLING = 2.35
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--profile",
+        choices=("default", "linear-prefix"),
+        default="default",
+        help=(
+            "run the existing mixed workload or the focused exact 500/1000/2000-edge "
+            "parent-prefix acceptance"
+        ),
+    )
+    parser.add_argument(
+        "--linear-edge-counts",
+        nargs="+",
+        type=int,
+        default=LINEAR_EDGE_COUNTS,
+        metavar="EDGES",
+        help="exact ascending route-edge counts for the linear-prefix profile",
+    )
     args = parser.parse_args()
-    report = run(args.output_dir)
+    if args.profile == "linear-prefix":
+        report = run_exact_linear_scale(
+            args.output_dir,
+            edge_counts=tuple(args.linear_edge_counts),
+        )
+    else:
+        report = run(args.output_dir)
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
@@ -97,15 +124,138 @@ def run(
     return report
 
 
+def run_exact_linear_scale(
+    output_dir: Path,
+    *,
+    edge_counts: Sequence[int] = LINEAR_EDGE_COUNTS,
+) -> dict[str, object]:
+    """Prove exact long linear routes stay within the unchanged v1 semantic budgets."""
+
+    counts = tuple(edge_counts)
+    if not counts or any(value < 9 for value in counts) or tuple(sorted(set(counts))) != counts:
+        raise ValueError("edge counts must be unique ascending integers of at least nine")
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=False)
+    observations: list[dict[str, object]] = []
+    measurements = [
+        _measure_exact_linear_edges(output_dir, count, observations) for count in counts
+    ]
+    growth = [
+        _exact_linear_growth(lower, upper)
+        for lower, upper in pairwise(measurements)
+    ]
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "status": "passed",
+        "profile": "exact_linear_parent_prefix",
+        "target_specific": True,
+        "all_target_preprocessing": False,
+        "normal_v1_budgets": DeterministicLimitProfile().to_dict(),
+        "edge_counts": list(counts),
+        "linear_measurements": measurements,
+        "growth": growth,
+        "limits": {
+            "minimum_approximate_doubling": MIN_APPROXIMATE_DOUBLING,
+            "maximum_approximate_doubling": MAX_APPROXIMATE_DOUBLING,
+        },
+    }
+    _write_reports(output_dir, report, observations)
+    return report
+
+
+def _measure_exact_linear_edges(
+    output_dir: Path,
+    route_edges: int,
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    statements, padding, source = _linear_source_for_route_edges(route_edges)
+    measurement = _measure_linear_source(
+        output_dir,
+        workload=f"linear-edges-{route_edges}",
+        source_text=source,
+        observations=observations,
+    )
+    actual_edges = _as_int(measurement["route_edge_count"], "route edge count")
+    if actual_edges != route_edges:
+        raise AssertionError(
+            f"exact linear route requested {route_edges} edges but emitted {actual_edges}"
+        )
+    if measurement["complete"] is not True:
+        raise AssertionError(
+            f"exact {route_edges}-edge linear route did not complete under normal v1 budgets: "
+            f"{measurement['termination_reason']}"
+        )
+    if measurement["limit_profile"] != DeterministicLimitProfile().to_dict():
+        raise AssertionError("exact linear scale changed the normal v1 budget profile")
+    return {
+        "requested_route_edges": route_edges,
+        "source_step_labels": statements,
+        "source_padding_statements": padding,
+        **measurement,
+        "completed_under_normal_v1_budgets": True,
+    }
+
+
+def _exact_linear_growth(
+    lower: Mapping[str, object],
+    upper: Mapping[str, object],
+) -> dict[str, object]:
+    lower_edges = _as_int(lower["requested_route_edges"], "lower route edges")
+    upper_edges = _as_int(upper["requested_route_edges"], "upper route edges")
+    expected = upper_edges / lower_edges
+    ratios = {
+        key: round(_ratio(upper, lower, key), 6)
+        for key in (
+            "expanded_states",
+            "retained_states",
+            "prefix_records",
+            "accounting_units",
+            "serialized_prefix_bytes",
+            "result_bytes",
+        )
+    }
+    if expected == 2.0:
+        for key in ("accounting_units", "serialized_prefix_bytes"):
+            ratio = ratios[key]
+            if not MIN_APPROXIMATE_DOUBLING <= ratio <= MAX_APPROXIMATE_DOUBLING:
+                raise AssertionError(
+                    f"{key} growth {ratio} is not approximately linear when route edges double"
+                )
+    return {
+        "from_route_edges": lower_edges,
+        "to_route_edges": upper_edges,
+        "expected_route_growth": round(expected, 6),
+        **{f"{key}_growth": value for key, value in ratios.items()},
+    }
+
+
 def _measure_linear(
     output_dir: Path,
     statements: int,
     observations: list[dict[str, object]],
 ) -> dict[str, object]:
-    source_path = output_dir / f"linear-{statements}.rpy"
-    source_path.write_text(_linear_source(statements), encoding="utf-8", newline="\n")
+    return {
+        "statements": statements,
+        **_measure_linear_source(
+            output_dir,
+            workload=f"linear-{statements}",
+            source_text=_linear_source(statements),
+            observations=observations,
+        ),
+    }
+
+
+def _measure_linear_source(
+    output_dir: Path,
+    *,
+    workload: str,
+    source_text: str,
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    source_path = output_dir / f"{workload}.rpy"
+    source_path.write_text(source_text, encoding="utf-8", newline="\n")
     source_before = _fingerprint(source_path)
-    project_path = output_dir / f"linear-{statements}.rsmproj"
+    project_path = output_dir / f"{workload}.rsmproj"
     started = time.perf_counter()
     create_ingested_project(project_path, source_path).close()
     analysis_seconds = time.perf_counter() - started
@@ -140,18 +290,27 @@ def _measure_linear(
     replay_bytes = canonical_json(dict(replay.result))
     if normalized != replay_bytes:
         raise AssertionError("cached replay changed deterministic route bytes")
-    recommended = _mapping(first.result.get("recommended"), "recommended route")
     budget = _mapping(first.result.get("budget_usage"), "budget usage")
     limits = prepared.request.limits.to_dict()
+    recommended_value = first.result.get("recommended")
+    if recommended_value is None:
+        raise AssertionError(
+            "linear selected-target solve returned no route: "
+            f"status={first.result.get('status')}, "
+            f"termination={first.result.get('termination_reason')}, "
+            "budget_usage="
+            f"{json.dumps(first.result.get('budget_usage'), sort_keys=True)}"
+        )
+    recommended = _mapping(recommended_value, "recommended route")
+    prefix_bytes = _serialized_prefix_bytes(recommended)
     observations.append(
         {
-            "workload": f"linear-{statements}",
+            "workload": workload,
             "analysis_seconds": round(analysis_seconds, 6),
             "sqlite_project_bytes": project_path.stat().st_size,
         }
     )
     return {
-        "statements": statements,
         "source_sha256": source_before["sha256"],
         "canonical_nodes": len(prepared.authority.graph.nodes),
         "scene_count": len(prepared.authority.scene_model.scenes),
@@ -161,11 +320,15 @@ def _measure_linear(
         "limit_profile": limits,
         "request_identity": prepared.identity.identity_hash,
         "status": first.result["status"],
+        "complete": first.result["complete"],
+        "termination_reason": first.result["termination_reason"],
         "expanded_states": budget["expanded_states"],
         "retained_states": budget["retained_states"],
         "peak_frontier_states": budget["peak_frontier_states"],
         "prefix_records": budget["prefix_records"],
+        "accounting_units": budget["accounting_units"],
         "route_edge_count": len(_values(recommended.get("edge_ids"), "route edges")),
+        "serialized_prefix_bytes": prefix_bytes,
         "instruction_count": len(_records(recommended.get("instructions"), "instructions")),
         "alternatives": len(_records(first.result.get("alternatives"), "alternatives")),
         "result_bytes": len(normalized),
@@ -360,6 +523,67 @@ def _linear_source(statements: int) -> str:
         )
     )
     return "".join(chunks)
+
+
+def _linear_source_for_route_edges(route_edges: int) -> tuple[int, int, str]:
+    """Build a real-project linear route whose accepted path has exactly ``route_edges``."""
+
+    if route_edges < 9:
+        raise ValueError("exact linear route requires at least nine edges")
+    step_labels = (route_edges - 5) // 4
+    padding = route_edges - ((4 * step_labels) + 5)
+    source = _linear_source(step_labels)
+    start_jump = "    jump scale_step_0000\n"
+    if source.count(start_jump) != 1:
+        raise AssertionError("linear source template lost its unique start jump")
+    padding_source = "".join(
+        f'    "Exact route padding {index}."\n' for index in range(padding)
+    )
+    return step_labels, padding, source.replace(
+        start_jump,
+        f"{padding_source}{start_jump}",
+        1,
+    )
+
+
+def _serialized_prefix_bytes(route: Mapping[str, object]) -> int:
+    """Serialize the accepted parent-pointer shape without retaining full path copies."""
+
+    node_ids = _values(route.get("node_ids"), "route nodes")
+    edge_ids = _values(route.get("edge_ids"), "route edges")
+    if len(node_ids) != len(edge_ids) + 1:
+        raise AssertionError("accepted route does not form one parent-linked prefix chain")
+    records: list[dict[str, object]] = []
+    for index, node_id in enumerate(node_ids):
+        records.append(
+            {
+                "prefix_id": index,
+                "parent_id": None if index == 0 else index - 1,
+                "node_id": node_id,
+                "incoming_edge_id": None if index == 0 else edge_ids[index - 1],
+            }
+        )
+    return len(canonical_json(records))
+
+
+def _write_reports(
+    output_dir: Path,
+    report: Mapping[str, object],
+    observations: Sequence[Mapping[str, object]],
+) -> None:
+    report_bytes = json.dumps(report, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    (output_dir / "acceptance.json").write_bytes(report_bytes)
+    observations_report = {
+        "schema_version": 1,
+        "hardware_sensitive": True,
+        "semantic_pass_fail_uses_these_values": False,
+        "observations": list(observations),
+    }
+    (output_dir / "observations.json").write_text(
+        json.dumps(observations_report, indent=2, sort_keys=True),
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def _destination(page: Mapping[str, object], *, title: str) -> Mapping[str, object]:
