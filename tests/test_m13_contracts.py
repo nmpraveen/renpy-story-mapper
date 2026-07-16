@@ -119,12 +119,16 @@ def test_logical_identity_covers_order_context_partition_locale_and_perspective(
     variants = (
         replace(segment, ordered_child_artifact_ids=("artifact-b", "artifact-a")),
         replace(segment, context=replace(context, lane_id="route-b")),
+        replace(
+            segment,
+            context=replace(context, structural_fingerprint="changed-structure"),
+        ),
         replace(segment, partition_version="partition-v-next"),
         replace(segment, locale="fr-FR"),
         replace(segment, perspective="character-a"),
     )
 
-    assert len({segment.job_id, *(variant.job_id for variant in variants)}) == 6
+    assert len({segment.job_id, *(variant.job_id for variant in variants)}) == 7
     with pytest.raises(ValueError, match="require ordered child"):
         replace(segment, ordered_child_artifact_ids=())
     with pytest.raises(ValueError, match="cannot own child"):

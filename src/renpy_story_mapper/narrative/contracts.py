@@ -136,6 +136,7 @@ class StructuralContext:
     call_site_id: str | None = None
     loop_id: str | None = None
     temporal_anchor: str | None = None
+    structural_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         for name, value in self.to_dict().items():
@@ -155,6 +156,7 @@ class StructuralContext:
             "call_site_id": self.call_site_id,
             "loop_id": self.loop_id,
             "temporal_anchor": self.temporal_anchor,
+            "structural_fingerprint": self.structural_fingerprint,
         }
 
 
