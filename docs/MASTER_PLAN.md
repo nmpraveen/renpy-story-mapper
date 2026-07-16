@@ -1,10 +1,9 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-15
+Last revised: 2026-07-16
 
-Status: M01 through M11 are complete and merged. M12 is PR ready again after resolving the four
-changes requested on [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22) as of
-2026-07-15.
+Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16 and is
+at its contract and semantic-review gate.
 
 ## 1. Product goal
 
@@ -1134,12 +1133,17 @@ It may improve narrative readability without replacing the M10 canonical authori
 
 ### M12 - Route-to-target solving
 
-Status: PR ready in [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22); unmerged.
+Status: Complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
+with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16.
 
 M12 owns route-to-target solving and explicit path requirements. It must remain conservative for
 unresolved or dynamic behavior and must not claim arbitrary expression satisfiability.
 
 ### M13 - AI narrative layer
+
+Status: Approved and in progress on 2026-07-16 after a recorded semantic `PASS` on
+`codex/m13-narrative-layer` from baseline
+`f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1236,5 +1240,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute the approved M12 contract through its semantic gate, implementation, validation, and one
-approval-gated pull request. Do not merge M12 or begin M13 without separate user direction.
+Execute the semantically approved M13 contract in its release-critical sequence through
+provider-free and bounded live acceptance. Do not create or merge the M13 pull
+request without separate user approval, and do not begin M14.
