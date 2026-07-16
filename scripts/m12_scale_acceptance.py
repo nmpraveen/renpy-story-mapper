@@ -449,8 +449,18 @@ def _measure_complex(
                     != bounded_second.result.normalized_bytes()
                 ):
                     raise AssertionError("bounded threshold replay changed normalized bytes")
-                summary["bounded_repetition_termination"] = (
+                summary["exact_acceleration_termination"] = (
                     bounded_first.result.termination_reason
+                )
+                summary["exact_acceleration_complete"] = bounded_first.result.complete
+                bounded_route = bounded_first.result.recommended
+                summary["exact_acceleration_repeat_counts"] = (
+                    []
+                    if bounded_route is None
+                    else [
+                        item.repeated_count
+                        for item in bounded_route.repeated_action_claims
+                    ]
                 )
         projection = numeric_projection(
             authority.graph,
@@ -462,13 +472,18 @@ def _measure_complex(
         raise AssertionError(
             "complex selected target did not retain a bounded material alternative"
         )
-    if (
-        threshold_summary.get("bounded_repetition_termination")
-        != "limit:repetition_per_transition"
+    if threshold_summary.get("exact_acceleration_termination") != "exhaustive" or not bool(
+        threshold_summary.get("exact_acceleration_complete")
     ):
         raise AssertionError(
-            "threshold loop did not terminate at its deterministic repetition bound"
+            "exact threshold loop did not complete through conservative acceleration"
         )
+    repeat_counts = _values(
+        threshold_summary.get("exact_acceleration_repeat_counts"),
+        "exact acceleration repeat counts",
+    )
+    if not repeat_counts or not all(isinstance(item, int) and item > 1 for item in repeat_counts):
+        raise AssertionError("exact threshold loop omitted its proven repeat count")
     thresholds = {
         key: list(values) for key, values in sorted(projection.thresholds.items())
     }
@@ -490,6 +505,7 @@ def _measure_complex(
         "all_target_preprocessing": False,
         "bounded_alternatives": True,
         "bounded_loop": True,
+        "exact_loop_acceleration": True,
         "numeric_thresholds": thresholds,
         "cache_replay": True,
         "source_unchanged": True,

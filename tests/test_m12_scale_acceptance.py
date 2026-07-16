@@ -44,6 +44,7 @@ def test_m12_scale_harness_contract_is_target_specific_and_deterministic() -> No
         "--linear-edge-counts",
         "bounded_alternatives",
         "bounded_loop",
+        "exact_loop_acceleration",
         "numeric_thresholds",
         "hardware_sensitive",
         "semantic_pass_fail_uses_these_values",
@@ -69,6 +70,7 @@ def test_m12_scale_harness_runs_a_bounded_real_project_matrix(tmp_path: Path) ->
     complex_result = report["complex_workload"]
     assert complex_result["bounded_alternatives"] is True
     assert complex_result["bounded_loop"] is True
+    assert complex_result["exact_loop_acceleration"] is True
     assert complex_result["cache_replay"] is True
     persisted = json.loads((tmp_path / "scale" / "acceptance.json").read_text(encoding="utf-8"))
     assert persisted == report
