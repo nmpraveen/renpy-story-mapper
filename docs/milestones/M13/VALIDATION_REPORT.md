@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification in progress; fresh local gates pass and remote gates remain separately gated
+Status: Verification in progress; fresh local gates pass and the one approved public-synthetic canary failed
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -17,12 +17,15 @@ Validation date: 2026-07-16
 | `scripts/m13_provider_free_acceptance.py --minimum-scenes 1812` with the exact prior private inputs | Passed once | `tmp/m13-provider-free-private-edf80ed/acceptance.json`; SHA-256 `82663e94c4763c0de14c86e45427b1469ffc29ae98486d2d6cee86b40fee1f4e`; zero-call replay |
 | Browser worker `019f6d76-c028-7e71-b98a-0f8068fa56b4` | Passed once in 22.129 seconds | Chrome 100%/200%; report SHA-256 `8d065d7a34521dc834e115d053e2a6a2ab72910532e7bd7d662ef93031f81b02`; zero remote requests |
 | Zero-submit live preview | Passed once in 1.256 seconds | Preview SHA-256 `abf81bc760b751d845c198a19b37e1ad2544a7f8df8a9dc00203584105ebd034`; preparation `m13_preparation_a9d419...`; consent `m13_consent_455142...`; provider submits zero |
-| Public-synthetic schema-canary preview | Passed locally; zero calls | `tmp/m13-schema-canary-preview-edf80ed.json`; SHA-256 `64317773cbfb1ab524be41b8115e6bf7e3e59219e5960443f61de2c9a922a678`; execution awaits separate approval |
+| Public-synthetic schema-canary preview | Passed locally; zero calls | `tmp/m13-schema-canary-preview-edf80ed.json`; SHA-256 `64317773cbfb1ab524be41b8115e6bf7e3e59219e5960443f61de2c9a922a678`; used for the exactly approved execution below |
+| Exactly approved public-synthetic schema canary | Failed once in 13.139 seconds; exit 1; no retry | Exactly one provider call; schema v3/provider v2, `gpt-5.6-sol`, reasoning `high`, `fast_mode=false`, timeout 120; provider response omitted resolved model identity; usage unavailable; sanitized result `tmp/m13-schema-canary-execution-edf80ed/result.json`, SHA-256 `fb905051c2d3ec6902e9dd6ea5432468e2fb72e7d6f351b77aa4307ee44af9a7`; stdout `e3b0c442...b855`, stderr `6d18ae7c...95eb` |
 
 The fresh live preview binds adapter `m13-codex-cli-adapter-v2`, response schema
 `m13-narrative-batch-response-v3`, prompt v4, model `gpt-5.6-sol`, reasoning `high`,
 `fast_mode=false`, fact-only mode, M12 inclusion, 87 logical jobs, 63 estimated calls, and the
-contract limits. No live, canary, or external review call has been made in this recovery pass.
+contract limits. The canary transmitted only the approved public-synthetic fact, "A blue circle is
+round." No story/private content was sent. No live story-provider or external review call has been
+made in this recovery pass.
 
 ## Historical `e0fd3bf` acceptance matrix
 
@@ -96,10 +99,13 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
 
 ## Remaining blockers and limitations
 
+- Public-synthetic canary: the one approved call failed because the provider response did not
+  report its resolved model identity; provider usage and token counts were unavailable, and no
+  retry was attempted.
 - Criterion 15: previewed and transmitted consent-manifest identities are not stable.
 - Criterion 20: the one live run failed and zero-call replay did not execute.
 - Criterion 22: the independently configured rereview returned FAIL at `9889035`; the single
   corrective cycle passes local gates at `e0fd3bf`, but no final-head independent PASS exists.
-- The root task API did not expose a fast-mode selector; provider reasoning/fast state was not
-  encoded by the preview. No claim is made that these settings were verified for the live call.
+- The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
+  `fast_mode=false`; this does not claim that the task API independently verified that setting.
 - No pull request was created.

@@ -55,8 +55,8 @@ targeted Ruff and strict mypy. The one full Release run passed 1,005 runtime tes
 mypy, dependency, JavaScript, whitespace, and isolated package checks, but one lifecycle-document
 test rejected the non-canonical `Status: Integration; ...` line in this file. This evidence-only
 normalization closes that exact failure without changing the runtime freeze or repeating Release.
-No remote canary, story-provider call, external code review, or pull request is authorized without
-its separate exact approval gate.
+No story-provider call, external code review, or pull request is authorized without its separate
+exact approval gate.
 
 Fresh local acceptance at runtime freeze `edf80ed` is complete. Provider-free private acceptance
 passed 1,812 scenes with zero remote/provider/process execution and zero-call replay; report
@@ -67,7 +67,11 @@ and generated the exact zero-submit live preview with SHA-256
 `abf81bc760b751d845c198a19b37e1ad2544a7f8df8a9dc00203584105ebd034`.
 The local public-synthetic canary preview made zero calls and has SHA-256
 `64317773cbfb1ab524be41b8115e6bf7e3e59219e5960443f61de2c9a922a678`.
-Verification is paused at the separate schema-canary execution approval gate.
+The user then approved exactly one execution of that manifest. The public-synthetic-only call ran
+once without retry and failed after 13.139 seconds with exit 1 because the provider response did
+not report its resolved model identity. Provider usage and token counts were unavailable. The
+runtime freeze remains unchanged; live story transmission, external review, and PR creation remain
+separately gated and were not attempted.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its
