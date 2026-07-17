@@ -1,7 +1,7 @@
 # M13 optional AI narrative layer completion report
 
-Status: Historical prior PR-ready report; M13 reopened to Integration for the final bounded
-eight-finding correction cycle on existing PR #23
+Status: Historical prior PR-ready report; current final bounded correction is Verification-blocked
+by one final-review P1 on existing PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -16,11 +16,18 @@ requires separate approval.
 
 ## Outcome
 
-Current lifecycle note: a later focused logic review triggered a new exact-head audit at
-`e17ba5e3de295c83bba223f858098b65d84291b6`. Findings 1-5, 7, and 8 reproduced by deterministic
-probe or exact code path; finding 6 remains a false-positive candidate pending Track B proof and
-independent confirmation. All evidence below is retained as historical evidence for its named
+Current lifecycle note: the final correction tracks integrated at `9ab1dbd`, and focused
+verification at lifecycle head `532eefc933460ed1876a715df1b12a921e24b3c0` passed 227 tests,
+Ruff, strict mypy, JavaScript syntax, and diff checks. Final independent review returned `FAIL`
+with one P1 and no P0/new P2: an unresolved reservation is conservatively charged but does not
+consume the per-job total-attempt ceiling after reopen. Findings 1 and 3-8 pass, including finding
+6 as a proved false positive. All prior evidence below remains historical evidence for its named
 head and must not be presented as proof of the pending corrected head.
+
+Track A already used the handoff's one bounded correction and rereview, so no second product loop
+was started. The corrected local head was not pushed; Release, browser, private-scale, GitHub,
+provider/live, PR mutation, merge, and M14 actions were not performed. The current done condition
+is unmet pending explicit authorization for one additional narrowly bounded correction.
 
 The authorized bounded-correction runtime is frozen at `3533d49`. Exact M12 result/path/scene/
 hierarchy authority, compatible durable resume, cumulative and failed-call accounting, browser
@@ -38,6 +45,9 @@ Release check passed 1,081 tests with 7 deselections and all quality/build/packa
 M13 is `PR ready`.
 
 ## Current correction acceptance
+
+This table is historical prior-cycle evidence and is not acceptance of lifecycle head `532eefc`.
+Current final review is `FAIL` with the P1 recorded above.
 
 | Gate | Result |
 |---|---|

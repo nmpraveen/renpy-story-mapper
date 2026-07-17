@@ -1,12 +1,36 @@
 # M13 integrated and independent review report
 
-Status: PASS for bounded current-head targeted review and final live/replay acceptance; no P0/P1
+Status: FAIL for the final bounded integrated review; one P1, no P0/new P2
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Review date: 2026-07-17
 
-## Current authorized correction review
+## Final bounded integrated review (current)
+
+Independent reviewer `/root/m13_final_integrated_review` reviewed exact detached lifecycle head
+`532eefc933460ed1876a715df1b12a921e24b3c0`, including correction range `f629e53..532eefc` and
+prior-PR range `e17ba5e..532eefc`. Verdict: `FAIL`. One P1 remains; no P0 or new P2 was found.
+
+Recovered unresolved reservations remain conservatively charged to cumulative calls/tokens, but
+`workflow.py` rebuilds per-job attempt history only from ATTEMPT rows. Scheduler admission therefore
+does not see the reserved logical attempt and assigns `len(history) + 1` again. The provider-free
+CPython 3.12 probe seeded unresolved logical attempt 1 with `maximum_attempts_per_job=1`, observed an
+empty recovered history, then observed four further provider-stub calls and cumulative calls 1 to
+5. This violates finding 2's total-attempt ceiling before every invocation/reopen.
+
+Findings 1 and 3-8 pass, including exact cumulative usage, reservation accounting, pre-execution
+browser identity, transmission attestation, unchanged M12 alternative-route authority, recursive
+privacy aliases, and all-citation navigation. Finding 6 is a false positive. Focused checks passed
+35 tests plus 9 scheduler/provider boundary tests; Node syntax, diff, and exact clean-state checks
+passed. Review was zero-edit and provider/network/private/PR/push/merge free.
+
+Track A already consumed the one reviewer-driven correction and rereview permitted by the final
+handoff. No second correction loop was started, and the head was not pushed. M13 remains in
+Verification pending explicit authorization for one additional narrowly bounded correction and
+rereview.
+
+## Historical prior authorized correction review
 
 Independent reviewer `/root/m13_final_targeted_review` reviewed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` and frozen runtime

@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: PR ready; required local/live/review and unbounded GitHub Release gates pass
+Status: Verification blocked by one final-review P1; PR #23 is not currently ready
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -8,11 +8,33 @@ Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Validation date: 2026-07-17
 
-## Current PR #23 bounded-correction evidence
+## Final bounded correction evidence (current)
 
-The current sanitized machine-readable index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
-Local, browser, private-scale, independent-review, and approved final-head production-path
-live/replay gates all pass.
+The exact local lifecycle head is `532eefc933460ed1876a715df1b12a921e24b3c0`; integrated
+runtime changes end at `9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b`. The corrected focused
+gate passed 227 tests in 135.61 seconds, Ruff, strict mypy over 92 source files, JavaScript syntax,
+and both correction-range diff checks. One earlier focused invocation passed its comma-separated
+targets as one filename and failed before collection; the corrected array invocation is the
+authoritative result.
+
+Final independent reviewer `/root/m13_final_integrated_review` returned `FAIL` at the exact clean,
+detached lifecycle head. One P1 remains: recovered unresolved reservations contribute conservative
+usage but not per-job attempt history, so reopen can bypass `maximum_attempts_per_job` and reuse the
+reserved logical attempt number. The provider-free CPython 3.12 probe seeded logical attempt 1
+under a ceiling of 1 and observed cumulative calls increase from 1 to 5. P0: none. New P2: none.
+Findings 1 and 3-8 pass; finding 6 is conclusively a false positive.
+
+The reviewer passed 35 focused tests and 9 scheduler/provider boundary tests, Node syntax, diff,
+and exact clean-state checks. No edit, provider/network call, private access, push, PR mutation,
+merge, or M14 action occurred. Because Track A already used its one authorized bounded correction
+and rereview, no second correction loop or downstream Release/browser/private/GitHub acceptance was
+started. PR #23 remains at remote head `e17ba5e`; the known-defective local head was not pushed.
+
+## Historical prior PR #23 bounded-correction evidence
+
+The sanitized machine-readable index is `docs/milestones/M13/CURRENT_EVIDENCE.json`. The following
+local, browser, private-scale, review, live/replay, and GitHub results pass only for their named
+historical heads.
 
 | Command / check | Result | Durable disposition |
 |---|---|---|

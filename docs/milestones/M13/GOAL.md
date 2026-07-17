@@ -103,6 +103,21 @@ candidate head `9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b` is now under combined 
 1-5, 7, and 8 have corrections plus failing-first regressions; finding 6 has exact false-positive
 proof and no speculative product edit.
 
+Integrated focused verification at lifecycle head
+`532eefc933460ed1876a715df1b12a921e24b3c0` passed 227 tests, Ruff, strict mypy over 92 source
+files, JavaScript syntax, and correction-range diff checks. Final independent review returned
+`FAIL`: one P1 remains because unresolved durable reservations are recovered into cumulative usage
+but not per-job attempt history. With `maximum_attempts_per_job=1`, a provider-free reopen probe
+charged the seed reservation as one call yet admitted four more calls and reused logical attempt 1.
+The final reviewer passed findings 1 and 3-8, confirmed finding 6 as a false positive, and reported
+no P0 or new P2.
+
+This P1 is in Track A's findings 2/3 area after Track A already used the handoff's one permitted
+bounded correction and rereview. The coordinator stopped rather than starting a second correction
+loop. Release, browser, provider-free private-scale, GitHub, push, PR mutation, provider/live, merge,
+and M14 actions were not run. The native goal remains active and the done condition is unmet pending
+explicit authorization for one additional narrowly bounded correction and rereview.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,

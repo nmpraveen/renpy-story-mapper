@@ -9,9 +9,16 @@
     "track_a_reviewed_head_sha": "2685de031db68682697134e5cad64e0246e1929d",
     "track_b_reviewed_head_sha": "251e063fc0467f73f14d0771b2a4fd236772e6b0",
     "integrated_candidate_head_sha": "9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b",
+    "reviewed_lifecycle_head_sha": "532eefc933460ed1876a715df1b12a921e24b3c0",
     "track_a_review": "PASS after one bounded correction; no P0/P1/P2",
     "track_b_review": "PASS; no P0/P1/P2; finding 6 false positive",
-    "status": "integrated focused and acceptance verification pending"
+    "integrated_focused": "227 passed in 135.61 seconds; Ruff, strict mypy over 92 source files, JavaScript syntax, and correction-range diff checks passed",
+    "final_review": "FAIL; one P1, no P0/new P2; findings 1 and 3-8 pass; finding 6 false positive",
+    "final_reviewer": "/root/m13_final_integrated_review",
+    "blocking_finding": "Recovered unresolved reservations consume conservative usage but not per-job total-attempt history; a provider-free reopen probe under maximum_attempts_per_job=1 increased cumulative calls from 1 to 5 and reused logical attempt 1.",
+    "correction_limit": "Track A already used the one authorized bounded reviewer-driven correction and rereview; no second product correction was started without explicit user authorization.",
+    "not_run": "Release, browser, provider-free private-scale, GitHub, push, PR mutation, provider/live, merge, and M14 actions",
+    "status": "verification blocked by final-review P1; PR #23 not currently ready"
   },
   "historical_prior_cycle_evidence": true,
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",

@@ -75,6 +75,21 @@ head, and fast-forwarded the result without conflict. Integrated candidate head 
 call, push, PR mutation, merge, protected-untracked-path change, or M14 work occurred during track
 execution or integration.
 
+Focused verification at lifecycle head `532eefc933460ed1876a715df1b12a921e24b3c0` passed 227
+tests, Ruff, strict mypy over 92 source files, JavaScript syntax, and both correction-range diff
+checks. Final independent reviewer `/root/m13_final_integrated_review` nevertheless returned
+`FAIL` with one P1 and no P0/new P2. An unresolved durable reservation for logical attempt 1 is
+charged conservatively to cumulative usage but is not reconstructed into per-job attempt history;
+after reopen, `maximum_attempts_per_job=1` therefore admitted another submission as attempt 1. A
+provider-free CPython 3.12 probe observed calls increase from 1 to 5. Findings 1 and 3-8 pass, and
+finding 6 is confirmed a false positive.
+
+Track A already consumed the one bounded reviewer-driven correction and rereview permitted by the
+user's final handoff. The coordinator therefore stopped without a second product correction loop,
+Release/browser/private-scale/GitHub acceptance, push, PR mutation, merge, provider call, or M14
+work. M13 remains in `Verification`; PR #23 is not currently ready, the native goal remains active,
+and another narrowly bounded correction requires explicit user authorization.
+
 ## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at
