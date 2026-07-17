@@ -188,20 +188,21 @@ transmission without exact approval are excluded.
 Correction-cycle status: runtime corrections are frozen at
 `3533d49a61e77c76794b4ba8338ccf60ee8201ef`, and the current sanitized evidence index is
 `docs/milestones/M13/CURRENT_EVIDENCE.json`. Required local, Windows, browser, and private-scale
-gates pass, and independent targeted review at `e79384b` returns PASS with no P0/P1/new P2. The
-approval-gated final-head live-evidence disposition remains, so lifecycle is `Verification`, not
-`PR ready`.
+gates pass, independent targeted review at `e79384b` returns PASS with no P0/P1/new P2, and the
+approved final-head browser/backend live run plus exact fail-closed replay pass at `677d881`.
+Lifecycle remains `Verification` only until existing PR #23 is updated and its remote head is
+verified.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Current runtime `3533d49`; failing-first authority/settings/privacy regressions closed; M13 focused suite 291/1 and Release 1,079/7 pass |
 | 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Durable restart/cumulative-accounting regressions and fresh 1,812-scene provider-free acceptance pass; exact replay made zero calls |
 | 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Current M12+M13 persistence gate 139/1 passes; private hierarchy publishes all route/ending/plot levels without changing M12 normalized bytes |
-| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Browser-selected High and `fast_mode=false` bind through prepare/consent/request/cache/reopen; privacy reject/allow matrix and sanitized persistence pass; no final-head transmission |
+| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Browser-selected High and `fast_mode=false` bind through prepare/consent/request/cache/reopen; exact consent remained stable; 24-call run stayed within finite limits; 2,219 durable records contained no raw prompt/response |
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Fresh real-Chrome report `ce60b235...8f19b` passes at 100%/200%; exact existing-workspace navigation and zero provider calls; optional overlay deferred |
-| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Fresh private-hash-only report `17b1bbb1...0092` passes 1,812 scenes, full faults/recovery, zero-call replay, immutability, and safety; final-head live acceptance remains approval-gated |
+| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private-hash-only report `17b1bbb1...0092` passes 1,812 scenes; approved final-head report `f97bbfec...313f` publishes all 90 eligible jobs and the complete route-aware hierarchy; exact replay is zero-call/hash-exact; source/authority remain unchanged |
 | 22 | Focused/full Windows suite, package inspection, independent review | Current Release passes 1,079/7 and every static/package gate; targeted review at `e79384b` passes 105 + 32 + 2 focused tests with no P0/P1/new P2 |
-| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49` and `CURRENT_EVIDENCE.json` are durable; infographic remains historical durable evidence; PR #23 is open/unmerged but readiness is withdrawn pending review and live disposition |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49`, review head `e79384b`, live head `677d881`, and `CURRENT_EVIDENCE.json` are durable; infographic remains historical durable evidence; existing PR #23 is open/unmerged and awaits only this reconciled evidence update |
 
 ## Release-critical sequence
 
@@ -245,7 +246,8 @@ approval-gated final-head live-evidence disposition remains, so lifecycle is `Ve
   collaboration controls expose model and reasoning-effort selectors but not a fast-mode selector;
   record that exact limitation rather than copying fixed provider settings into this M13 contract
   or claiming an unverifiable fast-mode configuration.
-- Keep status at `Verification` until criterion 20 has a separately approved final-head live
-  run/replay or explicit evidence exception. The targeted review gate passed at `e79384b`.
+- Keep status at `Verification` until the passing final-head live/replay evidence is committed,
+  pushed to existing PR #23, and the remote head is verified. The targeted review gate passed at
+  `e79384b`; criterion 20 passed at `677d881`.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
   preparation. Complete it only at genuine `PR ready`.

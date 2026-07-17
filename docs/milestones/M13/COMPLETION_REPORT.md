@@ -1,14 +1,15 @@
 # M13 optional AI narrative layer completion report
 
-Status: Verification; PR #23 open and unmerged, historical readiness withdrawn
+Status: Verification; all acceptance gates pass, existing PR #23 update pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
-unmerged. It is currently non-draft remotely, but this report withdraws readiness until the
-current-head review and live-evidence gates pass; merge always requires separate approval.
+unmerged. It is currently non-draft remotely. Current-head review and live/replay gates pass; the
+remaining closeout is to commit this reconciliation, update the existing PR, and verify its remote
+head. Merge always requires separate approval.
 
 ## Outcome
 
@@ -19,11 +20,21 @@ existing Detail/Evidence workspace are integrated. Current focused M13, adjacent
 Windows Release, real-Chrome 100%/200%, and fresh 1,812-scene provider-free private-scale gates
 pass. The sanitized current index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
 
-M13 is not currently complete or PR-ready. Independent targeted review at exact integrated head
-`e79384b` passed with no P0/P1/new P2. Historical live hierarchy/replay evidence below is
-preserved for its recorded head but does not prove the corrected runtime. No final-head provider
-transmission or evidence exception has been authorized. One production-path zero-submit manifest
-will be prepared and work will stop for the user's exact approval.
+Independent targeted review at exact integrated head `e79384b` passed with no P0/P1/new P2. The
+subsequently approved production-path live run/replay at exact head `677d881` passes criterion 20:
+all 90 eligible jobs publish through the complete route-aware hierarchy, and exact fail-closed
+replay makes zero submit attempts/calls/tokens while reproducing hashes/rendering. Source and
+authority are unchanged and privacy inspection is clean. M13 remains in `Verification` only until
+the existing PR update and remote-head check complete.
+
+## Current correction acceptance
+
+| Gate | Result |
+|---|---|
+| Runtime and local/Windows | Runtime `3533d49`; focused M13 291/1, adjacent M12+persistence 139/1, Release 1,079/7 and all quality/build/package checks pass |
+| Browser and private scale | Chrome 100%/200% passes with zero navigation/provider calls; 1,812-scene private-scale simulation passes with exact zero-call replay |
+| Independent review | PASS at `e79384b`; no P0/P1/new P2; detached clean zero-edit review |
+| Approved final-head live/replay | PASS at `677d881`; 24 calls, 90 publishable jobs, complete hierarchy, 1,035 audited claims; exact replay zero calls; report `f97bbfec...313f` |
 
 ## Historical pre-correction acceptance evidence
 
@@ -54,11 +65,11 @@ head proof for the reopened correction areas.
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Current blocking state
+## Remaining closeout
 
 - Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
-  `e79384b`; the current-head live-evidence disposition remains.
+  `e79384b`; approved final-head live/replay passes at `677d881`.
 - Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is active through verification and PR
   preparation.
-- PR #23 is open and unmerged, but not currently ready. Do not update or merge it, submit to a live
-  provider, or begin M14 before the explicit gates in the authorized handoff.
+- Update and verify only existing PR #23, then complete the native goal. Do not merge PR #23,
+  perform another live provider transmission, or begin M14.

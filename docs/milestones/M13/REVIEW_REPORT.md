@@ -1,6 +1,6 @@
 # M13 integrated and independent review report
 
-Status: PASS for bounded current-head targeted review; no P0/P1
+Status: PASS for bounded current-head targeted review and final live/replay acceptance; no P0/P1
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
@@ -22,9 +22,11 @@ edits and no provider, web, external, live/private/browser-provider, PR, push, m
 Dispatch selected `gpt-5.6-sol` and High reasoning; the collaboration control exposed no fast-mode
 selector, so fast mode remains unavailable/unverified rather than claimed disabled.
 
-This PASS closes the independent-review gate only. Lifecycle remains `Verification` because the
-fresh production-path zero-submit manifest and a separately approved final-head live run/replay or
-explicit evidence exception remain required before PR readiness.
+This PASS closes the independent-review gate. No runtime code changed after the frozen review.
+The subsequently approved production-path live run/replay at exact head `677d881` also passed:
+90 publishable jobs completed the route-aware hierarchy, claim/citation/privacy/immutability audits
+were clean, and fail-closed replay made zero submit attempts/calls/tokens with exact hashes. The
+remaining lifecycle step is the authorized update and remote verification of existing PR #23.
 
 ## Historical review chain
 

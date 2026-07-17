@@ -4,7 +4,8 @@ Last revised: 2026-07-16
 
 Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
 retains its semantic-review `PASS`, and is in Verification on existing PR #23 after an authorized
-bounded correction cycle; its independent targeted correction review passes with no P0/P1.
+bounded correction cycle. Its independent targeted correction review and approved final-head
+live/replay acceptance pass; the existing PR update is the remaining closeout step.
 
 ## 1. Product goal
 
@@ -1144,9 +1145,9 @@ unresolved or dynamic behavior and must not claim arbitrary expression satisfiab
 
 Status: Verification on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
 bounded correction runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef` passes current local,
-Windows, browser, and private-scale gates, and targeted review of integrated head `e79384b` passes
-with no P0/P1/new P2. A separately approved final-head live-evidence disposition remains before
-PR readiness.
+Windows, browser, and private-scale gates, targeted review of integrated head `e79384b` passes
+with no P0/P1/new P2, and the approved final-head live run/replay at `677d881` passes. Updating and
+verifying existing PR #23 with the reconciled evidence is the remaining step before PR readiness.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1243,6 +1244,6 @@ and unresolved items.
 
 ## 11. Current next action
 
-Complete the existing M13 PR #23 verification by preparing the production-path zero-submit
-bounded live manifest and stopping for exact user approval. Do not submit to a provider, update or
-merge PR #23, or begin M14 without the required separate approval/evidence gates.
+Commit and validate the approved final-head live/replay evidence, update only existing PR #23,
+verify its remote head and readiness, and complete the active native goal. Do not merge PR #23 or
+begin M14.

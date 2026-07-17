@@ -21,8 +21,8 @@ Updated: 2026-07-17
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
   currently non-draft, and unmerged at reviewed head
   `d0c116b5a1fb9ed221981d380fd42eab464f31fe`. Its readiness is withdrawn during this correction;
-  no PR update occurs until the final-head live-evidence and review gates pass, and merge remains
-  separately approval-gated.
+  the final-head live-evidence and review gates now pass, so only the authorized existing-PR update
+  and remote verification remain. Merge remains separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -36,8 +36,10 @@ contract while reopening lifecycle evidence. Before product edits, the current P
 base were fetched and verified exactly, the tracked worktree and index were clean, and existing
 untracked `docs/handoffs/`, `output/`, and `tmp/` content was left untouched. Historical M13
 results remain evidence of their reviewed heads, but they are not final-head proof for the
-reopened correction areas. No live provider transmission is authorized. After a fresh zero-submit
-browser/backend production-path manifest is prepared, work must stop for exact user approval.
+reopened correction areas. The fresh browser/backend production-path manifest stopped at zero
+submits as required. The user then authorized the exact manifest and broadened consent through
+goal completion; the single approved run/replay below is the resulting final-head proof. No
+additional live transmission is required or authorized by this closeout.
 
 ## Current correction verification
 
@@ -57,13 +59,16 @@ zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh
 private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
 source/authority immutability, and exact zero-call replay with all safety counters zero.
 
-Lifecycle is `Verification`, not `PR ready`. Independent reviewer
+Lifecycle remains `Verification` until the authorized existing-PR update is verified. Independent reviewer
 `/root/m13_final_targeted_review` passed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` with no P0, P1, or new P2 after 105 + 32 + 2 focused
-tests and a clean zero-edit detached review. One production-path full bounded live manifest will
-now be prepared with zero submissions, and work will stop for the user's exact approval.
-Historical live hierarchy evidence below remains valid only for its recorded pre-correction head;
-no current-head provider transmission or evidence exception has been authorized.
+tests and a clean zero-edit detached review. The approved production-path run at exact head
+`677d88152e100afd154bb54da249582ff0a2ffcd` completed with contract-valid terminal `partial`:
+90 publishable jobs (88 succeeded, 2 partial), 24 calls, 1,524,766 input and 93,316 output tokens,
+the complete route-aware hierarchy, 1,035 published claims, zero unresolved references/cycles,
+unchanged source/authority, and no raw prompt/response retention. Exact fail-closed replay made
+zero submit attempts/calls/tokens and reproduced artifact hashes and rendering exactly. Sanitized
+report SHA-256 is `f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f`.
 
 ## Historical M13 evidence
 

@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification; current local/browser/private/review gates pass, live disposition pending
+Status: Verification; all current correction gates pass, existing PR #23 update pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -11,8 +11,8 @@ Validation date: 2026-07-17
 ## Current PR #23 bounded-correction evidence
 
 The current sanitized machine-readable index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
-No current-head provider transmission occurred. All browser and private acceptance used the
-production boundary with an offline simulator or a fail-closed non-execution boundary.
+Local, browser, private-scale, independent-review, and approved final-head production-path
+live/replay gates all pass.
 
 | Command / check | Result | Durable disposition |
 |---|---|---|
@@ -23,7 +23,31 @@ production boundary with an offline simulator or a fail-closed non-execution bou
 | Real Chrome acceptance | Passed at 100% and 200%; exact M10/M11/M12/M13 Detail/Evidence navigation; zero remote requests and zero provider calls on navigation/replay | Local sanitized report SHA-256 `ce60b2350b558fc1bf07611b00379186a3cf79a6fe4b6263fcac7f67e858f19b` |
 | Provider-free private scale | Passed 1,812 scenes, 2,590 jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, and all safety counters zero | Private-hash-only report SHA-256 `17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092` |
 | Independent targeted review | PASS; no P0/P1/new P2 | Exact head `e79384b`; 105 + 32 + 2 focused tests; detached clean zero-edit review; no provider/external action |
-| Final-head live evidence | Pending exact approval | Historical live evidence is not promoted; prepare zero-submit production-path manifest after review and stop before transmission |
+| Final-head live evidence | Passed at exact head `677d88152e100afd154bb54da249582ff0a2ffcd` | Approved browser/backend production path; 24 live calls; complete route-aware publication; exact replay made zero submits/calls/tokens; sanitized report SHA-256 `f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f` |
+
+## Current approved final-head live execution and replay
+
+The zero-submit preparation first stopped as required. A copied-source confirmation attempt then
+failed closed before provider discovery because the absolute source locator is authority-bound;
+that attempt made no submit. The user subsequently authorized the fresh exact manifest and gave
+continuing consent through goal completion. One production-path browser/backend run executed at
+head `677d88152e100afd154bb54da249582ff0a2ffcd`; no hidden retry or second live execution occurred.
+
+| Durable field | Result |
+|---|---|
+| Exact preparation | `m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e` |
+| Exact consent | `m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05` |
+| Provider/settings | OpenAI / `codex_cli_structured` adapter v3; requested/resolved `gpt-5.6-sol`; High; `fast_mode=false`; public synthetic; fact only; M12 included; all 27 current scenes |
+| Prepared estimate | 87 logical jobs; 72 calls; 3,247,660 input and 81,600 output tokens; batch maximum 16 items/500,000 characters/100,000 tokens |
+| Finite limits | 5,000 calls; 50,000,000 input, 20,000,000 output, and 70,000,000 total tokens; 3,600 seconds; concurrency 4; cost unavailable |
+| Representative scope | 27 scenes: 7 common-spine, 6 temporary-branch, 10 persistent-route, and 14 ending scenes; 2 temporary containers, 5 occurrences, 3 loop contexts, 1 M12 result, and 4 M12 prerequisite strings |
+| Live usage | 24 calls; 1,524,766 input; 93,316 output; 1,618,082 total tokens; 3,479.184 seconds; peak concurrency one; exact usage; cost unavailable |
+| Jobs | Terminal `partial` is valid claim salvage: 90 jobs, 88 succeeded, 2 partial, 0 failed/refused/cancelled/hard-limit, and no unresolved codes |
+| Complete hierarchy | 27 scene, 30 segment, 23 chapter, common-story, 2 route, 6 ending, and whole-plot artifacts; zero character artifacts are expected for the narrator-only fixture |
+| Claim audit | 1,035 published claims: 946 factual and 89 interpretive; 1,485 resolved citations; 0 suggestions, unknown/out-of-scope references, or DAG cycles; route-aware plot present |
+| Exact replay | Fail-closed sentinel observed 0 submit attempts, calls, input/output/total tokens; 90 jobs replayed; artifact payload hashes exact; deterministic rendering SHA-256 `af50407c592537938dcec83c7532ca13ebeac81560c9da0801508410c07aef5b` |
+| Safety | Source/archive and M10/M11/M12 authority unchanged; 2,219 durable records inspected; raw debug false; 0 raw prompt or provider-response records; browser remote requests 0 |
+| Evidence | Artifact set SHA-256 `2e795955fca24e58f9ee82bcf07d48b50e2953fc563f5c0f7003bbc1057079dc`; sanitized report SHA-256 `f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f`; preflight SHA-256 `5f26b20f18de7b7c3cf7e6a35c5c6f52d1951d7bb036424d35d8af67b571bc6a`; screenshot SHA-256 `aca50179df28d5a64e6f42e1004ee7e6eb353825d15de50f8d8a655ad0782ebe` |
 
 ## Historical exact approved live execution and replay at `740e321`
 
