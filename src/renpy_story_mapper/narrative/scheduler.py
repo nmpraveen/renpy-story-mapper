@@ -73,17 +73,13 @@ from renpy_story_mapper.narrative.provider import (
     ProviderTransportError,
     ProviderUsage,
 )
+from renpy_story_mapper.organization.sterile_runner import TransmissionDisposition
 
 _RUN_GLOBAL_PROVIDER_ERRORS = (
     ProviderSchemaRejectedError,
     ProviderRuntimeConfigurationError,
     ProviderAuthenticationError,
     ProviderProcessError,
-)
-_PRE_TRANSMISSION_PROVIDER_ERRORS = (
-    ProviderSchemaRejectedError,
-    ProviderRuntimeConfigurationError,
-    ProviderAuthenticationError,
 )
 _RETRYABLE_TRANSIENT_PROVIDER_ERRORS = (
     ProviderRateLimitError,
@@ -430,6 +426,100 @@ class SchedulerUsage:
 
 
 @dataclass(frozen=True)
+class SchedulerCallReservation:
+    """Durable conservative usage reserved before one provider invocation."""
+
+    reservation_id: str
+    run_id: str
+    consent_manifest_id: str
+    compatibility_id: str
+    batch_id: str
+    logical_job_ids: tuple[str, ...]
+    logical_attempt_numbers: tuple[int, ...]
+    provider_call_number: int
+    provider: ProviderIdentity
+    usage: SchedulerUsage
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.reservation_id, "reservation ID"),
+            (self.run_id, "run ID"),
+            (self.consent_manifest_id, "consent manifest ID"),
+            (self.compatibility_id, "scheduler compatibility ID"),
+            (self.batch_id, "batch ID"),
+        ):
+            if not value or value != value.strip():
+                raise ValueError(f"{label} must be a non-empty trimmed string")
+        if not self.logical_job_ids or len(self.logical_job_ids) != len(
+            self.logical_attempt_numbers
+        ):
+            raise ValueError("call reservation jobs and attempt numbers must align")
+        if any(number < 1 for number in self.logical_attempt_numbers):
+            raise ValueError("call reservation attempt numbers must be positive")
+        if self.provider_call_number < 1 or self.usage.provider_calls != 1:
+            raise ValueError("call reservation must reserve exactly one transport call")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "reservation_id": self.reservation_id,
+            "run_id": self.run_id,
+            "consent_manifest_id": self.consent_manifest_id,
+            "compatibility_id": self.compatibility_id,
+            "batch_id": self.batch_id,
+            "logical_job_ids": list(self.logical_job_ids),
+            "logical_attempt_numbers": list(self.logical_attempt_numbers),
+            "provider_call_number": self.provider_call_number,
+            "provider": self.provider.to_dict(),
+            "usage": self.usage.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class SchedulerCallFinalization:
+    """Idempotent reconciliation for one durable call reservation."""
+
+    reservation_id: str
+    run_id: str
+    consent_manifest_id: str
+    compatibility_id: str
+    transmission_disposition: TransmissionDisposition
+    usage: SchedulerUsage
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.reservation_id, "reservation ID"),
+            (self.run_id, "run ID"),
+            (self.consent_manifest_id, "consent manifest ID"),
+            (self.compatibility_id, "scheduler compatibility ID"),
+        ):
+            if not value or value != value.strip():
+                raise ValueError(f"{label} must be a non-empty trimmed string")
+        expected_calls = (
+            0
+            if self.transmission_disposition is TransmissionDisposition.NOT_TRANSMITTED
+            else 1
+        )
+        if self.usage.provider_calls != expected_calls:
+            raise ValueError("call finalization usage conflicts with transmission disposition")
+        if expected_calls == 0 and (
+            self.usage.input_tokens
+            or self.usage.output_tokens
+            or self.usage.cost_micros not in {0, None}
+        ):
+            raise ValueError("not-transmitted finalization cannot consume provider usage")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "reservation_id": self.reservation_id,
+            "run_id": self.run_id,
+            "consent_manifest_id": self.consent_manifest_id,
+            "compatibility_id": self.compatibility_id,
+            "transmission_disposition": self.transmission_disposition.value,
+            "usage": self.usage.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class SchedulerRunRecord:
     run_id: str
     consent_manifest_id: str
@@ -507,6 +597,10 @@ class SchedulerSink(Protocol):
     def record_attempt(self, record: SchedulerAttemptRecord) -> None: ...
 
     def record_batch(self, record: SchedulerBatchRecord) -> None: ...
+
+    def reserve_call(self, record: SchedulerCallReservation) -> None: ...
+
+    def finalize_call(self, record: SchedulerCallFinalization) -> None: ...
 
     def publish_validated(
         self,
@@ -595,7 +689,7 @@ class NarrativeScheduler:
                     raise SchedulerConfigurationError(
                         "validated attempt history is missing its exact accepted cache entry"
                     )
-                if len(history) >= self._policy.maximum_attempts_per_job:
+                if self._retry_ceiling_reached(history):
                     record = self._job_record(
                         consent.run_id,
                         job,
@@ -747,6 +841,15 @@ class NarrativeScheduler:
                 )
             )
             request = self._request(batch, job_by_id, consent, started_at)
+            reservation = self._call_reservation(
+                batch,
+                job_by_id,
+                consent,
+                compatibility_id,
+                attempt_numbers,
+                call_number,
+            )
+            self._sink.reserve_call(reservation)
             usage_before_submit = usage
             usage = SchedulerUsage(
                 provider_calls=call_number,
@@ -763,7 +866,8 @@ class NarrativeScheduler:
             except NarrativeProviderError as exc:
                 if isinstance(exc, ProviderCancelledError):
                     self._provider.cancel()
-                transmitted = not isinstance(exc, _PRE_TRANSMISSION_PROVIDER_ERRORS)
+                disposition = exc.transmission_disposition
+                transmitted = disposition is not TransmissionDisposition.NOT_TRANSMITTED
                 metrics_estimated = False
                 failure_usage: ProviderUsage | None = None
                 if transmitted:
@@ -780,7 +884,20 @@ class NarrativeScheduler:
                         estimated=metrics_estimated,
                     )
                 else:
-                    usage = usage_before_submit
+                    failure_usage = self._not_transmitted_usage(submitted_at)
+                    usage = self._add_usage(
+                        usage_before_submit,
+                        failure_usage,
+                        started_at,
+                    )
+                self._sink.finalize_call(
+                    self._call_finalization(
+                        reservation,
+                        disposition,
+                        failure_usage,
+                        metrics_estimated=metrics_estimated,
+                    )
+                )
                 metric_shares = (
                     {
                         job_id: AttemptMetrics()
@@ -827,6 +944,14 @@ class NarrativeScheduler:
                 response_usage,
                 started_at,
                 estimated=response_usage_estimated,
+            )
+            self._sink.finalize_call(
+                self._call_finalization(
+                    reservation,
+                    TransmissionDisposition.TRANSMITTED,
+                    response_usage,
+                    metrics_estimated=response_usage_estimated,
+                )
             )
             response_error = self._response_binding_error(
                 response,
@@ -1604,11 +1729,113 @@ class NarrativeScheduler:
             return transient < self._policy.maximum_transient_attempts_per_job
         return False
 
+    def _retry_ceiling_reached(self, history: Sequence[AttemptOutcome]) -> bool:
+        if len(history) >= self._policy.maximum_attempts_per_job:
+            return True
+        transient = sum(
+            outcome in {AttemptOutcome.TRANSIENT_FAILURE, AttemptOutcome.TIMEOUT}
+            for outcome in history
+        )
+        if transient >= self._policy.maximum_transient_attempts_per_job:
+            return True
+        malformed = history.count(AttemptOutcome.MALFORMED)
+        return malformed >= self._policy.maximum_malformed_attempts_per_job
+
     def _eligible_malformed(self, history: Sequence[AttemptOutcome]) -> bool:
         return (
             len(history) < self._policy.maximum_attempts_per_job
             and history.count(AttemptOutcome.MALFORMED)
             < self._policy.maximum_malformed_attempts_per_job
+        )
+
+    def _call_reservation(
+        self,
+        batch: TransportBatch,
+        jobs: Mapping[str, ScheduledSceneJob],
+        consent: ConsentManifest,
+        compatibility_id: str,
+        attempt_numbers: Mapping[str, int],
+        call_number: int,
+    ) -> SchedulerCallReservation:
+        logical_attempt_numbers = tuple(
+            attempt_numbers[job_id] for job_id in batch.logical_job_ids
+        )
+        estimated_costs = tuple(
+            jobs[job_id].estimated_cost_micros for job_id in batch.logical_job_ids
+        )
+        estimated_cost = (
+            None
+            if any(value is None for value in estimated_costs)
+            else sum(cast(int, value) for value in estimated_costs)
+        )
+        usage = SchedulerUsage(
+            provider_calls=1,
+            input_tokens=sum(
+                jobs[job_id].estimated_input_tokens for job_id in batch.logical_job_ids
+            ),
+            output_tokens=sum(
+                jobs[job_id].estimated_output_tokens for job_id in batch.logical_job_ids
+            ),
+            cost_micros=estimated_cost,
+            peak_concurrency=1,
+            usage_estimated=True,
+        )
+        material = {
+            "schema": "m13-call-reservation-v1",
+            "run_id": consent.run_id,
+            "consent_manifest_id": consent.manifest_id,
+            "compatibility_id": compatibility_id,
+            "batch_id": batch.batch_id,
+            "logical_job_ids": list(batch.logical_job_ids),
+            "logical_attempt_numbers": list(logical_attempt_numbers),
+            "provider_call_number": call_number,
+            "provider": consent.provider.to_dict(),
+            "usage": usage.to_dict(),
+        }
+        return SchedulerCallReservation(
+            reservation_id=f"m13_reservation_{canonical_hash(material)}",
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            compatibility_id=compatibility_id,
+            batch_id=batch.batch_id,
+            logical_job_ids=batch.logical_job_ids,
+            logical_attempt_numbers=logical_attempt_numbers,
+            provider_call_number=call_number,
+            provider=consent.provider,
+            usage=usage,
+        )
+
+    @staticmethod
+    def _call_finalization(
+        reservation: SchedulerCallReservation,
+        disposition: TransmissionDisposition,
+        usage: ProviderUsage | None,
+        *,
+        metrics_estimated: bool,
+    ) -> SchedulerCallFinalization:
+        if disposition is TransmissionDisposition.NOT_TRANSMITTED:
+            effective = SchedulerUsage(
+                elapsed_ms=0 if usage is None else usage.elapsed_ms,
+            )
+        else:
+            if usage is None:
+                raise ValueError("possibly transmitted calls require effective usage")
+            effective = SchedulerUsage(
+                provider_calls=1,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                elapsed_ms=usage.elapsed_ms,
+                cost_micros=usage.cost_micros,
+                peak_concurrency=1,
+                usage_estimated=metrics_estimated,
+            )
+        return SchedulerCallFinalization(
+            reservation_id=reservation.reservation_id,
+            run_id=reservation.run_id,
+            consent_manifest_id=reservation.consent_manifest_id,
+            compatibility_id=reservation.compatibility_id,
+            transmission_disposition=disposition,
+            usage=effective,
         )
 
     def _failed_call_usage(
@@ -1641,6 +1868,10 @@ class NarrativeScheduler:
             ),
             True,
         )
+
+    def _not_transmitted_usage(self, submitted_at: float) -> ProviderUsage:
+        observed_elapsed = max(1, int((self._clock() - submitted_at) * 1_000))
+        return ProviderUsage(0, 0, observed_elapsed, cost_micros=0)
 
     def _effective_response_usage(
         self,

@@ -29,6 +29,7 @@ from renpy_story_mapper.organization.sterile_runner import (
     SterileRunnerError,
     SterileRunRequest,
     SterileRunResult,
+    TransmissionDisposition,
 )
 
 PROMPT_TEMPLATE_VERSION = "m13-narrative-batch-prompt-v4"
@@ -91,18 +92,21 @@ def validate_codex_provider_settings(settings: ProviderSettings) -> str | None:
         raise ProviderRuntimeConfigurationError(
             "runtime_configuration_rejected",
             "The provider settings contain an unsupported key.",
+            transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
         )
     reasoning = values.get("model_reasoning_effort")
     if reasoning is not None and reasoning not in _REASONING_EFFORTS:
         raise ProviderRuntimeConfigurationError(
             "runtime_configuration_rejected",
             "The provider reasoning effort is unsupported.",
+            transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
         )
     fast_mode = values.get("fast_mode")
     if fast_mode is not None and fast_mode is not False:
         raise ProviderRuntimeConfigurationError(
             "runtime_configuration_rejected",
             "Fast mode must remain disabled for this provider adapter.",
+            transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
         )
     return reasoning
 
@@ -256,12 +260,20 @@ class ProviderStatus:
 class NarrativeProviderError(RuntimeError):
     """Sanitized provider failure with explicit scheduler retry eligibility."""
 
-    def __init__(self, error_code: str, message: str, *, transient: bool = False) -> None:
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        transient: bool = False,
+        transmission_disposition: TransmissionDisposition = TransmissionDisposition.UNKNOWN,
+    ) -> None:
         if not _ERROR_CODE.fullmatch(error_code):
             raise ValueError("provider error codes must be sanitized identifiers")
         super().__init__(message)
         self.error_code = error_code
         self.transient = transient
+        self.transmission_disposition = transmission_disposition
 
 
 class ProviderUnavailableError(NarrativeProviderError):
@@ -385,19 +397,30 @@ class CodexCliNarrativeProvider:
         cancelled: CancelledCallback,
     ) -> ProviderResponse:
         if cancelled():
-            raise ProviderCancelledError("cancelled", "The provider request was cancelled.")
+            raise ProviderCancelledError(
+                "cancelled",
+                "The provider request was cancelled.",
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
+            )
         reasoning_effort = validate_codex_provider_settings(request.settings)
         status = self.status()
         if not status.available:
             raise ProviderUnavailableError(
                 "provider_unavailable",
                 "The cloud provider adapter is unavailable.",
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
             )
-        prompt = _serialize_prompt(request)
+        try:
+            prompt = _serialize_prompt(request)
+        except NarrativeProviderError as exc:
+            if exc.transmission_disposition is TransmissionDisposition.UNKNOWN:
+                exc.transmission_disposition = TransmissionDisposition.NOT_TRANSMITTED
+            raise
         if len(prompt) > request.maximum_input_bytes:
             raise ProviderLimitError(
                 "input_limit",
                 "The structured provider request exceeds its input-byte limit.",
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
             )
         schema = files("renpy_story_mapper.narrative.schemas").joinpath(_SCHEMA_RESOURCE)
         started_at = time.monotonic()
@@ -417,18 +440,23 @@ class CodexCliNarrativeProvider:
         except SterileRunnerError as exc:
             raise _mapped_runner_error(exc) from None
         elapsed_ms = round((time.monotonic() - started_at) * 1000)
-        resolved_model = _resolved_model(
-            run_result.events,
-            requested_model=request.requested_model,
-        )
-        if resolved_model != request.requested_model:
-            raise ProviderIdentityMismatchError(
-                "model_mismatch",
-                "The provider resolved a different model than requested.",
+        try:
+            resolved_model = _resolved_model(
+                run_result.events,
+                requested_model=request.requested_model,
             )
-        input_tokens, output_tokens, cost_micros = _usage(run_result.events)
-        payload = _single_response_payload(run_result.events)
-        output_items = _parse_output_items(payload)
+            if resolved_model != request.requested_model:
+                raise ProviderIdentityMismatchError(
+                    "model_mismatch",
+                    "The provider resolved a different model than requested.",
+                )
+            input_tokens, output_tokens, cost_micros = _usage(run_result.events)
+            payload = _single_response_payload(run_result.events)
+            output_items = _parse_output_items(payload)
+        except NarrativeProviderError as exc:
+            if exc.transmission_disposition is TransmissionDisposition.UNKNOWN:
+                exc.transmission_disposition = TransmissionDisposition.TRANSMITTED
+            raise
         identity = ProviderIdentity(
             provider=self._provider_name,
             adapter=ADAPTER_NAME,
@@ -648,59 +676,89 @@ def _parse_output_items(payload: dict[str, object]) -> tuple[ProviderOutputItem,
 def _mapped_runner_error(error: SterileRunnerError) -> NarrativeProviderError:
     code = error.error_code
     if code == "cancelled":
-        return ProviderCancelledError("cancelled", "The provider request was cancelled.")
+        return ProviderCancelledError(
+            "cancelled",
+            "The provider request was cancelled.",
+            transmission_disposition=error.transmission_disposition,
+        )
     if code in {"timeout", "startup_timeout"}:
-        return ProviderTimeoutError(code, "The provider request timed out.", transient=True)
+        return ProviderTimeoutError(
+            code,
+            "The provider request timed out.",
+            transient=True,
+            transmission_disposition=error.transmission_disposition,
+        )
     if code == "rate_limited":
         return ProviderRateLimitError(
             code,
             "The provider is rate limited.",
             transient=True,
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "transport_failure":
         return ProviderTransportError(
             code,
             "The provider transport failed.",
             transient=True,
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "server_transient":
         return ProviderServerTransientError(
             code,
             "The provider server failed temporarily.",
             transient=True,
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "policy_violation":
         return ProviderPolicyViolationError(
             code,
             "The provider attempted a forbidden action.",
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "provider_refusal":
-        return ProviderRefusalError(code, "The provider refused the request.")
+        return ProviderRefusalError(
+            code,
+            "The provider refused the request.",
+            transmission_disposition=error.transmission_disposition,
+        )
     if code in {"output_limit"}:
-        return ProviderLimitError(code, "The provider exceeded a hard transport limit.")
+        return ProviderLimitError(
+            code,
+            "The provider exceeded a hard transport limit.",
+            transmission_disposition=error.transmission_disposition,
+        )
     if code in {"invalid_jsonl"}:
-        return ProviderOutputError(code, "The provider returned invalid structured output.")
+        return ProviderOutputError(
+            code,
+            "The provider returned invalid structured output.",
+            transmission_disposition=error.transmission_disposition,
+        )
     if code == "output_schema_rejected":
         return ProviderSchemaRejectedError(
             code,
             "The provider rejected the output schema.",
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "runtime_configuration_rejected":
         return ProviderRuntimeConfigurationError(
             code,
             "The provider runtime configuration was rejected.",
+            transmission_disposition=error.transmission_disposition,
         )
     if code in {"authentication_failed", "provider_auth"}:
         return ProviderAuthenticationError(
             "authentication_failed",
             "The provider authentication was rejected.",
+            transmission_disposition=error.transmission_disposition,
         )
     if code == "provider_unavailable":
         return ProviderUnavailableError(
             code,
             "The cloud provider adapter is unavailable.",
+            transmission_disposition=error.transmission_disposition,
         )
     return ProviderProcessError(
         "provider_process_failed",
         "The provider process failed.",
+        transmission_disposition=error.transmission_disposition,
     )

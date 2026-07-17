@@ -46,6 +46,7 @@ from renpy_story_mapper.organization.sterile_runner import (
     SterileRunnerError,
     SterileRunRequest,
     SterileRunResult,
+    TransmissionDisposition,
     build_sterile_codex_command,
 )
 
@@ -759,7 +760,24 @@ def test_runner_failures_map_to_sanitized_retry_signals(
     )
     assert error.error_code == expected_code
     assert error.transient is transient
+    assert error.transmission_disposition is TransmissionDisposition.UNKNOWN
     assert "SECRET-STORY" not in str(exc_info.value)
+
+
+def test_runner_transmission_attestation_survives_provider_error_mapping() -> None:
+    runner = FakeRunner(
+        error=SterileRunnerError(
+            "authentication_failed",
+            "sanitized",
+            transmission_disposition=TransmissionDisposition.TRANSMITTED,
+        )
+    )
+    provider = CodexCliNarrativeProvider(runner=runner)
+
+    with pytest.raises(ProviderAuthenticationError) as raised:
+        provider.submit(_request(), lambda: False)
+
+    assert raised.value.transmission_disposition is TransmissionDisposition.TRANSMITTED
 
 
 def test_direct_command_has_no_shell_fallback_and_passes_selected_reasoning() -> None:
@@ -840,6 +858,7 @@ def test_sterile_runner_rejects_policy_events_and_sanitizes_stderr(tmp_path: Pat
     with pytest.raises(SterileRunnerError) as policy_error:
         policy_runner.execute(request, lambda: False)
     assert policy_error.value.error_code == "policy_violation"
+    assert policy_error.value.transmission_disposition is TransmissionDisposition.TRANSMITTED
     assert policy_process.terminated
 
     failure_process = FakeProcess(
@@ -855,7 +874,31 @@ def test_sterile_runner_rejects_policy_events_and_sanitizes_stderr(tmp_path: Pat
         failure_runner.execute(request, lambda: False)
     assert failure.value.error_code == "rate_limited"
     assert failure.value.transient
+    assert failure.value.transmission_disposition is TransmissionDisposition.TRANSMITTED
     assert "SECRET-STORY" not in str(failure.value)
+
+
+def test_sterile_runner_attests_not_transmitted_before_process_boundary(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    runner = SterileCodexRunner(executable_resolver=lambda _command: (None, None))
+
+    with pytest.raises(SterileRunnerError) as raised:
+        runner.execute(
+            SterileRunRequest(
+                model="runtime-model-a",
+                schema_path=schema.resolve(),
+                stdin=b"{}",
+                timeout_seconds=1.0,
+                maximum_output_bytes=100_000,
+            ),
+            lambda: False,
+        )
+
+    assert raised.value.error_code == "provider_unavailable"
+    assert raised.value.transmission_disposition is (
+        TransmissionDisposition.NOT_TRANSMITTED
+    )
 
 
 @pytest.mark.parametrize(

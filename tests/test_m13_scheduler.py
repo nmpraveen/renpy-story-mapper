@@ -50,6 +50,8 @@ from renpy_story_mapper.narrative.scheduler import (
     ScheduledSceneJob,
     SchedulerAttemptRecord,
     SchedulerBatchRecord,
+    SchedulerCallFinalization,
+    SchedulerCallReservation,
     SchedulerConfigurationError,
     SchedulerJobRecord,
     SchedulerPolicy,
@@ -59,6 +61,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerUsage,
     ValidatedLogicalOutput,
 )
+from renpy_story_mapper.organization.sterile_runner import TransmissionDisposition
 
 PROMPT_VERSION = "runtime-prompt-version"
 SCHEMA_VERSION = "runtime-response-schema"
@@ -270,6 +273,8 @@ class MemorySink:
         default_factory=list
     )
     runs: list[SchedulerRunRecord] = field(default_factory=list)
+    reservations: list[SchedulerCallReservation] = field(default_factory=list)
+    finalizations: list[SchedulerCallFinalization] = field(default_factory=list)
     after_publish: Callable[[ScheduledSceneJob], None] | None = None
     cumulative_usage: SchedulerUsage = field(default_factory=SchedulerUsage)
 
@@ -305,6 +310,12 @@ class MemorySink:
 
     def record_batch(self, record: SchedulerBatchRecord) -> None:
         self.batches.append(record)
+
+    def reserve_call(self, record: SchedulerCallReservation) -> None:
+        self.reservations.append(record)
+
+    def finalize_call(self, record: SchedulerCallFinalization) -> None:
+        self.finalizations.append(record)
 
     def publish_validated(
         self,
@@ -617,13 +628,13 @@ def test_provider_policy_violation_fails_closed_without_retry_or_fallback() -> N
 @pytest.mark.parametrize(
     ("error_type", "error_code", "expected_provider_calls"),
     [
-        (ProviderSchemaRejectedError, "output_schema_rejected", 0),
+        (ProviderSchemaRejectedError, "output_schema_rejected", 1),
         (
             ProviderRuntimeConfigurationError,
             "runtime_configuration_rejected",
-            0,
+            1,
         ),
-        (ProviderAuthenticationError, "authentication_failed", 0),
+        (ProviderAuthenticationError, "authentication_failed", 1),
         (ProviderProcessError, "provider_process_failed", 1),
     ],
 )
@@ -1084,6 +1095,99 @@ def test_durable_attempt_limit_is_enforced_before_queue_or_submit() -> None:
     assert result.jobs[0].error_code == "hard_limit"
 
 
+@pytest.mark.parametrize(
+    "history",
+    [
+        [AttemptOutcome.TIMEOUT],
+        [AttemptOutcome.MALFORMED],
+    ],
+)
+def test_durable_retry_subtype_limit_is_enforced_before_submit(
+    history: list[AttemptOutcome],
+) -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+    sink = MemorySink(
+        histories={("run-exact-consent", job.logical_job_id): history}
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail("subtype-exhausted job must not submit"),
+    )
+
+    result = _scheduler(
+        provider,
+        sink,
+        maximum_attempts=4,
+        maximum_transient=1,
+        maximum_malformed=1,
+    ).run((job,), _consent(identity, logical_jobs=1), _validator)
+
+    assert provider.requests == []
+    assert sink.reservations == []
+    assert result.jobs[0].state is LogicalJobState.FAILED
+    assert result.jobs[0].attempt_count == 1
+    assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_call_usage_reservation_precedes_submit_and_finalizes_idempotent_payload() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=17, output_tokens=9, cost_micros=4)
+    sink = MemorySink()
+
+    def script(request: ProviderRequest, _number: int) -> ProviderResponse:
+        assert len(sink.reservations) == 1
+        assert sink.finalizations == []
+        reservation = sink.reservations[0]
+        assert reservation.usage.provider_calls == 1
+        assert reservation.usage.input_tokens == 17
+        assert reservation.usage.output_tokens == 9
+        return _response(
+            request,
+            identity,
+            (_success_item(job.logical_job_id, 0),),
+            input_tokens=7,
+            output_tokens=3,
+            elapsed_ms=5,
+            cost_micros=2,
+        )
+
+    result = _scheduler(ScriptedProvider(identity, script), sink).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.SUCCEEDED
+    assert len(sink.finalizations) == 1
+    finalization = sink.finalizations[0]
+    assert finalization.reservation_id == sink.reservations[0].reservation_id
+    assert finalization.transmission_disposition is TransmissionDisposition.TRANSMITTED
+    assert finalization.usage.provider_calls == 1
+    assert finalization.usage.input_tokens == 7
+    assert finalization.usage.output_tokens == 3
+
+
+def test_unhandled_execution_interruption_leaves_durable_reservation_unresolved() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=17, output_tokens=9)
+    sink = MemorySink()
+
+    def interrupt(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        assert len(sink.reservations) == 1
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        _scheduler(ScriptedProvider(identity, interrupt), sink).run(
+            (job,),
+            _consent(identity, logical_jobs=1),
+            _validator,
+        )
+
+    assert len(sink.reservations) == 1
+    assert sink.finalizations == []
+
+
 def test_post_submit_timeout_reserves_nonzero_estimated_usage() -> None:
     identity = _provider_identity()
     job = _job(0, identity, input_tokens=17, output_tokens=9)
@@ -1245,7 +1349,7 @@ def test_failed_usage_prevents_the_next_over_budget_submit() -> None:
     assert result.jobs[1].error_code == "hard_limit"
 
 
-def test_pre_transmission_runtime_rejection_keeps_zero_usage() -> None:
+def test_only_explicit_provider_boundary_attestation_proves_non_transmission() -> None:
     identity = _provider_identity()
     job = _job(0, identity)
 
@@ -1253,6 +1357,7 @@ def test_pre_transmission_runtime_rejection_keeps_zero_usage() -> None:
         raise ProviderRuntimeConfigurationError(
             "runtime_configuration_rejected",
             "sanitized local configuration rejection",
+            transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
         )
 
     provider = ScriptedProvider(identity, rejected)
@@ -1268,6 +1373,33 @@ def test_pre_transmission_runtime_rejection_keeps_zero_usage() -> None:
     assert result.record.usage.output_tokens == 0
     assert sink.attempts[0].transmitted is False
     assert sink.attempts[0].metrics.input_tokens == 0
+    assert sink.finalizations[0].transmission_disposition is (
+        TransmissionDisposition.NOT_TRANSMITTED
+    )
+
+
+def test_unknown_provider_failure_is_conservatively_possibly_transmitted() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=17, output_tokens=9)
+
+    def rejected(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderAuthenticationError(
+            "authentication_failed",
+            "sanitized downstream authentication rejection",
+        )
+
+    sink = MemorySink()
+    result = _scheduler(ScriptedProvider(identity, rejected), sink).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.usage.provider_calls == 1
+    assert result.record.usage.input_tokens == 17
+    assert result.record.usage.output_tokens == 9
+    assert sink.attempts[0].transmitted is True
+    assert sink.finalizations[0].transmission_disposition is TransmissionDisposition.UNKNOWN
 
 
 def test_accepted_attempt_without_exact_cache_fails_closed_instead_of_rerunning() -> None:

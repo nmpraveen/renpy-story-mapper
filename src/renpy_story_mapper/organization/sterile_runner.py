@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -116,13 +117,29 @@ class SterileRunResult:
     cli_version: str | None
 
 
+class TransmissionDisposition(StrEnum):
+    """Explicit provider-boundary attestation for a failed submission."""
+
+    NOT_TRANSMITTED = "not_transmitted"
+    TRANSMITTED = "transmitted"
+    UNKNOWN = "unknown"
+
+
 class SterileRunnerError(RuntimeError):
     """A sanitized transport failure safe to persist by code only."""
 
-    def __init__(self, error_code: str, message: str, *, transient: bool = False) -> None:
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        transient: bool = False,
+        transmission_disposition: TransmissionDisposition = TransmissionDisposition.UNKNOWN,
+    ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.transient = transient
+        self.transmission_disposition = transmission_disposition
 
 
 def _qt_process() -> Process:
@@ -350,6 +367,7 @@ class SterileCodexRunner:
             raise SterileRunnerError(
                 "provider_unavailable",
                 "The Codex CLI provider is unavailable.",
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
             )
         with self._lock:
             cancellation_generation = self._cancel_generation
@@ -360,7 +378,11 @@ class SterileCodexRunner:
             return cancelled() or generation_changed
 
         if is_cancelled():
-            raise SterileRunnerError("cancelled", "The provider request was cancelled.")
+            raise SterileRunnerError(
+                "cancelled",
+                "The provider request was cancelled.",
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
+            )
         with tempfile.TemporaryDirectory(prefix="renpy-story-narrative-") as temp_path:
             process = self._process_factory()
             try:
@@ -381,13 +403,23 @@ class SterileCodexRunner:
                         transient=True,
                     )
                 process.closeWriteChannel()
-                return self._collect(
-                    process,
-                    timeout_seconds=request.timeout_seconds,
-                    maximum_output_bytes=request.maximum_output_bytes,
-                    cancelled=is_cancelled,
-                    cli_version=cli_version,
-                )
+                try:
+                    return self._collect(
+                        process,
+                        timeout_seconds=request.timeout_seconds,
+                        maximum_output_bytes=request.maximum_output_bytes,
+                        cancelled=is_cancelled,
+                        cli_version=cli_version,
+                    )
+                except SterileRunnerError as exc:
+                    if exc.transmission_disposition is not TransmissionDisposition.UNKNOWN:
+                        raise
+                    raise SterileRunnerError(
+                        exc.error_code,
+                        str(exc),
+                        transient=exc.transient,
+                        transmission_disposition=TransmissionDisposition.TRANSMITTED,
+                    ) from None
             finally:
                 if not process.waitForFinished(0):
                     self._stop_process(process)
@@ -397,19 +429,25 @@ class SterileCodexRunner:
         for _attempt in range(_START_POLL_ATTEMPTS):
             if cancelled():
                 SterileCodexRunner._stop_process(process)
-                raise SterileRunnerError("cancelled", "The provider request was cancelled.")
+                raise SterileRunnerError(
+                    "cancelled",
+                    "The provider request was cancelled.",
+                    transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
+                )
             if process.waitForStarted(_POLL_MS):
                 return
             if process.state() == QProcess.ProcessState.NotRunning:
                 raise SterileRunnerError(
                     "provider_unavailable",
                     "The Codex CLI provider could not start.",
+                    transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
                 )
         SterileCodexRunner._stop_process(process)
         raise SterileRunnerError(
             "startup_timeout",
             "The provider startup timed out.",
             transient=True,
+            transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
         )
 
     @staticmethod
