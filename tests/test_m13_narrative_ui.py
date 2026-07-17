@@ -67,6 +67,165 @@ def test_narrative_detail_separates_claim_classes_and_loads_citations_lazily() -
     assert '[data-claim-class="review_suggestion"]' in styles
 
 
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="Node.js is required for browser client behavior checks",
+)
+def test_every_resolved_narrative_citation_gets_an_exact_compact_control() -> None:
+    app = _text("app.js")
+    html = _text("index.html")
+    styles = _text("styles.css")
+    functions = []
+    for signature in (
+        "function element",
+        "function narrativeCitationSelection",
+        "function narrativeCitationControls",
+        "async function openNarrativeDetailEvidence",
+        "async function loadNarrativeCitationControls",
+    ):
+        start = app.index(signature)
+        end = app.index("\n}\n", start) + 2
+        functions.append(app[start:end])
+    behavior = "\n".join(functions)
+    script = f"""
+      {behavior}
+      const providerCalls = [];
+      const opened = [];
+      const localCalls = [];
+      const selections = [];
+      const drawer = {{ hidden: false }};
+      const state = {{ mode: "technical" }};
+      class FakeElement {{
+        constructor(tag) {{ this.tag = tag; this.children = []; this.dataset = {{}};
+          this.attributes = {{}}; this.listeners = {{}}; this.textContent = "";
+          this.className = ""; this.disabled = false; }}
+        append(...children) {{ this.children.push(...children); }}
+        replaceChildren(...children) {{ this.children = [...children]; }}
+        setAttribute(name, value) {{ this.attributes[name] = value; }}
+        addEventListener(name, listener) {{ this.listeners[name] = listener; }}
+        click() {{ return this.listeners.click(); }}
+      }}
+      const document = {{
+        documentElement: {{ dataset: {{ activeLevel: "route_map" }} }},
+        createElement: (tag) => new FakeElement(tag),
+      }};
+      const $ = (selector) => {{ if (selector === "#narrativeDrawer") return drawer;
+        throw new Error(`Unexpected selector ${{selector}}`); }};
+      const api = {{
+        narrativeCitations: async (claimId) => {{
+          localCalls.push({{ method: "narrativeCitations", claim_id: claimId }});
+          return response;
+        }},
+        routeResult: async (requestIdentity) => {{
+          localCalls.push({{ method: "routeResult", request_identity: requestIdentity }});
+          return {{ request_identity: requestIdentity }};
+        }},
+      }};
+      const switchMode = async (mode) => {{ state.mode = mode; }};
+      const openDetail = async (elementId, strict) => {{
+        opened.push({{ kind: "detail", mode: state.mode, element_id: elementId, strict }});
+        document.documentElement.dataset.activeLevel = "detail_evidence";
+      }};
+      const markNarrativeCitationSelection = (selection) => {{ selections.push(selection); }};
+      const renderM12NarrativeCitation = (result, selection) => {{
+        opened.push({{ kind: "m12_result", request_identity: result.request_identity }});
+        selections.push(selection);
+        document.documentElement.dataset.activeLevel = "detail_evidence";
+      }};
+      const toast = (message) => {{ throw new Error(message); }};
+      const claim = {{ claim_id: "claim-three" }};
+      const response = {{
+        traversed_claim_ids: ["claim-three"], citation_count: 3,
+        authority_labels: ["M11", "M10", "M12"],
+        citations: [
+          {{ authority: "m11", record_kind: "scene", record_id: "scene-owned",
+             owner_id: "scene-owned", label: "Owned scene", claim_path: ["claim-three"],
+             navigation: {{ mode: "scenes",
+             element_id: "scene-owned", focus_record_id: "scene-owned" }} }},
+          {{ authority: "m10", record_kind: "canonical_node", record_id: "node-owned",
+             owner_id: "node-owned", label: "Canonical node", claim_path: ["claim-three"],
+             navigation: {{ mode: "canonical",
+             element_id: "node-owned", focus_record_id: "node-owned" }} }},
+          {{ authority: "m12", record_kind: "route_result", record_id: "request-owned",
+             owner_id: "request-owned", label: "Route result", claim_path: ["claim-three"],
+             navigation: {{ mode: "m12_result",
+             element_id: "request-owned", focus_record_id: "request-owned",
+             request_identity: "request-owned" }} }},
+        ],
+      }};
+      const host = new FakeElement("div");
+      const loadButton = new FakeElement("button");
+      loadButton.textContent = "Open Detail and Evidence";
+      await loadNarrativeCitationControls(claim, host, loadButton);
+      const controls = host.children[0].children;
+      const renderedControls = controls.map((control) => ({{
+        label: control.textContent,
+        record_id: control.dataset.recordId,
+        class_name: control.className,
+      }}));
+      for (const control of controls) {{
+        document.documentElement.dataset.activeLevel = "route_map";
+        await control.click();
+      }}
+      process.stdout.write(JSON.stringify({{
+        controls: renderedControls,
+        opened, localCalls, selections,
+        activeLevel: document.documentElement.dataset.activeLevel,
+        providerCalls,
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["controls"] == [
+        {
+            "label": "M11 · Owned scene",
+            "record_id": "scene-owned",
+            "class_name": "quiet-button narrative-citation-control",
+        },
+        {
+            "label": "M10 · Canonical node",
+            "record_id": "node-owned",
+            "class_name": "quiet-button narrative-citation-control",
+        },
+        {
+            "label": "M12 · Route result",
+            "record_id": "request-owned",
+            "class_name": "quiet-button narrative-citation-control",
+        },
+    ]
+    assert result["opened"] == [
+        {"kind": "detail", "mode": "scenes", "element_id": "scene-owned", "strict": True},
+        {
+            "kind": "detail",
+            "mode": "canonical",
+            "element_id": "node-owned",
+            "strict": True,
+        },
+        {"kind": "m12_result", "request_identity": "request-owned"},
+    ]
+    assert result["localCalls"] == [
+        {"method": "narrativeCitations", "claim_id": "claim-three"},
+        {"method": "routeResult", "request_identity": "request-owned"}
+    ]
+    assert [item["record_id"] for item in result["selections"]] == [
+        "scene-owned",
+        "node-owned",
+        "request-owned",
+    ]
+    assert result["activeLevel"] == "detail_evidence"
+    assert result["providerCalls"] == []
+    assert html.count('data-level="') == 2
+    assert ".narrative-citation-control { min-height: 1.75rem; max-width: 16rem;" in styles
+    assert 'element("article", "narrative-citation")' not in app
+
+
 def test_narrative_client_contracts_are_bounded_and_consent_gated() -> None:
     api = _text("api.js")
     contract = _text("contract.js")

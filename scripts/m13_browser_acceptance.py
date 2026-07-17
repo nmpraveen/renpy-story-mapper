@@ -157,7 +157,7 @@ def _find_citation_candidate(
     record_kind: str | None = None,
     minimum_claim_path: int = 1,
 ) -> dict[str, Any]:
-    """Find one rendered claim whose first resolved leaf has the exact target shape."""
+    """Find one rendered claim with a resolved leaf of the exact target shape."""
 
     return session.evaluate(
         "import('./app.js').then(async m=>{"
@@ -171,10 +171,10 @@ def _find_citation_candidate(
         "const artifact=await m.api.narrativeArtifact(job.artifact.artifact_id);"
         "for(const [claimIndex,claim] of artifact.claims.entries()){"
         "const response=await m.api.narrativeCitations(claim.claim_id);"
-        "const citation=response.citations[0];"
-        "if(citation&&citation.authority===authority"
-        "&&(recordKind===null||citation.record_kind===recordKind)"
-        "&&citation.claim_path.length>=minimumPath)"
+        "const citation=response.citations.find(item=>item.authority===authority"
+        "&&(recordKind===null||item.record_kind===recordKind)"
+        "&&item.claim_path.length>=minimumPath);"
+        "if(citation)"
         "return {jobIndex,claimIndex,jobKind:job.kind,artifactId:artifact.artifact_id,"
         "claimId:claim.claim_id,citation,response};"
         "}}throw new Error(`No ${jobKind||'published'} claim opens exact ${authority} ${recordKind||'authority'}`);})"
@@ -201,9 +201,10 @@ def _expand_citation_candidate(session: Any, candidate: Mapping[str, object]) ->
     )
     session.wait(
         f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
-        f".querySelectorAll('.narrative-claim button').length>{claim_index}"
+        f".querySelectorAll('.narrative-claim').length>{claim_index}"
         f"&&document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
-        f".querySelectorAll('.narrative-claim button')[{claim_index}]"
+        f".querySelectorAll('.narrative-claim')[{claim_index}]"
+        ".querySelector('.narrative-claim-actions > button')"
         f".textContent==={json.dumps(CITATION_ACTION)}"
     )
     session.evaluate(
@@ -225,7 +226,18 @@ def _open_citation_candidate(
     record_id = citation["record_id"]
     session.evaluate(
         f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
-        f".querySelectorAll('.narrative-claim button')[{claim_index}].click()"
+        f".querySelectorAll('.narrative-claim')[{claim_index}]"
+        ".querySelector('.narrative-claim-actions > button').click()"
+    )
+    session.wait(
+        f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        f".querySelectorAll('.narrative-claim')[{claim_index}]"
+        f".querySelector('[data-record-id={json.dumps(record_id)}]')"
+    )
+    session.evaluate(
+        f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        f".querySelectorAll('.narrative-claim')[{claim_index}]"
+        f".querySelector('[data-record-id={json.dumps(record_id)}]').click()"
     )
     try:
         session.wait(

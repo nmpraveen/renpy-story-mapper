@@ -205,6 +205,8 @@ button:disabled { cursor: default; opacity: .45; }
 .narrative-claim[data-claim-class="interpretive"] { border-left-style: dotted; }
 .narrative-claim[data-claim-class="review_suggestion"] { border-left-color: var(--danger); }
 .narrative-citation-selection { display: grid; gap: .35rem; border-left: 3px solid var(--accent); padding: .55rem .65rem; overflow-wrap: anywhere; }
+.narrative-claim-actions, .narrative-citation-controls { display: flex; flex-wrap: wrap; gap: .35rem; }
+.narrative-citation-control { min-height: 1.75rem; max-width: 16rem; padding: .2rem .45rem; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .narrative-claim-path { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; color: var(--muted); font-size: 11px; }
 .narrative-claim-step { border: 1px solid var(--rule); border-radius: 999px; padding: .1rem .4rem; }
 

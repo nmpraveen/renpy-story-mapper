@@ -65,6 +65,16 @@ function narrativeCitationSelection(claim, response, citation) {
   };
 }
 
+function narrativeCitationControls(claim, response, openCitation) {
+  if (!Array.isArray(response.citations)) throw new TypeError("Resolved citations are unavailable");
+  return response.citations.map((citation) => ({
+    label: citation.label,
+    record_id: citation.record_id,
+    authority: citation.authority,
+    select: (button) => openCitation(claim, response, citation, button),
+  }));
+}
+
 function appendNarrativeClaimPath(host, selection) {
   const path = element("div", "narrative-claim-path");
   path.append(element("strong", "", "M13 claim path"));
@@ -121,12 +131,10 @@ function renderM12NarrativeCitation(result, selection) {
   showLevel("detail_evidence"); $("#backToRouteMap").focus();
 }
 
-async function openNarrativeDetailEvidence(claim, button) {
-  button.disabled = true; button.textContent = "Opening Detail and Evidence…";
+async function openNarrativeDetailEvidence(claim, response, citation, button) {
+  const label = button.textContent;
+  button.disabled = true; button.textContent = "Opening…";
   try {
-    const response = await api.narrativeCitations(claim.claim_id);
-    const citation = response.citations[0];
-    if (!citation) throw new TypeError("No direct citation leaf was resolved");
     const selection = narrativeCitationSelection(claim, response, citation);
     $("#narrativeDrawer").hidden = true;
     const navigation = citation.navigation;
@@ -140,6 +148,22 @@ async function openNarrativeDetailEvidence(claim, button) {
     await openDetail(navigation.element_id, true);
     if (document.documentElement.dataset.activeLevel !== "detail_evidence") throw new TypeError("The cited authority detail is unavailable");
     markNarrativeCitationSelection(selection);
+  } catch (error) { button.disabled = false; button.textContent = label; toast(error.message); }
+}
+
+async function loadNarrativeCitationControls(claim, host, button) {
+  button.disabled = true; button.textContent = "Loading citations…";
+  try {
+    const response = await api.narrativeCitations(claim.claim_id);
+    const controls = narrativeCitationControls(claim, response, openNarrativeDetailEvidence);
+    if (!controls.length) throw new TypeError("No direct citation leaf was resolved");
+    const group = element("div", "narrative-citation-controls"); group.setAttribute("role", "group"); group.setAttribute("aria-label", "Detail and Evidence citations");
+    for (const control of controls) {
+      const citationButton = element("button", "quiet-button narrative-citation-control", `${control.authority.toUpperCase()} · ${control.label}`);
+      citationButton.type = "button"; citationButton.dataset.recordId = control.record_id; citationButton.setAttribute("aria-label", `Open ${control.label} in Detail and Evidence`);
+      citationButton.addEventListener("click", () => control.select(citationButton)); group.append(citationButton);
+    }
+    host.replaceChildren(group);
   } catch (error) { button.disabled = false; button.textContent = "Open Detail and Evidence"; toast(error.message); }
 }
 
@@ -149,9 +173,10 @@ function renderNarrativeClaims(host, artifact) {
     const label = claim.claim_class === "factual" ? "Factual claim" : claim.claim_class === "interpretive" ? "AI interpretation" : "Review suggestion";
     const scope = claim.context_scope === "comparison" ? " · route comparison" : claim.context_scope === "ordered_summary" ? " · ordered summary" : "";
     article.append(element("strong", "", `${label}${scope}`), element("p", "", claim.text));
+    const actions = element("div", "narrative-claim-actions");
     const button = element("button", "quiet-button", "Open Detail and Evidence"); button.type = "button";
-    button.addEventListener("click", () => openNarrativeDetailEvidence(claim, button));
-    article.append(button); host.append(article);
+    button.addEventListener("click", () => loadNarrativeCitationControls(claim, actions, button));
+    actions.append(button); article.append(actions); host.append(article);
   }
 }
 
