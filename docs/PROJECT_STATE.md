@@ -70,8 +70,21 @@ The local public-synthetic canary preview made zero calls and has SHA-256
 The user then approved exactly one execution of that manifest. The public-synthetic-only call ran
 once without retry and failed after 13.139 seconds with exit 1 because the provider response did
 not report its resolved model identity. Provider usage and token counts were unavailable. The
-runtime freeze remains unchanged; live story transmission, external review, and PR creation remain
-separately gated and were not attempted.
+runtime freeze remained unchanged at that checkpoint; live story transmission, external review,
+and PR creation were not attempted.
+
+The user then approved the narrow resolved-model correction and use of all Codex sessions in this
+thread. Runtime commit `5be797cc57522bc9473cd959fd9744d8426b0f81` records the validated explicit
+`--model` selection when Codex CLI 0.144 omits redundant model metadata, still rejects malformed,
+conflicting, or different reported identities, and versions that behavior as adapter v3. The
+focused matrix passed 59 tests plus Ruff, strict mypy, and whitespace; two independent read-only
+audits found no P0/P1 blocker. One fresh public-synthetic v3 canary then passed on its only call in
+6.256 seconds with no retry or private content. Final-head Release passed 1,012 tests with 7
+hardware-sensitive tests deselected and every build/quality/package gate green. A new zero-submit
+live preview at `5be797c` binds exact consent `m13_consent_9e3a24626be81561498eddcec29afa66e9793ef6c879d5425889276a6cc750aa`,
+adapter/schema v3, Sol/High/no-fast, 87 logical jobs, and 63 estimated calls. Live story
+transmission remains unexecuted pending exact confirmation of that manifest; final full-head
+independent review and PR creation remain outstanding.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

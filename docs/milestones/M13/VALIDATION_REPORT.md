@@ -1,12 +1,30 @@
 # M13 validation report
 
-Status: Verification in progress; fresh local gates pass and the one approved public-synthetic canary failed
+Status: Verification in progress; final-head local gates and public-synthetic canary pass; exact live consent pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Runtime freeze: `edf80ed233799d2b61fec17a775187711a899cad`
+Runtime freeze: `5be797cc57522bc9473cd959fd9744d8426b0f81`
 
 Validation date: 2026-07-16
+
+## Final-head model-identity correction at `5be797c`
+
+| Command / check | Result | Artifact or notes |
+|---|---|---|
+| Focused provider/canary/consent/cache/scheduler matrix | 59 passed in 3.13 seconds | Adapter v3 accepts omitted redundant metadata only by retaining exact locked `--model`; malformed, conflicting, or different metadata still fails closed |
+| Targeted Ruff, strict mypy, `git diff --check` | Passed | Three runtime/test files changed; adapter v2 and v3 cache identities differ |
+| Independent read-only correction audits | PASS; no P0/P1 | `/root/model_identity_audit`, `/root/identity_test_audit`, and post-commit `/root/final_fix_rereview`; no provider calls or edits |
+| Fresh public-synthetic schema-canary preview | Passed locally; zero calls | `tmp/m13-schema-canary-preview-5be797c.json`; SHA-256 `732760505cde292f24b7d8c3a175ffb89277a0bd8973aa151d7554d7e7408520` |
+| Exactly one fresh public-synthetic schema canary | Passed in 6.256 seconds; exit 0; no retry | Adapter/schema v3, `gpt-5.6-sol`, High, `fast_mode=false`, one call, public fact only; `tmp/m13-schema-canary-execution-5be797c/result.json`; SHA-256 `bd044b43a45a019d7a17b3a6a38e45c656da14bd5d5021cefeb5df0f58c589af` |
+| `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release` | Passed once in 210.82 seconds | 1,012 passed, 7 deselected in 194.59 seconds; Ruff, strict mypy over 91 files, `pip check`, four JavaScript checks, whitespace, isolated sdist/wheel build/install/import/assets/notices all passed |
+| Fresh adapter-v3 zero-submit live preview | Passed in 2.017 seconds; provider submits zero | `tmp/m13-live-preview-5be797c/20260717T030102350Z/consent-preview.json`; SHA-256 `5cd30c993612c0c4a99e661aaa2f505c4d8a71f0588028686cd7910cc6b34a76`; preparation `m13_preparation_f22f1d...`; consent `m13_consent_9e3a246...` |
+
+The fresh exact live manifest binds adapter/schema v3, prompt v4, `gpt-5.6-sol`, High reasoning,
+`fast_mode=false`, fact-only mode, M12 inclusion, 87 logical jobs, 63 estimated calls, 324,994
+estimated input tokens, 81,600 estimated output tokens, an 80-call limit, 1,800-second timeout,
+and concurrency one. Cost remains unavailable. No live story content was transmitted by preparing
+or verifying this manifest.
 
 ## Narrow-recovery local gates at `edf80ed`
 
@@ -99,13 +117,15 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
 
 ## Remaining blockers and limitations
 
-- Public-synthetic canary: the one approved call failed because the provider response did not
-  report its resolved model identity; provider usage and token counts were unavailable, and no
-  retry was attempted.
-- Criterion 15: previewed and transmitted consent-manifest identities are not stable.
-- Criterion 20: the one live run failed and zero-call replay did not execute.
+- The historical adapter-v2 public canary failure remains preserved above; adapter-v3 correction
+  `5be797c` and its one fresh public canary now pass without weakening conflicting-model checks.
+- Criterion 15: the stable adapter-v3 preview identity passes local invariants but has not yet been
+  exercised by an exactly confirmed live story transmission.
+- Criterion 20: the historical live run failed; the fresh adapter-v3 live run and zero-call replay
+  remain unexecuted pending exact confirmation of consent `m13_consent_9e3a246...`.
 - Criterion 22: the independently configured rereview returned FAIL at `9889035`; the single
-  corrective cycle passes local gates at `e0fd3bf`, but no final-head independent PASS exists.
+  historical corrective cycle passes local gates; the narrow `5be797c` correction rereview passes,
+  but no full final-head independent PASS exists after live/replay evidence.
 - The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
   `fast_mode=false`; this does not claim that the task API independently verified that setting.
 - No pull request was created.
