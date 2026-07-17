@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification in progress; final-head local gates and public-synthetic canary pass; exact live consent pending
+Status: Verification blocked; final-head local gates and public canary pass, but exact live run reached a hard input-token limit before hierarchy completion or replay
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -25,6 +25,31 @@ The fresh exact live manifest binds adapter/schema v3, prompt v4, `gpt-5.6-sol`,
 estimated input tokens, 81,600 estimated output tokens, an 80-call limit, 1,800-second timeout,
 and concurrency one. Cost remains unavailable. No live story content was transmitted by preparing
 or verifying this manifest.
+
+## Exact adapter-v3 live execution at `5be797c`
+
+The user exactly confirmed preparation
+`m13_preparation_f22f1d9b7d1110dec242d7b56928c4f0c02dc168697ed986915aa5030d80f6eb`
+and consent
+`m13_consent_9e3a24626be81561498eddcec29afa66e9793ef6c879d5425889276a6cc750aa`.
+The harness ran once, made no retry, and stopped before replay with terminal state `hard_limit`.
+The granted and transmitted consent ID remained exactly equal to the previewed ID.
+
+| Durable field | Result |
+|---|---|
+| Provider identity | OpenAI / `codex_cli_structured` adapter v3; requested/resolved `gpt-5.6-sol`; High; `fast_mode=false` |
+| Usage | 3 provider calls; 395,221 input; 11,142 output; 406,363 total tokens; 218.358 seconds; concurrency one; cost unavailable |
+| Jobs | 27 succeeded scene jobs; 23 summary-segment jobs stopped at `hard_limit` before an attempt |
+| Durable output | 27 scene artifacts, 27 cache entries, 82 claims; no segment/chapter/route/ending/character/plot artifact |
+| Replay | Not reached because the first run was not fully successful |
+| Safety | Synthetic source SHA-256 remained `0b83ffd3...14d`; all persisted M13 records retained consistent authority bindings; no raw debug retention |
+| Evidence | `tmp/m13-live-preview-5be797c/20260717T030102350Z/failure-result.json`, SHA-256 `cb9c9e22ea5cc0034fa5261eee442a59f2cab0b18d0de3a5fef70b31ba0b00fd`, and `live-failure.txt` |
+
+Persistence records only generic `hard_limit`. Scheduler preflight rules and exact usage support
+`input_token_limit` as an inference: 4,779 of 400,000 input tokens remained before the next
+hierarchy batch, while call (3/80), output-token (11,142/150,000), total-token
+(406,363/550,000), and elapsed-time (218.358/1,800 seconds) limits were not exhausted. No fourth
+provider call occurred.
 
 ## Narrow-recovery local gates at `edf80ed`
 
@@ -119,10 +144,10 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
 
 - The historical adapter-v2 public canary failure remains preserved above; adapter-v3 correction
   `5be797c` and its one fresh public canary now pass without weakening conflicting-model checks.
-- Criterion 15: the stable adapter-v3 preview identity passes local invariants but has not yet been
-  exercised by an exactly confirmed live story transmission.
-- Criterion 20: the historical live run failed; the fresh adapter-v3 live run and zero-call replay
-  remain unexecuted pending exact confirmation of consent `m13_consent_9e3a246...`.
+- Criterion 15: adapter-v3 live consent identity is now proven stable across preview, grant, and
+  provider requests.
+- Criterion 20: the fresh adapter-v3 live run published all 27 scene artifacts but stopped at the
+  hard input-token limit before segment/hierarchy completion; zero-call replay did not execute.
 - Criterion 22: the independently configured rereview returned FAIL at `9889035`; the single
   historical corrective cycle passes local gates; the narrow `5be797c` correction rereview passes,
   but no full final-head independent PASS exists after live/replay evidence.

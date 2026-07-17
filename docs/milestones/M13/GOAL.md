@@ -154,14 +154,14 @@ the existing map, scene view, evidence workspace, or route solver.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Local pass at runtime freeze `e0fd3bf`; focused 70 and Release 966/7; independent final-head closure absent |
-| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Pass at `e0fd3bf`; Release plus provider-free 1,812-scene acceptance |
-| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Local pass after the single corrective cycle; corrective rereview at prior freeze was FAIL and no second independent verdict was authorized |
-| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Provider-free pass; live attempt failed and exposed unstable preview/granted consent IDs |
-| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Pass at `e0fd3bf`; browser report SHA-256 `dd873f0fcaa6532c317fef982a366b94151864052d27458c45803dddf7691437`; optional overlay deferred |
-| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private/provider-free pass; criterion 20 live run failed before replay; `LIVE_ACCEPTANCE_FAILURE.md` |
-| 22 | Focused/full Windows suite, package inspection, independent review | Local suites/package pass; blocking independent final-head PASS is absent |
-| 23 | Reports, integration commit, infographic, PR state | Evidence reconciled to `e0fd3bf`; native infographic durable; milestone not PR-ready and no PR created |
+| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Final runtime `5be797c`; focused model-identity matrix 59 passed and Release 1,012/7 passed; earlier authority/claim gates remain green |
+| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Release plus provider-free 1,812-scene acceptance pass; exact live replay remains absent |
+| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Local/provider-free pass; narrow final correction rereview PASS, but full final-head independent verdict remains absent |
+| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Adapter-v3 public canary passes and live consent identity is stable; exact live run correctly stopped at `hard_limit` before exceeding the input-token cap |
+| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Browser report `8d065d7a...f81b02` passes at runtime path unchanged by final provider-only correction; optional overlay deferred |
+| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Provider-free/private pass; live produced 27 scene artifacts but stopped before hierarchy/replay; `LIVE_ACCEPTANCE_FAILURE.md` |
+| 22 | Focused/full Windows suite, package inspection, independent review | Final Release passes; blocking full final-head independent PASS is absent because live/replay is incomplete |
+| 23 | Reports, integration commit, infographic, PR state | Runtime/evidence through `5be797c` recorded; native infographic durable; milestone not PR-ready and no PR created |
 
 ## Release-critical sequence
 

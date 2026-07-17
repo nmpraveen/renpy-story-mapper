@@ -86,6 +86,19 @@ adapter/schema v3, Sol/High/no-fast, 87 logical jobs, and 63 estimated calls. Li
 transmission remains unexecuted pending exact confirmation of that manifest; final full-head
 independent review and PR creation remain outstanding.
 
+The user exactly confirmed that preparation and consent manifest. The single live command ran
+once at `5be797c` and was not retried. Consent identity remained stable and provider identity was
+OpenAI/Codex CLI adapter v3 with requested/resolved `gpt-5.6-sol`, High reasoning, and fast mode
+off. After three provider calls it reached terminal `hard_limit`: 395,221 input tokens, 11,142
+output tokens, 406,363 total tokens, and 218.358 seconds. It published all 27 scene artifacts, then
+stopped 23 summary-segment jobs before attempt; no segment or higher artifact and no zero-call
+replay was produced. The persisted subtype is only `hard_limit`; scheduler rules and remaining
+budget support `input_token_limit` as an inference because only 4,779 of the 400,000 input-token
+allowance remained while call, output, total, and elapsed limits were not exhausted. The synthetic
+source hash remained unchanged and all persisted M13 records retain consistent M10/M11/M12/source
+bindings. M13 remains verification-blocked; no further live run, final external review, or PR was
+attempted.
+
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its
 implementation branch was deleted locally and remotely. No further M12 implementation or review

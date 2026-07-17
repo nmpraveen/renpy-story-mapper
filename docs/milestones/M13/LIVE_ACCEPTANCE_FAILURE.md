@@ -1,4 +1,4 @@
-# M13 live-provider acceptance failure
+# M13 live-provider acceptance failure history
 
 Status: Failed; no retry authorized or attempted
 
@@ -73,3 +73,30 @@ not bound to the identifier shown to the user. This is a P1 exact-consent defect
 Per the user's one-correction-cycle rule, runtime code was not changed and the live run was not
 retried. A future attempt requires a separately approved correction, final-head independent review,
 fresh preview, and new exact consent.
+
+## Adapter-v3 exact-consent run at `5be797c`
+
+After the approved consent/schema/settings/model-identity recovery, local gates, public-synthetic
+canary, and final Release passed. The user exactly approved preparation
+`m13_preparation_f22f1d9b7d1110dec242d7b56928c4f0c02dc168697ed986915aa5030d80f6eb`
+and manifest
+`m13_consent_9e3a24626be81561498eddcec29afa66e9793ef6c879d5425889276a6cc750aa`.
+The one live command used that same consent ID for persisted consent and provider requests.
+
+The run made three calls and stopped without retry at terminal `hard_limit` after 218.358 seconds:
+
+- 395,221 input tokens, 11,142 output tokens, and 406,363 total tokens;
+- 27 succeeded scene jobs, artifacts, and cache entries;
+- 23 summary-segment jobs stopped before an attempt;
+- no segment or higher-level artifact; and
+- no replay.
+
+The durable schema stores only `hard_limit`. The named cause is inferred as the preflight input
+token limit because only 4,779 of the configured 400,000 input tokens remained, while calls,
+output tokens, total tokens, and elapsed time remained below their limits. No fourth call was
+made. The synthetic source hash stayed unchanged, and persisted records retained consistent
+authority bindings. Exact sanitized evidence is retained in
+`tmp/m13-live-preview-5be797c/20260717T030102350Z/failure-result.json` and
+`live-failure.txt`. The sanitized result SHA-256 is
+`cb9c9e22ea5cc0034fa5261eee442a59f2cab0b18d0de3a5fef70b31ba0b00fd`. No second live
+attempt was authorized or made.
