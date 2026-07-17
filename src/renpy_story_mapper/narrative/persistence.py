@@ -476,6 +476,48 @@ class M13Persistence:
             for key in self._project.payload_keys(RECORD_COLLECTIONS[kind])
         )
 
+    def lookup_compatible_run(
+        self,
+        run_id: str,
+        *,
+        consent_manifest_id: str,
+        compatibility_id: str,
+        provider: Mapping[str, object],
+        authority_binding: Mapping[str, object],
+    ) -> RecordLookup:
+        """Return an exact resumable run or an explicit non-reusable result.
+
+        Authority is checked by the envelope.  The remaining fields bind the exact consent,
+        provider/model/settings identity, logical inputs, scope, privacy, budgets, and schemas
+        represented by ``compatibility_id``.
+        """
+
+        lookup = self.lookup(
+            RecordKind.RUN,
+            run_id,
+            authority_binding=authority_binding,
+        )
+        if lookup.state is not LookupState.HIT or lookup.payload is None:
+            return lookup
+        expected_provider = _detached_mapping(provider, "compatible run provider")
+        payload = lookup.payload
+        if (
+            payload.get("consent_manifest_id") != consent_manifest_id
+            or payload.get("compatibility_id") != compatibility_id
+            or not isinstance(payload.get("provider"), Mapping)
+            or storage.canonical_json(payload["provider"])
+            != storage.canonical_json(expected_provider)
+        ):
+            return RecordLookup(
+                RecordKind.RUN,
+                run_id,
+                LookupState.STALE,
+                "resume_compatibility_mismatch",
+                lookup.authority_hash,
+                lookup.payload_hash,
+            )
+        return lookup
+
     def lookup_cache(
         self,
         identity: Mapping[str, object],

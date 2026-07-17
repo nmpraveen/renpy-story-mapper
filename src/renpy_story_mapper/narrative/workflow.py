@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Final, cast
 
+from renpy_story_mapper import storage
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
 from renpy_story_mapper.narrative.contracts import (
@@ -59,6 +60,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerPolicy,
     SchedulerRunRecord,
     SchedulerRunResult,
+    SchedulerUsage,
     ValidatedLogicalOutput,
 )
 from renpy_story_mapper.narrative.sizing import estimate_complete_run
@@ -300,7 +302,9 @@ class M13SchedulerPersistenceSink:
             raise ValueError("persistence sink jobs must have unique logical identities")
         self._authority = dict(authority_binding)
         self._cancelled = cancelled
-        self._histories: dict[tuple[str, str], list[AttemptOutcome]] | None = None
+        self._histories: dict[
+            tuple[str, str, str, str, str], list[AttemptOutcome]
+        ] | None = None
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         result = self._persistence.lookup_cache(
@@ -318,11 +322,65 @@ class M13SchedulerPersistenceSink:
     def attempt_history(
         self,
         run_id: str,
-        logical_job_id: str,
+        consent_manifest_id: str,
+        job: ScheduledSceneJob,
     ) -> tuple[AttemptOutcome, ...]:
         if self._histories is None:
             self._histories = self._load_histories()
-        return tuple(self._histories.get((run_id, logical_job_id), ()))
+        key = (
+            run_id,
+            consent_manifest_id,
+            job.logical_job_id,
+            job.input_revision_id,
+            job.cache_identity.key,
+        )
+        return tuple(self._histories.get(key, ()))
+
+    def resume_usage(
+        self,
+        consent: ConsentManifest,
+        jobs: Sequence[ScheduledSceneJob],
+        compatibility_id: str,
+    ) -> SchedulerUsage:
+        consent_lookup = self._persistence.lookup(
+            RecordKind.CONSENT,
+            consent.manifest_id,
+            authority_binding=self._authority,
+        )
+        if (
+            consent_lookup.state is not LookupState.HIT
+            or consent_lookup.payload is None
+            or storage.canonical_json(consent_lookup.payload)
+            != storage.canonical_json(consent.to_dict())
+        ):
+            return SchedulerUsage()
+
+        compatible_keys = {
+            (
+                consent.run_id,
+                consent.manifest_id,
+                job.logical_job_id,
+                job.input_revision_id,
+                job.cache_identity.key,
+            )
+            for job in jobs
+        }
+        attempts = self._load_compatible_attempt_payloads(compatible_keys)
+        usage = _usage_from_attempt_payloads(attempts)
+        run = self._persistence.lookup_compatible_run(
+            consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            compatibility_id=compatibility_id,
+            provider=consent.provider.to_dict(),
+            authority_binding=self._authority,
+        )
+        if run.state is LookupState.HIT and run.payload is not None:
+            persisted = _scheduler_usage_from_payload(
+                run.payload.get("cumulative_usage", run.payload.get("usage"))
+            )
+            if persisted is not None:
+                usage = _merge_scheduler_usage(usage, persisted)
+        return usage
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         job = self._require_job(record.logical_job_id)
@@ -347,9 +405,14 @@ class M13SchedulerPersistenceSink:
             authority_binding=self._authority,
         )
         if self._histories is not None:
-            self._histories.setdefault((record.run_id, record.logical_job_id), []).append(
-                record.outcome
+            key = (
+                record.run_id,
+                record.consent_manifest_id,
+                record.logical_job_id,
+                record.input_revision_id,
+                record.cache_key,
             )
+            self._histories.setdefault(key, []).append(record.outcome)
 
     def record_batch(self, record: SchedulerBatchRecord) -> None:
         record_id = "m13_batch_" + canonical_hash(
@@ -416,8 +479,12 @@ class M13SchedulerPersistenceSink:
         except KeyError as exc:
             raise ValueError("scheduler attempted to persist an unknown logical job") from exc
 
-    def _load_histories(self) -> dict[tuple[str, str], list[AttemptOutcome]]:
-        indexed: dict[tuple[str, str], list[tuple[int, AttemptOutcome]]] = {}
+    def _load_histories(
+        self,
+    ) -> dict[tuple[str, str, str, str, str], list[AttemptOutcome]]:
+        indexed: dict[
+            tuple[str, str, str, str, str], list[tuple[int, AttemptOutcome]]
+        ] = {}
         for result in self._persistence.list_records(
             RecordKind.ATTEMPT,
             authority_binding=self._authority,
@@ -427,11 +494,17 @@ class M13SchedulerPersistenceSink:
             payload = result.payload
             run_id = payload.get("run_id")
             logical_job_id = payload.get("logical_job_id")
+            consent_manifest_id = payload.get("consent_manifest_id")
+            input_revision_id = payload.get("input_revision_id")
+            cache_key = payload.get("cache_key")
             attempt_number = payload.get("attempt_number")
             outcome = payload.get("outcome")
             if (
                 not isinstance(run_id, str)
                 or not isinstance(logical_job_id, str)
+                or not isinstance(consent_manifest_id, str)
+                or not isinstance(input_revision_id, str)
+                or not isinstance(cache_key, str)
                 or not isinstance(attempt_number, int)
                 or isinstance(attempt_number, bool)
                 or not isinstance(outcome, str)
@@ -441,10 +514,40 @@ class M13SchedulerPersistenceSink:
                 parsed = AttemptOutcome(outcome)
             except ValueError:
                 continue
-            indexed.setdefault((run_id, logical_job_id), []).append((attempt_number, parsed))
+            key = (
+                run_id,
+                consent_manifest_id,
+                logical_job_id,
+                input_revision_id,
+                cache_key,
+            )
+            indexed.setdefault(key, []).append((attempt_number, parsed))
         return {
             key: [outcome for _number, outcome in sorted(values)] for key, values in indexed.items()
         }
+
+    def _load_compatible_attempt_payloads(
+        self,
+        compatible_keys: set[tuple[str, str, str, str, str]],
+    ) -> tuple[Mapping[str, object], ...]:
+        payloads: list[Mapping[str, object]] = []
+        for result in self._persistence.list_records(
+            RecordKind.ATTEMPT,
+            authority_binding=self._authority,
+        ):
+            if result.state is not LookupState.HIT or result.payload is None:
+                continue
+            payload = result.payload
+            key = (
+                payload.get("run_id"),
+                payload.get("consent_manifest_id"),
+                payload.get("logical_job_id"),
+                payload.get("input_revision_id"),
+                payload.get("cache_key"),
+            )
+            if key in compatible_keys:
+                payloads.append(payload)
+        return tuple(payloads)
 
 
 def _scheduled_scene_job(
@@ -517,3 +620,104 @@ def _publication_claims(
             edge_id = f"m13_claim_edge_{canonical_hash(material)}"
             edges[edge_id] = {"edge_id": edge_id, **material}
     return claims, edges
+
+
+def _usage_from_attempt_payloads(
+    attempts: Sequence[Mapping[str, object]],
+) -> SchedulerUsage:
+    provider_calls = 0
+    input_tokens = 0
+    output_tokens = 0
+    elapsed_ms = 0
+    cost_micros = 0
+    cost_unknown = False
+    usage_estimated = False
+    for attempt in attempts:
+        call_number = attempt.get("provider_call_number")
+        transmitted = attempt.get("transmitted") is True
+        metrics = attempt.get("metrics")
+        if not isinstance(call_number, int) or isinstance(call_number, bool) or call_number < 0:
+            continue
+        if not isinstance(metrics, Mapping):
+            continue
+        parsed = _scheduler_usage_from_payload(metrics)
+        if parsed is None:
+            continue
+        provider_calls = max(provider_calls, call_number if transmitted else 0)
+        input_tokens += parsed.input_tokens
+        output_tokens += parsed.output_tokens
+        elapsed_ms += parsed.elapsed_ms
+        if transmitted and parsed.cost_micros is None:
+            cost_unknown = True
+        elif parsed.cost_micros is not None:
+            cost_micros += parsed.cost_micros
+        usage_estimated = usage_estimated or attempt.get("metrics_estimated") is True
+    return SchedulerUsage(
+        provider_calls=provider_calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        elapsed_ms=elapsed_ms,
+        cost_micros=None if cost_unknown else cost_micros,
+        peak_concurrency=1 if provider_calls else 0,
+        usage_estimated=usage_estimated,
+    )
+
+
+def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:
+    if not isinstance(raw, Mapping):
+        return None
+    integer_fields = ("input_tokens", "output_tokens", "elapsed_ms")
+    values: dict[str, int] = {}
+    for field in integer_fields:
+        value = raw.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return None
+        values[field] = value
+    provider_calls = raw.get("provider_calls", 0)
+    peak_concurrency = raw.get("peak_concurrency", 0)
+    cost_micros = raw.get("cost_micros")
+    if (
+        not isinstance(provider_calls, int)
+        or isinstance(provider_calls, bool)
+        or provider_calls < 0
+        or not isinstance(peak_concurrency, int)
+        or isinstance(peak_concurrency, bool)
+        or peak_concurrency < 0
+        or (
+            cost_micros is not None
+            and (
+                not isinstance(cost_micros, int)
+                or isinstance(cost_micros, bool)
+                or cost_micros < 0
+            )
+        )
+    ):
+        return None
+    estimated = raw.get("usage_estimated", raw.get("estimated", False))
+    if not isinstance(estimated, bool):
+        return None
+    return SchedulerUsage(
+        provider_calls=provider_calls,
+        input_tokens=values["input_tokens"],
+        output_tokens=values["output_tokens"],
+        elapsed_ms=values["elapsed_ms"],
+        cost_micros=cost_micros,
+        peak_concurrency=peak_concurrency,
+        usage_estimated=estimated,
+    )
+
+
+def _merge_scheduler_usage(left: SchedulerUsage, right: SchedulerUsage) -> SchedulerUsage:
+    if left.cost_micros is None or right.cost_micros is None:
+        cost: int | None = None
+    else:
+        cost = max(left.cost_micros, right.cost_micros)
+    return SchedulerUsage(
+        provider_calls=max(left.provider_calls, right.provider_calls),
+        input_tokens=max(left.input_tokens, right.input_tokens),
+        output_tokens=max(left.output_tokens, right.output_tokens),
+        elapsed_ms=max(left.elapsed_ms, right.elapsed_ms),
+        cost_micros=cost,
+        peak_concurrency=max(left.peak_concurrency, right.peak_concurrency),
+        usage_estimated=left.usage_estimated or right.usage_estimated,
+    )

@@ -271,6 +271,7 @@ class MemorySink:
     )
     runs: list[SchedulerRunRecord] = field(default_factory=list)
     after_publish: Callable[[ScheduledSceneJob], None] | None = None
+    cumulative_usage: SchedulerUsage = field(default_factory=SchedulerUsage)
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         return self.caches.get(job.cache_identity.key)
@@ -278,9 +279,20 @@ class MemorySink:
     def attempt_history(
         self,
         run_id: str,
-        logical_job_id: str,
+        consent_manifest_id: str,
+        job: ScheduledSceneJob,
     ) -> tuple[AttemptOutcome, ...]:
-        return tuple(self.histories.get((run_id, logical_job_id), ()))
+        del consent_manifest_id
+        return tuple(self.histories.get((run_id, job.logical_job_id), ()))
+
+    def resume_usage(
+        self,
+        consent: ConsentManifest,
+        jobs: tuple[ScheduledSceneJob, ...],
+        compatibility_id: str,
+    ) -> SchedulerUsage:
+        del consent, jobs, compatibility_id
+        return self.cumulative_usage
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         self.jobs.append(record)
@@ -603,20 +615,22 @@ def test_provider_policy_violation_fails_closed_without_retry_or_fallback() -> N
 
 
 @pytest.mark.parametrize(
-    ("error_type", "error_code"),
+    ("error_type", "error_code", "expected_provider_calls"),
     [
-        (ProviderSchemaRejectedError, "output_schema_rejected"),
+        (ProviderSchemaRejectedError, "output_schema_rejected", 0),
         (
             ProviderRuntimeConfigurationError,
             "runtime_configuration_rejected",
+            0,
         ),
-        (ProviderAuthenticationError, "authentication_failed"),
-        (ProviderProcessError, "provider_process_failed"),
+        (ProviderAuthenticationError, "authentication_failed", 0),
+        (ProviderProcessError, "provider_process_failed", 1),
     ],
 )
 def test_run_global_provider_failure_trips_one_call_circuit_breaker(
     error_type: type[NarrativeProviderError],
     error_code: str,
+    expected_provider_calls: int,
 ) -> None:
     identity = _provider_identity()
     jobs = tuple(_job(index, identity) for index in range(3))
@@ -635,11 +649,12 @@ def test_run_global_provider_failure_trips_one_call_circuit_breaker(
     assert result.record.state is SchedulerRunState.FAILED
     assert result.record.error_code == error_code
     assert len(provider.requests) == 1
-    assert result.record.usage.provider_calls == 1
+    assert result.record.usage.provider_calls == expected_provider_calls
     assert [job.attempt_count for job in result.jobs] == [1, 0, 0]
     assert [attempt.logical_job_id for attempt in sink.attempts] == [
         jobs[0].logical_job_id
     ]
+    assert sink.attempts[0].transmitted is bool(expected_provider_calls)
     assert {job.error_code for job in result.jobs} == {error_code}
     assert sink.batches[-1].error_code == error_code
     assert sink.published == []
@@ -1032,6 +1047,227 @@ def test_prior_attempt_history_continues_attempt_identity_and_cache_hit_is_not_r
     assert sink.attempts[-1].attempt_number == 2
     assert result.jobs[0].cache_replay is True
     assert result.jobs[0].attempt_count == 0
+
+
+def test_durable_attempt_limit_is_enforced_before_queue_or_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+    sink = MemorySink(
+        histories={
+            ("run-exact-consent", job.logical_job_id): [
+                AttemptOutcome.TIMEOUT,
+                AttemptOutcome.TRANSIENT_FAILURE,
+            ]
+        }
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail("exhausted job must not be submitted"),
+    )
+
+    result = _scheduler(
+        provider,
+        sink,
+        maximum_attempts=2,
+        maximum_transient=2,
+        maximum_malformed=2,
+    ).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert provider.requests == []
+    assert result.record.usage.provider_calls == 0
+    assert result.jobs[0].state is LogicalJobState.FAILED
+    assert result.jobs[0].attempt_count == 2
+    assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_post_submit_timeout_reserves_nonzero_estimated_usage() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=17, output_tokens=9)
+
+    def timeout(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderTimeoutError(
+            "provider_timeout",
+            "SECRET-STORY provider detail",
+            transient=True,
+        )
+
+    provider = ScriptedProvider(identity, timeout)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_transient=1).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.usage.provider_calls == 1
+    assert result.record.usage.input_tokens == 17
+    assert result.record.usage.output_tokens == 9
+    assert result.record.usage.usage_estimated is True
+    assert sink.attempts[0].metrics.input_tokens == 17
+    assert sink.attempts[0].metrics.output_tokens == 9
+    assert sink.attempts[0].metrics_estimated is True
+    assert sink.attempts[0].transmitted is True
+    assert "SECRET-STORY" not in repr((sink.attempts, sink.runs))
+
+
+def test_post_submit_timeout_retains_exact_sanitized_partial_usage() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=17, output_tokens=9)
+
+    def timeout(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        error = ProviderTimeoutError(
+            "provider_timeout",
+            "sanitized timeout",
+            transient=True,
+        )
+        error.partial_usage = ProviderUsage(7, 3, 11, cost_micros=5)
+        raise error
+
+    provider = ScriptedProvider(identity, timeout)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_transient=1).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.usage.input_tokens == 7
+    assert result.record.usage.output_tokens == 3
+    assert result.record.usage.elapsed_ms >= 11
+    assert result.record.usage.cost_micros == 5
+    assert result.record.usage.usage_estimated is False
+    assert sink.attempts[0].metrics.input_tokens == 7
+    assert sink.attempts[0].metrics.output_tokens == 3
+    assert sink.attempts[0].metrics_estimated is False
+
+
+def test_unknown_transmitted_cost_under_hard_cap_stops_without_retry() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, cost_micros=10)
+
+    def timeout(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderTimeoutError(
+            "provider_timeout",
+            "sanitized timeout",
+            transient=True,
+        )
+
+    provider = ScriptedProvider(identity, timeout)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_transient=3).run(
+        (job,),
+        _consent(
+            identity,
+            logical_jobs=1,
+            max_cost_micros=100,
+            estimated_cost_micros=10,
+            cost_confidence=CostConfidence.RELIABLE,
+        ),
+        _validator,
+    )
+
+    assert len(provider.requests) == 1
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.usage.cost_micros is None
+    assert sink.attempts[0].metrics.cost_micros is None
+
+
+def test_post_submit_malformed_output_with_missing_usage_charges_reservation() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=13, output_tokens=7)
+    provider = ScriptedProvider(
+        identity,
+        lambda request, _number: _response(
+            request,
+            identity,
+            (),
+            input_tokens=0,
+            output_tokens=0,
+            elapsed_ms=0,
+        ),
+    )
+    sink = MemorySink()
+
+    result = _scheduler(provider, sink, maximum_malformed=1).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert len(provider.requests) == 1
+    assert result.record.usage.input_tokens == 13
+    assert result.record.usage.output_tokens == 7
+    assert result.record.usage.usage_estimated is True
+    assert sink.attempts[0].outcome is AttemptOutcome.MALFORMED
+    assert sink.attempts[0].metrics_estimated is True
+
+
+def test_failed_usage_prevents_the_next_over_budget_submit() -> None:
+    identity = _provider_identity()
+    jobs = (
+        _job(0, identity, input_tokens=10, output_tokens=2),
+        _job(1, identity, input_tokens=10, output_tokens=2),
+    )
+
+    def timeout(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderTimeoutError(
+            "provider_timeout",
+            "sanitized timeout",
+            transient=True,
+        )
+
+    provider = ScriptedProvider(identity, timeout)
+    sink = MemorySink()
+    result = _scheduler(
+        provider,
+        sink,
+        maximum_items=1,
+        maximum_transient=1,
+    ).run(
+        jobs,
+        _consent(
+            identity,
+            logical_jobs=2,
+            estimated_calls=2,
+            input_limit=15,
+        ),
+        _validator,
+    )
+
+    assert len(provider.requests) == 1
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.usage.input_tokens == 10
+    assert result.jobs[1].attempt_count == 0
+    assert result.jobs[1].error_code == "hard_limit"
+
+
+def test_pre_transmission_runtime_rejection_keeps_zero_usage() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+
+    def rejected(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderRuntimeConfigurationError(
+            "runtime_configuration_rejected",
+            "sanitized local configuration rejection",
+        )
+
+    provider = ScriptedProvider(identity, rejected)
+    sink = MemorySink()
+    result = _scheduler(provider, sink).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.usage.provider_calls == 0
+    assert result.record.usage.input_tokens == 0
+    assert result.record.usage.output_tokens == 0
+    assert sink.attempts[0].transmitted is False
+    assert sink.attempts[0].metrics.input_tokens == 0
 
 
 def test_accepted_attempt_without_exact_cache_fails_closed_instead_of_rerunning() -> None:

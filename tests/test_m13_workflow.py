@@ -22,6 +22,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderRequest,
     ProviderResponse,
     ProviderStatus,
+    ProviderTimeoutError,
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
@@ -377,6 +378,36 @@ def test_ungranted_and_tampered_consent_submit_zero_provider_calls(tmp_path: Pat
         assert project.m13_persistence().list_records(RecordKind.CONSENT) == ()
 
 
+def test_authority_invalidated_work_cannot_resume_under_prior_consent(
+    tmp_path: Path,
+) -> None:
+    provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-authority-invalidated",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        _add_m12_result(project)
+
+        with pytest.raises(ValueError, match="authority changed"):
+            run_prepared_scene_jobs(
+                project,
+                provider,
+                prepared,
+                consent,
+                policy=_policy(),
+            )
+
+    assert provider.calls == []
+
+
 def test_runtime_settings_bind_consent_cache_requests_and_run_identity(
     tmp_path: Path,
 ) -> None:
@@ -513,6 +544,139 @@ def test_exact_replay_after_reopen_makes_zero_provider_calls(tmp_path: Path) -> 
         assert replay_result.record.usage.provider_calls == 0
         assert all(item.cache_replay for item in replay_result.jobs)
         assert tuple(item.artifact_id for item in replay_result.jobs) == artifact_ids
+
+
+def test_exact_same_run_reopen_restores_cumulative_usage_with_zero_new_calls(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    first_provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        first = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="run-durable-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        first_result = run_prepared_scene_jobs(
+            project,
+            first_provider,
+            first,
+            grant_narrative_consent(project, first),
+            policy=_policy(),
+        )
+    assert first_result.record.usage.provider_calls > 0
+
+    replay_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        replay = prepare_narrative_scene_run(
+            project,
+            replay_provider,
+            run_id="run-durable-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        replay_result = run_prepared_scene_jobs(
+            project,
+            replay_provider,
+            replay,
+            grant_narrative_consent(project, replay),
+            policy=_policy(),
+        )
+
+    assert replay_provider.calls == []
+    assert replay_result.record.usage.provider_calls == 0
+    assert replay_result.record.cumulative_usage == first_result.record.cumulative_usage
+    assert all(item.cache_replay for item in replay_result.jobs)
+
+
+def test_restart_after_timeout_includes_failed_usage_before_retry(tmp_path: Path) -> None:
+    @dataclass
+    class TimeoutProvider(DeterministicNarrativeProvider):
+        def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+            del cancelled
+            self.calls.append(request)
+            raise ProviderTimeoutError(
+                "provider_timeout",
+                "SECRET-STORY timeout detail",
+                transient=True,
+            )
+
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    timeout_provider = TimeoutProvider()
+    with _project(tmp_path) as project:
+        first = prepare_narrative_scene_run(
+            project,
+            timeout_provider,
+            run_id="run-timeout-resume",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, first)
+        failed = run_prepared_scene_jobs(
+            project,
+            timeout_provider,
+            first,
+            consent,
+            policy=SchedulerPolicy(
+                _batch_limits(),
+                maximum_transient_attempts_per_job=1,
+            ),
+        )
+    failed_call_count = len(timeout_provider.calls)
+    assert failed_call_count > 0
+    assert failed.record.usage.provider_calls == failed_call_count
+    assert failed.record.usage.input_tokens > 0
+
+    retry_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            retry_provider,
+            run_id="run-timeout-resume",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        retried = run_prepared_scene_jobs(
+            project,
+            retry_provider,
+            resumed,
+            grant_narrative_consent(project, resumed),
+            policy=SchedulerPolicy(
+                _batch_limits(),
+                maximum_transient_attempts_per_job=2,
+            ),
+        )
+
+        attempts = project.m13_persistence().list_records(
+            RecordKind.ATTEMPT,
+            authority_binding=resumed.authority.binding.to_dict(),
+        )
+
+    assert retry_provider.calls
+    assert retried.record.usage.provider_calls == (
+        failed.record.usage.provider_calls + len(retry_provider.calls)
+    )
+    assert retried.record.usage.input_tokens > failed.record.usage.input_tokens
+    assert all(
+        item.payload is not None
+        and "SECRET-STORY" not in repr(item.payload)
+        and item.payload["metrics"]["input_tokens"] > 0
+        for item in attempts
+    )
 
 
 def test_model_invalidation_can_persist_different_accepted_claim_content(

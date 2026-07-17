@@ -80,6 +80,11 @@ _RUN_GLOBAL_PROVIDER_ERRORS = (
     ProviderAuthenticationError,
     ProviderProcessError,
 )
+_PRE_TRANSMISSION_PROVIDER_ERRORS = (
+    ProviderSchemaRejectedError,
+    ProviderRuntimeConfigurationError,
+    ProviderAuthenticationError,
+)
 _RETRYABLE_TRANSIENT_PROVIDER_ERRORS = (
     ProviderRateLimitError,
     ProviderTimeoutError,
@@ -312,12 +317,20 @@ class SchedulerAttemptRecord:
     error_code: str | None = None
     validated_claim_count: int = 0
     invalid_claim_count: int = 0
+    consent_manifest_id: str = ""
+    input_revision_id: str = ""
+    cache_key: str = ""
+    provider_call_number: int = 0
+    transmitted: bool = False
+    metrics_estimated: bool = False
 
     def __post_init__(self) -> None:
         if self.attempt_number < 1:
             raise ValueError("scheduler attempt number must be positive")
         if self.validated_claim_count < 0 or self.invalid_claim_count < 0:
             raise ValueError("scheduler attempt claim counts cannot be negative")
+        if self.provider_call_number < 0:
+            raise ValueError("provider call number cannot be negative")
         _validate_durable_error(self.error_code)
 
     def to_dict(self) -> dict[str, JsonValue]:
@@ -333,6 +346,12 @@ class SchedulerAttemptRecord:
             "error_code": self.error_code,
             "validated_claim_count": self.validated_claim_count,
             "invalid_claim_count": self.invalid_claim_count,
+            "consent_manifest_id": self.consent_manifest_id,
+            "input_revision_id": self.input_revision_id,
+            "cache_key": self.cache_key,
+            "provider_call_number": self.provider_call_number,
+            "transmitted": self.transmitted,
+            "metrics_estimated": self.metrics_estimated,
         }
 
 
@@ -371,6 +390,7 @@ class SchedulerUsage:
     elapsed_ms: int = 0
     cost_micros: int | None = 0
     peak_concurrency: int = 0
+    usage_estimated: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -389,6 +409,8 @@ class SchedulerUsage:
             or self.cost_micros < 0
         ):
             raise ValueError("cost_micros must be non-negative when supplied")
+        if not isinstance(self.usage_estimated, bool):
+            raise ValueError("usage_estimated must be boolean")
 
     @property
     def total_tokens(self) -> int:
@@ -403,6 +425,7 @@ class SchedulerUsage:
             "elapsed_ms": self.elapsed_ms,
             "cost_micros": self.cost_micros,
             "peak_concurrency": self.peak_concurrency,
+            "usage_estimated": self.usage_estimated,
         }
 
 
@@ -419,6 +442,8 @@ class SchedulerRunRecord:
     refused_jobs: int
     cancelled_jobs: int
     error_code: str | None = None
+    compatibility_id: str | None = None
+    cumulative_usage: SchedulerUsage | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -439,12 +464,16 @@ class SchedulerRunRecord:
             "state": self.state.value,
             "provider": self.provider.to_dict(),
             "usage": self.usage.to_dict(),
+            "cumulative_usage": (
+                self.usage if self.cumulative_usage is None else self.cumulative_usage
+            ).to_dict(),
             "succeeded_jobs": self.succeeded_jobs,
             "partial_jobs": self.partial_jobs,
             "failed_jobs": self.failed_jobs,
             "refused_jobs": self.refused_jobs,
             "cancelled_jobs": self.cancelled_jobs,
             "error_code": self.error_code,
+            "compatibility_id": self.compatibility_id,
         }
 
 
@@ -462,8 +491,16 @@ class SchedulerSink(Protocol):
     def attempt_history(
         self,
         run_id: str,
-        logical_job_id: str,
+        consent_manifest_id: str,
+        job: ScheduledSceneJob,
     ) -> tuple[AttemptOutcome, ...]: ...
+
+    def resume_usage(
+        self,
+        consent: ConsentManifest,
+        jobs: Sequence[ScheduledSceneJob],
+        compatibility_id: str,
+    ) -> SchedulerUsage: ...
 
     def record_job(self, record: SchedulerJobRecord) -> None: ...
 
@@ -514,11 +551,13 @@ class NarrativeScheduler:
     ) -> SchedulerRunResult:
         ordered = tuple(sorted(jobs, key=lambda item: (item.ordinal, item.logical_job_id)))
         self._validate_start(ordered, consent)
-        usage = SchedulerUsage(cost_micros=0) if initial_usage is None else initial_usage
+        compatibility_id = scheduler_compatibility_id(consent, ordered)
+        durable_usage = self._sink.resume_usage(consent, ordered, compatibility_id)
+        usage = _conservative_usage(durable_usage, initial_usage)
         started_at = self._clock() - usage.elapsed_ms / 1_000
         histories = {
             job.logical_job_id: list(
-                self._sink.attempt_history(consent.run_id, job.logical_job_id)
+                self._sink.attempt_history(consent.run_id, consent.manifest_id, job)
             )
             for job in ordered
         }
@@ -556,13 +595,22 @@ class NarrativeScheduler:
                     raise SchedulerConfigurationError(
                         "validated attempt history is missing its exact accepted cache entry"
                     )
-                misses.append(job)
-                record = self._job_record(
-                    consent.run_id,
-                    job,
-                    LogicalJobState.QUEUED,
-                    len(histories[job.logical_job_id]),
-                )
+                if len(history) >= self._policy.maximum_attempts_per_job:
+                    record = self._job_record(
+                        consent.run_id,
+                        job,
+                        LogicalJobState.FAILED,
+                        len(history),
+                        error_code="hard_limit",
+                    )
+                else:
+                    misses.append(job)
+                    record = self._job_record(
+                        consent.run_id,
+                        job,
+                        LogicalJobState.QUEUED,
+                        len(history),
+                    )
             else:
                 state = (
                     LogicalJobState.PARTIAL
@@ -590,6 +638,7 @@ class NarrativeScheduler:
                 started_at,
                 cache_state,
                 None,
+                reported_usage=SchedulerUsage(),
             )
 
         initial_batches = list(
@@ -698,6 +747,7 @@ class NarrativeScheduler:
                 )
             )
             request = self._request(batch, job_by_id, consent, started_at)
+            usage_before_submit = usage
             usage = SchedulerUsage(
                 provider_calls=call_number,
                 input_tokens=usage.input_tokens,
@@ -705,12 +755,46 @@ class NarrativeScheduler:
                 elapsed_ms=usage.elapsed_ms,
                 cost_micros=usage.cost_micros,
                 peak_concurrency=max(usage.peak_concurrency, 1),
+                usage_estimated=usage.usage_estimated,
             )
+            submitted_at = self._clock()
             try:
                 response = self._provider.submit(request, cancelled)
             except NarrativeProviderError as exc:
                 if isinstance(exc, ProviderCancelledError):
                     self._provider.cancel()
+                transmitted = not isinstance(exc, _PRE_TRANSMISSION_PROVIDER_ERRORS)
+                metrics_estimated = False
+                failure_usage: ProviderUsage | None = None
+                if transmitted:
+                    failure_usage, metrics_estimated = self._failed_call_usage(
+                        exc,
+                        batch,
+                        job_by_id,
+                        submitted_at,
+                    )
+                    usage = self._add_usage(
+                        usage,
+                        failure_usage,
+                        started_at,
+                        estimated=metrics_estimated,
+                    )
+                else:
+                    usage = usage_before_submit
+                metric_shares = (
+                    {
+                        job_id: AttemptMetrics()
+                        for job_id in batch.logical_job_ids
+                    }
+                    if failure_usage is None
+                    else self._metric_shares(batch, job_by_id, failure_usage)
+                )
+                unknown_cost_hard_limit = (
+                    transmitted
+                    and consent.limits.max_cost_micros is not None
+                    and failure_usage is not None
+                    and failure_usage.cost_micros is None
+                )
                 action = self._handle_provider_error(
                     exc,
                     batch,
@@ -720,6 +804,10 @@ class NarrativeScheduler:
                     attempt_numbers,
                     consent,
                     call_number,
+                    metric_shares,
+                    transmitted=transmitted,
+                    metrics_estimated=metrics_estimated,
+                    force_hard_limit=unknown_cost_hard_limit,
                 )
                 queue[0:0] = list(action.retry_batches)
                 if action.stop_state is not None:
@@ -728,7 +816,18 @@ class NarrativeScheduler:
                     break
                 continue
 
-            usage = self._add_usage(usage, response.usage, started_at)
+            response_usage, response_usage_estimated = self._effective_response_usage(
+                response.usage,
+                batch,
+                job_by_id,
+                submitted_at,
+            )
+            usage = self._add_usage(
+                usage,
+                response_usage,
+                started_at,
+                estimated=response_usage_estimated,
+            )
             response_error = self._response_binding_error(
                 response,
                 request,
@@ -737,6 +836,7 @@ class NarrativeScheduler:
                 job_by_id,
             )
             if response_error is not None:
+                metric_shares = self._metric_shares(batch, job_by_id, response_usage)
                 for job_id in batch.logical_job_ids:
                     attempt = self._attempt_record(
                         consent.run_id,
@@ -744,7 +844,10 @@ class NarrativeScheduler:
                         attempt_numbers[job_id],
                         batch.batch_id,
                         AttemptOutcome.MALFORMED,
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
+                        metrics=metric_shares[job_id],
+                        metrics_estimated=response_usage_estimated,
                         error_code="internal_error",
                     )
                     histories[job_id].append(attempt.outcome)
@@ -771,8 +874,9 @@ class NarrativeScheduler:
                 forced_error = "internal_error"
                 break
 
-            postflight_error = self._postflight_limit(consent, usage, response.usage)
+            postflight_error = self._postflight_limit(consent, usage, response_usage)
             if postflight_error is not None:
+                metric_shares = self._metric_shares(batch, job_by_id, response_usage)
                 for job_id in batch.logical_job_ids:
                     attempt = self._attempt_record(
                         consent.run_id,
@@ -780,7 +884,10 @@ class NarrativeScheduler:
                         attempt_numbers[job_id],
                         batch.batch_id,
                         AttemptOutcome.HARD_LIMIT,
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
+                        metrics=metric_shares[job_id],
+                        metrics_estimated=response_usage_estimated,
                         error_code="hard_limit",
                     )
                     histories[job_id].append(attempt.outcome)
@@ -807,7 +914,14 @@ class NarrativeScheduler:
                         attempt_numbers[job_id],
                         batch.batch_id,
                         AttemptOutcome.CANCELLED,
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
+                        metrics=self._metric_shares(
+                            batch,
+                            job_by_id,
+                            response_usage,
+                        )[job_id],
+                        metrics_estimated=response_usage_estimated,
                         error_code="cancelled",
                     )
                     histories[job_id].append(attempt.outcome)
@@ -831,7 +945,7 @@ class NarrativeScheduler:
                 job_by_id,
                 validate_output,
             )
-            metric_shares = self._metric_shares(batch, job_by_id, response.usage)
+            metric_shares = self._metric_shares(batch, job_by_id, response_usage)
             if evaluation.whole_batch_unusable:
                 retryable: list[str] = []
                 for job_id in batch.logical_job_ids:
@@ -841,8 +955,10 @@ class NarrativeScheduler:
                         attempt_numbers[job_id],
                         batch.batch_id,
                         AttemptOutcome.MALFORMED,
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
                         metrics=metric_shares[job_id],
+                        metrics_estimated=response_usage_estimated,
                         error_code="invalid_output",
                     )
                     histories[job_id].append(attempt.outcome)
@@ -904,8 +1020,10 @@ class NarrativeScheduler:
                             attempt_numbers[pending_id],
                             batch.batch_id,
                             AttemptOutcome.CANCELLED,
-                            consent.provider,
+                            consent,
+                            provider_call_number=call_number,
                             metrics=metric_shares[pending_id],
+                            metrics_estimated=response_usage_estimated,
                             error_code="cancelled",
                         )
                         histories[pending_id].append(attempt.outcome)
@@ -926,8 +1044,10 @@ class NarrativeScheduler:
                         attempt_numbers[job_id],
                         batch.batch_id,
                         attempt_outcome,
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
                         metrics=metrics,
+                        metrics_estimated=response_usage_estimated,
                         validated_claim_count=output.validated_claim_count,
                         invalid_claim_count=output.invalid_claim_count,
                     )
@@ -963,8 +1083,10 @@ class NarrativeScheduler:
                             if provider_refusal
                             else AttemptOutcome.CONTENT_REFUSAL
                         ),
-                        consent.provider,
+                        consent,
+                        provider_call_number=call_number,
                         metrics=metrics,
+                        metrics_estimated=response_usage_estimated,
                         error_code=(
                             "provider_refusal" if provider_refusal else "content_refusal"
                         ),
@@ -991,8 +1113,10 @@ class NarrativeScheduler:
                     attempt_numbers[job_id],
                     batch.batch_id,
                     AttemptOutcome.MALFORMED,
-                    consent.provider,
+                    consent,
+                    provider_call_number=call_number,
                     metrics=metrics,
+                    metrics_estimated=response_usage_estimated,
                     error_code="invalid_output",
                 )
                 histories[job_id].append(attempt.outcome)
@@ -1162,7 +1286,7 @@ class NarrativeScheduler:
             return "output_token_limit"
         if usage.total_tokens + estimated_input + estimated_output > limits.max_total_tokens:
             return "total_token_limit"
-        if self._clock() - started_at >= limits.timeout_seconds:
+        if usage.elapsed_ms >= limits.timeout_seconds * 1_000:
             return "time_limit"
         if limits.max_concurrency < 1:
             return "concurrency_limit"
@@ -1299,6 +1423,11 @@ class NarrativeScheduler:
         attempt_numbers: Mapping[str, int],
         consent: ConsentManifest,
         call_number: int,
+        metric_shares: Mapping[str, AttemptMetrics],
+        *,
+        transmitted: bool,
+        metrics_estimated: bool,
+        force_hard_limit: bool,
     ) -> _ErrorAction:
         if isinstance(error, ProviderCancelledError):
             outcome = AttemptOutcome.CANCELLED
@@ -1345,12 +1474,20 @@ class NarrativeScheduler:
                 attempt_numbers[job_id],
                 batch.batch_id,
                 outcome,
-                consent.provider,
+                consent,
+                provider_call_number=call_number if transmitted else 0,
+                metrics=metric_shares[job_id],
+                transmitted=transmitted,
+                metrics_estimated=metrics_estimated,
                 error_code=safe_code,
             )
             histories[job_id].append(outcome)
             self._sink.record_attempt(attempt)
-            if self._eligible_error(error, histories[job_id], len(batch.items)):
+            if not force_hard_limit and self._eligible_error(
+                error,
+                histories[job_id],
+                len(batch.items),
+            ):
                 eligible.append(job_id)
                 queued = self._job_record(
                     consent.run_id,
@@ -1367,16 +1504,22 @@ class NarrativeScheduler:
                     jobs[job_id],
                     terminal_state,
                     len(histories[job_id]),
-                    error_code=safe_code,
+                    error_code="hard_limit" if force_hard_limit else safe_code,
                 )
                 records[job_id] = terminal
                 self._sink.record_job(terminal)
 
-        if isinstance(error, ProviderCancelledError):
+        retries: tuple[TransportBatch, ...]
+        if force_hard_limit:
+            batch_state = SchedulerBatchState.HARD_LIMIT
+            stop_state = SchedulerRunState.HARD_LIMIT
+            stop_error = "hard_limit"
+            retries = ()
+        elif isinstance(error, ProviderCancelledError):
             batch_state = SchedulerBatchState.CANCELLED
             stop_state = SchedulerRunState.CANCELLED
             stop_error = "cancelled"
-            retries: tuple[TransportBatch, ...] = ()
+            retries = ()
         elif isinstance(error, _RUN_GLOBAL_PROVIDER_ERRORS):
             batch_state = SchedulerBatchState.FAILED
             stop_state = SchedulerRunState.FAILED
@@ -1468,12 +1611,93 @@ class NarrativeScheduler:
             < self._policy.maximum_malformed_attempts_per_job
         )
 
+    def _failed_call_usage(
+        self,
+        error: NarrativeProviderError,
+        batch: TransportBatch,
+        jobs: Mapping[str, ScheduledSceneJob],
+        submitted_at: float,
+    ) -> tuple[ProviderUsage, bool]:
+        observed_elapsed = max(1, int((self._clock() - submitted_at) * 1_000))
+        partial = getattr(error, "partial_usage", None)
+        if isinstance(partial, ProviderUsage) and (
+            partial.input_tokens > 0 or partial.output_tokens > 0
+        ):
+            return (
+                ProviderUsage(
+                    partial.input_tokens,
+                    partial.output_tokens,
+                    max(partial.elapsed_ms, observed_elapsed),
+                    cost_micros=partial.cost_micros,
+                ),
+                False,
+            )
+        return (
+            self._reserved_usage(
+                batch,
+                jobs,
+                elapsed_ms=observed_elapsed,
+                cost_micros=None,
+            ),
+            True,
+        )
+
+    def _effective_response_usage(
+        self,
+        usage: ProviderUsage,
+        batch: TransportBatch,
+        jobs: Mapping[str, ScheduledSceneJob],
+        submitted_at: float,
+    ) -> tuple[ProviderUsage, bool]:
+        observed_elapsed = max(1, int((self._clock() - submitted_at) * 1_000))
+        if usage.input_tokens > 0 or usage.output_tokens > 0:
+            return (
+                ProviderUsage(
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    max(usage.elapsed_ms, observed_elapsed),
+                    cost_micros=usage.cost_micros,
+                ),
+                False,
+            )
+        return (
+            self._reserved_usage(
+                batch,
+                jobs,
+                elapsed_ms=max(usage.elapsed_ms, observed_elapsed),
+                cost_micros=usage.cost_micros,
+            ),
+            True,
+        )
+
+    def _reserved_usage(
+        self,
+        batch: TransportBatch,
+        jobs: Mapping[str, ScheduledSceneJob],
+        *,
+        elapsed_ms: int,
+        cost_micros: int | None,
+    ) -> ProviderUsage:
+        return ProviderUsage(
+            input_tokens=sum(
+                jobs[job_id].estimated_input_tokens for job_id in batch.logical_job_ids
+            ),
+            output_tokens=sum(
+                jobs[job_id].estimated_output_tokens for job_id in batch.logical_job_ids
+            ),
+            elapsed_ms=max(1, elapsed_ms),
+            cost_micros=cost_micros,
+        )
+
     def _add_usage(
         self,
         current: SchedulerUsage,
         latest: ProviderUsage,
         started_at: float,
+        *,
+        estimated: bool = False,
     ) -> SchedulerUsage:
+        del started_at
         if current.cost_micros is None or latest.cost_micros is None:
             cost: int | None = None
         else:
@@ -1482,12 +1706,10 @@ class NarrativeScheduler:
             provider_calls=current.provider_calls,
             input_tokens=current.input_tokens + latest.input_tokens,
             output_tokens=current.output_tokens + latest.output_tokens,
-            elapsed_ms=max(
-                current.elapsed_ms + latest.elapsed_ms,
-                int((self._clock() - started_at) * 1_000),
-            ),
+            elapsed_ms=current.elapsed_ms + latest.elapsed_ms,
             cost_micros=cost,
             peak_concurrency=current.peak_concurrency,
+            usage_estimated=current.usage_estimated or estimated,
         )
 
     def _metric_shares(
@@ -1544,9 +1766,12 @@ class NarrativeScheduler:
         attempt_number: int,
         batch_id: str,
         outcome: AttemptOutcome,
-        provider: ProviderIdentity,
+        consent: ConsentManifest,
         *,
+        provider_call_number: int,
         metrics: AttemptMetrics | None = None,
+        transmitted: bool = True,
+        metrics_estimated: bool = False,
         error_code: str | None = None,
         validated_claim_count: int = 0,
         invalid_claim_count: int = 0,
@@ -1563,11 +1788,17 @@ class NarrativeScheduler:
             attempt_number=attempt_number,
             batch_id=batch_id,
             outcome=outcome,
-            provider=provider,
+            provider=consent.provider,
             metrics=AttemptMetrics() if metrics is None else metrics,
             error_code=error_code,
             validated_claim_count=validated_claim_count,
             invalid_claim_count=invalid_claim_count,
+            consent_manifest_id=consent.manifest_id,
+            input_revision_id=job.input_revision_id,
+            cache_key=job.cache_identity.key,
+            provider_call_number=provider_call_number,
+            transmitted=transmitted,
+            metrics_estimated=metrics_estimated,
         )
 
     def _job_record(
@@ -1677,14 +1908,18 @@ class NarrativeScheduler:
         started_at: float,
         state: SchedulerRunState,
         error_code: str | None,
+        *,
+        reported_usage: SchedulerUsage | None = None,
     ) -> SchedulerRunResult:
+        del started_at
         final_usage = SchedulerUsage(
             provider_calls=usage.provider_calls,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
-            elapsed_ms=max(usage.elapsed_ms, int((self._clock() - started_at) * 1_000)),
+            elapsed_ms=usage.elapsed_ms,
             cost_micros=usage.cost_micros,
             peak_concurrency=usage.peak_concurrency,
+            usage_estimated=usage.usage_estimated,
         )
         states = Counter(record.state for record in records.values())
         run = SchedulerRunRecord(
@@ -1692,13 +1927,15 @@ class NarrativeScheduler:
             consent_manifest_id=consent.manifest_id,
             state=state,
             provider=consent.provider,
-            usage=final_usage,
+            usage=final_usage if reported_usage is None else reported_usage,
             succeeded_jobs=states[LogicalJobState.SUCCEEDED],
             partial_jobs=states[LogicalJobState.PARTIAL],
             failed_jobs=states[LogicalJobState.FAILED],
             refused_jobs=states[LogicalJobState.REFUSED],
             cancelled_jobs=states[LogicalJobState.CANCELLED],
             error_code=error_code,
+            compatibility_id=scheduler_compatibility_id(consent, jobs),
+            cumulative_usage=final_usage,
         )
         self._sink.record_run(run)
         return SchedulerRunResult(
@@ -1733,3 +1970,54 @@ def _partition_integer(total: int, weights: tuple[int, ...]) -> tuple[int, ...]:
 def _validate_durable_error(error_code: str | None) -> None:
     if error_code is not None and error_code not in SANITIZED_ERROR_MESSAGES:
         raise ValueError("scheduler records require an allowlisted sanitized error code")
+
+
+def scheduler_compatibility_id(
+    consent: ConsentManifest,
+    jobs: Sequence[ScheduledSceneJob],
+) -> str:
+    """Bind durable resume to the exact consent, logical input, and schema identities."""
+
+    material = {
+        "schema": "m13-scheduler-resume-v1",
+        "consent_manifest_id": consent.manifest_id,
+        "provider": consent.provider.to_dict(),
+        "selected_scope_ids": list(consent.selected_scope_ids),
+        "privacy_mode": consent.privacy_mode.value,
+        "includes_m12_material": consent.includes_m12_material,
+        "estimate": consent.estimate.to_dict(),
+        "limits": consent.limits.to_dict(),
+        "jobs": [
+            {
+                "logical_job_id": job.logical_job_id,
+                "input_revision_id": job.input_revision_id,
+                "cache_key": job.cache_identity.key,
+                "scope_id": job.scope_id,
+                "prompt_template_version": job.cache_identity.prompt_template_version,
+                "response_schema_version": job.cache_identity.response_schema_version,
+            }
+            for job in sorted(jobs, key=lambda item: (item.ordinal, item.logical_job_id))
+        ],
+    }
+    return f"m13_resume_{canonical_hash(material)}"
+
+
+def _conservative_usage(
+    durable: SchedulerUsage,
+    supplied: SchedulerUsage | None,
+) -> SchedulerUsage:
+    if supplied is None:
+        return durable
+    if durable.cost_micros is None or supplied.cost_micros is None:
+        cost: int | None = None
+    else:
+        cost = max(durable.cost_micros, supplied.cost_micros)
+    return SchedulerUsage(
+        provider_calls=max(durable.provider_calls, supplied.provider_calls),
+        input_tokens=max(durable.input_tokens, supplied.input_tokens),
+        output_tokens=max(durable.output_tokens, supplied.output_tokens),
+        elapsed_ms=max(durable.elapsed_ms, supplied.elapsed_ms),
+        cost_micros=cost,
+        peak_concurrency=max(durable.peak_concurrency, supplied.peak_concurrency),
+        usage_estimated=durable.usage_estimated or supplied.usage_estimated,
+    )
