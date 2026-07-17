@@ -807,12 +807,12 @@ class NarrativeScheduler:
                 queue[0:0] = list(retry_batches)
                 continue
 
+            usage = self._observe_elapsed_usage(usage, started_at)
             limit_error = self._preflight_limit(
                 batch,
                 job_by_id,
                 consent,
                 usage,
-                started_at,
             )
             if limit_error is not None:
                 forced_state = SchedulerRunState.HARD_LIMIT
@@ -1410,7 +1410,6 @@ class NarrativeScheduler:
         jobs: Mapping[str, ScheduledSceneJob],
         consent: ConsentManifest,
         usage: SchedulerUsage,
-        started_at: float,
     ) -> str | None:
         limits = consent.limits
         estimated_input = sum(
@@ -1957,6 +1956,27 @@ class NarrativeScheduler:
             cost_micros=cost,
             peak_concurrency=current.peak_concurrency,
             usage_estimated=current.usage_estimated or estimated,
+        )
+
+    def _observe_elapsed_usage(
+        self,
+        usage: SchedulerUsage,
+        started_at: float,
+    ) -> SchedulerUsage:
+        observed_elapsed = max(
+            usage.elapsed_ms,
+            int((self._clock() - started_at) * 1_000),
+        )
+        if observed_elapsed == usage.elapsed_ms:
+            return usage
+        return SchedulerUsage(
+            provider_calls=usage.provider_calls,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            elapsed_ms=observed_elapsed,
+            cost_micros=usage.cost_micros,
+            peak_concurrency=usage.peak_concurrency,
+            usage_estimated=usage.usage_estimated,
         )
 
     def _metric_shares(

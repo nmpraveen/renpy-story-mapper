@@ -1095,6 +1095,34 @@ def test_durable_attempt_limit_is_enforced_before_queue_or_submit() -> None:
     assert result.jobs[0].error_code == "hard_limit"
 
 
+def test_observed_wall_elapsed_enforces_time_ceiling_before_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail("expired run must not be submitted"),
+    )
+    sink = MemorySink()
+    ticks = iter((0.0, 61.0))
+
+    scheduler = NarrativeScheduler(
+        provider,
+        sink,
+        SchedulerPolicy(batch_limits=BatchLimits(8, 500_000, 100_000)),
+        clock=lambda: next(ticks),
+    )
+    result = scheduler.run(
+        (job,),
+        _consent(identity, logical_jobs=1, timeout_seconds=60),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.usage.elapsed_ms == 61_000
+    assert provider.requests == []
+    assert sink.reservations == []
+
+
 @pytest.mark.parametrize(
     "history",
     [
