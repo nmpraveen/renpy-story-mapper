@@ -23,6 +23,7 @@ from renpy_story_mapper.narrative.contracts import (
     ProviderIdentity,
     ProviderSettings,
 )
+from renpy_story_mapper.narrative.privacy import validate_privacy_safe_keys
 from renpy_story_mapper.organization.sterile_runner import (
     SterileCodexRunner,
     SterileRunnerError,
@@ -84,6 +85,7 @@ def validate_codex_provider_settings(settings: ProviderSettings) -> str | None:
     """Validate the exact bounded Codex adapter settings before provider discovery."""
 
     values = settings.to_dict()
+    validate_privacy_safe_keys(values, label="provider adapter settings")
     unknown = set(values) - _SETTING_KEYS
     if unknown:
         raise ProviderRuntimeConfigurationError(

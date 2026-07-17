@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
+from renpy_story_mapper.narrative.privacy import validate_privacy_safe_key
 from renpy_story_mapper.storage import canonical_json
 
 M13_CONTRACT_VERSION = "m13-narrative-contract-v1"
@@ -337,17 +338,13 @@ class ProviderSettings:
     def __post_init__(self) -> None:
         keys = tuple(key for key, _value in self.values)
         _require_unique_text(keys, "provider setting key")
-        forbidden = {
-            "api_key",
-            "authorization",
-            "credential",
-            "password",
-            "secret",
-            "token",
-        }
         for key, value in self.values:
-            if key.casefold() in forbidden:
-                raise ValueError("provider settings identity cannot contain credentials")
+            try:
+                validate_privacy_safe_key(key, label="provider settings identity")
+            except ValueError as exc:
+                raise ValueError(
+                    "provider settings identity cannot contain sensitive credentials or raw content"
+                ) from exc
             if isinstance(value, float) and not math.isfinite(value):
                 raise ValueError("provider setting floats must be finite")
 
