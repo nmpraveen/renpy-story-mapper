@@ -1,7 +1,7 @@
 # M13 optional AI narrative layer completion report
 
-Status: Historical prior PR-ready report; current final bounded correction is Verification-blocked
-by one final-review P1 on existing PR #23
+Status: Historical prior PR-ready report; current additional correction is Verification-blocked
+by one independent-rereview P1 on existing PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -15,6 +15,15 @@ verified, and unbounded GitHub Release run `29604661539` passed at branch head
 requires separate approval.
 
 ## Outcome
+
+Current additional-correction note: failing-first correction `a7e242b` closes the one-reservation
+reopen case and passes 54 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent
+rereview nevertheless returned `FAIL` with one P1 and no P0/new P2: multiple compatible durable
+reservations for the same historically reused logical attempt are collapsed to one recovered
+history slot, allowing a third submission under a ceiling of two. The authorized additional
+correction/rereview is consumed. The Release run was stopped after this verdict; no push, PR
+mutation, provider/live transmission, browser/private-scale/GitHub acceptance, merge, or M14 work
+followed. M13 remains in Verification and PR #23 is not ready.
 
 Current lifecycle note: the final correction tracks integrated at `9ab1dbd`, and focused
 verification at lifecycle head `532eefc933460ed1876a715df1b12a921e24b3c0` passed 227 tests,

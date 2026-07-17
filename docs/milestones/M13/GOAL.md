@@ -119,6 +119,15 @@ loop. Release, browser, provider-free private-scale, GitHub, push, PR mutation, 
 and M14 actions were not run. The native goal remains active and the done condition is unmet pending
 explicit authorization for one additional narrowly bounded correction and rereview.
 
+That additional authorization produced failing-first correction
+`a7e242b4534f7217d469308392d932795201cb57`. The intended single-reservation case now passes, as
+do 54 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent rereview
+`/root/m13_reservation_rereview` returned `FAIL` with one P1 and no P0/new P2: multiple compatible
+reservations for one historically reused logical attempt are collapsed by attempt number, so the
+reconstructed history can still undercount total attempts. The authorized correction/rereview is
+consumed; no further product loop, push, live transmission, PR mutation, merge, or M14 work is
+authorized. The done condition remains unmet.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,
@@ -306,8 +315,8 @@ now `Integration` pending new integrated-head evidence.
   collaboration controls expose model and reasoning-effort selectors but not a fast-mode selector;
   record that exact limitation rather than copying fixed provider settings into this M13 contract
   or claiming an unverifiable fast-mode configuration.
-- The targeted review gate passed at `e79384b`, criterion 20 passed at `677d881`, and reconciled
-  evidence commit `d5fdcaa` was pushed and remotely verified on existing PR #23. Unbounded GitHub
-  Release run `29604661539` passed at validation head `7bf5404`; status is `PR ready`.
+- Historical targeted review at `e79384b`, criterion 20 at `677d881`, and unbounded GitHub Release
+  run `29604661539` at `7bf5404` retain exact-head evidence only. Current rereview at `a7e242b`
+  fails with one P1; PR #23 is not ready.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
-  preparation. It completes only at genuine `PR ready`, which this closeout records.
+  preparation. It completes only at genuine `PR ready`; current Verification does not qualify.

@@ -7,8 +7,11 @@ retains its semantic-review `PASS`. Existing unmerged PR #23 returned to `Integr
 2026-07-17 after a final bounded current-head audit reproduced P1 defects in restart, accounting,
 privacy, and citation behavior. The two bounded tracks integrated at `9ab1dbd`, but final review of
 lifecycle head `532eefc` found one remaining P1: a recovered unresolved reservation consumes usage
-without consuming the per-job total-attempt ceiling. M13 remains in `Verification` and PR #23 is
-not currently ready. Prior review, live/replay, and Release results remain historical evidence for
+without consuming the per-job total-attempt ceiling. The explicitly authorized additional
+correction at `a7e242b` closes the single-reservation case, but its independent rereview found that
+multiple durable reservations for the same historically reused attempt are collapsed to one
+history slot and can still bypass the ceiling. M13 remains in `Verification` and PR #23 is not
+currently ready. Prior review, live/replay, and Release results remain historical evidence for
 their exact heads; they are not proof of the pending corrected head.
 
 ## 1. Product goal
@@ -1151,9 +1154,11 @@ Status: Verification on existing unmerged PR #23. The recorded semantic `PASS` r
 Historical runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef`, targeted-review head
 `e79384b`, approved live/replay head `677d881`, and unbounded GitHub run `29604661539` at
 `7bf5404` retain their exact-head evidence only. The final bounded correction integrated at
-`9ab1dbd`, and focused verification passed at `532eefc`, but final independent review found one P1
-in recovered-reservation enforcement of the per-job total-attempt ceiling. PR #23 is not currently
-ready and the reviewed local correction head has not been pushed.
+`9ab1dbd`, and focused verification passed at `532eefc`. Additional correction `a7e242b` passes its
+intended reopen regression, 54 focused tests, Ruff, strict mypy, and diff checks, but independent
+rereview found one P1: duplicate durable reservations for the same reused logical attempt collapse
+to one recovered history slot. PR #23 is not currently ready and the reviewed local correction
+head has not been pushed.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1250,7 +1255,8 @@ and unresolved items.
 
 ## 11. Current next action
 
-Hold M13 in Verification at reviewed lifecycle head `532eefc`. The single authorized Track A
-correction/rereview has been consumed and final review still reports one P1. Do not push the known-
-defective correction head, run provider/live acceptance, merge PR #23, or begin M14. Resume only
-with explicit authorization for one additional narrowly bounded correction and rereview.
+Hold M13 in Verification at independently reviewed correction head `a7e242b`. The explicitly
+authorized additional correction/rereview has been consumed and rereview still reports one P1 in
+duplicate recovered-reservation multiplicity. Do not push the known-defective correction head, run
+provider/live acceptance, merge PR #23, or begin M14. Resume only with explicit authorization for
+another narrowly bounded correction and rereview.

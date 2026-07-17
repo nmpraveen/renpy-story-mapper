@@ -1,12 +1,36 @@
 # M13 integrated and independent review report
 
-Status: FAIL for the final bounded integrated review; one P1, no P0/new P2
+Status: FAIL for the additional recovered-reservation rereview; one P1, no P0/new P2
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
+Current correction head: `a7e242b4534f7217d469308392d932795201cb57`
+
 Review date: 2026-07-17
 
-## Final bounded integrated review (current)
+## Additional recovered-reservation rereview (current)
+
+Independent reviewer `/root/m13_reservation_rereview` reviewed exact clean head `a7e242b` and
+range `a97e10d..a7e242b` read-only. The intended failing-first regression genuinely failed before
+the product edit because reserved logical attempt 1 was resubmitted under a total ceiling of 1;
+after correction it passes. The full workflow/scheduler pair passed 54 tests, a focused interaction
+set passed 23, and Ruff, strict mypy, and diff checks passed.
+
+Verdict: `FAIL`. One P1 remains; no P0 or new P2 was found. `workflow.py` reconstructs recovered
+reservations keyed by logical attempt number and suppresses entries already represented by that
+number. Multiple compatible unresolved reservations for the same job/attempt are reachable from
+the prior defect because the logical attempt number was reused while provider call number and
+reservation identity advanced. A provider-free probe seeded two such reservations with
+`maximum_attempts_per_job=2`; reopen still submitted the target, allowing a third logical
+submission. Recovery must preserve reservation multiplicity or fail closed, while de-duplicating
+only the reservation covered by its corresponding persisted attempt.
+
+The review made zero edits and used no provider/live, network/GitHub, private, PR, push, merge, or
+M14 action. The collaboration API exposed no fast-mode selector, so fast-mode state remains
+unavailable/unverified. The explicitly authorized additional correction/rereview is consumed; no
+further product loop was started. M13 remains in Verification and PR #23 is not ready.
+
+## Historical final bounded integrated review
 
 Independent reviewer `/root/m13_final_integrated_review` reviewed exact detached lifecycle head
 `532eefc933460ed1876a715df1b12a921e24b3c0`, including correction range `f629e53..532eefc` and

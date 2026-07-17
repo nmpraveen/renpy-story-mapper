@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification blocked by one final-review P1; PR #23 is not currently ready
+Status: Verification blocked by one additional-rereview P1; PR #23 is not currently ready
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -8,7 +8,25 @@ Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Validation date: 2026-07-17
 
-## Final bounded correction evidence (current)
+## Additional recovered-reservation correction evidence (current)
+
+Correction `a7e242b4534f7217d469308392d932795201cb57` added a reopen regression for the exact prior P1.
+At the test-only state, `py -3.12 -m pytest tests/test_m13_workflow.py -k
+unresolved_call_reservation_consumes_attempt_ceiling_after_reopen -q` failed 1 test because the
+reserved job was resubmitted under `maximum_attempts_per_job=1`. After the product edit, both
+unresolved-reservation tests passed; the complete workflow/scheduler pair passed 54 tests in 20.15
+seconds. Targeted Ruff, strict mypy, and `git diff --check` passed.
+
+Independent rereviewer `/root/m13_reservation_rereview` returned `FAIL` at exact clean head
+`a7e242b`: one P1, no P0/new P2. A provider-free probe showed that two compatible unresolved
+reservations for the same historically reused logical attempt collapse to one recovered history
+slot, so `maximum_attempts_per_job=2` still admitted a third logical submission. The reviewer also
+passed 54 workflow/scheduler tests, a 23-test interaction set, Ruff, strict mypy, and diff checks.
+The Release gate started provider-free but was terminated after this blocking verdict rather than
+spending further validation time on a head that cannot be PR-ready. Browser, private-scale,
+GitHub, push, PR mutation, provider/live, merge, and M14 actions were not run.
+
+## Historical final bounded correction evidence
 
 The exact local lifecycle head is `532eefc933460ed1876a715df1b12a921e24b3c0`; integrated
 runtime changes end at `9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b`. The corrected focused

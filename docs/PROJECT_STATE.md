@@ -99,6 +99,17 @@ transmission, merge, M14 work, or protected untracked content is authorized. The
 dispatched with `gpt-5.6-sol` and High reasoning. Its thread API exposes no fast-mode selector, so
 fast-mode state remains unavailable and unverified rather than claimed disabled.
 
+The additional correction is frozen at `a7e242b4534f7217d469308392d932795201cb57`.
+Its failing-first reopen regression failed before product edits, then the workflow/scheduler gate
+passed 54 tests plus Ruff, strict mypy, and diff checks. Independent reviewer
+`/root/m13_reservation_rereview` nevertheless returned `FAIL` with one P1 and no P0/new P2:
+multiple compatible durable reservations for the same historically reused logical attempt are
+collapsed to one recovered history slot, so a ceiling of two can still admit a third submission.
+The reviewer reproduced this provider-free. The additional correction/rereview authorization is
+consumed. The in-progress Release run was stopped after the blocking verdict; no provider/live,
+browser/private-scale, GitHub, push, PR mutation, merge, protected-untracked-path change, or M14
+action occurred. M13 and the native goal remain active in `Verification`; PR #23 is not ready.
+
 ## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at
