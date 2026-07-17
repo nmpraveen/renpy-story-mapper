@@ -212,6 +212,30 @@ def test_m12_nonconfirmed_statuses_are_never_upgraded(
     assert leaf.claims[0].semantics.normalized_value == status.value
 
 
+def test_character_hierarchy_job_receives_only_its_exact_route_leaves() -> None:
+    leaf = make_m12_authority_leaf(_m12(), locale="en-US", perspective="reader")
+    route_artifact = HierarchyArtifactInput(
+        artifact_id="route-a-artifact",
+        job_kind=LogicalJobKind.ROUTE,
+        claim_ids=("route-a-claim",),
+        estimated_tokens=100,
+        path=_route_path("route-a"),
+        chronology_index=0,
+        temporal_anchor="route-a",
+    )
+
+    descriptor = plan_character_role_job(
+        "alice",
+        (route_artifact,),
+        _config(),
+        m12_authority_leaves=(leaf,),
+    ).jobs[0]
+
+    assert descriptor.spec.kind is LogicalJobKind.CHARACTER
+    assert descriptor.m12_authority == (leaf.authority,)
+    assert descriptor.authority_leaf_claim_ids == leaf.claim_ids
+
+
 def test_chapter_jobs_are_segment_only_and_never_mix_exclusive_paths() -> None:
     inputs = (
         _segment("common-1", path=_common_path(), chronology=0),

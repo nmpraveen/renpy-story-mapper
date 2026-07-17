@@ -668,6 +668,97 @@ def test_exact_m12_fact_must_preserve_status_while_interpretation_may_summarize(
     assert interpreted.artifact.claims[1].support.child_claim_ids == (exact.claim_id,)
 
 
+def test_scene_exact_m12_evidence_rejects_changed_prerequisite_and_status_upgrade() -> None:
+    _context, exact = _m12_context()
+    reference = exact.support.direct_evidence[0]
+    scene_job = LogicalJobSpec(LogicalJobKind.SCENE, "scene-m12", StructuralContext())
+    direct = replace(
+        exact,
+        logical_job_id=scene_job.job_id,
+        job_kind=LogicalJobKind.SCENE,
+        ordinal=0,
+    )
+    handles = PromptHandleTable.build(
+        scope_id=scene_job.job_id,
+        allowed_owner_ids=("scene-m12",),
+        evidence_references=(replace(reference, owner_id="scene-m12"),),
+    )
+    direct = replace(
+        direct,
+        support=replace(
+            direct.support,
+            direct_evidence=(replace(reference, owner_id="scene-m12"),),
+        ),
+    )
+    validation = ValidationContext(
+        scene_job,
+        "scene-m12-revision",
+        handles,
+        deterministic_title="Scene M12",
+        authority_claims=(direct,),
+    )
+    assert direct.semantics is not None
+
+    def provider_claim(*, claim_class: str, text: str, value: str) -> dict[str, object]:
+        return {
+            "claim_class": claim_class,
+            "context_scope": "atomic",
+            "text": text,
+            "evidence_handles": ["E1"],
+            "child_claim_handles": [],
+            "subject": direct.semantics.subject,
+            "predicate": direct.semantics.predicate,
+            "polarity": direct.semantics.polarity.value,
+            "normalized_value": value,
+        }
+
+    exact_result = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [provider_claim(claim_class="factual", text=direct.text, value=direct.text)],
+        ),
+        validation,
+    )
+    changed = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [
+                provider_claim(
+                    claim_class="factual",
+                    text="Prerequisite was weakened.",
+                    value="confirmed",
+                )
+            ],
+        ),
+        validation,
+    )
+    interpreted = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [
+                provider_claim(
+                    claim_class="interpretive",
+                    text="The route seems promising.",
+                    value="promising",
+                )
+            ],
+        ),
+        validation,
+    )
+
+    assert exact_result.artifact is not None
+    assert [claim.text for claim in exact_result.artifact.claims] == [direct.text]
+    assert changed.artifact is not None
+    assert [claim.text for claim in changed.artifact.claims] == [direct.text]
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in changed.issues)
+    assert interpreted.artifact is not None
+    assert [claim.claim_class for claim in interpreted.artifact.claims] == [
+        ClaimClass.INTERPRETIVE,
+        ClaimClass.FACTUAL,
+    ]
+    assert interpreted.artifact.claims[1].text == direct.text
+
+
 def test_omitted_m12_fact_is_added_as_exact_deterministic_parent_claim() -> None:
     context, exact = _m12_context()
     result = validate_and_salvage(

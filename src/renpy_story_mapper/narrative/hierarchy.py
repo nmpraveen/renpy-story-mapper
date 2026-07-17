@@ -14,6 +14,7 @@ artifacts, and the plot consumes only bounded chapter/route/ending/segment artif
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -301,10 +302,18 @@ class M12RouteAuthority:
     result_identity: str
     route_id: str | None
     persistent_lane_id: str | None
-    status: TechnicalStatus
-    badge: RouteBadge
+    status: TechnicalStatus | None
+    badge: RouteBadge | None
     prerequisite_texts: tuple[str, ...] = ()
     conclusion_texts: tuple[str, ...] = ()
+    authority_kind: str = "result"
+    completion: bool | None = None
+    path_role: str | None = None
+    path_ordinal: int | None = None
+    persistent_lane_ids: tuple[str, ...] = ()
+    persistent_commitment_texts: tuple[str, ...] = ()
+    warning_texts: tuple[str, ...] = ()
+    path_provenance: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.result_identity, name="M12 result identity")
@@ -316,17 +325,55 @@ class M12RouteAuthority:
             _require_identifier(self.route_id, name="route_id")
             assert self.persistent_lane_id is not None
             _require_identifier(self.persistent_lane_id, name="persistent_lane_id")
+        if self.authority_kind not in {"result", "path"}:
+            raise ValueError("M12 authority kind must be result or path.")
+        if self.authority_kind == "result":
+            if self.status is None or self.badge is None:
+                raise ValueError("M12 result authority requires exact status and badge.")
+            if self.path_role is not None or self.path_ordinal is not None:
+                raise ValueError("M12 result authority cannot claim path role or ordinal.")
+        else:
+            if self.status is not None or self.badge is not None:
+                raise ValueError("M12 path authority cannot inherit result status or badge.")
+            if self.path_role not in {"recommended", "alternative"}:
+                raise ValueError("M12 path authority requires an exact path role.")
+            if self.path_ordinal is None or self.path_ordinal < 0:
+                raise ValueError("M12 path authority requires a stable non-negative ordinal.")
+            if self.route_id is None or self.persistent_lane_id is None:
+                raise ValueError("M12 path authority requires exact route and lane ownership.")
+            if self.persistent_lane_id not in self.persistent_lane_ids:
+                raise ValueError("M12 path authority must retain its owning persistent lane.")
         _require_unique(self.prerequisite_texts, name="M12 prerequisite text")
         _require_unique(self.conclusion_texts, name="M12 conclusion text")
+        _require_unique(self.persistent_lane_ids, name="M12 persistent lane ID")
+        _require_unique(
+            self.persistent_commitment_texts,
+            name="M12 persistent commitment text",
+        )
+        _require_unique(self.warning_texts, name="M12 uncertainty warning")
+
+    @property
+    def authority_identity(self) -> str:
+        return f"m12-authority-{canonical_hash(self.to_dict())}"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "result_identity": self.result_identity,
             "route_id": self.route_id,
             "persistent_lane_id": self.persistent_lane_id,
-            "status": self.status.value,
-            "badge": self.badge.value,
+            "authority_kind": self.authority_kind,
+            "status": None if self.status is None else self.status.value,
+            "badge": None if self.badge is None else self.badge.value,
+            "completion": self.completion,
+            "path_role": self.path_role,
+            "path_ordinal": self.path_ordinal,
+            "persistent_lane_ids": list(self.persistent_lane_ids),
             "prerequisite_texts": list(self.prerequisite_texts),
+            "persistent_commitment_texts": list(self.persistent_commitment_texts),
+            "warning_texts": list(self.warning_texts),
+            "path_provenance": (
+                None if self.path_provenance is None else dict(self.path_provenance)
+            ),
             "conclusion_texts": list(self.conclusion_texts),
         }
 
@@ -376,7 +423,7 @@ def make_m12_authority_leaf(
     fingerprint = canonical_hash({"m12_route_authority": authority.to_dict()})
     job = LogicalJobSpec(
         kind=LogicalJobKind.AUTHORITY_FACT,
-        owner_id=f"m12-route-result:{authority.result_identity}",
+        owner_id=authority.authority_identity,
         context=StructuralContext(
             lane_id=authority.persistent_lane_id,
             route_id=authority.route_id,
@@ -393,20 +440,44 @@ def make_m12_authority_leaf(
         record_id=authority.result_identity,
         owner_id=job.owner_id,
     )
-    exact_records = (
-        ("status", authority.status.value),
-        ("badge", authority.badge.value),
-        *(
-            (f"prerequisite:{ordinal}", text)
-            for ordinal, text in enumerate(authority.prerequisite_texts)
-        ),
-        *(
-            (f"conclusion:{ordinal}", text)
-            for ordinal, text in enumerate(authority.conclusion_texts)
-        ),
+    exact_record_values: list[tuple[str, str]] = []
+    if authority.status is not None:
+        exact_record_values.append(("status", authority.status.value))
+    if authority.badge is not None:
+        exact_record_values.append(("badge", authority.badge.value))
+    if authority.completion is not None:
+        exact_record_values.append(("completion", str(authority.completion).lower()))
+    if authority.path_role is not None:
+        exact_record_values.append(("path_role", authority.path_role))
+    if authority.path_ordinal is not None:
+        exact_record_values.append(("path_ordinal", str(authority.path_ordinal)))
+    exact_record_values.extend(
+        (f"persistent_lane:{ordinal}", text)
+        for ordinal, text in enumerate(authority.persistent_lane_ids)
     )
+    exact_record_values.extend(
+        (f"prerequisite:{ordinal}", text)
+        for ordinal, text in enumerate(authority.prerequisite_texts)
+    )
+    exact_record_values.extend(
+        (f"persistent_commitment:{ordinal}", text)
+        for ordinal, text in enumerate(authority.persistent_commitment_texts)
+    )
+    exact_record_values.extend(
+        (f"uncertainty_warning:{ordinal}", text)
+        for ordinal, text in enumerate(authority.warning_texts)
+    )
+    if authority.path_provenance is not None:
+        exact_record_values.append(
+            ("path_provenance", canonical_hash(dict(authority.path_provenance)))
+        )
+    exact_record_values.extend(
+        (f"conclusion:{ordinal}", text)
+        for ordinal, text in enumerate(authority.conclusion_texts)
+    )
+    exact_records = tuple(exact_record_values)
     route_scope = authority.route_id or "unassigned"
-    subject = f"m12-route-result:{authority.result_identity}:route:{route_scope}"
+    subject = f"{authority.authority_identity}:route:{route_scope}"
     claims = tuple(
         NarrativeClaim(
             logical_job_id=job.job_id,
@@ -499,7 +570,7 @@ class HierarchyJobDescriptor:
             raise ValueError("chapter_ordinal must be non-negative.")
         if self.chronology_index < 0:
             raise ValueError("chronology_index must be non-negative.")
-        identities = tuple(item.result_identity for item in self.m12_authority)
+        identities = tuple(item.authority_identity for item in self.m12_authority)
         if len(identities) != len(set(identities)):
             raise ValueError("M12 authority records must be unique.")
 
@@ -781,9 +852,9 @@ def _normalize_m12_authority_leaves(
     leaves = (single,) if single is not None else multiple
     if len(leaves) > 32:
         raise ValueError("A hierarchy job cannot consume more than 32 M12 authority leaves.")
-    identities = tuple(item.authority.result_identity for item in leaves)
+    identities = tuple(item.authority.authority_identity for item in leaves)
     if len(identities) != len(set(identities)):
-        raise ValueError("M12 authority leaves must have unique result identities.")
+        raise ValueError("M12 authority leaves must have unique authority identities.")
     return leaves
 
 
@@ -825,8 +896,11 @@ def plan_persistent_route_job(
             raise ValueError("Route chapters require route-owned narrative sections.")
     leaves = _normalize_m12_authority_leaves(m12_authority_leaf, m12_authority_leaves)
     if any(
-        leaf.authority.route_id != route.route_id
-        or leaf.authority.persistent_lane_id != route.persistent_lane_id
+        not _m12_leaf_applies_to_route(
+            leaf,
+            route.route_id,
+            route.persistent_lane_id,
+        )
         for leaf in leaves
     ):
         raise ValueError("M12 authority leaf belongs to another route.")
@@ -900,8 +974,12 @@ def plan_ending_job(
     leaves = _normalize_m12_authority_leaves(m12_authority_leaf, m12_authority_leaves)
     if any(
         ending.route_id is None
-        or leaf.authority.route_id != ending.route_id
-        or leaf.authority.persistent_lane_id != ending.persistent_lane_id
+        or ending.persistent_lane_id is None
+        or not _m12_leaf_applies_to_route(
+            leaf,
+            ending.route_id,
+            ending.persistent_lane_id,
+        )
         for leaf in leaves
     ):
         raise ValueError("M12 authority leaf does not belong to the ending route.")
@@ -934,6 +1012,26 @@ def plan_ending_job(
             chronology_index=ending.ordinal,
             temporal_anchor=f"ending:{ending.ending_id}",
         )
+    )
+
+
+def _m12_leaf_applies_to_route(
+    leaf: M12AuthorityLeaf,
+    route_id: str,
+    persistent_lane_id: str,
+) -> bool:
+    authority = leaf.authority
+    if authority.authority_kind == "result":
+        return (
+            authority.route_id is None
+            and authority.persistent_lane_id is None
+        ) or (
+            authority.route_id == route_id
+            and authority.persistent_lane_id == persistent_lane_id
+        )
+    return (
+        authority.route_id == route_id
+        and authority.persistent_lane_id == persistent_lane_id
     )
 
 
@@ -1050,6 +1148,8 @@ def plan_character_role_job(
     character_id: str,
     artifacts: tuple[HierarchyArtifactInput, ...],
     config: HierarchyPartitionConfig,
+    *,
+    m12_authority_leaves: tuple[M12AuthorityLeaf, ...] = (),
 ) -> HierarchyLevelPlan:
     """Plan bounded participation/role interpretation without inferring an advanced arc."""
 
@@ -1066,6 +1166,7 @@ def plan_character_role_job(
     if any(child.job_kind not in allowed for child in artifacts):
         raise ValueError("Character role jobs cannot consume raw scenes or plot-wide text.")
     children = tuple(sorted(artifacts, key=lambda child: child.ordering_key))
+    leaves = _normalize_m12_authority_leaves(None, m12_authority_leaves)
     route_aware = len({child.path.route_id for child in children}) > 1 or any(
         child.path.section in {StorySection.TEMPORARY_BRANCH, StorySection.ENDING}
         or child.contains_structured_alternatives
@@ -1081,7 +1182,7 @@ def plan_character_role_job(
                 ChronologyPolicy.ROUTE_AWARE if route_aware else ChronologyPolicy.LINEAR
             ),
             children=children,
-            authority_leaves=(),
+            authority_leaves=leaves,
             config=config,
             chapter_id=None,
             chapter_ordinal=None,
@@ -1207,6 +1308,9 @@ def _plan_one_job(
             "chronology_policy": chronology_policy.value,
             "ordered_child_contexts": child_contexts,
             "m12_result_identities": [leaf.authority.result_identity for leaf in authority_leaves],
+            "m12_authority_identities": [
+                leaf.authority.authority_identity for leaf in authority_leaves
+            ],
         }
     )
     occurrence_id = _shared_optional(children, "occurrence_id")

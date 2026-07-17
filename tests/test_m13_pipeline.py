@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from renpy_story_mapper.m12_model import TechnicalStatus
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
@@ -40,6 +41,7 @@ from renpy_story_mapper.narrative.workflow import (
     prepare_narrative_scene_run,
 )
 from renpy_story_mapper.project import Project, create_ingested_project
+from renpy_story_mapper.storage import canonical_json
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
 
@@ -202,8 +204,16 @@ def test_complete_pipeline_publishes_route_aware_plot_and_exact_m12_leaf(
     with _project(tmp_path) as project:
         source_hashes = tuple((item.path, item.content_hash) for item in project.sources())
         authority_before = load_narrative_authority(project, include_m12=True).binding
+        m12_bytes_before = tuple(
+            canonical_json(dict(item))
+            for item in load_narrative_authority(project, include_m12=True).m12_results
+        )
         result = _run(project, provider, "complete-pipeline")
         authority_after = load_narrative_authority(project, include_m12=True).binding
+        m12_bytes_after = tuple(
+            canonical_json(dict(item))
+            for item in load_narrative_authority(project, include_m12=True).m12_results
+        )
 
         assert result.record.state.value == "succeeded"
         assert result.artifacts.plot_artifact_id is not None
@@ -216,6 +226,19 @@ def test_complete_pipeline_publishes_route_aware_plot_and_exact_m12_leaf(
             (item.path, item.content_hash) for item in project.sources()
         )
         assert authority_before == authority_after
+        assert m12_bytes_before == m12_bytes_after
+
+        provider_payloads = [
+            item.payload for request in provider.requests for item in request.items
+        ]
+        for job_kind in ("scene", "route", "ending", "plot"):
+            matching_payloads = [
+                payload
+                for payload in provider_payloads
+                if payload.get("job_kind") == job_kind
+                and payload.get("exact_m12_authority_claims")
+            ]
+            assert matching_payloads, f"{job_kind} jobs lost exact M12 authority leaves"
 
         plot = project.m13_persistence().lookup(
             RecordKind.ARTIFACT,
@@ -229,11 +252,16 @@ def test_complete_pipeline_publishes_route_aware_plot_and_exact_m12_leaf(
         entries = hierarchy["section_entries"]
         assert isinstance(entries, list)
         assert all(item["job_kind"] != "scene" for item in entries)
-        assert {item["path"]["section"] for item in entries} >= {
-            "common_shared_story",
-            "persistent_route",
-            "ending",
-        }
+        entry_sections = {item["path"]["section"] for item in entries}
+        if entry_sections == {"common_shared_story"}:
+            assert all(item["contains_structured_alternatives"] for item in entries)
+            assert all(item["structure_manifest_id"] for item in entries)
+        else:
+            assert entry_sections >= {
+                "common_shared_story",
+                "persistent_route",
+                "ending",
+            }
 
         m12_claims = [
             item.payload
@@ -481,10 +509,76 @@ def test_m12_leaf_projection_keeps_exact_requirement_expression() -> None:
         perspective="reader",
     )
 
-    assert leaves["route-a"][0].authority.prerequisite_texts == (
-        "route_points >= 2",
-        "Commit to Route A.",
+    path_leaf = next(
+        item for item in leaves["route-a"] if item.authority.authority_kind == "path"
     )
+    assert path_leaf.authority.prerequisite_texts == (
+        "route_points >= 2",
+    )
+    assert path_leaf.authority.persistent_commitment_texts == ("Commit to Route A.",)
+
+
+def test_m12_leaf_projection_separates_result_and_path_authority() -> None:
+    result = {
+        "request_identity": "m12-two-path-result",
+        "status": "best_known_route",
+        "badge": "Best known route",
+        "recommended": {
+            "persistent_lane_ids": ["route-a"],
+            "requirements": [{"expression": "chapter >= 2"}],
+            "persistent_commitment_claims": [{"text": "Commit A."}],
+            "uncertainty_warnings": ["A is conditional."],
+            "provenance": {"scene_ids": ["scene-a"]},
+        },
+        "alternatives": [
+            {
+                "persistent_lane_ids": ["route-b"],
+                "requirements": [{"expression": "chapter >= 2"}],
+                "persistent_commitment_claims": [{"text": "Commit B."}],
+                "uncertainty_warnings": ["B is only an alternative."],
+                "provenance": {"scene_ids": ["scene-b"]},
+            }
+        ],
+        "complete": False,
+        "termination_reason": "limit:alternatives",
+        "diagnostics": ["Bounded result."],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (
+            PersistentRouteSpec("route-a", "route-a", 0, "Route A"),
+            PersistentRouteSpec("route-b", "route-b", 1, "Route B"),
+        ),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    result_leaves = [item for item in leaves[None] if item.authority.authority_kind == "result"]
+    assert len(result_leaves) == 1
+    result_authority = result_leaves[0].authority
+    assert result_authority.status is TechnicalStatus.BEST_KNOWN
+    assert result_authority.prerequisite_texts == ("chapter >= 2",)
+    assert result_authority.completion is False
+    assert result_authority.conclusion_texts == (
+        "limit:alternatives",
+        "Bounded result.",
+    )
+
+    recommended = next(
+        item for item in leaves["route-a"] if item.authority.authority_kind == "path"
+    ).authority
+    alternative = next(
+        item for item in leaves["route-b"] if item.authority.authority_kind == "path"
+    ).authority
+    assert (recommended.path_role, recommended.path_ordinal) == ("recommended", 0)
+    assert (alternative.path_role, alternative.path_ordinal) == ("alternative", 1)
+    assert alternative.status is None
+    assert alternative.badge is None
+    assert alternative.persistent_lane_ids == ("route-b",)
+    assert alternative.persistent_commitment_texts == ("Commit B.",)
+    assert alternative.warning_texts == ("B is only an alternative.",)
+    assert alternative.path_provenance == {"scene_ids": ["scene-b"]}
 
 
 def test_m12_leaf_projection_keeps_negative_result_without_route() -> None:

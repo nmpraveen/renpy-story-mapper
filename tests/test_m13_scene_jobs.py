@@ -362,6 +362,71 @@ def test_relevant_m12_status_and_prerequisite_are_preserved_exactly() -> None:
     assert recommended["requirements"] == _route()["recommended"]["requirements"]  # type: ignore[index]
 
 
+def test_m12_result_and_path_authority_remain_separate_across_lanes() -> None:
+    canonical, scene_model = _authority()
+    result = _route()
+    recommended = result["recommended"]
+    assert isinstance(recommended, dict)
+    recommended["requirements"] = [
+        {"expression": "chapter >= 2"},
+        {"expression": "trust >= 1"},
+    ]
+    recommended["persistent_commitment_claims"] = [{"text": "Commit north."}]
+    recommended["uncertainty_warnings"] = ["North remains conditional."]
+    recommended["provenance"] = {"scene_ids": ["scene-2"], "fact_ids": ["fact-1"]}
+    result["alternatives"] = [
+        {
+            "scene_ids": ["scene-1"],
+            "requirements": [
+                {"expression": "chapter >= 2"},
+                {"expression": "courage >= 1"},
+            ],
+            "persistent_lane_ids": ["lane-spine"],
+            "persistent_commitment_claims": [{"text": "Remain on the spine."}],
+            "uncertainty_warnings": ["The spine is not the selected result."],
+            "provenance": {"scene_ids": ["scene-1"], "fact_ids": []},
+        }
+    ]
+    result["diagnostics"] = ["The search remained bounded."]
+
+    scene_1, scene_2 = project_scene_inputs(
+        canonical,
+        scene_model,
+        m12_results=(result,),
+        **_AUTHORITY_KWARGS,
+    )
+
+    for packet in (scene_1, scene_2):
+        record = packet.m12_records[0]
+        result_authority = record["result_authority"]
+        assert isinstance(result_authority, Mapping)
+        assert result_authority["request_identity"] == result["request_identity"]
+        assert result_authority["status"] == result["status"]
+        assert result_authority["badge"] == result["badge"]
+        assert result_authority["complete"] is True
+        assert result_authority["termination_reason"] == "best_route_proven"
+        assert result_authority["diagnostics"] == ["The search remained bounded."]
+        assert result_authority["prerequisites"] == ["chapter >= 2"]
+
+    scene_1_paths = scene_1.m12_records[0]["path_authority"]
+    scene_2_paths = scene_2.m12_records[0]["path_authority"]
+    assert isinstance(scene_1_paths, list) and isinstance(scene_2_paths, list)
+    assert scene_1_paths[0]["role"] == "alternative"
+    assert scene_1_paths[0]["ordinal"] == 1
+    assert scene_1_paths[0]["persistent_lane_ids"] == ["lane-spine"]
+    assert "status" not in scene_1_paths[0]
+    assert scene_2_paths[0]["role"] == "recommended"
+    assert scene_2_paths[0]["ordinal"] == 0
+    assert scene_2_paths[0]["persistent_lane_ids"] == ["lane-route"]
+    assert scene_2_paths[0]["persistent_commitment_claims"] == [
+        {"text": "Commit north."}
+    ]
+    assert scene_2_paths[0]["provenance"] == {
+        "scene_ids": ["scene-2"],
+        "fact_ids": ["fact-1"],
+    }
+
+
 def test_binding_rejects_stale_m11_without_mutating_authority() -> None:
     canonical, scene_model = _authority()
     stale = copy.deepcopy(scene_model)

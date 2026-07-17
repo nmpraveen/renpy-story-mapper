@@ -439,19 +439,47 @@ def _bounded_m12_record(
     scene_id: str, result: Mapping[str, object]
 ) -> Mapping[str, object]:
     routes: list[Mapping[str, object]] = []
+    all_paths: list[tuple[str, int, Mapping[str, object]]] = []
     recommended = result.get("recommended")
-    if isinstance(recommended, Mapping) and _result_mentions_scene(recommended, scene_id):
-        routes.append(_bounded_route_alternative(recommended, "recommended"))
+    if isinstance(recommended, Mapping):
+        all_paths.append(("recommended", 0, recommended))
     alternatives = result.get("alternatives", ())
     if not isinstance(alternatives, list | tuple):
         raise ValueError("M12 alternatives must be an array")
-    matching = [
-        item
-        for item in alternatives
-        if isinstance(item, Mapping) and _result_mentions_scene(item, scene_id)
-    ]
-    for item in matching[:MAX_M12_ALTERNATIVES_PER_RESULT]:
-        routes.append(_bounded_route_alternative(item, "alternative"))
+    if any(not isinstance(item, Mapping) for item in alternatives):
+        raise ValueError("M12 alternatives contain a malformed path")
+    all_paths.extend(
+        ("alternative", ordinal, item)
+        for ordinal, item in enumerate(alternatives, start=1)
+        if isinstance(item, Mapping)
+    )
+    matching = [item for item in all_paths if _result_mentions_scene(item[2], scene_id)]
+    for role, ordinal, item in matching[: MAX_M12_ALTERNATIVES_PER_RESULT + 1]:
+        routes.append(_bounded_route_alternative(item, role, ordinal))
+    diagnostics = result.get("diagnostics", ())
+    if not isinstance(diagnostics, list | tuple) or any(
+        not isinstance(item, str) for item in diagnostics
+    ):
+        raise ValueError("M12 diagnostics must be an array of strings")
+    result_authority: dict[str, object] = {
+        key: result[key]
+        for key in (
+            "schema",
+            "schema_version",
+            "request_identity",
+            "status",
+            "badge",
+            "complete",
+            "termination_reason",
+            "exhaustive",
+            "closed_world",
+        )
+        if key in result
+    }
+    result_authority["diagnostics"] = list(diagnostics)
+    result_authority["prerequisites"] = list(
+        _common_m12_prerequisites(tuple(item[2] for item in all_paths))
+    )
     value: dict[str, object] = {
         key: result[key]
         for key in (
@@ -466,16 +494,18 @@ def _bounded_m12_record(
         )
         if key in result
     }
+    value["result_authority"] = result_authority
+    value["path_authority"] = routes
     value["routes"] = routes
     value["matching_route_total"] = len(routes)
-    value["matching_routes_truncated"] = len(matching) > MAX_M12_ALTERNATIVES_PER_RESULT
+    value["matching_routes_truncated"] = len(matching) > len(routes)
     return value
 
 
 def _bounded_route_alternative(
-    route: Mapping[str, object], kind: str
+    route: Mapping[str, object], role: str, ordinal: int
 ) -> Mapping[str, object]:
-    value: dict[str, object] = {"kind": kind}
+    value: dict[str, object] = {"kind": role, "role": role, "ordinal": ordinal}
     for key in (
         "scene_ids",
         "scene_titles",
@@ -485,6 +515,7 @@ def _bounded_route_alternative(
         "uncertainty_warnings",
         "instructions",
         "call_contexts",
+        "persistent_commitment_claims",
     ):
         items = route.get(key, ())
         if not isinstance(items, list | tuple):
@@ -495,7 +526,41 @@ def _bounded_route_alternative(
     for key in ("selected_occurrence_id", "loop_count"):
         if key in route:
             value[key] = route[key]
+    provenance = route.get("provenance", {})
+    if not isinstance(provenance, Mapping):
+        raise ValueError("M12 route provenance must be an object")
+    value["provenance"] = dict(provenance)
     return value
+
+
+def _common_m12_prerequisites(
+    paths: Sequence[Mapping[str, object]],
+) -> tuple[str, ...]:
+    if not paths:
+        return ()
+    ordered = tuple(_m12_requirement_texts(path) for path in paths)
+    common = set(ordered[0])
+    for values in ordered[1:]:
+        common.intersection_update(values)
+    return tuple(value for value in ordered[0] if value in common)
+
+
+def _m12_requirement_texts(path: Mapping[str, object]) -> tuple[str, ...]:
+    requirements = path.get("requirements", ())
+    if not isinstance(requirements, list | tuple):
+        raise ValueError("M12 route requirements must be an array")
+    result: list[str] = []
+    for item in requirements:
+        if isinstance(item, str):
+            text = item
+        elif isinstance(item, Mapping):
+            expression = item.get("expression")
+            text = expression if isinstance(expression, str) else ""
+        else:
+            raise ValueError("M12 route requirement is malformed")
+        if text.strip() and text not in result:
+            result.append(text)
+    return tuple(result)
 
 
 def _result_mentions_scene(value: object, scene_id: str) -> bool:

@@ -14,6 +14,8 @@ from typing import cast
 
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.contracts import (
+    AuthorityReference,
+    AuthoritySystem,
     CacheIdentity,
     ClaimClass,
     ClaimContextScope,
@@ -579,15 +581,41 @@ def _runtime_narrative_claim(payload: Mapping[str, object]) -> NarrativeClaim:
     ordinal = payload.get("ordinal")
     if (
         not isinstance(support_raw, Mapping)
-        or support_raw.get("kind") != SupportKind.CHILD_CLAIMS.value
         or not isinstance(semantics_raw, Mapping)
         or not isinstance(ordinal, int)
         or isinstance(ordinal, bool)
     ):
         raise ValueError("mandatory runtime claim is malformed")
-    child_ids = support_raw.get("child_claim_ids")
-    if not isinstance(child_ids, list) or any(not isinstance(item, str) for item in child_ids):
-        raise ValueError("mandatory runtime claim support is malformed")
+    support_kind = SupportKind(_required_text(support_raw, "kind"))
+    if support_kind is SupportKind.CHILD_CLAIMS:
+        child_ids = support_raw.get("child_claim_ids")
+        if not isinstance(child_ids, list) or any(
+            not isinstance(item, str) for item in child_ids
+        ):
+            raise ValueError("mandatory runtime claim support is malformed")
+        support = ClaimSupport(
+            SupportKind.CHILD_CLAIMS,
+            child_claim_ids=tuple(cast(list[str], child_ids)),
+        )
+    else:
+        raw_evidence = support_raw.get("direct_evidence")
+        if not isinstance(raw_evidence, list) or any(
+            not isinstance(item, Mapping) for item in raw_evidence
+        ):
+            raise ValueError("mandatory runtime direct evidence is malformed")
+        evidence = tuple(
+            AuthorityReference(
+                AuthoritySystem(_required_text(item, "authority")),
+                _required_text(item, "record_kind"),
+                _required_text(item, "record_id"),
+                _required_text(item, "owner_id"),
+            )
+            for item in cast(list[Mapping[str, object]], raw_evidence)
+        )
+        support = ClaimSupport(
+            SupportKind.DIRECT_EVIDENCE,
+            direct_evidence=evidence,
+        )
     return NarrativeClaim(
         logical_job_id=_required_text(payload, "logical_job_id"),
         job_kind=LogicalJobKind(_required_text(payload, "job_kind")),
@@ -595,10 +623,7 @@ def _runtime_narrative_claim(payload: Mapping[str, object]) -> NarrativeClaim:
         claim_class=ClaimClass(_required_text(payload, "claim_class")),
         context_scope=ClaimContextScope(_required_text(payload, "context_scope")),
         text=_required_text(payload, "text"),
-        support=ClaimSupport(
-            SupportKind.CHILD_CLAIMS,
-            child_claim_ids=tuple(cast(list[str], child_ids)),
-        ),
+        support=support,
         semantics=ClaimSemantics(
             subject=_required_text(semantics_raw, "subject"),
             predicate=_required_text(semantics_raw, "predicate"),

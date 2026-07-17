@@ -97,6 +97,9 @@ class ValidationContext:
     claim_context_scopes: tuple[tuple[str, ClaimContextScope], ...] = ()
 
     def __post_init__(self) -> None:
+        embedded_authority = getattr(self.handles, "authority_claims", ())
+        if not self.authority_claims and embedded_authority:
+            object.__setattr__(self, "authority_claims", tuple(embedded_authority))
         if not self.input_revision_id.strip():
             raise ValueError("validation requires an input revision ID")
         if not self.deterministic_title.strip():
@@ -119,8 +122,21 @@ class ValidationContext:
         available_handles = {
             item.claim_id for item in self.handles.child_claim_handles
         }
-        if not set(authority_ids) <= available_handles:
-            raise ValueError("validation authority claims must be prompt-local children")
+        available_evidence = {
+            item.reference for item in self.handles.evidence_handles
+        }
+        for claim in self.authority_claims:
+            if claim.claim_id in available_handles:
+                continue
+            if (
+                claim.support.kind is SupportKind.DIRECT_EVIDENCE
+                and claim.support.direct_evidence
+                and set(claim.support.direct_evidence) <= available_evidence
+            ):
+                continue
+            raise ValueError(
+                "validation authority claims must be prompt-local children or evidence"
+            )
         if any(
             claim.claim_class is not ClaimClass.FACTUAL
             or claim.semantics is None
@@ -396,19 +412,25 @@ def _ensure_exact_authority_claims(
     for claim in claims:
         if claim.claim_class is not ClaimClass.FACTUAL:
             continue
-        for child_id in claim.support.child_claim_ids:
-            exact = authority_by_id.get(child_id)
-            if (
-                exact is not None
-                and claim.text == exact.text
-                and claim.semantics == exact.semantics
-            ):
-                represented.add(child_id)
+        for exact in context.authority_claims:
+            if _claim_represents_exact_authority(claim, exact):
+                represented.add(exact.claim_id)
     next_ordinal = max((claim.ordinal for claim in claims), default=-1) + 1
     result = list(claims)
     for exact in context.authority_claims:
         if exact.claim_id in represented:
             continue
+        support = (
+            exact.support
+            if exact.support.kind is SupportKind.DIRECT_EVIDENCE
+            and exact.claim_id not in {
+                item.claim_id for item in context.handles.child_claim_handles
+            }
+            else ClaimSupport(
+                kind=SupportKind.CHILD_CLAIMS,
+                child_claim_ids=(exact.claim_id,),
+            )
+        )
         result.append(
             NarrativeClaim(
                 logical_job_id=context.job.job_id,
@@ -417,10 +439,7 @@ def _ensure_exact_authority_claims(
                 claim_class=ClaimClass.FACTUAL,
                 context_scope=exact.context_scope,
                 text=exact.text,
-                support=ClaimSupport(
-                    kind=SupportKind.CHILD_CLAIMS,
-                    child_claim_ids=(exact.claim_id,),
-                ),
+                support=support,
                 semantics=exact.semantics,
             )
         )
@@ -432,9 +451,13 @@ def _ensure_exact_authority_claims(
     represented_ids: set[str] = set()
     issues: list[ValidationIssue] = []
     for claim in result:
-        cited = authority_ids.intersection(claim.support.child_claim_ids)
+        cited = tuple(
+            exact.claim_id
+            for exact in context.authority_claims
+            if _claim_represents_exact_authority(claim, exact)
+        )
         if cited and claim.claim_class is ClaimClass.FACTUAL:
-            authority_id = next(iter(cited))
+            authority_id = cited[0]
             if authority_id in mandatory_by_authority:
                 issues.append(
                     ValidationIssue(
@@ -463,6 +486,27 @@ def _ensure_exact_authority_claims(
         for claim in omitted
     )
     return bounded, tuple(issues)
+
+
+def _claim_represents_exact_authority(
+    claim: NarrativeClaim,
+    exact: NarrativeClaim,
+) -> bool:
+    if claim.claim_class is not ClaimClass.FACTUAL:
+        return False
+    if claim.text != exact.text or claim.semantics != exact.semantics:
+        return False
+    if exact.claim_id in claim.support.child_claim_ids:
+        return (
+            claim.support.kind is SupportKind.CHILD_CLAIMS
+            and claim.support.child_claim_ids == (exact.claim_id,)
+        )
+    if exact.support.kind is not SupportKind.DIRECT_EVIDENCE:
+        return False
+    return (
+        claim.support.kind is SupportKind.DIRECT_EVIDENCE
+        and claim.support.direct_evidence == exact.support.direct_evidence
+    )
 
 
 def _validate_claim(
@@ -553,17 +597,34 @@ def _validate_exact_authority_claim(
     if not authority_claims or claim.claim_class is not ClaimClass.FACTUAL:
         return
     authority_by_id = {item.claim_id: item for item in authority_claims}
-    cited = tuple(
+    cited_children = tuple(
         authority_by_id[item]
         for item in claim.support.child_claim_ids
         if item in authority_by_id
     )
-    if cited:
-        if len(cited) != 1 or len(claim.support.child_claim_ids) != 1:
+    exact_evidence = {
+        reference
+        for exact in authority_claims
+        if exact.support.kind is SupportKind.DIRECT_EVIDENCE
+        for reference in exact.support.direct_evidence
+    }
+    cites_exact_evidence = bool(
+        exact_evidence.intersection(claim.support.direct_evidence)
+    )
+    if cited_children:
+        if len(cited_children) != 1 or len(claim.support.child_claim_ids) != 1:
             raise ValueError("one factual M12 claim must cite only one exact authority claim")
-        exact = cited[0]
+        exact = cited_children[0]
         if claim.text != exact.text or claim.semantics != exact.semantics:
             raise ValueError("factual M12 claims must preserve exact authority language")
+    elif cites_exact_evidence:
+        represented = tuple(
+            exact
+            for exact in authority_claims
+            if _claim_represents_exact_authority(claim, exact)
+        )
+        if len(represented) != 1:
+            raise ValueError("factual M12 evidence must preserve one exact authority fact")
     semantics = claim.semantics
     assert semantics is not None
     for exact in authority_claims:

@@ -175,3 +175,53 @@ def test_relevant_m12_status_is_an_exact_owned_support_record(tmp_path: Path) ->
     assert isinstance(route_record, dict)
     assert route_record["status"] == outcome.result["status"]
     assert route_record["badge"] == outcome.result["badge"]
+
+
+def test_scene_jobs_bind_exact_prompt_local_m12_claims_and_disable_cleanly(
+    tmp_path: Path,
+) -> None:
+    with _project(tmp_path) as project:
+        service = M12RouteService(project)
+        destination = next(
+            item
+            for item in service.destinations(limit=50)["nodes"]
+            if item["kind"] == "generic_scene"
+        )
+        outcome = service.solve(
+            service.prepare(str(destination["kind"]), str(destination["target_id"]))
+        )
+        assert outcome.result is not None
+        authority = load_narrative_authority(project, include_m12=True)
+
+    enabled = prepare_scene_jobs(
+        authority,
+        mode=NarrativeInputMode.FACT_ONLY,
+        include_m12_material=True,
+    )
+    enabled_with_m12 = [item for item in enabled if item.authority_claims]
+    assert enabled_with_m12
+    for job in enabled_with_m12:
+        prompt_claims = job.payload["exact_m12_authority_claims"]
+        assert isinstance(prompt_claims, list)
+        assert len(prompt_claims) == len(job.authority_claims)
+        assert {str(item["text"]) for item in prompt_claims} == {
+            claim.text for claim in job.authority_claims
+        }
+        assert all(
+            reference.owner_id == job.job.spec.owner_id
+            for claim in job.authority_claims
+            for reference in claim.support.direct_evidence
+        )
+
+    disabled = prepare_scene_jobs(
+        authority,
+        mode=NarrativeInputMode.FACT_ONLY,
+        include_m12_material=False,
+    )
+    assert all(not item.authority_claims for item in disabled)
+    assert all(item.payload["exact_m12_authority_claims"] == [] for item in disabled)
+    assert all(
+        handle.reference.authority.value != "m12"
+        for item in disabled
+        for handle in item.handles.evidence_handles
+    )

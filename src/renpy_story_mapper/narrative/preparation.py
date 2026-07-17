@@ -19,6 +19,10 @@ from renpy_story_mapper.narrative.contracts import (
     AuthorityReference,
     AuthoritySystem,
     BudgetLimits,
+    ClaimClass,
+    ClaimPolarity,
+    ClaimSemantics,
+    ClaimSupport,
     ConsentManifest,
     CostConfidence,
     InputRevision,
@@ -27,10 +31,12 @@ from renpy_story_mapper.narrative.contracts import (
     LogicalJob,
     LogicalJobKind,
     LogicalJobSpec,
+    NarrativeClaim,
     PrivacyMode,
     ProviderIdentity,
     RunEstimate,
     StructuralContext,
+    SupportKind,
     canonical_hash,
 )
 from renpy_story_mapper.narrative.evidence import PromptHandleTable
@@ -41,7 +47,7 @@ from renpy_story_mapper.narrative.projection import (
 )
 from renpy_story_mapper.storage import canonical_json
 
-M13_SCENE_PROVIDER_INPUT_SCHEMA = "m13-scene-provider-input-v1"
+M13_SCENE_PROVIDER_INPUT_SCHEMA = "m13-scene-provider-input-v2"
 DEFAULT_SCENE_OUTPUT_TOKENS = 800
 # JSON-heavy structured provider input tokenizes more densely than ordinary prose.  The live
 # acceptance evidence measured between 2.13 and 2.36 serialized characters per input token, so
@@ -64,6 +70,13 @@ class ProviderPricing:
 
 
 @dataclass(frozen=True)
+class ScenePromptHandleTable(PromptHandleTable):
+    """Scene handle table carrying exact facts for the workflow validation seam."""
+
+    authority_claims: tuple[NarrativeClaim, ...] = ()
+
+
+@dataclass(frozen=True)
 class PreparedSceneJob:
     """One independently identified and independently validatable scene job."""
 
@@ -74,6 +87,7 @@ class PreparedSceneJob:
     ordinal: int
     estimated_input_tokens: int
     estimated_output_tokens: int = DEFAULT_SCENE_OUTPUT_TOKENS
+    authority_claims: tuple[NarrativeClaim, ...] = ()
 
     def __post_init__(self) -> None:
         if self.job.spec.kind is not LogicalJobKind.SCENE:
@@ -86,6 +100,22 @@ class PreparedSceneJob:
             raise ValueError("prepared token estimates must be positive")
         if canonical_hash(self.payload) != self.job.input_revision.normalized_input_hash:
             raise ValueError("prepared payload does not match its input revision")
+        authority_ids = tuple(claim.claim_id for claim in self.authority_claims)
+        if len(authority_ids) != len(set(authority_ids)):
+            raise ValueError("prepared scene authority claims must be unique")
+        prompt_references = {
+            item.reference for item in self.handles.evidence_handles
+        }
+        if any(
+            claim.logical_job_id != self.job.spec.job_id
+            or claim.job_kind is not LogicalJobKind.SCENE
+            or claim.claim_class is not ClaimClass.FACTUAL
+            or claim.semantics is None
+            or claim.support.kind is not SupportKind.DIRECT_EVIDENCE
+            or not set(claim.support.direct_evidence) <= prompt_references
+            for claim in self.authority_claims
+        ):
+            raise ValueError("prepared scene authority claims must be exact prompt-local facts")
 
     @property
     def input_chars(self) -> int:
@@ -266,6 +296,32 @@ def _prepare_scene(
                 "record": record,
             }
         )
+    authority_claims = _scene_m12_authority_claims(packet, spec, references)
+    if len(authority_claims) > 256:
+        raise ValueError("scene exact M12 authority exceeds the 256-claim bound")
+    handles = ScenePromptHandleTable(
+        handles.scope_id,
+        handles.allowed_owner_ids,
+        handles.evidence_handles,
+        handles.child_claim_handles,
+        authority_claims,
+    )
+    exact_m12_authority_claims: list[JsonValue] = []
+    for claim in authority_claims:
+        reference = claim.support.direct_evidence[0]
+        semantics = claim.semantics
+        assert semantics is not None
+        exact_m12_authority_claims.append(
+            {
+                "handle": handle_by_reference[reference],
+                "claim_id": claim.claim_id,
+                "text": claim.text,
+                "subject": semantics.subject,
+                "predicate": semantics.predicate,
+                "polarity": semantics.polarity.value,
+                "normalized_value": semantics.normalized_value,
+            }
+        )
     payload: dict[str, JsonValue] = {
         "schema": M13_SCENE_PROVIDER_INPUT_SCHEMA,
         "job_kind": LogicalJobKind.SCENE.value,
@@ -277,6 +333,7 @@ def _prepare_scene(
         "deterministic_title": packet.deterministic_title,
         "structural_context": _json_value(dict(packet.structural_context)),
         "support_records": support_records,
+        "exact_m12_authority_claims": exact_m12_authority_claims,
         "omitted_support_count": len(packet.omitted_evidence_ids),
         "response_contract": {
             "support_class": "evidence_handles_only",
@@ -303,7 +360,127 @@ def _prepare_scene(
         ordinal=ordinal,
         estimated_input_tokens=estimated_input_tokens,
         estimated_output_tokens=output_tokens,
+        authority_claims=authority_claims,
     )
+
+
+def _scene_m12_authority_claims(
+    packet: SceneInputPacket,
+    spec: LogicalJobSpec,
+    references: tuple[AuthorityReference, ...],
+) -> tuple[NarrativeClaim, ...]:
+    m12_references = {
+        reference.record_id: reference
+        for reference in references
+        if reference.authority is AuthoritySystem.M12
+    }
+    records: list[tuple[str, str, str]] = []
+    for result in packet.m12_records:
+        request_identity = _record_id(result, "M12 route result", key="request_identity")
+        result_authority = result.get("result_authority")
+        path_authority = result.get("path_authority")
+        if not isinstance(result_authority, Mapping) or not isinstance(path_authority, list):
+            raise ValueError("projected M12 result/path authority is malformed")
+        result_subject = f"m12-route-result:{request_identity}"
+        records.extend(
+            (result_subject, predicate, text)
+            for predicate, text in _exact_result_authority_records(result_authority)
+        )
+        for path in path_authority:
+            if not isinstance(path, Mapping):
+                raise ValueError("projected M12 path authority is malformed")
+            ordinal = path.get("ordinal")
+            role = path.get("role")
+            if (
+                not isinstance(ordinal, int)
+                or isinstance(ordinal, bool)
+                or ordinal < 0
+                or role not in {"recommended", "alternative"}
+            ):
+                raise ValueError("projected M12 path identity is malformed")
+            subject = f"{result_subject}:path:{ordinal}:{role}"
+            records.extend(
+                (subject, predicate, text)
+                for predicate, text in _exact_path_authority_records(path)
+            )
+    claims: list[NarrativeClaim] = []
+    for ordinal, (subject, predicate, text) in enumerate(records):
+        request_identity = subject.removeprefix("m12-route-result:").split(":path:", 1)[0]
+        reference = m12_references.get(request_identity)
+        if reference is None:
+            raise ValueError("exact scene M12 authority lost its prompt-local result")
+        claims.append(
+            NarrativeClaim(
+                logical_job_id=spec.job_id,
+                job_kind=LogicalJobKind.SCENE,
+                ordinal=ordinal,
+                claim_class=ClaimClass.FACTUAL,
+                text=text,
+                support=ClaimSupport(
+                    SupportKind.DIRECT_EVIDENCE,
+                    direct_evidence=(reference,),
+                ),
+                semantics=ClaimSemantics(
+                    subject=subject,
+                    predicate=predicate,
+                    polarity=ClaimPolarity.NEUTRAL,
+                    normalized_value=text,
+                ),
+            )
+        )
+    return tuple(claims)
+
+
+def _exact_result_authority_records(
+    result: Mapping[str, object],
+) -> tuple[tuple[str, str], ...]:
+    records: list[tuple[str, str]] = []
+    for key in ("request_identity", "status", "badge", "termination_reason"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            records.append((key, value))
+    completion = result.get("complete")
+    if isinstance(completion, bool):
+        records.append(("completion", str(completion).lower()))
+    for field, predicate in (("diagnostics", "diagnostic"), ("prerequisites", "prerequisite")):
+        values = result.get(field, ())
+        if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+            raise ValueError(f"projected M12 result {field} is malformed")
+        records.extend((f"{predicate}:{ordinal}", item) for ordinal, item in enumerate(values))
+    return tuple(records)
+
+
+def _exact_path_authority_records(
+    path: Mapping[str, object],
+) -> tuple[tuple[str, str], ...]:
+    role = path.get("role")
+    ordinal = path.get("ordinal")
+    assert isinstance(role, str) and isinstance(ordinal, int)
+    records: list[tuple[str, str]] = [("path_role", role), ("path_ordinal", str(ordinal))]
+    for field, predicate, value_key in (
+        ("persistent_lane_ids", "persistent_lane", None),
+        ("requirements", "prerequisite", "expression"),
+        ("persistent_commitment_claims", "persistent_commitment", "text"),
+        ("uncertainty_warnings", "uncertainty_warning", None),
+    ):
+        values = path.get(field, ())
+        if not isinstance(values, list):
+            raise ValueError(f"projected M12 path {field} is malformed")
+        for item_ordinal, item in enumerate(values):
+            if value_key is None:
+                text = item if isinstance(item, str) else ""
+            elif isinstance(item, Mapping):
+                raw = item.get(value_key)
+                text = raw if isinstance(raw, str) else ""
+            else:
+                text = ""
+            if text.strip():
+                records.append((f"{predicate}:{item_ordinal}", text))
+    provenance = path.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ValueError("projected M12 path provenance is malformed")
+    records.append(("path_provenance", canonical_hash(dict(provenance))))
+    return tuple(records)
 
 
 def _structural_context(packet: SceneInputPacket) -> StructuralContext:

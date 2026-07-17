@@ -831,6 +831,10 @@ def run_complete_narrative(
                 character_id,
                 tuple(item.hierarchy_input() for item in character_inputs),
                 hierarchy_config,
+                m12_authority_leaves=_character_m12_leaves(
+                    character_inputs,
+                    m12_leaves,
+                ),
             )
             if character_plan.reductions:
                 raise ValueError("character fan-in remained oversized after reduction")
@@ -853,6 +857,12 @@ def run_complete_narrative(
                 cancelled=cancelled,
                 title=lambda descriptor: _character_title(descriptor),
                 summary=lambda _descriptor: "Character participation summary unavailable.",
+                authority_claims={
+                    claim.claim_id: claim
+                    for leaves in m12_leaves.values()
+                    for leaf in leaves
+                    for claim in leaf.claims
+                },
             )
             if character_level is not None:
                 phases.append(character_level.scheduler)
@@ -883,6 +893,24 @@ def run_complete_narrative(
         artifacts,
         tuple(dict.fromkeys(unresolved)),
     )
+
+
+def _character_m12_leaves(
+    artifacts: Sequence[_ArtifactCandidate],
+    leaves_by_route: Mapping[str | None, tuple[M12AuthorityLeaf, ...]],
+) -> tuple[M12AuthorityLeaf, ...]:
+    route_ids = sorted(
+        {
+            artifact.path.route_id
+            for artifact in artifacts
+            if artifact.path.route_id is not None
+        }
+    )
+    selected: dict[str, M12AuthorityLeaf] = {}
+    for route_id in route_ids:
+        for leaf in leaves_by_route.get(route_id, ()):
+            selected[leaf.authority.authority_identity] = leaf
+    return tuple(selected[key] for key in sorted(selected))
 
 
 def _prepared_character_ids(
@@ -1094,7 +1122,7 @@ def _scene_candidates(
                 raise ValueError("published scene artifact is not durably readable")
             artifact_id = record.artifact_id
             payload = lookup.payload
-            claim_ids = _artifact_claim_ids(payload)
+            claim_ids = _artifact_claim_ids(payload)[:MAX_PROPAGATED_CLAIMS_PER_ARTIFACT]
             runtime = RuntimeNarrativeArtifact(
                 artifact_id,
                 record.logical_job_id,
@@ -1665,7 +1693,6 @@ def _m12_leaves(
     locale: str,
     perspective: str,
 ) -> dict[str | None, tuple[M12AuthorityLeaf, ...]]:
-    route_ids = {item.route_id for item in routes}
     selected: dict[str | None, list[M12AuthorityLeaf]] = defaultdict(list)
     for result in results:
         result_identity = _text(result, "request_identity")
@@ -1676,98 +1703,125 @@ def _m12_leaves(
             for key in ("recommended", "alternatives")
             for item in _route_result_records(result.get(key), key)
         )
-        matched_route = False
-        for route_id in sorted(route_ids):
-            relevant = tuple(
-                item
-                for item in route_records
-                if route_id
-                in _string_tuple(
-                    item.get("persistent_lane_ids"),
-                    "M12 persistent lane IDs",
+        diagnostics = result.get("diagnostics", [])
+        if not isinstance(diagnostics, list) or any(
+            not isinstance(item, str) for item in diagnostics
+        ):
+            raise ValueError("M12 diagnostics must be an array")
+        conclusions = tuple(
+            dict.fromkeys(
+                (
+                    *(
+                        (str(result["termination_reason"]),)
+                        if isinstance(result.get("termination_reason"), str)
+                        else ()
+                    ),
+                    *(item for item in diagnostics if item.strip()),
                 )
             )
-            if not relevant:
-                continue
-            matched_route = True
-            prerequisites = _exact_m12_texts(
-                relevant,
-                ("requirements", "persistent_commitment_claims", "uncertainty_warnings"),
+        )
+        completion = result.get("complete")
+        if completion is not None and not isinstance(completion, bool):
+            raise ValueError("M12 completion state must be boolean")
+        result_authority = M12RouteAuthority(
+            result_identity,
+            None,
+            None,
+            status,
+            badge,
+            _common_exact_m12_texts(route_records, "requirements"),
+            conclusions,
+            authority_kind="result",
+            completion=completion,
+        )
+        result_leaf = make_m12_authority_leaf(
+            result_authority,
+            locale=locale,
+            perspective=perspective,
+        )
+        selected[None].append(result_leaf)
+        matched_route_ids: set[str] = set()
+        indexed_paths = (
+            tuple(
+                ("recommended", 0, record)
+                for record in _route_result_records(result.get("recommended"), "recommended")
             )
-            diagnostics = result.get("diagnostics", [])
-            if not isinstance(diagnostics, list):
-                raise ValueError("M12 diagnostics must be an array")
-            conclusions = tuple(
-                dict.fromkeys(
-                    (
-                        *(
-                            (str(result["termination_reason"]),)
-                            if isinstance(result.get("termination_reason"), str)
-                            else ()
-                        ),
-                        *tuple(
-                            item for item in diagnostics if isinstance(item, str) and item.strip()
-                        ),
+            + tuple(
+                ("alternative", ordinal, record)
+                for ordinal, record in enumerate(
+                    _route_result_records(result.get("alternatives"), "alternatives"),
+                    start=1,
+                )
+            )
+        )
+        for role, path_ordinal, record in indexed_paths:
+            lane_ids = _string_tuple(
+                record.get("persistent_lane_ids"),
+                "M12 persistent lane IDs",
+            )
+            matching_routes = tuple(
+                route
+                for route in routes
+                if route.route_id in lane_ids or route.persistent_lane_id in lane_ids
+            )
+            for route in matching_routes:
+                if route.route_id not in matched_route_ids:
+                    selected[route.route_id].append(result_leaf)
+                    matched_route_ids.add(route.route_id)
+                provenance = record.get("provenance", {})
+                if not isinstance(provenance, Mapping):
+                    raise ValueError("M12 path provenance must be an object")
+                path_authority = M12RouteAuthority(
+                    result_identity,
+                    route.route_id,
+                    route.persistent_lane_id,
+                    None,
+                    None,
+                    _exact_m12_texts((record,), ("requirements",)),
+                    (),
+                    authority_kind="path",
+                    path_role=role,
+                    path_ordinal=path_ordinal,
+                    persistent_lane_ids=lane_ids,
+                    persistent_commitment_texts=_exact_m12_texts(
+                        (record,),
+                        ("persistent_commitment_claims",),
+                    ),
+                    warning_texts=_exact_m12_texts(
+                        (record,),
+                        ("uncertainty_warnings",),
+                    ),
+                    path_provenance=dict(provenance),
+                )
+                selected[route.route_id].append(
+                    make_m12_authority_leaf(
+                        path_authority,
+                        locale=locale,
+                        perspective=perspective,
                     )
                 )
-            )
-            authority = M12RouteAuthority(
-                result_identity,
-                route_id,
-                route_id,
-                status,
-                badge,
-                prerequisites,
-                conclusions,
-            )
-            selected[route_id].append(
-                make_m12_authority_leaf(
-                    authority,
-                    locale=locale,
-                    perspective=perspective,
-                )
-            )
-        if not matched_route:
-            diagnostics = result.get("diagnostics", [])
-            if not isinstance(diagnostics, list):
-                raise ValueError("M12 diagnostics must be an array")
-            conclusions = tuple(
-                dict.fromkeys(
-                    (
-                        *(
-                            (str(result["termination_reason"]),)
-                            if isinstance(result.get("termination_reason"), str)
-                            else ()
-                        ),
-                        *tuple(
-                            item for item in diagnostics if isinstance(item, str) and item.strip()
-                        ),
-                    )
-                )
-            )
-            authority = M12RouteAuthority(
-                result_identity,
-                None,
-                None,
-                status,
-                badge,
-                (),
-                conclusions,
-            )
-            selected[None].append(
-                make_m12_authority_leaf(
-                    authority,
-                    locale=locale,
-                    perspective=perspective,
-                )
-            )
     grouped: dict[str | None, tuple[M12AuthorityLeaf, ...]] = {}
     for scope_route_id, leaves in selected.items():
-        ordered = tuple(sorted(leaves, key=lambda item: item.authority.result_identity))
+        ordered = tuple(
+            sorted(leaves, key=lambda item: item.authority.authority_identity)
+        )
         if len(ordered) > 32:
             raise ValueError("A hierarchy scope cannot bind more than 32 current M12 results.")
         grouped[scope_route_id] = ordered
     return grouped
+
+
+def _common_exact_m12_texts(
+    records: Sequence[Mapping[str, object]],
+    field: str,
+) -> tuple[str, ...]:
+    if not records:
+        return ()
+    values = tuple(_exact_m12_texts((record,), (field,)) for record in records)
+    common = set(values[0])
+    for item in values[1:]:
+        common.intersection_update(item)
+    return tuple(text for text in values[0] if text in common)
 
 
 def _route_result_records(value: object, label: str) -> tuple[Mapping[str, object], ...]:
