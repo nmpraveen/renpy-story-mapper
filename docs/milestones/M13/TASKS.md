@@ -4,21 +4,21 @@ Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Integration branch: `codex/m13-narrative-layer`
 
-Orchestration limitation: the available collaboration controls do not expose or verify model,
-reasoning-effort, or fast-mode selectors. The repository dispatch policy cannot be asserted
-through that surface. This must not create fixed provider settings in M13 product contracts or
-tests and will be recorded in each delegated handoff if delegation is used.
+Orchestration limitation: current collaboration controls expose model and reasoning-effort but
+not a fast-mode selector. Current M13 tasks were dispatched explicitly with `gpt-5.6-sol` and High
+reasoning; fast-mode state is not claimed verified through that surface. This must not create
+fixed provider settings in M13 product contracts or tests.
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
-| Contract and native goal | Primary | `GOAL.md`, lifecycle pointer, exact native goal | Approved recovery scope | In progress | Existing task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` resumed in this same task by explicit user approval; no second goal created; not complete |
+| Contract and native goal | Primary | `GOAL.md`, lifecycle pointer, exact native goal | Approved recovery scope | Complete | Prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` was stopped by the user; this approved continuation completed without creating a second native goal |
 | Semantic review | Primary | Requirements, architecture, expected files/tests/evidence | Contract recorded | Complete | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-16 |
 | Contracts and evidence handles | Primary | M13 immutable contracts, claim DAG, handles, prompt schemas/templates, focused tests | Semantic review `PASS` | Complete | `7880b48`, `066bb42`, `86fa76a`, `859328e`; exact E/C handle, cache, claim, M12, and contradiction tests |
 | Scene jobs and partial salvage | Primary | Independent scene projection, claim validation/repair/salvage, tests | Contracts | Complete | `2fa0a60`, `8d8a354`, `859328e`; claim-local salvage, deterministic title fallback, zero/one repair seam |
 | Queue, cache, cancellation, batching | Primary | Durable state, retries, batches, budgets, consent, provider interface | Scene contracts | Complete | `1104293`, `8d8a354`, `2a41771`; independent item commit/retry/split, cancellation durability, exact replay |
 | Segment hierarchy and summaries | Primary | Deterministic segments, chapters/routes/endings/plot, contradictions, tests | Durable scene artifacts | Complete | `70161fd`, `bd49168`, `1be9a88`, `a5d9c5f`; bounded fan-in at every level and route-aware plot |
 | Browser narrative workflow | Primary | Local API, Narrative toggle, citation DAG, coverage/job drawer, browser tests | Summary services | Complete | `c01a169`, `32ed808`, `a5d9c5f`, `3193d50`; real Chrome 100%/200% pass |
-| Privacy, scale, and private acceptance | Primary | Full-corpus simulation, bounded live/private harness, immutability | Integrated product | In progress | Corrected 1,812-scene private acceptance passes with zero-call replay and unchanged inputs; fresh bounded live manifest awaits exact approval and execution |
+| Privacy, scale, and private acceptance | Primary | Full-corpus simulation, bounded live/private harness, immutability | Integrated product | Complete | Corrected 1,812-scene private acceptance passes; exact approved live run completed the route-aware hierarchy and fail-closed replay made zero submits/calls; private/source/authority inputs unchanged |
 | Character interpretation | Primary | Bounded participation/roles/route-aware arcs | Core hierarchy complete | Complete | `81fcacb`, `a5d9c5f`; common and route-specific roles remain separate and evidence-bound |
 | Optional boundary/local/export work | Primary | Only if core gates are already complete | Release-critical work complete | Complete | Intentionally deferred as non-blocking: no weak-boundary overlay, LM Studio adapter, or export polish |
 | Integration and verification | Primary | Integrate recovery corrections; inspect diffs; focused checks; freeze runtime; gated acceptance | Recovery workers complete | Complete | Runtime `740e321`; focused 61-test matrix plus Ruff/mypy/whitespace passed; Release passed 1,015/7 and every quality/build/package gate |
@@ -34,8 +34,10 @@ tests and will be recorded in each delegated handoff if delegation is used.
 | Exact adapter-v3 live execution and replay | Primary plus read-only audit `/root/live_hard_limit_audit` | One exactly confirmed live run; replay only after first-run success | Preparation `m13_preparation_f22f1d...`, consent `m13_consent_9e3a246...` | Blocked | One run, no retry: consent stable; 3 calls, 395,221 input/11,142 output tokens, 27 scene artifacts; terminal `hard_limit` before 23 segment jobs; inferred input-token preflight limit; replay not reached; `failure-result.json` preserved |
 | Complete-budget correction | Primary plus `/root/budget_estimator_fix`, `/root/budget_math_audit`, `/root/budget_test_audit` | Serialized complete estimate, per-call runtime allowance, finite live headroom, no-retry policy | Exact `5be797c` hard-limit evidence | Complete | Integrated as `740e321`; 87 jobs/65 calls, 2,463,527 input estimate; 2x finite live limits; old 400k budget rejected before consent |
 | Fresh `740e321` live preview | Primary | One deterministic zero-submit exact manifest | Release-validated runtime `740e321` | Complete | Preview SHA-256 `a2fbe4ac...e996`; preparation `m13_preparation_564d42c...`; consent `m13_consent_1de08236...`; two identical local previews, zero submits |
+| Exact `740e321` live execution and fail-closed replay | Primary plus read-only audit `/root/partial_live_audit` | One exactly approved run, exact cache replay, hierarchy/claims/privacy/immutability audit | Preparation `m13_preparation_564d42c...`, consent `m13_consent_1de08236...` | Complete | 13 calls; 616,819 input/42,505 output tokens; 81 succeeded + 2 valid partial scenes; complete hierarchy; replay 0 submits/calls/tokens with exact hashes/rendering; report `93a22d66...a621`; audit PASS/no P0/P1 |
+| Partial-publication harness correction | `/root/budget_estimator_fix` | Accept contract-valid terminal partial publication; deterministic offline regression | Exact live evidence | Complete | Commit `0aa0415`; failed/refused/cancelled/hard-limit states remain rejected; 5 focused tests plus post-correction Release pass |
 | Final-head independent review | `/root/final_budget_rereview` | Read-only final runtime-head P0/P1 verdict | Runtime `740e321` | Complete | PASS; no P0/P1; 126 review tests and 14 changed-module tests; calibrated provider allowance explicitly remains an estimate |
-| PR readiness | Primary | Evidence audit, reports, infographic, PR preparation | Verification and review passed | Blocked | Release, corrected private acceptance, and independent review pass; exactly approved live hierarchy/replay remains incomplete; PR must not be created without approval |
+| PR readiness | Primary | Evidence audit, reports, infographic, PR preparation | Verification and review passed | Complete | Post-correction Release passes 1,016/7; evidence is reconciled; no unresolved P0/P1; branch is ready, while PR creation still requires separate approval |
 
 Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`. Record why a task is
 blocked and what unblocks it.

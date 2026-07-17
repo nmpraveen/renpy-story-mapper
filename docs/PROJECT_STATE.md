@@ -10,7 +10,7 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification.
+- Status: PR ready.
 - Recovery scope: the user approved consent-identity, explicit-provider-settings, schema-
   compatibility, and fail-fast-provider corrections within the existing M13 contract.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
@@ -118,8 +118,23 @@ complete hierarchy, fault/recovery matrix, and exact zero-call replay with zero 
 game execution; report SHA-256 is
 `13226a0d25cff4a63d33f8bdd9d8e1a13f19d2f36a51c0c9e1003cd6a832b0dc`. All three private
 inputs and adjacent files remained unchanged. The simulation took about 16m35s and peaked near
-6.2 GB, which is accepted verification evidence and a future harness-optimization target. The new
-live manifest has not been approved or executed, and no PR has been created.
+6.2 GB, which is accepted verification evidence and a future harness-optimization target. The
+exact live manifest had not yet been executed at that checkpoint.
+
+The user then exactly approved preparation
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`
+and consent
+`m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+The one exact live provider execution made 13 calls, used 616,819 input and 42,505 output tokens,
+and completed the route-aware hierarchy with 81 succeeded jobs and 2 valid partial-salvage scene
+jobs. A fail-closed sentinel replay then made zero submit attempts/calls/tokens and reproduced all
+83 cached jobs, artifact hashes, and deterministic rendering exactly. Source and M10/M11/M12
+authority bytes remained unchanged; raw debug retention stayed off. Independent criterion-20
+audit found no remaining P0/P1. The harness had incorrectly rejected allowed aggregate `partial`
+before built-in replay; commit `0aa0415` accepts only succeeded/partial publication and retains
+strict rejection for failed/refused/cancelled/hard-limit outcomes. Combined report SHA-256 is
+`93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621`. No second provider
+execution occurred, and no PR has been created.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

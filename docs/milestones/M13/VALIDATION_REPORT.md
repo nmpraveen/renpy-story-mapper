@@ -1,12 +1,63 @@
 # M13 validation report
 
-Status: Verification; corrected runtime, Release, private acceptance, independent review, and zero-submit preview pass; exact live hierarchy/replay remains incomplete
+Status: PR ready; all required gates pass and no PR has been created
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `740e3214e84e256f4dab459d3528ddec803e456b`
 
 Validation date: 2026-07-17
+
+## Exact approved live execution and replay at `740e321`
+
+The user exactly approved preparation
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`
+and consent
+`m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+One initial launcher invocation stopped before consent grant or provider submit because its freshly
+read preview bytes did not match the approved preview. Rechecking with the installed CPython 3.12
+runtime reproduced the exact approved IDs; the exact live execution then ran once. There was no
+hidden retry or second provider execution.
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path src).Path
+& 'C:\Users\prave\AppData\Local\Programs\Python\Python312\python.exe' `
+  scripts\m13_live_acceptance.py `
+  --output-dir 'tmp\m13-live-preview-740e321\20260717T042635828Z' `
+  --model gpt-5.6-sol `
+  --reasoning-effort high `
+  --confirm-preparation-id 'm13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4'
+```
+
+| Durable field | Result |
+|---|---|
+| Provider identity | OpenAI / `codex_cli_structured` adapter v3; requested/resolved `gpt-5.6-sol`; High; `fast_mode=false` |
+| Usage | 13 calls; 616,819 input; 42,505 output; 659,324 total tokens; 837.951 seconds; peak concurrency one; cost unavailable |
+| Jobs | 83 pipeline jobs: 81 succeeded, 2 partial, 0 failed/refused/cancelled; no unresolved code |
+| Scene salvage | 27 scenes: 25 complete; Foyer retained 4 valid claims and omitted 2 invalid; Courtyard retained 6 valid and omitted 2 invalid |
+| Complete hierarchy | 23 segments, 23 chapters, common story, 2 persistent routes, 6 endings, and one route-aware plot; all non-scene hierarchy artifacts complete with full child coverage |
+| Character eligibility | Zero character artifacts are expected: the public-synthetic fixture is narrator-only and has no non-empty M11 speaker, so no character group is eligible |
+| Claim audit | 222 published claims: 216 factual and 6 interpretive; 758 resolved citations; 0 cycles, unknown, or out-of-scope references |
+| Exact replay | Sentinel provider `submit()` would hard-fail; observed 0 submit attempts, calls, input, and output tokens; all 83 jobs were exact cache replays; artifact hashes exact; deterministic rendering SHA-256 `e12a21728a7ef6f4390f83c5e27aa59609c057555b1b66fbc051a9d21b4b8790` |
+| Safety | Synthetic source and M10/M11/M12 authority fingerprints remained byte-identical; 798 durable records inspected; raw debug retention false |
+| Evidence | `tmp/m13-live-preview-740e321/20260717T042635828Z/live-execution-and-replay.json`; SHA-256 `93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621` |
+
+Aggregate `partial` is the contract-required result of safe claim-level salvage, not an incomplete
+hierarchy. The preview's 87 jobs are a conservative upper bound; 83 pipeline jobs were eligible.
+The 84th persisted job is a separate authority-fact record, and the narrator-only fixture made
+character jobs ineligible. Independent read-only audit `/root/partial_live_audit` returned PASS
+for criterion 20 with no remaining P0/P1 after the harness correction.
+
+The original harness expected only aggregate `succeeded`, so it stopped before its built-in replay
+even though criteria 5 and 20 permit partial claim salvage. Commit `0aa0415` accepts only
+`succeeded` or `partial` terminal publications while continuing to reject failed, refused,
+cancelled, and hard-limit states. Its offline regression injects two partial scenes, completes the
+hierarchy, and proves zero-call cache replay.
+
+| Post-correction check | Result | Notes |
+|---|---|---|
+| `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release` at `0aa0415` | Passed | 1,016 passed, 7 deselected in 201.80 seconds; Ruff, strict mypy over 91 files, `pip check`, four JavaScript syntax checks, whitespace, isolated sdist/wheel build/install/import, browser assets, and notices all passed |
+| Focused harness correction | Passed | 5 focused tests plus targeted Ruff/strict mypy and diff check; no provider/network call |
 
 ## Complete-budget correction at `740e321`
 
@@ -27,7 +78,8 @@ are 130 calls, 4,927,054 input, 163,200 output, 5,090,254 total tokens, 7,200 se
 concurrency one. Cost is explicitly unavailable. The live policy permits one attempt per job, so
 transient, malformed, split, and repair retries cannot consume hidden calls. The 25,000-token
 per-call runtime allowance is calibrated from the failed run and is not claimed as a provider-
-guaranteed upper bound. No live execution is authorized by this preview.
+guaranteed upper bound. The preview itself made no call; the exact execution authorized later is
+recorded above.
 
 The corrected private complete-run estimate is 2,590 logical jobs, 892 calls, 31,703,062 input
 tokens, and 2,227,600 output tokens. The simulator used 171 initial and 6 recovery calls and zero
@@ -166,17 +218,17 @@ The ID changes because `consent_granted` participates in the manifest hash. This
 contract's exact preview-bound consent expectation and is a blocking P1 alongside the failed live
 acceptance. Per the one-cycle limit, neither was corrected or retried.
 
-## Remaining blockers and limitations
+## Remaining limitations
 
 - The historical adapter-v2 public canary failure remains preserved above; adapter-v3 correction
   `5be797c` and its one fresh public canary now pass without weakening conflicting-model checks.
 - Criterion 15: adapter-v3 live consent identity is now proven stable across preview, grant, and
   provider requests.
-- Criterion 20: the fresh adapter-v3 live run published all 27 scene artifacts but stopped at the
-  hard input-token limit before segment/hierarchy completion; zero-call replay did not execute.
-- Criterion 22: the independently configured rereview returned FAIL at `9889035`; the single
-  historical corrective cycle passes local gates; the narrow `5be797c` correction rereview passes,
-  but no full final-head independent PASS exists after live/replay evidence.
+- Historical live failures remain preserved above. The final exact `740e321` live execution and
+  fail-closed replay satisfy criterion 20; the two partial scenes are valid claim-level salvage.
+- Final-head independent budget review and post-live evidence audit both pass with no unresolved
+  P0/P1. Post-correction focused and Release results are recorded in this report.
 - The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
   `fast_mode=false`; this does not claim that the task API independently verified that setting.
-- No pull request was created.
+- No pull request was created; the branch is PR-ready and still requires separate approval for PR
+  creation or merge.

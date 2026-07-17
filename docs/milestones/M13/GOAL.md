@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification blocked (semantic review PASS)
+Status: PR ready (semantic review PASS)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval, and its twelve binding amendment sections
@@ -155,13 +155,13 @@ the existing map, scene view, evidence workspace, or route solver.
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Runtime `740e321`; focused 61-test budget matrix and Release 1,015/7 pass; earlier authority/claim gates remain green |
-| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Release plus provider-free 1,812-scene acceptance pass; exact live replay remains absent |
+| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Release plus provider-free 1,812-scene acceptance pass; exact live replay made zero submit attempts/calls and reproduced all 83 cached jobs exactly |
 | 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Local/provider-free pass; final-budget independent review at `740e321` returns PASS with no P0/P1 |
-| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Adapter-v3 public canary passes; corrected complete estimate and 2x finite live limits bind fresh exact consent with zero-submit preview |
+| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Adapter-v3 public canary and exact approved live run pass; stable consent, finite limits, one-attempt policy, sanitized storage, and raw-debug-off privacy verified |
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Browser report `8d065d7a...f81b02` passes at runtime path unchanged by final provider-only correction; optional overlay deferred |
-| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Corrected 1,812-scene private simulation passes with zero-call replay and unchanged inputs; fresh live manifest not yet approved/executed |
-| 22 | Focused/full Windows suite, package inspection, independent review | Release 1,015/7 and independent no-P0/P1 review pass at `740e321`; live/replay remains incomplete |
-| 23 | Reports, integration commit, infographic, PR state | Runtime/evidence through `740e321` recorded; native infographic durable; milestone not PR-ready and no PR created |
+| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private 1,812-scene simulation and exact live run/replay pass; live report `93a22d66...a621`; complete route-aware hierarchy; exact replay; source and M10/M11/M12 authority unchanged |
+| 22 | Focused/full Windows suite, package inspection, independent review | Post-correction Release passes 1,016/7 at `0aa0415`; focused harness correction and independent live-evidence audit pass with no remaining P0/P1 |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `740e321`, harness correction `0aa0415`, exact live evidence, and native infographic are durable; branch is PR-ready, but PR remains approval-gated and uncreated |
 
 ## Release-critical sequence
 

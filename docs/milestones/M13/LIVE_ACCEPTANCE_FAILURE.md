@@ -1,6 +1,6 @@
 # M13 live-provider acceptance failure history
 
-Status: Failed; no retry authorized or attempted
+Status: Historical failures preserved; final approved execution/replay passed
 
 Runtime freeze: `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`
 
@@ -117,4 +117,27 @@ total tokens. Preview SHA-256 is
 `m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`;
 consent is `m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
 No provider submit occurred. The calibrated allowance is not represented as a provider-guaranteed
-upper bound, and this new manifest still requires exact consent before execution.
+upper bound.
+
+## Final exact approved execution and replay
+
+The user exactly approved preparation
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`
+and consent
+`m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+One exact provider execution made 13 calls, used 616,819 input and 42,505 output tokens, and
+completed all 83 eligible pipeline jobs as 81 succeeded and 2 partial. The two partial scene jobs
+safely omitted four invalid claims while retaining ten valid claims. All 23 segments, 23 chapters,
+the common story, two persistent routes, six endings, and the route-aware plot completed.
+
+The original harness then rejected aggregate `partial` before its built-in replay, contrary to the
+contract's required partial-salvage semantics. No second provider execution was made. A fail-closed
+sentinel replay made zero submit attempts/calls/tokens, replayed all 83 jobs from exact cache, and
+matched every artifact hash plus deterministic rendering. Source and authority remained
+unchanged, and raw debug retention remained off. Commit `0aa0415` corrects the harness predicate
+and adds an offline regression without changing provider, retry, budget, consent, or privacy
+behavior. Independent audit found no remaining P0/P1.
+
+Combined evidence is
+`tmp/m13-live-preview-740e321/20260717T042635828Z/live-execution-and-replay.json`, SHA-256
+`93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621`.
