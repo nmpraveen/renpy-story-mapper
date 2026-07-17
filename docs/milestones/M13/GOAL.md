@@ -128,6 +128,10 @@ reconstructed history can still undercount total attempts. The authorized correc
 consumed; no further product loop, push, live transmission, PR mutation, merge, or M14 work is
 authorized. The done condition remains unmet.
 
+The user subsequently authorized one further failing-first correction and independent rereview
+for exactly the duplicate-reservation multiplicity P1. This does not reopen any other product
+scope or approval gate.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,

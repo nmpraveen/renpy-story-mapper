@@ -71,6 +71,8 @@ from renpy_story_mapper.project import Project
 
 CancelledCallback = Callable[[], bool]
 _EMPTY_PROVIDER_SETTINGS: Final = ProviderSettings()
+_AttemptHistoryKey = tuple[str, str, str, str, str]
+_AttemptCallKey = tuple[str, str, int, int]
 
 
 @dataclass(frozen=True)
@@ -304,11 +306,9 @@ class M13SchedulerPersistenceSink:
             raise ValueError("persistence sink jobs must have unique logical identities")
         self._authority = dict(authority_binding)
         self._cancelled = cancelled
-        self._histories: dict[
-            tuple[str, str, str, str, str], list[AttemptOutcome]
-        ] | None = None
+        self._histories: dict[_AttemptHistoryKey, list[AttemptOutcome]] | None = None
         self._recovered_attempts: dict[
-            tuple[str, str, str, str, str], dict[int, AttemptOutcome]
+            _AttemptHistoryKey, list[tuple[int, str]]
         ] = {}
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
@@ -378,12 +378,24 @@ class M13SchedulerPersistenceSink:
                 compatibility_id,
             )
         )
-        self._recovered_attempts = recovered_attempts
+        recorded_call_keys = {
+            call_key
+            for attempt in attempts
+            if (call_key := _attempt_reservation_call_key(attempt)) is not None
+        }
+        self._recovered_attempts = {
+            key: [
+                (attempt_number, reservation_id)
+                for attempt_number, reservation_id, call_key in values
+                if call_key not in recorded_call_keys
+            ]
+            for key, values in recovered_attempts.items()
+        }
         self._histories = None
         legacy_attempts = tuple(
             attempt
             for attempt in attempts
-            if _attempt_reservation_key(attempt) not in covered_attempts
+            if _attempt_reservation_call_key(attempt) not in covered_attempts
         )
         usage = _sum_scheduler_usage(
             _usage_from_attempt_payloads(legacy_attempts),
@@ -567,14 +579,14 @@ class M13SchedulerPersistenceSink:
         compatibility_id: str,
     ) -> tuple[
         SchedulerUsage,
-        frozenset[tuple[str, str, int]],
-        dict[tuple[str, str, str, str, str], dict[int, AttemptOutcome]],
+        frozenset[_AttemptCallKey],
+        dict[_AttemptHistoryKey, list[tuple[int, str, _AttemptCallKey]]],
     ]:
         jobs_by_id = {job.logical_job_id: job for job in jobs}
         expected_job_ids = set(jobs_by_id)
         reservations: dict[str, Mapping[str, object]] = {}
         finalizations: dict[str, Mapping[str, object]] = {}
-        covered_attempts: set[tuple[str, str, int]] = set()
+        covered_attempts: set[_AttemptCallKey] = set()
         for result in self._persistence.list_records(
             RecordKind.BATCH,
             authority_binding=self._authority,
@@ -598,6 +610,7 @@ class M13SchedulerPersistenceSink:
                 logical_job_ids = payload.get("logical_job_ids")
                 logical_attempt_numbers = payload.get("logical_attempt_numbers")
                 batch_id = payload.get("batch_id")
+                provider_call_number = payload.get("provider_call_number")
                 provider = payload.get("provider")
                 if (
                     not isinstance(logical_job_ids, list)
@@ -605,6 +618,9 @@ class M13SchedulerPersistenceSink:
                     or not isinstance(logical_attempt_numbers, list)
                     or len(logical_attempt_numbers) != len(logical_job_ids)
                     or not isinstance(batch_id, str)
+                    or not isinstance(provider_call_number, int)
+                    or isinstance(provider_call_number, bool)
+                    or provider_call_number < 1
                     or any(
                         not isinstance(job_id, str) or job_id not in expected_job_ids
                         for job_id in logical_job_ids
@@ -622,7 +638,12 @@ class M13SchedulerPersistenceSink:
                     raise ValueError("durable call reservation is incompatible")
                 reservations[reservation_id] = payload
                 covered_attempts.update(
-                    (batch_id, cast(str, job_id), cast(int, attempt_number))
+                    (
+                        batch_id,
+                        cast(str, job_id),
+                        cast(int, attempt_number),
+                        provider_call_number,
+                    )
                     for job_id, attempt_number in zip(
                         logical_job_ids,
                         logical_attempt_numbers,
@@ -635,7 +656,7 @@ class M13SchedulerPersistenceSink:
             raise ValueError("durable call finalization has no compatible reservation")
         usage = SchedulerUsage()
         recovered_attempts: dict[
-            tuple[str, str, str, str, str], dict[int, AttemptOutcome]
+            _AttemptHistoryKey, list[tuple[int, str, _AttemptCallKey]]
         ] = {}
         for reservation_id in sorted(reservations):
             reservation = reservations[reservation_id]
@@ -649,6 +670,8 @@ class M13SchedulerPersistenceSink:
             logical_attempt_numbers = cast(
                 list[object], reservation["logical_attempt_numbers"]
             )
+            batch_id = cast(str, reservation["batch_id"])
+            provider_call_number = cast(int, reservation["provider_call_number"])
             for raw_job_id, raw_attempt_number in zip(
                 logical_job_ids,
                 logical_attempt_numbers,
@@ -664,9 +687,14 @@ class M13SchedulerPersistenceSink:
                     job.input_revision_id,
                     job.cache_identity.key,
                 )
-                recovered_attempts.setdefault(key, {}).setdefault(
+                call_key = (
+                    batch_id,
+                    job_id,
                     attempt_number,
-                    AttemptOutcome.RECOVERED_RESERVATION,
+                    provider_call_number,
+                )
+                recovered_attempts.setdefault(key, []).append(
+                    (attempt_number, reservation_id, call_key)
                 )
         return usage, frozenset(covered_attempts), recovered_attempts
 
@@ -678,9 +706,9 @@ class M13SchedulerPersistenceSink:
 
     def _load_histories(
         self,
-    ) -> dict[tuple[str, str, str, str, str], list[AttemptOutcome]]:
+    ) -> dict[_AttemptHistoryKey, list[AttemptOutcome]]:
         indexed: dict[
-            tuple[str, str, str, str, str], list[tuple[int, AttemptOutcome]]
+            _AttemptHistoryKey, list[tuple[int, str, AttemptOutcome]]
         ] = {}
         for result in self._persistence.list_records(
             RecordKind.ATTEMPT,
@@ -718,17 +746,28 @@ class M13SchedulerPersistenceSink:
                 input_revision_id,
                 cache_key,
             )
-            indexed.setdefault(key, []).append((attempt_number, parsed))
+            attempt_id = payload.get("attempt_id")
+            sort_id = (
+                attempt_id
+                if isinstance(attempt_id, str)
+                else canonical_hash(payload)
+            )
+            indexed.setdefault(key, []).append(
+                (attempt_number, f"attempt:{sort_id}", parsed)
+            )
         for key, recovered in self._recovered_attempts.items():
             values = indexed.setdefault(key, [])
-            recorded_numbers = {number for number, _outcome in values}
             values.extend(
-                (number, outcome)
-                for number, outcome in recovered.items()
-                if number not in recorded_numbers
+                (
+                    attempt_number,
+                    f"reservation:{reservation_id}",
+                    AttemptOutcome.RECOVERED_RESERVATION,
+                )
+                for attempt_number, reservation_id in recovered
             )
         return {
-            key: [outcome for _number, outcome in sorted(values)] for key, values in indexed.items()
+            key: [outcome for _number, _sort_id, outcome in sorted(values)]
+            for key, values in indexed.items()
         }
 
     def _load_compatible_attempt_payloads(
@@ -874,21 +913,25 @@ def _call_record_id(kind: str, reservation_id: str) -> str:
     )
 
 
-def _attempt_reservation_key(
+def _attempt_reservation_call_key(
     attempt: Mapping[str, object],
-) -> tuple[str, str, int] | None:
+) -> _AttemptCallKey | None:
     batch_id = attempt.get("batch_id")
     logical_job_id = attempt.get("logical_job_id")
     attempt_number = attempt.get("attempt_number")
+    provider_call_number = attempt.get("provider_call_number")
     if (
         not isinstance(batch_id, str)
         or not isinstance(logical_job_id, str)
         or not isinstance(attempt_number, int)
         or isinstance(attempt_number, bool)
         or attempt_number < 1
+        or not isinstance(provider_call_number, int)
+        or isinstance(provider_call_number, bool)
+        or provider_call_number < 1
     ):
         return None
-    return batch_id, logical_job_id, attempt_number
+    return batch_id, logical_job_id, attempt_number, provider_call_number
 
 
 def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:

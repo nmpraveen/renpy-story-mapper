@@ -110,6 +110,11 @@ consumed. The in-progress Release run was stopped after the blocking verdict; no
 browser/private-scale, GitHub, push, PR mutation, merge, protected-untracked-path change, or M14
 action occurred. M13 and the native goal remain active in `Verification`; PR #23 is not ready.
 
+The user then explicitly authorized one further narrowly bounded correction and independent
+rereview for exactly this duplicate-reservation multiplicity P1. Verification resumes without
+changing the done condition or semantic `PASS`. Provider/live transmission, merge, M14, protected
+untracked content, and any broader product work remain excluded.
+
 ## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at
