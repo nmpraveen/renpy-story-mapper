@@ -39,9 +39,11 @@ from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
-from renpy_story_mapper.narrative.contracts import BudgetLimits
+from renpy_story_mapper.narrative.contracts import BudgetLimits, ProviderSettings
 from renpy_story_mapper.narrative.evidence import ClaimDagError
+from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
     NarrativePipelineResult,
     run_complete_narrative,
@@ -55,6 +57,7 @@ from renpy_story_mapper.narrative.projection import NarrativeInputMode
 from renpy_story_mapper.narrative.provider import (
     CodexCliNarrativeProvider,
     NarrativeProvider,
+    validate_codex_provider_settings,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
 from renpy_story_mapper.narrative.workflow import (
@@ -108,6 +111,7 @@ from renpy_story_mapper.web.contracts import (
     M13_CITATIONS_REQUEST_FIELDS,
     M13_LIMIT_FIELDS,
     M13_PREPARE_REQUEST_FIELDS,
+    M13_PROVIDER_SETTING_FIELDS,
     M13_SNAPSHOT_REQUEST_FIELDS,
     M13_START_REQUEST_FIELDS,
     ApiErrorBody,
@@ -592,6 +596,7 @@ class ProjectApi:
                 allowed=M13_PREPARE_REQUEST_FIELDS,
                 required=(
                     "requested_model",
+                    "provider_settings",
                     "mode",
                     "include_m12_material",
                     "limits",
@@ -1057,6 +1062,23 @@ class ProjectApi:
             if "selected_scene_ids" in body
             else None
         )
+        settings_value = object_value(body, "provider_settings")
+        exact_fields(
+            settings_value,
+            allowed=M13_PROVIDER_SETTING_FIELDS,
+            required=M13_PROVIDER_SETTING_FIELDS,
+            name="provider_settings",
+        )
+        provider_settings = ProviderSettings(
+            (
+                (
+                    "model_reasoning_effort",
+                    require_string(settings_value, "model_reasoning_effort", maximum=32),
+                ),
+                ("fast_mode", boolean(settings_value, "fast_mode")),
+            )
+        )
+        validate_codex_provider_settings(provider_settings)
         provider = self._m13_provider_factory()
         with Project.open(self._project()) as opened_project:
             prepared = prepare_narrative_scene_run(
@@ -1064,6 +1086,7 @@ class ProjectApi:
                 provider,
                 run_id=f"m13-run-{uuid.uuid4().hex}",
                 requested_model=require_string(body, "requested_model", maximum=200),
+                settings=provider_settings,
                 mode=mode,
                 include_m12_material=boolean(body, "include_m12_material"),
                 limits=limits,
@@ -1074,6 +1097,7 @@ class ProjectApi:
             )
         web_run = _PreparedM13WebRun(prepared, provider, SchedulerPolicy(batch_limits))
         preview = prepared.preview_dict()
+        preview["consent_manifest_id"] = prepared.consent_preview.manifest_id
         preview["requires_confirm_cloud"] = True
         preview["selected_scene_count"] = len(prepared.scene_run.jobs)
         preview["cloud_enabled"] = False
@@ -1158,6 +1182,11 @@ class ProjectApi:
             result = self._m13_result
             cancellation_pending = self._cancel_event is not None and self._cancel_event.is_set()
             prepared = self._m13_prepared is not None
+        durable_run = (
+            self._m13_unambiguous_durable_run()
+            if task is None and result is None and not prepared
+            else None
+        )
         if task is not None and task.state == "running":
             state = "cancelling" if cancellation_pending else "running"
         elif result is not None:
@@ -1168,6 +1197,8 @@ class ProjectApi:
             state = "cancelled"
         elif prepared:
             state = "prepared"
+        elif durable_run is not None and isinstance(durable_run.get("state"), str):
+            state = cast(str, durable_run["state"])
         else:
             state = "disabled"
         return {
@@ -1177,11 +1208,27 @@ class ProjectApi:
             "provider_transmission_active": state in {"running", "cancelling"},
             "preparation": preview,
             "task": task,
-            "latest_run": None if result is None else result.record.to_dict(),
+            "latest_run": durable_run if result is None else result.record.to_dict(),
             "artifacts": None if result is None else result.artifacts,
             "unresolved_codes": [] if result is None else list(result.unresolved_codes),
             "durable_completed_work_preserved": True,
         }
+
+    def _m13_unambiguous_durable_run(self) -> dict[str, object] | None:
+        """Restore the sole current-authority run without guessing chronological order."""
+
+        with Project.open(self._project()) as opened_project:
+            authority = load_narrative_authority(opened_project, include_m12=True)
+            records = opened_project.m13_persistence().list_records(
+                RecordKind.RUN,
+                authority_binding=authority.binding.to_dict(),
+            )
+        current = [
+            dict(record.payload)
+            for record in records
+            if record.state is LookupState.HIT and record.payload is not None
+        ]
+        return current[0] if len(current) == 1 else None
 
     def _m13_cancel(self) -> dict[str, object]:
         with self._lock:

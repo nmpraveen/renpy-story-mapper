@@ -147,6 +147,10 @@ function narrativeRunRequest() {
   const output = Math.max(1, total - input);
   return {
     requested_model: $("#narrativeModel").value.trim(),
+    provider_settings: {
+      model_reasoning_effort: $("#narrativeReasoningEffort").value,
+      fast_mode: $("#narrativeFastMode").checked,
+    },
     mode: $("#narrativeMode").value,
     include_m12_material: $("#narrativeIncludeM12").checked,
     limits: {
@@ -186,6 +190,8 @@ function showNarrativeConsent(prepared) {
   const rows = [
     ["Provider", `${provider.provider} / ${provider.adapter} ${provider.adapter_version}`],
     ["Requested / resolved model", `${provider.requested_model} / ${provider.resolved_model}`],
+    ["Provider settings", `${provider.settings.model_reasoning_effort} reasoning / fast mode ${provider.settings.fast_mode ? "on" : "off"}`],
+    ["Consent manifest", prepared.consent_manifest_id],
     ["Selected scope", prepared.selected_scope_ids.join(", ")],
     ["Privacy mode", prepared.privacy_mode === "fact_only" ? "Fact only" : "Story text"],
     ["Logical jobs", estimate.logical_job_count.toLocaleString()],

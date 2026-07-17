@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from threading import Event
 
 import pytest
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
+from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.provider import (
     PROMPT_TEMPLATE_VERSION,
     RESPONSE_SCHEMA_VERSION,
@@ -15,10 +16,11 @@ from renpy_story_mapper.narrative.provider import (
     ProviderOutputItem,
     ProviderRequest,
     ProviderResponse,
+    ProviderRuntimeConfigurationError,
     ProviderStatus,
     ProviderUsage,
 )
-from renpy_story_mapper.project import create_ingested_project
+from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.state import UserStateStore
 
@@ -53,7 +55,7 @@ class _Provider:
             "test-adapter-v1",
             request.requested_model,
             request.requested_model,
-            ProviderSettings(),
+            request.settings,
         )
         return ProviderResponse(
             request.request_id,
@@ -118,6 +120,21 @@ class _BlockingAfterFirstProvider(_Provider):
     def cancel(self) -> None:
         self.cancel_calls += 1
         self.release.set()
+
+
+@dataclass
+class _SettingsMismatchProvider(_Provider):
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        response = super().submit(request, cancelled)
+        return replace(
+            response,
+            provider=replace(
+                response.provider,
+                settings=ProviderSettings(
+                    (("model_reasoning_effort", "xhigh"), ("fast_mode", False))
+                ),
+            ),
+        )
 
 
 def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
@@ -197,8 +214,13 @@ def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
 ) -> None:
     provider = _Provider()
     api = _api(tmp_path, provider)
+    reopened: ProjectApi | None = None
     request = {
         "requested_model": "runtime-model",
+        "provider_settings": {
+            "model_reasoning_effort": "high",
+            "fast_mode": False,
+        },
         "mode": "fact_only",
         "include_m12_material": True,
         "limits": {
@@ -222,6 +244,8 @@ def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
         assert preview["cloud_enabled"] is False
         assert preview["requires_confirm_cloud"] is True
         assert preview["selected_scope_ids"] == ["project:all-current-scenes"]
+        assert preview["provider"]["settings"] == request["provider_settings"]
+        assert preview["consent_manifest_id"].startswith("m13_consent_")
         assert preview["estimate"]["logical_job_count"] > preview["selected_scene_count"]
         assert preview["estimate"]["provider_call_count"] > 0
         assert preview["estimate"]["cost_confidence"] == "unavailable"
@@ -251,8 +275,193 @@ def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
             time.sleep(0.02)
         assert status["state"] == "succeeded"
         assert status["latest_run"]["usage"]["provider_calls"] > 0
+        assert status["latest_run"]["provider"]["settings"] == request["provider_settings"]
         assert status["durable_completed_work_preserved"] is True
         assert provider.requests
+        assert all(
+            item.settings.to_dict() == request["provider_settings"] for item in provider.requests
+        )
+
+        project_path = tmp_path / "story.rsmproj"
+        with Project.open(project_path) as project:
+            persistence = project.m13_persistence()
+            consents = persistence.list_records(RecordKind.CONSENT)
+            assert len(consents) == 1
+            assert consents[0].state is LookupState.HIT
+            assert consents[0].payload is not None
+            assert consents[0].payload["provider"]["settings"] == request["provider_settings"]
+            caches = persistence.list_records(RecordKind.CACHE)
+            assert caches
+            assert all(item.state is LookupState.HIT for item in caches)
+            assert all(
+                item.payload is not None
+                and item.payload["cache_identity"]["provider"]["settings"]
+                == request["provider_settings"]
+                for item in caches
+            )
+        api.close()
+        reopened = ProjectApi(
+            _Dialogs(),
+            state_store=UserStateStore(tmp_path / "reopened-state.json"),
+            m13_provider_factory=lambda: provider,
+        )
+        reopened._retain_project_path(project_path, tmp_path / "game")
+        reopened_status = reopened.dispatch("POST", "/api/v1/m13/status", {})
+        assert reopened_status["latest_run"]["provider"]["settings"] == request["provider_settings"]
+        assert len(provider.requests) > 0
+    finally:
+        api.close()
+        if reopened is not None:
+            reopened.close()
+
+
+def test_m13_browser_settings_change_preparation_and_consent_identity_without_transmission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider()
+    api = _api(tmp_path, provider)
+    monkeypatch.setattr(
+        "renpy_story_mapper.web.api.uuid.uuid4",
+        lambda: type("FixedUuid", (), {"hex": "fixed-run"})(),
+    )
+    request = {
+        "requested_model": "runtime-model",
+        "provider_settings": {
+            "model_reasoning_effort": "high",
+            "fast_mode": False,
+        },
+        "mode": "fact_only",
+        "include_m12_material": True,
+        "limits": {
+            "max_provider_calls": 500,
+            "max_input_tokens": 20_000_000,
+            "max_output_tokens": 20_000_000,
+            "max_total_tokens": 40_000_000,
+            "timeout_seconds": 300,
+            "max_concurrency": 4,
+            "max_cost_micros": None,
+        },
+        "batch_limits": {
+            "maximum_items": 16,
+            "maximum_input_chars": 500_000,
+            "maximum_input_tokens": 100_000,
+        },
+    }
+    try:
+        high = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        xhigh = api.dispatch(
+            "POST",
+            "/api/v1/m13/prepare",
+            {
+                **request,
+                "provider_settings": {
+                    "model_reasoning_effort": "xhigh",
+                    "fast_mode": False,
+                },
+            },
+        )
+
+        assert high["preparation_id"] != xhigh["preparation_id"]
+        assert high["consent_manifest_id"] != xhigh["consent_manifest_id"]
+        assert provider.requests == []
+    finally:
+        api.close()
+
+
+def test_m13_provider_response_settings_mismatch_fails_without_cache_publication(
+    tmp_path: Path,
+) -> None:
+    provider = _SettingsMismatchProvider()
+    api = _api(tmp_path, provider)
+    request = {
+        "requested_model": "runtime-model",
+        "provider_settings": {
+            "model_reasoning_effort": "high",
+            "fast_mode": False,
+        },
+        "mode": "fact_only",
+        "include_m12_material": True,
+        "limits": {
+            "max_provider_calls": 500,
+            "max_input_tokens": 20_000_000,
+            "max_output_tokens": 20_000_000,
+            "max_total_tokens": 40_000_000,
+            "timeout_seconds": 300,
+            "max_concurrency": 1,
+            "max_cost_micros": None,
+        },
+        "batch_limits": {
+            "maximum_items": 16,
+            "maximum_input_chars": 500_000,
+            "maximum_input_tokens": 100_000,
+        },
+    }
+    try:
+        preview = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": preview["preparation_id"], "confirm_cloud": True},
+        )
+        deadline = time.monotonic() + 20
+        while True:
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+
+        assert status["state"] == "failed"
+        assert status["latest_run"]["succeeded_jobs"] == 0
+        assert status["latest_run"]["failed_jobs"] > 0
+        with Project.open(tmp_path / "story.rsmproj") as project:
+            assert project.m13_persistence().list_records(RecordKind.CACHE) == ()
+    finally:
+        api.close()
+
+
+@pytest.mark.parametrize(
+    "provider_settings",
+    [
+        {"model_reasoning_effort": "minimal", "fast_mode": False},
+        {"model_reasoning_effort": "high", "fast_mode": True},
+        {"model_reasoning_effort": "high", "fast_mode": False, "temperature": 0},
+    ],
+)
+def test_m13_browser_rejects_unsupported_settings_before_transmission(
+    tmp_path: Path,
+    provider_settings: dict[str, object],
+) -> None:
+    provider = _Provider()
+    api = _api(tmp_path, provider)
+    try:
+        with pytest.raises((ValueError, TypeError, ProviderRuntimeConfigurationError)):
+            api.dispatch(
+                "POST",
+                "/api/v1/m13/prepare",
+                {
+                    "requested_model": "runtime-model",
+                    "provider_settings": provider_settings,
+                    "mode": "fact_only",
+                    "include_m12_material": True,
+                    "limits": {
+                        "max_provider_calls": 1,
+                        "max_input_tokens": 1_000,
+                        "max_output_tokens": 1_000,
+                        "max_total_tokens": 2_000,
+                        "timeout_seconds": 30,
+                        "max_concurrency": 1,
+                        "max_cost_micros": None,
+                    },
+                    "batch_limits": {
+                        "maximum_items": 1,
+                        "maximum_input_chars": 10_000,
+                        "maximum_input_tokens": 2_000,
+                    },
+                },
+            )
+        assert provider.requests == []
     finally:
         api.close()
 
@@ -264,6 +473,10 @@ def test_m13_api_cancellation_reaches_provider_and_preserves_validated_artifacts
     api = _api(tmp_path, provider)
     request = {
         "requested_model": "runtime-model",
+        "provider_settings": {
+            "model_reasoning_effort": "high",
+            "fast_mode": False,
+        },
         "mode": "fact_only",
         "include_m12_material": True,
         "limits": {

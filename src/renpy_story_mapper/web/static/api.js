@@ -213,15 +213,20 @@ export class LocalApi {
     const requestedModel = String(options.requested_model || "").trim();
     if (!requestedModel || requestedModel.length > 200) throw new TypeError("Enter the exact provider model to request");
     if (!["fact_only", "story_text"].includes(options.mode) || typeof options.include_m12_material !== "boolean") throw new TypeError("Select a valid Narrative privacy mode");
+    const providerSettings = exactKeys({ ...options.provider_settings }, ["model_reasoning_effort", "fast_mode"], "Narrative provider settings");
+    if (!["low", "medium", "high", "xhigh"].includes(providerSettings.model_reasoning_effort)) throw new TypeError("Select a supported Narrative reasoning effort");
+    if (providerSettings.fast_mode !== false) throw new TypeError("Narrative fast mode must remain disabled");
     const limits = { ...options.limits }; const batch = { ...options.batch_limits };
     for (const key of Object.keys(DEFAULT_NARRATIVE_LIMITS).filter((item) => item !== "max_cost_micros")) if (!Number.isInteger(limits[key]) || limits[key] < 1) throw new TypeError(`Narrative ${key} must be a positive integer`);
     if (limits.max_cost_micros !== null) throw new TypeError("Cost limiting is unavailable for this provider; use call, token, and time limits");
     for (const key of Object.keys(DEFAULT_NARRATIVE_BATCH_LIMITS)) if (!Number.isInteger(batch[key]) || batch[key] < 1) throw new TypeError(`Narrative ${key} must be a positive integer`);
-    const body = { requested_model: requestedModel, mode: options.mode, include_m12_material: options.include_m12_material, limits, batch_limits: batch };
+    const body = { requested_model: requestedModel, provider_settings: providerSettings, mode: options.mode, include_m12_material: options.include_m12_material, limits, batch_limits: batch };
     if (options.selected_scene_ids) body.selected_scene_ids = [...options.selected_scene_ids];
     if (options.locale) body.locale = options.locale;
     if (options.perspective) body.perspective = options.perspective;
-    return assertNarrativePreparation(await this.request(ENDPOINTS.narrativePrepare, { method: "POST", body }));
+    const prepared = assertNarrativePreparation(await this.request(ENDPOINTS.narrativePrepare, { method: "POST", body }));
+    if (prepared.provider.settings.model_reasoning_effort !== providerSettings.model_reasoning_effort || prepared.provider.settings.fast_mode !== providerSettings.fast_mode) throw new TypeError("Prepared Narrative provider settings changed in transit");
+    return prepared;
   }
   async startNarrative(preparationId) {
     if (typeof preparationId !== "string" || !preparationId) throw new TypeError("Narrative preparation ID is required");

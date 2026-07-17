@@ -80,6 +80,7 @@
             <p class="authority-note">M10 facts, M11 structure, and M12 route results remain authoritative. Cloud AI is disabled until one exact run is consented.</p>
             <form id="narrativeRunForm" class="narrative-run-form">
               <label>Provider model<input id="narrativeModel" type="text" maxlength="200" autocomplete="off" placeholder="Exact configured model" required></label>
+              <div class="narrative-form-row"><label>Reasoning<select id="narrativeReasoningEffort"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option><option value="xhigh">Extra high</option></select></label><label class="check-label"><input id="narrativeFastMode" type="checkbox" disabled> Fast mode off</label></div>
               <label>Selected scope<input value="All current scenes" readonly aria-readonly="true"></label>
               <div class="narrative-form-row"><label>Input mode<select id="narrativeMode"><option value="fact_only">Fact only</option><option value="story_text">Story text</option></select></label><label class="check-label"><input id="narrativeIncludeM12" type="checkbox" checked> Include M12</label></div>
               <details><summary>Run limits</summary><div class="narrative-limit-grid">

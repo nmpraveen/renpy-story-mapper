@@ -145,6 +145,7 @@ M13_ARTIFACT_REQUEST_FIELDS: Final = ("artifact_id",)
 M13_CITATIONS_REQUEST_FIELDS: Final = ("claim_id",)
 M13_PREPARE_REQUEST_FIELDS: Final = (
     "requested_model",
+    "provider_settings",
     "mode",
     "include_m12_material",
     "selected_scene_ids",
@@ -153,6 +154,7 @@ M13_PREPARE_REQUEST_FIELDS: Final = (
     "limits",
     "batch_limits",
 )
+M13_PROVIDER_SETTING_FIELDS: Final = ("model_reasoning_effort", "fast_mode")
 M13_START_REQUEST_FIELDS: Final = ("preparation_id", "confirm_cloud")
 M13_LIMIT_FIELDS: Final = (
     "max_provider_calls",

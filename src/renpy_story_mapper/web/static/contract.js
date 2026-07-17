@@ -266,9 +266,11 @@ export function assertNarrativeCitations(value) {
 }
 
 export function assertNarrativePreparation(value) {
-  if (!object(value) || value.schema !== "m13-run-preparation-v1" || typeof value.preparation_id !== "string" || !value.preparation_id || typeof value.run_id !== "string" || !value.run_id) throw new TypeError("Invalid M13 Narrative preparation");
+  if (!object(value) || value.schema !== "m13-run-preparation-v1" || typeof value.preparation_id !== "string" || !value.preparation_id || typeof value.run_id !== "string" || !value.run_id || typeof value.consent_manifest_id !== "string" || !value.consent_manifest_id) throw new TypeError("Invalid M13 Narrative preparation");
   digest(value.authority_hash, "M13 Narrative preparation authority_hash");
   if (!object(value.provider) || typeof value.provider.provider !== "string" || typeof value.provider.adapter !== "string" || typeof value.provider.adapter_version !== "string" || typeof value.provider.requested_model !== "string" || typeof value.provider.resolved_model !== "string" || !object(value.provider.settings)) throw new TypeError("Invalid M13 Narrative provider identity");
+  exactKeys(value.provider.settings, ["model_reasoning_effort", "fast_mode"], "M13 Narrative provider settings");
+  if (!["low", "medium", "high", "xhigh"].includes(value.provider.settings.model_reasoning_effort) || value.provider.settings.fast_mode !== false) throw new TypeError("Invalid M13 Narrative provider settings");
   if (typeof value.provider_available !== "boolean" || !Array.isArray(value.selected_scope_ids) || value.selected_scope_ids.length !== 1 || value.selected_scope_ids.some((item) => typeof item !== "string" || !item)) throw new TypeError("Invalid M13 Narrative selected scope");
   if (!["fact_only", "story_text"].includes(value.privacy_mode) || typeof value.includes_m12_material !== "boolean" || value.consent_granted !== false || value.requires_confirm_cloud !== true || value.cloud_enabled !== false || !Number.isInteger(value.selected_scene_count) || value.selected_scene_count < 1) throw new TypeError("Invalid M13 Narrative consent state");
   const estimate = value.estimate;

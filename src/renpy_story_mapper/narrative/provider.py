@@ -48,12 +48,7 @@ _SETTING_KEYS = frozenset({"fast_mode", "model_reasoning_effort"})
 
 
 def _require_text(value: str, label: str, *, maximum: int = 200) -> None:
-    if (
-        not value
-        or value != value.strip()
-        or len(value) > maximum
-        or not value.isprintable()
-    ):
+    if not value or value != value.strip() or len(value) > maximum or not value.isprintable():
         raise ValueError(f"{label} must be a trimmed printable string of at most {maximum} chars")
 
 
@@ -85,7 +80,9 @@ def _json_object(value: object, *, label: str) -> dict[str, JsonValue]:
     return normalized
 
 
-def _adapter_reasoning_effort(settings: ProviderSettings) -> str | None:
+def validate_codex_provider_settings(settings: ProviderSettings) -> str | None:
+    """Validate the exact bounded Codex adapter settings before provider discovery."""
+
     values = settings.to_dict()
     unknown = set(values) - _SETTING_KEYS
     if unknown:
@@ -387,7 +384,7 @@ class CodexCliNarrativeProvider:
     ) -> ProviderResponse:
         if cancelled():
             raise ProviderCancelledError("cancelled", "The provider request was cancelled.")
-        reasoning_effort = _adapter_reasoning_effort(request.settings)
+        reasoning_effort = validate_codex_provider_settings(request.settings)
         status = self.status()
         if not status.available:
             raise ProviderUnavailableError(
@@ -547,9 +544,7 @@ def _usage(events: tuple[object, ...]) -> tuple[int, int, int | None]:
                 "The provider returned invalid token usage.",
             )
     cost = latest.get("cost_micros")
-    if cost is not None and (
-        not isinstance(cost, int) or isinstance(cost, bool) or cost < 0
-    ):
+    if cost is not None and (not isinstance(cost, int) or isinstance(cost, bool) or cost < 0):
         raise ProviderOutputError(
             "cost_metadata_invalid",
             "The provider returned invalid cost metadata.",
