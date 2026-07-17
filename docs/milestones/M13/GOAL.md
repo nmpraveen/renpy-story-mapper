@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Integration (semantic review PASS retained)
+Status: Verification (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
@@ -94,6 +94,14 @@ Finding 6 is a false-positive candidate because
 `test_m12_leaf_projection_separates_result_and_path_authority` passes, but it remains open until
 Track B proves validation, publication, hierarchy, and rendering and its independent reviewer
 confirms the result. Historical acceptance evidence below remains valid only for its exact heads.
+
+Track execution is complete. Track A final head `2685de0` passes independent targeted rereview
+with no P0/P1/P2 after one bounded correction. Track B head `251e063` passes independent review
+with no P0/P1/P2 and confirms finding 6 is a false positive through the complete required path.
+The parent integrated Track A first and replayed Track B without conflict; exact integrated
+candidate head `9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b` is now under combined verification. Findings
+1-5, 7, and 8 have corrections plus failing-first regressions; finding 6 has exact false-positive
+proof and no speculative product edit.
 
 ## Deliverables
 

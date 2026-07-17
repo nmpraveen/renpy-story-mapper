@@ -3,10 +3,11 @@
 Last revised: 2026-07-16
 
 Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16 and
-retains its semantic-review `PASS`, but existing unmerged PR #23 returned to `Integration` on
+retains its semantic-review `PASS`. Existing unmerged PR #23 returned to `Integration` on
 2026-07-17 after a final bounded current-head audit reproduced P1 defects in restart, accounting,
-privacy, and citation behavior. Prior review, live/replay, and Release results remain historical
-evidence for their exact heads; they are not proof of the pending corrected head.
+privacy, and citation behavior. Both bounded tracks now pass independent review and are integrated
+at `9ab1dbd`; M13 is in `Verification`. Prior review, live/replay, and Release results remain
+historical evidence for their exact heads; they are not proof of the pending corrected head.
 
 ## 1. Product goal
 
@@ -1249,5 +1250,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Complete the authorized final bounded M13 correction cycle on existing PR #23, restore genuine PR
-readiness with current-head evidence, and leave the PR open and unmerged. Do not begin M14.
+Verify integrated M13 correction head `9ab1dbd`, obtain final independent review and acceptance,
+update existing PR #23, and leave it open and unmerged. Do not begin M14.

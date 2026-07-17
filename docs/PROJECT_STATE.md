@@ -10,7 +10,7 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Integration.
+- Status: Verification.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
@@ -61,6 +61,19 @@ Phase 0. The system `py -3.12` interpreter is not installed against this checkou
 environment. Collaboration dispatch exposes model and reasoning selectors, but no fast-mode
 selector. Child tasks will explicitly use `gpt-5.6-sol` and High reasoning; fast-mode state will
 be recorded as unavailable and unverified.
+
+Track A froze the cumulative-usage, transmission-attestation, reservation, and browser retry
+identity interfaces before worker divergence. Its final independently rereviewed head
+`2685de031db68682697134e5cad64e0246e1929d` passes with no P0, P1, or P2 after one bounded
+reviewer-driven correction. Track B independently passes at
+`251e063fc0467f73f14d0771b2a4fd236772e6b0` with no P0, P1, or P2 and confirms finding 6 is a
+false positive across validation, publication, hierarchy, rendering, and unchanged M12 bytes.
+
+The parent integrated Track A first, rebased Track B's three semantic commits onto that exact
+head, and fast-forwarded the result without conflict. Integrated candidate head is
+`9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b`; the lifecycle is now `Verification`. No provider
+call, push, PR mutation, merge, protected-untracked-path change, or M14 work occurred during track
+execution or integration.
 
 ## Historical prior correction verification (not current-cycle proof)
 
