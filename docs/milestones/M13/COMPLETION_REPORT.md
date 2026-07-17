@@ -1,12 +1,13 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready; not created or merged
+Status: PR ready; draft PR #23 open and unmerged
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `740e3214e84e256f4dab459d3528ddec803e456b`
 
-Pull request: Not created; explicit user approval is required
+Pull request: Draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) opened by
+explicit user approval; merge requires separate approval
 
 ## Outcome
 
@@ -19,7 +20,7 @@ The live aggregate is correctly `partial`: Foyer and Courtyard retained ten vali
 omitted four invalid claims. All higher hierarchy artifacts completed. This is criterion-5 safe
 salvage, not incomplete execution. No further live provider call is needed or authorized by this
 evidence. Post-correction Release passes 1,016 tests with 7 hardware-sensitive tests deselected,
-and every quality/build/package gate is green. M13 is PR-ready; no PR has been created.
+and every quality/build/package gate is green. M13 is PR-ready; draft PR #23 is open and unmerged.
 
 ## Acceptance evidence
 
@@ -31,7 +32,7 @@ and every quality/build/package gate is green. M13 is PR-ready; no PR has been c
 | 20 | Pass | Exact approved live run completed the route-aware hierarchy; fail-closed exact replay made zero submit attempts/calls and reproduced hashes/rendering exactly |
 | 21 | Pass | Source and M10/M11/M12 authority unchanged; no unauthorized remote/game action or raw-debug retention |
 | 22 | Pass | Post-correction Release 1,016/7, focused correction, final-budget review, and post-live audit pass with no unresolved P0/P1 |
-| 23 | Pass | Evidence and infographic are durable; branch is PR-ready; PR is uncreated and approval-gated |
+| 23 | Pass | Evidence and infographic are durable; explicitly approved draft PR #23 is open and unmerged |
 
 ## Final validation snapshot
 
@@ -52,5 +53,5 @@ and every quality/build/package gate is green. M13 is PR-ready; no PR has been c
 - Consent-manifest stability, provider identity, complete live hierarchy, and exact replay are
   corrected and verified; no further live execution is needed.
 - The prior native Codex goal was stopped by the user; no new native goal exists in this task.
-- The branch is PR-ready. No pull request was created or merged; each still requires explicit user
-  approval.
+- The branch is PR-ready and draft PR #23 is open. It was not merged; merge remains separately
+  approval-gated.

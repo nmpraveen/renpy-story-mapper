@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: PR ready; all required gates pass and no PR has been created
+Status: PR ready; all required gates pass and draft PR #23 is open
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -230,5 +230,5 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
   P0/P1. Post-correction focused and Release results are recorded in this report.
 - The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
   `fast_mode=false`; this does not claim that the task API independently verified that setting.
-- No pull request was created; the branch is PR-ready and still requires separate approval for PR
-  creation or merge.
+- Explicitly approved draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is
+  open and mergeable. It remains unmerged and requires separate approval before merge.

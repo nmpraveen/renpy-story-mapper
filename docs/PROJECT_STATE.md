@@ -16,7 +16,8 @@ Updated: 2026-07-17
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
 - Native Codex goal: the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` was stopped by
   the user; no new native goal exists in this task, and the milestone is not complete.
-- Pull request: Not created; explicit user approval is required before creation or merge.
+- Pull request: Draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) opened
+  by explicit user approval; merge remains separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -134,7 +135,8 @@ audit found no remaining P0/P1. The harness had incorrectly rejected allowed agg
 before built-in replay; commit `0aa0415` accepts only succeeded/partial publication and retains
 strict rejection for failed/refused/cancelled/hard-limit outcomes. Combined report SHA-256 is
 `93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621`. No second provider
-execution occurred, and no PR has been created.
+execution occurred. At that checkpoint no PR had been created; the user later explicitly approved
+and opened draft PR #23. It remains unmerged.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

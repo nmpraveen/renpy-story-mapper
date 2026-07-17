@@ -161,7 +161,7 @@ the existing map, scene view, evidence workspace, or route solver.
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Browser report `8d065d7a...f81b02` passes at runtime path unchanged by final provider-only correction; optional overlay deferred |
 | 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private 1,812-scene simulation and exact live run/replay pass; live report `93a22d66...a621`; complete route-aware hierarchy; exact replay; source and M10/M11/M12 authority unchanged |
 | 22 | Focused/full Windows suite, package inspection, independent review | Post-correction Release passes 1,016/7 at `0aa0415`; focused harness correction and independent live-evidence audit pass with no remaining P0/P1 |
-| 23 | Reports, integration commit, infographic, PR state | Runtime `740e321`, harness correction `0aa0415`, exact live evidence, and native infographic are durable; branch is PR-ready, but PR remains approval-gated and uncreated |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `740e321`, harness correction `0aa0415`, exact live evidence, and native infographic are durable; explicitly approved draft PR #23 is open and unmerged |
 
 ## Release-critical sequence
 
