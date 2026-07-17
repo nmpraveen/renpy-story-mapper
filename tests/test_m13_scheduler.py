@@ -1168,7 +1168,7 @@ def test_call_usage_reservation_precedes_submit_and_finalizes_idempotent_payload
     assert finalization.usage.output_tokens == 3
 
 
-def test_unhandled_execution_interruption_leaves_durable_reservation_unresolved() -> None:
+def test_execution_interruption_finalizes_unknown_usage_before_propagation() -> None:
     identity = _provider_identity()
     job = _job(0, identity, input_tokens=17, output_tokens=9)
     sink = MemorySink()
@@ -1185,7 +1185,12 @@ def test_unhandled_execution_interruption_leaves_durable_reservation_unresolved(
         )
 
     assert len(sink.reservations) == 1
-    assert sink.finalizations == []
+    assert len(sink.finalizations) == 1
+    finalization = sink.finalizations[0]
+    assert finalization.transmission_disposition is TransmissionDisposition.UNKNOWN
+    assert finalization.usage.provider_calls == 1
+    assert finalization.usage.input_tokens == 17
+    assert finalization.usage.output_tokens == 9
 
 
 def test_post_submit_timeout_reserves_nonzero_estimated_usage() -> None:

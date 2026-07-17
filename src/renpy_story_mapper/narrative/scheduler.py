@@ -932,6 +932,22 @@ class NarrativeScheduler:
                     forced_error = action.stop_error
                     break
                 continue
+            except BaseException:
+                interruption_usage = self._reserved_usage(
+                    batch,
+                    job_by_id,
+                    elapsed_ms=max(1, int((self._clock() - submitted_at) * 1_000)),
+                    cost_micros=None,
+                )
+                self._sink.finalize_call(
+                    self._call_finalization(
+                        reservation,
+                        TransmissionDisposition.UNKNOWN,
+                        interruption_usage,
+                        metrics_estimated=True,
+                    )
+                )
+                raise
 
             response_usage, response_usage_estimated = self._effective_response_usage(
                 response.usage,
