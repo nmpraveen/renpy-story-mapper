@@ -24,6 +24,7 @@ from renpy_story_mapper.narrative.pipeline import (
     project_scene_placements,
     run_complete_narrative,
 )
+from renpy_story_mapper.narrative.presentation import narrative_artifact_detail
 from renpy_story_mapper.narrative.projection import NarrativeInputMode
 from renpy_story_mapper.narrative.provider import (
     PROMPT_TEMPLATE_VERSION,
@@ -39,6 +40,7 @@ from renpy_story_mapper.narrative.segments import SegmentPartitionConfig
 from renpy_story_mapper.narrative.workflow import (
     grant_narrative_consent,
     prepare_narrative_scene_run,
+    run_prepared_scene_jobs,
 )
 from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.storage import canonical_json
@@ -274,6 +276,114 @@ def test_complete_pipeline_publishes_route_aware_plot_and_exact_m12_leaf(
         exact_text = {str(item["text"]) for item in m12_claims}
         assert {"incomplete_solve", "Best known route"} <= exact_text
 
+        current_m12 = load_narrative_authority(project, include_m12=True).m12_results[0]
+        alternatives = current_m12["alternatives"]
+        assert isinstance(alternatives, list) and alternatives
+        route_details = [
+            narrative_artifact_detail(project, artifact_id)
+            for artifact_id in result.artifacts.route_artifact_ids
+        ]
+        alternative_detail = next(
+            detail
+            for detail in route_details
+            if any(
+                item["authority_kind"] == "path"
+                and item["path_role"] == "alternative"
+                for item in detail["m12_authority"]
+            )
+        )
+        hierarchy_path = alternative_detail["hierarchy"]["path"]
+        annotations = alternative_detail["m12_authority"]
+        path_annotations = [
+            item for item in annotations if item["authority_kind"] == "path"
+        ]
+        result_annotations = [
+            item for item in annotations if item["authority_kind"] == "result"
+        ]
+        assert path_annotations and result_annotations
+        assert all(
+            item["status"] is None and item["badge"] is None
+            for item in path_annotations
+        )
+        assert all(
+            item["path_role"] is None and item["path_ordinal"] is None
+            for item in result_annotations
+        )
+        alternative_annotations = [
+            item for item in path_annotations if item["path_role"] == "alternative"
+        ]
+        assert alternative_annotations
+        assert all(
+            item["route_id"] == hierarchy_path["route_id"]
+            and item["persistent_lane_id"] == hierarchy_path["persistent_lane_id"]
+            for item in alternative_annotations
+        )
+        for annotation in alternative_annotations:
+            ordinal = annotation["path_ordinal"]
+            assert isinstance(ordinal, int) and ordinal > 0
+            source_path = alternatives[ordinal - 1]
+            assert annotation["persistent_lane_ids"] == source_path["persistent_lane_ids"]
+            assert annotation["path_provenance"] == source_path.get(
+                "provenance",
+                source_path,
+            )
+            assert annotation["persistent_commitment_texts"] == [
+                item["text"]
+                for item in source_path["persistent_commitment_claims"]
+            ]
+            assert annotation["warning_texts"] == source_path["uncertainty_warnings"]
+
+        route_payload = next(
+            payload
+            for payload in provider_payloads
+            if payload.get("job_kind") == "route"
+            and any(
+                claim.get("text") == "alternative"
+                and claim.get("semantics", {}).get("predicate") == "path_role"
+                for claim in payload.get("exact_m12_authority_claims", [])
+            )
+        )
+        validation_claims = route_payload["exact_m12_authority_claims"]
+        alternative_subjects = {
+            claim["semantics"]["subject"]
+            for claim in validation_claims
+            if claim["semantics"]["predicate"] == "path_role"
+            and claim["text"] == "alternative"
+        }
+        result_status_subjects = {
+            claim["semantics"]["subject"]
+            for claim in validation_claims
+            if claim["semantics"]["predicate"] in {"status", "badge"}
+        }
+        assert alternative_subjects
+        assert alternative_subjects.isdisjoint(result_status_subjects)
+        assert all(
+            {"path_role", "path_ordinal", "persistent_lane:0", "path_provenance"}
+            <= {
+                claim["semantics"]["predicate"]
+                for claim in validation_claims
+                if claim["semantics"]["subject"] == subject
+            }
+            for subject in alternative_subjects
+        )
+
+        rendered_claims = alternative_detail["claims"]
+        rendered_alternative_subjects = {
+            claim["semantics"]["subject"]
+            for claim in rendered_claims
+            if claim["semantics"] is not None
+            and claim["semantics"]["predicate"] == "path_role"
+            and claim["text"] == "alternative"
+        }
+        rendered_result_subjects = {
+            claim["semantics"]["subject"]
+            for claim in rendered_claims
+            if claim["semantics"] is not None
+            and claim["semantics"]["predicate"] in {"status", "badge"}
+        }
+        assert rendered_alternative_subjects == alternative_subjects
+        assert rendered_alternative_subjects.isdisjoint(rendered_result_subjects)
+
 
 def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path) -> None:
     project_path = tmp_path / "m13-pipeline.rsmproj"
@@ -290,6 +400,57 @@ def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path
         assert replay.record.usage.provider_calls == 0
         assert replay.artifacts == first.artifacts
         assert all(item.cache_replay for item in replay.jobs)
+
+
+def test_complete_pipeline_preserves_restored_usage_after_cache_only_scene_phase(
+    tmp_path: Path,
+) -> None:
+    provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="pipeline-resumed-accounting",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        seeded = run_prepared_scene_jobs(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+        assert seeded.record.cumulative_usage is not None
+        restored = seeded.record.cumulative_usage
+        assert restored.provider_calls == len(provider.requests) > 0
+
+        provider.requests.clear()
+        resumed = run_complete_narrative(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+
+        scene_phase = resumed.phases[0].record
+        assert scene_phase.usage.provider_calls == 0
+        assert scene_phase.cumulative_usage == restored
+        assert resumed.record.cumulative_usage is not None
+        assert resumed.record.cumulative_usage.provider_calls == (
+            restored.provider_calls + len(provider.requests)
+        )
+        assert resumed.record.cumulative_usage.input_tokens == (
+            restored.input_tokens + (50 * len(provider.requests))
+        )
+        assert resumed.record.cumulative_usage.output_tokens == (
+            restored.output_tokens + (25 * len(provider.requests))
+        )
 
 
 def test_complete_pipeline_reduces_every_oversized_hierarchy_level(

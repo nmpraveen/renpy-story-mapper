@@ -255,7 +255,7 @@ def run_complete_narrative(
         cancelled=cancelled,
     )
     phases.append(scene_run)
-    usage = scene_run.record.usage
+    usage = _cumulative_usage(scene_run.record)
     scene_candidates = _scene_candidates(
         project,
         prepared,
@@ -323,7 +323,7 @@ def run_complete_narrative(
     chapter_candidates: tuple[_ArtifactCandidate, ...] = ()
     if chapter_level is not None:
         phases.append(chapter_level.scheduler)
-        usage = chapter_level.scheduler.record.usage
+        usage = _cumulative_usage(chapter_level.scheduler.record)
         chapter_candidates = chapter_level.candidates
     if chapter_level is not None and _terminal_phase(chapter_level.scheduler.record, cancelled):
         return _finish_pipeline(
@@ -426,7 +426,7 @@ def run_complete_narrative(
         )
         if common_level is not None:
             phases.append(common_level.scheduler)
-            usage = common_level.scheduler.record.usage
+            usage = _cumulative_usage(common_level.scheduler.record)
             common_candidate = common_level.candidates[0]
     else:
         unresolved.append("common_story_missing")
@@ -545,7 +545,7 @@ def run_complete_narrative(
     route_candidates: tuple[_ArtifactCandidate, ...] = ()
     if route_level is not None:
         phases.append(route_level.scheduler)
-        usage = route_level.scheduler.record.usage
+        usage = _cumulative_usage(route_level.scheduler.record)
         route_candidates = route_level.candidates
     route_by_id = {
         item.path.route_id: item
@@ -666,7 +666,7 @@ def run_complete_narrative(
     ending_candidates: tuple[_ArtifactCandidate, ...] = ()
     if ending_level is not None:
         phases.append(ending_level.scheduler)
-        usage = ending_level.scheduler.record.usage
+        usage = _cumulative_usage(ending_level.scheduler.record)
         ending_candidates = ending_level.candidates
 
     plot_candidate: _ArtifactCandidate | None = None
@@ -777,7 +777,7 @@ def run_complete_narrative(
     )
     if plot_level is not None:
         phases.append(plot_level.scheduler)
-        usage = plot_level.scheduler.record.usage
+        usage = _cumulative_usage(plot_level.scheduler.record)
         plot_candidate = plot_level.candidates[0]
 
     character_candidates: tuple[_ArtifactCandidate, ...] = ()
@@ -1242,7 +1242,7 @@ def _reduce_scenes_to_segments(
         if executed is None:
             break
         phases.append(executed.scheduler)
-        usage = executed.scheduler.record.usage
+        usage = _cumulative_usage(executed.scheduler.record)
         accepted_ids.extend(item.artifact_id for item in executed.candidates if item.available)
         by_context: dict[SegmentStructuralContext, list[_ArtifactCandidate]] = defaultdict(list)
         for item in executed.candidates:
@@ -1407,7 +1407,7 @@ def _reduce_hierarchy_fan_in(
         if executed is None:
             raise ValueError("hierarchy reduction produced no executable descriptors")
         phases.append(executed.scheduler)
-        usage = executed.scheduler.record.usage
+        usage = _cumulative_usage(executed.scheduler.record)
         artifact_ids.extend(item.artifact_id for item in executed.candidates if item.available)
         previous_measure = (
             len(current),
@@ -1959,9 +1959,7 @@ def _finish_pipeline(
     states = Counter(item.state for item in jobs)
     usage = phases[-1].record.usage if phases else SchedulerUsage()
     cumulative_usage = (
-        usage
-        if not phases or phases[-1].record.cumulative_usage is None
-        else phases[-1].record.cumulative_usage
+        _cumulative_usage(phases[-1].record) if phases else SchedulerUsage()
     )
     hard = next(
         (phase.record for phase in phases if phase.record.state is SchedulerRunState.HARD_LIMIT),
@@ -2044,6 +2042,12 @@ def project_scene_authority_binding(project: Project) -> Mapping[str, object]:
     from renpy_story_mapper.narrative.authority import load_narrative_authority
 
     return load_narrative_authority(project, include_m12=True).binding.to_dict()
+
+
+def _cumulative_usage(record: SchedulerRunRecord) -> SchedulerUsage:
+    """Return the monotonic run authority, preserving legacy phase-only records."""
+
+    return record.usage if record.cumulative_usage is None else record.cumulative_usage
 
 
 def _terminal_phase(record: SchedulerRunRecord, cancelled: CancelledCallback) -> bool:
