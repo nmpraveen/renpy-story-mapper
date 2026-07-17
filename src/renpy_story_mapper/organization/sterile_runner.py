@@ -57,6 +57,7 @@ _FORBIDDEN_MARKERS = {
 _POLICY_TYPE_FIELDS = {"type", "kind", "name", "tool", "tool_name"}
 _TEXT_PAYLOAD_FIELDS = {"text", "message", "content", "output", "summary"}
 _SAFE_CODEX_ITEM_TYPES = {"agent_message", "reasoning", "todo_list", "error"}
+_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 
 class Process(Protocol):
@@ -86,6 +87,7 @@ class SterileRunRequest:
     stdin: bytes
     timeout_seconds: float
     maximum_output_bytes: int
+    model_reasoning_effort: str | None = None
 
     def __post_init__(self) -> None:
         _validate_model(self.model)
@@ -101,6 +103,11 @@ class SterileRunRequest:
             raise ValueError("Provider timeout must be positive.")
         if self.maximum_output_bytes <= 0:
             raise ValueError("Provider output limit must be positive.")
+        if (
+            self.model_reasoning_effort is not None
+            and self.model_reasoning_effort not in _REASONING_EFFORTS
+        ):
+            raise ValueError("Unsupported provider reasoning effort.")
 
 
 @dataclass(frozen=True)
@@ -257,10 +264,16 @@ def build_sterile_codex_command(
     *,
     model: str,
     schema_path: Path,
+    model_reasoning_effort: str | None = None,
 ) -> tuple[str, list[str]]:
     """Build the direct, ephemeral, schema-constrained command for one cloud call."""
 
     _validate_model(model)
+    if (
+        model_reasoning_effort is not None
+        and model_reasoning_effort not in _REASONING_EFFORTS
+    ):
+        raise ValueError("Unsupported provider reasoning effort.")
     arguments = [
         "exec",
         "--ephemeral",
@@ -273,6 +286,8 @@ def build_sterile_codex_command(
     ]
     for feature in _DISABLED_CODEX_FEATURES:
         arguments.extend(["--disable", feature])
+    if model_reasoning_effort is not None:
+        arguments.extend(["-c", f'model_reasoning_effort="{model_reasoning_effort}"'])
     arguments.extend(
         [
             "-c",
@@ -335,7 +350,6 @@ class SterileCodexRunner:
             raise SterileRunnerError(
                 "provider_unavailable",
                 "The Codex CLI provider is unavailable.",
-                transient=True,
             )
         with self._lock:
             cancellation_generation = self._cancel_generation
@@ -355,13 +369,14 @@ class SterileCodexRunner:
                     resolved,
                     model=request.model,
                     schema_path=request.schema_path,
+                    model_reasoning_effort=request.model_reasoning_effort,
                 )
                 process.start(program, arguments)
                 self._wait_for_start(process, is_cancelled)
                 if process.write(request.stdin) != len(request.stdin):
                     self._stop_process(process)
                     raise SterileRunnerError(
-                        "stdin_incomplete",
+                        "transport_failure",
                         "The provider did not accept the complete structured request.",
                         transient=True,
                     )
@@ -389,7 +404,6 @@ class SterileCodexRunner:
                 raise SterileRunnerError(
                     "provider_unavailable",
                     "The Codex CLI provider could not start.",
-                    transient=True,
                 )
         SterileCodexRunner._stop_process(process)
         raise SterileRunnerError(
@@ -486,18 +500,138 @@ class SterileCodexRunner:
     @staticmethod
     def _raise_process_failure(raw: bytes) -> None:
         category = raw.decode("utf-8", errors="ignore").casefold()
-        if "rate limit" in category or "429" in category:
+        if any(
+            marker in category
+            for marker in ("rate limit", "rate_limit", "too many requests", "429")
+        ):
             raise SterileRunnerError(
                 "rate_limited",
                 "The provider is rate limited.",
                 transient=True,
             )
-        if "not logged in" in category or "sign in" in category or "unauthorized" in category:
-            raise SterileRunnerError("provider_auth", "The provider is not authenticated.")
+        if any(
+            marker in category
+            for marker in (
+                "not logged in",
+                "sign in",
+                "unauthorized",
+                "authentication failed",
+                "invalid authentication",
+                "authentication required",
+                "login required",
+                "status 401",
+                "http 401",
+                "status code: 401",
+            )
+        ):
+            raise SterileRunnerError(
+                "authentication_failed",
+                "The provider authentication was rejected.",
+            )
+        runtime_setting_rejected = (
+            "model_reasoning_effort" in category
+            and any(
+                marker in category
+                for marker in ("invalid value", "unknown variant", "unsupported")
+            )
+        ) or (
+            "fast_mode" in category
+            and any(
+                marker in category
+                for marker in ("unknown feature", "unrecognized feature", "feature not found")
+            )
+        )
+        if any(
+            marker in category
+            for marker in (
+                "output schema is invalid",
+                "output schema rejected",
+                "invalid output schema",
+                "unsupported output schema",
+                "schema for response_format",
+                "invalid_json_schema",
+                "json schema is invalid",
+                "json schema rejected",
+            )
+        ):
+            raise SterileRunnerError(
+                "output_schema_rejected",
+                "The provider rejected the output schema.",
+            )
+        if runtime_setting_rejected or any(
+            marker in category
+            for marker in (
+                "configuration error",
+                "configuration is invalid",
+                "invalid configuration",
+                "unknown config key",
+                "unknown configuration key",
+                "unsupported config",
+                "failed to parse config",
+                "invalid value for 'model_reasoning_effort'",
+                'invalid value for "model_reasoning_effort"',
+            )
+        ):
+            raise SterileRunnerError(
+                "runtime_configuration_rejected",
+                "The provider runtime configuration was rejected.",
+            )
         if "refus" in category:
             raise SterileRunnerError("provider_refusal", "The provider refused the request.")
+        if "timed out" in category or "request timeout" in category:
+            raise SterileRunnerError(
+                "timeout",
+                "The provider request timed out.",
+                transient=True,
+            )
+        if any(
+            marker in category
+            for marker in (
+                "connection reset",
+                "connection refused",
+                "connection aborted",
+                "connection closed",
+                "network is unreachable",
+                "temporary failure in name resolution",
+                "dns failure",
+                "dns error",
+                "connect error",
+                "connection error",
+                "error sending request",
+                "tls handshake",
+                "certificate verify",
+                "transport error",
+            )
+        ):
+            raise SterileRunnerError(
+                "transport_failure",
+                "The provider transport failed.",
+                transient=True,
+            )
+        if any(
+            marker in category
+            for marker in (
+                "internal server error",
+                "service unavailable",
+                "bad gateway",
+                "gateway timeout",
+                "server overloaded",
+                "status 500",
+                "status 502",
+                "status 503",
+                "status 504",
+                "http 500",
+                "http 502",
+                "http 503",
+                "http 504",
+            )
+        ):
+            raise SterileRunnerError(
+                "server_transient",
+                "The provider server failed temporarily.",
+                transient=True,
+            )
         raise SterileRunnerError(
-            "provider_failure",
+            "provider_process_failed",
             "The provider process failed.",
-            transient=True,
         )

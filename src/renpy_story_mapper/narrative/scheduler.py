@@ -53,6 +53,7 @@ from renpy_story_mapper.narrative.provider import (
     HARD_MAXIMUM_OUTPUT_BYTES,
     NarrativeProvider,
     NarrativeProviderError,
+    ProviderAuthenticationError,
     ProviderBatchItem,
     ProviderCancelledError,
     ProviderIdentityMismatchError,
@@ -60,11 +61,30 @@ from renpy_story_mapper.narrative.provider import (
     ProviderOutputError,
     ProviderOutputItem,
     ProviderPolicyViolationError,
+    ProviderProcessError,
+    ProviderRateLimitError,
     ProviderRefusalError,
     ProviderRequest,
     ProviderResponse,
+    ProviderRuntimeConfigurationError,
+    ProviderSchemaRejectedError,
+    ProviderServerTransientError,
     ProviderTimeoutError,
+    ProviderTransportError,
     ProviderUsage,
+)
+
+_RUN_GLOBAL_PROVIDER_ERRORS = (
+    ProviderSchemaRejectedError,
+    ProviderRuntimeConfigurationError,
+    ProviderAuthenticationError,
+    ProviderProcessError,
+)
+_RETRYABLE_TRANSIENT_PROVIDER_ERRORS = (
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderTransportError,
+    ProviderServerTransientError,
 )
 
 _REFUSAL_CODES = frozenset(
@@ -1055,7 +1075,7 @@ class NarrativeScheduler:
                 histories,
                 consent.run_id,
                 LogicalJobState.FAILED,
-                "internal_error",
+                forced_error or "internal_error",
             )
 
         run_state = forced_state or self._derive_state(records.values())
@@ -1284,6 +1304,10 @@ class NarrativeScheduler:
             outcome = AttemptOutcome.CANCELLED
             safe_code = "cancelled"
             terminal_state = LogicalJobState.CANCELLED
+        elif isinstance(error, _RUN_GLOBAL_PROVIDER_ERRORS):
+            outcome = AttemptOutcome.MALFORMED
+            safe_code = error.error_code
+            terminal_state = LogicalJobState.FAILED
         elif isinstance(error, ProviderTimeoutError):
             outcome = AttemptOutcome.TIMEOUT
             safe_code = "timeout"
@@ -1353,6 +1377,11 @@ class NarrativeScheduler:
             stop_state = SchedulerRunState.CANCELLED
             stop_error = "cancelled"
             retries: tuple[TransportBatch, ...] = ()
+        elif isinstance(error, _RUN_GLOBAL_PROVIDER_ERRORS):
+            batch_state = SchedulerBatchState.FAILED
+            stop_state = SchedulerRunState.FAILED
+            stop_error = error.error_code
+            retries = ()
         elif isinstance(error, ProviderIdentityMismatchError | ProviderPolicyViolationError):
             batch_state = SchedulerBatchState.FAILED
             stop_state = SchedulerRunState.FAILED
@@ -1415,6 +1444,8 @@ class NarrativeScheduler:
             | ProviderPolicyViolationError,
         ):
             return False
+        if isinstance(error, _RUN_GLOBAL_PROVIDER_ERRORS):
+            return False
         if isinstance(
             error,
             ProviderRefusalError | ProviderLimitError,
@@ -1422,7 +1453,7 @@ class NarrativeScheduler:
             return batch_size > 1
         if isinstance(error, ProviderOutputError):
             return batch_size > 1 or self._eligible_malformed(history)
-        if error.transient:
+        if isinstance(error, _RETRYABLE_TRANSIENT_PROVIDER_ERRORS) and error.transient:
             transient = sum(
                 outcome in {AttemptOutcome.TRANSIENT_FAILURE, AttemptOutcome.TIMEOUT}
                 for outcome in history

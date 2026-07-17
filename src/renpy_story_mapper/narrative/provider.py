@@ -31,9 +31,9 @@ from renpy_story_mapper.organization.sterile_runner import (
 )
 
 PROMPT_TEMPLATE_VERSION = "m13-narrative-batch-prompt-v4"
-RESPONSE_SCHEMA_VERSION = "m13-narrative-batch-response-v2"
+RESPONSE_SCHEMA_VERSION = "m13-narrative-batch-response-v3"
 ADAPTER_NAME = "codex_cli_structured"
-ADAPTER_VERSION = "m13-codex-cli-adapter-v1"
+ADAPTER_VERSION = "m13-codex-cli-adapter-v2"
 DEFAULT_MAXIMUM_INPUT_BYTES = 512_000
 DEFAULT_MAXIMUM_OUTPUT_BYTES = 256_000
 HARD_MAXIMUM_INPUT_BYTES = 2_000_000
@@ -41,8 +41,10 @@ HARD_MAXIMUM_OUTPUT_BYTES = 2_000_000
 HARD_MAXIMUM_BATCH_ITEMS = 64
 
 _PROMPT_RESOURCE = "narrative_batch_v4.json"
-_SCHEMA_RESOURCE = "narrative_batch_v2.schema.json"
+_SCHEMA_RESOURCE = "narrative_batch_v3.schema.json"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+_SETTING_KEYS = frozenset({"fast_mode", "model_reasoning_effort"})
 
 
 def _require_text(value: str, label: str, *, maximum: int = 200) -> None:
@@ -81,6 +83,29 @@ def _json_object(value: object, *, label: str) -> dict[str, JsonValue]:
     if not isinstance(normalized, dict):
         raise ValueError(f"{label} must be a JSON object")
     return normalized
+
+
+def _adapter_reasoning_effort(settings: ProviderSettings) -> str | None:
+    values = settings.to_dict()
+    unknown = set(values) - _SETTING_KEYS
+    if unknown:
+        raise ProviderRuntimeConfigurationError(
+            "runtime_configuration_rejected",
+            "The provider settings contain an unsupported key.",
+        )
+    reasoning = values.get("model_reasoning_effort")
+    if reasoning is not None and reasoning not in _REASONING_EFFORTS:
+        raise ProviderRuntimeConfigurationError(
+            "runtime_configuration_rejected",
+            "The provider reasoning effort is unsupported.",
+        )
+    fast_mode = values.get("fast_mode")
+    if fast_mode is not None and fast_mode is not False:
+        raise ProviderRuntimeConfigurationError(
+            "runtime_configuration_rejected",
+            "Fast mode must remain disabled for this provider adapter.",
+        )
+    return reasoning
 
 
 @dataclass(frozen=True)
@@ -276,6 +301,30 @@ class ProviderLimitError(NarrativeProviderError):
     pass
 
 
+class ProviderSchemaRejectedError(NarrativeProviderError):
+    pass
+
+
+class ProviderRuntimeConfigurationError(NarrativeProviderError):
+    pass
+
+
+class ProviderAuthenticationError(NarrativeProviderError):
+    pass
+
+
+class ProviderProcessError(NarrativeProviderError):
+    pass
+
+
+class ProviderTransportError(NarrativeProviderError):
+    pass
+
+
+class ProviderServerTransientError(NarrativeProviderError):
+    pass
+
+
 CancelledCallback = Callable[[], bool]
 
 
@@ -338,17 +387,12 @@ class CodexCliNarrativeProvider:
     ) -> ProviderResponse:
         if cancelled():
             raise ProviderCancelledError("cancelled", "The provider request was cancelled.")
-        if request.settings.values:
-            raise ProviderLimitError(
-                "unsupported_settings",
-                "This adapter does not support the requested provider settings.",
-            )
+        reasoning_effort = _adapter_reasoning_effort(request.settings)
         status = self.status()
         if not status.available:
             raise ProviderUnavailableError(
                 "provider_unavailable",
                 "The cloud provider adapter is unavailable.",
-                transient=True,
             )
         prompt = _serialize_prompt(request)
         if len(prompt) > request.maximum_input_bytes:
@@ -367,6 +411,7 @@ class CodexCliNarrativeProvider:
                         stdin=prompt,
                         timeout_seconds=request.timeout_seconds,
                         maximum_output_bytes=request.maximum_output_bytes,
+                        model_reasoning_effort=reasoning_effort,
                     ),
                     cancelled,
                 )
@@ -609,6 +654,18 @@ def _mapped_runner_error(error: SterileRunnerError) -> NarrativeProviderError:
             "The provider is rate limited.",
             transient=True,
         )
+    if code == "transport_failure":
+        return ProviderTransportError(
+            code,
+            "The provider transport failed.",
+            transient=True,
+        )
+    if code == "server_transient":
+        return ProviderServerTransientError(
+            code,
+            "The provider server failed temporarily.",
+            transient=True,
+        )
     if code == "policy_violation":
         return ProviderPolicyViolationError(
             code,
@@ -620,8 +677,27 @@ def _mapped_runner_error(error: SterileRunnerError) -> NarrativeProviderError:
         return ProviderLimitError(code, "The provider exceeded a hard transport limit.")
     if code in {"invalid_jsonl"}:
         return ProviderOutputError(code, "The provider returned invalid structured output.")
-    return ProviderUnavailableError(
-        code,
-        "The cloud provider adapter is unavailable.",
-        transient=error.transient,
+    if code == "output_schema_rejected":
+        return ProviderSchemaRejectedError(
+            code,
+            "The provider rejected the output schema.",
+        )
+    if code == "runtime_configuration_rejected":
+        return ProviderRuntimeConfigurationError(
+            code,
+            "The provider runtime configuration was rejected.",
+        )
+    if code in {"authentication_failed", "provider_auth"}:
+        return ProviderAuthenticationError(
+            "authentication_failed",
+            "The provider authentication was rejected.",
+        )
+    if code == "provider_unavailable":
+        return ProviderUnavailableError(
+            code,
+            "The cloud provider adapter is unavailable.",
+        )
+    return ProviderProcessError(
+        "provider_process_failed",
+        "The provider process failed.",
     )

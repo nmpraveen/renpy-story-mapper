@@ -26,15 +26,22 @@ from renpy_story_mapper.narrative.contracts import (
     StructuralContext,
 )
 from renpy_story_mapper.narrative.provider import (
+    NarrativeProviderError,
+    ProviderAuthenticationError,
     ProviderOutputError,
     ProviderOutputItem,
     ProviderPolicyViolationError,
+    ProviderProcessError,
     ProviderRateLimitError,
     ProviderRefusalError,
     ProviderRequest,
     ProviderResponse,
+    ProviderRuntimeConfigurationError,
+    ProviderSchemaRejectedError,
+    ProviderServerTransientError,
     ProviderStatus,
     ProviderTimeoutError,
+    ProviderTransportError,
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import (
@@ -595,6 +602,74 @@ def test_provider_policy_violation_fails_closed_without_retry_or_fallback() -> N
     assert sink.published == []
 
 
+@pytest.mark.parametrize(
+    ("error_type", "error_code"),
+    [
+        (ProviderSchemaRejectedError, "output_schema_rejected"),
+        (
+            ProviderRuntimeConfigurationError,
+            "runtime_configuration_rejected",
+        ),
+        (ProviderAuthenticationError, "authentication_failed"),
+        (ProviderProcessError, "provider_process_failed"),
+    ],
+)
+def test_run_global_provider_failure_trips_one_call_circuit_breaker(
+    error_type: type[NarrativeProviderError],
+    error_code: str,
+) -> None:
+    identity = _provider_identity()
+    jobs = tuple(_job(index, identity) for index in range(3))
+
+    def script(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise error_type(error_code, "SECRET-STORY raw provider detail")
+
+    provider = ScriptedProvider(identity, script)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_items=1).run(
+        jobs,
+        _consent(identity, logical_jobs=3, estimated_calls=3),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.FAILED
+    assert result.record.error_code == error_code
+    assert len(provider.requests) == 1
+    assert result.record.usage.provider_calls == 1
+    assert [job.attempt_count for job in result.jobs] == [1, 0, 0]
+    assert [attempt.logical_job_id for attempt in sink.attempts] == [
+        jobs[0].logical_job_id
+    ]
+    assert {job.error_code for job in result.jobs} == {error_code}
+    assert sink.batches[-1].error_code == error_code
+    assert sink.published == []
+    assert "SECRET-STORY" not in repr((sink.jobs, sink.attempts, sink.batches, sink.runs))
+
+
+def test_generic_transient_flag_does_not_authorize_a_retry() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+
+    def script(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise NarrativeProviderError(
+            "transient_provider_error",
+            "sanitized but unclassified error",
+            transient=True,
+        )
+
+    provider = ScriptedProvider(identity, script)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_transient=3).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.FAILED
+    assert len(provider.requests) == 1
+    assert len(sink.attempts) == 1
+
+
 class ProviderRefusalForTest(ProviderRefusalError):
     def __init__(self) -> None:
         super().__init__("provider_refusal", "sanitized refusal")
@@ -665,6 +740,45 @@ def test_provider_timeout_is_a_bounded_transient_attempt() -> None:
     assert result.record.state is SchedulerRunState.SUCCEEDED
     assert [attempt.outcome for attempt in sink.attempts] == [
         AttemptOutcome.TIMEOUT,
+        AttemptOutcome.ACCEPTED,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error_type", "error_code"),
+    [
+        (ProviderTransportError, "transport_failure"),
+        (ProviderServerTransientError, "server_transient"),
+    ],
+)
+def test_recognized_transport_and_server_failures_retry_within_bound(
+    error_type: type[NarrativeProviderError],
+    error_code: str,
+) -> None:
+    identity = _provider_identity()
+    job = _job(0, identity)
+
+    def script(request: ProviderRequest, number: int) -> ProviderResponse:
+        if number == 1:
+            raise error_type(error_code, "sanitized transient failure", transient=True)
+        return _response(
+            request,
+            identity,
+            (_success_item(request.items[0].logical_job_id, 0),),
+        )
+
+    provider = ScriptedProvider(identity, script)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_transient=2).run(
+        (job,),
+        _consent(identity, logical_jobs=1),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.SUCCEEDED
+    assert len(provider.requests) == 2
+    assert [attempt.outcome for attempt in sink.attempts] == [
+        AttemptOutcome.TRANSIENT_FAILURE,
         AttemptOutcome.ACCEPTED,
     ]
 

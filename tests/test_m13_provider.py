@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import cast
 
 import pytest
 from PySide6.QtCore import QProcess
 
-from renpy_story_mapper.narrative.contracts import JsonValue, ProviderSettings
+from renpy_story_mapper.narrative.contracts import (
+    AuthorityReference,
+    AuthoritySystem,
+    CacheIdentity,
+    JsonValue,
+    ProviderIdentity,
+    ProviderSettings,
+)
+from renpy_story_mapper.narrative.evidence import HandleBindingError, PromptHandleTable
 from renpy_story_mapper.narrative.provider import (
     ADAPTER_NAME,
     ADAPTER_VERSION,
@@ -15,15 +24,21 @@ from renpy_story_mapper.narrative.provider import (
     RESPONSE_SCHEMA_VERSION,
     CodexCliNarrativeProvider,
     NarrativeProviderError,
+    ProviderAuthenticationError,
     ProviderBatchItem,
     ProviderCancelledError,
     ProviderIdentityMismatchError,
     ProviderLimitError,
     ProviderOutputError,
     ProviderPolicyViolationError,
+    ProviderProcessError,
     ProviderRateLimitError,
     ProviderRequest,
+    ProviderRuntimeConfigurationError,
+    ProviderSchemaRejectedError,
+    ProviderServerTransientError,
     ProviderTimeoutError,
+    ProviderTransportError,
     ProviderUnavailableError,
 )
 from renpy_story_mapper.organization.sterile_runner import (
@@ -104,8 +119,10 @@ class FakeRunner:
         self.requests: list[SterileRunRequest] = []
         self.schema_text = ""
         self.cancelled = False
+        self.status_calls = 0
 
     def status(self) -> tuple[str | None, str | None]:
+        self.status_calls += 1
         if self.available:
             return "C:/synthetic/codex.exe", "codex-cli synthetic"
         return None, None
@@ -204,6 +221,58 @@ def _jsonl(*events: object) -> bytes:
     return b"".join((json.dumps(event) + "\n").encode("utf-8") for event in events)
 
 
+def _walk_schema(node: object) -> tuple[dict[str, object], ...]:
+    found: list[dict[str, object]] = []
+    if isinstance(node, dict):
+        found.append(node)
+        for value in node.values():
+            found.extend(_walk_schema(value))
+    elif isinstance(node, list):
+        for value in node:
+            found.extend(_walk_schema(value))
+    return tuple(found)
+
+
+def _assert_supported_schema_node(node: dict[str, object]) -> None:
+    supported = {
+        "$defs",
+        "$id",
+        "$ref",
+        "$schema",
+        "additionalProperties",
+        "anyOf",
+        "const",
+        "enum",
+        "items",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "pattern",
+        "properties",
+        "required",
+        "type",
+    }
+    assert set(node) <= supported
+    for container in ("$defs", "properties"):
+        children = node.get(container, {})
+        assert isinstance(children, dict)
+        for child in children.values():
+            assert isinstance(child, dict)
+            _assert_supported_schema_node(cast(dict[str, object], child))
+    items = node.get("items")
+    if items is not None:
+        assert isinstance(items, dict)
+        _assert_supported_schema_node(cast(dict[str, object], items))
+    branches = node.get("anyOf", [])
+    assert isinstance(branches, list)
+    for branch in branches:
+        assert isinstance(branch, dict)
+        _assert_supported_schema_node(cast(dict[str, object], branch))
+
+
 def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity() -> None:
     output = {
         "items": [
@@ -223,14 +292,21 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     }
     runner = FakeRunner(SterileRunResult(_events(output), "codex-cli synthetic"))
     provider = CodexCliNarrativeProvider(runner=runner)
+    settings = ProviderSettings(
+        values=(("fast_mode", False), ("model_reasoning_effort", "xhigh"))
+    )
 
-    response = provider.submit(_request(_item(), _item("logical-scene-b")), lambda: False)
+    response = provider.submit(
+        _request(_item(), _item("logical-scene-b"), settings=settings),
+        lambda: False,
+    )
 
     assert response.provider.provider == "openai"
     assert response.provider.adapter == ADAPTER_NAME
     assert response.provider.adapter_version == ADAPTER_VERSION
     assert response.provider.requested_model == "runtime-model-a"
     assert response.provider.resolved_model == "runtime-model-a"
+    assert response.provider.settings == settings
     assert response.prompt_template_version == PROMPT_TEMPLATE_VERSION
     assert response.response_schema_version == RESPONSE_SCHEMA_VERSION
     assert response.usage.input_tokens == 100
@@ -242,9 +318,14 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
         "logical-scene-b",
     ]
     assert len(runner.requests) == 1
+    assert runner.requests[0].model_reasoning_effort == "xhigh"
     envelope = json.loads(runner.requests[0].stdin)
     assert envelope["template_version"] == PROMPT_TEMPLATE_VERSION
     assert envelope["request"]["consent_manifest_id"] == "consent-a"
+    assert envelope["request"]["settings"] == {
+        "fast_mode": False,
+        "model_reasoning_effort": "xhigh",
+    }
     assert [
         item["logical_job_id"] for item in envelope["request"]["logical_jobs"]
     ] == ["logical-scene-a", "logical-scene-b"]
@@ -290,6 +371,122 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     assert "ordinal" in schema["$defs"]["replacement_claim"]["required"]
     assert "context_scope" in schema["$defs"]["claim"]["required"]
     assert "raw" not in response.__dict__
+
+
+def test_response_schema_v3_recursively_matches_the_supported_subset() -> None:
+    schema_root = files("renpy_story_mapper.narrative.schemas")
+    with as_file(schema_root.joinpath("narrative_batch_v3.schema.json")) as path:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+    nodes = _walk_schema(schema)
+
+    assert schema["$id"] == RESPONSE_SCHEMA_VERSION
+    assert schema["type"] == "object"
+    assert "anyOf" not in schema
+    _assert_supported_schema_node(cast(dict[str, object], schema))
+    assert all("uniqueItems" not in node for node in nodes)
+    for node in nodes:
+        if node.get("type") == "object":
+            assert node.get("additionalProperties") is False
+            assert set(cast(dict[str, object], node["properties"])) == set(
+                cast(list[str], node["required"])
+            )
+        if "enum" in node or "const" in node:
+            assert node.get("type") == "string"
+
+    with as_file(schema_root.joinpath("narrative_batch_v2.schema.json")) as path:
+        v2_text = path.read_text(encoding="utf-8")
+        v2_schema = json.loads(v2_text)
+    assert v2_text.count('"uniqueItems": true') == 4
+    assert '"$id": "m13-narrative-batch-response-v2"' in v2_text
+
+    def expected_v3(value: object) -> object:
+        if isinstance(value, list):
+            return [expected_v3(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        migrated = {
+            key: expected_v3(item)
+            for key, item in value.items()
+            if key != "uniqueItems"
+        }
+        if "enum" in migrated or "const" in migrated:
+            migrated["type"] = "string"
+        if migrated.get("$id") == "m13-narrative-batch-response-v2":
+            migrated["$id"] = RESPONSE_SCHEMA_VERSION
+        return migrated
+
+    assert expected_v3(v2_schema) == schema
+
+
+def test_schema_adapter_and_settings_changes_invalidate_old_cache_identity() -> None:
+    settings = ProviderSettings(
+        values=(("fast_mode", False), ("model_reasoning_effort", "high"))
+    )
+
+    def identity(adapter_version: str, schema_version: str) -> CacheIdentity:
+        return CacheIdentity(
+            logical_job_id="logical-job-a",
+            input_revision_id="input-revision-a",
+            normalized_input_hash="normalized-input-a",
+            prompt_template_version=PROMPT_TEMPLATE_VERSION,
+            response_schema_version=schema_version,
+            provider=ProviderIdentity(
+                provider="openai",
+                adapter=ADAPTER_NAME,
+                adapter_version=adapter_version,
+                requested_model="runtime-model",
+                resolved_model="runtime-model",
+                settings=settings,
+            ),
+        )
+
+    old = identity("m13-codex-cli-adapter-v1", "m13-narrative-batch-response-v2")
+    current = identity(ADAPTER_VERSION, RESPONSE_SCHEMA_VERSION)
+    different_settings = CacheIdentity(
+        logical_job_id=current.logical_job_id,
+        input_revision_id=current.input_revision_id,
+        normalized_input_hash=current.normalized_input_hash,
+        prompt_template_version=current.prompt_template_version,
+        response_schema_version=current.response_schema_version,
+        provider=ProviderIdentity(
+            provider=current.provider.provider,
+            adapter=current.provider.adapter,
+            adapter_version=current.provider.adapter_version,
+            requested_model=current.provider.requested_model,
+            resolved_model=current.provider.resolved_model,
+            settings=ProviderSettings(
+                values=(("fast_mode", False), ("model_reasoning_effort", "xhigh"))
+            ),
+        ),
+    )
+
+    assert current.key != old.key
+    assert current.key != different_settings.key
+
+
+@pytest.mark.parametrize("support_kind", ["evidence", "child"])
+def test_python_handle_binding_rejects_duplicates_removed_from_schema(
+    support_kind: str,
+) -> None:
+    table = PromptHandleTable.build(
+        scope_id="scope-a",
+        allowed_owner_ids=("scene-a",),
+        evidence_references=(
+            AuthorityReference(
+                authority=AuthoritySystem.M11,
+                record_kind="scene_evidence",
+                record_id="evidence-a",
+                owner_id="scene-a",
+            ),
+        ),
+        child_claim_ids=("claim-a",),
+    )
+
+    with pytest.raises(HandleBindingError, match="duplicate"):
+        if support_kind == "evidence":
+            table.resolve_support(evidence_handles=("E1", "E1"))
+        else:
+            table.resolve_support(child_claim_handles=("C1", "C1"))
 
 
 def test_output_items_are_salvaged_and_refusals_remain_item_local() -> None:
@@ -369,7 +566,7 @@ def test_adapter_rejects_model_fallback_missing_usage_and_ambiguous_output() -> 
     assert envelope.value.error_code == "response_envelope_invalid"
 
 
-def test_adapter_enforces_consent_binding_input_limits_and_supported_settings() -> None:
+def test_adapter_enforces_consent_binding_input_limits_and_rejects_unknown_settings() -> None:
     output = {"items": []}
     runner = FakeRunner(SterileRunResult(_events(output), None))
     provider = CodexCliNarrativeProvider(runner=runner)
@@ -383,16 +580,63 @@ def test_adapter_enforces_consent_binding_input_limits_and_supported_settings() 
             items=(_item(),),
             timeout_seconds=1.0,
         )
-    with pytest.raises(ProviderLimitError) as settings_error:
+    with pytest.raises(ProviderRuntimeConfigurationError) as settings_error:
         provider.submit(
             _request(settings=ProviderSettings(values=(("temperature", 0.2),))),
             lambda: False,
         )
-    assert settings_error.value.error_code == "unsupported_settings"
+    assert settings_error.value.error_code == "runtime_configuration_rejected"
+    assert runner.status_calls == 0
     with pytest.raises(ProviderLimitError) as input_error:
         provider.submit(_request(maximum_input_bytes=100), lambda: False)
     assert input_error.value.error_code == "input_limit"
     assert not runner.requests
+
+
+@pytest.mark.parametrize("reasoning_effort", ["low", "medium", "high", "xhigh"])
+def test_adapter_accepts_bounded_settings_and_passes_reasoning_explicitly(
+    reasoning_effort: str,
+) -> None:
+    runner = FakeRunner(SterileRunResult(_events({"items": []}), None))
+    settings = ProviderSettings(
+        values=(
+            ("fast_mode", False),
+            ("model_reasoning_effort", reasoning_effort),
+        )
+    )
+
+    response = CodexCliNarrativeProvider(runner=runner).submit(
+        _request(settings=settings),
+        lambda: False,
+    )
+
+    assert runner.requests[0].model_reasoning_effort == reasoning_effort
+    assert response.provider.settings == settings
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        ProviderSettings(values=(("fast_mode", True),)),
+        ProviderSettings(values=(("fast_mode", "false"),)),
+        ProviderSettings(values=(("model_reasoning_effort", "minimal"),)),
+        ProviderSettings(values=(("model_reasoning_effort", 1),)),
+    ],
+)
+def test_adapter_rejects_unknown_setting_values_before_runner_status_or_spawn(
+    settings: ProviderSettings,
+) -> None:
+    runner = FakeRunner(SterileRunResult(_events({"items": []}), None))
+
+    with pytest.raises(ProviderRuntimeConfigurationError) as error:
+        CodexCliNarrativeProvider(runner=runner).submit(
+            _request(settings=settings),
+            lambda: False,
+        )
+
+    assert error.value.error_code == "runtime_configuration_rejected"
+    assert runner.requests == []
+    assert runner.status_calls == 0
 
 
 def test_adapter_cancellation_and_status_do_not_transmit() -> None:
@@ -412,8 +656,19 @@ def test_adapter_cancellation_and_status_do_not_transmit() -> None:
     [
         ("rate_limited", ProviderRateLimitError, True),
         ("timeout", ProviderTimeoutError, True),
+        ("transport_failure", ProviderTransportError, True),
+        ("server_transient", ProviderServerTransientError, True),
         ("policy_violation", ProviderPolicyViolationError, False),
-        ("provider_failure", ProviderUnavailableError, True),
+        ("output_schema_rejected", ProviderSchemaRejectedError, False),
+        (
+            "runtime_configuration_rejected",
+            ProviderRuntimeConfigurationError,
+            False,
+        ),
+        ("authentication_failed", ProviderAuthenticationError, False),
+        ("provider_process_failed", ProviderProcessError, False),
+        ("unrecognized_runner_code", ProviderProcessError, False),
+        ("provider_unavailable", ProviderUnavailableError, False),
         ("output_limit", ProviderLimitError, False),
     ],
 )
@@ -429,16 +684,22 @@ def test_runner_failures_map_to_sanitized_retry_signals(
     with pytest.raises(exception_type) as exc_info:
         provider.submit(_request(), lambda: False)
     error = cast(NarrativeProviderError, exc_info.value)
-    assert error.error_code == runner_code
+    expected_code = (
+        "provider_process_failed"
+        if runner_code == "unrecognized_runner_code"
+        else runner_code
+    )
+    assert error.error_code == expected_code
     assert error.transient is transient
     assert "SECRET-STORY" not in str(exc_info.value)
 
 
-def test_direct_command_has_no_shell_session_fallback_or_fixed_reasoning() -> None:
+def test_direct_command_has_no_shell_fallback_and_passes_selected_reasoning() -> None:
     program, arguments = build_sterile_codex_command(
         "C:/synthetic/codex.exe",
         model="runtime-model-b",
         schema_path=Path("schema.json"),
+        model_reasoning_effort="high",
     )
     assert program == "C:/synthetic/codex.exe"
     assert arguments[:2] == ["exec", "--ephemeral"]
@@ -452,7 +713,9 @@ def test_direct_command_has_no_shell_session_fallback_or_fixed_reasoning() -> No
     assert "shell_tool" in arguments
     assert "apps" in arguments
     assert "plugins" in arguments
-    assert "model_reasoning_effort" not in " ".join(arguments)
+    assert "fast_mode" in arguments
+    assert arguments[arguments.index("fast_mode") - 1] == "--disable"
+    assert 'model_reasoning_effort="high"' in arguments
 
 
 def test_sterile_runner_uses_temp_cwd_structured_stdin_and_schema(tmp_path: Path) -> None:
@@ -525,6 +788,46 @@ def test_sterile_runner_rejects_policy_events_and_sanitizes_stderr(tmp_path: Pat
     assert failure.value.error_code == "rate_limited"
     assert failure.value.transient
     assert "SECRET-STORY" not in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    ("stderr", "error_code", "transient"),
+    [
+        (b"429 rate limit SECRET-STORY", "rate_limited", True),
+        (b"request timed out SECRET-STORY", "timeout", True),
+        (b"connection reset by peer SECRET-STORY", "transport_failure", True),
+        (b"HTTP 503 service unavailable SECRET-STORY", "server_transient", True),
+        (
+            b"output schema is invalid: uniqueItems SECRET-STORY",
+            "output_schema_rejected",
+            False,
+        ),
+        (
+            b"unknown config key model_reasoning_effort SECRET-STORY",
+            "runtime_configuration_rejected",
+            False,
+        ),
+        (
+            b"invalid value 'max' for model_reasoning_effort SECRET-STORY",
+            "runtime_configuration_rejected",
+            False,
+        ),
+        (b"HTTP 401 unauthorized SECRET-STORY", "authentication_failed", False),
+        (b"unclassified child exit SECRET-STORY", "provider_process_failed", False),
+    ],
+)
+def test_process_failure_classification_is_sanitized_and_fail_closed(
+    stderr: bytes,
+    error_code: str,
+    transient: bool,
+) -> None:
+    with pytest.raises(SterileRunnerError) as raised:
+        SterileCodexRunner._raise_process_failure(stderr)
+
+    assert raised.value.error_code == error_code
+    assert raised.value.transient is transient
+    assert "SECRET-STORY" not in str(raised.value)
+    assert all("SECRET-STORY" not in str(argument) for argument in raised.value.args)
 
 
 def test_sterile_runner_cancellation_kills_uncooperative_process(tmp_path: Path) -> None:

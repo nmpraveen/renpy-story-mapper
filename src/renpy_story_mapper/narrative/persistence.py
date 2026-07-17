@@ -136,6 +136,7 @@ _SECRET_KEY_NAMES: Final = frozenset(
 )
 
 SANITIZED_ERROR_MESSAGES: Final[Mapping[str, str]] = {
+    "authentication_failed": "The provider authentication was rejected.",
     "authority_stale": "The narrative input is no longer current.",
     "batch_unusable": "The provider batch was unusable and will be split.",
     "budget_exceeded": "The configured provider budget was reached.",
@@ -147,9 +148,12 @@ SANITIZED_ERROR_MESSAGES: Final[Mapping[str, str]] = {
     "invalid_output": "The provider returned an unusable narrative item.",
     "malformed": "The provider returned an unusable narrative item.",
     "provider_refusal": "The provider refused this narrative request.",
+    "provider_process_failed": "The provider process failed.",
     "provider_refused": "The provider refused this narrative request.",
     "provider_timeout": "The provider did not finish before the timeout.",
     "rate_limited": "The provider temporarily limited this request.",
+    "runtime_configuration_rejected": "The provider runtime configuration was rejected.",
+    "output_schema_rejected": "The provider rejected the output schema.",
     "timeout": "The provider did not finish before the timeout.",
     "transient_failure": "The provider could not complete this attempt.",
     "transient_provider_error": "The provider could not complete this attempt.",
