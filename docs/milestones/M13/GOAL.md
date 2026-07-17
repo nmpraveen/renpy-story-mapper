@@ -1,9 +1,10 @@
 # M13 - Optional AI narrative layer
 
-Status: PR ready (semantic review PASS)
+Status: Integration (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
-implementation approval, and its twelve binding amendment sections
+implementation approval and twelve binding amendment sections, plus the user's 2026-07-17 final
+authorized bounded correction handoff for existing PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -28,6 +29,38 @@ and current M12 route results. Produce concise human-readable titles, summaries,
 participation and bounded interpretations, hierarchical route-aware summaries, and optional weak
 boundary review overlays without transferring deterministic authority to AI or requiring AI for
 the existing map, scene view, evidence workspace, or route solver.
+
+## Authorized PR #23 correction constraints
+
+The existing done condition and semantic `PASS` remain authoritative. This correction cycle must
+restore that done condition at the new integrated head by proving all of the following without
+adding another milestone, branch, or pull request:
+
+1. Preserve exact M12 result, path, hierarchy, and scene authority, including result-level status,
+   exact prerequisite wording, separate recommended/alternative roles, and prompt-local
+   fail-closed claims.
+2. Resume only exact authority/input/provider/model/settings/privacy/scope/budget/schema-compatible
+   work, reconstruct durable run state, and enforce cumulative usage and attempt limits before a
+   new provider submit.
+3. Distinguish pre-transmission failure from transmitted failure, preserve exact partial usage or
+   conservative reserved nonzero usage, and stop under unknown cost with a hard monetary cap.
+4. Bind bounded browser-selected Codex provider settings (`model_reasoning_effort` and
+   `fast_mode=false`) through preparation, consent, provider/cache identity, request, persistence,
+   and reopen, with no post-consent fallback.
+5. Use one shared sensitive-key validator before persistence while allowing the authorized safe
+   near-misses, and route Narrative citations through the existing Detail and Evidence workspace
+   without a raw-JSON citation panel or provider call.
+6. Commit a sanitized repository-relative current-evidence index, reconcile all M13 lifecycle and
+   review reports, preserve historical failures as historical, and obtain a targeted independent
+   no-P0/P1 verdict at the frozen final head.
+7. Freeze the provider-free candidate, generate one fresh zero-submit full bounded live manifest
+   through the actual browser/backend production settings path, record its exact identity and
+   limits, then stop for the user's separate exact approval before any transmission.
+
+The deepest-only nested temporary-container presentation may remain a documented P2 limitation.
+Richer title/summary evidence, advanced character interpretation, LM Studio, weak-boundary
+suggestions, export polish, broad nested-container redesign, M14, PR merge, and any live provider
+transmission without exact approval are excluded.
 
 ## Deliverables
 
@@ -151,6 +184,10 @@ the existing map, scene view, evidence workspace, or route solver.
     created nor merged without explicit user approval.
 
 ## Required evidence
+
+Correction-cycle status: the table below preserves historical evidence at its recorded heads. It
+is not current final-head proof for the reopened correction areas. Current evidence remains
+pending while lifecycle status is `Integration` and will be reconciled after the authorized gates.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|

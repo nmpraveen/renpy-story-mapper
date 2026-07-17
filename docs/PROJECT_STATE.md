@@ -10,14 +10,19 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: PR ready.
-- Recovery scope: the user approved consent-identity, explicit-provider-settings, schema-
-  compatibility, and fail-fast-provider corrections within the existing M13 contract.
+- Status: Integration.
+- Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
+  PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
+  failed-call accounting, browser-bound provider settings, shared privacy validation, citation
+  navigation through existing Detail and Evidence, and durable final-head evidence.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` was stopped by
-  the user; no new native goal exists in this task, and the milestone is not complete.
-- Pull request: Draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) opened
-  by explicit user approval; merge remains separately approval-gated.
+- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` is active for this authorized
+  correction cycle; the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
+- Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
+  currently non-draft, and unmerged at reviewed head
+  `d0c116b5a1fb9ed221981d380fd42eab464f31fe`. Its readiness is withdrawn by this Integration
+  transition; no PR update occurs until the correction gates pass, and merge remains separately
+  approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -25,6 +30,14 @@ contradictions, claim-level salvage, one required cloud adapter, simple manifest
 route-aware hierarchy, release-priority order, full provider-free private-scale simulation,
 bounded live acceptance, and privacy-safe storage. The single early semantic gate passed; work is
 proceeding in the contract's release-critical order.
+
+The 2026-07-17 final authorized handoff preserves that semantic `PASS` and the existing milestone
+contract while reopening lifecycle evidence. Before product edits, the current PR head and merged
+base were fetched and verified exactly, the tracked worktree and index were clean, and existing
+untracked `docs/handoffs/`, `output/`, and `tmp/` content was left untouched. Historical M13
+results remain evidence of their reviewed heads, but they are not final-head proof for the
+reopened correction areas. No live provider transmission is authorized. After a fresh zero-submit
+browser/backend production-path manifest is prepared, work must stop for exact user approval.
 
 The prior frozen runtime correction head is `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`.
 Final-head focused tests passed 70 tests, and Release passed 966 tests with 7 hardware-sensitive
