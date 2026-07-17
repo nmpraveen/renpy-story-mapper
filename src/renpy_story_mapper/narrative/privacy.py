@@ -23,7 +23,10 @@ _SENSITIVE_COMPOUNDS = (
     "password",
     "privatekey",
     "refreshtoken",
+    "secretkey",
+    "secretvalue",
     "sessiontoken",
+    "tokenvalue",
     "credentialsecret",
 )
 _PROMPT_CONTENT_WORDS = frozenset(
