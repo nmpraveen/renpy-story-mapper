@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import cast
+from typing import Final, cast
 
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
@@ -65,6 +65,7 @@ from renpy_story_mapper.narrative.validation import ValidationContext, validate_
 from renpy_story_mapper.project import Project
 
 CancelledCallback = Callable[[], bool]
+_EMPTY_PROVIDER_SETTINGS: Final = ProviderSettings()
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,7 @@ def prepare_narrative_scene_run(
     *,
     run_id: str,
     requested_model: str,
+    settings: ProviderSettings = _EMPTY_PROVIDER_SETTINGS,
     mode: NarrativeInputMode,
     include_m12_material: bool,
     limits: BudgetLimits,
@@ -149,7 +151,7 @@ def prepare_narrative_scene_run(
         adapter_version=status.adapter_version,
         requested_model=requested_model,
         resolved_model=requested_model,
-        settings=ProviderSettings(),
+        settings=settings,
     )
     # Always bind the complete current M12 selection.  The material toggle controls provider
     # projection only, so a later route-result change still invalidates an older artifact.
@@ -208,6 +210,8 @@ def grant_narrative_consent(
     """Persist the one exact manifest only after the caller explicitly confirms it."""
 
     consent = replace(prepared.consent_preview, consent_granted=True)
+    if consent.manifest_id != prepared.consent_preview.manifest_id:
+        raise ValueError("granted consent ID differs from the prepared manifest ID")
     project.m13_persistence().put_consent(
         consent.manifest_id,
         consent.to_dict(),
@@ -229,6 +233,8 @@ def run_prepared_scene_jobs(
 
     if not consent.consent_granted:
         raise ValueError("narrative cloud consent was not granted")
+    if consent.manifest_id != prepared.consent_preview.manifest_id:
+        raise ValueError("granted consent ID differs from the prepared manifest ID")
     if replace(consent, consent_granted=False) != prepared.consent_preview:
         raise ValueError("granted consent differs from the prepared manifest")
     current = load_narrative_authority(project, include_m12=True)

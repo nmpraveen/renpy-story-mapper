@@ -20,7 +20,11 @@ from typing import Final, cast
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
-from renpy_story_mapper.narrative.contracts import BudgetLimits, LogicalJobState
+from renpy_story_mapper.narrative.contracts import (
+    BudgetLimits,
+    LogicalJobState,
+    ProviderSettings,
+)
 from renpy_story_mapper.narrative.hierarchy import StorySection
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
@@ -207,12 +211,19 @@ def _prepare(
     provider: NarrativeProvider,
     *,
     model: str,
+    reasoning_effort: str,
 ) -> PreparedNarrativeRun:
     return prepare_narrative_scene_run(
         project,
         provider,
         run_id=RUN_ID,
         requested_model=model,
+        settings=ProviderSettings(
+            (
+                ("fast_mode", False),
+                ("model_reasoning_effort", reasoning_effort),
+            )
+        ),
         mode=NarrativeInputMode.FACT_ONLY,
         include_m12_material=True,
         limits=DEFAULT_LIMITS,
@@ -396,6 +407,7 @@ def run(
     output_dir: Path,
     *,
     model: str,
+    reasoning_effort: str,
     confirm_preparation_id: str | None = None,
     provider: NarrativeProvider | None = None,
 ) -> dict[str, object]:
@@ -403,6 +415,8 @@ def run(
 
     if not model.strip() or model != model.strip():
         raise ValueError("--model must be a non-empty trimmed runtime model identity")
+    if not reasoning_effort.strip() or reasoning_effort != reasoning_effort.strip():
+        raise ValueError("--reasoning-effort must be a non-empty trimmed runtime setting")
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     pending_name = "pending-synthetic-sample"
@@ -430,7 +444,12 @@ def run(
             authority_before = load_narrative_authority(project, include_m12=True)
             authority_fingerprint_before = _authority_fingerprint(authority_before)
             coverage = _fixture_coverage(authority_before)
-            prepared = _prepare(project, active_provider, model=model)
+            prepared = _prepare(
+                project,
+                active_provider,
+                model=model,
+                reasoning_effort=reasoning_effort,
+            )
             preview = _consent_report(prepared, coverage)
             preview_path = output_dir / "consent-preview.json"
             encoded_preview = json.dumps(preview, indent=2, sort_keys=True) + "\n"
@@ -538,11 +557,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--reasoning-effort", required=True)
     parser.add_argument("--confirm-preparation-id")
     arguments = parser.parse_args()
     report = run(
         arguments.output_dir,
         model=arguments.model,
+        reasoning_effort=arguments.reasoning_effort,
         confirm_preparation_id=arguments.confirm_preparation_id,
     )
     print(json.dumps(report, indent=2, sort_keys=True))

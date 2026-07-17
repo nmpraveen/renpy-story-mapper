@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+import pytest
 
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import load_narrative_authority
@@ -62,7 +64,7 @@ class DeterministicNarrativeProvider:
             adapter_version="test-adapter-v1",
             requested_model=request.requested_model,
             resolved_model=request.requested_model,
-            settings=ProviderSettings(),
+            settings=request.settings,
         )
         output: list[ProviderOutputItem] = []
         for index, item in enumerate(request.items):
@@ -196,7 +198,14 @@ def test_granted_scene_run_persists_partial_items_claims_attempts_and_lazy_citat
             limits=_limits(),
             batch_limits=_batch_limits(),
         )
+        preview_id = prepared.consent_preview.manifest_id
         consent = grant_narrative_consent(project, prepared)
+        assert consent.manifest_id == preview_id
+        persisted_consents = project.m13_persistence().list_records(RecordKind.CONSENT)
+        assert len(persisted_consents) == 1
+        assert persisted_consents[0].record_id == preview_id
+        assert persisted_consents[0].payload is not None
+        assert persisted_consents[0].payload["consent_granted"] is True
         result = run_prepared_scene_jobs(
             project,
             provider,
@@ -208,6 +217,16 @@ def test_granted_scene_run_persists_partial_items_claims_attempts_and_lazy_citat
         assert result.record.partial_jobs == 1
         assert result.record.succeeded_jobs == len(prepared.scheduled_jobs) - 1
         assert provider.calls
+        assert {request.consent_manifest_id for request in provider.calls} == {preview_id}
+        assert result.record.consent_manifest_id == preview_id
+        persisted_run = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert persisted_run.state is LookupState.HIT
+        assert persisted_run.payload is not None
+        assert persisted_run.payload["consent_manifest_id"] == preview_id
         attempts = project.m13_persistence().list_records(
             RecordKind.ATTEMPT,
             authority_binding=prepared.authority.binding.to_dict(),
@@ -237,6 +256,133 @@ def test_granted_scene_run_persists_partial_items_claims_attempts_and_lazy_citat
             str(first_claim.payload["claim_id"]),
         )
         assert citations["citations"]
+
+
+def test_ungranted_and_tampered_consent_submit_zero_provider_calls(tmp_path: Path) -> None:
+    provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-rejected-consent",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        with pytest.raises(ValueError, match="was not granted"):
+            run_prepared_scene_jobs(
+                project,
+                provider,
+                prepared,
+                prepared.consent_preview,
+                policy=_policy(),
+            )
+        tampered = replace(
+            prepared.consent_preview,
+            selected_scope_ids=("tampered-scope",),
+            consent_granted=True,
+        )
+        with pytest.raises(ValueError, match="ID differs"):
+            run_prepared_scene_jobs(
+                project,
+                provider,
+                prepared,
+                tampered,
+                policy=_policy(),
+            )
+
+        assert provider.calls == []
+        assert project.m13_persistence().list_records(RecordKind.CONSENT) == ()
+
+
+def test_runtime_settings_bind_consent_cache_requests_and_run_identity(
+    tmp_path: Path,
+) -> None:
+    provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        default = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-settings",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        first_settings = ProviderSettings(
+            (("fast_mode", False), ("model_reasoning_effort", "runtime-a"))
+        )
+        first = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-settings",
+            requested_model="runtime-selected-model",
+            settings=first_settings,
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        second = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-settings",
+            requested_model="runtime-selected-model",
+            settings=ProviderSettings(
+                (("fast_mode", False), ("model_reasoning_effort", "runtime-b"))
+            ),
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+
+        assert default.consent_preview.provider.settings == ProviderSettings()
+        assert first.consent_preview.provider.settings == first_settings
+        assert first.consent_preview.manifest_id != second.consent_preview.manifest_id
+        assert tuple(item.logical_job_id for item in first.scheduled_jobs) == tuple(
+            item.logical_job_id for item in second.scheduled_jobs
+        )
+        assert tuple(item.input_revision_id for item in first.scheduled_jobs) == tuple(
+            item.input_revision_id for item in second.scheduled_jobs
+        )
+        assert tuple(item.cache_identity.key for item in first.scheduled_jobs) != tuple(
+            item.cache_identity.key for item in second.scheduled_jobs
+        )
+
+        consent = grant_narrative_consent(project, first)
+        result = run_prepared_scene_jobs(
+            project,
+            provider,
+            first,
+            consent,
+            policy=_policy(),
+        )
+        assert provider.calls
+        assert all(request.settings == first_settings for request in provider.calls)
+        assert result.record.provider.settings == first_settings
+        persisted_run = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=first.authority.binding.to_dict(),
+        )
+        assert persisted_run.payload is not None
+        assert persisted_run.payload["provider"]["settings"] == first_settings.to_dict()
+        caches = project.m13_persistence().list_records(
+            RecordKind.CACHE,
+            authority_binding=first.authority.binding.to_dict(),
+        )
+        assert caches
+        assert all(
+            item.payload is not None
+            and item.payload["cache_identity"]["provider"]["settings"]
+            == first_settings.to_dict()
+            and item.payload["provider"]["settings"] == first_settings.to_dict()
+            for item in caches
+        )
 
 
 def test_exact_replay_after_reopen_makes_zero_provider_calls(tmp_path: Path) -> None:

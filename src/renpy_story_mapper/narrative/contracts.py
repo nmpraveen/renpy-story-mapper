@@ -759,7 +759,9 @@ class ConsentManifest:
 
     @property
     def manifest_id(self) -> str:
-        return f"m13_consent_{canonical_hash(self.to_dict())}"
+        identity = self.to_dict()
+        identity["consent_granted"] = False
+        return f"m13_consent_{canonical_hash(identity)}"
 
 
 @dataclass(frozen=True)

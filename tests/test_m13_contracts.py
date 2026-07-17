@@ -320,8 +320,24 @@ def test_cloud_consent_is_manifest_bound_and_disabled_by_default() -> None:
     assert manifest.consent_granted is False
     assert manifest.to_dict()["estimate"] == estimate.to_dict()
     assert manifest.to_dict()["limits"] == limits.to_dict()
-    assert replace(manifest, consent_granted=True).manifest_id != manifest.manifest_id
-    assert replace(manifest, selected_scope_ids=("chapter-a",)).manifest_id != manifest.manifest_id
+    granted = replace(manifest, consent_granted=True)
+    assert granted.manifest_id == manifest.manifest_id
+    assert granted.to_dict()["consent_granted"] is True
+    substantive_variants = (
+        replace(manifest, selected_scope_ids=("chapter-a",)),
+        replace(manifest, privacy_mode=PrivacyMode.STORY_TEXT),
+        replace(
+            manifest,
+            provider=replace(
+                manifest.provider,
+                settings=ProviderSettings(
+                    (("model_reasoning_effort", "runtime-selected"),)
+                ),
+            ),
+        ),
+        replace(manifest, limits=replace(limits, max_provider_calls=5)),
+    )
+    assert all(item.manifest_id != manifest.manifest_id for item in substantive_variants)
 
 
 def test_transport_batch_is_operational_and_does_not_redefine_logical_identity() -> None:
