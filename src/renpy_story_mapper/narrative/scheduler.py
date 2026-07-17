@@ -890,14 +890,6 @@ class NarrativeScheduler:
                         failure_usage,
                         started_at,
                     )
-                self._sink.finalize_call(
-                    self._call_finalization(
-                        reservation,
-                        disposition,
-                        failure_usage,
-                        metrics_estimated=metrics_estimated,
-                    )
-                )
                 metric_shares = (
                     {
                         job_id: AttemptMetrics()
@@ -925,6 +917,14 @@ class NarrativeScheduler:
                     transmitted=transmitted,
                     metrics_estimated=metrics_estimated,
                     force_hard_limit=unknown_cost_hard_limit,
+                )
+                self._sink.finalize_call(
+                    self._call_finalization(
+                        reservation,
+                        disposition,
+                        failure_usage,
+                        metrics_estimated=metrics_estimated,
+                    )
                 )
                 queue[0:0] = list(action.retry_batches)
                 if action.stop_state is not None:
