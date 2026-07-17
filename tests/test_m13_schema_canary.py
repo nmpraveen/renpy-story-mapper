@@ -23,7 +23,7 @@ def test_schema_canary_is_one_public_synthetic_job_with_exact_settings() -> None
     serialized = json.dumps(request.items[0].payload, sort_keys=True)
     assert "story" not in serialized.casefold()
     assert RESPONSE_SCHEMA_VERSION.endswith("response-v3")
-    assert ADAPTER_VERSION.endswith("adapter-v2")
+    assert ADAPTER_VERSION.endswith("adapter-v3")
 
 
 def test_schema_canary_preview_makes_no_provider_call(

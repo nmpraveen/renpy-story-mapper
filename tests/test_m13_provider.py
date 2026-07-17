@@ -373,6 +373,60 @@ def test_cloud_adapter_sends_one_structured_batch_and_records_runtime_identity()
     assert "raw" not in response.__dict__
 
 
+def test_cloud_adapter_uses_locked_model_when_cli_omits_redundant_metadata() -> None:
+    output = {"items": []}
+    events_without_model = tuple(
+        {key: value for key, value in event.items() if key != "model"}
+        if isinstance(event, dict)
+        else event
+        for event in _events(output)
+    )
+    runner = FakeRunner(SterileRunResult(events_without_model, "codex-cli 0.144"))
+
+    response = CodexCliNarrativeProvider(runner=runner).submit(
+        _request(model="runtime-model-a"),
+        lambda: False,
+    )
+
+    assert runner.requests[0].model == "runtime-model-a"
+    assert response.provider.requested_model == "runtime-model-a"
+    assert response.provider.resolved_model == "runtime-model-a"
+
+
+def test_cloud_adapter_rejects_conflicting_reported_model_metadata() -> None:
+    output = {"items": []}
+    conflicting_events = (
+        *_events(output, model="runtime-model-a"),
+        {"type": "turn.completed", "model": "different-runtime-model"},
+    )
+    provider = CodexCliNarrativeProvider(
+        runner=FakeRunner(SterileRunResult(conflicting_events, "codex-cli 0.144"))
+    )
+
+    with pytest.raises(ProviderIdentityMismatchError) as conflict:
+        provider.submit(_request(model="runtime-model-a"), lambda: False)
+
+    assert conflict.value.error_code == "model_metadata_conflict"
+    assert not conflict.value.transient
+
+
+@pytest.mark.parametrize("invalid_model", [None, 1, "", " runtime-model-a "])
+def test_cloud_adapter_rejects_malformed_reported_model_metadata(
+    invalid_model: object,
+) -> None:
+    events = list(_events({"items": []}))
+    events[0] = {"type": "thread.started", "model": invalid_model}
+    provider = CodexCliNarrativeProvider(
+        runner=FakeRunner(SterileRunResult(tuple(events), "codex-cli 0.144"))
+    )
+
+    with pytest.raises(ProviderOutputError) as invalid:
+        provider.submit(_request(model="runtime-model-a"), lambda: False)
+
+    assert invalid.value.error_code == "model_metadata_invalid"
+    assert not invalid.value.transient
+
+
 def test_response_schema_v3_recursively_matches_the_supported_subset() -> None:
     schema_root = files("renpy_story_mapper.narrative.schemas")
     with as_file(schema_root.joinpath("narrative_batch_v3.schema.json")) as path:
@@ -441,6 +495,10 @@ def test_schema_adapter_and_settings_changes_invalidate_old_cache_identity() -> 
         )
 
     old = identity("m13-codex-cli-adapter-v1", "m13-narrative-batch-response-v2")
+    previous_adapter = identity(
+        "m13-codex-cli-adapter-v2",
+        RESPONSE_SCHEMA_VERSION,
+    )
     current = identity(ADAPTER_VERSION, RESPONSE_SCHEMA_VERSION)
     different_settings = CacheIdentity(
         logical_job_id=current.logical_job_id,
@@ -461,6 +519,7 @@ def test_schema_adapter_and_settings_changes_invalidate_old_cache_identity() -> 
     )
 
     assert current.key != old.key
+    assert current.key != previous_adapter.key
     assert current.key != different_settings.key
 
 
@@ -576,6 +635,15 @@ def test_adapter_enforces_consent_binding_input_limits_and_rejects_unknown_setti
             request_id="request-a",
             consent_manifest_id="",
             requested_model="runtime-model-a",
+            settings=ProviderSettings(),
+            items=(_item(),),
+            timeout_seconds=1.0,
+        )
+    with pytest.raises(ValueError, match="requested model"):
+        _request().__class__(
+            request_id="request-a",
+            consent_manifest_id="consent-a",
+            requested_model="",
             settings=ProviderSettings(),
             items=(_item(),),
             timeout_seconds=1.0,

@@ -33,7 +33,7 @@ from renpy_story_mapper.organization.sterile_runner import (
 PROMPT_TEMPLATE_VERSION = "m13-narrative-batch-prompt-v4"
 RESPONSE_SCHEMA_VERSION = "m13-narrative-batch-response-v3"
 ADAPTER_NAME = "codex_cli_structured"
-ADAPTER_VERSION = "m13-codex-cli-adapter-v2"
+ADAPTER_VERSION = "m13-codex-cli-adapter-v3"
 DEFAULT_MAXIMUM_INPUT_BYTES = 512_000
 DEFAULT_MAXIMUM_OUTPUT_BYTES = 256_000
 HARD_MAXIMUM_INPUT_BYTES = 2_000_000
@@ -418,7 +418,10 @@ class CodexCliNarrativeProvider:
         except SterileRunnerError as exc:
             raise _mapped_runner_error(exc) from None
         elapsed_ms = round((time.monotonic() - started_at) * 1000)
-        resolved_model = _resolved_model(run_result.events)
+        resolved_model = _resolved_model(
+            run_result.events,
+            requested_model=request.requested_model,
+        )
         if resolved_model != request.requested_model:
             raise ProviderIdentityMismatchError(
                 "model_mismatch",
@@ -490,7 +493,11 @@ def _serialize_prompt(request: ProviderRequest) -> bytes:
     ).encode("utf-8")
 
 
-def _resolved_model(events: tuple[object, ...]) -> str:
+def _resolved_model(
+    events: tuple[object, ...],
+    *,
+    requested_model: str,
+) -> str:
     models: set[str] = set()
     for event in events:
         if not isinstance(event, dict) or "model" not in event:
@@ -510,10 +517,9 @@ def _resolved_model(events: tuple[object, ...]) -> str:
             ) from None
         models.add(model)
     if not models:
-        raise ProviderOutputError(
-            "model_metadata_missing",
-            "The provider did not report its resolved model identity.",
-        )
+        # Codex CLI 0.144 may omit redundant model metadata on a successful run.  The
+        # explicit, validated --model selection remains authoritative in that case.
+        return requested_model
     if len(models) != 1:
         raise ProviderIdentityMismatchError(
             "model_metadata_conflict",
