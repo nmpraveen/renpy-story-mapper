@@ -109,13 +109,24 @@
     }
   ],
   "review": {
-    "status": "pending",
-    "required_scope": "independent read-only targeted review of the correction diff, integrated runtime head, exact M12 authority, restart/accounting, provider settings, privacy, citation navigation, and lifecycle evidence"
+    "status": "passed",
+    "reviewed_head_sha": "e79384bb7d16b93b734a47111981996261047965",
+    "runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
+    "reviewer": "/root/m13_final_targeted_review",
+    "verdict": "PASS; no P0, P1, or new P2",
+    "focused_results": [
+      "105 passed in 25.66 seconds",
+      "32 passed in 6.14 seconds",
+      "2 passed in 0.06 seconds"
+    ],
+    "worktree_state": "detached and clean; zero tracked or untracked edits",
+    "external_actions": 0,
+    "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
   },
   "live_evidence_disposition": {
     "historical_live_evidence": "accepted only as historical evidence at its recorded pre-correction head",
     "current_head_transmissions": 0,
-    "current_head_status": "A fresh production-path zero-submit full bounded manifest remains to be prepared after the independent review. No final-head live hierarchy or evidence exception is authorized, so criterion 20 and PR readiness remain pending."
+    "current_head_status": "Independent targeted review passed. A fresh production-path zero-submit full bounded manifest remains to be prepared. No final-head live hierarchy or evidence exception is authorized, so criterion 20 and PR readiness remain pending."
   },
   "known_limitations": [
     "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",

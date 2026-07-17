@@ -1,6 +1,6 @@
 # M13 integrated and independent review report
 
-Status: Pending independent current-head targeted review
+Status: PASS for bounded current-head targeted review; no P0/P1
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
@@ -8,12 +8,23 @@ Review date: 2026-07-17
 
 ## Current authorized correction review
 
-The independent reviewer must assess only the bounded correction diff and integrated frozen head:
-exact M12 result/path/scene/hierarchy authority; durable restart, cumulative budgets/attempts, and
-failed-call accounting; provider-settings identity; shared privacy validation; existing-workspace
-citation navigation; and durable evidence/lifecycle consistency. Local, Release, browser, and
-private-scale gates pass as recorded in `CURRENT_EVIDENCE.json`, but no independent verdict is
-recorded yet. Any current P0/P1 blocks readiness; P2 may be documented and deferred.
+Independent reviewer `/root/m13_final_targeted_review` reviewed exact integrated head
+`e79384bb7d16b93b734a47111981996261047965` and frozen runtime
+`3533d49a61e77c76794b4ba8338ccf60ee8201ef` in a detached, clean, read-only worktree. The bounded
+scope covered exact M12 authority; durable restart, cumulative budgets/attempts, and failed-call
+accounting; provider-settings identity; shared privacy validation; existing-workspace citation
+navigation; and durable evidence/lifecycle consistency.
+
+Verdict: `PASS`. No P0, P1, or new P2 was found. Focused offline regressions passed 105 tests;
+hierarchy/persistence plus complete M12-bound pipeline passed 32; lifecycle contracts passed 2;
+the evidence index parsed; both correction-range diff checks were clean. The reviewer made zero
+edits and no provider, web, external, live/private/browser-provider, PR, push, merge, or M14 action.
+Dispatch selected `gpt-5.6-sol` and High reasoning; the collaboration control exposed no fast-mode
+selector, so fast mode remains unavailable/unverified rather than claimed disabled.
+
+This PASS closes the independent-review gate only. Lifecycle remains `Verification` because the
+fresh production-path zero-submit manifest and a separately approved final-head live run/replay or
+explicit evidence exception remain required before PR readiness.
 
 ## Historical review chain
 

@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification; current local/browser/private gates pass, independent review and live disposition pending
+Status: Verification; current local/browser/private/review gates pass, live disposition pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -22,7 +22,7 @@ production boundary with an offline simulator or a fail-closed non-execution bou
 | `powershell -ExecutionPolicy Bypass -File scripts/validate.ps1 -Tier Release` | 1,079 passed, 7 hardware deselected in 355.38 seconds; Ruff, strict mypy over 92 source files, `pip check`, JavaScript, whitespace, isolated build/install/import/assets/notices all passed | Public command/result in current index |
 | Real Chrome acceptance | Passed at 100% and 200%; exact M10/M11/M12/M13 Detail/Evidence navigation; zero remote requests and zero provider calls on navigation/replay | Local sanitized report SHA-256 `ce60b2350b558fc1bf07611b00379186a3cf79a6fe4b6263fcac7f67e858f19b` |
 | Provider-free private scale | Passed 1,812 scenes, 2,590 jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, and all safety counters zero | Private-hash-only report SHA-256 `17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092` |
-| Independent targeted review | Pending | Must review frozen runtime plus durable evidence/lifecycle before the zero-submit stop gate |
+| Independent targeted review | PASS; no P0/P1/new P2 | Exact head `e79384b`; 105 + 32 + 2 focused tests; detached clean zero-edit review; no provider/external action |
 | Final-head live evidence | Pending exact approval | Historical live evidence is not promoted; prepare zero-submit production-path manifest after review and stop before transmission |
 
 ## Historical exact approved live execution and replay at `740e321`

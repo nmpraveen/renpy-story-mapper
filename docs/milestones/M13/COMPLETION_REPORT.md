@@ -19,11 +19,11 @@ existing Detail/Evidence workspace are integrated. Current focused M13, adjacent
 Windows Release, real-Chrome 100%/200%, and fresh 1,812-scene provider-free private-scale gates
 pass. The sanitized current index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
 
-M13 is not currently complete or PR-ready. The required independent targeted final-head review is
-pending. Historical live hierarchy/replay evidence below is preserved for its recorded head but
-does not prove the corrected runtime. No final-head provider transmission or evidence exception
-has been authorized. After independent review, one production-path zero-submit manifest will be
-prepared and work will stop for the user's exact approval.
+M13 is not currently complete or PR-ready. Independent targeted review at exact integrated head
+`e79384b` passed with no P0/P1/new P2. Historical live hierarchy/replay evidence below is
+preserved for its recorded head but does not prove the corrected runtime. No final-head provider
+transmission or evidence exception has been authorized. One production-path zero-submit manifest
+will be prepared and work will stop for the user's exact approval.
 
 ## Historical pre-correction acceptance evidence
 
@@ -56,8 +56,8 @@ head proof for the reopened correction areas.
 
 ## Current blocking state
 
-- Current local/runtime/browser/private gates pass at `3533d49`; the independent targeted review
-  and current-head live-evidence disposition remain.
+- Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
+  `e79384b`; the current-head live-evidence disposition remains.
 - Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is active through verification and PR
   preparation.
 - PR #23 is open and unmerged, but not currently ready. Do not update or merge it, submit to a live
