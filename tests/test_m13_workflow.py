@@ -830,6 +830,88 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
             )
 
 
+def test_unresolved_call_reservation_consumes_attempt_ceiling_after_reopen(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    with _project(tmp_path) as project:
+        provider = DeterministicNarrativeProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-reservation-attempt-ceiling",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        compatibility_id = scheduler_compatibility_id(consent, prepared.scheduled_jobs)
+        job = prepared.scheduled_jobs[0]
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            prepared.scheduled_jobs,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        sink.reserve_call(
+            SchedulerCallReservation(
+                reservation_id="m13_reservation_test_attempt_ceiling",
+                run_id=consent.run_id,
+                consent_manifest_id=consent.manifest_id,
+                compatibility_id=compatibility_id,
+                batch_id="batch:interrupted",
+                logical_job_ids=(job.logical_job_id,),
+                logical_attempt_numbers=(1,),
+                provider_call_number=1,
+                provider=consent.provider,
+                usage=SchedulerUsage(
+                    provider_calls=1,
+                    input_tokens=50,
+                    output_tokens=10,
+                    elapsed_ms=7,
+                    cost_micros=3,
+                    peak_concurrency=1,
+                    usage_estimated=True,
+                ),
+            )
+        )
+        reserved_job_id = job.logical_job_id
+
+    retry_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            retry_provider,
+            run_id="run-reservation-attempt-ceiling",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        resumed_consent = grant_narrative_consent(project, resumed)
+        run_prepared_scene_jobs(
+            project,
+            retry_provider,
+            resumed,
+            resumed_consent,
+            policy=SchedulerPolicy(
+                _batch_limits(),
+                maximum_attempts_per_job=1,
+                maximum_transient_attempts_per_job=1,
+                maximum_malformed_attempts_per_job=1,
+            ),
+        )
+
+    submitted_job_ids = {
+        item.logical_job_id
+        for request in retry_provider.calls
+        for item in request.items
+    }
+    assert reserved_job_id not in submitted_job_ids
+
+
 def test_model_invalidation_can_persist_different_accepted_claim_content(
     tmp_path: Path,
 ) -> None:

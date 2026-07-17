@@ -307,6 +307,9 @@ class M13SchedulerPersistenceSink:
         self._histories: dict[
             tuple[str, str, str, str, str], list[AttemptOutcome]
         ] | None = None
+        self._recovered_attempts: dict[
+            tuple[str, str, str, str, str], dict[int, AttemptOutcome]
+        ] = {}
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         result = self._persistence.lookup_cache(
@@ -368,11 +371,15 @@ class M13SchedulerPersistenceSink:
             for job in jobs
         }
         attempts = self._load_compatible_attempt_payloads(compatible_keys)
-        reserved_usage, covered_attempts = self._load_compatible_call_usage(
-            consent,
-            jobs,
-            compatibility_id,
+        reserved_usage, covered_attempts, recovered_attempts = (
+            self._load_compatible_call_usage(
+                consent,
+                jobs,
+                compatibility_id,
+            )
         )
+        self._recovered_attempts = recovered_attempts
+        self._histories = None
         legacy_attempts = tuple(
             attempt
             for attempt in attempts
@@ -558,8 +565,13 @@ class M13SchedulerPersistenceSink:
         consent: ConsentManifest,
         jobs: Sequence[ScheduledSceneJob],
         compatibility_id: str,
-    ) -> tuple[SchedulerUsage, frozenset[tuple[str, str, int]]]:
-        expected_job_ids = {job.logical_job_id for job in jobs}
+    ) -> tuple[
+        SchedulerUsage,
+        frozenset[tuple[str, str, int]],
+        dict[tuple[str, str, str, str, str], dict[int, AttemptOutcome]],
+    ]:
+        jobs_by_id = {job.logical_job_id: job for job in jobs}
+        expected_job_ids = set(jobs_by_id)
         reservations: dict[str, Mapping[str, object]] = {}
         finalizations: dict[str, Mapping[str, object]] = {}
         covered_attempts: set[tuple[str, str, int]] = set()
@@ -622,13 +634,41 @@ class M13SchedulerPersistenceSink:
         if set(finalizations) - set(reservations):
             raise ValueError("durable call finalization has no compatible reservation")
         usage = SchedulerUsage()
+        recovered_attempts: dict[
+            tuple[str, str, str, str, str], dict[int, AttemptOutcome]
+        ] = {}
         for reservation_id in sorted(reservations):
-            payload = finalizations.get(reservation_id, reservations[reservation_id])
+            reservation = reservations[reservation_id]
+            finalization = finalizations.get(reservation_id)
+            payload = reservation if finalization is None else finalization
             parsed = _scheduler_usage_from_payload(payload.get("usage"))
             if parsed is None:
                 raise ValueError("durable call usage is malformed")
             usage = _sum_scheduler_usage(usage, parsed)
-        return usage, frozenset(covered_attempts)
+            logical_job_ids = cast(list[object], reservation["logical_job_ids"])
+            logical_attempt_numbers = cast(
+                list[object], reservation["logical_attempt_numbers"]
+            )
+            for raw_job_id, raw_attempt_number in zip(
+                logical_job_ids,
+                logical_attempt_numbers,
+                strict=True,
+            ):
+                job_id = cast(str, raw_job_id)
+                attempt_number = cast(int, raw_attempt_number)
+                job = jobs_by_id[job_id]
+                key = (
+                    consent.run_id,
+                    consent.manifest_id,
+                    job.logical_job_id,
+                    job.input_revision_id,
+                    job.cache_identity.key,
+                )
+                recovered_attempts.setdefault(key, {}).setdefault(
+                    attempt_number,
+                    AttemptOutcome.RECOVERED_RESERVATION,
+                )
+        return usage, frozenset(covered_attempts), recovered_attempts
 
     def _require_job(self, logical_job_id: str) -> ScheduledSceneJob:
         try:
@@ -679,6 +719,14 @@ class M13SchedulerPersistenceSink:
                 cache_key,
             )
             indexed.setdefault(key, []).append((attempt_number, parsed))
+        for key, recovered in self._recovered_attempts.items():
+            values = indexed.setdefault(key, [])
+            recorded_numbers = {number for number, _outcome in values}
+            values.extend(
+                (number, outcome)
+                for number, outcome in recovered.items()
+                if number not in recorded_numbers
+            )
         return {
             key: [outcome for _number, outcome in sorted(values)] for key, values in indexed.items()
         }

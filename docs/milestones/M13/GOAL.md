@@ -5,7 +5,8 @@ Status: Verification (semantic review PASS retained)
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
 bounded correction handoff, plus the user's 2026-07-17 final bounded eight-finding correction
-authorization for existing PR #23
+authorization for existing PR #23 and explicit authorization for one additional narrowly bounded
+recovered-reservation correction and independent rereview
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 

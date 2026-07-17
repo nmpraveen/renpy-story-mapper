@@ -94,6 +94,7 @@ class AuthoritySystem(StrEnum):
 class AttemptOutcome(StrEnum):
     ACCEPTED = "accepted"
     PARTIAL = "partial"
+    RECOVERED_RESERVATION = "recovered_reservation"
     MALFORMED = "malformed"
     TRANSIENT_FAILURE = "transient_failure"
     PROVIDER_REFUSAL = "provider_refusal"

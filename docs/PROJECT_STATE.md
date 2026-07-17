@@ -17,8 +17,9 @@ Updated: 2026-07-17
   failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
   Detail/Evidence navigation.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75` is active for the exact final
-  bounded correction objective. Historical task/goal `019f7048-93db-7383-a869-fc4c78939994`
+- Native Codex goal: task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` is active for the exact M13
+  done condition in this resumed thread. Historical task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
+  stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
   reached its prior authorized done condition at its exact head; task/goal
   `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
@@ -89,6 +90,14 @@ user's final handoff. The coordinator therefore stopped without a second product
 Release/browser/private-scale/GitHub acceptance, push, PR mutation, merge, provider call, or M14
 work. M13 remains in `Verification`; PR #23 is not currently ready, the native goal remains active,
 and another narrowly bounded correction requires explicit user authorization.
+
+The user supplied that explicit authorization in the 2026-07-17 resume handoff: exactly one
+additional narrowly bounded failing-first correction for recovered reservation attempt history,
+one independent rereview, and only the remaining contract-required verification/evidence needed
+to make existing PR #23 genuinely ready. The lifecycle resumes at `Verification`; no provider/live
+transmission, merge, M14 work, or protected untracked content is authorized. The current thread was
+dispatched with `gpt-5.6-sol` and High reasoning. Its thread API exposes no fast-mode selector, so
+fast-mode state remains unavailable and unverified rather than claimed disabled.
 
 ## Historical prior correction verification (not current-cycle proof)
 
