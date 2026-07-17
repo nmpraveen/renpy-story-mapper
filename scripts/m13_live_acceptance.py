@@ -477,7 +477,10 @@ def run(
                 consent,
                 policy=LIVE_SCHEDULER_POLICY,
             )
-            if first.record.state is not SchedulerRunState.SUCCEEDED:
+            if first.record.state not in {
+                SchedulerRunState.SUCCEEDED,
+                SchedulerRunState.PARTIAL,
+            }:
                 raise AssertionError(f"live hierarchy did not fully succeed: {first.record.state}")
             if any(
                 job.state not in {LogicalJobState.SUCCEEDED, LogicalJobState.PARTIAL}

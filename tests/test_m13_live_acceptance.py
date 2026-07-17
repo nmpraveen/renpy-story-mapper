@@ -20,6 +20,43 @@ class SettingsEchoingProvider(SimulatedNarrativeProvider):
         )
 
 
+class TwoPartialScenesProvider(SettingsEchoingProvider):
+    def __init__(self) -> None:
+        super().__init__(content_variant="two-partial-scenes")
+        self.partial_scene_ids: set[str] = set()
+
+    def submit(self, request: Any, cancelled: Any) -> Any:
+        response = super().submit(request, cancelled)
+        revised = []
+        for request_item, response_item in zip(request.items, response.items, strict=True):
+            payload = response_item.payload
+            if (
+                len(self.partial_scene_ids) < 2
+                and request_item.payload.get("job_kind") == "scene"
+                and payload is not None
+            ):
+                self.partial_scene_ids.add(request_item.logical_job_id)
+                payload = dict(payload)
+                claims = list(payload["claims"])
+                claims.append(
+                    {
+                        "claim_class": "factual",
+                        "context_scope": "atomic",
+                        "text": "This deliberately invalid claim is salvaged away.",
+                        "evidence_handles": ["E999"],
+                        "child_claim_handles": [],
+                        "subject": "scene",
+                        "predicate": "invalid test support",
+                        "polarity": "positive",
+                        "normalized_value": "invalid",
+                    }
+                )
+                payload["claims"] = claims
+                response_item = replace(response_item, payload=payload)
+            revised.append(response_item)
+        return replace(response, items=tuple(revised))
+
+
 def _module() -> Any:
     spec = importlib.util.spec_from_file_location("rsm_m13_live_acceptance", SCRIPT)
     assert spec is not None and spec.loader is not None
@@ -91,6 +128,37 @@ def test_live_acceptance_preview_never_submits_and_exact_confirmation_replays(
     assert report["privacy"]["raw_prompt_records"] == 0
     assert report["immutability"]["unchanged"] is True
     assert (output / "acceptance.json").is_file()
+
+
+def test_live_acceptance_retains_two_partial_scenes_and_replays_without_calls(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    output = tmp_path / "live-partial"
+    provider = TwoPartialScenesProvider()
+    preview = module.run(
+        output,
+        model="selected-runtime-model",
+        reasoning_effort="selected-runtime-effort",
+        provider=provider,
+    )
+
+    report = module.run(
+        output,
+        model="selected-runtime-model",
+        reasoning_effort="selected-runtime-effort",
+        confirm_preparation_id=preview["preparation_id"],
+        provider=provider,
+    )
+
+    assert len(provider.partial_scene_ids) == 2
+    assert report["status"] == "passed"
+    assert report["first_run"]["state"] == "partial"
+    assert report["first_run"]["state_counts"]["partial"] == 2
+    assert report["first_run"]["segment_artifacts"] > 0
+    assert report["first_run"]["chapter_artifacts"] > 0
+    assert report["claim_and_route_audit"]["route_aware_plot"] is True
+    assert report["cache_replay"]["provider_calls"] == 0
 
 
 def test_live_acceptance_rejects_stale_confirmation_without_submitting(tmp_path: Path) -> None:
