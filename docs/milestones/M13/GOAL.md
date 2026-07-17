@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (semantic review PASS retained)
+Status: PR ready (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, plus the user's 2026-07-17 final
@@ -190,8 +190,8 @@ Correction-cycle status: runtime corrections are frozen at
 `docs/milestones/M13/CURRENT_EVIDENCE.json`. Required local, Windows, browser, and private-scale
 gates pass, independent targeted review at `e79384b` returns PASS with no P0/P1/new P2, and the
 approved final-head browser/backend live run plus exact fail-closed replay pass at `677d881`.
-Lifecycle remains `Verification` only until existing PR #23 is updated and its remote head is
-verified.
+Existing PR #23 contains the reconciled evidence and is remotely verified; lifecycle is
+`PR ready`.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
@@ -202,7 +202,7 @@ verified.
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Fresh real-Chrome report `ce60b235...8f19b` passes at 100%/200%; exact existing-workspace navigation and zero provider calls; optional overlay deferred |
 | 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private-hash-only report `17b1bbb1...0092` passes 1,812 scenes; approved final-head report `f97bbfec...313f` publishes all 90 eligible jobs and the complete route-aware hierarchy; exact replay is zero-call/hash-exact; source/authority remain unchanged |
 | 22 | Focused/full Windows suite, package inspection, independent review | Current Release passes 1,079/7 and every static/package gate; targeted review at `e79384b` passes 105 + 32 + 2 focused tests with no P0/P1/new P2 |
-| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49`, review head `e79384b`, live head `677d881`, and `CURRENT_EVIDENCE.json` are durable; infographic remains historical durable evidence; existing PR #23 is open/unmerged and awaits only this reconciled evidence update |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49`, review head `e79384b`, live head `677d881`, evidence commit `d5fdcaa`, and `CURRENT_EVIDENCE.json` are durable; existing PR #23 is updated, open, non-draft, unmerged, and PR ready |
 
 ## Release-critical sequence
 
@@ -246,8 +246,8 @@ verified.
   collaboration controls expose model and reasoning-effort selectors but not a fast-mode selector;
   record that exact limitation rather than copying fixed provider settings into this M13 contract
   or claiming an unverifiable fast-mode configuration.
-- Keep status at `Verification` until the passing final-head live/replay evidence is committed,
-  pushed to existing PR #23, and the remote head is verified. The targeted review gate passed at
-  `e79384b`; criterion 20 passed at `677d881`.
+- The targeted review gate passed at `e79384b`, criterion 20 passed at `677d881`, and reconciled
+  evidence commit `d5fdcaa` was pushed and remotely verified on existing PR #23. Status is
+  `PR ready`.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
   preparation. Complete it only at genuine `PR ready`.

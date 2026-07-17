@@ -2,10 +2,11 @@
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
   "validation_date": "2026-07-17",
-  "lifecycle": "Verification",
+  "lifecycle": "PR ready",
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
   "reviewed_pr_head_sha": "d0c116b5a1fb9ed221981d380fd42eab464f31fe",
   "validated_runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
+  "validated_evidence_head_sha": "d5fdcaa3a0a15db05f232171754216093cadd026",
   "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json",
   "runtime_commits": [
     "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
@@ -151,10 +152,20 @@
     "replay_provider_calls": 0,
     "replay_total_tokens": 0
   },
+  "pull_request": {
+    "number": 23,
+    "branch": "codex/m13-narrative-layer",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "evidence_head_sha": "d5fdcaa3a0a15db05f232171754216093cadd026",
+    "evidence_head_remote_verified": true,
+    "remote_workflow_disposition": "The repository helper ended pytest at its fixed 900.24-second cutoff after 73 percent with no failed test reported; all later quality/build/package checks passed. The user directed no rerun and direct PR update. Complete local Release 1079 passed/7 deselected remains the required passing acceptance evidence."
+  },
   "known_limitations": [
     "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
     "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
     "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
-    "PR #23 is open and unmerged; all acceptance gates now pass, and the authorized existing-PR evidence update and remote-head verification remain before lifecycle PR ready."
+    "PR #23 is open, non-draft, unmerged, and PR ready; merge remains separately approval-gated."
   ]
 }

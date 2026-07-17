@@ -10,19 +10,19 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification.
+- Status: PR ready.
 - Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
   PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
   failed-call accounting, browser-bound provider settings, shared privacy validation, citation
   navigation through existing Detail and Evidence, and durable final-head evidence.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` is active for this authorized
-  correction cycle; the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
+- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` completed this authorized
+  correction cycle at genuine PR readiness; prior task/goal
+  `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
-  currently non-draft, and unmerged at reviewed head
-  `d0c116b5a1fb9ed221981d380fd42eab464f31fe`. Its readiness is withdrawn during this correction;
-  the final-head live-evidence and review gates now pass, so only the authorized existing-PR update
-  and remote verification remain. Merge remains separately approval-gated.
+  currently non-draft, and unmerged. Reconciled live evidence commit
+  `d5fdcaa3a0a15db05f232171754216093cadd026` was pushed and remotely verified before the final
+  lifecycle closeout. Merge remains separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -59,7 +59,7 @@ zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh
 private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
 source/authority immutability, and exact zero-call replay with all safety counters zero.
 
-Lifecycle remains `Verification` until the authorized existing-PR update is verified. Independent reviewer
+Lifecycle is `PR ready`. Independent reviewer
 `/root/m13_final_targeted_review` passed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` with no P0, P1, or new P2 after 105 + 32 + 2 focused
 tests and a clean zero-edit detached review. The approved production-path run at exact head
@@ -69,6 +69,14 @@ the complete route-aware hierarchy, 1,035 published claims, zero unresolved refe
 unchanged source/authority, and no raw prompt/response retention. Exact fail-closed replay made
 zero submit attempts/calls/tokens and reproduced artifact hashes and rendering exactly. Sanitized
 report SHA-256 is `f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f`.
+
+The first remote PR check at evidence head `d5fdcaa` was not a product-test failure: its pytest
+process was cut off by the repository helper's fixed 900-second limit after reaching 73%, with no
+failed test reported; every later Ruff, strict-mypy, dependency, JavaScript, whitespace, build,
+install, import, asset, and notice check passed. The complete required local Windows Release had
+already passed 1,079 tests with 7 hardware-sensitive deselections. The user directed that the
+timed-out remote workflow not be rerun and that PR #23 be updated directly; that disposition is
+recorded without weakening the completed local acceptance evidence.
 
 ## Historical M13 evidence
 

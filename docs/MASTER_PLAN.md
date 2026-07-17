@@ -3,9 +3,9 @@
 Last revised: 2026-07-16
 
 Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
-retains its semantic-review `PASS`, and is in Verification on existing PR #23 after an authorized
+retains its semantic-review `PASS`, and is PR ready on existing unmerged PR #23 after an authorized
 bounded correction cycle. Its independent targeted correction review and approved final-head
-live/replay acceptance pass; the existing PR update is the remaining closeout step.
+live/replay acceptance pass; merge remains separately approval-gated.
 
 ## 1. Product goal
 
@@ -1143,11 +1143,11 @@ unresolved or dynamic behavior and must not claim arbitrary expression satisfiab
 
 ### M13 - AI narrative layer
 
-Status: Verification on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
+Status: PR ready on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
 bounded correction runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef` passes current local,
 Windows, browser, and private-scale gates, targeted review of integrated head `e79384b` passes
-with no P0/P1/new P2, and the approved final-head live run/replay at `677d881` passes. Updating and
-verifying existing PR #23 with the reconciled evidence is the remaining step before PR readiness.
+with no P0/P1/new P2, and the approved final-head live run/replay at `677d881` passes. Reconciled
+evidence is committed to and remotely verified on existing PR #23.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1244,6 +1244,4 @@ and unresolved items.
 
 ## 11. Current next action
 
-Commit and validate the approved final-head live/replay evidence, update only existing PR #23,
-verify its remote head and readiness, and complete the active native goal. Do not merge PR #23 or
-begin M14.
+Await the user's separate decision on existing PR #23. Do not merge PR #23 or begin M14.

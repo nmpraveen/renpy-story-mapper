@@ -1,15 +1,15 @@
 # M13 optional AI narrative layer completion report
 
-Status: Verification; all acceptance gates pass, existing PR #23 update pending
+Status: PR ready; existing PR #23 open, non-draft, and unmerged
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
-unmerged. It is currently non-draft remotely. Current-head review and live/replay gates pass; the
-remaining closeout is to commit this reconciliation, update the existing PR, and verify its remote
-head. Merge always requires separate approval.
+unmerged. It is currently non-draft remotely. Current-head review and live/replay gates pass;
+reconciled evidence commit `d5fdcaa3a0a15db05f232171754216093cadd026` was pushed and remotely
+verified before final lifecycle closeout. Merge always requires separate approval.
 
 ## Outcome
 
@@ -24,8 +24,7 @@ Independent targeted review at exact integrated head `e79384b` passed with no P0
 subsequently approved production-path live run/replay at exact head `677d881` passes criterion 20:
 all 90 eligible jobs publish through the complete route-aware hierarchy, and exact fail-closed
 replay makes zero submit attempts/calls/tokens while reproducing hashes/rendering. Source and
-authority are unchanged and privacy inspection is clean. M13 remains in `Verification` only until
-the existing PR update and remote-head check complete.
+authority are unchanged and privacy inspection is clean. M13 is `PR ready`.
 
 ## Current correction acceptance
 
@@ -65,11 +64,10 @@ head proof for the reopened correction areas.
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Remaining closeout
+## Handoff state
 
 - Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
   `e79384b`; approved final-head live/replay passes at `677d881`.
-- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is active through verification and PR
-  preparation.
-- Update and verify only existing PR #23, then complete the native goal. Do not merge PR #23,
-  perform another live provider transmission, or begin M14.
+- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is complete at PR readiness.
+- Existing PR #23 is open, non-draft, unmerged, and ready for the user's separate decision. Do not
+  merge PR #23, perform another live provider transmission, or begin M14.
