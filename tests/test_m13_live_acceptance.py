@@ -29,6 +29,16 @@ def _module() -> Any:
     return module
 
 
+def test_live_acceptance_uses_finite_long_timeout_and_no_retry_policy() -> None:
+    module = _module()
+    policy = module.LIVE_SCHEDULER_POLICY
+
+    assert module.LIVE_TIMEOUT_SECONDS == 7_200
+    assert policy.maximum_attempts_per_job == 1
+    assert policy.maximum_transient_attempts_per_job == 1
+    assert policy.maximum_malformed_attempts_per_job == 1
+
+
 def test_live_acceptance_preview_never_submits_and_exact_confirmation_replays(
     tmp_path: Path,
 ) -> None:
@@ -53,6 +63,16 @@ def test_live_acceptance_preview_never_submits_and_exact_confirmation_replays(
         "model_reasoning_effort": "selected-runtime-effort",
     }
     assert preview["representative_contexts"]["persistent_route_scenes"] > 0
+    assert preview["estimate"]["input_tokens"] > 2_460_000
+    assert preview["limits"] == {
+        "max_provider_calls": 130,
+        "max_input_tokens": 4_927_054,
+        "max_output_tokens": 163_200,
+        "max_total_tokens": 5_090_254,
+        "timeout_seconds": 7_200,
+        "max_concurrency": 1,
+        "max_cost_micros": None,
+    }
     assert (output / "consent-preview.json").is_file()
     assert not (output / "acceptance.json").exists()
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from renpy_story_mapper.m11_scene_model import LaneKind
-from renpy_story_mapper.narrative.contracts import CostConfidence, RunEstimate
+from renpy_story_mapper.narrative.contracts import BudgetLimits, CostConfidence, RunEstimate
 from renpy_story_mapper.narrative.hierarchy import (
     HIERARCHY_REDUCTION_TARGET_CHILDREN,
     HierarchyPartitionConfig,
@@ -22,6 +22,19 @@ SEGMENT_TARGET_CHILDREN = _DEFAULT_SEGMENT_CONFIG.target_children
 HIERARCHY_OUTPUT_TOKENS = 1_000
 _DEFAULT_HIERARCHY_CONFIG = HierarchyPartitionConfig("und", "default")
 HIERARCHY_PROMPT_OVERHEAD_TOKENS = _DEFAULT_HIERARCHY_CONFIG.prompt_overhead_tokens
+# The complete estimate includes the versioned prompt, consent/request metadata, item identities,
+# and JSON framing that surround logical payloads on the wire.  These allowances exceed the
+# serialized v4 scene envelopes observed in live acceptance while remaining deterministic and
+# provider-free.  Hierarchy calls use the safe one-item-per-call upper bound below.
+SERIALIZED_INPUT_CHARS_PER_TOKEN = 2
+PROVIDER_REQUEST_ENVELOPE_CHARS = 8_192
+PROVIDER_ITEM_ENVELOPE_CHARS = 512
+# Codex/provider usage may also include runtime context that is not serialized in stdin.  Reserve
+# this versioned, calibrated finite allowance for every estimated call; it is an estimation margin,
+# not a claim that provider runtime accounting has a proven fixed upper bound.
+PROVIDER_RUNTIME_INPUT_TOKENS_PER_CALL = 25_000
+DEFAULT_BUDGET_HEADROOM_NUMERATOR = 5
+DEFAULT_BUDGET_HEADROOM_DENOMINATOR = 4
 
 
 @dataclass(frozen=True)
@@ -242,7 +255,10 @@ def estimate_complete_run(
     # sizes are known. One call per hierarchy job is therefore a deterministic safe upper bound.
     provider_calls = scene_run.estimate.provider_call_count + hierarchy_jobs
     scene_output = scene_run.estimate.output_tokens
-    input_tokens = scene_run.estimate.input_tokens + hierarchy_input
+    scene_input = _serialized_scene_input_tokens(scene_run)
+    hierarchy_transport_overhead = hierarchy_jobs * _serialized_envelope_tokens(1)
+    runtime_input = provider_calls * PROVIDER_RUNTIME_INPUT_TOKENS_PER_CALL
+    input_tokens = scene_input + hierarchy_input + hierarchy_transport_overhead + runtime_input
     output_tokens = scene_output + hierarchy_jobs * HIERARCHY_OUTPUT_TOKENS
     if pricing is None:
         cost = None
@@ -263,6 +279,64 @@ def estimate_complete_run(
         output_tokens,
         cost,
         confidence,
+    )
+
+
+def budget_limits_with_headroom(
+    estimate: RunEstimate,
+    *,
+    timeout_seconds: int,
+    max_concurrency: int,
+    max_cost_micros: int | None = None,
+    numerator: int = DEFAULT_BUDGET_HEADROOM_NUMERATOR,
+    denominator: int = DEFAULT_BUDGET_HEADROOM_DENOMINATOR,
+) -> BudgetLimits:
+    """Derive finite consent limits from one complete serialized-workload estimate."""
+
+    if numerator <= denominator or denominator <= 0:
+        raise ValueError("budget headroom must be a finite ratio greater than one")
+    if timeout_seconds <= 0 or max_concurrency <= 0:
+        raise ValueError("time and concurrency limits must be positive")
+
+    def with_headroom(value: int) -> int:
+        return max(1, (value * numerator + denominator - 1) // denominator)
+
+    input_limit = with_headroom(estimate.input_tokens)
+    output_limit = with_headroom(estimate.output_tokens)
+    total_limit = max(
+        input_limit,
+        output_limit,
+        with_headroom(estimate.input_tokens + estimate.output_tokens),
+    )
+    return BudgetLimits(
+        max_provider_calls=with_headroom(estimate.provider_call_count),
+        max_input_tokens=input_limit,
+        max_output_tokens=output_limit,
+        max_total_tokens=total_limit,
+        timeout_seconds=timeout_seconds,
+        max_concurrency=max_concurrency,
+        max_cost_micros=max_cost_micros,
+    )
+
+
+def _serialized_scene_input_tokens(scene_run: PreparedSceneRun) -> int:
+    payload_chars = sum(item.input_chars for item in scene_run.jobs)
+    envelope_chars = (
+        len(scene_run.batches) * PROVIDER_REQUEST_ENVELOPE_CHARS
+        + len(scene_run.jobs) * PROVIDER_ITEM_ENVELOPE_CHARS
+    )
+    return max(
+        1,
+        math.ceil((payload_chars + envelope_chars) / SERIALIZED_INPUT_CHARS_PER_TOKEN),
+    )
+
+
+def _serialized_envelope_tokens(item_count: int) -> int:
+    if item_count < 1:
+        raise ValueError("serialized provider envelopes require at least one item")
+    return math.ceil(
+        (PROVIDER_REQUEST_ENVELOPE_CHARS + item_count * PROVIDER_ITEM_ENVELOPE_CHARS)
+        / SERIALIZED_INPUT_CHARS_PER_TOKEN
     )
 
 

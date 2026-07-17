@@ -25,6 +25,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.sizing import budget_limits_with_headroom
 from renpy_story_mapper.narrative.workflow import (
     grant_narrative_consent,
     prepare_narrative_scene_run,
@@ -181,6 +182,85 @@ def test_prepare_is_disabled_and_can_exclude_m12_material_without_losing_binding
         assert prepared.preview_dict()["includes_m12_material"] is False
         assert provider.calls == []
         assert project.m13_persistence().list_records(RecordKind.CONSENT) == ()
+
+
+def test_live_shape_complete_estimate_rejects_old_budget_and_binds_headroom(
+    tmp_path: Path,
+) -> None:
+    provider = DeterministicNarrativeProvider()
+    old_under_budget = BudgetLimits(
+        max_provider_calls=80,
+        max_input_tokens=400_000,
+        max_output_tokens=150_000,
+        max_total_tokens=550_000,
+        timeout_seconds=1_800,
+        max_concurrency=1,
+    )
+
+    with _project(tmp_path) as project:
+        _add_m12_result(project)
+        with pytest.raises(ValueError, match="estimated input tokens exceed"):
+            prepare_narrative_scene_run(
+                project,
+                provider,
+                run_id="run-old-under-budget",
+                requested_model="runtime-selected-model",
+                mode=NarrativeInputMode.FACT_ONLY,
+                include_m12_material=True,
+                limits=old_under_budget,
+                batch_limits=_batch_limits(),
+                locale="en-US",
+                perspective="reader",
+            )
+
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-headroom",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=lambda estimate: budget_limits_with_headroom(
+                estimate,
+                timeout_seconds=1_800,
+                max_concurrency=1,
+            ),
+            batch_limits=_batch_limits(),
+            locale="en-US",
+            perspective="reader",
+        )
+        wider = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-headroom",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=lambda estimate: budget_limits_with_headroom(
+                estimate,
+                timeout_seconds=1_800,
+                max_concurrency=1,
+                numerator=3,
+                denominator=2,
+            ),
+            batch_limits=_batch_limits(),
+            locale="en-US",
+            perspective="reader",
+        )
+
+    estimate = prepared.consent_preview.estimate
+    limits = prepared.consent_preview.limits
+    assert estimate.input_tokens > 2_250_000
+    assert limits.max_input_tokens > 2_800_000
+    assert limits.max_input_tokens * 4 >= estimate.input_tokens * 5
+    assert limits.max_input_tokens * 4 >= prepared.scene_run.estimate.input_tokens * 5
+    assert limits.max_provider_calls > 0
+    assert limits.max_output_tokens > 0
+    assert limits.max_total_tokens >= limits.max_input_tokens
+    assert limits.timeout_seconds == 1_800
+    assert limits.max_concurrency == 1
+    assert prepared.consent_preview.manifest_id != wider.consent_preview.manifest_id
+    assert provider.calls == []
 
 
 def test_granted_scene_run_persists_partial_items_claims_attempts_and_lazy_citations(

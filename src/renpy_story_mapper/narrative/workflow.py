@@ -25,6 +25,7 @@ from renpy_story_mapper.narrative.contracts import (
     PrivacyMode,
     ProviderIdentity,
     ProviderSettings,
+    RunEstimate,
     canonical_hash,
 )
 from renpy_story_mapper.narrative.persistence import (
@@ -133,7 +134,7 @@ def prepare_narrative_scene_run(
     settings: ProviderSettings = _EMPTY_PROVIDER_SETTINGS,
     mode: NarrativeInputMode,
     include_m12_material: bool,
-    limits: BudgetLimits,
+    limits: BudgetLimits | Callable[[RunEstimate], BudgetLimits],
     batch_limits: BatchLimits,
     selected_scene_ids: tuple[str, ...] | None = None,
     locale: str = "und",
@@ -178,6 +179,7 @@ def prepare_narrative_scene_run(
         authority.scene_model,
         pricing=pricing,
     )
+    resolved_limits = limits(complete_estimate) if callable(limits) else limits
     manifest_run = replace(scene_run, estimate=complete_estimate)
     consent = build_cloud_consent(
         manifest_run,
@@ -190,7 +192,7 @@ def prepare_narrative_scene_run(
             else PrivacyMode.STORY_TEXT
         ),
         includes_m12_material=include_m12_material,
-        limits=limits,
+        limits=resolved_limits,
         consent_granted=False,
     )
     return PreparedNarrativeRun(

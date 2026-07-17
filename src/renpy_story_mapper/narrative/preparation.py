@@ -43,7 +43,10 @@ from renpy_story_mapper.storage import canonical_json
 
 M13_SCENE_PROVIDER_INPUT_SCHEMA = "m13-scene-provider-input-v1"
 DEFAULT_SCENE_OUTPUT_TOKENS = 800
-CHARS_PER_ESTIMATED_TOKEN = 4
+# JSON-heavy structured provider input tokenizes more densely than ordinary prose.  The live
+# acceptance evidence measured between 2.13 and 2.36 serialized characters per input token, so
+# use two characters per token as the conservative preparation and transport-packing bound.
+CHARS_PER_ESTIMATED_TOKEN = 2
 
 
 @dataclass(frozen=True)

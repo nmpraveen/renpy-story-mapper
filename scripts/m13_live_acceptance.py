@@ -20,11 +20,7 @@ from typing import Final, cast
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import NarrativeAuthority, load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
-from renpy_story_mapper.narrative.contracts import (
-    BudgetLimits,
-    LogicalJobState,
-    ProviderSettings,
-)
+from renpy_story_mapper.narrative.contracts import LogicalJobState, ProviderSettings
 from renpy_story_mapper.narrative.hierarchy import StorySection
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
@@ -42,6 +38,7 @@ from renpy_story_mapper.narrative.provider import (
     NarrativeProvider,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy, SchedulerRunState
+from renpy_story_mapper.narrative.sizing import budget_limits_with_headroom
 from renpy_story_mapper.narrative.workflow import (
     PreparedNarrativeRun,
     grant_narrative_consent,
@@ -54,18 +51,18 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 FIXTURE: Final = ROOT / "tests" / "fixtures" / "m12" / "route_targets.rpy"
 REPORT_SCHEMA: Final = "m13-live-provider-acceptance-v1"
 RUN_ID: Final = "m13-live-provider-acceptance-sample-v1"
-DEFAULT_LIMITS: Final = BudgetLimits(
-    max_provider_calls=80,
-    max_input_tokens=400_000,
-    max_output_tokens=150_000,
-    max_total_tokens=550_000,
-    timeout_seconds=1_800,
-    max_concurrency=1,
-)
+LIVE_TIMEOUT_SECONDS: Final = 7_200
+LIVE_MAX_CONCURRENCY: Final = 1
 DEFAULT_BATCH_LIMITS: Final = BatchLimits(
     maximum_items=16,
     maximum_input_chars=500_000,
     maximum_input_tokens=100_000,
+)
+LIVE_SCHEDULER_POLICY: Final = SchedulerPolicy(
+    DEFAULT_BATCH_LIMITS,
+    maximum_attempts_per_job=1,
+    maximum_transient_attempts_per_job=1,
+    maximum_malformed_attempts_per_job=1,
 )
 _FORBIDDEN_DURABLE_KEYS: Final = frozenset(
     {
@@ -226,7 +223,13 @@ def _prepare(
         ),
         mode=NarrativeInputMode.FACT_ONLY,
         include_m12_material=True,
-        limits=DEFAULT_LIMITS,
+        limits=lambda estimate: budget_limits_with_headroom(
+            estimate,
+            timeout_seconds=LIVE_TIMEOUT_SECONDS,
+            max_concurrency=LIVE_MAX_CONCURRENCY,
+            numerator=2,
+            denominator=1,
+        ),
         batch_limits=DEFAULT_BATCH_LIMITS,
         selected_scene_ids=None,
         locale="en-US",
@@ -467,13 +470,12 @@ def run(
                 raise RuntimeError("the selected live provider is unavailable")
 
             consent = grant_narrative_consent(project, prepared)
-            policy = SchedulerPolicy(DEFAULT_BATCH_LIMITS)
             first = run_complete_narrative(
                 project,
                 active_provider,
                 prepared,
                 consent,
-                policy=policy,
+                policy=LIVE_SCHEDULER_POLICY,
             )
             if first.record.state is not SchedulerRunState.SUCCEEDED:
                 raise AssertionError(f"live hierarchy did not fully succeed: {first.record.state}")
@@ -493,7 +495,7 @@ def run(
                 active_provider,
                 prepared,
                 consent,
-                policy=policy,
+                policy=LIVE_SCHEDULER_POLICY,
             )
             if replay.record.usage.provider_calls != 0:
                 raise AssertionError("exact accepted-artifact replay called the provider")
