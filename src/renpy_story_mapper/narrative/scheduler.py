@@ -1735,7 +1735,7 @@ class NarrativeScheduler:
         ):
             return batch_size > 1
         if isinstance(error, ProviderOutputError):
-            return batch_size > 1 or self._eligible_malformed(history)
+            return self._eligible_malformed(history)
         if isinstance(error, _RETRYABLE_TRANSIENT_PROVIDER_ERRORS) and error.transient:
             transient = sum(
                 outcome in {AttemptOutcome.TRANSIENT_FAILURE, AttemptOutcome.TIMEOUT}

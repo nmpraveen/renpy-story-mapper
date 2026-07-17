@@ -368,13 +368,20 @@ class M13SchedulerPersistenceSink:
             for job in jobs
         }
         attempts = self._load_compatible_attempt_payloads(compatible_keys)
-        usage = _usage_from_attempt_payloads(attempts)
-        reserved_usage = self._load_compatible_call_usage(
+        reserved_usage, covered_attempts = self._load_compatible_call_usage(
             consent,
             jobs,
             compatibility_id,
         )
-        usage = _merge_scheduler_usage(usage, reserved_usage)
+        legacy_attempts = tuple(
+            attempt
+            for attempt in attempts
+            if _attempt_reservation_key(attempt) not in covered_attempts
+        )
+        usage = _sum_scheduler_usage(
+            _usage_from_attempt_payloads(legacy_attempts),
+            reserved_usage,
+        )
         run = self._persistence.lookup_compatible_run(
             consent.run_id,
             consent_manifest_id=consent.manifest_id,
@@ -551,10 +558,11 @@ class M13SchedulerPersistenceSink:
         consent: ConsentManifest,
         jobs: Sequence[ScheduledSceneJob],
         compatibility_id: str,
-    ) -> SchedulerUsage:
+    ) -> tuple[SchedulerUsage, frozenset[tuple[str, str, int]]]:
         expected_job_ids = {job.logical_job_id for job in jobs}
         reservations: dict[str, Mapping[str, object]] = {}
         finalizations: dict[str, Mapping[str, object]] = {}
+        covered_attempts: set[tuple[str, str, int]] = set()
         for result in self._persistence.list_records(
             RecordKind.BATCH,
             authority_binding=self._authority,
@@ -576,13 +584,24 @@ class M13SchedulerPersistenceSink:
                 raise ValueError("durable call record has an invalid reservation ID")
             if kind == "reservation":
                 logical_job_ids = payload.get("logical_job_ids")
+                logical_attempt_numbers = payload.get("logical_attempt_numbers")
+                batch_id = payload.get("batch_id")
                 provider = payload.get("provider")
                 if (
                     not isinstance(logical_job_ids, list)
                     or not logical_job_ids
+                    or not isinstance(logical_attempt_numbers, list)
+                    or len(logical_attempt_numbers) != len(logical_job_ids)
+                    or not isinstance(batch_id, str)
                     or any(
                         not isinstance(job_id, str) or job_id not in expected_job_ids
                         for job_id in logical_job_ids
+                    )
+                    or any(
+                        not isinstance(number, int)
+                        or isinstance(number, bool)
+                        or number < 1
+                        for number in logical_attempt_numbers
                     )
                     or not isinstance(provider, Mapping)
                     or storage.canonical_json(provider)
@@ -590,6 +609,14 @@ class M13SchedulerPersistenceSink:
                 ):
                     raise ValueError("durable call reservation is incompatible")
                 reservations[reservation_id] = payload
+                covered_attempts.update(
+                    (batch_id, cast(str, job_id), cast(int, attempt_number))
+                    for job_id, attempt_number in zip(
+                        logical_job_ids,
+                        logical_attempt_numbers,
+                        strict=True,
+                    )
+                )
             else:
                 finalizations[reservation_id] = payload
         if set(finalizations) - set(reservations):
@@ -601,7 +628,7 @@ class M13SchedulerPersistenceSink:
             if parsed is None:
                 raise ValueError("durable call usage is malformed")
             usage = _sum_scheduler_usage(usage, parsed)
-        return usage
+        return usage, frozenset(covered_attempts)
 
     def _require_job(self, logical_job_id: str) -> ScheduledSceneJob:
         try:
@@ -797,6 +824,23 @@ def _call_record_id(kind: str, reservation_id: str) -> str:
     return "m13_call_" + canonical_hash(
         {"kind": kind, "reservation_id": reservation_id}
     )
+
+
+def _attempt_reservation_key(
+    attempt: Mapping[str, object],
+) -> tuple[str, str, int] | None:
+    batch_id = attempt.get("batch_id")
+    logical_job_id = attempt.get("logical_job_id")
+    attempt_number = attempt.get("attempt_number")
+    if (
+        not isinstance(batch_id, str)
+        or not isinstance(logical_job_id, str)
+        or not isinstance(attempt_number, int)
+        or isinstance(attempt_number, bool)
+        or attempt_number < 1
+    ):
+        return None
+    return batch_id, logical_job_id, attempt_number
 
 
 def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:

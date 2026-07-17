@@ -8,7 +8,13 @@ import pytest
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
-from renpy_story_mapper.narrative.contracts import BudgetLimits, ProviderIdentity, ProviderSettings
+from renpy_story_mapper.narrative.contracts import (
+    AttemptMetrics,
+    AttemptOutcome,
+    BudgetLimits,
+    ProviderIdentity,
+    ProviderSettings,
+)
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.presentation import (
     narrative_claim_citations,
@@ -26,6 +32,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import (
+    SchedulerAttemptRecord,
     SchedulerCallFinalization,
     SchedulerCallReservation,
     SchedulerPolicy,
@@ -709,22 +716,40 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
             prepared.scheduled_jobs,
             authority_binding=prepared.authority.binding.to_dict(),
         )
+        job = prepared.scheduled_jobs[0]
+        legacy_attempt = SchedulerAttemptRecord(
+            attempt_id="m13_attempt_test_legacy",
+            run_id=consent.run_id,
+            logical_job_id=job.logical_job_id,
+            attempt_number=1,
+            batch_id="batch:legacy",
+            outcome=AttemptOutcome.TIMEOUT,
+            provider=consent.provider,
+            metrics=AttemptMetrics(100, 20, 4, cost_micros=5),
+            error_code="timeout",
+            consent_manifest_id=consent.manifest_id,
+            input_revision_id=job.input_revision_id,
+            cache_key=job.cache_identity.key,
+            provider_call_number=1,
+            transmitted=True,
+        )
+        sink.record_attempt(legacy_attempt)
         reservation = SchedulerCallReservation(
             reservation_id="m13_reservation_test_recovery",
             run_id=consent.run_id,
             consent_manifest_id=consent.manifest_id,
             compatibility_id=compatibility_id,
             batch_id="batch:test",
-            logical_job_ids=(prepared.scheduled_jobs[0].logical_job_id,),
-            logical_attempt_numbers=(1,),
-            provider_call_number=1,
+            logical_job_ids=(job.logical_job_id,),
+            logical_attempt_numbers=(2,),
+            provider_call_number=2,
             provider=consent.provider,
             usage=SchedulerUsage(
                 provider_calls=1,
-                input_tokens=120,
-                output_tokens=40,
+                input_tokens=50,
+                output_tokens=10,
                 elapsed_ms=7,
-                cost_micros=None,
+                cost_micros=3,
                 peak_concurrency=1,
                 usage_estimated=True,
             ),
@@ -733,7 +758,39 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
         sink.reserve_call(reservation)
         sink.reserve_call(reservation)
         unresolved = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
-        assert unresolved == reservation.usage
+        assert unresolved == SchedulerUsage(
+            provider_calls=2,
+            input_tokens=150,
+            output_tokens=30,
+            elapsed_ms=11,
+            cost_micros=8,
+            peak_concurrency=1,
+            usage_estimated=True,
+        )
+
+        covered_attempt = SchedulerAttemptRecord(
+            attempt_id="m13_attempt_test_reserved",
+            run_id=consent.run_id,
+            logical_job_id=job.logical_job_id,
+            attempt_number=2,
+            batch_id=reservation.batch_id,
+            outcome=AttemptOutcome.TIMEOUT,
+            provider=consent.provider,
+            metrics=AttemptMetrics(40, 8, 6, cost_micros=2),
+            error_code="timeout",
+            consent_manifest_id=consent.manifest_id,
+            input_revision_id=job.input_revision_id,
+            cache_key=job.cache_identity.key,
+            provider_call_number=2,
+            transmitted=True,
+        )
+        sink.record_attempt(covered_attempt)
+        still_unresolved = sink.resume_usage(
+            consent,
+            prepared.scheduled_jobs,
+            compatibility_id,
+        )
+        assert still_unresolved == unresolved
 
         finalization = SchedulerCallFinalization(
             reservation_id=reservation.reservation_id,
@@ -743,10 +800,10 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
             transmission_disposition=TransmissionDisposition.UNKNOWN,
             usage=SchedulerUsage(
                 provider_calls=1,
-                input_tokens=90,
-                output_tokens=30,
-                elapsed_ms=11,
-                cost_micros=None,
+                input_tokens=40,
+                output_tokens=8,
+                elapsed_ms=6,
+                cost_micros=2,
                 peak_concurrency=1,
                 usage_estimated=True,
             ),
@@ -754,7 +811,15 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
         sink.finalize_call(finalization)
         sink.finalize_call(finalization)
         finalized = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
-        assert finalized == finalization.usage
+        assert finalized == SchedulerUsage(
+            provider_calls=2,
+            input_tokens=140,
+            output_tokens=28,
+            elapsed_ms=10,
+            cost_micros=7,
+            peak_concurrency=1,
+            usage_estimated=True,
+        )
 
         with pytest.raises(ValueError, match="conflicting call finalization"):
             sink.finalize_call(

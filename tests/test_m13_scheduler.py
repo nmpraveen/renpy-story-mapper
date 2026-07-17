@@ -601,6 +601,29 @@ def test_provider_level_unusable_output_splits_before_individual_retry() -> None
     }
 
 
+def test_provider_output_split_cannot_bypass_malformed_attempt_ceiling() -> None:
+    identity = _provider_identity()
+    jobs = (_job(0, identity), _job(1, identity))
+
+    def malformed(_request: ProviderRequest, _number: int) -> ProviderResponse:
+        raise ProviderOutputError("invalid_output", "sanitized output error")
+
+    provider = ScriptedProvider(identity, malformed)
+    sink = MemorySink()
+    result = _scheduler(provider, sink, maximum_malformed=1).run(
+        jobs,
+        _consent(identity, logical_jobs=2),
+        _validator,
+    )
+
+    assert result.record.state is SchedulerRunState.FAILED
+    assert [len(request.items) for request in provider.requests] == [2]
+    assert _attempt_counts(sink.attempts) == {
+        jobs[0].logical_job_id: 1,
+        jobs[1].logical_job_id: 1,
+    }
+
+
 def test_provider_policy_violation_fails_closed_without_retry_or_fallback() -> None:
     identity = _provider_identity()
     jobs = (_job(0, identity), _job(1, identity))
