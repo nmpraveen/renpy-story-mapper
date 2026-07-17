@@ -2,11 +2,11 @@
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
   "validation_date": "2026-07-17",
-  "lifecycle": "Verification",
+  "lifecycle": "PR ready",
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
   "reviewed_pr_head_sha": "d0c116b5a1fb9ed221981d380fd42eab464f31fe",
   "validated_runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
-  "validated_evidence_head_sha": "d5fdcaa3a0a15db05f232171754216093cadd026",
+  "validated_evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
   "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json",
   "runtime_commits": [
     "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
@@ -78,6 +78,16 @@
       "command": "powershell -ExecutionPolicy Bypass -File scripts/validate.ps1 -Tier Release",
       "result": "1,079 passed and 7 hardware-sensitive tests deselected in 355.38 seconds; Ruff, strict mypy over 92 source files, pip check, four JavaScript syntax checks, whitespace, isolated sdist/wheel build, install, import, browser assets, and notices passed",
       "limitations": "An earlier Release run found only stale browser-asset hashes; after exact manifest reconciliation the targeted hash regression and this complete Release rerun passed.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "unbounded-github-release",
+      "classification": "public",
+      "criteria": [22, 23],
+      "command": "GitHub Actions pull-request-checks run 29604661539: .\\scripts\\validate.ps1 -Tier Release -NoTimeout",
+      "result": "passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2: 1081 passed, 7 deselected in 790.16 seconds; Ruff, strict mypy over 92 source files, dependency, JavaScript, whitespace, isolated build/install/import, browser assets, and notices passed; Release step completed in 806 seconds and the job in 14 minutes 22 seconds",
+      "run_url": "https://github.com/nmpraveen/renpy-story-mapper/actions/runs/29604661539",
+      "limitations": "No local validation rerun was performed after the user's clarification. Repository workflow and validation subprocess cutoffs were disabled for this one unbounded GitHub run.",
       "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
     },
     {
@@ -158,14 +168,14 @@
     "state": "open",
     "draft": false,
     "merged": false,
-    "evidence_head_sha": "d5fdcaa3a0a15db05f232171754216093cadd026",
+    "evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
     "evidence_head_remote_verified": true,
-    "remote_workflow_disposition": "The repository helper ended pytest at its fixed 900.24-second cutoff after 73 percent with no failed test reported; all later quality/build/package checks passed. The user clarified that local validation must not be rerun but GitHub may run without limits. Repository workflow/process cutoffs are removed and one unbounded remote Release remains pending."
+    "remote_workflow_disposition": "The initial evidence-head run ended pytest at the repository helper's fixed 900.24-second cutoff after 73 percent with no failed test reported. The user clarified that local validation must not be rerun but GitHub may run without limits. After repository workflow/process cutoffs were removed, unbounded run 29604661539 passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2 with 1081 passed, 7 deselected, and every quality/build/package gate green."
   },
   "known_limitations": [
     "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
     "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
     "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
-    "PR #23 is open, non-draft, and unmerged; unbounded GitHub Release remains before PR readiness, and merge remains separately approval-gated."
+    "PR #23 is PR ready, open, non-draft, clean, and unmerged; merge remains separately approval-gated."
   ]
 }

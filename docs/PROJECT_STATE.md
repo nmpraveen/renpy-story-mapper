@@ -10,18 +10,19 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification.
+- Status: PR ready.
 - Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
   PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
   failed-call accounting, browser-bound provider settings, shared privacy validation, citation
   navigation through existing Detail and Evidence, and durable final-head evidence.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` remains active through the
-  unbounded GitHub Release result and final PR-readiness reconciliation; prior task/goal
-  `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
+- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` reached its authorized done
+  condition at genuine PR readiness after unbounded GitHub Release run `29604661539` passed;
+  prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
-  currently non-draft, and unmerged. Reconciled live evidence commit
-  `d5fdcaa3a0a15db05f232171754216093cadd026` was pushed and remotely verified before the final
+  currently non-draft, clean, and unmerged. Reconciled live evidence commit
+  `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
+  `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before final
   lifecycle closeout. Merge remains separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
@@ -59,8 +60,7 @@ zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh
 private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
 source/authority immutability, and exact zero-call replay with all safety counters zero.
 
-Lifecycle is `Verification` while the user-authorized unbounded GitHub Release check runs. Independent reviewer
-`/root/m13_final_targeted_review` passed exact integrated head
+Lifecycle is `PR ready`. Independent reviewer `/root/m13_final_targeted_review` passed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` with no P0, P1, or new P2 after 105 + 32 + 2 focused
 tests and a clean zero-edit detached review. The approved production-path run at exact head
 `677d88152e100afd154bb54da249582ff0a2ffcd` completed with contract-valid terminal `partial`:
@@ -76,8 +76,11 @@ failed test reported; every later Ruff, strict-mypy, dependency, JavaScript, whi
 install, import, asset, and notice check passed. The complete required local Windows Release had
 already passed 1,079 tests with 7 hardware-sensitive deselections. The user then clarified that
 local validation must not be rerun but GitHub may run without limits. The workflow and validation
-runner therefore remove their repository-imposed job/process cutoffs; the resulting remote Release
-run is the remaining gate.
+runner therefore remove their repository-imposed job/process cutoffs. Unbounded GitHub run
+`29604661539` passed at branch head `7bf54042639a781313cf6c924e09a0ee023a86f2`: 1,081 tests
+passed, 7 were deselected, Ruff passed, strict mypy passed over 92 source files, and all dependency,
+JavaScript, whitespace, build, install, import, asset, and notice checks passed. The Release step
+completed in 806 seconds and the job in 14 minutes 22 seconds without a repository timeout.
 
 ## Historical M13 evidence
 

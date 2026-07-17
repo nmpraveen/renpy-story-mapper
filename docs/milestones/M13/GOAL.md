@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (semantic review PASS retained)
+Status: PR ready (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, plus the user's 2026-07-17 final
@@ -191,7 +191,9 @@ Correction-cycle status: runtime corrections are frozen at
 gates pass, independent targeted review at `e79384b` returns PASS with no P0/P1/new P2, and the
 approved final-head browser/backend live run plus exact fail-closed replay pass at `677d881`.
 Existing PR #23 contains the reconciled evidence and is remotely verified. The user-authorized
-unbounded GitHub Release check remains before lifecycle can advance to `PR ready`.
+unbounded GitHub Release run `29604661539` passed at branch head
+`7bf54042639a781313cf6c924e09a0ee023a86f2` with 1,081 passed, 7 deselected, and every
+quality/build/package gate green. The lifecycle is therefore `PR ready`.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
@@ -202,7 +204,7 @@ unbounded GitHub Release check remains before lifecycle can advance to `PR ready
 | 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Fresh real-Chrome report `ce60b235...8f19b` passes at 100%/200%; exact existing-workspace navigation and zero provider calls; optional overlay deferred |
 | 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private-hash-only report `17b1bbb1...0092` passes 1,812 scenes; approved final-head report `f97bbfec...313f` publishes all 90 eligible jobs and the complete route-aware hierarchy; exact replay is zero-call/hash-exact; source/authority remain unchanged |
 | 22 | Focused/full Windows suite, package inspection, independent review | Current Release passes 1,079/7 and every static/package gate; targeted review at `e79384b` passes 105 + 32 + 2 focused tests with no P0/P1/new P2 |
-| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49`, review head `e79384b`, live head `677d881`, evidence commit `d5fdcaa`, and `CURRENT_EVIDENCE.json` are durable; existing PR #23 is updated/open/non-draft/unmerged; unbounded remote Release is pending |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49`, review head `e79384b`, live head `677d881`, evidence commit `d5fdcaa`, validation head `7bf5404`, and `CURRENT_EVIDENCE.json` are durable; unbounded GitHub run `29604661539` passed; existing PR #23 is updated/open/non-draft/unmerged and PR ready |
 
 ## Release-critical sequence
 
@@ -247,7 +249,7 @@ unbounded GitHub Release check remains before lifecycle can advance to `PR ready
   record that exact limitation rather than copying fixed provider settings into this M13 contract
   or claiming an unverifiable fast-mode configuration.
 - The targeted review gate passed at `e79384b`, criterion 20 passed at `677d881`, and reconciled
-  evidence commit `d5fdcaa` was pushed and remotely verified on existing PR #23. Status remains
-  `Verification` until the unbounded GitHub Release check passes.
+  evidence commit `d5fdcaa` was pushed and remotely verified on existing PR #23. Unbounded GitHub
+  Release run `29604661539` passed at validation head `7bf5404`; status is `PR ready`.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
-  preparation. Complete it only at genuine `PR ready`.
+  preparation. It completes only at genuine `PR ready`, which this closeout records.

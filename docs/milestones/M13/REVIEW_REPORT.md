@@ -27,7 +27,8 @@ The subsequently approved production-path live run/replay at exact head `677d881
 90 publishable jobs completed the route-aware hierarchy, claim/citation/privacy/immutability audits
 were clean, and fail-closed replay made zero submit attempts/calls/tokens with exact hashes. The
 reconciled evidence was then pushed and remotely verified on existing PR #23. Review/live gates
-remain closed; lifecycle is `Verification` only for the unbounded GitHub Release result.
+remain closed. Unbounded GitHub Release run `29604661539` subsequently passed 1,081 tests with 7
+deselections plus every quality/build/package gate at branch head `7bf5404`; lifecycle is `PR ready`.
 
 ## Historical review chain
 

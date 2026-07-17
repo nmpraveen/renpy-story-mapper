@@ -1,15 +1,17 @@
 # M13 optional AI narrative layer completion report
 
-Status: Verification; existing PR #23 open, non-draft, and unmerged
+Status: PR ready; existing PR #23 open, non-draft, clean, and unmerged
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
-unmerged. It is currently non-draft remotely. Current-head review and live/replay gates pass;
+unmerged. It is currently non-draft and clean remotely. Current-head review and live/replay gates pass;
 reconciled evidence commit `d5fdcaa3a0a15db05f232171754216093cadd026` was pushed and remotely
-verified before final lifecycle closeout. Merge always requires separate approval.
+verified, and unbounded GitHub Release run `29604661539` passed at branch head
+`7bf54042639a781313cf6c924e09a0ee023a86f2`, before final lifecycle closeout. Merge always
+requires separate approval.
 
 ## Outcome
 
@@ -24,8 +26,9 @@ Independent targeted review at exact integrated head `e79384b` passed with no P0
 subsequently approved production-path live run/replay at exact head `677d881` passes criterion 20:
 all 90 eligible jobs publish through the complete route-aware hierarchy, and exact fail-closed
 replay makes zero submit attempts/calls/tokens while reproducing hashes/rendering. Source and
-authority are unchanged and privacy inspection is clean. M13 remains in `Verification` until the
-user-authorized unbounded GitHub Release check passes.
+authority are unchanged and privacy inspection is clean. The user-authorized unbounded GitHub
+Release check passed 1,081 tests with 7 deselections and all quality/build/package gates green;
+M13 is `PR ready`.
 
 ## Current correction acceptance
 
@@ -35,6 +38,7 @@ user-authorized unbounded GitHub Release check passes.
 | Browser and private scale | Chrome 100%/200% passes with zero navigation/provider calls; 1,812-scene private-scale simulation passes with exact zero-call replay |
 | Independent review | PASS at `e79384b`; no P0/P1/new P2; detached clean zero-edit review |
 | Approved final-head live/replay | PASS at `677d881`; 24 calls, 90 publishable jobs, complete hierarchy, 1,035 audited claims; exact replay zero calls; report `f97bbfec...313f` |
+| Unbounded GitHub Release | PASS run `29604661539` at `7bf5404`; 1,081 passed, 7 deselected; all quality/build/package gates green; no local rerun |
 
 ## Historical pre-correction acceptance evidence
 
@@ -65,11 +69,11 @@ head proof for the reopened correction areas.
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Remaining closeout
+## Closeout state
 
 - Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
   `e79384b`; approved final-head live/replay passes at `677d881`.
-- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` remains active through the unbounded
-  GitHub Release result and final PR-readiness reconciliation.
+- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` reached its authorized done condition
+  after unbounded GitHub Release run `29604661539` passed and this PR-readiness reconciliation.
 - Existing PR #23 is open, non-draft, and unmerged. Do not merge PR #23, perform another live
   provider transmission, or begin M14.

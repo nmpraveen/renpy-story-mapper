@@ -3,9 +3,9 @@
 Last revised: 2026-07-16
 
 Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
-retains its semantic-review `PASS`, and is in Verification on existing unmerged PR #23 after an
-authorized bounded correction cycle. Its independent targeted correction review and approved
-final-head live/replay acceptance pass; an unbounded remote Release check is the remaining gate.
+retains its semantic-review `PASS`, and is PR ready on existing unmerged PR #23 after an
+authorized bounded correction cycle. Its independent targeted correction review, approved
+final-head live/replay acceptance, and unbounded GitHub Release validation all pass.
 
 ## 1. Product goal
 
@@ -1143,13 +1143,15 @@ unresolved or dynamic behavior and must not claim arbitrary expression satisfiab
 
 ### M13 - AI narrative layer
 
-Status: Verification on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
+Status: PR ready on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
 bounded correction runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef` passes current local,
 Windows, browser, and private-scale gates, targeted review of integrated head `e79384b` passes
 with no P0/P1/new P2, and the approved final-head live run/replay at `677d881` passes. Reconciled
 evidence is committed to and remotely verified on existing PR #23. After the first remote check's
 repository-imposed timeout, the user clarified that local validation must not be rerun and GitHub
-may run without repository limits; that remote Release result remains before PR readiness.
+may run without repository limits. Unbounded GitHub run `29604661539` then passed at branch head
+`7bf54042639a781313cf6c924e09a0ee023a86f2`: 1,081 tests passed, 7 were deselected, and every
+quality/build/package gate passed.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1246,5 +1248,4 @@ and unresolved items.
 
 ## 11. Current next action
 
-Let the unbounded GitHub Release check finish, reconcile its result, and then complete the active
-native goal at genuine PR readiness. Do not merge PR #23 or begin M14.
+Hold PR-ready PR #23 open and unmerged for a separate user merge decision. Do not begin M14.
