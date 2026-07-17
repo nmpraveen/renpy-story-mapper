@@ -1,14 +1,30 @@
 # M13 validation report
 
-Status: Verification blocked after one live-provider failure
+Status: Verification in progress; fresh local gates pass and remote gates remain separately gated
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Runtime freeze: `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`
+Runtime freeze: `edf80ed233799d2b61fec17a775187711a899cad`
 
 Validation date: 2026-07-16
 
-## Acceptance matrix
+## Narrow-recovery local gates at `edf80ed`
+
+| Command / check | Result | Artifact or notes |
+|---|---|---|
+| Combined Task A/Task B focused set | 155 passed in 74.83 seconds | Targeted Ruff and strict mypy over eight source/script files also passed |
+| `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release` | Runtime/build gates passed; pytest 1,005 passed, 7 deselected, with one evidence-only lifecycle-line failure | The exact failed workflow-contract test passed after canonicalizing `Status: Integration.`; runtime freeze did not change and Release was not repeated |
+| `scripts/m13_provider_free_acceptance.py --minimum-scenes 1812` with the exact prior private inputs | Passed once | `tmp/m13-provider-free-private-edf80ed/acceptance.json`; SHA-256 `82663e94c4763c0de14c86e45427b1469ffc29ae98486d2d6cee86b40fee1f4e`; zero-call replay |
+| Browser worker `019f6d76-c028-7e71-b98a-0f8068fa56b4` | Passed once in 22.129 seconds | Chrome 100%/200%; report SHA-256 `8d065d7a34521dc834e115d053e2a6a2ab72910532e7bd7d662ef93031f81b02`; zero remote requests |
+| Zero-submit live preview | Passed once in 1.256 seconds | Preview SHA-256 `abf81bc760b751d845c198a19b37e1ad2544a7f8df8a9dc00203584105ebd034`; preparation `m13_preparation_a9d419...`; consent `m13_consent_455142...`; provider submits zero |
+| Public-synthetic schema-canary preview | Passed locally; zero calls | `tmp/m13-schema-canary-preview-edf80ed.json`; SHA-256 `64317773cbfb1ab524be41b8115e6bf7e3e59219e5960443f61de2c9a922a678`; execution awaits separate approval |
+
+The fresh live preview binds adapter `m13-codex-cli-adapter-v2`, response schema
+`m13-narrative-batch-response-v3`, prompt v4, model `gpt-5.6-sol`, reasoning `high`,
+`fast_mode=false`, fact-only mode, M12 inclusion, 87 logical jobs, 63 estimated calls, and the
+contract limits. No live, canary, or external review call has been made in this recovery pass.
+
+## Historical `e0fd3bf` acceptance matrix
 
 | Criteria | Result | Durable evidence |
 |---|---|---|

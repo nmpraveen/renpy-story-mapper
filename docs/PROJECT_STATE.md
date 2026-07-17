@@ -10,7 +10,7 @@ Updated: 2026-07-16
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Integration.
+- Status: Verification.
 - Recovery scope: the user approved consent-identity, explicit-provider-settings, schema-
   compatibility, and fail-fast-provider corrections within the existing M13 contract.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
@@ -57,6 +57,17 @@ test rejected the non-canonical `Status: Integration; ...` line in this file. Th
 normalization closes that exact failure without changing the runtime freeze or repeating Release.
 No remote canary, story-provider call, external code review, or pull request is authorized without
 its separate exact approval gate.
+
+Fresh local acceptance at runtime freeze `edf80ed` is complete. Provider-free private acceptance
+passed 1,812 scenes with zero remote/provider/process execution and zero-call replay; report
+SHA-256 `82663e94c4763c0de14c86e45427b1469ffc29ae98486d2d6cee86b40fee1f4e`.
+Worker `019f6d76-c028-7e71-b98a-0f8068fa56b4` passed one real Chrome harness invocation at
+100%/200% with report SHA-256 `8d065d7a34521dc834e115d053e2a6a2ab72910532e7bd7d662ef93031f81b02`
+and generated the exact zero-submit live preview with SHA-256
+`abf81bc760b751d845c198a19b37e1ad2544a7f8df8a9dc00203584105ebd034`.
+The local public-synthetic canary preview made zero calls and has SHA-256
+`64317773cbfb1ab524be41b8115e6bf7e3e59219e5960443f61de2c9a922a678`.
+Verification is paused at the separate schema-canary execution approval gate.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its
