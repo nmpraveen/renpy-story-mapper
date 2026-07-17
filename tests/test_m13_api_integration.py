@@ -155,9 +155,11 @@ class _AlwaysTimeoutProvider(_Provider):
 @dataclass
 class _UnexpectedFailureProvider(_Provider):
     def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        if not self.requests:
+            return super().submit(request, cancelled)
         del cancelled
         self.requests.append(request)
-        raise RuntimeError("simulated interruption after submit began")
+        raise RuntimeError("simulated interruption after one scheduler phase completed")
 
 
 def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
@@ -623,9 +625,10 @@ def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_retu
 
         assert status["state"] == "failed"
         assert status["retry_available"] is True
-        assert len(provider.requests) == 1
+        assert len(provider.requests) == 2
         latest = status["latest_run"]
-        assert latest["state"] == "running"
+        assert latest["state"] == "succeeded"
+        assert latest["browser_pipeline_complete"] is False
         assert latest["browser_preparation_id"] == prepared["preparation_id"]
         assert latest["browser_retry_request"] == {
             **request,
@@ -653,7 +656,7 @@ def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_retu
             restored["retry_request"],
         )
         assert retried["preparation_id"] == prepared["preparation_id"]
-        assert len(provider.requests) == 1
+        assert len(provider.requests) == 2
     finally:
         api.close()
         if reopened is not None:

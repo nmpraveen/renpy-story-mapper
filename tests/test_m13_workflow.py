@@ -25,13 +25,21 @@ from renpy_story_mapper.narrative.provider import (
     ProviderTimeoutError,
     ProviderUsage,
 )
-from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.scheduler import (
+    SchedulerCallFinalization,
+    SchedulerCallReservation,
+    SchedulerPolicy,
+    SchedulerUsage,
+    scheduler_compatibility_id,
+)
 from renpy_story_mapper.narrative.sizing import budget_limits_with_headroom
 from renpy_story_mapper.narrative.workflow import (
+    M13SchedulerPersistenceSink,
     grant_narrative_consent,
     prepare_narrative_scene_run,
     run_prepared_scene_jobs,
 )
+from renpy_story_mapper.organization.sterile_runner import TransmissionDisposition
 from renpy_story_mapper.project import Project, create_ingested_project
 
 FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
@@ -677,6 +685,84 @@ def test_restart_after_timeout_includes_failed_usage_before_retry(tmp_path: Path
         and item.payload["metrics"]["input_tokens"] > 0
         for item in attempts
     )
+
+
+def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
+    tmp_path: Path,
+) -> None:
+    with _project(tmp_path) as project:
+        provider = DeterministicNarrativeProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-reservation-recovery",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        compatibility_id = scheduler_compatibility_id(consent, prepared.scheduled_jobs)
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            prepared.scheduled_jobs,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        reservation = SchedulerCallReservation(
+            reservation_id="m13_reservation_test_recovery",
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            compatibility_id=compatibility_id,
+            batch_id="batch:test",
+            logical_job_ids=(prepared.scheduled_jobs[0].logical_job_id,),
+            logical_attempt_numbers=(1,),
+            provider_call_number=1,
+            provider=consent.provider,
+            usage=SchedulerUsage(
+                provider_calls=1,
+                input_tokens=120,
+                output_tokens=40,
+                elapsed_ms=7,
+                cost_micros=None,
+                peak_concurrency=1,
+                usage_estimated=True,
+            ),
+        )
+
+        sink.reserve_call(reservation)
+        sink.reserve_call(reservation)
+        unresolved = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
+        assert unresolved == reservation.usage
+
+        finalization = SchedulerCallFinalization(
+            reservation_id=reservation.reservation_id,
+            run_id=reservation.run_id,
+            consent_manifest_id=reservation.consent_manifest_id,
+            compatibility_id=reservation.compatibility_id,
+            transmission_disposition=TransmissionDisposition.UNKNOWN,
+            usage=SchedulerUsage(
+                provider_calls=1,
+                input_tokens=90,
+                output_tokens=30,
+                elapsed_ms=11,
+                cost_micros=None,
+                peak_concurrency=1,
+                usage_estimated=True,
+            ),
+        )
+        sink.finalize_call(finalization)
+        sink.finalize_call(finalization)
+        finalized = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
+        assert finalized == finalization.usage
+
+        with pytest.raises(ValueError, match="conflicting call finalization"):
+            sink.finalize_call(
+                replace(
+                    finalization,
+                    usage=replace(finalization.usage, input_tokens=91),
+                )
+            )
 
 
 def test_model_invalidation_can_persist_different_accepted_claim_content(

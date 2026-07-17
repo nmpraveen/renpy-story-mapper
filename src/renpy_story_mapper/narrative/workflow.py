@@ -56,6 +56,8 @@ from renpy_story_mapper.narrative.scheduler import (
     ScheduledSceneJob,
     SchedulerAttemptRecord,
     SchedulerBatchRecord,
+    SchedulerCallFinalization,
+    SchedulerCallReservation,
     SchedulerJobRecord,
     SchedulerPolicy,
     SchedulerRunRecord,
@@ -367,6 +369,12 @@ class M13SchedulerPersistenceSink:
         }
         attempts = self._load_compatible_attempt_payloads(compatible_keys)
         usage = _usage_from_attempt_payloads(attempts)
+        reserved_usage = self._load_compatible_call_usage(
+            consent,
+            jobs,
+            compatibility_id,
+        )
+        usage = _merge_scheduler_usage(usage, reserved_usage)
         run = self._persistence.lookup_compatible_run(
             consent.run_id,
             consent_manifest_id=consent.manifest_id,
@@ -432,6 +440,33 @@ class M13SchedulerPersistenceSink:
             authority_binding=self._authority,
         )
 
+    def reserve_call(self, record: SchedulerCallReservation) -> None:
+        for job_id in record.logical_job_ids:
+            self._require_job(job_id)
+        self._put_call_record(
+            _call_record_id("reservation", record.reservation_id),
+            {"call_record_kind": "reservation", **record.to_dict()},
+            conflict_label="call reservation",
+        )
+
+    def finalize_call(self, record: SchedulerCallFinalization) -> None:
+        reservation_id = _call_record_id("reservation", record.reservation_id)
+        reservation = self._persistence.lookup(
+            RecordKind.BATCH,
+            reservation_id,
+            authority_binding=self._authority,
+        )
+        if reservation.state is not LookupState.HIT or reservation.payload is None:
+            raise ValueError("call finalization is missing its durable reservation")
+        for field in ("reservation_id", "run_id", "consent_manifest_id", "compatibility_id"):
+            if reservation.payload.get(field) != getattr(record, field):
+                raise ValueError("call finalization conflicts with its durable reservation")
+        self._put_call_record(
+            _call_record_id("finalization", record.reservation_id),
+            {"call_record_kind": "finalization", **record.to_dict()},
+            conflict_label="call finalization",
+        )
+
     def publish_validated(
         self,
         job: ScheduledSceneJob,
@@ -465,6 +500,20 @@ class M13SchedulerPersistenceSink:
 
     def record_run(self, record: SchedulerRunRecord) -> None:
         payload = record.to_dict()
+        existing = self._persistence.lookup(
+            RecordKind.RUN,
+            record.run_id,
+            authority_binding=self._authority,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            for field in (
+                "browser_preparation_id",
+                "browser_pipeline_complete",
+                "browser_retry_request",
+                "durable_sequence",
+            ):
+                if field in existing.payload:
+                    payload[field] = cast(JsonValue, existing.payload[field])
         if record.error_code is not None:
             payload["error"] = cast(JsonValue, sanitized_error(record.error_code))
         self._persistence.put_run(
@@ -472,6 +521,87 @@ class M13SchedulerPersistenceSink:
             payload,
             authority_binding=self._authority,
         )
+
+    def _put_call_record(
+        self,
+        record_id: str,
+        payload: Mapping[str, object],
+        *,
+        conflict_label: str,
+    ) -> None:
+        existing = self._persistence.lookup(
+            RecordKind.BATCH,
+            record_id,
+            authority_binding=self._authority,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            if storage.canonical_json(existing.payload) != storage.canonical_json(payload):
+                raise ValueError(f"conflicting {conflict_label} already exists")
+            return
+        if existing.state is not LookupState.MISS:
+            raise ValueError(f"{conflict_label} persistence is unavailable")
+        self._persistence.put_batch(
+            record_id,
+            payload,
+            authority_binding=self._authority,
+        )
+
+    def _load_compatible_call_usage(
+        self,
+        consent: ConsentManifest,
+        jobs: Sequence[ScheduledSceneJob],
+        compatibility_id: str,
+    ) -> SchedulerUsage:
+        expected_job_ids = {job.logical_job_id for job in jobs}
+        reservations: dict[str, Mapping[str, object]] = {}
+        finalizations: dict[str, Mapping[str, object]] = {}
+        for result in self._persistence.list_records(
+            RecordKind.BATCH,
+            authority_binding=self._authority,
+        ):
+            if result.state is not LookupState.HIT or result.payload is None:
+                continue
+            payload = result.payload
+            kind = payload.get("call_record_kind")
+            if kind not in {"reservation", "finalization"}:
+                continue
+            if (
+                payload.get("run_id") != consent.run_id
+                or payload.get("consent_manifest_id") != consent.manifest_id
+                or payload.get("compatibility_id") != compatibility_id
+            ):
+                continue
+            reservation_id = payload.get("reservation_id")
+            if not isinstance(reservation_id, str):
+                raise ValueError("durable call record has an invalid reservation ID")
+            if kind == "reservation":
+                logical_job_ids = payload.get("logical_job_ids")
+                provider = payload.get("provider")
+                if (
+                    not isinstance(logical_job_ids, list)
+                    or not logical_job_ids
+                    or any(
+                        not isinstance(job_id, str) or job_id not in expected_job_ids
+                        for job_id in logical_job_ids
+                    )
+                    or not isinstance(provider, Mapping)
+                    or storage.canonical_json(provider)
+                    != storage.canonical_json(consent.provider.to_dict())
+                ):
+                    raise ValueError("durable call reservation is incompatible")
+                reservations[reservation_id] = payload
+            else:
+                finalizations[reservation_id] = payload
+        if set(finalizations) - set(reservations):
+            raise ValueError("durable call finalization has no compatible reservation")
+        usage = SchedulerUsage()
+        for reservation_id in sorted(reservations):
+            payload = finalizations.get(reservation_id, reservations[reservation_id])
+            parsed = _scheduler_usage_from_payload(payload.get("usage"))
+            if parsed is None:
+                raise ValueError("durable call usage is malformed")
+            usage = _sum_scheduler_usage(usage, parsed)
+        return usage
 
     def _require_job(self, logical_job_id: str) -> ScheduledSceneJob:
         try:
@@ -663,6 +793,12 @@ def _usage_from_attempt_payloads(
     )
 
 
+def _call_record_id(kind: str, reservation_id: str) -> str:
+    return "m13_call_" + canonical_hash(
+        {"kind": kind, "reservation_id": reservation_id}
+    )
+
+
 def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:
     if not isinstance(raw, Mapping):
         return None
@@ -704,6 +840,23 @@ def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:
         cost_micros=cost_micros,
         peak_concurrency=peak_concurrency,
         usage_estimated=estimated,
+    )
+
+
+def _sum_scheduler_usage(left: SchedulerUsage, right: SchedulerUsage) -> SchedulerUsage:
+    cost = (
+        None
+        if left.cost_micros is None or right.cost_micros is None
+        else left.cost_micros + right.cost_micros
+    )
+    return SchedulerUsage(
+        provider_calls=left.provider_calls + right.provider_calls,
+        input_tokens=left.input_tokens + right.input_tokens,
+        output_tokens=left.output_tokens + right.output_tokens,
+        elapsed_ms=left.elapsed_ms + right.elapsed_ms,
+        cost_micros=cost,
+        peak_concurrency=max(left.peak_concurrency, right.peak_concurrency),
+        usage_estimated=left.usage_estimated or right.usage_estimated,
     )
 
 

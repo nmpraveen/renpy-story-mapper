@@ -1231,8 +1231,11 @@ class ProjectApi:
             and run_lookup.payload.get("run_id") == resume_run_id
             and run_lookup.payload.get("consent_manifest_id") == resume_consent_id
             and run_lookup.payload.get("browser_preparation_id") == prepared.preparation_id
-            and run_lookup.payload.get("state")
-            in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            and (
+                run_lookup.payload.get("browser_pipeline_complete") is False
+                or run_lookup.payload.get("state")
+                in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            )
             and isinstance(run_lookup.payload.get("browser_retry_request"), Mapping)
             and storage.canonical_json(run_lookup.payload["browser_retry_request"])
             == storage.canonical_json(expected_request)
@@ -1350,6 +1353,7 @@ class ProjectApi:
         payload = initial.to_dict()
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
+        payload["browser_pipeline_complete"] = False
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             consent.run_id,
@@ -1374,6 +1378,7 @@ class ProjectApi:
         payload = result.record.to_dict()
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
+        payload["browser_pipeline_complete"] = True
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             result.record.run_id,
@@ -1402,6 +1407,10 @@ class ProjectApi:
             if durable_run is not None and isinstance(durable_run.get("state"), str)
             else None
         )
+        durable_interrupted = (
+            durable_run is not None
+            and durable_run.get("browser_pipeline_complete") is False
+        )
         if task is not None and task.state == "running":
             state = "cancelling" if cancellation_pending else "running"
         elif result is not None:
@@ -1412,7 +1421,7 @@ class ProjectApi:
             state = "cancelled"
         elif prepared:
             state = "prepared"
-        elif durable_state == "running":
+        elif durable_interrupted or durable_state == "running":
             state = "interrupted"
         elif durable_state is not None:
             state = durable_state
@@ -1424,7 +1433,10 @@ class ProjectApi:
         retry_request: Mapping[str, object] | None = (
             cast(Mapping[str, object], durable_run["browser_retry_request"])
             if durable_run is not None
-            and durable_state in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            and (
+                durable_interrupted
+                or durable_state in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            )
             and isinstance(durable_run.get("browser_retry_request"), Mapping)
             else None
         )
