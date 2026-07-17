@@ -48,7 +48,14 @@ def test_narrative_detail_separates_claim_classes_and_loads_citations_lazily() -
     assert 'claim.claim_class === "interpretive"' in app
     assert "Review suggestion" in app
     assert "api.narrativeCitations(claim.claim_id)" in app
-    assert "Show citations" in app
+    assert "Open Detail and Evidence" in app
+    assert "narrativeCitationSelection" in app
+    assert "api.routeResult(navigation.request_identity)" in app
+    assert "citation.record ||" not in app
+    assert 'element("article", "narrative-citation")' not in app
+    assert "narrativeStatusToken" in app
+    assert "token !== state.narrativeStatusToken" in app
+    assert "state.narrativePreparation) return" in app
     assert "deterministic authority unchanged" in app
     assert "AI interpretation; deterministic authority unchanged" in app
     assert "Route-aware structure" in app
@@ -116,9 +123,10 @@ def test_narrative_api_behavior_preserves_exact_request_shapes_and_limits() -> N
           claims: [], coverage: {{}}, warnings: [], used_deterministic_title: false
         }};
         if (path.endsWith("citations")) return {{
-          schema: "m13-narrative-claim-citations-v1", status: "available",
+          schema: "m13-narrative-claim-navigation-v1", status: "available",
           authority_hash: hash, claim_id: "claim-a", traversed_claim_ids: ["claim-a"],
-          maximum_depth: 0, citations: [] }};
+          claim_path: ["claim-a"], maximum_depth: 0, citation_count: 0,
+          authority_labels: [], citations: [] }};
         if (path.endsWith("prepare")) return {{
           schema: "m13-run-preparation-v1", preparation_id: "prep-a", run_id: "run-a",
           consent_manifest_id: "m13_consent_a",
@@ -141,7 +149,8 @@ def test_narrative_api_behavior_preserves_exact_request_shapes_and_limits() -> N
           cloud_enabled: path.endsWith("start"),
           provider_transmission_active: path.endsWith("start"),
           preparation: null, task: null, latest_run: null, artifacts: null,
-          unresolved_codes: [], durable_completed_work_preserved: true }};
+          unresolved_codes: [], durable_completed_work_preserved: true,
+          retry_available: false, retry_request: null }};
       }};
       await api.narrativeSnapshot(0, 200);
       await api.narrativeArtifact("artifact-a");

@@ -15,6 +15,7 @@ from renpy_story_mapper.narrative.contracts import (
     ClaimSemantics,
     ClaimSupport,
     Coverage,
+    LogicalJobKind,
     NarrativeArtifact,
     NarrativeClaim,
     ProviderIdentity,
@@ -136,7 +137,17 @@ def test_artifact_detail_and_lazy_claim_citations_are_exact(tmp_path: Path) -> N
     assert citation["authority"] == "m10"
     assert citation["record_kind"] == "evidence"
     assert citation["record_id"] == claim.support.direct_evidence[0].record_id
-    assert citation["record"]["id"] == citation["record_id"]
+    assert citations["schema"] == "m13-narrative-claim-navigation-v1"
+    assert citations["citation_count"] == 1
+    assert citations["authority_labels"] == ["M10 evidence"]
+    assert citations["claim_path"] == [claim.claim_id]
+    assert citation["label"] == "M10 evidence"
+    assert citation["navigation"] == {
+        "mode": "canonical",
+        "element_id": citation["record_id"],
+        "focus_record_id": citation["record_id"],
+    }
+    assert "record" not in citation
 
 
 def test_citation_ownership_corruption_fails_closed(tmp_path: Path) -> None:
@@ -171,3 +182,44 @@ def test_citation_ownership_corruption_fails_closed(tmp_path: Path) -> None:
             narrative_claim_citations(project, foreign_claim.claim_id)
 
         assert narrative_artifact_detail(project, artifact.artifact_id)["status"] == "available"
+
+
+def test_lazy_citation_navigation_retains_the_exact_root_to_leaf_claim_path(
+    tmp_path: Path,
+) -> None:
+    with _project(tmp_path) as project:
+        _artifact, leaf_claim = _publish_one(project)
+        root_claim = NarrativeClaim(
+            logical_job_id=leaf_claim.logical_job_id,
+            job_kind=LogicalJobKind.PLOT,
+            ordinal=1,
+            claim_class=ClaimClass.INTERPRETIVE,
+            text="This interpretation is supported by the factual child claim.",
+            support=ClaimSupport(
+                SupportKind.CHILD_CLAIMS,
+                child_claim_ids=(leaf_claim.claim_id,),
+            ),
+            semantics=ClaimSemantics(
+                subject="scene",
+                predicate="interprets",
+                polarity=ClaimPolarity.POSITIVE,
+                normalized_value="factual child",
+            ),
+        )
+        authority = load_narrative_authority(project, include_m12=False)
+        project.m13_persistence().put_claim(
+            root_claim.claim_id,
+            root_claim.to_dict(),
+            authority_binding=authority.binding.to_dict(),
+        )
+
+        citations = narrative_claim_citations(project, root_claim.claim_id)
+
+    assert citations["traversed_claim_ids"] == [
+        root_claim.claim_id,
+        leaf_claim.claim_id,
+    ]
+    assert citations["citations"][0]["claim_path"] == [
+        root_claim.claim_id,
+        leaf_claim.claim_id,
+    ]

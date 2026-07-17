@@ -860,8 +860,26 @@ def _bounded_record(
             if len(records) > MAX_SCENE_DETAIL_REFERENCES:
                 result[f"{key}_total"] = len(records)
                 result[f"{key}_truncated"] = True
+        elif isinstance(item, Sequence) and not isinstance(item, (str, bytes)):
+            result[key] = _bounded_nested_sequence(item, budget)
         else:
             result[key] = item
+    return result
+
+
+def _bounded_nested_sequence(
+    values: Sequence[object], budget: _ReferenceBudget
+) -> list[object]:
+    """Recurse through mixed canonical arrays so nested ``*_ids`` share the budget."""
+
+    result: list[object] = []
+    for item in values:
+        if isinstance(item, Mapping):
+            result.append(_bounded_record(item, budget))
+        elif isinstance(item, Sequence) and not isinstance(item, (str, bytes)):
+            result.append(_bounded_nested_sequence(item, budget))
+        else:
+            result.append(item)
     return result
 
 

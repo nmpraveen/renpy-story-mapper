@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Protocol, cast
 
@@ -201,6 +201,7 @@ class _PreparedM13WebRun:
     prepared: PreparedNarrativeRun
     provider: NarrativeProvider
     policy: SchedulerPolicy
+    retry_request: dict[str, JsonValue]
 
 
 class SelectionRegistry:
@@ -554,6 +555,18 @@ class ProjectApi:
                 identity = self._m12_identities.get(request_identity)
                 attempt = self._m12_attempts.get(request_identity)
             if identity is None:
+                with Project.open(self._project()) as opened_project:
+                    authority = load_narrative_authority(
+                        opened_project,
+                        include_m12=True,
+                    )
+                durable = [
+                    result
+                    for result in authority.m12_results
+                    if result.get("request_identity") == request_identity
+                ]
+                if len(durable) == 1:
+                    return json_value(dict(durable[0]))
                 raise ApiProblem(404, "m12_result_not_found", "The route result is unavailable.")
             try:
                 with Project.open(self._project()) as opened_project:
@@ -1062,6 +1075,18 @@ class ProjectApi:
             if "selected_scene_ids" in body
             else None
         )
+        locale = optional_string(body, "locale", maximum=64) or "und"
+        perspective = optional_string(body, "perspective", maximum=128) or "default"
+        requested_model = require_string(body, "requested_model", maximum=200)
+        include_m12_material = boolean(body, "include_m12_material")
+        resume_run_id = optional_string(body, "resume_run_id", maximum=160)
+        resume_consent_id = optional_string(body, "resume_consent_id", maximum=160)
+        if bool(resume_run_id) != bool(resume_consent_id):
+            raise ApiProblem(
+                409,
+                "m13_resume_incompatible",
+                "A durable retry requires both the exact run and consent identities.",
+            )
         settings_value = object_value(body, "provider_settings")
         exact_fields(
             settings_value,
@@ -1079,23 +1104,52 @@ class ProjectApi:
             )
         )
         validate_codex_provider_settings(provider_settings)
+        retry_request: dict[str, JsonValue] = {
+            "requested_model": requested_model,
+            "provider_settings": provider_settings.to_dict(),
+            "mode": mode.value,
+            "include_m12_material": include_m12_material,
+            "limits": limits.to_dict(),
+            "batch_limits": {
+                "maximum_items": batch_limits.maximum_items,
+                "maximum_input_chars": batch_limits.maximum_input_chars,
+                "maximum_input_tokens": batch_limits.maximum_input_tokens,
+            },
+            "locale": locale,
+            "perspective": perspective,
+        }
+        if selected_scene_ids is not None:
+            retry_request["selected_scene_ids"] = list(selected_scene_ids)
         provider = self._m13_provider_factory()
         with Project.open(self._project()) as opened_project:
             prepared = prepare_narrative_scene_run(
                 opened_project,
                 provider,
-                run_id=f"m13-run-{uuid.uuid4().hex}",
-                requested_model=require_string(body, "requested_model", maximum=200),
+                run_id=resume_run_id or f"m13-run-{uuid.uuid4().hex}",
+                requested_model=requested_model,
                 settings=provider_settings,
                 mode=mode,
-                include_m12_material=boolean(body, "include_m12_material"),
+                include_m12_material=include_m12_material,
                 limits=limits,
                 batch_limits=batch_limits,
                 selected_scene_ids=selected_scene_ids,
-                locale=optional_string(body, "locale", maximum=64) or "und",
-                perspective=optional_string(body, "perspective", maximum=128) or "default",
+                locale=locale,
+                perspective=perspective,
             )
-        web_run = _PreparedM13WebRun(prepared, provider, SchedulerPolicy(batch_limits))
+            if resume_run_id is not None and resume_consent_id is not None:
+                self._require_m13_compatible_resume(
+                    opened_project,
+                    prepared,
+                    retry_request,
+                    resume_run_id=resume_run_id,
+                    resume_consent_id=resume_consent_id,
+                )
+        web_run = _PreparedM13WebRun(
+            prepared,
+            provider,
+            SchedulerPolicy(batch_limits),
+            retry_request,
+        )
         preview = prepared.preview_dict()
         preview["consent_manifest_id"] = prepared.consent_preview.manifest_id
         preview["requires_confirm_cloud"] = True
@@ -1106,6 +1160,57 @@ class ProjectApi:
             self._m13_preview = dict(preview)
             self._m13_result = None
         return preview
+
+    def _require_m13_compatible_resume(
+        self,
+        project: Project,
+        prepared: PreparedNarrativeRun,
+        retry_request: Mapping[str, JsonValue],
+        *,
+        resume_run_id: str,
+        resume_consent_id: str,
+    ) -> None:
+        persistence = project.m13_persistence()
+        authority_binding = prepared.authority.binding.to_dict()
+        consent_lookup = persistence.lookup(
+            RecordKind.CONSENT,
+            resume_consent_id,
+            authority_binding=authority_binding,
+        )
+        run_lookup = persistence.lookup(
+            RecordKind.RUN,
+            resume_run_id,
+            authority_binding=authority_binding,
+        )
+        granted = replace(prepared.consent_preview, consent_granted=True)
+        expected_request = {
+            **dict(retry_request),
+            "resume_run_id": resume_run_id,
+            "resume_consent_id": resume_consent_id,
+        }
+        compatible = (
+            consent_lookup.state is LookupState.HIT
+            and consent_lookup.payload is not None
+            and run_lookup.state is LookupState.HIT
+            and run_lookup.payload is not None
+            and granted.manifest_id == resume_consent_id
+            and storage.canonical_json(consent_lookup.payload)
+            == storage.canonical_json(granted.to_dict())
+            and run_lookup.payload.get("run_id") == resume_run_id
+            and run_lookup.payload.get("consent_manifest_id") == resume_consent_id
+            and run_lookup.payload.get("state")
+            in {"partial", "failed", "cancelled", "hard_limit"}
+            and isinstance(run_lookup.payload.get("browser_retry_request"), Mapping)
+            and storage.canonical_json(run_lookup.payload["browser_retry_request"])
+            == storage.canonical_json(expected_request)
+        )
+        if not compatible:
+            raise ApiProblem(
+                409,
+                "m13_resume_incompatible",
+                "The durable M13 run is not compatible with this exact retry request. "
+                "Prepare a new manifest and grant new consent.",
+            )
 
     def _m13_start(self, body: dict[str, JsonValue]) -> dict[str, object]:
         preparation_id = require_string(body, "preparation_id", maximum=160)
@@ -1164,12 +1269,50 @@ class ProjectApi:
                     policy=web_run.policy,
                     cancelled=cancelled.is_set,
                 )
+                self._persist_m13_browser_run(opened_project, web_run, result)
             with self._lock:
                 self._m13_result = result
         finally:
             with self._lock:
                 if self._m13_active_provider is web_run.provider:
                     self._m13_active_provider = None
+
+    @staticmethod
+    def _persist_m13_browser_run(
+        project: Project,
+        web_run: _PreparedM13WebRun,
+        result: NarrativePipelineResult,
+    ) -> None:
+        persistence = project.m13_persistence()
+        authority_binding = web_run.prepared.authority.binding.to_dict()
+        sequence = max(
+            (
+                value
+                for record in persistence.list_records(
+                    RecordKind.RUN,
+                    authority_binding=authority_binding,
+                )
+                if record.state is LookupState.HIT
+                and record.payload is not None
+                and isinstance((value := record.payload.get("durable_sequence")), int)
+                and not isinstance(value, bool)
+                and value > 0
+            ),
+            default=0,
+        )
+        retry_request: dict[str, JsonValue] = {
+            **web_run.retry_request,
+            "resume_run_id": result.record.run_id,
+            "resume_consent_id": result.record.consent_manifest_id,
+        }
+        payload = result.record.to_dict()
+        payload["durable_sequence"] = sequence + 1
+        payload["browser_retry_request"] = retry_request
+        persistence.put_run(
+            result.record.run_id,
+            payload,
+            authority_binding=authority_binding,
+        )
 
     def _m13_status(self) -> dict[str, object]:
         with self._lock:
@@ -1184,7 +1327,7 @@ class ProjectApi:
             prepared = self._m13_prepared is not None
         durable_run = (
             self._m13_unambiguous_durable_run()
-            if task is None and result is None and not prepared
+            if task is None and not prepared
             else None
         )
         if task is not None and task.state == "running":
@@ -1201,6 +1344,16 @@ class ProjectApi:
             state = cast(str, durable_run["state"])
         else:
             state = "disabled"
+        latest_run = durable_run if durable_run is not None else (
+            None if result is None else result.record.to_dict()
+        )
+        retry_request: Mapping[str, object] | None = (
+            cast(Mapping[str, object], durable_run["browser_retry_request"])
+            if durable_run is not None
+            and state in {"partial", "failed", "cancelled", "hard_limit"}
+            and isinstance(durable_run.get("browser_retry_request"), Mapping)
+            else None
+        )
         return {
             "schema": "m13-run-status-v1",
             "state": state,
@@ -1208,10 +1361,12 @@ class ProjectApi:
             "provider_transmission_active": state in {"running", "cancelling"},
             "preparation": preview,
             "task": task,
-            "latest_run": durable_run if result is None else result.record.to_dict(),
+            "latest_run": latest_run,
             "artifacts": None if result is None else result.artifacts,
             "unresolved_codes": [] if result is None else list(result.unresolved_codes),
             "durable_completed_work_preserved": True,
+            "retry_available": retry_request is not None,
+            "retry_request": None if retry_request is None else dict(retry_request),
         }
 
     def _m13_unambiguous_durable_run(self) -> dict[str, object] | None:
@@ -1228,6 +1383,17 @@ class ProjectApi:
             for record in records
             if record.state is LookupState.HIT and record.payload is not None
         ]
+        sequenced = [
+            (cast(int, payload["durable_sequence"]), payload)
+            for payload in current
+            if isinstance(payload.get("durable_sequence"), int)
+            and not isinstance(payload["durable_sequence"], bool)
+            and cast(int, payload["durable_sequence"]) > 0
+        ]
+        if sequenced:
+            maximum = max(sequence for sequence, _payload in sequenced)
+            latest = [payload for sequence, payload in sequenced if sequence == maximum]
+            return latest[0] if len(latest) == 1 else None
         return current[0] if len(current) == 1 else None
 
     def _m13_cancel(self) -> dict[str, object]:

@@ -101,11 +101,16 @@ def test_live_acceptance_preview_never_submits_and_exact_confirmation_replays(
     }
     assert preview["representative_contexts"]["persistent_route_scenes"] > 0
     assert preview["estimate"]["input_tokens"] > 2_460_000
+    assert preview["batch_limits"] == {
+        "maximum_items": 16,
+        "maximum_input_chars": 500_000,
+        "maximum_input_tokens": 120_000,
+    }
     assert preview["limits"] == {
-        "max_provider_calls": 130,
-        "max_input_tokens": 4_927_054,
+        "max_provider_calls": 148,
+        "max_input_tokens": 7_401_250,
         "max_output_tokens": 163_200,
-        "max_total_tokens": 5_090_254,
+        "max_total_tokens": 7_564_450,
         "timeout_seconds": 7_200,
         "max_concurrency": 1,
         "max_cost_micros": None,

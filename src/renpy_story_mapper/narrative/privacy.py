@@ -88,7 +88,7 @@ def _sensitive_key_kind(key: str) -> str | None:
         return "raw"
     if joined in {"response", "responses"}:
         return "raw"
-    if "sourcepacket" in joined or "sourcetextpacket" in joined:
+    if joined == "sourcetext" or "sourcepacket" in joined or "sourcetextpacket" in joined:
         return "raw"
     return None
 

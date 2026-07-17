@@ -153,6 +153,8 @@ M13_PREPARE_REQUEST_FIELDS: Final = (
     "perspective",
     "limits",
     "batch_limits",
+    "resume_run_id",
+    "resume_consent_id",
 )
 M13_PROVIDER_SETTING_FIELDS: Final = ("model_reasoning_effort", "fast_mode")
 M13_START_REQUEST_FIELDS: Final = ("preparation_id", "confirm_cloud")

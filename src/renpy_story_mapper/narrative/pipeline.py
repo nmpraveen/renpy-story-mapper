@@ -1958,6 +1958,11 @@ def _finish_pipeline(
         raise ValueError("one M13 pipeline run repeated a logical job")
     states = Counter(item.state for item in jobs)
     usage = phases[-1].record.usage if phases else SchedulerUsage()
+    cumulative_usage = (
+        usage
+        if not phases or phases[-1].record.cumulative_usage is None
+        else phases[-1].record.cumulative_usage
+    )
     hard = next(
         (phase.record for phase in phases if phase.record.state is SchedulerRunState.HARD_LIMIT),
         None,
@@ -1976,18 +1981,36 @@ def _finish_pipeline(
     else:
         state = SchedulerRunState.SUCCEEDED
         error_code = None
+    compatibility_id = "m13_pipeline_resume_" + canonical_hash(
+        {
+            "consent_manifest_id": consent.manifest_id,
+            "phase_compatibility_ids": [
+                phase.record.compatibility_id for phase in phases
+            ],
+            "jobs": [
+                {
+                    "logical_job_id": job.logical_job_id,
+                    "input_revision_id": job.input_revision_id,
+                    "cache_key": job.cache_key,
+                }
+                for job in jobs
+            ],
+        }
+    )
     record = SchedulerRunRecord(
-        consent.run_id,
-        consent.manifest_id,
-        state,
-        consent.provider,
-        usage,
-        states[LogicalJobState.SUCCEEDED],
-        states[LogicalJobState.PARTIAL],
-        states[LogicalJobState.FAILED],
-        states[LogicalJobState.REFUSED],
-        states[LogicalJobState.CANCELLED],
-        error_code,
+        run_id=consent.run_id,
+        consent_manifest_id=consent.manifest_id,
+        state=state,
+        provider=consent.provider,
+        usage=usage,
+        succeeded_jobs=states[LogicalJobState.SUCCEEDED],
+        partial_jobs=states[LogicalJobState.PARTIAL],
+        failed_jobs=states[LogicalJobState.FAILED],
+        refused_jobs=states[LogicalJobState.REFUSED],
+        cancelled_jobs=states[LogicalJobState.CANCELLED],
+        error_code=error_code,
+        compatibility_id=compatibility_id,
+        cumulative_usage=cumulative_usage,
     )
     payload = record.to_dict()
     payload["pipeline"] = cast(

@@ -15,6 +15,7 @@ from renpy_story_mapper.narrative.persistence import (
     CONSENTS_COLLECTION,
     JOBS_COLLECTION,
     M13_PAYLOAD_COLLECTIONS,
+    RECORD_COLLECTIONS,
     RUNS_COLLECTION,
     DebugRetention,
     LookupState,
@@ -350,31 +351,31 @@ def test_privacy_defaults_sanitize_errors_and_debug_is_explicit_and_bounded(
     path = tmp_path / "privacy.rsmproj"
     with Project.create(path) as project:
         persistence = project.m13_persistence()
-        with pytest.raises(ValueError, match="raw provider/source"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:raw-prompt",
                 {"raw_prompt": "private prompt body"},
                 authority_binding=_authority(),
             )
-        with pytest.raises(ValueError, match="raw provider/source"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:raw-response",
                 {"raw_provider_response": "private provider output"},
                 authority_binding=_authority(),
             )
-        with pytest.raises(ValueError, match="raw provider/source"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:source-text",
                 {"source_text": "complete private source text"},
                 authority_binding=_authority(),
             )
-        with pytest.raises(ValueError, match="raw provider/source"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:prompt",
                 {"prompt": "complete rendered prompt"},
                 authority_binding=_authority(),
             )
-        with pytest.raises(ValueError, match="raw provider/source"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:provider-response",
                 {"provider_response": "complete provider response"},
@@ -393,7 +394,7 @@ def test_privacy_defaults_sanitize_errors_and_debug_is_explicit_and_bounded(
                 {"status": "failed", "detail": "C:\\private\\story.rpy"},
                 authority_binding=_authority(),
             )
-        with pytest.raises(ValueError, match="credential-like"):
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
             persistence.put_attempt(
                 "attempt:secret",
                 {"status": "failed", "api_key": "do-not-store"},
@@ -454,6 +455,80 @@ def test_privacy_defaults_sanitize_errors_and_debug_is_explicit_and_bounded(
     assert b"complete provider response" not in database_bytes
 
 
+@pytest.mark.parametrize(
+    "sensitive_key",
+    (
+        "openai_api_key",
+        "providerAccessToken",
+        "authorization-header",
+        "complete_prompt_payload",
+        "promptPayload",
+        "raw_provider_response_blob",
+        "source_text_packet",
+    ),
+)
+def test_every_m13_record_write_rejects_compound_sensitive_keys_before_persisting(
+    tmp_path: Path,
+    sensitive_key: str,
+) -> None:
+    authority = _authority()
+    with Project.create(tmp_path / f"privacy-{sensitive_key}.rsmproj") as project:
+        persistence = project.m13_persistence()
+        for kind in RecordKind:
+            with pytest.raises(ValueError, match="sensitive or raw-content"):
+                persistence.put(
+                    kind,
+                    f"record:{kind.value}",
+                    {"nested": {sensitive_key: "must never be written"}},
+                    authority_binding=authority,
+                )
+            assert project.payload_keys(RECORD_COLLECTIONS[kind]) == ()
+
+
+def test_atomic_publication_and_debug_exception_share_privacy_validation(
+    tmp_path: Path,
+) -> None:
+    authority = _authority()
+    with Project.create(tmp_path / "privacy-publication.rsmproj") as project:
+        persistence = project.m13_persistence()
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
+            persistence.publish_validated(
+                job_id="scene-job:private",
+                job={"status": "published"},
+                claims={},
+                claim_edges={},
+                artifact_id="artifact:private",
+                artifact={"raw_provider_response_blob": "private provider output"},
+                cache_identity=_cache_identity(),
+                cache_metadata={},
+                authority_binding=authority,
+            )
+        assert all(
+            project.payload_keys(collection) == ()
+            for collection in M13_PAYLOAD_COLLECTIONS
+        )
+
+        with pytest.raises(ValueError, match="sensitive or raw-content"):
+            persistence.put_attempt(
+                "attempt:credential-debug",
+                {"status": "failed"},
+                authority_binding=authority,
+                debug_payload={"providerAccessToken": "credential"},
+                debug_retention=DebugRetention(development_enabled=True),
+            )
+        assert project.payload_keys(ATTEMPTS_COLLECTION) == ()
+
+        persistence.put_attempt(
+            "attempt:safe-near-misses",
+            {
+                "secret_scene_id": "scene:1",
+                "route_token_count": 2,
+                "token_budget": 10,
+                "prompt_version": "v1",
+                "source_text_omitted_count": 3,
+            },
+            authority_binding=authority,
+        )
 def test_sanitized_error_rejects_unknown_codes() -> None:
     with pytest.raises(ValueError, match="not allowlisted"):
         sanitized_error("provider_dumped_private_stderr")

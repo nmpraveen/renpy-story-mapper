@@ -7,6 +7,8 @@ from threading import Event
 
 import pytest
 
+from renpy_story_mapper.m12_service import M12RouteService
+from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.narrative.provider import (
@@ -18,6 +20,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderResponse,
     ProviderRuntimeConfigurationError,
     ProviderStatus,
+    ProviderTimeoutError,
     ProviderUsage,
 )
 from renpy_story_mapper.project import Project, create_ingested_project
@@ -137,6 +140,18 @@ class _SettingsMismatchProvider(_Provider):
         )
 
 
+@dataclass
+class _AlwaysTimeoutProvider(_Provider):
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        del cancelled
+        self.requests.append(request)
+        raise ProviderTimeoutError(
+            "provider_timeout",
+            "sanitized simulated timeout",
+            transient=True,
+        )
+
+
 def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
     source = tmp_path / "game"
     source.mkdir()
@@ -150,6 +165,32 @@ def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
     )
     api._retain_project_path(project_path, source)
     return api
+
+
+def _browser_request() -> dict[str, object]:
+    return {
+        "requested_model": "runtime-model",
+        "provider_settings": {
+            "model_reasoning_effort": "high",
+            "fast_mode": False,
+        },
+        "mode": "fact_only",
+        "include_m12_material": True,
+        "limits": {
+            "max_provider_calls": 500,
+            "max_input_tokens": 20_000_000,
+            "max_output_tokens": 20_000_000,
+            "max_total_tokens": 40_000_000,
+            "timeout_seconds": 300,
+            "max_concurrency": 4,
+            "max_cost_micros": None,
+        },
+        "batch_limits": {
+            "maximum_items": 16,
+            "maximum_input_chars": 500_000,
+            "maximum_input_tokens": 100_000,
+        },
+    }
 
 
 def test_m13_api_advertises_bounded_provider_free_snapshot(tmp_path: Path) -> None:
@@ -462,6 +503,115 @@ def test_m13_browser_rejects_unsupported_settings_before_transmission(
                 },
             )
         assert provider.requests == []
+    finally:
+        api.close()
+
+
+def test_m13_reopen_restores_exact_retry_request_and_reuses_only_compatible_consent(
+    tmp_path: Path,
+) -> None:
+    provider = _AlwaysTimeoutProvider()
+    api = _api(tmp_path, provider)
+    project_path = tmp_path / "story.rsmproj"
+    request = _browser_request()
+    with Project.open(project_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        scenes = authority.scene_model.get("scenes")
+        assert isinstance(scenes, list) and scenes
+        first_scene = scenes[0]
+        assert isinstance(first_scene, dict) and isinstance(first_scene.get("id"), str)
+        request["selected_scene_ids"] = [first_scene["id"]]
+    reopened: ProjectApi | None = None
+    try:
+        prepared = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        original_run_id = prepared["run_id"]
+        original_consent_id = prepared["consent_manifest_id"]
+        api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
+        )
+        for _attempt in range(500):
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            time.sleep(0.01)
+        assert status["state"] in {"failed", "hard_limit", "partial"}
+        assert provider.requests
+        api.close()
+
+        calls_before_reopen = len(provider.requests)
+        reopened = ProjectApi(
+            _Dialogs(),
+            state_store=UserStateStore(tmp_path / "retry-state.json"),
+            m13_provider_factory=lambda: provider,
+        )
+        reopened._retain_project_path(project_path, tmp_path / "game")
+        restored = reopened.dispatch("POST", "/api/v1/m13/status", {})
+
+        assert restored["state"] == status["state"]
+        assert restored["retry_available"] is True
+        retry_request = restored["retry_request"]
+        assert retry_request["resume_run_id"] == original_run_id
+        assert retry_request["resume_consent_id"] == original_consent_id
+        assert retry_request["provider_settings"] == request["provider_settings"]
+        assert restored["latest_run"]["cumulative_usage"]["provider_calls"] == len(
+            provider.requests
+        )
+        assert len(provider.requests) == calls_before_reopen
+
+        resumed = reopened.dispatch("POST", "/api/v1/m13/prepare", retry_request)
+        assert resumed["run_id"] == original_run_id
+        assert resumed["consent_manifest_id"] == original_consent_id
+        assert len(provider.requests) == calls_before_reopen
+
+        with pytest.raises(ApiProblem) as incompatible:
+            reopened.dispatch(
+                "POST",
+                "/api/v1/m13/prepare",
+                {
+                    **retry_request,
+                    "provider_settings": {
+                        "model_reasoning_effort": "xhigh",
+                        "fast_mode": False,
+                    },
+                },
+            )
+        assert incompatible.value.code == "m13_resume_incompatible"
+        assert len(provider.requests) == calls_before_reopen
+    finally:
+        api.close()
+        if reopened is not None:
+            reopened.close()
+
+
+def test_m12_citation_result_navigation_reopens_without_in_memory_identity(
+    tmp_path: Path,
+) -> None:
+    api = _api(tmp_path)
+    project_path = tmp_path / "story.rsmproj"
+    try:
+        with Project.open(project_path) as project:
+            service = M12RouteService(project)
+            page = service.destinations(query="Foyer", limit=50)
+            nodes = page["nodes"]
+            assert isinstance(nodes, list)
+            target = next(item for item in nodes if item["kind"] == "generic_scene")
+            prepared = service.prepare(str(target["kind"]), str(target["target_id"]))
+            outcome = service.solve(prepared)
+            assert outcome.result is not None
+            request_identity = prepared.request.identity
+
+        assert api._m12_identities == {}
+        result = api.dispatch(
+            "POST",
+            "/api/v1/m12/result",
+            {"request_identity": request_identity},
+        )
+
+        assert result["request_identity"] == request_identity
+        assert result == outcome.result
+        assert api._m12_identities == {}
     finally:
         api.close()
 

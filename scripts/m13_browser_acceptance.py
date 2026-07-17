@@ -39,9 +39,12 @@ STATIC: Final = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
 FIXTURE: Final = ROOT / "tests" / "fixtures" / "m12" / "route_targets.rpy"
 ZOOMS: Final = (100, 200)
 SELECTED_MODEL: Final = "browser-selected-runtime-model"
+CITATION_ACTION: Final = "Open Detail and Evidence"
 CONSENT_FIELDS: Final = (
     "Provider",
     "Requested / resolved model",
+    "Provider settings",
+    "Consent manifest",
     "Selected scope",
     "Privacy mode",
     "Logical jobs",
@@ -146,6 +149,109 @@ def _provider_metrics(
     }
 
 
+def _find_citation_candidate(
+    session: Any,
+    authority: str,
+    *,
+    job_kind: str | None = None,
+    record_kind: str | None = None,
+    minimum_claim_path: int = 1,
+) -> dict[str, Any]:
+    """Find one rendered claim whose first resolved leaf has the exact target shape."""
+
+    return session.evaluate(
+        "import('./app.js').then(async m=>{"
+        f"const authority={json.dumps(authority)};"
+        f"const jobKind={json.dumps(job_kind)};"
+        f"const recordKind={json.dumps(record_kind)};"
+        f"const minimumPath={minimum_claim_path};"
+        "for(const [jobIndex,job] of m.state.narrativeJobs.slice(0,120).entries()){"
+        "if(jobKind!==null&&job.kind!==jobKind)continue;"
+        "if(!job.artifact)continue;"
+        "const artifact=await m.api.narrativeArtifact(job.artifact.artifact_id);"
+        "for(const [claimIndex,claim] of artifact.claims.entries()){"
+        "const response=await m.api.narrativeCitations(claim.claim_id);"
+        "const citation=response.citations[0];"
+        "if(citation&&citation.authority===authority"
+        "&&(recordKind===null||citation.record_kind===recordKind)"
+        "&&citation.claim_path.length>=minimumPath)"
+        "return {jobIndex,claimIndex,jobKind:job.kind,artifactId:artifact.artifact_id,"
+        "claimId:claim.claim_id,citation,response};"
+        "}}throw new Error(`No ${jobKind||'published'} claim opens exact ${authority} ${recordKind||'authority'}`);})"
+    )
+
+
+def _expand_citation_candidate(session: Any, candidate: Mapping[str, object]) -> None:
+    job_index = int(candidate["jobIndex"])
+    claim_index = int(candidate["claimIndex"])
+    session.evaluate(
+        "(()=>{const back=document.querySelector('#backToRouteMap');"
+        "if(document.documentElement.dataset.activeLevel==='detail_evidence')back.click();"
+        "if(document.querySelector('#narrativeDrawer').hidden)"
+        "document.querySelector('#narrativeJobsButton').click();})()"
+    )
+    session.wait(
+        "document.documentElement.dataset.activeLevel==='route_map'"
+        "&&document.querySelector('#narrativeDrawer').hidden===false"
+    )
+    session.evaluate(
+        f"(()=>{{const record=document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}];"
+        "const expand=[...record.querySelectorAll(':scope > button')].find(button=>button.textContent==='Open summary and claims');"
+        "if(expand)expand.click();})()"
+    )
+    session.wait(
+        f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        f".querySelectorAll('.narrative-claim button').length>{claim_index}"
+        f"&&document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        f".querySelectorAll('.narrative-claim button')[{claim_index}]"
+        f".textContent==={json.dumps(CITATION_ACTION)}"
+    )
+    session.evaluate(
+        f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        ".scrollIntoView({block:'start'})"
+    )
+
+
+def _open_citation_candidate(
+    session: Any,
+    candidate: Mapping[str, object],
+) -> dict[str, Any]:
+    _expand_citation_candidate(session, candidate)
+    job_index = int(candidate["jobIndex"])
+    claim_index = int(candidate["claimIndex"])
+    citation = candidate["citation"]
+    if not isinstance(citation, Mapping) or not isinstance(citation.get("record_id"), str):
+        raise AssertionError(f"Citation candidate is malformed: {candidate}")
+    record_id = citation["record_id"]
+    session.evaluate(
+        f"document.querySelectorAll('#narrativeJobList .narrative-job')[{job_index}]"
+        f".querySelectorAll('.narrative-claim button')[{claim_index}].click()"
+    )
+    try:
+        session.wait(
+            "import('./app.js').then(m=>"
+            "document.documentElement.dataset.activeLevel==='detail_evidence'"
+            f"&&m.state.narrativeCitationSelection?.record_id==={json.dumps(record_id)})"
+        )
+    except TimeoutError as error:
+        diagnostic = session.evaluate(
+            "import('./app.js').then(m=>({activeLevel:document.documentElement.dataset.activeLevel,"
+            "mode:m.state.mode,selection:m.state.narrativeCitationSelection,detail:m.state.detail,"
+            "toast:document.querySelector('#toast').textContent,toastHidden:document.querySelector('#toast').hidden}))"
+        )
+        raise AssertionError(
+            f"Citation navigation did not reach exact Detail and Evidence: candidate={candidate}, ui={diagnostic}"
+        ) from error
+    return session.evaluate(
+        "import('./app.js').then(m=>({selection:m.state.narrativeCitationSelection,"
+        "activeLevel:document.documentElement.dataset.activeLevel,mode:m.state.mode,"
+        "detailTitle:document.querySelector('#detailTitle').textContent,"
+        "selectionCount:document.querySelectorAll('#evidenceList .narrative-citation-selection').length,"
+        "rawCitationPanels:document.querySelectorAll('.narrative-citation').length,"
+        "levelCount:document.querySelectorAll('[data-level]').length}))"
+    )
+
+
 def _capture(
     browser: Path,
     output: Path,
@@ -190,10 +296,18 @@ def _capture(
             session.evaluate(
                 f"(()=>{{const input=document.querySelector('#narrativeModel');input.value={json.dumps(SELECTED_MODEL)};input.dispatchEvent(new Event('input',{{bubbles:true}}));document.querySelector('#narrativeRunForm').requestSubmit();}})()"
             )
-            session.wait(
-                "import('./app.js').then(m=>document.querySelector('#narrativeConsentDialog').open && !!m.state.narrativePreparation && m.state.narrativeRun?.state==='prepared')",
-                timeout=30,
-            )
+            try:
+                session.wait(
+                    "import('./app.js').then(m=>document.querySelector('#narrativeConsentDialog').open && !!m.state.narrativePreparation && m.state.narrativeRun?.state==='prepared')",
+                    timeout=30,
+                )
+            except TimeoutError as error:
+                diagnostic = session.evaluate(
+                    "import('./app.js').then(m=>({preparation:m.state.narrativePreparation,run:m.state.narrativeRun,toast:document.querySelector('#toast').textContent,toastHidden:document.querySelector('#toast').hidden,status:document.querySelector('#narrativeRunStatus').textContent,reasoning:document.querySelector('#narrativeReasoningEffort').value,fastMode:document.querySelector('#narrativeFastMode').checked,model:document.querySelector('#narrativeModel').value}))"
+                )
+                raise AssertionError(
+                    f"M13 browser manifest preparation failed: {diagnostic}"
+                ) from error
             if metrics()["submit_calls"]:
                 raise AssertionError("M13 transmitted provider input before manifest confirmation")
             consent = session.evaluate(
@@ -276,54 +390,91 @@ def _capture(
             )
             if detail["levelCount"] != 2 or "factual" not in detail["claimClasses"]:
                 raise AssertionError(f"Narrative detail changed levels or omitted factual labels: {detail}")
-            session.evaluate("document.querySelector('#interpretations .narrative-claim button').click()")
-            session.wait("document.querySelectorAll('#interpretations .narrative-citation').length > 0")
-            scene_citations = session.evaluate(
-                "({count:document.querySelectorAll('#interpretations .narrative-citation').length,labels:[...document.querySelectorAll('#interpretations .narrative-citation strong')].map(item=>item.textContent)})"
+            calls_before_navigation = metrics()["submit_calls"]
+            scene_candidate = _find_citation_candidate(
+                session,
+                "m10",
+                job_kind="scene",
             )
-            if scene_citations["count"] < 1 or not all(
-                label.startswith(("M10", "M11", "M12"))
-                for label in scene_citations["labels"]
+            scene_citations = _open_citation_candidate(session, scene_candidate)
+            scene_selection = scene_citations["selection"]
+            if (
+                scene_selection["authority"] != "m10"
+                or scene_selection["record_id"]
+                != scene_selection["navigation"]["focus_record_id"]
+                or scene_citations["mode"] != "canonical"
+                or scene_citations["activeLevel"] != "detail_evidence"
+                or scene_citations["selectionCount"] < 1
+                or scene_citations["rawCitationPanels"] != 0
+                or scene_citations["levelCount"] != 2
             ):
-                raise AssertionError(f"Scene citations did not resolve owned authority: {scene_citations}")
+                raise AssertionError(
+                    f"Scene claim did not navigate to exact M10 Detail and Evidence: {scene_citations}"
+                )
             session.evaluate("document.querySelector('#detailView').scrollIntoView({block:'start'})")
             session.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))")
             detail_shot = output / f"m13-narrative-detail-{zoom}.png"
             DRIVER._screenshot(session, detail_shot)
 
-            session.evaluate(
-                "document.querySelector('#backToRouteMap').click();if(document.querySelector('#narrativeDrawer').hidden)document.querySelector('#narrativeJobsButton').click()"
+            plot = _find_citation_candidate(
+                session,
+                "m10",
+                job_kind="plot",
+                minimum_claim_path=2,
             )
-            session.wait("document.documentElement.dataset.activeLevel==='route_map' && document.querySelector('#narrativeDrawer').hidden===false")
-            plot = session.evaluate(
-                "import('./app.js').then(async m=>{const index=m.state.narrativeJobs.findIndex(job=>job.kind==='plot');if(index<0||index>=120)throw new Error('Plot job is outside the bounded drawer');const job=m.state.narrativeJobs[index];const artifact=await m.api.narrativeArtifact(job.artifact.artifact_id);const record=document.querySelectorAll('#narrativeJobList .narrative-job')[index];record.querySelector('button').click();return {index,title:job.artifact.title,artifactId:job.artifact.artifact_id,artifactClaimCount:artifact.claims.length,artifactPublication:artifact.publication};})"
-            )
-            if plot["artifactClaimCount"] < 1:
-                raise AssertionError(f"Published plot artifact has no evidence-linked claim: {plot}")
-            try:
-                session.wait(
-                    f"!!document.querySelectorAll('#narrativeJobList .narrative-job')[{int(plot['index'])}].querySelector('.narrative-claim button')"
-                )
-            except TimeoutError as error:
-                diagnostic = session.evaluate(
-                    f"(()=>{{const record=document.querySelectorAll('#narrativeJobList .narrative-job')[{int(plot['index'])}];return {{recordText:record?.textContent||null,buttonTexts:[...(record?.querySelectorAll('button')||[])].map(item=>item.textContent),toast:document.querySelector('#toast').textContent,toastHidden:document.querySelector('#toast').hidden,jobCount:document.querySelectorAll('#narrativeJobList .narrative-job').length}};}})()"
-                )
-                raise AssertionError(
-                    f"Plot artifact did not render in the job drawer: artifact={plot}, ui={diagnostic}"
-                ) from error
-            session.evaluate(
-                f"document.querySelectorAll('#narrativeJobList .narrative-job')[{int(plot['index'])}].querySelector('.narrative-claim button').click()"
-            )
-            session.wait(
-                f"document.querySelectorAll('#narrativeJobList .narrative-job')[{int(plot['index'])}].querySelectorAll('.narrative-citation').length > 0"
-            )
-            plot_citations = session.evaluate(
-                f"(()=>{{const record=document.querySelectorAll('#narrativeJobList .narrative-job')[{int(plot['index'])}];record.scrollIntoView({{block:'start'}});return {{count:record.querySelectorAll('.narrative-citation').length,labels:[...record.querySelectorAll('.narrative-citation strong')].map(item=>item.textContent)}};}})()"
-            )
-            if plot_citations["count"] < 1:
-                raise AssertionError("Lazy plot claim-DAG citations did not reach direct evidence")
+            _expand_citation_candidate(session, plot)
             drawer_shot = output / f"m13-job-drawer-{zoom}.png"
             DRIVER._screenshot(session, drawer_shot)
+            plot_citations = _open_citation_candidate(session, plot)
+            if (
+                plot_citations["selection"]["authority"] != "m10"
+                or len(plot_citations["selection"]["claim_path"]) < 2
+                or plot_citations["rawCitationPanels"] != 0
+            ):
+                raise AssertionError(
+                    f"Plot claim DAG did not navigate root-to-leaf into exact M10 evidence: {plot_citations}"
+                )
+
+            m11_candidate = _find_citation_candidate(
+                session,
+                "m11",
+                record_kind="atom",
+            )
+            m11_citation = _open_citation_candidate(session, m11_candidate)
+            m11_selection = m11_citation["selection"]
+            if (
+                m11_selection["record_kind"] != "atom"
+                or m11_selection["record_id"]
+                != m11_selection["navigation"]["focus_record_id"]
+                or m11_selection["owner_id"]
+                != m11_selection["navigation"]["element_id"]
+                or m11_citation["mode"] != "scenes"
+                or m11_citation["rawCitationPanels"] != 0
+            ):
+                raise AssertionError(
+                    f"M11 atom citation did not select its exact owner-bound evidence: {m11_citation}"
+                )
+
+            m12_candidate = _find_citation_candidate(
+                session,
+                "m12",
+                record_kind="route_result",
+            )
+            m12_citation = _open_citation_candidate(session, m12_candidate)
+            m12_selection = m12_citation["selection"]
+            if (
+                m12_selection["record_id"]
+                != m12_selection["navigation"]["request_identity"]
+                or m12_selection["record_id"]
+                != m12_selection["navigation"]["focus_record_id"]
+                or m12_citation["detailTitle"] != "Exact M12 route result"
+                or m12_citation["rawCitationPanels"] != 0
+            ):
+                raise AssertionError(
+                    f"M12 citation did not reopen its exact persisted route result: {m12_citation}"
+                )
+            if metrics()["submit_calls"] != calls_before_navigation:
+                raise AssertionError("Citation navigation made a provider transmission")
 
             session.evaluate(
                 "document.querySelector('#closeNarrativeDrawer').click();(()=>{const toggle=document.querySelector('#narrativeToggle');toggle.checked=false;toggle.dispatchEvent(new Event('change',{bubbles:true}));})()"
@@ -377,6 +528,9 @@ def _capture(
                 "scene_citations": scene_citations,
                 "plot": plot,
                 "plot_citations": plot_citations,
+                "m11_citation": m11_citation,
+                "m12_citation": m12_citation,
+                "provider_calls_during_citation_navigation": 0,
                 "deterministic_title_restored": True,
                 "cache_replay": replay,
                 "provider_metrics": metrics(),

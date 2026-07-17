@@ -21,6 +21,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.narrative.privacy import validate_privacy_safe_key
 from renpy_story_mapper.project import PayloadRecord
 
 if TYPE_CHECKING:
@@ -101,39 +102,6 @@ _UNSUCCESSFUL_ATTEMPT_STATES: Final = frozenset(
 )
 _SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_ABSOLUTE_RE: Final = re.compile(r"^[A-Za-z]:[\\/]")
-
-_RAW_KEY_NAMES: Final = frozenset(
-    {
-        "completeprompt",
-        "fullprompt",
-        "prompt",
-        "prompttext",
-        "providerresponse",
-        "rawprompt",
-        "rawproviderresponse",
-        "rawresponse",
-        "rawnormalized",
-        "rawsourcetext",
-        "responsebody",
-        "sourcepacket",
-        "sourcetext",
-        "sourcetextpacket",
-    }
-)
-_SECRET_KEY_NAMES: Final = frozenset(
-    {
-        "accesstoken",
-        "apikey",
-        "authorization",
-        "authtoken",
-        "credential",
-        "credentials",
-        "password",
-        "privatekey",
-        "secret",
-        "token",
-    }
-)
 
 SANITIZED_ERROR_MESSAGES: Final[Mapping[str, str]] = {
     "authentication_failed": "The provider authentication was rejected.",
@@ -1057,11 +1025,12 @@ def _validate_privacy(value: object, *, allow_raw_debug: bool) -> None:
         for key, child in value.items():
             if not isinstance(key, str):
                 raise ValueError("stored JSON object keys must be strings")
+            validate_privacy_safe_key(
+                key,
+                label="stored M13 payload",
+                allow_raw_content=allow_raw_debug,
+            )
             normalized = _normalized_key(key)
-            if normalized in _SECRET_KEY_NAMES:
-                raise ValueError(f"credential-like field cannot be persisted: {key!r}")
-            if not allow_raw_debug and normalized in _RAW_KEY_NAMES:
-                raise ValueError(f"raw provider/source field cannot be persisted: {key!r}")
             if normalized in {"error", "sanitizederror", "latesterror"}:
                 if child is not None:
                     _validate_sanitized_error(child)

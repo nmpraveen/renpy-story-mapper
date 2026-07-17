@@ -259,9 +259,12 @@ export function assertNarrativeArtifact(value) {
 }
 
 export function assertNarrativeCitations(value) {
-  if (!object(value) || value.schema !== "m13-narrative-claim-citations-v1" || value.status !== "available" || typeof value.claim_id !== "string" || !Array.isArray(value.traversed_claim_ids) || value.traversed_claim_ids.length > 256 || !Number.isInteger(value.maximum_depth) || value.maximum_depth < 0 || !Array.isArray(value.citations) || value.citations.length > 60) throw new TypeError("Invalid M13 Narrative citations");
+  if (!object(value) || value.schema !== "m13-narrative-claim-navigation-v1" || value.status !== "available" || typeof value.claim_id !== "string" || !Array.isArray(value.traversed_claim_ids) || value.traversed_claim_ids.length > 256 || !Array.isArray(value.claim_path) || value.claim_path.length > 256 || !Number.isInteger(value.maximum_depth) || value.maximum_depth < 0 || !Number.isInteger(value.citation_count) || value.citation_count < 0 || !Array.isArray(value.authority_labels) || value.authority_labels.length > 60 || !Array.isArray(value.citations) || value.citations.length > 60 || value.citation_count !== value.citations.length) throw new TypeError("Invalid M13 Narrative citations");
   digest(value.authority_hash, "M13 Narrative citation authority_hash");
-  for (const citation of value.citations) if (!object(citation) || !["m10", "m11", "m12"].includes(citation.authority) || typeof citation.record_kind !== "string" || typeof citation.record_id !== "string" || typeof citation.owner_id !== "string" || !object(citation.record)) throw new TypeError("Invalid M13 Narrative citation");
+  for (const citation of value.citations) {
+    if (!object(citation) || !["m10", "m11", "m12"].includes(citation.authority) || typeof citation.record_kind !== "string" || typeof citation.record_id !== "string" || typeof citation.owner_id !== "string" || typeof citation.label !== "string" || !Array.isArray(citation.claim_path) || citation.claim_path.length < 1 || citation.claim_path.length > 256 || !object(citation.navigation) || !["canonical", "scenes", "m12_result"].includes(citation.navigation.mode) || typeof citation.navigation.element_id !== "string" || typeof citation.navigation.focus_record_id !== "string" || Object.hasOwn(citation, "record")) throw new TypeError("Invalid M13 Narrative citation");
+    if (citation.navigation.mode === "m12_result" && (typeof citation.navigation.request_identity !== "string" || citation.navigation.request_identity !== citation.record_id)) throw new TypeError("Invalid M13 route-result citation navigation");
+  }
   return value;
 }
 
@@ -291,6 +294,8 @@ export function assertNarrativeRunStatus(value) {
   if (value.latest_run !== null && (!object(value.latest_run) || typeof value.latest_run.run_id !== "string" || typeof value.latest_run.state !== "string")) throw new TypeError("Invalid M13 Narrative latest run");
   if (value.artifacts !== null && !object(value.artifacts)) throw new TypeError("Invalid M13 Narrative artifact set");
   if (!Array.isArray(value.unresolved_codes) || value.unresolved_codes.some((item) => typeof item !== "string")) throw new TypeError("Invalid M13 Narrative unresolved codes");
+  if (typeof value.retry_available !== "boolean" || value.retry_available !== (value.retry_request !== null)) throw new TypeError("Invalid M13 Narrative retry state");
+  if (value.retry_request !== null && (!object(value.retry_request) || typeof value.retry_request.resume_run_id !== "string" || typeof value.retry_request.resume_consent_id !== "string" || !object(value.retry_request.provider_settings) || !object(value.retry_request.limits) || !object(value.retry_request.batch_limits))) throw new TypeError("Invalid M13 Narrative retry request");
   return value;
 }
 

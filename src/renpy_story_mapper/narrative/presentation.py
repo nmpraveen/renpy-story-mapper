@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -28,15 +27,10 @@ from renpy_story_mapper.narrative.evidence import (
 )
 from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
 from renpy_story_mapper.project import Project
-from renpy_story_mapper.storage import canonical_json
 
 MAX_NARRATIVE_JOBS_PAGE = 200
 MAX_NARRATIVE_CLAIMS = 256
 MAX_NARRATIVE_CITATIONS = 60
-MAX_CITATION_BYTES = 64_000
-MAX_BOUNDED_CITATION_TEXTS = 64
-MAX_BOUNDED_CITATION_TEXT_CHARS = 24_000
-MAX_BOUNDED_CITATION_ITEM_CHARS = 4_000
 
 
 def narrative_snapshot(
@@ -236,15 +230,24 @@ def narrative_claim_citations(project: Project, claim_id: str) -> dict[str, obje
         if any(item.owner_id != expected_owner for item in claim.support.direct_evidence):
             raise ValueError("persisted claim evidence ownership is corrupt")
     citations = [
-        _citation(authority, reference) for reference in resolved.direct_evidence
+        _citation(authority, reference, claim_path)
+        for reference, claim_path in zip(
+            resolved.direct_evidence,
+            resolved.evidence_claim_paths,
+            strict=True,
+        )
     ]
+    labels = list(dict.fromkeys(str(item["label"]) for item in citations))
     return {
-        "schema": "m13-narrative-claim-citations-v1",
+        "schema": "m13-narrative-claim-navigation-v1",
         "status": "available",
         "authority_hash": authority.binding.identity,
         "claim_id": claim_id,
         "traversed_claim_ids": list(resolved.traversed_claim_ids),
+        "claim_path": list(resolved.traversed_claim_ids),
         "maximum_depth": resolved.maximum_depth,
+        "citation_count": len(citations),
+        "authority_labels": labels,
         "citations": citations,
     }
 
@@ -365,117 +368,43 @@ def _authority_reference(payload: Mapping[str, object]) -> AuthorityReference:
 def _citation(
     authority: NarrativeAuthority,
     reference: AuthorityReference,
+    claim_path: tuple[str, ...],
 ) -> dict[str, object]:
-    record = _authority_record(authority, reference)
-    encoded = canonical_json(record)
-    presented = (
-        dict(record)
-        if len(encoded) <= MAX_CITATION_BYTES
-        else _bounded_authority_record(record, encoded)
-    )
-    if len(canonical_json(presented)) > MAX_CITATION_BYTES:
-        raise ValueError("bounded citation authority record exceeds the browser bound")
+    _authority_record(authority, reference)
+    label = f"{reference.authority.value.upper()} {reference.record_kind.replace('_', ' ')}"
+    if reference.authority is AuthoritySystem.M10:
+        navigation = {
+            "mode": "canonical",
+            "element_id": reference.record_id,
+            "focus_record_id": reference.record_id,
+        }
+    elif reference.authority is AuthoritySystem.M11:
+        element_id = (
+            reference.owner_id
+            if reference.record_kind == "atom"
+            else reference.record_id
+        )
+        navigation = {
+            "mode": "scenes",
+            "element_id": element_id,
+            "focus_record_id": reference.record_id,
+        }
+    else:
+        navigation = {
+            "mode": "m12_result",
+            "element_id": reference.record_id,
+            "focus_record_id": reference.record_id,
+            "request_identity": reference.record_id,
+        }
     return {
         "authority": reference.authority.value,
         "record_kind": reference.record_kind,
         "record_id": reference.record_id,
         "owner_id": reference.owner_id,
-        "record": presented,
+        "label": label,
+        "claim_path": list(claim_path),
+        "navigation": navigation,
     }
-
-
-def _bounded_authority_record(
-    record: Mapping[str, object],
-    encoded: bytes,
-) -> dict[str, object]:
-    """Project an oversized authority record without losing its exact identity or hash."""
-
-    exact_scalar_keys = (
-        "schema",
-        "schema_version",
-        "id",
-        "request_identity",
-        "kind",
-        "status",
-        "badge",
-        "complete",
-        "termination_reason",
-        "exhaustive",
-        "closed_world",
-        "title",
-        "name",
-        "source_path",
-        "start_line",
-        "end_line",
-    )
-    exact_fields = {
-        key: value
-        for key in exact_scalar_keys
-        if (value := record.get(key)) is None or isinstance(value, str | bool | int | float)
-        if key in record
-    }
-    support_texts, support_total, support_truncated = _bounded_support_texts(record)
-    return {
-        "schema": "m13-bounded-authority-citation-v1",
-        "record_sha256": hashlib.sha256(encoded).hexdigest(),
-        "record_size_bytes": len(encoded),
-        "record_truncated_for_presentation": True,
-        "exact_fields": exact_fields,
-        "support_texts": list(support_texts),
-        "support_text_total": support_total,
-        "support_texts_truncated": support_truncated,
-    }
-
-
-def _bounded_support_texts(
-    value: object,
-) -> tuple[tuple[str, ...], int, bool]:
-    selected: list[str] = []
-    seen: set[str] = set()
-    total = 0
-    characters = 0
-    support_keys = {
-        "conclusion_texts",
-        "instructions",
-        "persistent_commitment_claims",
-        "prerequisite_texts",
-        "requirements",
-        "uncertainty_warnings",
-    }
-
-    def consider(text: str) -> None:
-        nonlocal total, characters
-        if not text.strip() or text in seen:
-            return
-        seen.add(text)
-        total += 1
-        if (
-            len(selected) >= MAX_BOUNDED_CITATION_TEXTS
-            or len(text) > MAX_BOUNDED_CITATION_ITEM_CHARS
-            or characters + len(text) > MAX_BOUNDED_CITATION_TEXT_CHARS
-        ):
-            return
-        selected.append(text)
-        characters += len(text)
-
-    def walk(current: object, key: str | None = None) -> None:
-        if isinstance(current, Mapping):
-            if key in support_keys:
-                text = current.get("text")
-                if isinstance(text, str):
-                    consider(text)
-            for child_key, child in current.items():
-                walk(child, str(child_key))
-        elif isinstance(current, list | tuple):
-            for child in current:
-                if key in support_keys and isinstance(child, str):
-                    consider(child)
-                walk(child, key)
-        elif key in support_keys and isinstance(current, str):
-            consider(current)
-
-    walk(value)
-    return tuple(selected), total, len(selected) < total
 
 
 def _authority_record(

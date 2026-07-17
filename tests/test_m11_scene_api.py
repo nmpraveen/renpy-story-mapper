@@ -18,7 +18,23 @@ def _fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]
         "schema": "canonical-graph-v1",
         "schema_version": 1,
         "source_generation": "generation-1",
-        "nodes": [{"id": "node-split", "evidence_ids": ["evidence-1"]}],
+        "nodes": [
+            {
+                "id": "node-split",
+                "evidence_ids": ["evidence-1"],
+                "attributes": {
+                    "guard_alternatives": [
+                        [
+                            {
+                                "conditions": [
+                                    {"requirement_fact_ids": ["fact-nested"]}
+                                ]
+                            }
+                        ]
+                    ]
+                },
+            }
+        ],
         "edges": [],
         "regions": [{"id": "region-choice"}, {"id": "region-loop"}],
         "facts": [],

@@ -27,7 +27,6 @@ from renpy_story_mapper.narrative.contracts import (
     BudgetLimits,
     JsonValue,
     ProviderIdentity,
-    ProviderSettings,
 )
 from renpy_story_mapper.narrative.persistence import (
     M13_PAYLOAD_COLLECTIONS,
@@ -53,6 +52,7 @@ from renpy_story_mapper.narrative.provider import (
     ProviderUsage,
 )
 from renpy_story_mapper.narrative.scheduler import SchedulerPolicy, SchedulerRunState
+from renpy_story_mapper.narrative.validation import MAX_PUBLISHED_CLAIMS
 from renpy_story_mapper.narrative.workflow import (
     PreparedNarrativeRun,
     grant_narrative_consent,
@@ -185,16 +185,20 @@ class SimulatedNarrativeProvider:
             ):
                 self.malformed_emitted = True
                 self._malformed_job_id = item.logical_job_id
+                malformed = _artifact_payload(
+                    item.logical_job_id,
+                    job_kind,
+                    "E999",
+                    self.content_variant,
+                )
+                # Keep this fault whole-output invalid even when deterministic exact M12
+                # claims can salvage an otherwise empty/invalid provider claim set.
+                malformed["claims"] = "malformed-claim-array"
                 outputs.append(
                     ProviderOutputItem(
                         item.logical_job_id,
                         index,
-                        _artifact_payload(
-                            item.logical_job_id,
-                            job_kind,
-                            "E999",
-                            self.content_variant,
-                        ),
+                        malformed,
                     )
                 )
                 continue
@@ -241,7 +245,7 @@ class SimulatedNarrativeProvider:
             SIMULATOR_ADAPTER_VERSION,
             request.requested_model,
             request.requested_model,
-            ProviderSettings(),
+            request.settings,
         )
         input_tokens = sum(
             max(1, math.ceil(len(canonical_json(item.payload)) / 4))
@@ -867,7 +871,9 @@ def _privacy_and_growth(
     edge_count = counts[RecordKind.CLAIM_EDGE.value]
     if artifact_count > scene_count * 5 + 512:
         raise AssertionError("artifact growth exceeded the approximately linear bound")
-    if claim_count > artifact_count * 2 + 64:
+    # Exact M12 authority can deterministically add many bounded factual claims to one
+    # aggregate artifact.  The publication cap is the real linear-growth coefficient.
+    if claim_count > (artifact_count + scene_count) * MAX_PUBLISHED_CLAIMS:
         raise AssertionError("claim growth exceeded the approximately linear bound")
     if edge_count > claim_count * 2 + 64:
         raise AssertionError("provenance growth exceeded the approximately linear bound")
@@ -876,6 +882,7 @@ def _privacy_and_growth(
         "serialized_m13_bytes": serialized_bytes,
         "artifacts_per_scene": round(artifact_count / scene_count, 6),
         "claims_per_artifact": round(claim_count / max(1, artifact_count), 6),
+        "maximum_published_claims_per_artifact": MAX_PUBLISHED_CLAIMS,
         "edges_per_claim": round(edge_count / max(1, claim_count), 6),
         "approximately_linear_growth": True,
         "raw_debug_payloads_persisted": False,

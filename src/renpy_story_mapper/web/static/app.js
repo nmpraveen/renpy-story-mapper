@@ -12,7 +12,8 @@ const state = {
   analysisStatus: null,
   offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null, detailRunToken: 0,
   narrativeEnabled: false, narrativeSnapshot: null, narrativeJobs: [], narrativeByOwner: new Map(),
-  narrativeRun: null, narrativePreparation: null, narrativeLastRequest: null, narrativePollToken: 0,
+  narrativeRun: null, narrativePreparation: null, narrativeLastRequest: null, narrativePollToken: 0, narrativeStatusToken: 0,
+  narrativeCitationSelection: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
@@ -48,24 +49,98 @@ function renderNarrativeCoverage() {
   );
 }
 
-async function revealNarrativeCitations(claim, host, button) {
-  button.disabled = true; button.textContent = "Loading citations…";
+function narrativeCitationSelection(claim, response, citation) {
+  return {
+    claim_id: claim.claim_id,
+    claim_path: [...citation.claim_path],
+    traversed_claim_ids: [...response.traversed_claim_ids],
+    citation_count: response.citation_count,
+    authority_labels: [...response.authority_labels],
+    authority: citation.authority,
+    record_kind: citation.record_kind,
+    record_id: citation.record_id,
+    owner_id: citation.owner_id,
+    label: citation.label,
+    navigation: { ...citation.navigation },
+  };
+}
+
+function appendNarrativeClaimPath(host, selection) {
+  const path = element("div", "narrative-claim-path");
+  path.append(element("strong", "", "M13 claim path"));
+  for (const [index, claimId] of selection.claim_path.entries()) {
+    const step = element("span", "narrative-claim-step", `Claim ${index + 1}`); step.title = claimId; step.dataset.claimId = claimId; path.append(step);
+  }
+  host.append(path);
+}
+
+function markNarrativeCitationSelection(selection) {
+  state.narrativeCitationSelection = selection;
+  state.detail = { ...state.detail, citation_selection: selection };
+  state.selectedId = selection.navigation.focus_record_id;
+  const record = element("article", "narrative-citation-selection"); record.dataset.recordId = selection.record_id;
+  record.append(element("strong", "", selection.label), element("span", "", `Selected ${selection.record_kind.replaceAll("_", " ")} ${selection.record_id}`));
+  appendNarrativeClaimPath(record, selection);
+  $("#evidenceList").prepend(record);
+}
+
+function renderM12NarrativeCitation(result, selection) {
+  state.narrativeCitationSelection = selection;
+  state.selectedId = selection.navigation.focus_record_id;
+  state.detail = {
+    level: "m12_result_detail",
+    element: {
+      id: result.request_identity,
+      kind: "M12 route result",
+      title: "Exact M12 route result",
+      summary: `Technical status ${String(result.status).replaceAll("_", " ")} with badge ${String(result.badge).replaceAll("_", " ")}.`,
+    },
+    citation_selection: selection,
+    route_result: result,
+  };
+  $("#detailTitle").textContent = "Exact M12 route result";
+  $("#detailKind").textContent = "M12 route result";
+  $("#detailSummary").textContent = state.detail.element.summary;
+  $("#canonicalEscapeButton").hidden = true;
+  const strip = $("#pathStrip"); strip.replaceChildren(element("strong", "path-stop current", result.request_identity));
+  $("#memberGraph").replaceChildren(); $("#technicalMembers").hidden = true;
+  $("#regionDerivation").replaceChildren(); $("#proofDerivation").replaceChildren(); $("#linkedRecords").replaceChildren(); $("#derivationPanel").hidden = true;
+  const facts = $("#detailFacts"); facts.replaceChildren();
+  addFactGroup(facts, "Exact route-result authority", [
+    { label: "Technical status", expression: result.status },
+    { label: "Badge", expression: result.badge },
+    { label: "Completion", expression: String(result.complete) },
+    { label: "Termination", expression: result.termination_reason || "none" },
+    { label: "Request identity", expression: result.request_identity },
+  ], "gate");
+  const interpretations = $("#interpretations"); interpretations.replaceChildren();
+  const selected = element("article", "interpretation claim"); selected.append(element("strong", "", "Narrative authority selection"), element("p", "", `${selection.label}; deterministic M12 authority remains unchanged.`)); appendNarrativeClaimPath(selected, selection); interpretations.append(selected); $("#interpretationPanel").hidden = false;
+  const evidence = $("#evidenceList"); evidence.replaceChildren();
+  const exact = element("article", "narrative-citation-selection"); exact.dataset.recordId = selection.record_id;
+  exact.append(element("strong", "", selection.label), element("span", "", `Selected exact route result ${result.request_identity}`)); appendNarrativeClaimPath(exact, selection); evidence.append(exact);
+  showLevel("detail_evidence"); $("#backToRouteMap").focus();
+}
+
+async function openNarrativeDetailEvidence(claim, button) {
+  button.disabled = true; button.textContent = "Opening Detail and Evidence…";
   try {
     const response = await api.narrativeCitations(claim.claim_id);
-    const citations = element("div", "narrative-citations");
-    for (const citation of response.citations) {
-      const record = citation.record || {}; const source = record.source || {};
-      const item = element("article", "narrative-citation");
-      item.append(element("strong", "", `${citation.authority.toUpperCase()} · ${citation.record_kind} · ${citation.record_id}`));
-      const sourceText = record.source_text || record.text || record.excerpt;
-      if (sourceText) item.append(element("pre", "", sourceText));
-      else item.append(element("pre", "", stableRouteJson(record)));
-      if (source.path || source.relative_path || source.start_line) item.append(element("span", "", `${source.path || source.relative_path || "source"}:${source.start_line || source.start?.line || "?"}`));
-      citations.append(item);
+    const citation = response.citations[0];
+    if (!citation) throw new TypeError("No direct citation leaf was resolved");
+    const selection = narrativeCitationSelection(claim, response, citation);
+    $("#narrativeDrawer").hidden = true;
+    const navigation = citation.navigation;
+    if (navigation.mode === "m12_result") {
+      const result = await api.routeResult(navigation.request_identity);
+      renderM12NarrativeCitation(result, selection);
+      return;
     }
-    if (!citations.children.length) citations.append(element("span", "muted", "No direct citation leaves were resolved."));
-    host.append(citations); button.remove();
-  } catch (error) { button.disabled = false; button.textContent = "Retry citations"; toast(error.message); }
+    const targetMode = navigation.mode === "canonical" ? "canonical" : "scenes";
+    if (state.mode !== targetMode) await switchMode(targetMode);
+    await openDetail(navigation.element_id, true);
+    if (document.documentElement.dataset.activeLevel !== "detail_evidence") throw new TypeError("The cited authority detail is unavailable");
+    markNarrativeCitationSelection(selection);
+  } catch (error) { button.disabled = false; button.textContent = "Open Detail and Evidence"; toast(error.message); }
 }
 
 function renderNarrativeClaims(host, artifact) {
@@ -74,8 +149,8 @@ function renderNarrativeClaims(host, artifact) {
     const label = claim.claim_class === "factual" ? "Factual claim" : claim.claim_class === "interpretive" ? "AI interpretation" : "Review suggestion";
     const scope = claim.context_scope === "comparison" ? " · route comparison" : claim.context_scope === "ordered_summary" ? " · ordered summary" : "";
     article.append(element("strong", "", `${label}${scope}`), element("p", "", claim.text));
-    const button = element("button", "quiet-button", "Show citations"); button.type = "button";
-    button.addEventListener("click", () => revealNarrativeCitations(claim, article, button));
+    const button = element("button", "quiet-button", "Open Detail and Evidence"); button.type = "button";
+    button.addEventListener("click", () => openNarrativeDetailEvidence(claim, button));
     article.append(button); host.append(article);
   }
 }
@@ -168,16 +243,17 @@ function narrativeRunRequest() {
 
 function renderNarrativeRun() {
   const run = state.narrativeRun; const status = $("#narrativeRunStatus");
+  if (run?.retry_available && run.retry_request) state.narrativeLastRequest = { ...run.retry_request };
   const active = NARRATIVE_ACTIVE_STATES.has(run?.state);
   $("#prepareNarrative").disabled = active;
   $("#cancelNarrative").hidden = !active;
-  $("#retryNarrative").hidden = !NARRATIVE_RETRY_STATES.has(run?.state) || !state.narrativeLastRequest;
+  $("#retryNarrative").hidden = !NARRATIVE_RETRY_STATES.has(run?.state) || !run?.retry_available || !state.narrativeLastRequest;
   if (!run || run.state === "disabled") status.textContent = "Cloud AI is off. Preparing a manifest sends no story material.";
   else if (run.state === "prepared") status.textContent = "Prepared locally. No story material has been sent; confirmation is still required.";
   else if (run.state === "running") status.textContent = "Narrative jobs are running. Valid results are committed independently.";
   else if (run.state === "cancelling") status.textContent = "Cancelling provider work. Validated completed artifacts are being preserved.";
   else {
-    const latest = run.latest_run || {}; const usage = latest.usage || {};
+    const latest = run.latest_run || {}; const usage = latest.cumulative_usage || latest.usage || {};
     const counts = `${Number(latest.succeeded_jobs || 0)} complete, ${Number(latest.partial_jobs || 0)} partial, ${Number(latest.failed_jobs || 0) + Number(latest.refused_jobs || 0)} unavailable`;
     status.textContent = `${run.state.replaceAll("_", " ")} - ${counts}; ${Number(usage.provider_calls || 0)} provider call(s).`;
   }
@@ -208,9 +284,12 @@ function showNarrativeConsent(prepared) {
 }
 
 async function prepareNarrativeRequest(request) {
+  const token = ++state.narrativeStatusToken;
   state.narrativeLastRequest = request;
   state.narrativePreparation = await api.prepareNarrative(request);
-  state.narrativeRun = await api.narrativeStatus();
+  const run = await api.narrativeStatus();
+  if (token !== state.narrativeStatusToken) return;
+  state.narrativeRun = run;
   renderNarrativeRun(); showNarrativeConsent(state.narrativePreparation);
 }
 
@@ -222,6 +301,7 @@ async function prepareNarrativeRun(event) {
 
 async function confirmNarrativeRun(event) {
   event.preventDefault();
+  ++state.narrativeStatusToken;
   const preparationId = state.narrativePreparation?.preparation_id;
   if (!preparationId) { toast("Narrative preparation is unavailable"); return; }
   $("#narrativeConsentDialog").close();
@@ -245,6 +325,7 @@ async function pollNarrativeRun() {
 }
 
 async function cancelNarrativeRun() {
+  ++state.narrativeStatusToken;
   try { state.narrativeRun = await api.cancelNarrative(); renderNarrativeRun(); toast("Cancellation requested; validated work is preserved"); }
   catch (error) { toast(error.message); }
 }
@@ -256,10 +337,13 @@ async function retryNarrativeRun() {
 }
 
 async function loadNarrativeRunStatus() {
+  const token = state.narrativeStatusToken;
   try {
-    state.narrativeRun = await api.narrativeStatus(); renderNarrativeRun();
+    const run = await api.narrativeStatus();
+    if (token !== state.narrativeStatusToken || state.narrativePreparation) return;
+    state.narrativeRun = run; renderNarrativeRun();
     if (NARRATIVE_ACTIVE_STATES.has(state.narrativeRun.state)) pollNarrativeRun();
-  } catch (_error) { state.narrativeRun = null; renderNarrativeRun(); }
+  } catch (_error) { if (token === state.narrativeStatusToken) { state.narrativeRun = null; renderNarrativeRun(); } }
 }
 
 async function loadNarrative() {
@@ -981,16 +1065,20 @@ function normalizedSceneDetail(detail, elementId) {
   };
 }
 
-async function openDetail(elementId) {
+async function openDetail(elementId, strict = false) {
   const token = state.detailRunToken + 1; state.detailRunToken = token;
   try {
     const sceneMode = state.mode === "scenes";
     let detail = sceneMode ? await api.sceneDetail(elementId) : state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId);
-    if (token !== state.detailRunToken) return;
+    if (token !== state.detailRunToken) {
+      if (strict) throw new TypeError("The cited authority detail was superseded");
+      return;
+    }
     if (detail.status === "unavailable") {
       if (sceneMode && state.inspectionPage) { await switchMode("inspection"); toast("Scene presentation became unavailable; M10 Inspection is shown"); }
       else if (state.mode === "ai") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); }
       else { renderAnalysisAvailability(detail.generation_status, Boolean(state.page)); toast("This inspection result is unavailable for the retained generation"); }
+      if (strict) throw new TypeError("The cited authority detail is unavailable");
       return;
     }
     if (sceneMode) detail = normalizedSceneDetail(detail, elementId);
@@ -998,7 +1086,10 @@ async function openDetail(elementId) {
     const narrativeSummary = sceneMode && state.narrativeEnabled ? narrativeForElement(elementId, detail) : null;
     if (narrativeSummary) {
       narrativeArtifact = await api.narrativeArtifact(narrativeSummary.artifact_id);
-      if (token !== state.detailRunToken) return;
+      if (token !== state.detailRunToken) {
+        if (strict) throw new TypeError("The cited authority detail was superseded");
+        return;
+      }
       detail = { ...detail, narrative_artifact: narrativeArtifact, element: { ...detail.element, deterministic_title: detail.element.title, deterministic_summary: detail.element.summary, title: narrativeArtifact.title, summary: narrativeArtifact.summary } };
     }
     state.detail = detail; state.selectedId = elementId;
@@ -1036,7 +1127,7 @@ async function openDetail(elementId) {
     }
     if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
     showLevel("detail_evidence"); $("#backToRouteMap").focus();
-  } catch (error) { if (token === state.detailRunToken) toast(error.message); }
+  } catch (error) { if (token === state.detailRunToken) toast(error.message); if (strict) throw error; }
 }
 
 async function openCanonicalRecord() {

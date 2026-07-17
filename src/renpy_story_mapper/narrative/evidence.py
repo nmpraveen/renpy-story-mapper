@@ -187,6 +187,7 @@ class ResolvedClaimEvidence:
     root_claim_id: str
     traversed_claim_ids: tuple[str, ...]
     direct_evidence: tuple[AuthorityReference, ...]
+    evidence_claim_paths: tuple[tuple[str, ...], ...]
     maximum_depth: int
 
 
@@ -216,6 +217,7 @@ def resolve_claim_evidence(
     active: set[str] = set()
     traversed: list[str] = []
     evidence: list[AuthorityReference] = []
+    evidence_claim_paths: list[tuple[str, ...]] = []
     seen_evidence: set[AuthorityReference] = set()
     maximum_depth = 0
 
@@ -227,7 +229,7 @@ def resolve_claim_evidence(
         if len(traversed) + len(evidence) > limits.max_result_items:
             raise ClaimDagLimitError("claim traversal exceeded max_result_items")
 
-    def walk(claim_id: str, depth: int) -> None:
+    def walk(claim_id: str, depth: int, parent_path: tuple[str, ...]) -> None:
         nonlocal maximum_depth
         if depth > limits.max_depth:
             raise ClaimDagLimitError("claim traversal exceeded max_depth")
@@ -245,6 +247,7 @@ def resolve_claim_evidence(
         active.add(claim_id)
         visited.add(claim_id)
         traversed.append(claim_id)
+        claim_path = (*parent_path, claim_id)
         maximum_depth = max(maximum_depth, depth)
         require_result_capacity()
         if claim.support.kind is SupportKind.DIRECT_EVIDENCE:
@@ -252,17 +255,19 @@ def resolve_claim_evidence(
                 if reference not in seen_evidence:
                     seen_evidence.add(reference)
                     evidence.append(reference)
+                    evidence_claim_paths.append(claim_path)
                     require_result_capacity()
         else:
             for child_claim_id in claim.support.child_claim_ids:
-                walk(child_claim_id, depth + 1)
+                walk(child_claim_id, depth + 1, claim_path)
         active.remove(claim_id)
 
-    walk(root_claim_id, 0)
+    walk(root_claim_id, 0, ())
     return ResolvedClaimEvidence(
         root_claim_id=root_claim_id,
         traversed_claim_ids=tuple(traversed),
         direct_evidence=tuple(evidence),
+        evidence_claim_paths=tuple(evidence_claim_paths),
         maximum_depth=maximum_depth,
     )
 

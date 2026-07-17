@@ -224,6 +224,10 @@ export class LocalApi {
     if (options.selected_scene_ids) body.selected_scene_ids = [...options.selected_scene_ids];
     if (options.locale) body.locale = options.locale;
     if (options.perspective) body.perspective = options.perspective;
+    const hasResumeRun = typeof options.resume_run_id === "string" && options.resume_run_id.length > 0;
+    const hasResumeConsent = typeof options.resume_consent_id === "string" && options.resume_consent_id.length > 0;
+    if (hasResumeRun !== hasResumeConsent) throw new TypeError("Narrative retry requires exact run and consent identities");
+    if (hasResumeRun) { body.resume_run_id = options.resume_run_id; body.resume_consent_id = options.resume_consent_id; }
     const prepared = assertNarrativePreparation(await this.request(ENDPOINTS.narrativePrepare, { method: "POST", body }));
     if (prepared.provider.settings.model_reasoning_effort !== providerSettings.model_reasoning_effort || prepared.provider.settings.fast_mode !== providerSettings.fast_mode) throw new TypeError("Prepared Narrative provider settings changed in transit");
     return prepared;

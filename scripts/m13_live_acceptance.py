@@ -56,7 +56,7 @@ LIVE_MAX_CONCURRENCY: Final = 1
 DEFAULT_BATCH_LIMITS: Final = BatchLimits(
     maximum_items=16,
     maximum_input_chars=500_000,
-    maximum_input_tokens=100_000,
+    maximum_input_tokens=120_000,
 )
 LIVE_SCHEDULER_POLICY: Final = SchedulerPolicy(
     DEFAULT_BATCH_LIMITS,
