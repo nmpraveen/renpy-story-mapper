@@ -1,12 +1,38 @@
 # M13 validation report
 
-Status: Verification blocked; final-head local gates and public canary pass, but exact live run reached a hard input-token limit before hierarchy completion or replay
+Status: Verification; corrected runtime, Release, private acceptance, independent review, and zero-submit preview pass; exact live hierarchy/replay remains incomplete
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Runtime freeze: `5be797cc57522bc9473cd959fd9744d8426b0f81`
+Runtime freeze: `740e3214e84e256f4dab459d3528ddec803e456b`
 
-Validation date: 2026-07-16
+Validation date: 2026-07-17
+
+## Complete-budget correction at `740e321`
+
+| Command / check | Result | Artifact or notes |
+|---|---|---|
+| Focused sizing/consent/workflow/scheduler/pipeline/live matrix | 61 passed | Old 400,000-input budget is rejected before consent; callable finite limits bind the complete estimate and rehash consent |
+| Targeted Ruff, strict mypy, `git diff --check` | Passed | Seven runtime/test files; no provider call |
+| `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release` | Passed | 1,015 passed, 7 deselected in 190.96 seconds; every Ruff, strict mypy, dependency, JavaScript, whitespace, isolated build/install/import/assets/notices gate passed |
+| Independent read-only final-budget review | PASS; no P0/P1 | `/root/final_budget_rereview`; 126 review tests plus 14 changed-module tests; no tracked edits or provider calls |
+| Corrected provider-free private acceptance | Passed in about 16m35s | 1,812 scenes; complete hierarchy/fault/recovery; exact zero-call replay; all inputs unchanged; zero network/provider/game execution; `tmp/m13-provider-free-private-740e321/acceptance.json`, SHA-256 `13226a0d25cff4a63d33f8bdd9d8e1a13f19d2f36a51c0c9e1003cd6a832b0dc` |
+| Stable zero-submit live preview | Passed twice; zero submits | `tmp/m13-live-preview-740e321/20260717T042635828Z/consent-preview.json`; SHA-256 `a2fbe4acae8be57e11ef9560a72dc9aa3431df5d95a177f319ecd1ad9063e996` |
+
+The fresh manifest binds preparation
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`
+and consent `m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+It estimates 87 jobs, 65 calls, 2,463,527 input tokens, and 81,600 output tokens. Finite limits
+are 130 calls, 4,927,054 input, 163,200 output, 5,090,254 total tokens, 7,200 seconds, and
+concurrency one. Cost is explicitly unavailable. The live policy permits one attempt per job, so
+transient, malformed, split, and repair retries cannot consume hidden calls. The 25,000-token
+per-call runtime allowance is calibrated from the failed run and is not claimed as a provider-
+guaranteed upper bound. No live execution is authorized by this preview.
+
+The corrected private complete-run estimate is 2,590 logical jobs, 892 calls, 31,703,062 input
+tokens, and 2,227,600 output tokens. The simulator used 171 initial and 6 recovery calls and zero
+replay calls. Peak working set was approximately 6.2 GB; this is a harness performance limitation,
+not an acceptance failure.
 
 ## Final-head model-identity correction at `5be797c`
 

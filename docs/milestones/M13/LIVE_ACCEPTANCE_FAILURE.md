@@ -100,3 +100,21 @@ authority bindings. Exact sanitized evidence is retained in
 `live-failure.txt`. The sanitized result SHA-256 is
 `cb9c9e22ea5cc0034fa5261eee442a59f2cab0b18d0de3a5fef70b31ba0b00fd`. No second live
 attempt was authorized or made.
+
+## Complete-budget correction and fresh preview at `740e321`
+
+The user authorized a new correction without a practically undersized budget, while the M13
+contract's finite consent, privacy, identity, and fail-closed boundaries remain mandatory. Commit
+`740e3214e84e256f4dab459d3528ddec803e456b` now estimates serialized scene requests, singleton-
+bounded hierarchy envelopes, and a calibrated 25,000 runtime input-token allowance for every
+estimated call. The live harness uses 2x headroom, a 7,200-second timeout, concurrency one, and a
+one-attempt policy that disables retries and hidden split/repair calls.
+
+The stable zero-submit preview estimates 87 jobs, 65 calls, 2,463,527 input tokens, and 81,600
+output tokens. Its finite limits are 130 calls, 4,927,054 input, 163,200 output, and 5,090,254
+total tokens. Preview SHA-256 is
+`a2fbe4acae8be57e11ef9560a72dc9aa3431df5d95a177f319ecd1ad9063e996`; preparation is
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`;
+consent is `m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+No provider submit occurred. The calibrated allowance is not represented as a provider-guaranteed
+upper bound, and this new manifest still requires exact consent before execution.

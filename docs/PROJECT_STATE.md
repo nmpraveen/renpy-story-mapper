@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-16
+Updated: 2026-07-17
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,8 +14,8 @@ Updated: 2026-07-16
 - Recovery scope: the user approved consent-identity, explicit-provider-settings, schema-
   compatibility, and fail-fast-provider corrections within the existing M13 contract.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: existing task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` resumed in this
-  same task by explicit user approval; no second goal was created and it is not complete.
+- Native Codex goal: the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` was stopped by
+  the user; no new native goal exists in this task, and the milestone is not complete.
 - Pull request: Not created; explicit user approval is required before creation or merge.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
@@ -98,6 +98,28 @@ allowance remained while call, output, total, and elapsed limits were not exhaus
 source hash remained unchanged and all persisted M13 records retain consistent M10/M11/M12/source
 bindings. M13 remains verification-blocked; no further live run, final external review, or PR was
 attempted.
+
+The user then approved implementing the unrestricted-in-practice rerun plan while retaining the
+contract's finite consent and safety boundaries. Runtime commit
+`740e3214e84e256f4dab459d3528ddec803e456b` corrects the complete-workload estimate with
+serialized request allowances, a calibrated 25,000 input-token runtime allowance per estimated
+call, and a live-specific 2x headroom policy. The new provider-free fixture estimate is 87 jobs,
+65 calls, 2,463,527 input tokens, and 81,600 output tokens; finite live limits are 130 calls,
+4,927,054 input, 163,200 output, 5,090,254 total tokens, 7,200 seconds, and concurrency one.
+Retries are disabled for this acceptance so the call ceiling is honest. Release passed 1,015
+tests with 7 hardware-sensitive tests deselected and all quality/build/package gates green. An
+independent Sol/High read-only review passed with no P0/P1 after 126 review tests and 14 changed-
+module tests. Stable zero-submit preview SHA-256 is
+`a2fbe4acae8be57e11ef9560a72dc9aa3431df5d95a177f319ecd1ad9063e996`, with preparation
+`m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`
+and consent `m13_consent_1de082368bb65c9a835c65364abeb3a78ff6e29316d4509419a6110d015c06de`.
+No provider submit occurred. Provider-free private acceptance then passed all 1,812 scenes, the
+complete hierarchy, fault/recovery matrix, and exact zero-call replay with zero network/provider/
+game execution; report SHA-256 is
+`13226a0d25cff4a63d33f8bdd9d8e1a13f19d2f36a51c0c9e1003cd6a832b0dc`. All three private
+inputs and adjacent files remained unchanged. The simulation took about 16m35s and peaked near
+6.2 GB, which is accepted verification evidence and a future harness-optimization target. The new
+live manifest has not been approved or executed, and no PR has been created.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its
