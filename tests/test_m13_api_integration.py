@@ -152,6 +152,14 @@ class _AlwaysTimeoutProvider(_Provider):
         )
 
 
+@dataclass
+class _UnexpectedFailureProvider(_Provider):
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        del cancelled
+        self.requests.append(request)
+        raise RuntimeError("simulated interruption after submit began")
+
+
 def _api(tmp_path: Path, provider: _Provider | None = None) -> ProjectApi:
     source = tmp_path / "game"
     source.mkdir()
@@ -579,6 +587,73 @@ def test_m13_reopen_restores_exact_retry_request_and_reuses_only_compatible_cons
             )
         assert incompatible.value.code == "m13_resume_incompatible"
         assert len(provider.requests) == calls_before_reopen
+    finally:
+        api.close()
+        if reopened is not None:
+            reopened.close()
+
+
+def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_returns(
+    tmp_path: Path,
+) -> None:
+    provider = _UnexpectedFailureProvider()
+    api = _api(tmp_path, provider)
+    project_path = tmp_path / "story.rsmproj"
+    request = _browser_request()
+    with Project.open(project_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        scenes = authority.scene_model.get("scenes")
+        assert isinstance(scenes, list) and scenes
+        first_scene = scenes[0]
+        assert isinstance(first_scene, dict) and isinstance(first_scene.get("id"), str)
+        request["selected_scene_ids"] = [first_scene["id"]]
+    reopened: ProjectApi | None = None
+    try:
+        prepared = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
+        )
+        for _attempt in range(500):
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            time.sleep(0.01)
+
+        assert status["state"] == "failed"
+        assert status["retry_available"] is True
+        assert len(provider.requests) == 1
+        latest = status["latest_run"]
+        assert latest["state"] == "running"
+        assert latest["browser_preparation_id"] == prepared["preparation_id"]
+        assert latest["browser_retry_request"] == {
+            **request,
+            "locale": "und",
+            "perspective": "default",
+            "resume_run_id": prepared["run_id"],
+            "resume_consent_id": prepared["consent_manifest_id"],
+        }
+
+        api.close()
+        reopened = ProjectApi(
+            _Dialogs(),
+            state_store=UserStateStore(tmp_path / "interrupted-retry-state.json"),
+            m13_provider_factory=lambda: provider,
+        )
+        reopened._retain_project_path(project_path, tmp_path / "game")
+        restored = reopened.dispatch("POST", "/api/v1/m13/status", {})
+        assert restored["state"] == "interrupted"
+        assert restored["retry_available"] is True
+        assert restored["retry_request"] == latest["browser_retry_request"]
+
+        retried = reopened.dispatch(
+            "POST",
+            "/api/v1/m13/prepare",
+            restored["retry_request"],
+        )
+        assert retried["preparation_id"] == prepared["preparation_id"]
+        assert len(provider.requests) == 1
     finally:
         api.close()
         if reopened is not None:

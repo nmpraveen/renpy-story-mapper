@@ -41,9 +41,13 @@ from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheSta
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
 from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
-from renpy_story_mapper.narrative.contracts import BudgetLimits, ProviderSettings
+from renpy_story_mapper.narrative.contracts import (
+    BudgetLimits,
+    ConsentManifest,
+    ProviderSettings,
+)
 from renpy_story_mapper.narrative.evidence import ClaimDagError
-from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
+from renpy_story_mapper.narrative.persistence import LookupState, M13Persistence, RecordKind
 from renpy_story_mapper.narrative.pipeline import (
     NarrativePipelineResult,
     run_complete_narrative,
@@ -59,7 +63,13 @@ from renpy_story_mapper.narrative.provider import (
     NarrativeProvider,
     validate_codex_provider_settings,
 )
-from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.scheduler import (
+    SchedulerPolicy,
+    SchedulerRunRecord,
+    SchedulerRunState,
+    SchedulerUsage,
+    scheduler_compatibility_id,
+)
 from renpy_story_mapper.narrative.workflow import (
     PreparedNarrativeRun,
     grant_narrative_consent,
@@ -202,6 +212,28 @@ class _PreparedM13WebRun:
     provider: NarrativeProvider
     policy: SchedulerPolicy
     retry_request: dict[str, JsonValue]
+
+
+def _next_m13_durable_sequence(
+    persistence: M13Persistence,
+    authority_binding: Mapping[str, object],
+) -> int:
+    maximum = max(
+        (
+            value
+            for record in persistence.list_records(
+                RecordKind.RUN,
+                authority_binding=authority_binding,
+            )
+            if record.state is LookupState.HIT
+            and record.payload is not None
+            and isinstance((value := record.payload.get("durable_sequence")), int)
+            and not isinstance(value, bool)
+            and value > 0
+        ),
+        default=0,
+    )
+    return maximum + 1
 
 
 class SelectionRegistry:
@@ -1198,8 +1230,9 @@ class ProjectApi:
             == storage.canonical_json(granted.to_dict())
             and run_lookup.payload.get("run_id") == resume_run_id
             and run_lookup.payload.get("consent_manifest_id") == resume_consent_id
+            and run_lookup.payload.get("browser_preparation_id") == prepared.preparation_id
             and run_lookup.payload.get("state")
-            in {"partial", "failed", "cancelled", "hard_limit"}
+            in {"running", "partial", "failed", "cancelled", "hard_limit"}
             and isinstance(run_lookup.payload.get("browser_retry_request"), Mapping)
             and storage.canonical_json(run_lookup.payload["browser_retry_request"])
             == storage.canonical_json(expected_request)
@@ -1240,9 +1273,12 @@ class ProjectApi:
             self._m13_prepared = None
             self._m13_active_provider = web_run.provider
         try:
+            with Project.open(self._project()) as opened_project:
+                consent = grant_narrative_consent(opened_project, web_run.prepared)
+                self._persist_m13_browser_identity(opened_project, web_run, consent)
             started = self._start(
                 "m13_narrative",
-                lambda cancelled: self._m13_execute(web_run, cancelled),
+                lambda cancelled: self._m13_execute(web_run, consent, cancelled),
             )
         except Exception:
             with self._lock:
@@ -1256,11 +1292,11 @@ class ProjectApi:
     def _m13_execute(
         self,
         web_run: _PreparedM13WebRun,
+        consent: ConsentManifest,
         cancelled: threading.Event,
     ) -> None:
         try:
             with Project.open(self._project()) as opened_project:
-                consent = grant_narrative_consent(opened_project, web_run.prepared)
                 result = run_complete_narrative(
                     opened_project,
                     web_run.provider,
@@ -1278,6 +1314,50 @@ class ProjectApi:
                     self._m13_active_provider = None
 
     @staticmethod
+    def _persist_m13_browser_identity(
+        project: Project,
+        web_run: _PreparedM13WebRun,
+        consent: ConsentManifest,
+    ) -> None:
+        """Persist exact retry authority before asynchronous execution can begin."""
+
+        persistence = project.m13_persistence()
+        authority_binding = web_run.prepared.authority.binding.to_dict()
+        sequence = _next_m13_durable_sequence(persistence, authority_binding)
+        retry_request: dict[str, JsonValue] = {
+            **web_run.retry_request,
+            "resume_run_id": consent.run_id,
+            "resume_consent_id": consent.manifest_id,
+        }
+        usage = SchedulerUsage()
+        initial = SchedulerRunRecord(
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            state=SchedulerRunState.RUNNING,
+            provider=consent.provider,
+            usage=usage,
+            succeeded_jobs=0,
+            partial_jobs=0,
+            failed_jobs=0,
+            refused_jobs=0,
+            cancelled_jobs=0,
+            compatibility_id=scheduler_compatibility_id(
+                consent,
+                web_run.prepared.scheduled_jobs,
+            ),
+            cumulative_usage=usage,
+        )
+        payload = initial.to_dict()
+        payload["durable_sequence"] = sequence
+        payload["browser_preparation_id"] = web_run.prepared.preparation_id
+        payload["browser_retry_request"] = retry_request
+        persistence.put_run(
+            consent.run_id,
+            payload,
+            authority_binding=authority_binding,
+        )
+
+    @staticmethod
     def _persist_m13_browser_run(
         project: Project,
         web_run: _PreparedM13WebRun,
@@ -1285,28 +1365,15 @@ class ProjectApi:
     ) -> None:
         persistence = project.m13_persistence()
         authority_binding = web_run.prepared.authority.binding.to_dict()
-        sequence = max(
-            (
-                value
-                for record in persistence.list_records(
-                    RecordKind.RUN,
-                    authority_binding=authority_binding,
-                )
-                if record.state is LookupState.HIT
-                and record.payload is not None
-                and isinstance((value := record.payload.get("durable_sequence")), int)
-                and not isinstance(value, bool)
-                and value > 0
-            ),
-            default=0,
-        )
+        sequence = _next_m13_durable_sequence(persistence, authority_binding)
         retry_request: dict[str, JsonValue] = {
             **web_run.retry_request,
             "resume_run_id": result.record.run_id,
             "resume_consent_id": result.record.consent_manifest_id,
         }
         payload = result.record.to_dict()
-        payload["durable_sequence"] = sequence + 1
+        payload["durable_sequence"] = sequence
+        payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             result.record.run_id,
@@ -1327,7 +1394,12 @@ class ProjectApi:
             prepared = self._m13_prepared is not None
         durable_run = (
             self._m13_unambiguous_durable_run()
-            if task is None and not prepared
+            if (task is None or task.state != "running") and not prepared
+            else None
+        )
+        durable_state = (
+            cast(str, durable_run["state"])
+            if durable_run is not None and isinstance(durable_run.get("state"), str)
             else None
         )
         if task is not None and task.state == "running":
@@ -1340,8 +1412,10 @@ class ProjectApi:
             state = "cancelled"
         elif prepared:
             state = "prepared"
-        elif durable_run is not None and isinstance(durable_run.get("state"), str):
-            state = cast(str, durable_run["state"])
+        elif durable_state == "running":
+            state = "interrupted"
+        elif durable_state is not None:
+            state = durable_state
         else:
             state = "disabled"
         latest_run = durable_run if durable_run is not None else (
@@ -1350,7 +1424,7 @@ class ProjectApi:
         retry_request: Mapping[str, object] | None = (
             cast(Mapping[str, object], durable_run["browser_retry_request"])
             if durable_run is not None
-            and state in {"partial", "failed", "cancelled", "hard_limit"}
+            and durable_state in {"running", "partial", "failed", "cancelled", "hard_limit"}
             and isinstance(durable_run.get("browser_retry_request"), Mapping)
             else None
         )
