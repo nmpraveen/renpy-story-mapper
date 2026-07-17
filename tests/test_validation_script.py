@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "validate.ps1"
+PR_WORKFLOW = ROOT / ".github" / "workflows" / "pull-request-checks.yml"
 POWERSHELL = shutil.which("powershell")
 
 
@@ -76,6 +77,24 @@ def test_release_dry_run_discovers_static_build_and_safe_acceptance() -> None:
     assert "hardware-sensitive acceptance" not in result.stdout
     assert "private acceptance" not in result.stdout.casefold()
     assert "Opt-in browser acceptance" not in result.stdout
+
+
+def test_release_no_timeout_disables_every_process_cutoff() -> None:
+    result = _dry_run("-Tier", "Release", "-NoTimeout")
+
+    assert result.returncode == 0, result.stderr
+    assert "Python version (no timeout)" in result.stdout
+    assert "Full deterministic pytest (no timeout)" in result.stdout
+    assert "Ruff (no timeout)" in result.stdout
+    assert "Build isolated sdist and wheel (no timeout)" in result.stdout
+    assert "Install built wheel into isolated target (no timeout)" in result.stdout
+
+
+def test_pull_request_release_validation_has_no_repository_timeout() -> None:
+    workflow = PR_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "timeout-minutes:" not in workflow
+    assert "validate.ps1 -Tier Release -NoTimeout" in workflow
 
 
 def test_release_browser_acceptance_requires_explicit_switch() -> None:

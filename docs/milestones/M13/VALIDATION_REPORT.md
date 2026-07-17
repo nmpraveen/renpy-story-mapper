@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: PR ready; all required current correction gates pass and existing PR #23 is updated
+Status: Verification; required local/live/review gates pass, unbounded GitHub Release pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -24,7 +24,7 @@ live/replay gates all pass.
 | Provider-free private scale | Passed 1,812 scenes, 2,590 jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, and all safety counters zero | Private-hash-only report SHA-256 `17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092` |
 | Independent targeted review | PASS; no P0/P1/new P2 | Exact head `e79384b`; 105 + 32 + 2 focused tests; detached clean zero-edit review; no provider/external action |
 | Final-head live evidence | Passed at exact head `677d88152e100afd154bb54da249582ff0a2ffcd` | Approved browser/backend production path; 24 live calls; complete route-aware publication; exact replay made zero submits/calls/tokens; sanitized report SHA-256 `f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f` |
-| Remote PR workflow at evidence head `d5fdcaa` | Repository helper ended pytest at its fixed 900.24-second cutoff after 73%, with no failed test reported; all later quality/build/package checks passed | Not rerun per the user's direct instruction; complete required local Release remains the passing 1,079/7 acceptance evidence |
+| Remote PR workflow at evidence head `d5fdcaa` | Repository helper ended pytest at its fixed 900.24-second cutoff after 73%, with no failed test reported; all later quality/build/package checks passed | The user clarified that local validation must not be rerun but GitHub may run without limits; workflow/runner cutoffs are removed and one unbounded remote Release is pending |
 
 ## Current approved final-head live execution and replay
 

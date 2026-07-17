@@ -10,14 +10,14 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: PR ready.
+- Status: Verification.
 - Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
   PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
   failed-call accounting, browser-bound provider settings, shared privacy validation, citation
   navigation through existing Detail and Evidence, and durable final-head evidence.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` completed this authorized
-  correction cycle at genuine PR readiness; prior task/goal
+- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` remains active through the
+  unbounded GitHub Release result and final PR-readiness reconciliation; prior task/goal
   `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
   currently non-draft, and unmerged. Reconciled live evidence commit
@@ -59,7 +59,7 @@ zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh
 private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
 source/authority immutability, and exact zero-call replay with all safety counters zero.
 
-Lifecycle is `PR ready`. Independent reviewer
+Lifecycle is `Verification` while the user-authorized unbounded GitHub Release check runs. Independent reviewer
 `/root/m13_final_targeted_review` passed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` with no P0, P1, or new P2 after 105 + 32 + 2 focused
 tests and a clean zero-edit detached review. The approved production-path run at exact head
@@ -74,9 +74,10 @@ The first remote PR check at evidence head `d5fdcaa` was not a product-test fail
 process was cut off by the repository helper's fixed 900-second limit after reaching 73%, with no
 failed test reported; every later Ruff, strict-mypy, dependency, JavaScript, whitespace, build,
 install, import, asset, and notice check passed. The complete required local Windows Release had
-already passed 1,079 tests with 7 hardware-sensitive deselections. The user directed that the
-timed-out remote workflow not be rerun and that PR #23 be updated directly; that disposition is
-recorded without weakening the completed local acceptance evidence.
+already passed 1,079 tests with 7 hardware-sensitive deselections. The user then clarified that
+local validation must not be rerun but GitHub may run without limits. The workflow and validation
+runner therefore remove their repository-imposed job/process cutoffs; the resulting remote Release
+run is the remaining gate.
 
 ## Historical M13 evidence
 

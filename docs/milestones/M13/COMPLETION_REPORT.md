@@ -1,6 +1,6 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready; existing PR #23 open, non-draft, and unmerged
+Status: Verification; existing PR #23 open, non-draft, and unmerged
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -24,7 +24,8 @@ Independent targeted review at exact integrated head `e79384b` passed with no P0
 subsequently approved production-path live run/replay at exact head `677d881` passes criterion 20:
 all 90 eligible jobs publish through the complete route-aware hierarchy, and exact fail-closed
 replay makes zero submit attempts/calls/tokens while reproducing hashes/rendering. Source and
-authority are unchanged and privacy inspection is clean. M13 is `PR ready`.
+authority are unchanged and privacy inspection is clean. M13 remains in `Verification` until the
+user-authorized unbounded GitHub Release check passes.
 
 ## Current correction acceptance
 
@@ -64,10 +65,11 @@ head proof for the reopened correction areas.
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Handoff state
+## Remaining closeout
 
 - Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
   `e79384b`; approved final-head live/replay passes at `677d881`.
-- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is complete at PR readiness.
-- Existing PR #23 is open, non-draft, unmerged, and ready for the user's separate decision. Do not
-  merge PR #23, perform another live provider transmission, or begin M14.
+- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` remains active through the unbounded
+  GitHub Release result and final PR-readiness reconciliation.
+- Existing PR #23 is open, non-draft, and unmerged. Do not merge PR #23, perform another live
+  provider transmission, or begin M14.

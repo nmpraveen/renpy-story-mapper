@@ -26,8 +26,8 @@ This PASS closes the independent-review gate. No runtime code changed after the 
 The subsequently approved production-path live run/replay at exact head `677d881` also passed:
 90 publishable jobs completed the route-aware hierarchy, claim/citation/privacy/immutability audits
 were clean, and fail-closed replay made zero submit attempts/calls/tokens with exact hashes. The
-reconciled evidence was then pushed and remotely verified on existing PR #23; lifecycle is
-`PR ready`.
+reconciled evidence was then pushed and remotely verified on existing PR #23. Review/live gates
+remain closed; lifecycle is `Verification` only for the unbounded GitHub Release result.
 
 ## Historical review chain
 

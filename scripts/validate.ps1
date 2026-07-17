@@ -23,6 +23,8 @@ param(
     [ValidateRange(0, 86400)]
     [int]$TimeoutSeconds = 0,
 
+    [switch]$NoTimeout,
+
     [string]$Python
 )
 
@@ -130,7 +132,10 @@ function Add-Step {
     )
 
     $effectiveTimeout = $DefaultTimeout
-    if ($TimeoutSeconds -gt 0) {
+    if ($NoTimeout) {
+        $effectiveTimeout = 0
+    }
+    elseif ($TimeoutSeconds -gt 0) {
         $effectiveTimeout = $TimeoutSeconds
     }
     return [pscustomobject]@{
@@ -150,7 +155,13 @@ function Invoke-Step {
 
     $display = Format-Command $Step.FilePath $Step.Arguments
     if ($DryRun) {
-        Write-Host ("[DRY RUN] {0} ({1}s)" -f $Step.Name, $Step.TimeoutSeconds)
+        $timeoutLabel = if ($Step.TimeoutSeconds -gt 0) {
+            "{0}s" -f $Step.TimeoutSeconds
+        }
+        else {
+            "no timeout"
+        }
+        Write-Host ("[DRY RUN] {0} ({1})" -f $Step.Name, $timeoutLabel)
         Write-Host ("  {0}" -f $display)
         $Results.Add([pscustomobject]@{
             Name = $Step.Name
@@ -189,10 +200,15 @@ function Invoke-Step {
         [void]$process.Start()
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit($Step.TimeoutSeconds * 1000)) {
-            $timedOut = $true
-            & taskkill.exe /PID $process.Id /T /F *> $null
-            $process.WaitForExit()
+        if ($Step.TimeoutSeconds -gt 0) {
+            if (-not $process.WaitForExit($Step.TimeoutSeconds * 1000)) {
+                $timedOut = $true
+                & taskkill.exe /PID $process.Id /T /F *> $null
+                $process.WaitForExit()
+            }
+            else {
+                $process.WaitForExit()
+            }
         }
         else {
             $process.WaitForExit()
@@ -256,6 +272,9 @@ function Get-AcceptanceOutputOption {
 
 if ($Tier -eq "Focused" -and (!$PytestTarget -or $PytestTarget.Count -eq 0)) {
     throw "Focused validation requires at least one -PytestTarget."
+}
+if ($NoTimeout -and $TimeoutSeconds -gt 0) {
+    throw "-NoTimeout cannot be combined with -TimeoutSeconds."
 }
 if ($BrowserScript -and -not $IncludeBrowser) {
     throw "-BrowserScript requires -IncludeBrowser."

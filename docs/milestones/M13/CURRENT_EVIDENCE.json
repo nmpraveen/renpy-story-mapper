@@ -2,7 +2,7 @@
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
   "validation_date": "2026-07-17",
-  "lifecycle": "PR ready",
+  "lifecycle": "Verification",
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
   "reviewed_pr_head_sha": "d0c116b5a1fb9ed221981d380fd42eab464f31fe",
   "validated_runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
@@ -160,12 +160,12 @@
     "merged": false,
     "evidence_head_sha": "d5fdcaa3a0a15db05f232171754216093cadd026",
     "evidence_head_remote_verified": true,
-    "remote_workflow_disposition": "The repository helper ended pytest at its fixed 900.24-second cutoff after 73 percent with no failed test reported; all later quality/build/package checks passed. The user directed no rerun and direct PR update. Complete local Release 1079 passed/7 deselected remains the required passing acceptance evidence."
+    "remote_workflow_disposition": "The repository helper ended pytest at its fixed 900.24-second cutoff after 73 percent with no failed test reported; all later quality/build/package checks passed. The user clarified that local validation must not be rerun but GitHub may run without limits. Repository workflow/process cutoffs are removed and one unbounded remote Release remains pending."
   },
   "known_limitations": [
     "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
     "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
     "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
-    "PR #23 is open, non-draft, unmerged, and PR ready; merge remains separately approval-gated."
+    "PR #23 is open, non-draft, and unmerged; unbounded GitHub Release remains before PR readiness, and merge remains separately approval-gated."
   ]
 }
