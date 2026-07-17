@@ -10,7 +10,7 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Integration.
+- Status: Verification.
 - Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
   PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
   failed-call accounting, browser-bound provider settings, shared privacy validation, citation
@@ -20,9 +20,9 @@ Updated: 2026-07-17
   correction cycle; the prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
   currently non-draft, and unmerged at reviewed head
-  `d0c116b5a1fb9ed221981d380fd42eab464f31fe`. Its readiness is withdrawn by this Integration
-  transition; no PR update occurs until the correction gates pass, and merge remains separately
-  approval-gated.
+  `d0c116b5a1fb9ed221981d380fd42eab464f31fe`. Its readiness is withdrawn during this correction;
+  no PR update occurs until the final-head live-evidence and review gates pass, and merge remains
+  separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -38,6 +38,32 @@ untracked `docs/handoffs/`, `output/`, and `tmp/` content was left untouched. Hi
 results remain evidence of their reviewed heads, but they are not final-head proof for the
 reopened correction areas. No live provider transmission is authorized. After a fresh zero-submit
 browser/backend production-path manifest is prepared, work must stop for exact user approval.
+
+## Current correction verification
+
+The bounded correction runtime is frozen at
+`3533d49a61e77c76794b4ba8338ccf60ee8201ef`. Worker corrections were integrated sequentially as
+`01581ad` (browser provider settings), `7c784d4` (shared privacy validation), `9a93edf` (exact M12
+authority), and `a5d9f9e` (compatible durable resume and conservative failed-call accounting).
+Coordinator commit `3533d49` completes exact existing-workspace citation navigation, durable
+browser reopen, acceptance coverage, and packaged asset reconciliation. The machine-readable
+current evidence index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
+
+Current gates pass: the focused M13 suite is 291 passed/1 expected browser-wrapper skip; adjacent
+M12 plus M13 persistence is 139/1; Windows Release is 1,079 passed/7 hardware deselected with
+Ruff, strict mypy over 92 source files, dependency, JavaScript, whitespace, isolated build/install/
+import, browser-asset, and notice checks green. Fresh real Chrome passes at 100% and 200% with
+zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh provider-free
+private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
+source/authority immutability, and exact zero-call replay with all safety counters zero.
+
+Lifecycle is `Verification`, not `PR ready`. A fresh independent read-only targeted review remains
+required. After that review, one production-path full bounded live manifest will be prepared with
+zero submissions, and work will stop for the user's exact approval. Historical live hierarchy
+evidence below remains valid only for its recorded pre-correction head; no current-head provider
+transmission or evidence exception has been authorized.
+
+## Historical M13 evidence
 
 The prior frozen runtime correction head is `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`.
 Final-head focused tests passed 70 tests, and Release passed 966 tests with 7 hardware-sensitive

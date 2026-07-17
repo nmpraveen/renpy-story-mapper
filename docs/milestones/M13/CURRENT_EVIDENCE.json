@@ -1,0 +1,126 @@
+{
+  "schema": "m13-current-evidence-index-v1",
+  "milestone": "M13",
+  "validation_date": "2026-07-17",
+  "lifecycle": "Verification",
+  "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
+  "reviewed_pr_head_sha": "d0c116b5a1fb9ed221981d380fd42eab464f31fe",
+  "validated_runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
+  "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json",
+  "runtime_commits": [
+    "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
+    "7c784d4513a865e7978ec9da03d89999f48747b5",
+    "9a93edfce3a4686d4d31ec98cc185fd95dc2569b",
+    "a5d9f9e86fdc548b2f44d787e92d4d5d3c5bab99",
+    "3533d49a61e77c76794b4ba8338ccf60ee8201ef"
+  ],
+  "evidence": [
+    {
+      "id": "failing-first-exact-m12",
+      "classification": "public",
+      "criteria": [2, 4, 8, 10, 11, 12, 21],
+      "command": "py -3.12 -m pytest tests/test_m13_scene_jobs.py::test_m12_result_and_path_authority_remain_separate_across_lanes tests/test_m13_preparation.py::test_scene_jobs_bind_exact_prompt_local_m12_claims_and_disable_cleanly tests/test_m13_pipeline.py::test_m12_leaf_projection_separates_result_and_path_authority tests/test_m13_validation.py::test_scene_exact_m12_evidence_rejects_changed_prerequisite_and_status_upgrade -q",
+      "result": "4 failed before correction; expanded targeted set passed 6 and owned focused set passed 66 after correction",
+      "worker_commit": "f81d5553a7077cceed49614d08082e980df349ca",
+      "integrated_commit": "9a93edfce3a4686d4d31ec98cc185fd95dc2569b",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-resume-accounting",
+      "classification": "public",
+      "criteria": [1, 6, 7, 14, 15, 16],
+      "result": "6 failing-first regressions; 53 owned tests and 13 adjacent pipeline/reduction tests passed after correction",
+      "worker_commit": "0a21ed134a88a395cd4fbf66915a06be00664284",
+      "integrated_commit": "a5d9f9e86fdc548b2f44d787e92d4d5d3c5bab99",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-browser-settings",
+      "classification": "public",
+      "criteria": [1, 7, 14, 15],
+      "result": "6 failed and 6 passed before correction; settings/privacy owned suite passed 103 after correction",
+      "worker_commit": "97dd22009ed648b508c56fd36097dd56f315b4fd",
+      "integrated_commit": "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-privacy",
+      "classification": "public",
+      "criteria": [14, 16],
+      "result": "collection failed before correction because the shared validator did not exist; required reject/allow matrix passed within the 103-test owned suite after correction",
+      "worker_commit": "8bee6bd8ae446060b464bbf90e368bc768ea6807",
+      "integrated_commit": "7c784d4513a865e7978ec9da03d89999f48747b5",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "focused-m13",
+      "classification": "public",
+      "criteria": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22],
+      "command": "py -3.12 -m pytest tests -k m13 -q",
+      "result": "291 passed, 1 skipped, 794 deselected in 260.38 seconds",
+      "limitations": "The skipped hardware wrapper is covered by the separately executed real-Chrome acceptance.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "adjacent-m12-persistence",
+      "classification": "public",
+      "criteria": [2, 7, 12, 21, 22],
+      "command": "py -3.12 -m pytest tests/test_m12_*.py tests/test_m13_persistence.py -q",
+      "result": "139 passed, 1 skipped in 19.35 seconds with PYTHONPATH=src",
+      "limitations": "One earlier invocation omitted PYTHONPATH and failed during collection only; the corrected command and Release passed.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "windows-release",
+      "classification": "public",
+      "criteria": [22, 23],
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/validate.ps1 -Tier Release",
+      "result": "1,079 passed and 7 hardware-sensitive tests deselected in 355.38 seconds; Ruff, strict mypy over 92 source files, pip check, four JavaScript syntax checks, whitespace, isolated sdist/wheel build, install, import, browser assets, and notices passed",
+      "limitations": "An earlier Release run found only stale browser-asset hashes; after exact manifest reconciliation the targeted hash regression and this complete Release rerun passed.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "real-browser",
+      "classification": "public",
+      "criteria": [7, 9, 14, 15, 17, 21, 22],
+      "command": "py -3.12 scripts/m13_browser_acceptance.py --output-dir <isolated-output>",
+      "result": "passed in real Chrome at 100% and 200%; exact M10/M11/M12/M13 Detail/Evidence navigation passed; zero remote requests, zero creator/game executions, and zero provider calls during citation navigation and cache replay",
+      "report_sha256": "ce60b2350b558fc1bf07611b00379186a3cf79a6fe4b6263fcac7f67e858f19b",
+      "report_retention": "local sanitized diagnostic; hash and result are durable here",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "provider-free-private-scale",
+      "classification": "private-hash-only",
+      "criteria": [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 19, 21, 22],
+      "command": "py -3.12 scripts/m13_provider_free_acceptance.py --baseline <isolated-private-baseline> --output <isolated-output> --minimum-scenes 1812",
+      "result": "passed: 1,812 scenes, 2,590 logical jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, all safety counters zero, and working project removed",
+      "report_sha256": "17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092",
+      "report_retention": "local sanitized diagnostic; no private source, asset, path, prompt, or response is committed",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "offline-live-harness",
+      "classification": "public",
+      "criteria": [5, 7, 12, 14, 15, 16, 21, 22],
+      "command": "py -3.12 -m pytest tests/test_m13_live_acceptance.py -q",
+      "result": "5 passed in 165.79 seconds with only the in-process simulator; stale confirmation and settings drift rejected before submit",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    }
+  ],
+  "review": {
+    "status": "pending",
+    "required_scope": "independent read-only targeted review of the correction diff, integrated runtime head, exact M12 authority, restart/accounting, provider settings, privacy, citation navigation, and lifecycle evidence"
+  },
+  "live_evidence_disposition": {
+    "historical_live_evidence": "accepted only as historical evidence at its recorded pre-correction head",
+    "current_head_transmissions": 0,
+    "current_head_status": "A fresh production-path zero-submit full bounded manifest remains to be prepared after the independent review. No final-head live hierarchy or evidence exception is authorized, so criterion 20 and PR readiness remain pending."
+  },
+  "known_limitations": [
+    "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
+    "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
+    "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
+    "PR #23 is open and unmerged, but its historical readiness is withdrawn until final-head live evidence is separately approved or an evidence exception is explicitly accepted."
+  ]
+}

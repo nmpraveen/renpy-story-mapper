@@ -1,14 +1,34 @@
 # M13 validation report
 
-Status: PR ready; all required gates pass and draft PR #23 is open
+Status: Verification; current local/browser/private gates pass, independent review and live disposition pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Runtime freeze: `740e3214e84e256f4dab459d3528ddec803e456b`
+Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Validation date: 2026-07-17
 
-## Exact approved live execution and replay at `740e321`
+## Current PR #23 bounded-correction evidence
+
+The current sanitized machine-readable index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
+No current-head provider transmission occurred. All browser and private acceptance used the
+production boundary with an offline simulator or a fail-closed non-execution boundary.
+
+| Command / check | Result | Durable disposition |
+|---|---|---|
+| Worker failing-first corrections | Exact M12: 4 failed first; resume/accounting: 6 failed first; browser settings: 6 failed/6 passed; privacy: missing shared validator failed collection | Exact worker and integration commits in `CURRENT_EVIDENCE.json` |
+| `py -3.12 -m pytest tests -k m13 -q` | 291 passed, 1 expected hardware-wrapper skip, 794 deselected in 260.38 seconds | Public command/result in current index |
+| Adjacent M12 modules plus `tests/test_m13_persistence.py` | 139 passed, 1 expected browser-wrapper skip in 19.35 seconds | Public command/result in current index; an earlier PYTHONPATH omission was collection-only |
+| `powershell -ExecutionPolicy Bypass -File scripts/validate.ps1 -Tier Release` | 1,079 passed, 7 hardware deselected in 355.38 seconds; Ruff, strict mypy over 92 source files, `pip check`, JavaScript, whitespace, isolated build/install/import/assets/notices all passed | Public command/result in current index |
+| Real Chrome acceptance | Passed at 100% and 200%; exact M10/M11/M12/M13 Detail/Evidence navigation; zero remote requests and zero provider calls on navigation/replay | Local sanitized report SHA-256 `ce60b2350b558fc1bf07611b00379186a3cf79a6fe4b6263fcac7f67e858f19b` |
+| Provider-free private scale | Passed 1,812 scenes, 2,590 jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, and all safety counters zero | Private-hash-only report SHA-256 `17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092` |
+| Independent targeted review | Pending | Must review frozen runtime plus durable evidence/lifecycle before the zero-submit stop gate |
+| Final-head live evidence | Pending exact approval | Historical live evidence is not promoted; prepare zero-submit production-path manifest after review and stop before transmission |
+
+## Historical exact approved live execution and replay at `740e321`
+
+The sections below preserve prior-head evidence and failures as history. They are not current-head
+proof for the reopened correction areas.
 
 The user exactly approved preparation
 `m13_preparation_564d42c66a9068ffe4878f1c3d9db59749627220213eca3c17a6d97808342ad4`

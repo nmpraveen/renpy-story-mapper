@@ -1,28 +1,34 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready; draft PR #23 open and unmerged
+Status: Verification; PR #23 open and unmerged, historical readiness withdrawn
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
-Runtime freeze: `740e3214e84e256f4dab459d3528ddec803e456b`
+Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Pull request: Draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) opened by
-explicit user approval; merge requires separate approval
+Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
+unmerged. It is currently non-draft remotely, but this report withdraws readiness until the
+current-head review and live-evidence gates pass; merge always requires separate approval.
 
 ## Outcome
 
-The release-critical M13 runtime implementation is frozen at `740e321`, with the acceptance-
-harness correction at `0aa0415`. Focused tests, Release, real Chrome at 100%/200%, the public-
-synthetic provider canary, complete provider-free private acceptance, the exact approved live
-hierarchy, fail-closed zero-call replay, and independent no-P0/P1 reviews pass.
+The authorized bounded-correction runtime is frozen at `3533d49`. Exact M12 result/path/scene/
+hierarchy authority, compatible durable resume, cumulative and failed-call accounting, browser
+provider-settings binding, shared privacy validation, and exact citation navigation through the
+existing Detail/Evidence workspace are integrated. Current focused M13, adjacent M12/persistence,
+Windows Release, real-Chrome 100%/200%, and fresh 1,812-scene provider-free private-scale gates
+pass. The sanitized current index is `docs/milestones/M13/CURRENT_EVIDENCE.json`.
 
-The live aggregate is correctly `partial`: Foyer and Courtyard retained ten valid claims and
-omitted four invalid claims. All higher hierarchy artifacts completed. This is criterion-5 safe
-salvage, not incomplete execution. No further live provider call is needed or authorized by this
-evidence. Post-correction Release passes 1,016 tests with 7 hardware-sensitive tests deselected,
-and every quality/build/package gate is green. M13 is PR-ready; draft PR #23 is open and unmerged.
+M13 is not currently complete or PR-ready. The required independent targeted final-head review is
+pending. Historical live hierarchy/replay evidence below is preserved for its recorded head but
+does not prove the corrected runtime. No final-head provider transmission or evidence exception
+has been authorized. After independent review, one production-path zero-submit manifest will be
+prepared and work will stop for the user's exact approval.
 
-## Acceptance evidence
+## Historical pre-correction acceptance evidence
+
+The following table records the previously accepted `740e321`/`0aa0415` state. It is not current-
+head proof for the reopened correction areas.
 
 | Criteria | Result | Evidence |
 |---|---|---|
@@ -34,7 +40,7 @@ and every quality/build/package gate is green. M13 is PR-ready; draft PR #23 is 
 | 22 | Pass | Post-correction Release 1,016/7, focused correction, final-budget review, and post-live audit pass with no unresolved P0/P1 |
 | 23 | Pass | Evidence and infographic are durable; explicitly approved draft PR #23 is open and unmerged |
 
-## Final validation snapshot
+## Historical validation snapshot
 
 | Check | Result |
 |---|---|
@@ -48,10 +54,11 @@ and every quality/build/package gate is green. M13 is PR-ready; draft PR #23 is 
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Blocking state
+## Current blocking state
 
-- Consent-manifest stability, provider identity, complete live hierarchy, and exact replay are
-  corrected and verified; no further live execution is needed.
-- The prior native Codex goal was stopped by the user; no new native goal exists in this task.
-- The branch is PR-ready and draft PR #23 is open. It was not merged; merge remains separately
-  approval-gated.
+- Current local/runtime/browser/private gates pass at `3533d49`; the independent targeted review
+  and current-head live-evidence disposition remain.
+- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` is active through verification and PR
+  preparation.
+- PR #23 is open and unmerged, but not currently ready. Do not update or merge it, submit to a live
+  provider, or begin M14 before the explicit gates in the authorized handoff.

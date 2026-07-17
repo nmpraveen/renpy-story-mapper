@@ -1,12 +1,24 @@
 # M13 integrated and independent review report
 
-Status: Blocking P1 findings remain
+Status: Pending independent current-head targeted review
 
-Runtime freeze: `e0fd3bf3dba34a2d936028f3df8773e69d9fc1c8`
+Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Review date: 2026-07-16
+Review date: 2026-07-17
 
-## Review chain
+## Current authorized correction review
+
+The independent reviewer must assess only the bounded correction diff and integrated frozen head:
+exact M12 result/path/scene/hierarchy authority; durable restart, cumulative budgets/attempts, and
+failed-call accounting; provider-settings identity; shared privacy validation; existing-workspace
+citation navigation; and durable evidence/lifecycle consistency. Local, Release, browser, and
+private-scale gates pass as recorded in `CURRENT_EVIDENCE.json`, but no independent verdict is
+recorded yet. Any current P0/P1 blocks readiness; P2 may be documented and deferred.
+
+## Historical review chain
+
+Everything below this heading is historical evidence at its recorded head and does not state the
+current `3533d49` verdict.
 
 | Review | Artifact SHA-256 | Result / disposition |
 |---|---|---|
@@ -47,7 +59,7 @@ identify a runtime-code cause.
 The initial P2 concerning title/summary evidence binding remains documented and deferred under the
 contract's P2 policy. No optional weak-boundary, LM Studio, export, or M14 scope was added.
 
-## Verdict
+## Historical verdict at `e0fd3bf`
 
 `FAIL` for PR readiness. P1 blocks remain: unstable exact-consent identity and no independent
 final-head PASS; criterion 20 also lacks a successful live run and zero-call replay. No second

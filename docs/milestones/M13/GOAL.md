@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Integration (semantic review PASS retained)
+Status: Verification (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, plus the user's 2026-07-17 final
@@ -185,20 +185,22 @@ transmission without exact approval are excluded.
 
 ## Required evidence
 
-Correction-cycle status: the table below preserves historical evidence at its recorded heads. It
-is not current final-head proof for the reopened correction areas. Current evidence remains
-pending while lifecycle status is `Integration` and will be reconciled after the authorized gates.
+Correction-cycle status: runtime corrections are frozen at
+`3533d49a61e77c76794b4ba8338ccf60ee8201ef`, and the current sanitized evidence index is
+`docs/milestones/M13/CURRENT_EVIDENCE.json`. Required local, Windows, browser, and private-scale
+gates pass. Independent targeted review and the approval-gated final-head live-evidence
+disposition remain, so lifecycle is `Verification`, not `PR ready`.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Runtime `740e321`; focused 61-test budget matrix and Release 1,015/7 pass; earlier authority/claim gates remain green |
-| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Release plus provider-free 1,812-scene acceptance pass; exact live replay made zero submit attempts/calls and reproduced all 83 cached jobs exactly |
-| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Local/provider-free pass; final-budget independent review at `740e321` returns PASS with no P0/P1 |
-| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Adapter-v3 public canary and exact approved live run pass; stable consent, finite limits, one-attempt policy, sanitized storage, and raw-debug-off privacy verified |
-| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Browser report `8d065d7a...f81b02` passes at runtime path unchanged by final provider-only correction; optional overlay deferred |
-| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Private 1,812-scene simulation and exact live run/replay pass; live report `93a22d66...a621`; complete route-aware hierarchy; exact replay; source and M10/M11/M12 authority unchanged |
-| 22 | Focused/full Windows suite, package inspection, independent review | Post-correction Release passes 1,016/7 at `0aa0415`; focused harness correction and independent live-evidence audit pass with no remaining P0/P1 |
-| 23 | Reports, integration commit, infographic, PR state | Runtime `740e321`, harness correction `0aa0415`, exact live evidence, and native infographic are durable; explicitly approved draft PR #23 is open and unmerged |
+| 1-5 | Contract/handle/claim validation tests, normalized hashes, partial-salvage cases | Current runtime `3533d49`; failing-first authority/settings/privacy regressions closed; M13 focused suite 291/1 and Release 1,079/7 pass |
+| 6-9 | Batching, retry, persistence, cancellation, segment, DAG, lazy-resolution, scale tests | Durable restart/cumulative-accounting regressions and fresh 1,812-scene provider-free acceptance pass; exact replay made zero calls |
+| 10-13 | Hierarchy, route separation, M12 preservation, contradiction-context fixtures | Current M12+M13 persistence gate 139/1 passes; private hierarchy publishes all route/ending/plot levels without changing M12 normalized bytes |
+| 14-16 | Provider/process, prompt-template, consent, budget, storage/privacy tests | Browser-selected High and `fast_mode=false` bind through prepare/consent/request/cache/reopen; privacy reject/allow matrix and sanitized persistence pass; no final-head transmission |
+| 17-18 | API/real-browser narrative and optional overlay evidence at 100%/200% | Fresh real-Chrome report `ce60b235...8f19b` passes at 100%/200%; exact existing-workspace navigation and zero provider calls; optional overlay deferred |
+| 19-21 | Provider-free full-private simulation, bounded live/private acceptance, fingerprints/hashes | Fresh private-hash-only report `17b1bbb1...0092` passes 1,812 scenes, full faults/recovery, zero-call replay, immutability, and safety; final-head live acceptance remains approval-gated |
+| 22 | Focused/full Windows suite, package inspection, independent review | Current Release passes 1,079/7 and every static/package gate; required independent targeted review remains pending |
+| 23 | Reports, integration commit, infographic, PR state | Runtime `3533d49` and `CURRENT_EVIDENCE.json` are durable; infographic remains historical durable evidence; PR #23 is open/unmerged but readiness is withdrawn pending review and live disposition |
 
 ## Release-critical sequence
 
@@ -239,9 +241,10 @@ pending while lifecycle status is `Integration` and will be reconciled after the
 - Worker tasks must use the literal assigned base, stay inside their owned files and exclusions,
   run named checks, and must not create pull requests.
 - Follow the repository's external dispatch policy where controls expose its settings. Current
-  collaboration controls do not expose model/reasoning/fast-mode selectors; record that
-  limitation rather than copying fixed provider settings into this M13 contract or claiming an
-  unverifiable configuration.
-- Keep status at `Integration` until worker changes are integrated and reviewed.
+  collaboration controls expose model and reasoning-effort selectors but not a fast-mode selector;
+  record that exact limitation rather than copying fixed provider settings into this M13 contract
+  or claiming an unverifiable fast-mode configuration.
+- Keep status at `Verification` until the independent targeted review passes and criterion 20 has
+  a separately approved final-head live run/replay or explicit evidence exception.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
   preparation. Complete it only at genuine `PR ready`.

@@ -2,8 +2,9 @@
 
 Last revised: 2026-07-16
 
-Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16 and is
-at its contract and semantic-review gate.
+Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
+retains its semantic-review `PASS`, and is in Verification on existing PR #23 after an authorized
+bounded correction cycle.
 
 ## 1. Product goal
 
@@ -1141,9 +1142,10 @@ unresolved or dynamic behavior and must not claim arbitrary expression satisfiab
 
 ### M13 - AI narrative layer
 
-Status: Approved and in progress on 2026-07-16 after a recorded semantic `PASS` on
-`codex/m13-narrative-layer` from baseline
-`f67df8a7cb805bf4adf8590585bae700d2f3117f`.
+Status: Verification on existing unmerged PR #23. The recorded semantic `PASS` remains valid;
+bounded correction runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef` passes current local,
+Windows, browser, and private-scale gates. Independent targeted review and a separately approved
+final-head live-evidence disposition remain before PR readiness.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1240,6 +1242,7 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute the semantically approved M13 contract in its release-critical sequence through
-provider-free and bounded live acceptance. Do not create or merge the M13 pull
-request without separate user approval, and do not begin M14.
+Complete the existing M13 PR #23 verification: independent targeted review, then prepare the
+production-path zero-submit bounded live manifest and stop for exact user approval. Do not submit
+to a provider, update or merge PR #23, or begin M14 without the required separate approval/evidence
+gates.
