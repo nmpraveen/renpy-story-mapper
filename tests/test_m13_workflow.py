@@ -830,6 +830,121 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
             )
 
 
+def test_not_transmitted_reservation_matches_zero_call_attempt_after_reopen(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    with _project(tmp_path) as project:
+        provider = DeterministicNarrativeProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-not-transmitted-reservation",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        compatibility_id = scheduler_compatibility_id(consent, prepared.scheduled_jobs)
+        job = prepared.scheduled_jobs[0]
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            prepared.scheduled_jobs,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        reservation = SchedulerCallReservation(
+            reservation_id="m13_reservation_test_not_transmitted",
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            compatibility_id=compatibility_id,
+            batch_id="batch:not-transmitted",
+            logical_job_ids=(job.logical_job_id,),
+            logical_attempt_numbers=(1,),
+            provider_call_number=1,
+            provider=consent.provider,
+            usage=SchedulerUsage(
+                provider_calls=1,
+                input_tokens=50,
+                output_tokens=10,
+                elapsed_ms=7,
+                cost_micros=3,
+                peak_concurrency=1,
+                usage_estimated=True,
+            ),
+        )
+        sink.reserve_call(reservation)
+        sink.record_attempt(
+            SchedulerAttemptRecord(
+                attempt_id="m13_attempt_test_not_transmitted",
+                run_id=consent.run_id,
+                logical_job_id=job.logical_job_id,
+                attempt_number=1,
+                batch_id=reservation.batch_id,
+                outcome=AttemptOutcome.MALFORMED,
+                provider=consent.provider,
+                metrics=AttemptMetrics(0, 0, 6, cost_micros=0),
+                error_code="internal_error",
+                consent_manifest_id=consent.manifest_id,
+                input_revision_id=job.input_revision_id,
+                cache_key=job.cache_identity.key,
+                provider_call_number=0,
+                transmitted=False,
+            )
+        )
+        sink.finalize_call(
+            SchedulerCallFinalization(
+                reservation_id=reservation.reservation_id,
+                run_id=reservation.run_id,
+                consent_manifest_id=reservation.consent_manifest_id,
+                compatibility_id=reservation.compatibility_id,
+                transmission_disposition=TransmissionDisposition.NOT_TRANSMITTED,
+                usage=SchedulerUsage(elapsed_ms=6),
+            )
+        )
+
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            DeterministicNarrativeProvider(),
+            run_id="run-not-transmitted-reservation",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        resumed_consent = grant_narrative_consent(project, resumed)
+        resumed_sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            resumed.scheduled_jobs,
+            authority_binding=resumed.authority.binding.to_dict(),
+        )
+        resumed_compatibility_id = scheduler_compatibility_id(
+            resumed_consent,
+            resumed.scheduled_jobs,
+        )
+        usage = resumed_sink.resume_usage(
+            resumed_consent,
+            resumed.scheduled_jobs,
+            resumed_compatibility_id,
+        )
+        resumed_job = next(
+            item
+            for item in resumed.scheduled_jobs
+            if item.logical_job_id == job.logical_job_id
+        )
+        history = resumed_sink.attempt_history(
+            resumed_consent.run_id,
+            resumed_consent.manifest_id,
+            resumed_job,
+        )
+
+    assert usage == SchedulerUsage(elapsed_ms=6)
+    assert history == (AttemptOutcome.MALFORMED,)
+
+
 def test_unresolved_call_reservation_consumes_attempt_ceiling_after_reopen(
     tmp_path: Path,
 ) -> None:

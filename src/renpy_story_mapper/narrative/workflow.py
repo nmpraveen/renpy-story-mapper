@@ -67,12 +67,22 @@ from renpy_story_mapper.narrative.scheduler import (
 )
 from renpy_story_mapper.narrative.sizing import estimate_complete_run
 from renpy_story_mapper.narrative.validation import ValidationContext, validate_and_salvage
+from renpy_story_mapper.organization.sterile_runner import TransmissionDisposition
 from renpy_story_mapper.project import Project
 
 CancelledCallback = Callable[[], bool]
 _EMPTY_PROVIDER_SETTINGS: Final = ProviderSettings()
 _AttemptHistoryKey = tuple[str, str, str, str, str]
 _AttemptCallKey = tuple[str, str, int, int]
+
+
+@dataclass(frozen=True)
+class _ReservationAttemptCandidate:
+    history_key: _AttemptHistoryKey
+    attempt_number: int
+    reservation_id: str
+    call_key: _AttemptCallKey
+    allow_zero_call_match: bool
 
 
 @dataclass(frozen=True)
@@ -371,31 +381,25 @@ class M13SchedulerPersistenceSink:
             for job in jobs
         }
         attempts = self._load_compatible_attempt_payloads(compatible_keys)
-        reserved_usage, covered_attempts, recovered_attempts = (
-            self._load_compatible_call_usage(
-                consent,
-                jobs,
-                compatibility_id,
-            )
+        reserved_usage, reservation_attempts = self._load_compatible_call_usage(
+            consent,
+            jobs,
+            compatibility_id,
         )
-        recorded_call_keys = {
-            call_key
-            for attempt in attempts
-            if (call_key := _attempt_reservation_call_key(attempt)) is not None
-        }
-        self._recovered_attempts = {
-            key: [
-                (attempt_number, reservation_id)
-                for attempt_number, reservation_id, call_key in values
-                if call_key not in recorded_call_keys
-            ]
-            for key, values in recovered_attempts.items()
-        }
+        matched_attempts, unmatched_reservations = _match_reservation_attempts(
+            attempts,
+            reservation_attempts,
+        )
+        self._recovered_attempts = {}
+        for item in unmatched_reservations:
+            self._recovered_attempts.setdefault(item.history_key, []).append(
+                (item.attempt_number, item.reservation_id)
+            )
         self._histories = None
         legacy_attempts = tuple(
             attempt
-            for attempt in attempts
-            if _attempt_reservation_call_key(attempt) not in covered_attempts
+            for index, attempt in enumerate(attempts)
+            if index not in matched_attempts
         )
         usage = _sum_scheduler_usage(
             _usage_from_attempt_payloads(legacy_attempts),
@@ -579,14 +583,12 @@ class M13SchedulerPersistenceSink:
         compatibility_id: str,
     ) -> tuple[
         SchedulerUsage,
-        frozenset[_AttemptCallKey],
-        dict[_AttemptHistoryKey, list[tuple[int, str, _AttemptCallKey]]],
+        tuple[_ReservationAttemptCandidate, ...],
     ]:
         jobs_by_id = {job.logical_job_id: job for job in jobs}
         expected_job_ids = set(jobs_by_id)
         reservations: dict[str, Mapping[str, object]] = {}
         finalizations: dict[str, Mapping[str, object]] = {}
-        covered_attempts: set[_AttemptCallKey] = set()
         for result in self._persistence.list_records(
             RecordKind.BATCH,
             authority_binding=self._authority,
@@ -637,27 +639,12 @@ class M13SchedulerPersistenceSink:
                 ):
                     raise ValueError("durable call reservation is incompatible")
                 reservations[reservation_id] = payload
-                covered_attempts.update(
-                    (
-                        batch_id,
-                        cast(str, job_id),
-                        cast(int, attempt_number),
-                        provider_call_number,
-                    )
-                    for job_id, attempt_number in zip(
-                        logical_job_ids,
-                        logical_attempt_numbers,
-                        strict=True,
-                    )
-                )
             else:
                 finalizations[reservation_id] = payload
         if set(finalizations) - set(reservations):
             raise ValueError("durable call finalization has no compatible reservation")
         usage = SchedulerUsage()
-        recovered_attempts: dict[
-            _AttemptHistoryKey, list[tuple[int, str, _AttemptCallKey]]
-        ] = {}
+        recovered_attempts: list[_ReservationAttemptCandidate] = []
         for reservation_id in sorted(reservations):
             reservation = reservations[reservation_id]
             finalization = finalizations.get(reservation_id)
@@ -666,6 +653,20 @@ class M13SchedulerPersistenceSink:
             if parsed is None:
                 raise ValueError("durable call usage is malformed")
             usage = _sum_scheduler_usage(usage, parsed)
+            allow_zero_call_match = finalization is None
+            if finalization is not None:
+                raw_disposition = finalization.get("transmission_disposition")
+                if not isinstance(raw_disposition, str):
+                    raise ValueError("durable call finalization disposition is malformed")
+                try:
+                    disposition = TransmissionDisposition(raw_disposition)
+                except ValueError as exc:
+                    raise ValueError(
+                        "durable call finalization disposition is malformed"
+                    ) from exc
+                allow_zero_call_match = (
+                    disposition is TransmissionDisposition.NOT_TRANSMITTED
+                )
             logical_job_ids = cast(list[object], reservation["logical_job_ids"])
             logical_attempt_numbers = cast(
                 list[object], reservation["logical_attempt_numbers"]
@@ -693,10 +694,16 @@ class M13SchedulerPersistenceSink:
                     attempt_number,
                     provider_call_number,
                 )
-                recovered_attempts.setdefault(key, []).append(
-                    (attempt_number, reservation_id, call_key)
+                recovered_attempts.append(
+                    _ReservationAttemptCandidate(
+                        history_key=key,
+                        attempt_number=attempt_number,
+                        reservation_id=reservation_id,
+                        call_key=call_key,
+                        allow_zero_call_match=allow_zero_call_match,
+                    )
                 )
-        return usage, frozenset(covered_attempts), recovered_attempts
+        return usage, tuple(recovered_attempts)
 
     def _require_job(self, logical_job_id: str) -> ScheduledSceneJob:
         try:
@@ -928,10 +935,38 @@ def _attempt_reservation_call_key(
         or attempt_number < 1
         or not isinstance(provider_call_number, int)
         or isinstance(provider_call_number, bool)
-        or provider_call_number < 1
+        or provider_call_number < 0
     ):
         return None
     return batch_id, logical_job_id, attempt_number, provider_call_number
+
+
+def _match_reservation_attempts(
+    attempts: Sequence[Mapping[str, object]],
+    reservations: Sequence[_ReservationAttemptCandidate],
+) -> tuple[frozenset[int], tuple[_ReservationAttemptCandidate, ...]]:
+    unmatched = set(range(len(reservations)))
+    matched_attempts: set[int] = set()
+    for attempt_index, attempt in enumerate(attempts):
+        call_key = _attempt_reservation_call_key(attempt)
+        if call_key is None:
+            continue
+        for reservation_index in sorted(unmatched):
+            candidate = reservations[reservation_index]
+            matches = call_key == candidate.call_key
+            if call_key[3] == 0:
+                matches = (
+                    candidate.allow_zero_call_match
+                    and call_key[:3] == candidate.call_key[:3]
+                )
+            if matches:
+                unmatched.remove(reservation_index)
+                matched_attempts.add(attempt_index)
+                break
+    return (
+        frozenset(matched_attempts),
+        tuple(reservations[index] for index in sorted(unmatched)),
+    )
 
 
 def _scheduler_usage_from_payload(raw: object) -> SchedulerUsage | None:
