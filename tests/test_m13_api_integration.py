@@ -595,6 +595,80 @@ def test_m13_reopen_restores_exact_retry_request_and_reuses_only_compatible_cons
             reopened.close()
 
 
+def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _AlwaysTimeoutProvider()
+    api = _api(tmp_path, provider)
+    project_path = tmp_path / "story.rsmproj"
+    request = _browser_request()
+    with Project.open(project_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        scenes = authority.scene_model.get("scenes")
+        assert isinstance(scenes, list) and scenes
+        first_scene = scenes[0]
+        assert isinstance(first_scene, dict) and isinstance(first_scene.get("id"), str)
+        request["selected_scene_ids"] = [first_scene["id"]]
+    reopened: ProjectApi | None = None
+    try:
+        prepared = api.dispatch("POST", "/api/v1/m13/prepare", request)
+        api.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
+        )
+        for _attempt in range(500):
+            status = api.dispatch("POST", "/api/v1/m13/status", {})
+            if status["state"] not in {"running", "cancelling"}:
+                break
+            time.sleep(0.01)
+        assert status["retry_available"] is True
+        api.close()
+
+        reopened = ProjectApi(
+            _Dialogs(),
+            state_store=UserStateStore(tmp_path / "retry-cumulative-state.json"),
+            m13_provider_factory=lambda: provider,
+        )
+        reopened._retain_project_path(project_path, tmp_path / "game")
+        restored = reopened.dispatch("POST", "/api/v1/m13/status", {})
+        prior_cumulative = restored["latest_run"]["cumulative_usage"]
+        assert prior_cumulative["provider_calls"] > 0
+        retried = reopened.dispatch(
+            "POST",
+            "/api/v1/m13/prepare",
+            restored["retry_request"],
+        )
+        monkeypatch.setattr(
+            reopened,
+            "_start",
+            lambda _kind, _operation: {"analysis": None},
+        )
+
+        reopened.dispatch(
+            "POST",
+            "/api/v1/m13/start",
+            {"preparation_id": retried["preparation_id"], "confirm_cloud": True},
+        )
+
+        with Project.open(project_path) as project:
+            authority = load_narrative_authority(project, include_m12=True)
+            run = project.m13_persistence().lookup(
+                RecordKind.RUN,
+                prepared["run_id"],
+                authority_binding=authority.binding.to_dict(),
+            )
+            assert run.state is LookupState.HIT
+            assert run.payload is not None
+            assert run.payload["usage"]["provider_calls"] == 0
+            assert run.payload["cumulative_usage"] == prior_cumulative
+    finally:
+        api.close()
+        if reopened is not None:
+            reopened.close()
+
+
 def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_returns(
     tmp_path: Path,
 ) -> None:

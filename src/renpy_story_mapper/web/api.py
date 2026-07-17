@@ -236,6 +236,44 @@ def _next_m13_durable_sequence(
     return maximum + 1
 
 
+def _m13_scheduler_usage(raw: object) -> SchedulerUsage | None:
+    if not isinstance(raw, Mapping):
+        return None
+    integer_fields = (
+        "provider_calls",
+        "input_tokens",
+        "output_tokens",
+        "elapsed_ms",
+        "peak_concurrency",
+    )
+    values = {field: raw.get(field) for field in integer_fields}
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in values.values()
+    ):
+        return None
+    cost = raw.get("cost_micros")
+    estimated = raw.get("usage_estimated")
+    if (
+        cost is not None
+        and (not isinstance(cost, int) or isinstance(cost, bool) or cost < 0)
+    ) or not isinstance(estimated, bool):
+        return None
+    input_tokens = cast(int, values["input_tokens"])
+    output_tokens = cast(int, values["output_tokens"])
+    if raw.get("total_tokens") != input_tokens + output_tokens:
+        return None
+    return SchedulerUsage(
+        provider_calls=cast(int, values["provider_calls"]),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        elapsed_ms=cast(int, values["elapsed_ms"]),
+        cost_micros=cost,
+        peak_concurrency=cast(int, values["peak_concurrency"]),
+        usage_estimated=estimated,
+    )
+
+
 class SelectionRegistry:
     """Per-launch opaque references; paths are never serialized to the browser."""
 
@@ -1327,6 +1365,28 @@ class ProjectApi:
         persistence = project.m13_persistence()
         authority_binding = web_run.prepared.authority.binding.to_dict()
         sequence = _next_m13_durable_sequence(persistence, authority_binding)
+        cumulative_usage = SchedulerUsage()
+        existing = persistence.lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=authority_binding,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            if (
+                existing.payload.get("consent_manifest_id") != consent.manifest_id
+                or not isinstance(existing.payload.get("provider"), Mapping)
+                or storage.canonical_json(existing.payload["provider"])
+                != storage.canonical_json(consent.provider.to_dict())
+            ):
+                raise ValueError("browser retry run identity is incompatible")
+            parsed = _m13_scheduler_usage(
+                existing.payload.get("cumulative_usage", existing.payload.get("usage"))
+            )
+            if parsed is None:
+                raise ValueError("browser retry cumulative usage is invalid")
+            cumulative_usage = parsed
+        elif existing.state is not LookupState.MISS:
+            raise ValueError("browser retry run state is unavailable")
         retry_request: dict[str, JsonValue] = {
             **web_run.retry_request,
             "resume_run_id": consent.run_id,
@@ -1348,7 +1408,7 @@ class ProjectApi:
                 consent,
                 web_run.prepared.scheduled_jobs,
             ),
-            cumulative_usage=usage,
+            cumulative_usage=cumulative_usage,
         )
         payload = initial.to_dict()
         payload["durable_sequence"] = sequence
