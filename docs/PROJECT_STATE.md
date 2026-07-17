@@ -10,20 +10,23 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: PR ready.
-- Correction scope: on 2026-07-17 the user authorized one bounded correction cycle on existing
-  PR #23 for exact M12 authority, durable compatible resume and cumulative budgets, conservative
-  failed-call accounting, browser-bound provider settings, shared privacy validation, citation
-  navigation through existing Detail and Evidence, and durable final-head evidence.
+- Status: Integration.
+- Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
+  existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
+  ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
+  failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
+  Detail/Evidence navigation.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7048-93db-7383-a869-fc4c78939994` reached its authorized done
-  condition at genuine PR readiness after unbounded GitHub Release run `29604661539` passed;
-  prior task/goal `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
+- Native Codex goal: task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75` is active for the exact final
+  bounded correction objective. Historical task/goal `019f7048-93db-7383-a869-fc4c78939994`
+  reached its prior authorized done condition at its exact head; task/goal
+  `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
 - Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
   currently non-draft, clean, and unmerged. Reconciled live evidence commit
   `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
-  `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before final
-  lifecycle closeout. Merge remains separately approval-gated.
+  `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before the prior
+  lifecycle closeout. Exact current local/remote PR head is
+  `e17ba5e3de295c83bba223f858098b65d84291b6`; merge remains separately approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -32,17 +35,34 @@ route-aware hierarchy, release-priority order, full provider-free private-scale 
 bounded live acceptance, and privacy-safe storage. The single early semantic gate passed; work is
 proceeding in the contract's release-critical order.
 
-The 2026-07-17 final authorized handoff preserves that semantic `PASS` and the existing milestone
-contract while reopening lifecycle evidence. Before product edits, the current PR head and merged
-base were fetched and verified exactly, the tracked worktree and index were clean, and existing
-untracked `docs/handoffs/`, `output/`, and `tmp/` content was left untouched. Historical M13
-results remain evidence of their reviewed heads, but they are not final-head proof for the
-reopened correction areas. The fresh browser/backend production-path manifest stopped at zero
-submits as required. The user then authorized the exact manifest and broadened consent through
-goal completion; the single approved run/replay below is the resulting final-head proof. No
-additional live transmission is required or authorized by this closeout.
+The 2026-07-17 final bounded correction authorization preserves the existing done condition and
+semantic `PASS`. Phase 0 fetched and verified local, remote, and PR head
+`e17ba5e3de295c83bba223f858098b65d84291b6` against merged baseline
+`f67df8a7cb805bf4adf8590585bae700d2f3117f`; PR #23 is open, non-draft, mergeable, and clean. The
+tracked worktree and index were clean. Existing untracked `docs/handoffs/`, `output/`, and `tmp/`
+content was preserved untouched.
 
-## Current correction verification
+## Final bounded correction cycle (current)
+
+The parent coordinator's read-only Phase 0 audit reproduced findings 1-5, 7, and 8 by deterministic
+probe or exact code path at `e17ba5e`; finding 6 is the current false-positive candidate. Exact
+evidence includes: phase-local `record.usage` propagation in `pipeline.py`; subtype history checked
+only after admission; no durable pre-submit reservation consumed by resume accounting; browser
+retry identity persisted only after pipeline return; transmission inferred from exception class;
+the privacy probe accepting `secret_key`, `secretValue`, `token_value`, and normalized variants;
+and `app.js` selecting `response.citations[0]`. The focused alternative-route projection test
+passes and preserves a route-B artifact without route-A status or badge, but Track B and its
+independent reviewer must prove the full validation/publication/hierarchy/rendering path before
+the finding is closed as a false positive.
+
+No product edit, provider call, PR mutation, merge, or protected-untracked-path change occurred in
+Phase 0. The system `py -3.12` interpreter is not installed against this checkout and no repository
+`.venv` exists; provider-free probes therefore inserted `src` in-process without changing the
+environment. Collaboration dispatch exposes model and reasoning selectors, but no fast-mode
+selector. Child tasks will explicitly use `gpt-5.6-sol` and High reasoning; fast-mode state will
+be recorded as unavailable and unverified.
+
+## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at
 `3533d49a61e77c76794b4ba8338ccf60ee8201ef`. Worker corrections were integrated sequentially as
@@ -60,7 +80,7 @@ zero remote requests and exact M10/M11/M12/M13 Detail/Evidence navigation. Fresh
 private-scale acceptance passes 1,812 scenes, 2,590 logical jobs, full fault/recovery hierarchy,
 source/authority immutability, and exact zero-call replay with all safety counters zero.
 
-Lifecycle is `PR ready`. Independent reviewer `/root/m13_final_targeted_review` passed exact integrated head
+Lifecycle was `PR ready` at that historical head. Independent reviewer `/root/m13_final_targeted_review` passed exact integrated head
 `e79384bb7d16b93b734a47111981996261047965` with no P0, P1, or new P2 after 105 + 32 + 2 focused
 tests and a clean zero-edit detached review. The approved production-path run at exact head
 `677d88152e100afd154bb54da249582ff0a2ffcd` completed with contract-valid terminal `partial`:

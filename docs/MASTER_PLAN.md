@@ -2,10 +2,11 @@
 
 Last revised: 2026-07-16
 
-Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
-retains its semantic-review `PASS`, and is PR ready on existing unmerged PR #23 after an
-authorized bounded correction cycle. Its independent targeted correction review, approved
-final-head live/replay acceptance, and unbounded GitHub Release validation all pass.
+Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16 and
+retains its semantic-review `PASS`, but existing unmerged PR #23 returned to `Integration` on
+2026-07-17 after a final bounded current-head audit reproduced P1 defects in restart, accounting,
+privacy, and citation behavior. Prior review, live/replay, and Release results remain historical
+evidence for their exact heads; they are not proof of the pending corrected head.
 
 ## 1. Product goal
 
@@ -1248,4 +1249,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Hold PR-ready PR #23 open and unmerged for a separate user merge decision. Do not begin M14.
+Complete the authorized final bounded M13 correction cycle on existing PR #23, restore genuine PR
+readiness with current-head evidence, and leave the PR open and unmerged. Do not begin M14.

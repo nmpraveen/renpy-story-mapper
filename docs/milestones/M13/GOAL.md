@@ -1,10 +1,11 @@
 # M13 - Optional AI narrative layer
 
-Status: PR ready (semantic review PASS retained)
+Status: Integration (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
-implementation approval and twelve binding amendment sections, plus the user's 2026-07-17 final
-authorized bounded correction handoff for existing PR #23
+implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
+bounded correction handoff, plus the user's 2026-07-17 final bounded eight-finding correction
+authorization for existing PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -61,6 +62,38 @@ The deepest-only nested temporary-container presentation may remain a documented
 Richer title/summary evidence, advanced character interpretation, LM Studio, weak-boundary
 suggestions, export polish, broad nested-container redesign, M14, PR merge, and any live provider
 transmission without exact approval are excluded.
+
+## Final bounded correction evidence contract
+
+At exact current PR head `e17ba5e3de295c83bba223f858098b65d84291b6`, the coordinator must
+resolve or disprove exactly these eight findings without changing the done condition:
+
+1. Preserve monotonic cumulative calls, tokens, elapsed time, cost, and peak concurrency across
+   cache-only phases, reopen, and later work.
+2. Enforce total, transient, malformed, call, token, time, and cost ceilings before every submit,
+   including after reopen.
+3. Persist a call/usage reservation before invocation, finalize it idempotently, and recover an
+   unresolved reservation conservatively without fractionalizing one transport call.
+4. Persist the complete privacy-safe browser retry identity before execution and reject any
+   changed authority, input, provider/model/settings, privacy, scope, budget, schema, run, or
+   consent before submit.
+5. Treat only an explicit provider-boundary attestation as proof of non-transmission; transmitted
+   or unknown failures consume a call and exact or conservative usage.
+6. Keep result-level M12 status/badge on its result context and never present it as alternative
+   path authority while preserving the alternative's own exact commitments, warnings, lane,
+   ordinal, and provenance.
+7. Deny normalized credential aliases including `secret_key`, `secretValue`, `token_value`,
+   `openai_api_key`, and `providerAccessToken` recursively at every production M13 persistence
+   boundary while allowing legitimate accounting and prompt-metadata fields.
+8. Give every bounded resolved citation a compact control that opens its exact M10/M11/M12 target
+   through the existing Detail/Evidence workspace with zero provider calls and no raw-record panel
+   or third semantic level.
+
+Phase 0 reproduced findings 1-5, 7, and 8 by deterministic probe or exact current-head code path.
+Finding 6 is a false-positive candidate because
+`test_m12_leaf_projection_separates_result_and_path_authority` passes, but it remains open until
+Track B proves validation, publication, hierarchy, and rendering and its independent reviewer
+confirms the result. Historical acceptance evidence below remains valid only for its exact heads.
 
 ## Deliverables
 
@@ -183,17 +216,18 @@ transmission without exact approval are excluded.
     integration commit, and native infographic are durable; one M13 PR is ready but is neither
     created nor merged without explicit user approval.
 
-## Required evidence
+## Historical prior-cycle required evidence (not current-cycle proof)
 
-Correction-cycle status: runtime corrections are frozen at
+Prior correction-cycle status: runtime corrections were frozen at
 `3533d49a61e77c76794b4ba8338ccf60ee8201ef`, and the current sanitized evidence index is
 `docs/milestones/M13/CURRENT_EVIDENCE.json`. Required local, Windows, browser, and private-scale
 gates pass, independent targeted review at `e79384b` returns PASS with no P0/P1/new P2, and the
 approved final-head browser/backend live run plus exact fail-closed replay pass at `677d881`.
-Existing PR #23 contains the reconciled evidence and is remotely verified. The user-authorized
+Existing PR #23 contains that reconciled historical evidence and was remotely verified. The user-authorized
 unbounded GitHub Release run `29604661539` passed at branch head
 `7bf54042639a781313cf6c924e09a0ee023a86f2` with 1,081 passed, 7 deselected, and every
-quality/build/package gate green. The lifecycle is therefore `PR ready`.
+quality/build/package gate green. That prior lifecycle reached `PR ready`; the active lifecycle is
+now `Integration` pending new integrated-head evidence.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|

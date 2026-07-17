@@ -1,6 +1,7 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready; existing PR #23 open, non-draft, clean, and unmerged
+Status: Historical prior PR-ready report; M13 reopened to Integration for the final bounded
+eight-finding correction cycle on existing PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -14,6 +15,12 @@ verified, and unbounded GitHub Release run `29604661539` passed at branch head
 requires separate approval.
 
 ## Outcome
+
+Current lifecycle note: a later focused logic review triggered a new exact-head audit at
+`e17ba5e3de295c83bba223f858098b65d84291b6`. Findings 1-5, 7, and 8 reproduced by deterministic
+probe or exact code path; finding 6 remains a false-positive candidate pending Track B proof and
+independent confirmation. All evidence below is retained as historical evidence for its named
+head and must not be presented as proof of the pending corrected head.
 
 The authorized bounded-correction runtime is frozen at `3533d49`. Exact M12 result/path/scene/
 hierarchy authority, compatible durable resume, cumulative and failed-call accounting, browser
