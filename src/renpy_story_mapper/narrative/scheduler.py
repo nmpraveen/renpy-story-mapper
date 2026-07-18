@@ -426,6 +426,14 @@ class SchedulerUsage:
 
 
 @dataclass(frozen=True)
+class SchedulerResumeUsage:
+    """Provenance-separated usage reconstructed before scheduler admission."""
+
+    current_phase_usage: SchedulerUsage = SchedulerUsage()
+    opaque_legacy_cumulative_usage: SchedulerUsage | None = None
+
+
+@dataclass(frozen=True)
 class SchedulerCallReservation:
     """Durable conservative usage reserved before one provider invocation."""
 
@@ -534,6 +542,8 @@ class SchedulerRunRecord:
     error_code: str | None = None
     compatibility_id: str | None = None
     cumulative_usage: SchedulerUsage | None = None
+    prior_cumulative_usage: SchedulerUsage | None = None
+    current_phase_usage: SchedulerUsage | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -556,6 +566,16 @@ class SchedulerRunRecord:
             "usage": self.usage.to_dict(),
             "cumulative_usage": (
                 self.usage if self.cumulative_usage is None else self.cumulative_usage
+            ).to_dict(),
+            "prior_cumulative_usage": (
+                SchedulerUsage()
+                if self.prior_cumulative_usage is None
+                else self.prior_cumulative_usage
+            ).to_dict(),
+            "current_phase_usage": (
+                self.usage
+                if self.current_phase_usage is None
+                else self.current_phase_usage
             ).to_dict(),
             "succeeded_jobs": self.succeeded_jobs,
             "partial_jobs": self.partial_jobs,
@@ -590,7 +610,7 @@ class SchedulerSink(Protocol):
         consent: ConsentManifest,
         jobs: Sequence[ScheduledSceneJob],
         compatibility_id: str,
-    ) -> SchedulerUsage: ...
+    ) -> SchedulerResumeUsage: ...
 
     def record_job(self, record: SchedulerJobRecord) -> None: ...
 
@@ -646,9 +666,18 @@ class NarrativeScheduler:
         ordered = tuple(sorted(jobs, key=lambda item: (item.ordinal, item.logical_job_id)))
         self._validate_start(ordered, consent)
         compatibility_id = scheduler_compatibility_id(consent, ordered)
-        durable_usage = self._sink.resume_usage(consent, ordered, compatibility_id)
-        usage = _conservative_usage(durable_usage, initial_usage)
-        started_at = self._clock() - usage.elapsed_ms / 1_000
+        resumed = self._sink.resume_usage(consent, ordered, compatibility_id)
+        prior_usage = SchedulerUsage() if initial_usage is None else initial_usage
+        phase_usage = resumed.current_phase_usage
+        usage = _sum_cumulative_usage(prior_usage, phase_usage)
+        if resumed.opaque_legacy_cumulative_usage is not None:
+            usage = _conservative_usage(
+                usage,
+                resumed.opaque_legacy_cumulative_usage,
+            )
+        resumed_at = self._clock()
+        started_at = resumed_at - usage.elapsed_ms / 1_000
+        phase_started_at = resumed_at - phase_usage.elapsed_ms / 1_000
         histories = {
             job.logical_job_id: list(
                 self._sink.attempt_history(consent.run_id, consent.manifest_id, job)
@@ -672,6 +701,8 @@ class NarrativeScheduler:
                 records,
                 consent,
                 usage,
+                prior_usage,
+                phase_usage,
                 started_at,
                 SchedulerRunState.CANCELLED,
                 "cancelled",
@@ -729,10 +760,17 @@ class NarrativeScheduler:
                 records,
                 consent,
                 usage,
+                prior_usage,
+                phase_usage,
                 started_at,
                 cache_state,
                 None,
                 reported_usage=SchedulerUsage(),
+            )
+
+        if resumed.opaque_legacy_cumulative_usage is not None:
+            raise SchedulerConfigurationError(
+                "legacy cumulative usage overlaps durable state without provenance"
             )
 
         initial_batches = list(
@@ -757,6 +795,8 @@ class NarrativeScheduler:
                 records,
                 consent,
                 usage,
+                prior_usage,
+                phase_usage,
                 started_at,
                 SchedulerRunState.FAILED,
                 "provider_refusal",
@@ -780,6 +820,8 @@ class NarrativeScheduler:
                 records,
                 consent,
                 usage,
+                prior_usage,
+                phase_usage,
                 started_at,
                 SchedulerRunState.FAILED,
                 "internal_error",
@@ -807,7 +849,13 @@ class NarrativeScheduler:
                 queue[0:0] = list(retry_batches)
                 continue
 
-            usage = self._observe_elapsed_usage(usage, started_at)
+            observed_at = self._clock()
+            usage = self._observe_elapsed_usage(
+                usage, started_at, observed_at=observed_at
+            )
+            phase_usage = self._observe_elapsed_usage(
+                phase_usage, phase_started_at, observed_at=observed_at
+            )
             limit_error = self._preflight_limit(
                 batch,
                 job_by_id,
@@ -851,6 +899,7 @@ class NarrativeScheduler:
             )
             self._sink.reserve_call(reservation)
             usage_before_submit = usage
+            phase_usage_before_submit = phase_usage
             usage = SchedulerUsage(
                 provider_calls=call_number,
                 input_tokens=usage.input_tokens,
@@ -859,6 +908,15 @@ class NarrativeScheduler:
                 cost_micros=usage.cost_micros,
                 peak_concurrency=max(usage.peak_concurrency, 1),
                 usage_estimated=usage.usage_estimated,
+            )
+            phase_usage = SchedulerUsage(
+                provider_calls=phase_usage.provider_calls + 1,
+                input_tokens=phase_usage.input_tokens,
+                output_tokens=phase_usage.output_tokens,
+                elapsed_ms=phase_usage.elapsed_ms,
+                cost_micros=phase_usage.cost_micros,
+                peak_concurrency=max(phase_usage.peak_concurrency, 1),
+                usage_estimated=phase_usage.usage_estimated,
             )
             submitted_at = self._clock()
             try:
@@ -883,12 +941,23 @@ class NarrativeScheduler:
                         started_at,
                         estimated=metrics_estimated,
                     )
+                    phase_usage = self._add_usage(
+                        phase_usage,
+                        failure_usage,
+                        phase_started_at,
+                        estimated=metrics_estimated,
+                    )
                 else:
                     failure_usage = self._not_transmitted_usage(submitted_at)
                     usage = self._add_usage(
                         usage_before_submit,
                         failure_usage,
                         started_at,
+                    )
+                    phase_usage = self._add_usage(
+                        phase_usage_before_submit,
+                        failure_usage,
+                        phase_started_at,
                     )
                 metric_shares = (
                     {
@@ -959,6 +1028,12 @@ class NarrativeScheduler:
                 usage,
                 response_usage,
                 started_at,
+                estimated=response_usage_estimated,
+            )
+            phase_usage = self._add_usage(
+                phase_usage,
+                response_usage,
+                phase_started_at,
                 estimated=response_usage_estimated,
             )
             self._sink.finalize_call(
@@ -1349,6 +1424,8 @@ class NarrativeScheduler:
             records,
             consent,
             usage,
+            prior_usage,
+            phase_usage,
             started_at,
             run_state,
             forced_error,
@@ -1962,10 +2039,18 @@ class NarrativeScheduler:
         self,
         usage: SchedulerUsage,
         started_at: float,
+        *,
+        observed_at: float | None = None,
     ) -> SchedulerUsage:
         observed_elapsed = max(
             usage.elapsed_ms,
-            int((self._clock() - started_at) * 1_000),
+            int(
+                (
+                    (self._clock() if observed_at is None else observed_at)
+                    - started_at
+                )
+                * 1_000
+            ),
         )
         if observed_elapsed == usage.elapsed_ms:
             return usage
@@ -2172,6 +2257,8 @@ class NarrativeScheduler:
         records: Mapping[str, SchedulerJobRecord],
         consent: ConsentManifest,
         usage: SchedulerUsage,
+        prior_usage: SchedulerUsage,
+        phase_usage: SchedulerUsage,
         started_at: float,
         state: SchedulerRunState,
         error_code: str | None,
@@ -2203,6 +2290,8 @@ class NarrativeScheduler:
             error_code=error_code,
             compatibility_id=scheduler_compatibility_id(consent, jobs),
             cumulative_usage=final_usage,
+            prior_cumulative_usage=prior_usage,
+            current_phase_usage=phase_usage,
         )
         self._sink.record_run(run)
         return SchedulerRunResult(
@@ -2287,4 +2376,20 @@ def _conservative_usage(
         cost_micros=cost,
         peak_concurrency=max(durable.peak_concurrency, supplied.peak_concurrency),
         usage_estimated=durable.usage_estimated or supplied.usage_estimated,
+    )
+
+
+def _sum_cumulative_usage(left: SchedulerUsage, right: SchedulerUsage) -> SchedulerUsage:
+    if left.cost_micros is None or right.cost_micros is None:
+        cost: int | None = None
+    else:
+        cost = left.cost_micros + right.cost_micros
+    return SchedulerUsage(
+        provider_calls=left.provider_calls + right.provider_calls,
+        input_tokens=left.input_tokens + right.input_tokens,
+        output_tokens=left.output_tokens + right.output_tokens,
+        elapsed_ms=left.elapsed_ms + right.elapsed_ms,
+        cost_micros=cost,
+        peak_concurrency=max(left.peak_concurrency, right.peak_concurrency),
+        usage_estimated=left.usage_estimated or right.usage_estimated,
     )

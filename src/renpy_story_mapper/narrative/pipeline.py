@@ -215,6 +215,7 @@ def run_complete_narrative(
     pricing: ProviderPricing | None = None,
     include_characters: bool = True,
     cancelled: CancelledCallback = lambda: False,
+    initial_usage: SchedulerUsage | None = None,
 ) -> NarrativePipelineResult:
     """Run the consented scope automatically until completion, cancellation, or a hard limit."""
 
@@ -253,6 +254,7 @@ def run_complete_narrative(
         consent,
         policy=policy,
         cancelled=cancelled,
+        initial_usage=initial_usage,
     )
     phases.append(scene_run)
     usage = _cumulative_usage(scene_run.record)

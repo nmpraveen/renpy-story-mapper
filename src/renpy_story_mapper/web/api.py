@@ -1316,10 +1316,14 @@ class ProjectApi:
         try:
             with Project.open(self._project()) as opened_project:
                 consent = grant_narrative_consent(opened_project, web_run.prepared)
-                self._persist_m13_browser_identity(opened_project, web_run, consent)
+                prior_usage = self._persist_m13_browser_identity(
+                    opened_project, web_run, consent
+                )
             started = self._start(
                 "m13_narrative",
-                lambda cancelled: self._m13_execute(web_run, consent, cancelled),
+                lambda cancelled: self._m13_execute(
+                    web_run, consent, prior_usage, cancelled
+                ),
             )
         except Exception:
             with self._lock:
@@ -1334,6 +1338,7 @@ class ProjectApi:
         self,
         web_run: _PreparedM13WebRun,
         consent: ConsentManifest,
+        prior_usage: SchedulerUsage,
         cancelled: threading.Event,
     ) -> None:
         try:
@@ -1345,6 +1350,7 @@ class ProjectApi:
                     consent,
                     policy=web_run.policy,
                     cancelled=cancelled.is_set,
+                    initial_usage=prior_usage,
                 )
                 self._persist_m13_browser_run(opened_project, web_run, result)
             with self._lock:
@@ -1359,7 +1365,7 @@ class ProjectApi:
         project: Project,
         web_run: _PreparedM13WebRun,
         consent: ConsentManifest,
-    ) -> None:
+    ) -> SchedulerUsage:
         """Persist exact retry authority before asynchronous execution can begin."""
 
         persistence = project.m13_persistence()
@@ -1414,12 +1420,14 @@ class ProjectApi:
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = False
+        payload["browser_prior_cumulative_usage"] = cumulative_usage.to_dict()
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             consent.run_id,
             payload,
             authority_binding=authority_binding,
         )
+        return cumulative_usage
 
     @staticmethod
     def _persist_m13_browser_run(

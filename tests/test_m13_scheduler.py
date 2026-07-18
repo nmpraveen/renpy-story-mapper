@@ -55,6 +55,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerConfigurationError,
     SchedulerJobRecord,
     SchedulerPolicy,
+    SchedulerResumeUsage,
     SchedulerRunRecord,
     SchedulerRunState,
     SchedulerSink,
@@ -295,9 +296,9 @@ class MemorySink:
         consent: ConsentManifest,
         jobs: tuple[ScheduledSceneJob, ...],
         compatibility_id: str,
-    ) -> SchedulerUsage:
+    ) -> SchedulerResumeUsage:
         del consent, jobs, compatibility_id
-        return self.cumulative_usage
+        return SchedulerResumeUsage(current_phase_usage=self.cumulative_usage)
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         self.jobs.append(record)
@@ -995,6 +996,55 @@ def test_cross_phase_reopen_adds_prior_and_durable_usage_before_submit() -> None
     assert result.record.cumulative_usage == expected_cumulative
     assert result.jobs[0].attempt_count == 0
     assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_cross_phase_unknown_cost_fails_closed_before_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "unknown recovered cost under a hard cap must block submit"
+        ),
+    )
+    sink = MemorySink(
+        cumulative_usage=SchedulerUsage(
+            provider_calls=1,
+            input_tokens=40,
+            output_tokens=20,
+            elapsed_ms=7,
+            cost_micros=None,
+            peak_concurrency=2,
+            usage_estimated=True,
+        )
+    )
+
+    result = _scheduler(provider, sink).run(
+        (job,),
+        _consent(
+            identity,
+            logical_jobs=1,
+            max_cost_micros=100,
+            estimated_cost_micros=1,
+            cost_confidence=CostConfidence.RELIABLE,
+        ),
+        _validator,
+        initial_usage=SchedulerUsage(
+            provider_calls=2,
+            input_tokens=60,
+            output_tokens=30,
+            elapsed_ms=11,
+            cost_micros=5,
+            peak_concurrency=4,
+        ),
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage.cost_micros is None
+    assert result.record.cumulative_usage.provider_calls == 3
+    assert result.record.cumulative_usage.peak_concurrency == 4
 
 
 def test_postflight_token_overrun_publishes_nothing_and_stops_at_hard_limit() -> None:
