@@ -35,7 +35,14 @@ from renpy_story_mapper.narrative.provider import (
     ProviderStatus,
     ProviderUsage,
 )
-from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.scheduler import (
+    SchedulerConfigurationError,
+    SchedulerPolicy,
+    SchedulerRunRecord,
+    SchedulerRunState,
+    SchedulerUsage,
+    scheduler_compatibility_id,
+)
 from renpy_story_mapper.narrative.segments import SegmentPartitionConfig
 from renpy_story_mapper.narrative.workflow import (
     grant_narrative_consent,
@@ -400,6 +407,96 @@ def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path
         assert replay.record.usage.provider_calls == 0
         assert replay.artifacts == first.artifacts
         assert all(item.cache_replay for item in replay.jobs)
+
+
+def test_legacy_opaque_usage_blocks_submit_after_cache_only_phase_change(
+    tmp_path: Path,
+) -> None:
+    seed_provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        seeded = prepare_narrative_scene_run(
+            project,
+            seed_provider,
+            run_id="pipeline-legacy-opaque-cache-seed",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        run_prepared_scene_jobs(
+            project,
+            seed_provider,
+            seeded,
+            grant_narrative_consent(project, seeded),
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+        assert seed_provider.requests
+
+        provider = CompleteHierarchyProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="pipeline-legacy-opaque-cross-phase",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        zero = SchedulerUsage()
+        opaque = SchedulerUsage(
+            provider_calls=1,
+            input_tokens=20,
+            output_tokens=10,
+            elapsed_ms=5,
+            cost_micros=3,
+            peak_concurrency=1,
+        )
+        browser_run = SchedulerRunRecord(
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            state=SchedulerRunState.RUNNING,
+            provider=consent.provider,
+            usage=zero,
+            succeeded_jobs=0,
+            partial_jobs=0,
+            failed_jobs=0,
+            refused_jobs=0,
+            cancelled_jobs=0,
+            compatibility_id=scheduler_compatibility_id(
+                consent, prepared.scheduled_jobs
+            ),
+            cumulative_usage=zero,
+        ).to_dict()
+        browser_run["browser_pipeline_complete"] = False
+        browser_run["browser_prior_cumulative_usage"] = zero.to_dict()
+        browser_run["browser_legacy_opaque_cumulative_usage"] = opaque.to_dict()
+        project.m13_persistence().put_run(
+            consent.run_id,
+            browser_run,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+        error: SchedulerConfigurationError | None = None
+        try:
+            run_complete_narrative(
+                project,
+                provider,
+                prepared,
+                consent,
+                policy=SchedulerPolicy(_batch_limits()),
+            )
+        except SchedulerConfigurationError as exc:
+            error = exc
+
+        assert provider.requests == [], (
+            "opaque legacy usage crossed a cache-only compatibility boundary and "
+            f"allowed {len(provider.requests)} provider submits"
+        )
+        assert error is not None
+        assert "legacy cumulative usage overlaps durable state" in str(error)
 
 
 def test_complete_pipeline_preserves_restored_usage_after_cache_only_scene_phase(
