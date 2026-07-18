@@ -36,12 +36,13 @@ history only.
 
 ## Historical pre-merge PR #23 outcome
 
-Current final-correction note: multiplicity correction `18f2edf` and exact nontransmission
+At the final pre-merge correction checkpoint, multiplicity correction `18f2edf` and exact nontransmission
 correspondence correction `ba71cda` pass their failing-first reservation cases, 57 combined
 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent exact-head rereview is
-`PASS` with no P0/P1/new P2. Final Windows Release passes 1,135 tests with 7 hardware-sensitive
-deselections plus every quality/build/package gate. Product/evidence head `120a4ec` is pushed and
-remotely verified on PR #23. M13 is `PR ready`; no provider/live rerun or merge was performed.
+`PASS` with no P0/P1/new P2. Final Windows Release passed 1,135 tests with 7 hardware-sensitive
+deselections plus every quality/build/package gate. Product/evidence head `120a4ec` was pushed and
+remotely verified on PR #23. At that checkpoint M13 was `PR ready`; no provider/live rerun or merge
+was performed.
 
 Historical additional-correction interim note: failing-first correction `a7e242b` closes the one-reservation
 reopen case and passes 54 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent
@@ -91,7 +92,7 @@ Windows Release.
 | Final recovered-reservation correction | `18f2edf` and `ba71cda`; failing-first multiplicity/nontransmission cases; 57 workflow/scheduler tests; Ruff and strict mypy pass |
 | Final independent rereview | PASS at exact `ba71cda`; no P0/P1/new P2 |
 | Final Windows Release | 1,135 passed, 7 hardware-sensitive deselected; all quality/build/package gates green |
-| Current remote PR | Product/evidence head `120a4ec` verified open, non-draft, mergeable, and `CLEAN`; no configured status checks |
+| Historical PR #23 checkpoint | Product/evidence head `120a4ec` was verified open, non-draft, mergeable, and `CLEAN`; no configured status checks |
 | Runtime and local/Windows | Runtime `3533d49`; focused M13 291/1, adjacent M12+persistence 139/1, Release 1,079/7 and all quality/build/package checks pass |
 | Browser and private scale | Chrome 100%/200% passes with zero navigation/provider calls; 1,812-scene private-scale simulation passes with exact zero-call replay |
 | Independent review | PASS at `e79384b`; no P0/P1/new P2; detached clean zero-edit review |
@@ -111,7 +112,7 @@ head proof for the reopened correction areas.
 | 20 | Pass | Exact approved live run completed the route-aware hierarchy; fail-closed exact replay made zero submit attempts/calls and reproduced hashes/rendering exactly |
 | 21 | Pass | Source and M10/M11/M12 authority unchanged; no unauthorized remote/game action or raw-debug retention |
 | 22 | Pass | Post-correction Release 1,016/7, focused correction, final-budget review, and post-live audit pass with no unresolved P0/P1 |
-| 23 | Pass | Evidence and infographic are durable; explicitly approved draft PR #23 is open and unmerged |
+| 23 | Pass | Evidence and infographic were durable; explicitly approved draft PR #23 was open and unmerged at that checkpoint |
 
 ## Historical validation snapshot
 
@@ -129,10 +130,9 @@ head proof for the reopened correction areas.
 
 ## Historical PR #23 closeout state
 
-- Current final correction passes through `ba71cda`; final rereview has no P0/P1/new P2; Windows
-  Release passes 1,135/7 and every quality/build/package gate.
+- At PR #23 closeout, the final correction passed through `ba71cda`; final rereview had no
+  P0/P1/new P2; Windows Release passed 1,135/7 and every quality/build/package gate.
 - Native task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` owns this final done condition.
-- Product/evidence head `120a4ec` is remotely verified on existing PR #23. The PR is open,
-  non-draft, mergeable, `CLEAN`, and unmerged, with no configured status checks.
-- Do not merge PR #23, perform another live provider transmission, or begin M14 without separate
-  approval.
+- Product/evidence head `120a4ec` was remotely verified on PR #23. At that checkpoint the PR was
+  open, non-draft, mergeable, `CLEAN`, and unmerged, with no configured status checks.
+- PR #23 later merged at `d37fe236`; another live provider transmission and M14 remain excluded.

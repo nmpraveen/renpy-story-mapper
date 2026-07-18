@@ -32,7 +32,7 @@ identity. No provider/live, browser/private-scale, push/PR mutation by reviewers
 protected-path action occurred. Dispatch used `gpt-5.6-sol` with High reasoning; the task API had no
 fast-mode selector, so fast mode remains unavailable/unverified.
 
-## Final duplicate-reservation rereview (current)
+## Historical final duplicate-reservation rereview
 
 Independent reviewer `/root/m13_multiplicity_rereview` reviewed exact clean head `ba71cda`, ranges
 `58ba7ed..18f2edf` and `18f2edf..ba71cda`, and returned `PASS` with no P0, P1, or new P2. The

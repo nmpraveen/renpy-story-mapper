@@ -36,7 +36,7 @@ inheritable. Historical live-provider outputs, browser retry/reopen accounting, 
 accounting counts, and zero-call replay are retained only as exact-head history. No live provider,
 browser/private-scale rerun, merge, M14, or destructive action was performed.
 
-## Final duplicate-reservation correction evidence (current)
+## Historical final duplicate-reservation correction evidence
 
 At the test-only states, both duplicate-reservation variants failed by resubmitting the target
 under a total ceiling of two, and the finalized nontransmitted case restored 12 ms instead of 6 ms
@@ -50,7 +50,7 @@ whitespace, isolated build/install/import, asset, and notice gates all passed. P
 head `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed to existing PR #23 and remotely verified
 open, non-draft, mergeable, and `CLEAN`; GitHub reports no configured status checks.
 
-## Additional recovered-reservation correction evidence (current)
+## Historical additional recovered-reservation correction evidence
 
 Correction `a7e242b4534f7217d469308392d932795201cb57` added a reopen regression for the exact prior P1.
 At the test-only state, `py -3.12 -m pytest tests/test_m13_workflow.py -k
@@ -109,7 +109,7 @@ historical heads.
 | Initial remote PR workflow at evidence head `d5fdcaa` | Repository helper ended pytest at its fixed 900.24-second cutoff after 73%, with no failed test reported; all later quality/build/package checks passed | Historical infrastructure cutoff, not a product-test failure |
 | Unbounded GitHub Release at branch head `7bf54042639a781313cf6c924e09a0ee023a86f2` | Run `29604661539` passed: 1,081 tests passed, 7 deselected in 790.16 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import, browser assets, and notices passed | Release step 806 seconds; complete job 14 minutes 22 seconds; no repository workflow/process cutoff; no local rerun |
 
-## Current approved final-head live execution and replay
+## Historical approved pre-merge live execution and replay
 
 The zero-submit preparation first stopped as required. A copied-source confirmation attempt then
 failed closed before provider discovery because the absolute source locator is authority-bound;
@@ -354,9 +354,9 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
   provider requests.
 - Historical live failures remain preserved above. The final exact `740e321` live execution and
   fail-closed replay satisfy criterion 20; the two partial scenes are valid claim-level salvage.
-- Final-head independent budget review and post-live evidence audit both pass with no unresolved
-  P0/P1. Post-correction focused and Release results are recorded in this report.
+- Historical final-head independent budget review and post-live evidence audit both passed with no
+  unresolved P0/P1. Their focused and Release results remain recorded as exact-head history.
 - The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
   `fast_mode=false`; this does not claim that the task API independently verified that setting.
-- Explicitly approved draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is
-  open and mergeable. It remains unmerged and requires separate approval before merge.
+- Explicitly approved [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) was open and
+  mergeable at that historical checkpoint; it later merged at `d37fe236`.

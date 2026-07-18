@@ -148,7 +148,7 @@
       "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
     },
     {
-      "id": "current-head-authorized-live",
+      "id": "historical-pre-merge-authorized-live",
       "classification": "public",
       "criteria": [2, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 20, 21, 22, 23],
       "command": "real Chrome plus production ProjectApi prepare/start using the default Codex provider under one exact approved manifest, followed by fail-closed exact cache replay",
@@ -167,29 +167,44 @@
   ],
   "review": {
     "status": "passed",
+    "reviewed_head_sha": "a71d5888d55d0d5a19ddb84efd522dccdcbe282d",
+    "reviewers": [
+      "Track A Reviewer A",
+      "Track B independent audit",
+      "Track C final Reviewer C"
+    ],
+    "verdict": "PASS; no P0-P3",
+    "focused_results": [
+      "97 scheduler/workflow/pipeline/API tests passed in 114.63 seconds",
+      "Track B 15-test adversarial recovery matrix passed",
+      "Track C 12-case checkpoint truth table passed"
+    ],
+    "worktree_state": "review worktrees clean with zero tracked edits",
+    "external_actions": 0,
+    "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
+  },
+  "historical_pre_merge_review": {
+    "status": "passed",
     "reviewed_head_sha": "e79384bb7d16b93b734a47111981996261047965",
     "runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
     "reviewer": "/root/m13_final_targeted_review",
     "verdict": "PASS; no P0, P1, or new P2",
-    "focused_results": [
-      "105 passed in 25.66 seconds",
-      "32 passed in 6.14 seconds",
-      "2 passed in 0.06 seconds"
-    ],
-    "worktree_state": "detached and clean; zero tracked or untracked edits",
-    "external_actions": 0,
     "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
   },
   "live_evidence_disposition": {
-    "historical_live_evidence": "accepted only as historical evidence at its recorded pre-correction head",
-    "current_head_transmissions": 24,
-    "current_head_status": "Passed. The exact approved production-path run at head 677d88152e100afd154bb54da249582ff0a2ffcd published all 90 eligible jobs and the complete route-aware hierarchy. Fail-closed exact replay made zero submit attempts, calls, or tokens and reproduced artifact hashes/rendering exactly.",
-    "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
-    "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
-    "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
-    "replay_provider_submits": 0,
-    "replay_provider_calls": 0,
-    "replay_total_tokens": 0
+    "current_cycle_provider_transmissions": 0,
+    "current_cycle_status": "not run; this post-merge correction is provider-free",
+    "historical_pre_merge_live": {
+      "evidence_head_sha": "677d88152e100afd154bb54da249582ff0a2ffcd",
+      "status": "passed at its historical exact head only",
+      "provider_transmissions": 24,
+      "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
+      "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
+      "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
+      "replay_provider_submits": 0,
+      "replay_provider_calls": 0,
+      "replay_total_tokens": 0
+    }
   },
   "pull_request": {
     "number": 24,
