@@ -342,6 +342,7 @@ class M13SchedulerPersistenceSink:
         self._resume_consent: ConsentManifest | None = None
         self._resume_compatibility_id: str | None = None
         self._opaque_legacy_resume = False
+        self._run_opaque_usage: SchedulerUsage | None = None
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         result = self._persistence.lookup_cache(
@@ -382,6 +383,7 @@ class M13SchedulerPersistenceSink:
         self._resume_consent = consent
         self._resume_compatibility_id = compatibility_id
         self._opaque_legacy_resume = False
+        self._run_opaque_usage = None
         consent_lookup = self._persistence.lookup(
             RecordKind.CONSENT,
             consent.manifest_id,
@@ -402,10 +404,15 @@ class M13SchedulerPersistenceSink:
         )
         pipeline_opaque_usage: SchedulerUsage | None = None
         if run_scope.state is LookupState.HIT and run_scope.payload is not None:
-            raw_pipeline_opaque = run_scope.payload.get(
-                "browser_legacy_opaque_cumulative_usage"
+            opaque_fields = tuple(
+                field
+                for field in (
+                    "opaque_legacy_cumulative_usage",
+                    "browser_legacy_opaque_cumulative_usage",
+                )
+                if field in run_scope.payload
             )
-            if raw_pipeline_opaque is not None:
+            if opaque_fields:
                 if (
                     run_scope.payload.get("consent_manifest_id")
                     != consent.manifest_id
@@ -414,12 +421,37 @@ class M13SchedulerPersistenceSink:
                     != storage.canonical_json(consent.provider.to_dict())
                 ):
                     raise ValueError("opaque browser usage has incompatible run identity")
-                pipeline_opaque_usage = _scheduler_usage_from_payload(
-                    raw_pipeline_opaque
+                opaque_values = tuple(
+                    _scheduler_usage_from_payload(run_scope.payload[field])
+                    for field in opaque_fields
                 )
-                if pipeline_opaque_usage is None:
-                    raise ValueError("opaque browser usage is invalid")
+                if any(value is None for value in opaque_values):
+                    raise ValueError("run-scoped opaque usage is invalid")
+                parsed_opaque = tuple(
+                    cast(SchedulerUsage, value) for value in opaque_values
+                )
+                if any(value != parsed_opaque[0] for value in parsed_opaque[1:]):
+                    raise ValueError("run-scoped opaque usage markers conflict")
+                pipeline_opaque_usage = parsed_opaque[0]
                 self._opaque_legacy_resume = True
+                self._run_opaque_usage = pipeline_opaque_usage
+            elif "usage_checkpoint" not in run_scope.payload:
+                modern_browser_running = (
+                    run_scope.payload.get("state")
+                    == SchedulerRunState.RUNNING.value
+                    and "browser_prior_cumulative_usage" in run_scope.payload
+                )
+                if not modern_browser_running:
+                    raw_aggregate = run_scope.payload.get(
+                        "cumulative_usage", run_scope.payload.get("usage")
+                    )
+                    pipeline_opaque_usage = _scheduler_usage_from_payload(
+                        raw_aggregate
+                    )
+                    if pipeline_opaque_usage is None:
+                        raise ValueError("legacy aggregate usage is invalid")
+                    self._opaque_legacy_resume = True
+                    self._run_opaque_usage = pipeline_opaque_usage
 
         compatible_keys = {
             (
@@ -499,6 +531,7 @@ class M13SchedulerPersistenceSink:
                     opaque_usage = _merge_scheduler_usage(
                         opaque_usage, pipeline_opaque_usage
                     )
+                self._run_opaque_usage = opaque_usage
                 return SchedulerResumeUsage(
                     current_phase_usage=usage,
                     opaque_legacy_cumulative_usage=opaque_usage,
@@ -688,6 +721,10 @@ class M13SchedulerPersistenceSink:
             ):
                 if field in existing.payload:
                     payload[field] = cast(JsonValue, existing.payload[field])
+        if self._run_opaque_usage is not None:
+            payload["opaque_legacy_cumulative_usage"] = cast(
+                JsonValue, self._run_opaque_usage.to_dict()
+            )
         if record.error_code is not None:
             payload["error"] = cast(JsonValue, sanitized_error(record.error_code))
         self._persistence.put_run(

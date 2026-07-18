@@ -274,6 +274,26 @@ def _m13_scheduler_usage(raw: object) -> SchedulerUsage | None:
     )
 
 
+def _m13_run_opaque_usage(payload: Mapping[str, object]) -> SchedulerUsage | None:
+    fields = tuple(
+        field
+        for field in (
+            "opaque_legacy_cumulative_usage",
+            "browser_legacy_opaque_cumulative_usage",
+        )
+        if field in payload
+    )
+    if not fields:
+        return None
+    values = tuple(_m13_scheduler_usage(payload[field]) for field in fields)
+    if any(value is None for value in values):
+        raise ValueError("browser retry opaque usage is invalid")
+    parsed = tuple(cast(SchedulerUsage, value) for value in values)
+    if any(value != parsed[0] for value in parsed[1:]):
+        raise ValueError("browser retry opaque usage markers conflict")
+    return parsed[0]
+
+
 class SelectionRegistry:
     """Per-launch opaque references; paths are never serialized to the browser."""
 
@@ -1393,12 +1413,13 @@ class ProjectApi:
             )
             if parsed_cumulative is None:
                 raise ValueError("browser retry cumulative usage is invalid")
+            legacy_opaque_usage = _m13_run_opaque_usage(existing.payload)
             parsed_prior = _m13_scheduler_usage(
                 existing.payload.get("browser_prior_cumulative_usage")
             )
             if parsed_prior is not None:
                 cumulative_usage = parsed_prior
-            else:
+            elif legacy_opaque_usage is None:
                 legacy_opaque_usage = parsed_cumulative
         elif existing.state is not LookupState.MISS:
             raise ValueError("browser retry run state is unavailable")
@@ -1431,9 +1452,7 @@ class ProjectApi:
         payload["browser_pipeline_complete"] = False
         payload["browser_prior_cumulative_usage"] = cumulative_usage.to_dict()
         if legacy_opaque_usage is not None:
-            payload["browser_legacy_opaque_cumulative_usage"] = (
-                legacy_opaque_usage.to_dict()
-            )
+            payload["opaque_legacy_cumulative_usage"] = legacy_opaque_usage.to_dict()
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             consent.run_id,
@@ -1458,6 +1477,17 @@ class ProjectApi:
             "resume_consent_id": result.record.consent_manifest_id,
         }
         payload = result.record.to_dict()
+        existing = persistence.lookup(
+            RecordKind.RUN,
+            result.record.run_id,
+            authority_binding=authority_binding,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            legacy_opaque_usage = _m13_run_opaque_usage(existing.payload)
+            if legacy_opaque_usage is not None:
+                payload["opaque_legacy_cumulative_usage"] = (
+                    legacy_opaque_usage.to_dict()
+                )
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = True

@@ -2030,6 +2030,18 @@ def _finish_pipeline(
             },
         },
     )
+    existing = project.m13_persistence().lookup(
+        RecordKind.RUN,
+        consent.run_id,
+        authority_binding=project_scene_authority_binding(project),
+    )
+    if existing.state is LookupState.HIT and existing.payload is not None:
+        for field in (
+            "opaque_legacy_cumulative_usage",
+            "browser_legacy_opaque_cumulative_usage",
+        ):
+            if field in existing.payload:
+                payload[field] = cast(JsonValue, existing.payload[field])
     project.m13_persistence().put_run(
         consent.run_id,
         payload,

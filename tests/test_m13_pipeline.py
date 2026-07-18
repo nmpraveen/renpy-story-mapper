@@ -469,8 +469,10 @@ def test_legacy_opaque_usage_blocks_submit_after_cache_only_phase_change(
             failed_jobs=0,
             refused_jobs=0,
             cancelled_jobs=0,
-            compatibility_id=scheduler_compatibility_id(
-                consent, prepared.scheduled_jobs
+            compatibility_id=(
+                scheduler_compatibility_id(consent, prepared.scheduled_jobs)
+                if explicit_marker
+                else "m13_legacy_opaque_incompatible_phase"
             ),
             cumulative_usage=zero,
         ).to_dict()
