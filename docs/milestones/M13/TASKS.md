@@ -1,8 +1,8 @@
 # M13 task ledger
 
-Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
+Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Integration branch: `codex/m13-narrative-layer`
+Integration branch: `codex/m13-post-merge-usage-recovery`
 
 Orchestration limitation: current collaboration controls expose model and reasoning-effort but
 not a fast-mode selector. Current M13 tasks were dispatched explicitly with `gpt-5.6-sol` and High
@@ -11,6 +11,10 @@ fixed provider settings in M13 product contracts or tests.
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
+| Post-merge cumulative-resource correction coordination | Phase Coordinator, this visible parent task; goal `019f7308-a9a6-7562-a422-ab09c1ec077f` | Reopen M13 contract; integrate one bounded provider-free correction; frozen verification/evidence; corrective PR | User authorization; merged baseline `d37fe236`; retained semantic `PASS` | In progress | Baseline and PR merge tree verified; static defect confirmed; visible track IDs recorded after creation |
+| Track A runtime correction | Visible Track A Coordinator | Sole product writer; failing-first recovery model, minimal implementation, focused verification, read-only Reviewer A | Contract commit; Track B design gate | Pending | Separate worktree; exact base/head, tests, review, changed files, risks required |
+| Track B independent audit | Visible Track B Coordinator | Read-only usage invariant, evidence inheritance, lifecycle/roadmap/M09 audit, consolidated Reviewer B verdict | Contract commit; Track A design and later commit supplied by parent | Pending | Separate worktree; no product/lifecycle edits |
+| Track C frozen exact-diff review | Visible Track C Coordinator | Read-only exact-diff correctness/security and evidence adequacy; final verdict and docs reconciliation | Product candidate frozen and draft corrective PR opened | Pending | Create only at frozen product commit in separate worktree |
 | Final bounded correction coordination | Phase Coordinator `/root`; goal `019f7264-0e92-7e33-a372-ee81de102ab8` | Exact Phase 0 state, lifecycle, recovered-reservation corrections/rereviews, verification, evidence, existing PR #23 update | Lifecycle head `58ba7ed`; semantic `PASS`; renewed explicit authorization | Complete | Correction/rereview passes at `ba71cda`; Windows Release passes 1,135/7 and every quality/package gate; evidence head `120a4ec` is pushed and PR #23 is open/non-draft/mergeable/`CLEAN` with no configured checks; no provider/live transmission, merge, or M14 |
 | Duplicate reservation multiplicity correction | Phase Coordinator `/root` | Preserve each compatible durable reservation as one consumed logical attempt; exact persisted-attempt de-duplication; focused workflow tests | Rereview P1 at `a7e242b`; renewed explicit authorization | Complete | `18f2edf` plus `ba71cda`; multiplicity and nontransmission regressions failed first; reservation set 5 and workflow/scheduler 57 pass with Ruff, strict mypy, and diff checks |
 | Duplicate reservation final rereview | `/root/m13_multiplicity_rereview` | Read-only exact-head multiplicity, correspondence, usage, ceiling, compatibility, idempotency, and cache review | Corrections through `ba71cda` | Complete | PASS at exact clean `ba71cda`; no P0/P1/new P2; 5 + 57 tests and static checks pass; zero edits/external actions; fast selector unavailable/unverified |
