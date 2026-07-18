@@ -207,6 +207,15 @@ submissions. Both authorized correction/rereview loops are consumed, so no third
 correction, integration, Release, Track C, push, or corrective PR is permitted without renewed
 user authorization. The Phase Coordinator branch has not integrated the failed Track A candidate.
 
+Track B independently confirmed the same compatibility-crossing opaque-legacy P1 without edits.
+Its read-only lifecycle audit also verified through GitHub that M09 PR #16 merged on 2026-07-13,
+contradicting the still-unmerged wording in `MASTER_PLAN.md` and the M09 completion report. That
+historical correction remains deferred to authorized Phase 3. The failed candidate changes
+scheduler, workflow, pipeline, and browser API accounting: prior M10-M12 authority/source hashes
+and unchanged static browser assets remain historical evidence, while live/replay/private-scale
+accounting and browser retry-lifecycle behavior cannot establish exact-head correctness for a
+future candidate without the contract's final inheritance review.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,

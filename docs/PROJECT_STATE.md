@@ -59,6 +59,14 @@ Phase Coordinator stopped without integrating Track A, running Release, creating
 pushing, opening a corrective PR, transmitting to a provider, merging, or starting M14. Renewed
 user authorization is required for any third narrowly bounded correction and rereview.
 
+Track B independently confirmed the same P1 without edits. Read-only remote audit verified M09
+PR #16 is `MERGED` with `mergedAt=2026-07-13T18:55:27Z`, directly contradicting the current
+`MASTER_PLAN.md` and M09 completion-report claims that it remains unmerged; the authorized Phase 3
+reconciliation has not begun. The failed Track A range changes scheduler, workflow, pipeline, and
+browser API accounting. Historical M10-M12 authority/source hashes and unchanged static browser
+assets remain inheritable facts, but prior live/replay/private-scale accounting and browser retry
+lifecycle runs are not exact-head proof for any future corrected candidate. M14 remains deferred.
+
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
 contradictions, claim-level salvage, one required cloud adapter, simple manifest consent,
