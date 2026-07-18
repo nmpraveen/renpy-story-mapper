@@ -1,6 +1,6 @@
 # M13 integrated and independent review report
 
-Status: PASS for the post-merge cumulative-resource correction at `a71d588`; no P0-P3
+Status: PASS for the merged cumulative-resource correction at `a71d588`; no P0-P3
 
 Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
@@ -31,6 +31,10 @@ attempt multiplicity, UNKNOWN/TRANSMITTED and NOT_TRANSMITTED semantics, and con
 identity. No provider/live, browser/private-scale, push/PR mutation by reviewers, merge, M14, or
 protected-path action occurred. Dispatch used `gpt-5.6-sol` with High reasoning; the task API had no
 fast-mode selector, so fast mode remains unavailable/unverified.
+
+After review froze, exact final PR head `9e7d387` passed GitHub Release run `29632577820`. The user
+separately authorized merge, and PR #24 merged as `3fff476` on 2026-07-18. This closeout does not
+change the review verdict or its exact product-head scope.
 
 ## Historical final duplicate-reservation rereview
 

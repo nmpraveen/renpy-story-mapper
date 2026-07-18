@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: PR ready; post-merge product/review and exact pushed-head CI gates pass
+Status: Complete; corrective PR #24 merged after product/review and exact final-head CI passed
 
 Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
@@ -25,16 +25,20 @@ Corrected integrated product head: `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`.
 | Track C review | Initial CHANGES REQUESTED at `5c792c1`; final PASS at `a71d588`, no P0-P3; original five-call probe now fails closed with zero resumed submit |
 | Single local Windows Release | At predecessor `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import/assets/notices all passed |
 | Exact pushed-head full gate | GitHub Release run `29632020095` passed in 17m17s at `f8525a2` |
+| Exact final PR-head full gate | GitHub Release run `29632577820` passed in 19m04s at `9e7d387025ed29fdd1c7a43442db4dffda3db0ad` |
+| Merge confirmation | PR #24 state `MERGED` at 2026-07-18T11:12:47Z; normal merge `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` has reviewed head `9e7d387` as its second parent and is `origin/main` |
 
 The local Release was intentionally not repeated after Track C's final two-file correction because
 the user authorized one Windows Release. Exact-head assurance for `a71d588` consists of the 97-test
 focused matrix and independent Track B/Track C rereviews. The pushed lifecycle head additionally
-passed repository Release CI run `29632020095`; PR #24 was then marked ready.
+passed repository Release CI run `29632020095`; PR #24 was then marked ready. Its final lifecycle
+head passed run `29632577820`, after which the user authorized and completed the merge.
 
 Browser static assets and M10-M12 authority/source data did not change and their static facts remain
 inheritable. Historical live-provider outputs, browser retry/reopen accounting, private-scale
 accounting counts, and zero-call replay are retained only as exact-head history. No live provider,
-browser/private-scale rerun, merge, M14, or destructive action was performed.
+browser/private-scale rerun, M14, destructive cleanup, or protected-path action was performed; the
+only external lifecycle mutation after validation was the explicitly authorized PR #24 merge.
 
 ## Historical final duplicate-reservation correction evidence
 

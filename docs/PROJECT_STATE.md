@@ -1,29 +1,29 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-18 (post-merge M13 corrective PR ready)
+Updated: 2026-07-18 (M13 corrective PR merged; milestone complete)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M13 - Optional AI narrative layer.
+- Active milestone: M13 - Optional AI narrative layer (complete; no successor activated).
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
-- Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
-- Integration branch: `codex/m13-post-merge-usage-recovery`.
-- Status: PR ready.
-- PR-readiness state: product and independent review gates pass, lifecycle is reconciled, exact-
-  head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and PR #24 is
-  open, non-draft, mergeable, and `CLEAN`.
+- Baseline: merged corrective PR #24 commit `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`.
+- Integration branch: `main`; post-merge records are prepared on `codex/m13-post-merge-closeout`.
+- Status: Complete.
+- Completion state: product and independent review gates pass; exact final-head GitHub Release run
+  `29632577820` passed at `9e7d387025ed29fdd1c7a43442db4dffda3db0ad`; PR #24 merged into
+  `main` as `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` on 2026-07-18.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
   failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
   Detail/Evidence navigation.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: this Phase Coordinator task/goal
-  `019f7308-a9a6-7562-a422-ab09c1ec077f` owns the bounded post-merge correction objective and
-  remains active through implementation, integration, verification, corrective-PR preparation,
-  and merge; it must not be completed before merge. Historical task/goal
+- Native Codex goal: Phase Coordinator task/goal
+  `019f7308-a9a6-7562-a422-ab09c1ec077f` owned the bounded post-merge correction objective through
+  the authorized merge. After merge, native goal lookup reports no active goal record, so no active
+  native M13 goal remains. Historical task/goal
   `019f7264-0e92-7e33-a372-ee81de102ab8` owned the prior PR-readiness reconciliation. Historical
   task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
   stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
@@ -36,9 +36,9 @@ Updated: 2026-07-18 (post-merge M13 corrective PR ready)
   lifecycle closeout. Product/evidence head
   `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
   at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
-  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open,
-  non-draft, mergeable, and `CLEAN` on `codex/m13-post-merge-usage-recovery`; merge remains
-  separately approval-gated.
+  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) merged from
+  final head `9e7d387025ed29fdd1c7a43442db4dffda3db0ad` into `main` as
+  `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` at 2026-07-18T11:12:47Z.
 
 The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
 merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's
@@ -79,9 +79,9 @@ reconciliation, push, corrective PR creation, and CI. Verification resumes throu
 visible Track A and Track B tasks. Live-provider transmission, PR merge, M14, destructive cleanup,
 broad unrelated refactoring, and materially broader product scope remain excluded.
 
-## Post-merge cumulative-resource correction (current)
+## Post-merge cumulative-resource correction (complete)
 
-The corrected product candidate is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`, descended from
+The corrected product head is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`, descended from
 merged PR #23 baseline `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Track A visible task
 `019f730d-53a7-7d51-a6b5-b5a4062c79d3`, Track B visible task
 `019f730d-53a7-7d51-a6b5-b5c28fef11f4`, and Track C visible task
@@ -109,11 +109,14 @@ changed production files, and the full-range diff check. The single authorized l
 Release passed at predecessor candidate `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected,
 plus every quality/build/package gate. It was not repeated after the final two-file correction; the
 exact corrected head instead has focused tests, two independent rereviews, and exact pushed-head
-GitHub Release run `29632020095` passed. Historical browser UI/static navigation facts remain
+GitHub Release run `29632020095` passed. Exact final PR head
+`9e7d387025ed29fdd1c7a43442db4dffda3db0ad` then passed Release CI run `29632577820` and merged
+as `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. Historical browser UI/static navigation facts remain
 inheritable because those assets did not
 change. Prior live-provider, browser retry/reopen accounting, private-scale accounting, and replay
 counts remain historical exact-head evidence rather than proof of the correction. No live provider
-transmission, merge, M14 work, destructive cleanup, or protected-path change occurred.
+transmission, M14 work, destructive cleanup, or protected-path change occurred during the corrective
+cycle or merge closeout.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -217,8 +220,8 @@ checks all passed. Historical current private-scale and live/replay evidence rem
 evidence; the narrow provider-free recovery correction is covered by its failing-first fault cases,
 independent review, and full Release. Product/evidence head `120a4ec` was pushed to existing PR #23
 and remotely verified open, non-draft, mergeable, and `CLEAN`; GitHub reports no configured status
-checks. M13 is `PR ready`. No provider/live rerun, merge, M14 work, or protected-untracked-path
-change occurred.
+checks. At that historical checkpoint M13 was `PR ready`; PR #23 later merged. No provider/live
+rerun, M14 work, or protected-untracked-path change occurred during that correction.
 
 ## Historical prior correction verification (not current-cycle proof)
 
@@ -385,7 +388,7 @@ work is authorized unless a critical regression is demonstrated.
 2. Use these transitions: `Draft -> Semantic review -> Ready -> In progress -> Integration -> Verification -> PR ready -> Complete`.
 3. Use `Revise` when semantic review fails; return to `Semantic review` after correction. Use `Blocked` only with a recorded blocker and resume at the interrupted stage.
 4. Require a recorded semantic-review `PASS` before broad implementation.
-5. Keep the native goal active until the integrated change meets acceptance, required evidence and review are complete, and the PR is genuinely ready.
+5. Keep the native goal active until the integrated change meets acceptance, required evidence and review are complete, and any contractually required merge gate is confirmed.
 6. Update this pointer in the same integration that changes milestone status. Do not infer state from branch names or conversations.
 
 ## Authority order
