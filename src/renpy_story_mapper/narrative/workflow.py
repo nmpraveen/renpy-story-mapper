@@ -395,6 +395,32 @@ class M13SchedulerPersistenceSink:
         ):
             return SchedulerResumeUsage()
 
+        run_scope = self._persistence.lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=self._authority,
+        )
+        pipeline_opaque_usage: SchedulerUsage | None = None
+        if run_scope.state is LookupState.HIT and run_scope.payload is not None:
+            raw_pipeline_opaque = run_scope.payload.get(
+                "browser_legacy_opaque_cumulative_usage"
+            )
+            if raw_pipeline_opaque is not None:
+                if (
+                    run_scope.payload.get("consent_manifest_id")
+                    != consent.manifest_id
+                    or not isinstance(run_scope.payload.get("provider"), Mapping)
+                    or storage.canonical_json(run_scope.payload["provider"])
+                    != storage.canonical_json(consent.provider.to_dict())
+                ):
+                    raise ValueError("opaque browser usage has incompatible run identity")
+                pipeline_opaque_usage = _scheduler_usage_from_payload(
+                    raw_pipeline_opaque
+                )
+                if pipeline_opaque_usage is None:
+                    raise ValueError("opaque browser usage is invalid")
+                self._opaque_legacy_resume = True
+
         compatible_keys = {
             (
                 consent.run_id,
@@ -447,14 +473,9 @@ class M13SchedulerPersistenceSink:
                 run.payload.get("state") == SchedulerRunState.RUNNING.value
                 and run.payload.get("browser_pipeline_complete") is False
             ):
-                legacy_opaque = _scheduler_usage_from_payload(
-                    run.payload.get("browser_legacy_opaque_cumulative_usage")
-                )
-                if legacy_opaque is not None:
-                    self._opaque_legacy_resume = True
                 return SchedulerResumeUsage(
                     current_phase_usage=usage,
-                    opaque_legacy_cumulative_usage=legacy_opaque,
+                    opaque_legacy_cumulative_usage=pipeline_opaque_usage,
                 )
             checkpoint = run.payload.get("usage_checkpoint")
             if checkpoint is not None:
@@ -466,19 +487,26 @@ class M13SchedulerPersistenceSink:
                 return SchedulerResumeUsage(
                     current_phase_usage=checkpoint_phase,
                     checkpoint_prior_cumulative_usage=checkpoint_prior,
+                    opaque_legacy_cumulative_usage=pipeline_opaque_usage,
                 )
             persisted = _scheduler_usage_from_payload(
                 run.payload.get("cumulative_usage", run.payload.get("usage"))
             )
             if persisted is not None:
                 self._opaque_legacy_resume = True
+                opaque_usage = _merge_scheduler_usage(usage, persisted)
+                if pipeline_opaque_usage is not None:
+                    opaque_usage = _merge_scheduler_usage(
+                        opaque_usage, pipeline_opaque_usage
+                    )
                 return SchedulerResumeUsage(
                     current_phase_usage=usage,
-                    opaque_legacy_cumulative_usage=_merge_scheduler_usage(
-                        usage, persisted
-                    ),
+                    opaque_legacy_cumulative_usage=opaque_usage,
                 )
-        return SchedulerResumeUsage(current_phase_usage=usage)
+        return SchedulerResumeUsage(
+            current_phase_usage=usage,
+            opaque_legacy_cumulative_usage=pipeline_opaque_usage,
+        )
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         job = self._require_job(record.logical_job_id)
