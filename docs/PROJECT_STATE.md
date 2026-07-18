@@ -40,8 +40,11 @@ merged baseline and `origin/main` match, and the merge commit tree exactly match
 reviewed second-parent tree. Static inspection confirms that cross-phase reopen can undercount
 disjoint prior cumulative and current durable usage through component-wise maximums. M13 is
 therefore reopened to Verification on `codex/m13-post-merge-usage-recovery`; M14 remains deferred.
-The Phase Coordinator owns the single native goal. Visible Tracks A and B are created after the
-contract commit, while Track C is created only after the integrated product candidate freezes.
+The Phase Coordinator owns the single native goal. Visible Track A
+`019f730d-53a7-7d51-a6b5-b5a4062c79d3` and Track B
+`019f730d-53a7-7d51-a6b5-b5c28fef11f4` were created in separate worktrees after contract commit
+`6f9fb52b30a2de92642450d9de67c2552c94417f`; Track C is created only after the integrated product
+candidate freezes.
 Visible task dispatch can select `gpt-5.6-sol` and High reasoning but exposes no fast-mode
 selector, so fast-mode state is unavailable and unverified rather than claimed disabled.
 
