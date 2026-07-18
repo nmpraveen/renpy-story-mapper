@@ -1,12 +1,40 @@
 # M13 validation report
 
-Status: PR ready; final correction rereview, Windows Release, and remote PR verification pass
+Status: Verification; post-merge product/review gates pass and exact corrective-PR-head CI remains
 
-Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
+Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
+Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Validation date: 2026-07-17
+Validation date: 2026-07-18
+
+## Post-merge cumulative-resource correction evidence (current)
+
+Corrected integrated product head: `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`.
+
+| Check | Result |
+|---|---|
+| Original additive recovery regression | Failed first at test commit `564574c`: prior cumulative plus current durable usage reached the hard limit but one submit escaped |
+| Opaque cross-phase propagation regressions | Failed first at `01a1fe3` and `7d0791f`: cache-only compatibility changes and raw/API propagation could lose ambiguity and permit nine submits |
+| Exact checkpoint-prior dominance | Failed first at `b74b47c`: checkpoint prior 3 plus supplied prior 0 admitted one submit |
+| Covered-event checkpoint integrity | Failed first at `bd46caf`: five exact covered transmitted events with zeroed phase usage admitted one submit and reported one call |
+| Parent focused gate | `py -3.12 -m pytest tests/test_m13_scheduler.py tests/test_m13_workflow.py tests/test_m13_pipeline.py tests/test_m13_api_integration.py -q -p no:cacheprovider` -> 97 passed in 114.63 seconds |
+| Static gates | Ruff passed; strict mypy passed over four changed production files; `git diff --check d37fe236..a71d588` passed |
+| Track A review | PASS at source `76286b3`; no P0-P3; 13-test adversarial selection passed |
+| Track B full-range review | PASS at integrated `a71d588`; no P0-P3; 15-test adversarial recovery matrix passed |
+| Track C review | Initial CHANGES REQUESTED at `5c792c1`; final PASS at `a71d588`, no P0-P3; original five-call probe now fails closed with zero resumed submit |
+| Single local Windows Release | At predecessor `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import/assets/notices all passed |
+| Exact final-head full gate | Pending GitHub pull-request Release validation after lifecycle commit is pushed |
+
+The local Release was intentionally not repeated after Track C's final two-file correction because
+the user authorized one Windows Release. Exact-head assurance for `a71d588` consists of the 97-test
+focused matrix and independent Track B/Track C rereviews; the pushed lifecycle head must additionally
+pass the repository's full Release CI before PR #24 is marked ready.
+
+Browser static assets and M10-M12 authority/source data did not change and their static facts remain
+inheritable. Historical live-provider outputs, browser retry/reopen accounting, private-scale
+accounting counts, and zero-call replay are retained only as exact-head history. No live provider,
+browser/private-scale rerun, merge, M14, or destructive action was performed.
 
 ## Final duplicate-reservation correction evidence (current)
 

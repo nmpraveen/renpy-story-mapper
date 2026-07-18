@@ -1,12 +1,36 @@
 # M13 integrated and independent review report
 
-Status: PASS for the final duplicate-reservation rereview; no P0, P1, or new P2
+Status: PASS for the post-merge cumulative-resource correction at `a71d588`; no P0-P3
 
-Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
+Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Current correction head: `ba71cda82eba2e605f97041923329ee9afd2a681`
+Current correction head: `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`
 
-Review date: 2026-07-17
+Review date: 2026-07-18
+
+## Post-merge correction review (current)
+
+Track A Reviewer A passed exact source range `45b4e85..76286b3` with no P0-P3 after the final
+failing-first checkpoint test. Track B passed the full integrated range `d37fe236..a71d588` with
+no P0-P3. Visible Track C first returned `CHANGES REQUESTED` at `5c792c1`: five exact covered
+transmitted events could coexist with a lowered schema-valid checkpoint phase aggregate and admit a
+prohibited submit. The parent integrated failing-first `bd46caf` and correction `a71d588`; final
+Reviewer C then returned `PASS` with no P0-P3.
+
+The final correction derives covered usage only from identity/state/payload-hash validated events.
+Calls, input/output tokens, peak, and estimated must match exactly; elapsed may include only
+additional conservative scheduler overhead; known cost must match and unknown cost cannot narrow.
+Validation occurs during resume reconstruction before cache, admission, reservation, provider
+status, or submit. Covered events are excluded and later uncovered events add once.
+
+Exact-head review evidence: original adversarial regression 1 passed, a 12-case truth table passed,
+the four changed-module suite passed 97, Ruff and strict mypy passed, both correction/full-range
+diff checks passed, and all review worktrees remained clean. Reviewers reconfirmed prior dominance,
+opaque legacy propagation, cache-only zero-submit behavior, any-miss fail closed, reservation/
+attempt multiplicity, UNKNOWN/TRANSMITTED and NOT_TRANSMITTED semantics, and consent/provider
+identity. No provider/live, browser/private-scale, push/PR mutation by reviewers, merge, M14, or
+protected-path action occurred. Dispatch used `gpt-5.6-sol` with High reasoning; the task API had no
+fast-mode selector, so fast mode remains unavailable/unverified.
 
 ## Final duplicate-reservation rereview (current)
 

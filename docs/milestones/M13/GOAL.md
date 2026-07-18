@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (semantic review PASS retained; broad provider-free correction authority resumed)
+Status: Verification (post-merge corrective product/review gates PASS; exact PR-head CI pending)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
@@ -33,6 +33,29 @@ and current M12 route results. Produce concise human-readable titles, summaries,
 participation and bounded interpretations, hierarchical route-aware summaries, and optional weak
 boundary review overlays without transferring deterministic authority to AI or requiring AI for
 the existing map, scene view, evidence workspace, or route solver.
+
+## Post-merge correction acceptance
+
+Merged implementation baseline is PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
+Corrective PR #24 product candidate `a71d5888d55d0d5a19ddb84efd522dccdcbe282d` must remain
+provider-free and limited to cumulative-resource provenance and directly necessary compatibility.
+It is accepted only when disjoint prior/current usage adds exactly once, overlap is excluded by
+immutable event coverage, peak concurrency remains a maximum, unknown cost fails closed, and every
+hard limit sees restored usage before a submit. Ambiguous legacy aggregates may support zero-submit
+cache replay but may not authorize a miss.
+
+Falling below exact checkpoint prior or exact covered-event usage is a configuration error before
+cache/admission/submit. Covered durable events contribute calls/input/output/elapsed/known cost by
+addition, peak by maximum, and estimated by OR; unknown contributing cost stays unknown. Exact
+checkpoint values may include scheduler elapsed overhead but may not understate covered event
+elapsed. Later uncovered events remain additive once.
+
+At `a71d588`, the provider-free four-module matrix passes 97 tests; Track A Reviewer A, Track B,
+and final Track C pass with no P0-P3. One local Windows Release passed at predecessor `5c792c1`
+before Track C exposed the final checkpoint-aggregate P1; the final two-file correction is covered
+by focused exact-head tests and independent rereviews. Exact corrective-PR-head CI is therefore the
+remaining PR-readiness gate. No additional local Release, live provider transmission, merge, M14,
+or broad refactor is authorized.
 
 ## Authorized PR #23 correction constraints
 
@@ -191,7 +214,7 @@ results, inherited-evidence boundaries, changed files, remaining risks, and corr
 Track tasks must not create native goals. The Phase Coordinator owns the one active native goal
 through PR preparation and must not mark it complete before the corrective PR is merged.
 
-### Current correction blocker - 2026-07-17
+### Historical correction blocker - 2026-07-17
 
 Track A's failing-first commit `249132d1b4190f7a1693f6de68779db30c2c91a1` proved the
 cross-phase undercount. Its candidate advanced through `b9b8f631543411e02187e627e6179a163aca7ce6`,
@@ -229,6 +252,20 @@ Live-provider transmission, PR merge, M14, destructive cleanup, broad unrelated 
 materially broader product scope remain excluded. The coordinator must stop if the correction
 cannot be resolved safely inside this boundary. The prior two-loop cap no longer blocks further
 provider-free correction/rereview cycles for this exact defect.
+
+### Integrated correction outcome - 2026-07-18
+
+The final product candidate is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Failing-first
+commits prove additive undercount, cross-phase opaque-marker loss, checkpoint-prior regression, and
+checkpoint covered-event understatement. Track C's initial `CHANGES REQUESTED` at `5c792c1`
+identified the last case; failing-first `bd46caf` and correction `a71d588` close it.
+
+The parent four-module matrix passes 97 tests; Ruff, strict mypy, and full-range diff checks pass.
+Track A Reviewer A, Track B, and final Track C each return PASS with no P0-P3. The one authorized
+local Windows Release passed 1,149/7 at predecessor `5c792c1`; the final two-file change has focused
+and independent exact-head coverage, and pull-request Release CI is required at the final lifecycle
+head. Corrective PR #24 is draft until that CI passes. No provider/live, merge, or M14 action is
+authorized.
 
 ## Deliverables
 

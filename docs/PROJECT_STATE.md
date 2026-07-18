@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-17 (post-merge M13 correction reopened)
+Updated: 2026-07-18 (post-merge M13 correction in final CI verification)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -11,6 +11,8 @@ Updated: 2026-07-17 (post-merge M13 correction reopened)
 - Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 - Integration branch: `codex/m13-post-merge-usage-recovery`.
 - Status: Verification.
+- Verification state: product and independent review gates pass, lifecycle is reconciled, and
+  exact corrective-PR-head CI is the remaining PR-readiness gate.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
@@ -33,7 +35,8 @@ Updated: 2026-07-17 (post-merge M13 correction reopened)
   lifecycle closeout. Product/evidence head
   `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
   at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
-  checks. A separate corrective PR has not yet been created.
+  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open as a
+  draft on `codex/m13-post-merge-usage-recovery`; merge remains separately approval-gated.
 
 The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
 merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's
@@ -43,8 +46,8 @@ therefore reopened to Verification on `codex/m13-post-merge-usage-recovery`; M14
 The Phase Coordinator owns the single native goal. Visible Track A
 `019f730d-53a7-7d51-a6b5-b5a4062c79d3` and Track B
 `019f730d-53a7-7d51-a6b5-b5c28fef11f4` were created in separate worktrees after contract commit
-`6f9fb52b30a2de92642450d9de67c2552c94417f`; Track C is created only after the integrated product
-candidate freezes.
+`6f9fb52b30a2de92642450d9de67c2552c94417f`; Track C was deferred until the integrated product
+candidate froze, then created in its own read-only worktree.
 Visible task dispatch can select `gpt-5.6-sol` and High reasoning but exposes no fast-mode
 selector, so fast-mode state is unavailable and unverified rather than claimed disabled.
 
@@ -74,6 +77,41 @@ reconciliation, push, corrective PR creation, and CI. Verification resumes throu
 visible Track A and Track B tasks. Live-provider transmission, PR merge, M14, destructive cleanup,
 broad unrelated refactoring, and materially broader product scope remain excluded.
 
+## Post-merge cumulative-resource correction (current)
+
+The corrected product candidate is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`, descended from
+merged PR #23 baseline `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Track A visible task
+`019f730d-53a7-7d51-a6b5-b5a4062c79d3`, Track B visible task
+`019f730d-53a7-7d51-a6b5-b5c28fef11f4`, and Track C visible task
+`019f7376-756d-75c1-af72-d572b5bf36ba` all used `gpt-5.6-sol` with High reasoning. Their task
+surface exposed no fast-mode selector, so fast mode is unavailable/unverified rather than claimed
+disabled.
+
+The correction separates exact prior cumulative usage, checkpoint current-phase usage, and durable
+events. Disjoint calls/input/output/elapsed/known cost add once; peak concurrency is a maximum;
+estimated usage is monotonic; unknown contributing cost remains unknown. Exact checkpoint coverage
+binds event identity/state/payload hash, excludes covered events from re-addition, and adds later
+uncovered events once. Supplied prior usage cannot regress exact checkpoint prior. Run-scoped opaque
+legacy usage survives scheduler/pipeline/API/browser writers; cache-only replay remains zero-submit,
+while any ambiguous miss fails closed.
+
+Track C initially returned `CHANGES REQUESTED` at `5c792c1` because a checkpoint's stored phase
+aggregate could be lowered independently from five exact covered transmitted events. Failing-first
+commit `bd46caf` reproduced one escaped submit; correction `a71d588` derives covered usage from the
+exact events and rejects conflicting calls/tokens/peak/estimated/cost or regressed elapsed before
+cache, admission, or submit. Track A Reviewer A, Track B, and final Reviewer C all return `PASS`
+with no P0-P3 at `a71d588`.
+
+Parent verification passes 97 scheduler/workflow/pipeline/API tests, Ruff, strict mypy over the four
+changed production files, and the full-range diff check. The single authorized local Windows
+Release passed at predecessor candidate `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected,
+plus every quality/build/package gate. It was not repeated after the final two-file correction; the
+exact corrected head instead has focused tests, two independent rereviews, and requires exact-head
+CI. Historical browser UI/static navigation facts remain inheritable because those assets did not
+change. Prior live-provider, browser retry/reopen accounting, private-scale accounting, and replay
+counts remain historical exact-head evidence rather than proof of the correction. No live provider
+transmission, merge, M14 work, destructive cleanup, or protected-path change occurred.
+
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
 contradictions, claim-level salvage, one required cloud adapter, simple manifest consent,
@@ -88,7 +126,7 @@ semantic `PASS`. Phase 0 fetched and verified local, remote, and PR head
 tracked worktree and index were clean. Existing untracked `docs/handoffs/`, `output/`, and `tmp/`
 content was preserved untouched.
 
-## Final bounded correction cycle (current)
+## Historical final bounded PR #23 correction cycle
 
 The parent coordinator's read-only Phase 0 audit reproduced findings 1-5, 7, and 8 by deterministic
 probe or exact code path at `e17ba5e`; finding 6 is the current false-positive candidate. Exact
@@ -331,7 +369,7 @@ before built-in replay; commit `0aa0415` accepts only succeeded/partial publicat
 strict rejection for failed/refused/cancelled/hard-limit outcomes. Combined report SHA-256 is
 `93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621`. No second provider
 execution occurred. At that checkpoint no PR had been created; the user later explicitly approved
-and opened draft PR #23. It remains unmerged.
+and opened draft PR #23. It later merged at `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

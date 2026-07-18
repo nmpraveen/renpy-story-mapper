@@ -1,17 +1,40 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready on existing unmerged PR #23
+Status: Verification for post-merge corrective PR #24; exact PR-head CI pending
 
-Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
+Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
+Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
-unmerged. Product/evidence head `120a4ec22214182f3b6ab80ac3ce112e6c46d371` is pushed and remotely
-verified; the PR is non-draft, mergeable, and `CLEAN`, and GitHub reports no configured status
-checks. Merge always requires separate approval.
+Pull requests: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is merged at
+`d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Corrective
+[PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open as a draft from
+`codex/m13-post-merge-usage-recovery`. Merge always requires separate approval.
 
-## Outcome
+## Post-merge corrective outcome (current)
+
+Product candidate `a71d5888d55d0d5a19ddb84efd522dccdcbe282d` corrects cross-phase
+interruption/reopen accounting without broadening M13. Prior cumulative and current durable usage
+remain provenance-separated; disjoint calls/tokens/elapsed/known cost add once; peak is a maximum;
+estimated is monotonic; unknown cost fails closed. Exact checkpoint coverage prevents double count,
+adds later events once, and now validates its stored aggregate against the covered events before any
+cache/admission/submit boundary. Legacy ambiguous usage remains cache-readable but cannot authorize
+a miss.
+
+The parent focused matrix passes 97 tests. Track A Reviewer A, Track B, and final Track C pass with
+no P0-P3. Track C's earlier `CHANGES REQUESTED` at `5c792c1` is preserved as historical failing
+evidence and is closed by failing-first `bd46caf` plus correction `a71d588`. The single authorized
+local Windows Release passed at `5c792c1` with 1,149 passed and 7 hardware-sensitive deselections,
+plus every quality/build/package gate. It was not repeated after the final two-file correction;
+exact corrected-head focused tests and independent reviews pass, and full exact PR-head CI remains
+the final PR-readiness gate.
+
+No provider/live transmission, browser/private-scale rerun, merge, M14, destructive cleanup, or
+protected-path action occurred. Historical browser UI/static facts remain inheritable; prior live,
+browser retry/reopen accounting, private-scale accounting, and replay counts remain exact-head
+history only.
+
+## Historical pre-merge PR #23 outcome
 
 Current final-correction note: multiplicity correction `18f2edf` and exact nontransmission
 correspondence correction `ba71cda` pass their failing-first reservation cases, 57 combined
@@ -57,7 +80,7 @@ authority are unchanged and privacy inspection is clean. The user-authorized unb
 Release check passed 1,081 tests with 7 deselections and all quality/build/package gates green;
 M13 is `PR ready`.
 
-## Current correction acceptance
+## Historical pre-merge correction acceptance
 
 The earlier full-stack evidence remains exact-head evidence. The narrow provider-free recovery
 change is accepted by its failing-first regressions, exact-head independent rereview, and final
@@ -104,7 +127,7 @@ head proof for the reopened correction areas.
 | Independent review | Final-budget PASS at `740e321`; no P0/P1 |
 | Native milestone infographic | Complete; SHA-256 `7ac430f485f26956b271268ad8c6f63cd6d403e8570d837d2cd1f28123c98d3d` |
 
-## Closeout state
+## Historical PR #23 closeout state
 
 - Current final correction passes through `ba71cda`; final rereview has no P0/P1/new P2; Windows
   Release passes 1,135/7 and every quality/build/package gate.
