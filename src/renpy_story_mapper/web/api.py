@@ -1352,7 +1352,9 @@ class ProjectApi:
                     cancelled=cancelled.is_set,
                     initial_usage=prior_usage,
                 )
-                self._persist_m13_browser_run(opened_project, web_run, result)
+                self._persist_m13_browser_run(
+                    opened_project, web_run, result, prior_usage
+                )
             with self._lock:
                 self._m13_result = result
         finally:
@@ -1372,6 +1374,7 @@ class ProjectApi:
         authority_binding = web_run.prepared.authority.binding.to_dict()
         sequence = _next_m13_durable_sequence(persistence, authority_binding)
         cumulative_usage = SchedulerUsage()
+        legacy_opaque_usage: SchedulerUsage | None = None
         existing = persistence.lookup(
             RecordKind.RUN,
             consent.run_id,
@@ -1385,12 +1388,18 @@ class ProjectApi:
                 != storage.canonical_json(consent.provider.to_dict())
             ):
                 raise ValueError("browser retry run identity is incompatible")
-            parsed = _m13_scheduler_usage(
+            parsed_cumulative = _m13_scheduler_usage(
                 existing.payload.get("cumulative_usage", existing.payload.get("usage"))
             )
-            if parsed is None:
+            if parsed_cumulative is None:
                 raise ValueError("browser retry cumulative usage is invalid")
-            cumulative_usage = parsed
+            parsed_prior = _m13_scheduler_usage(
+                existing.payload.get("browser_prior_cumulative_usage")
+            )
+            if parsed_prior is not None:
+                cumulative_usage = parsed_prior
+            else:
+                legacy_opaque_usage = parsed_cumulative
         elif existing.state is not LookupState.MISS:
             raise ValueError("browser retry run state is unavailable")
         retry_request: dict[str, JsonValue] = {
@@ -1421,6 +1430,10 @@ class ProjectApi:
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = False
         payload["browser_prior_cumulative_usage"] = cumulative_usage.to_dict()
+        if legacy_opaque_usage is not None:
+            payload["browser_legacy_opaque_cumulative_usage"] = (
+                legacy_opaque_usage.to_dict()
+            )
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             consent.run_id,
@@ -1434,6 +1447,7 @@ class ProjectApi:
         project: Project,
         web_run: _PreparedM13WebRun,
         result: NarrativePipelineResult,
+        prior_usage: SchedulerUsage,
     ) -> None:
         persistence = project.m13_persistence()
         authority_binding = web_run.prepared.authority.binding.to_dict()
@@ -1447,6 +1461,7 @@ class ProjectApi:
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = True
+        payload["browser_prior_cumulative_usage"] = prior_usage.to_dict()
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             result.record.run_id,

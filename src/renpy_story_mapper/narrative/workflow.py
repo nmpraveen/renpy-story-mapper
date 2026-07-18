@@ -447,7 +447,15 @@ class M13SchedulerPersistenceSink:
                 run.payload.get("state") == SchedulerRunState.RUNNING.value
                 and run.payload.get("browser_pipeline_complete") is False
             ):
-                return SchedulerResumeUsage(current_phase_usage=usage)
+                legacy_opaque = _scheduler_usage_from_payload(
+                    run.payload.get("browser_legacy_opaque_cumulative_usage")
+                )
+                if legacy_opaque is not None:
+                    self._opaque_legacy_resume = True
+                return SchedulerResumeUsage(
+                    current_phase_usage=usage,
+                    opaque_legacy_cumulative_usage=legacy_opaque,
+                )
             checkpoint = run.payload.get("usage_checkpoint")
             if checkpoint is not None:
                 checkpoint_prior, checkpoint_phase = _resume_checkpoint_usage(
@@ -645,6 +653,7 @@ class M13SchedulerPersistenceSink:
             for field in (
                 "browser_preparation_id",
                 "browser_pipeline_complete",
+                "browser_legacy_opaque_cumulative_usage",
                 "browser_prior_cumulative_usage",
                 "browser_retry_request",
                 "durable_sequence",

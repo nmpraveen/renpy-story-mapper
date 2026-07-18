@@ -662,7 +662,11 @@ def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
             assert run.state is LookupState.HIT
             assert run.payload is not None
             assert run.payload["usage"]["provider_calls"] == 0
-            assert run.payload["cumulative_usage"] == prior_cumulative
+            assert run.payload["cumulative_usage"]["provider_calls"] == 0
+            assert run.payload["browser_prior_cumulative_usage"] == (
+                run.payload["cumulative_usage"]
+            )
+            assert run.payload["cumulative_usage"] != prior_cumulative
     finally:
         api.close()
         if reopened is not None:

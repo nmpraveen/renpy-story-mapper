@@ -1290,7 +1290,8 @@ def test_cross_phase_reopen_adds_prior_usage_to_unfinished_durable_call(
 
     assert resumed_provider.calls == []
     assert result.record.state is SchedulerRunState.HARD_LIMIT
-    assert result.record.cumulative_usage == SchedulerUsage(
+    assert result.record.cumulative_usage is not None
+    assert replace(result.record.cumulative_usage, elapsed_ms=18) == SchedulerUsage(
         provider_calls=5,
         input_tokens=100,
         output_tokens=50,
@@ -1299,6 +1300,7 @@ def test_cross_phase_reopen_adds_prior_usage_to_unfinished_durable_call(
         peak_concurrency=4,
         usage_estimated=True,
     )
+    assert result.record.cumulative_usage.elapsed_ms >= 18
     assert result.jobs[0].attempt_count == 1
     assert result.jobs[0].error_code == "hard_limit"
 
@@ -1324,7 +1326,15 @@ def test_cross_phase_reopen_adds_prior_usage_to_unfinished_durable_call(
         )
 
     assert repeated_provider.calls == []
-    assert repeated_result.record.cumulative_usage == result.record.cumulative_usage
+    assert repeated_result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage is not None
+    assert replace(
+        repeated_result.record.cumulative_usage,
+        elapsed_ms=result.record.cumulative_usage.elapsed_ms,
+    ) == result.record.cumulative_usage
+    assert repeated_result.record.cumulative_usage.elapsed_ms >= (
+        result.record.cumulative_usage.elapsed_ms
+    )
 
 
 def test_not_transmitted_reservation_matches_zero_call_attempt_after_reopen(
