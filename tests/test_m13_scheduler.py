@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
@@ -1055,6 +1055,103 @@ def test_supplied_prior_cannot_regress_below_exact_checkpoint_prior() -> None:
     )
     assert error is not None
     assert "supplied prior usage regresses below exact checkpoint prior" in str(error)
+
+
+def test_checkpoint_prior_dominance_checks_every_usage_semantic() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    regressions = (
+        replace(checkpoint, provider_calls=2),
+        replace(checkpoint, input_tokens=59),
+        replace(checkpoint, output_tokens=29),
+        replace(checkpoint, elapsed_ms=10),
+        replace(checkpoint, cost_micros=4),
+        replace(checkpoint, peak_concurrency=1),
+        replace(checkpoint, usage_estimated=False),
+    )
+    unknown_checkpoint = replace(checkpoint, cost_micros=None)
+    known_after_unknown = replace(checkpoint, cost_micros=100)
+
+    for supplied, required in (
+        *((item, checkpoint) for item in regressions),
+        (known_after_unknown, unknown_checkpoint),
+    ):
+        provider = ScriptedProvider(
+            identity,
+            lambda _request, _number: pytest.fail(
+                "a regressed or ambiguous prior must fail before submit"
+            ),
+        )
+        with pytest.raises(
+            SchedulerConfigurationError,
+            match="supplied prior usage regresses below exact checkpoint prior",
+        ):
+            _scheduler(
+                provider,
+                MemorySink(checkpoint_prior_usage=required),
+            ).run(
+                (job,),
+                _consent(identity, logical_jobs=1, estimated_calls=1, call_limit=4),
+                _validator,
+                initial_usage=supplied,
+            )
+        assert provider.requests == []
+
+
+def test_checkpoint_prior_accepts_one_proven_monotonic_supplied_value() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint = SchedulerUsage(
+        provider_calls=2,
+        input_tokens=40,
+        output_tokens=20,
+        elapsed_ms=7,
+        cost_micros=5,
+        peak_concurrency=1,
+    )
+    supplied = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=None,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "the monotonic supplied prior must enforce the call limit"
+        ),
+    )
+
+    result = _scheduler(
+        provider,
+        MemorySink(checkpoint_prior_usage=checkpoint),
+    ).run(
+        (job,),
+        _consent(identity, logical_jobs=1, estimated_calls=1, call_limit=3),
+        _validator,
+        initial_usage=supplied,
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.prior_cumulative_usage == supplied
+    assert result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage.provider_calls == supplied.provider_calls
+    assert result.record.cumulative_usage.cost_micros is None
+    assert result.record.cumulative_usage.usage_estimated is True
+    assert result.record.cumulative_usage.peak_concurrency == supplied.peak_concurrency
 
 
 def test_cross_phase_unknown_cost_fails_closed_before_submit() -> None:

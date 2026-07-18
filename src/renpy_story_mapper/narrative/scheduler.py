@@ -668,11 +668,17 @@ class NarrativeScheduler:
         self._validate_start(ordered, consent)
         compatibility_id = scheduler_compatibility_id(consent, ordered)
         resumed = self._sink.resume_usage(consent, ordered, compatibility_id)
-        prior_usage = (
-            resumed.checkpoint_prior_cumulative_usage or SchedulerUsage()
-            if initial_usage is None
-            else initial_usage
-        )
+        checkpoint_prior = resumed.checkpoint_prior_cumulative_usage
+        if initial_usage is None:
+            prior_usage = checkpoint_prior or SchedulerUsage()
+        else:
+            if checkpoint_prior is not None and not _usage_dominates(
+                initial_usage, checkpoint_prior
+            ):
+                raise SchedulerConfigurationError(
+                    "supplied prior usage regresses below exact checkpoint prior"
+                )
+            prior_usage = initial_usage
         phase_usage = resumed.current_phase_usage
         usage = _sum_cumulative_usage(prior_usage, phase_usage)
         if resumed.opaque_legacy_cumulative_usage is not None:
@@ -2382,6 +2388,27 @@ def _conservative_usage(
         peak_concurrency=max(durable.peak_concurrency, supplied.peak_concurrency),
         usage_estimated=durable.usage_estimated or supplied.usage_estimated,
     )
+
+
+def _usage_dominates(candidate: SchedulerUsage, checkpoint: SchedulerUsage) -> bool:
+    scalar_dominates = (
+        candidate.provider_calls >= checkpoint.provider_calls
+        and candidate.input_tokens >= checkpoint.input_tokens
+        and candidate.output_tokens >= checkpoint.output_tokens
+        and candidate.elapsed_ms >= checkpoint.elapsed_ms
+        and candidate.peak_concurrency >= checkpoint.peak_concurrency
+    )
+    if checkpoint.cost_micros is None:
+        cost_dominates = candidate.cost_micros is None
+    else:
+        cost_dominates = (
+            candidate.cost_micros is None
+            or candidate.cost_micros >= checkpoint.cost_micros
+        )
+    estimated_dominates = (
+        not checkpoint.usage_estimated or candidate.usage_estimated
+    )
+    return scalar_dominates and cost_dominates and estimated_dominates
 
 
 def _sum_cumulative_usage(left: SchedulerUsage, right: SchedulerUsage) -> SchedulerUsage:
