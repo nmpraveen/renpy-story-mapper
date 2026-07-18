@@ -635,6 +635,23 @@ def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
         restored = reopened.dispatch("POST", "/api/v1/m13/status", {})
         prior_cumulative = restored["latest_run"]["cumulative_usage"]
         assert prior_cumulative["provider_calls"] > 0
+        with Project.open(project_path) as project:
+            authority = load_narrative_authority(project, include_m12=True)
+            persistence = project.m13_persistence()
+            existing = persistence.lookup(
+                RecordKind.RUN,
+                prepared["run_id"],
+                authority_binding=authority.binding.to_dict(),
+            )
+            assert existing.state is LookupState.HIT
+            assert existing.payload is not None
+            marked = dict(existing.payload)
+            marked["browser_legacy_opaque_cumulative_usage"] = prior_cumulative
+            persistence.put_run(
+                prepared["run_id"],
+                marked,
+                authority_binding=authority.binding.to_dict(),
+            )
         retried = reopened.dispatch(
             "POST",
             "/api/v1/m13/prepare",
@@ -666,6 +683,7 @@ def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
             assert run.payload["browser_prior_cumulative_usage"] == (
                 run.payload["cumulative_usage"]
             )
+            assert run.payload["opaque_legacy_cumulative_usage"] == prior_cumulative
             assert run.payload["cumulative_usage"] != prior_cumulative
     finally:
         api.close()

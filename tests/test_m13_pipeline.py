@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from renpy_story_mapper.m12_model import TechnicalStatus
 from renpy_story_mapper.m12_service import M12RouteService
 from renpy_story_mapper.narrative.authority import load_narrative_authority
@@ -409,8 +411,10 @@ def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path
         assert all(item.cache_replay for item in replay.jobs)
 
 
+@pytest.mark.parametrize("explicit_marker", [True, False], ids=["marked", "raw-legacy"])
 def test_legacy_opaque_usage_blocks_submit_after_cache_only_phase_change(
     tmp_path: Path,
+    explicit_marker: bool,
 ) -> None:
     seed_provider = CompleteHierarchyProvider()
     with _project(tmp_path) as project:
@@ -472,7 +476,12 @@ def test_legacy_opaque_usage_blocks_submit_after_cache_only_phase_change(
         ).to_dict()
         browser_run["browser_pipeline_complete"] = False
         browser_run["browser_prior_cumulative_usage"] = zero.to_dict()
-        browser_run["browser_legacy_opaque_cumulative_usage"] = opaque.to_dict()
+        if explicit_marker:
+            browser_run["browser_legacy_opaque_cumulative_usage"] = opaque.to_dict()
+        else:
+            browser_run["state"] = SchedulerRunState.FAILED.value
+            browser_run["usage"] = opaque.to_dict()
+            browser_run["cumulative_usage"] = opaque.to_dict()
         project.m13_persistence().put_run(
             consent.run_id,
             browser_run,
@@ -497,6 +506,79 @@ def test_legacy_opaque_usage_blocks_submit_after_cache_only_phase_change(
         )
         assert error is not None
         assert "legacy cumulative usage overlaps durable state" in str(error)
+
+
+def test_all_cache_pipeline_preserves_run_scoped_opaque_usage(tmp_path: Path) -> None:
+    seed_provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        seeded = _run(project, seed_provider, "pipeline-opaque-all-cache-seed")
+        assert seeded.record.state is SchedulerRunState.SUCCEEDED
+        assert seed_provider.requests
+
+        provider = CompleteHierarchyProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="pipeline-opaque-all-cache-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        zero = SchedulerUsage()
+        opaque = SchedulerUsage(
+            provider_calls=2,
+            input_tokens=40,
+            output_tokens=20,
+            elapsed_ms=10,
+            cost_micros=6,
+            peak_concurrency=1,
+        )
+        browser_run = SchedulerRunRecord(
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            state=SchedulerRunState.RUNNING,
+            provider=consent.provider,
+            usage=zero,
+            succeeded_jobs=0,
+            partial_jobs=0,
+            failed_jobs=0,
+            refused_jobs=0,
+            cancelled_jobs=0,
+            compatibility_id=scheduler_compatibility_id(
+                consent, prepared.scheduled_jobs
+            ),
+            cumulative_usage=zero,
+        ).to_dict()
+        browser_run["browser_pipeline_complete"] = False
+        browser_run["browser_prior_cumulative_usage"] = zero.to_dict()
+        browser_run["browser_legacy_opaque_cumulative_usage"] = opaque.to_dict()
+        project.m13_persistence().put_run(
+            consent.run_id,
+            browser_run,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+        replay = run_complete_narrative(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+        persisted = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+        assert provider.requests == []
+        assert all(job.cache_replay for job in replay.jobs)
+        assert persisted.state is LookupState.HIT
+        assert persisted.payload is not None
+        assert persisted.payload["opaque_legacy_cumulative_usage"] == opaque.to_dict()
 
 
 def test_complete_pipeline_preserves_restored_usage_after_cache_only_scene_phase(
