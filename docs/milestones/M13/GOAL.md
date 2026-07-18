@@ -138,6 +138,11 @@ set passes 5 and workflow/scheduler passes 57 with Ruff, strict mypy, and diff c
 Independent rereview at exact clean head `ba71cda` is `PASS` with no P0, P1, or new P2. The
 remaining work is contract-required final Windows/PR evidence only.
 
+Final Windows Release passes at the corrected head: 1,135 passed, 7 hardware-sensitive tests
+deselected, with Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated
+build/install/import, asset, and notice checks green. Existing PR #23 update/remote verification is
+the only remaining PR-readiness action.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,

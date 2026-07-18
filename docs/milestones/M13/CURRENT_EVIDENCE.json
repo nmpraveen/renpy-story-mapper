@@ -21,8 +21,9 @@
     "final_reviewer": "/root/m13_multiplicity_rereview",
     "blocking_finding": null,
     "correction_limit": "The authorized duplicate-reservation correction and independent rereview are complete.",
-    "not_run": "Provider/live, browser/private-scale reruns, GitHub, push, PR mutation, merge, and M14 actions were not run before final Windows verification",
-    "status": "verification; independent rereview passed and final Windows/PR evidence is pending"
+    "final_windows_release": "PASS in 710.9 seconds; 1135 passed, 7 hardware-sensitive deselected in 683.13 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
+    "not_run": "Provider/live and browser/private-scale reruns were not repeated for the narrow provider-free recovery correction; push, PR mutation, merge, and M14 remained pending before PR update",
+    "status": "verification; independent rereview and final Windows Release passed, existing PR #23 update pending"
   },
   "historical_prior_cycle_evidence": true,
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",

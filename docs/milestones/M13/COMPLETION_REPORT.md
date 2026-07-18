@@ -16,6 +16,14 @@ requires separate approval.
 
 ## Outcome
 
+Current final-correction note: multiplicity correction `18f2edf` and exact nontransmission
+correspondence correction `ba71cda` pass their failing-first reservation cases, 57 combined
+workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent exact-head rereview is
+`PASS` with no P0/P1/new P2. Final Windows Release passes 1,135 tests with 7 hardware-sensitive
+deselections plus every quality/build/package gate. Existing PR #23 update and remote verification
+remain before the current lifecycle can return to `PR ready`; no provider/live rerun or merge was
+performed.
+
 Current additional-correction note: failing-first correction `a7e242b` closes the one-reservation
 reopen case and passes 54 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent
 rereview nevertheless returned `FAIL` with one P1 and no P0/new P2: multiple compatible durable

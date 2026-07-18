@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification; final correction rereview passes, final Windows/PR evidence pending
+Status: Verification; final correction rereview and Windows Release pass, PR update pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -15,7 +15,11 @@ under a total ceiling of two, and the finalized nontransmitted case restored 12 
 while duplicating history. Corrections `18f2edf` and `ba71cda` make the reservation set pass 5 and
 workflow/scheduler pass 57; Ruff, strict mypy, and diff checks pass. Independent exact-head
 rereview at `ba71cda` is `PASS` with no P0, P1, or new P2. No provider/live or external action was
-used. Final Windows/PR evidence remains pending.
+used. `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release -NoTimeout`
+then passed in 710.9 seconds: 1,135 tests passed with 7 hardware-sensitive deselections in 683.13
+seconds, Ruff passed, strict mypy passed over 92 source files, and dependency, JavaScript,
+whitespace, isolated build/install/import, asset, and notice gates all passed. Existing PR #23
+update/remote verification remains pending.
 
 ## Additional recovered-reservation correction evidence (current)
 

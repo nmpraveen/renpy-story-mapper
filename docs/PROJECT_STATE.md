@@ -124,6 +124,14 @@ at exact clean head `ba71cda` with no P0, P1, or new P2. M13 remains in `Verific
 minimum final Windows/PR evidence required at the corrected head; no provider/live rerun is
 authorized or needed for this provider-free correction.
 
+Final Windows Release validation passed at the reviewed correction/evidence head: 1,135 tests
+passed with 7 hardware-sensitive deselections in 683.13 seconds; Ruff, strict mypy over 92 source
+files, dependency, JavaScript, whitespace, isolated build/install/import, browser-asset, and notice
+checks all passed. Historical current private-scale and live/replay evidence remains exact-head
+evidence; the narrow provider-free recovery correction is covered by its failing-first fault cases,
+independent review, and full Release. Existing PR #23 update and remote verification remain before
+`PR ready`.
+
 ## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at
