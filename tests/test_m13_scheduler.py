@@ -57,6 +57,7 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerPolicy,
     SchedulerResumeUsage,
     SchedulerRunRecord,
+    SchedulerRunResult,
     SchedulerRunState,
     SchedulerSink,
     SchedulerUsage,
@@ -278,6 +279,7 @@ class MemorySink:
     finalizations: list[SchedulerCallFinalization] = field(default_factory=list)
     after_publish: Callable[[ScheduledSceneJob], None] | None = None
     cumulative_usage: SchedulerUsage = field(default_factory=SchedulerUsage)
+    checkpoint_prior_usage: SchedulerUsage | None = None
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         return self.caches.get(job.cache_identity.key)
@@ -298,7 +300,10 @@ class MemorySink:
         compatibility_id: str,
     ) -> SchedulerResumeUsage:
         del consent, jobs, compatibility_id
-        return SchedulerResumeUsage(current_phase_usage=self.cumulative_usage)
+        return SchedulerResumeUsage(
+            current_phase_usage=self.cumulative_usage,
+            checkpoint_prior_cumulative_usage=self.checkpoint_prior_usage,
+        )
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         self.jobs.append(record)
@@ -996,6 +1001,60 @@ def test_cross_phase_reopen_adds_prior_and_durable_usage_before_submit() -> None
     assert result.record.cumulative_usage == expected_cumulative
     assert result.jobs[0].attempt_count == 0
     assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_supplied_prior_cannot_regress_below_exact_checkpoint_prior() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint_prior = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda request, _number: _response(
+            request,
+            identity,
+            (_success_item(request.items[0].logical_job_id, 0),),
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    )
+    sink = MemorySink(checkpoint_prior_usage=checkpoint_prior)
+    result: SchedulerRunResult | None = None
+    error: SchedulerConfigurationError | None = None
+
+    try:
+        result = _scheduler(provider, sink).run(
+            (job,),
+            _consent(
+                identity,
+                logical_jobs=1,
+                estimated_calls=1,
+                call_limit=4,
+            ),
+            _validator,
+            initial_usage=SchedulerUsage(),
+        )
+    except SchedulerConfigurationError as exc:
+        error = exc
+
+    reported_calls = (
+        None
+        if result is None or result.record.cumulative_usage is None
+        else result.record.cumulative_usage.provider_calls
+    )
+    assert provider.requests == [], (
+        "supplied prior regressed below an exact three-call checkpoint and allowed "
+        f"{len(provider.requests)} submit with {reported_calls} cumulative calls"
+    )
+    assert error is not None
+    assert "supplied prior usage regresses below exact checkpoint prior" in str(error)
 
 
 def test_cross_phase_unknown_cost_fails_closed_before_submit() -> None:
