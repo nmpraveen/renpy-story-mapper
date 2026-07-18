@@ -10,7 +10,7 @@ Updated: 2026-07-17 (post-merge M13 correction reopened)
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 - Integration branch: `codex/m13-post-merge-usage-recovery`.
-- Status: Blocked in Verification.
+- Status: Verification.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
@@ -66,6 +66,13 @@ reconciliation has not begun. The failed Track A range changes scheduler, workfl
 browser API accounting. Historical M10-M12 authority/source hashes and unchanged static browser
 assets remain inheritable facts, but prior live/replay/private-scale accounting and browser retry
 lifecycle runs are not exact-head proof for any future corrected candidate. M14 remains deferred.
+
+The user then resumed the native goal and authorized all bounded provider-free correction and
+rereview loops reasonably necessary for this exact cumulative-resource accounting defect,
+including integration, focused tests, one Windows Release, Track C, lifecycle/evidence
+reconciliation, push, corrective PR creation, and CI. Verification resumes through the existing
+visible Track A and Track B tasks. Live-provider transmission, PR merge, M14, destructive cleanup,
+broad unrelated refactoring, and materially broader product scope remain excluded.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware

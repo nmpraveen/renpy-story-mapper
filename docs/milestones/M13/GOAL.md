@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Blocked in Verification (semantic review PASS retained; correction-loop cap reached)
+Status: Verification (semantic review PASS retained; broad provider-free correction authority resumed)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
@@ -215,6 +215,20 @@ scheduler, workflow, pipeline, and browser API accounting: prior M10-M12 authori
 and unchanged static browser assets remain historical evidence, while live/replay/private-scale
 accounting and browser retry-lifecycle behavior cannot establish exact-head correctness for a
 future candidate without the contract's final inheritance review.
+
+### Resumed provider-free authority - 2026-07-17
+
+The user resumed the blocked M13 goal and authorized all bounded provider-free correction and
+rereview loops reasonably necessary to resolve this exact cumulative-resource accounting defect
+and make one corrective PR genuinely ready. This authority continues through integration,
+focused tests, one Windows Release, Track C review, lifecycle/evidence reconciliation, branch
+push, corrective PR creation, and exact-head CI. The change remains limited to M13 resource-
+accounting provenance and directly necessary compatibility behavior.
+
+Live-provider transmission, PR merge, M14, destructive cleanup, broad unrelated refactoring, and
+materially broader product scope remain excluded. The coordinator must stop if the correction
+cannot be resolved safely inside this boundary. The prior two-loop cap no longer blocks further
+provider-free correction/rereview cycles for this exact defect.
 
 ## Deliverables
 
