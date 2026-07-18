@@ -1,0 +1,1011 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+from renpy_story_mapper.m12_model import RouteBadge, TechnicalStatus
+from renpy_story_mapper.narrative.contracts import (
+    ArtifactPublication,
+    AuthorityReference,
+    AuthoritySystem,
+    ClaimClass,
+    ClaimContextScope,
+    ClaimPolarity,
+    ClaimSemantics,
+    ClaimSupport,
+    LogicalJobKind,
+    LogicalJobSpec,
+    NarrativeClaim,
+    StructuralContext,
+    SupportKind,
+)
+from renpy_story_mapper.narrative.evidence import PromptHandleTable
+from renpy_story_mapper.narrative.hierarchy import M12RouteAuthority, make_m12_authority_leaf
+from renpy_story_mapper.narrative.validation import (
+    ContextualClaim,
+    ContradictionSeverity,
+    RepairRequest,
+    ValidationContext,
+    contradiction_findings,
+    validate_and_salvage,
+)
+
+
+def _scene_job(
+    *,
+    owner: str = "scene-a",
+    lane: str = "lane-common",
+    route: str | None = None,
+    temporal: str = "scene-a",
+    occurrence: str | None = None,
+) -> LogicalJobSpec:
+    return LogicalJobSpec(
+        LogicalJobKind.SCENE,
+        owner,
+        StructuralContext(
+            chapter_id="chapter-a",
+            lane_id=lane,
+            route_id=route,
+            occurrence_id=occurrence,
+            call_site_id=(f"call-{occurrence}" if occurrence else None),
+            temporal_anchor=temporal,
+        ),
+        locale="en-US",
+        perspective="neutral",
+    )
+
+
+def _scene_context(job: LogicalJobSpec | None = None) -> ValidationContext:
+    spec = job or _scene_job()
+    reference = AuthorityReference(AuthoritySystem.M10, "evidence", "evidence-a", spec.owner_id)
+    handles = PromptHandleTable.build(
+        scope_id=spec.job_id,
+        allowed_owner_ids=(spec.owner_id,),
+        evidence_references=(reference,),
+    )
+    return ValidationContext(
+        spec,
+        "input-revision-a",
+        handles,
+        deterministic_title="M11 Scene A",
+    )
+
+
+def _provider_claim(
+    *,
+    claim_class: str = "factual",
+    evidence: list[str] | None = None,
+    children: list[str] | None = None,
+    value: str = "present",
+    polarity: str = "positive",
+    text: str = "Alice is present.",
+    subject: str = "Alice",
+    context_scope: str = "atomic",
+) -> dict[str, object]:
+    return {
+        "claim_class": claim_class,
+        "context_scope": context_scope,
+        "text": text,
+        "evidence_handles": ["E1"] if evidence is None else evidence,
+        "child_claim_handles": [] if children is None else children,
+        "subject": subject,
+        "predicate": "presence",
+        "polarity": polarity,
+        "normalized_value": value,
+    }
+
+
+def _provider_artifact(job_id: str, claims: list[object]) -> dict[str, object]:
+    return {
+        "logical_job_id": job_id,
+        "title": "Arrival",
+        "summary": "Alice arrives in the scene.",
+        "claims": claims,
+    }
+
+
+def _plot_context(
+    left_context: StructuralContext,
+    right_context: StructuralContext,
+) -> ValidationContext:
+    job = LogicalJobSpec(
+        LogicalJobKind.PLOT,
+        "whole-plot",
+        StructuralContext(temporal_anchor="whole-plot-route-aware"),
+        ordered_child_artifact_ids=("artifact-left", "artifact-right"),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=("claim-left", "claim-right"),
+    )
+    return ValidationContext(
+        job,
+        "plot-input-revision",
+        handles,
+        deterministic_title="Whole plot",
+        expected_child_ids=("artifact-left", "artifact-right"),
+        available_child_ids=("artifact-left", "artifact-right"),
+        claim_contexts=(
+            ("claim-left", left_context),
+            ("claim-right", right_context),
+        ),
+    )
+
+
+def test_valid_scene_output_publishes_complete_owned_claims() -> None:
+    context = _scene_context()
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [_provider_claim()]),
+        context,
+    )
+
+    assert result.repair_attempts == 0
+    assert result.issues == ()
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert result.artifact.claims[0].support.direct_evidence[0].owner_id == "scene-a"
+    assert result.artifact.claims[0].semantics == ClaimSemantics(
+        "Alice", "presence", ClaimPolarity.POSITIVE, "present"
+    )
+
+
+def test_plot_claims_keep_exclusive_route_and_temporal_contexts_separate() -> None:
+    route_context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:route-a",
+        ),
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-b",
+            route_id="route-b",
+            temporal_anchor="chapter-2:route-b",
+        ),
+    )
+    temporal_context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:early",
+        ),
+        StructuralContext(
+            chapter_id="chapter-5",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-5:late",
+        ),
+    )
+    claims = [
+        _provider_claim(
+            evidence=[],
+            children=["C1"],
+            text="Alice trusts Bob.",
+            value="trusts",
+        ),
+        _provider_claim(
+            evidence=[],
+            children=["C2"],
+            text="Alice distrusts Bob.",
+            value="distrusts",
+            polarity="negative",
+        ),
+    ]
+
+    route_result = validate_and_salvage(
+        _provider_artifact(route_context.job.job_id, claims),
+        route_context,
+    )
+    temporal_result = validate_and_salvage(
+        _provider_artifact(temporal_context.job.job_id, claims),
+        temporal_context,
+    )
+
+    assert route_result.artifact is not None
+    assert route_result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(route_result.artifact.claims) == 2
+    assert temporal_result.artifact is not None
+    assert temporal_result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(temporal_result.artifact.claims) == 2
+
+
+def test_cross_route_claim_is_rejected_unless_explicitly_a_comparison() -> None:
+    context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:route-a",
+        ),
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-b",
+            route_id="route-b",
+            temporal_anchor="chapter-2:route-b",
+        ),
+    )
+    atomic = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        text="Both route events happen in one chronology.",
+        value="merged",
+    )
+    comparison = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        context_scope="comparison",
+        text="Route A and route B differ at this point.",
+        value="different",
+    )
+
+    rejected = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [atomic]),
+        context,
+    )
+    accepted = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [comparison]),
+        context,
+    )
+
+    assert rejected.artifact is None
+    assert rejected.rejected_reason == "no_safe_claims"
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in rejected.issues)
+    assert accepted.artifact is not None
+    assert accepted.artifact.claims[0].context_scope.value == "comparison"
+    assert accepted.artifact.claims[0].support.child_claim_ids == (
+        "claim-left",
+        "claim-right",
+    )
+
+
+def test_multi_temporal_claim_requires_ordered_summary_scope() -> None:
+    context = _plot_context(
+        StructuralContext(
+            chapter_id="chapter-2",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-2:early",
+        ),
+        StructuralContext(
+            chapter_id="chapter-5",
+            lane_id="lane-a",
+            route_id="route-a",
+            temporal_anchor="chapter-5:late",
+        ),
+    )
+    atomic = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        text="Alice changes over time.",
+        value="changes",
+    )
+    ordered = _provider_claim(
+        evidence=[],
+        children=["C1", "C2"],
+        context_scope="ordered_summary",
+        text="Alice changes between the early and late anchors.",
+        value="changes",
+    )
+
+    rejected = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [atomic]),
+        context,
+    )
+    accepted = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [ordered]),
+        context,
+    )
+
+    assert rejected.artifact is None
+    assert accepted.artifact is not None
+    assert accepted.artifact.claims[0].context_scope.value == "ordered_summary"
+
+
+def test_inherited_comparison_and_ordered_scopes_cannot_be_re_atomized() -> None:
+    context = StructuralContext(
+        temporal_anchor="support-set:bounded",
+        structural_fingerprint="support-set:bounded",
+    )
+    job = LogicalJobSpec(
+        LogicalJobKind.PLOT,
+        "whole-plot-parent",
+        StructuralContext(temporal_anchor="whole-plot-parent"),
+        ordered_child_artifact_ids=("artifact-child",),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=("comparison-child", "ordered-child"),
+    )
+
+    for child_id, inherited_scope in (
+        ("comparison-child", ClaimContextScope.COMPARISON),
+        ("ordered-child", ClaimContextScope.ORDERED_SUMMARY),
+    ):
+        validation = ValidationContext(
+            job,
+            "parent-input-revision",
+            handles,
+            deterministic_title="Whole plot",
+            expected_child_ids=("artifact-child",),
+            available_child_ids=("artifact-child",),
+            claim_contexts=((child_id, context),),
+            claim_context_scopes=((child_id, inherited_scope),),
+        )
+        result = validate_and_salvage(
+            _provider_artifact(
+                job.job_id,
+                [
+                    _provider_claim(
+                        evidence=[],
+                        children=["C1" if child_id == "comparison-child" else "C2"],
+                        text="The inherited synthesis is one atomic chronology.",
+                        value="flattened",
+                    )
+                ],
+            ),
+            validation,
+        )
+
+        assert result.artifact is None
+        assert result.rejected_reason == "no_safe_claims"
+
+
+def test_plot_claims_omit_only_same_child_context_factual_conflict() -> None:
+    context = StructuralContext(
+        chapter_id="chapter-2",
+        lane_id="lane-a",
+        route_id="route-a",
+        temporal_anchor="chapter-2:route-a",
+    )
+    plot = _plot_context(context, context)
+    result = validate_and_salvage(
+        _provider_artifact(
+            plot.job.job_id,
+            [
+                _provider_claim(evidence=[], children=["C1"], value="present"),
+                _provider_claim(
+                    evidence=[],
+                    children=["C2"],
+                    text="Alice is absent.",
+                    value="absent",
+                    polarity="negative",
+                ),
+            ],
+        ),
+        plot,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 1
+    assert any(issue.code == "factual_contradiction_omitted" for issue in result.issues)
+
+
+def test_invalid_title_and_unsupported_interpretation_salvage_valid_factual_work() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [
+            _provider_claim(),
+            _provider_claim(
+                claim_class="interpretive",
+                evidence=["E999"],
+                text="Alice secretly wants to leave.",
+                value="leave",
+            ),
+        ],
+    )
+    raw["title"] = " "
+
+    result = validate_and_salvage(raw, context)
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert result.artifact.title == "M11 Scene A"
+    assert result.artifact.used_deterministic_title is True
+    assert len(result.artifact.claims) == 1
+    assert result.artifact.coverage.invalid_claim_count == 1
+    assert any("invalid claim" in warning for warning in result.artifact.warnings)
+
+
+def test_one_targeted_repair_replaces_only_invalid_claim_and_title() -> None:
+    context = _scene_context()
+    valid = _provider_claim()
+    invalid = _provider_claim(
+        evidence=["E404"], text="Bob is absent.", value="absent", subject="Bob"
+    )
+    raw = _provider_artifact(context.job.job_id, [valid, invalid])
+    raw["title"] = ""
+    requests: list[RepairRequest] = []
+
+    def repair(request: RepairRequest) -> object:
+        requests.append(request)
+        return {
+            "logical_job_id": context.job.job_id,
+            "title": "Arrival",
+            "claims": [
+                {
+                    "ordinal": 1,
+                    **_provider_claim(
+                        text="Bob is absent.",
+                        value="absent",
+                        subject="Bob",
+                    ),
+                }
+            ],
+        }
+
+    result = validate_and_salvage(raw, context, repair=repair)
+
+    assert result.repair_attempts == 1
+    assert len(requests) == 1
+    assert requests[0].invalid_claim_ordinals == (1,)
+    assert requests[0].invalid_fields == ("title",)
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert [claim.ordinal for claim in result.artifact.claims] == [0, 1]
+    assert result.artifact.claims[0].text == "Alice is present."
+
+
+def test_failed_repair_retains_primary_valid_claims_and_never_retries_twice() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [_provider_claim(), _provider_claim(evidence=["E404"], text="Unsupported")],
+    )
+    calls = 0
+
+    def repair(_request: RepairRequest) -> object:
+        nonlocal calls
+        calls += 1
+        return {"logical_job_id": context.job.job_id, "claims": "still malformed"}
+
+    result = validate_and_salvage(raw, context, repair=repair)
+
+    assert calls == result.repair_attempts == 1
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert [claim.text for claim in result.artifact.claims] == ["Alice is present."]
+    assert any(issue.code == "repair_exhausted" for issue in result.issues)
+
+
+def test_authority_binding_corruption_rejects_without_repair() -> None:
+    context = _scene_context()
+    calls = 0
+
+    def repair(_request: RepairRequest) -> object:
+        nonlocal calls
+        calls += 1
+        return _provider_artifact(context.job.job_id, [_provider_claim()])
+
+    result = validate_and_salvage(
+        _provider_artifact("foreign-job", [_provider_claim()]),
+        context,
+        repair=repair,
+    )
+
+    assert result.artifact is None
+    assert result.rejected_reason == "authority_binding_invalid"
+    assert result.repair_attempts == calls == 0
+
+
+def test_one_schema_repair_can_rescue_unparseable_core() -> None:
+    context = _scene_context()
+
+    result = validate_and_salvage(
+        "not an object",
+        context,
+        repair=lambda request: _provider_artifact(
+            request.logical_job_id,
+            [_provider_claim()],
+        ),
+    )
+
+    assert result.repair_attempts == 1
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+
+
+def test_zero_supported_claims_rejects_unsafe_artifact() -> None:
+    context = _scene_context()
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [_provider_claim(evidence=["E404"])]),
+        context,
+    )
+
+    assert result.artifact is None
+    assert result.rejected_reason == "no_safe_claims"
+
+
+def test_same_context_factual_conflict_omits_only_later_claim() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [
+            _provider_claim(value="present", text="Alice is present."),
+            _provider_claim(value="absent", text="Alice is absent."),
+        ],
+    )
+
+    result = validate_and_salvage(raw, context)
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert [claim.text for claim in result.artifact.claims] == ["Alice is present."]
+    assert result.artifact.coverage.invalid_claim_count == 1
+    assert any(issue.code == "factual_contradiction_omitted" for issue in result.issues)
+
+
+def test_interpretive_disagreement_is_published_as_review_warning() -> None:
+    context = _scene_context()
+    raw = _provider_artifact(
+        context.job.job_id,
+        [
+            _provider_claim(
+                claim_class="interpretive",
+                value="protective",
+                text="Alice seems protective.",
+            ),
+            _provider_claim(
+                claim_class="interpretive",
+                value="controlling",
+                text="Alice seems controlling.",
+            ),
+        ],
+    )
+
+    result = validate_and_salvage(raw, context, repair=lambda _request: None)
+
+    assert result.repair_attempts == 0
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(result.artifact.claims) == 2
+    assert result.artifact.warnings == ("Interpretive disagreement requires review",)
+    assert any(issue.code == "interpretive_disagreement" for issue in result.issues)
+
+
+def _m12_context() -> tuple[ValidationContext, NarrativeClaim]:
+    authority = M12RouteAuthority(
+        result_identity="result-a",
+        route_id="route-a",
+        persistent_lane_id="lane-a",
+        status=TechnicalStatus.BEST_KNOWN,
+        badge=RouteBadge.BEST_KNOWN,
+        prerequisite_texts=("Prerequisite remains conditional.",),
+    )
+    leaf = make_m12_authority_leaf(authority, locale="en-US", perspective="neutral")
+    exact = leaf.claims[0]
+    job = LogicalJobSpec(
+        LogicalJobKind.ROUTE,
+        "route-a",
+        StructuralContext(lane_id="lane-a", route_id="route-a"),
+        ordered_child_artifact_ids=("route-child",),
+        locale="en-US",
+        perspective="neutral",
+    )
+    handles = PromptHandleTable.build(
+        scope_id=job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(exact.claim_id,),
+    )
+    return (
+        ValidationContext(
+            job,
+            "route-input-revision",
+            handles,
+            deterministic_title="Route A",
+            expected_child_ids=("route-child",),
+            available_child_ids=("route-child",),
+            authority_claims=(exact,),
+        ),
+        exact,
+    )
+
+
+def _m12_provider_claim(
+    exact: NarrativeClaim,
+    *,
+    claim_class: str,
+    value: str,
+) -> dict[str, object]:
+    assert exact.semantics is not None
+    return {
+        "claim_class": claim_class,
+        "context_scope": "atomic",
+        "text": exact.text if value == exact.text else "The route is fully proven.",
+        "evidence_handles": [],
+        "child_claim_handles": ["C1"],
+        "subject": exact.semantics.subject,
+        "predicate": exact.semantics.predicate,
+        "polarity": exact.semantics.polarity.value,
+        "normalized_value": value,
+    }
+
+
+def test_exact_m12_fact_must_preserve_status_while_interpretation_may_summarize() -> None:
+    context, exact = _m12_context()
+    exact_result = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="factual", value=exact.text)],
+        ),
+        context,
+    )
+    altered = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="factual", value="confirmed")],
+        ),
+        context,
+    )
+    interpreted = validate_and_salvage(
+        _provider_artifact(
+            context.job.job_id,
+            [_m12_provider_claim(exact, claim_class="interpretive", value="uncertain")],
+        ),
+        context,
+    )
+
+    assert exact_result.artifact is not None
+    assert exact_result.artifact.claims[0].text == exact.text
+    assert altered.artifact is not None
+    assert altered.artifact.publication is ArtifactPublication.PARTIAL
+    assert [claim.text for claim in altered.artifact.claims] == [exact.text]
+    assert altered.artifact.claims[0].support.child_claim_ids == (exact.claim_id,)
+    assert interpreted.artifact is not None
+    assert interpreted.artifact.claims[0].claim_class is ClaimClass.INTERPRETIVE
+    assert interpreted.artifact.claims[1].claim_class is ClaimClass.FACTUAL
+    assert interpreted.artifact.claims[1].text == exact.text
+    assert interpreted.artifact.claims[1].support.child_claim_ids == (exact.claim_id,)
+
+
+def test_scene_exact_m12_evidence_rejects_changed_prerequisite_and_status_upgrade() -> None:
+    _context, exact = _m12_context()
+    reference = exact.support.direct_evidence[0]
+    scene_job = LogicalJobSpec(LogicalJobKind.SCENE, "scene-m12", StructuralContext())
+    direct = replace(
+        exact,
+        logical_job_id=scene_job.job_id,
+        job_kind=LogicalJobKind.SCENE,
+        ordinal=0,
+    )
+    handles = PromptHandleTable.build(
+        scope_id=scene_job.job_id,
+        allowed_owner_ids=("scene-m12",),
+        evidence_references=(replace(reference, owner_id="scene-m12"),),
+    )
+    direct = replace(
+        direct,
+        support=replace(
+            direct.support,
+            direct_evidence=(replace(reference, owner_id="scene-m12"),),
+        ),
+    )
+    validation = ValidationContext(
+        scene_job,
+        "scene-m12-revision",
+        handles,
+        deterministic_title="Scene M12",
+        authority_claims=(direct,),
+    )
+    assert direct.semantics is not None
+
+    def provider_claim(*, claim_class: str, text: str, value: str) -> dict[str, object]:
+        return {
+            "claim_class": claim_class,
+            "context_scope": "atomic",
+            "text": text,
+            "evidence_handles": ["E1"],
+            "child_claim_handles": [],
+            "subject": direct.semantics.subject,
+            "predicate": direct.semantics.predicate,
+            "polarity": direct.semantics.polarity.value,
+            "normalized_value": value,
+        }
+
+    exact_result = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [provider_claim(claim_class="factual", text=direct.text, value=direct.text)],
+        ),
+        validation,
+    )
+    changed = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [
+                provider_claim(
+                    claim_class="factual",
+                    text="Prerequisite was weakened.",
+                    value="confirmed",
+                )
+            ],
+        ),
+        validation,
+    )
+    interpreted = validate_and_salvage(
+        _provider_artifact(
+            scene_job.job_id,
+            [
+                provider_claim(
+                    claim_class="interpretive",
+                    text="The route seems promising.",
+                    value="promising",
+                )
+            ],
+        ),
+        validation,
+    )
+
+    assert exact_result.artifact is not None
+    assert [claim.text for claim in exact_result.artifact.claims] == [direct.text]
+    assert changed.artifact is not None
+    assert [claim.text for claim in changed.artifact.claims] == [direct.text]
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in changed.issues)
+    assert interpreted.artifact is not None
+    assert [claim.claim_class for claim in interpreted.artifact.claims] == [
+        ClaimClass.INTERPRETIVE,
+        ClaimClass.FACTUAL,
+    ]
+    assert interpreted.artifact.claims[1].text == direct.text
+
+
+def test_omitted_m12_fact_is_added_as_exact_deterministic_parent_claim() -> None:
+    context, exact = _m12_context()
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, []),
+        context,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.COMPLETE
+    assert len(result.artifact.claims) == 1
+    proxy = result.artifact.claims[0]
+    assert proxy.claim_class is ClaimClass.FACTUAL
+    assert proxy.text == exact.text
+    assert proxy.semantics == exact.semantics
+    assert proxy.support.child_claim_ids == (exact.claim_id,)
+
+
+def test_exact_m12_claim_reserves_space_inside_final_256_claim_bound() -> None:
+    context, exact = _m12_context()
+    provider_claims = [
+        _provider_claim(
+            claim_class="interpretive",
+            evidence=[],
+            children=["C1"],
+            subject=f"interpretation-{ordinal}",
+            text=f"Interpretation {ordinal} remains non-authoritative.",
+            value=f"interpretation-{ordinal}",
+        )
+        for ordinal in range(256)
+    ]
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, provider_claims),
+        context,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 256
+    assert any(
+        claim.claim_class is ClaimClass.FACTUAL
+        and claim.text == exact.text
+        and claim.support.child_claim_ids == (exact.claim_id,)
+        for claim in result.artifact.claims
+    )
+    assert sum(issue.code == "claim_limit_exceeded" for issue in result.issues) == 1
+
+
+def test_exact_m12_fact_cannot_adopt_unrelated_child_context() -> None:
+    context, exact = _m12_context()
+    other_claim_id = "unrelated-common-child"
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(exact.claim_id, other_claim_id),
+    )
+    handle_by_id = {item.claim_id: item.handle for item in handles.child_claim_handles}
+    mixed = _m12_provider_claim(exact, claim_class="factual", value=exact.text)
+    mixed["child_claim_handles"] = [
+        handle_by_id[exact.claim_id],
+        handle_by_id[other_claim_id],
+    ]
+    validation = replace(
+        context,
+        handles=handles,
+        claim_contexts=(
+            (
+                other_claim_id,
+                StructuralContext(
+                    lane_id="lane-common",
+                    temporal_anchor="common-story",
+                ),
+            ),
+        ),
+        claim_context_scopes=((other_claim_id, ClaimContextScope.ATOMIC),),
+    )
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, [mixed]),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 1
+    assert result.artifact.claims[0].support.child_claim_ids == (exact.claim_id,)
+    assert any(issue.code == "invalid_or_unsupported_claim" for issue in result.issues)
+
+
+def test_256_duplicate_authority_representations_salvage_without_overflow() -> None:
+    context, _exact = _m12_context()
+    authority = M12RouteAuthority(
+        result_identity="result-many",
+        route_id="route-a",
+        persistent_lane_id="lane-a",
+        status=TechnicalStatus.BEST_KNOWN,
+        badge=RouteBadge.BEST_KNOWN,
+    )
+    exact_claims = make_m12_authority_leaf(
+        authority,
+        locale="en-US",
+        perspective="neutral",
+    ).claims
+    first, second = exact_claims
+    unrelated_ids = tuple(f"unrelated-{ordinal:03d}" for ordinal in range(256))
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=tuple((first.claim_id, second.claim_id, *unrelated_ids)),
+    )
+    handle_by_id = {item.claim_id: item.handle for item in handles.child_claim_handles}
+    provider_claims: list[dict[str, object]] = []
+    assert first.semantics is not None
+    for unrelated_id in unrelated_ids:
+        provider_claims.append(
+            {
+                "claim_class": "factual",
+                "context_scope": "atomic",
+                "text": first.text,
+                "evidence_handles": [],
+                "child_claim_handles": [
+                    handle_by_id[first.claim_id],
+                    handle_by_id[unrelated_id],
+                ],
+                "subject": first.semantics.subject,
+                "predicate": first.semantics.predicate,
+                "polarity": first.semantics.polarity.value,
+                "normalized_value": first.semantics.normalized_value,
+            }
+        )
+    validation = replace(
+        context,
+        handles=handles,
+        authority_claims=exact_claims,
+    )
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, provider_claims),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.publication is ArtifactPublication.PARTIAL
+    assert len(result.artifact.claims) == 2
+    assert {claim.support.child_claim_ids for claim in result.artifact.claims} == {
+        (first.claim_id,),
+        (second.claim_id,),
+    }
+    assert sum(
+        issue.code == "invalid_or_unsupported_claim" for issue in result.issues
+    ) == 256
+
+
+def test_deterministic_authority_proxy_preserves_inherited_scope() -> None:
+    context, exact = _m12_context()
+    scoped = replace(exact, context_scope=ClaimContextScope.COMPARISON)
+    handles = PromptHandleTable.build(
+        scope_id=context.job.job_id,
+        allowed_owner_ids=(),
+        child_claim_ids=(scoped.claim_id,),
+    )
+    validation = replace(context, handles=handles, authority_claims=(scoped,))
+
+    result = validate_and_salvage(
+        _provider_artifact(context.job.job_id, []),
+        validation,
+    )
+
+    assert result.artifact is not None
+    assert result.artifact.claims[0].context_scope is ClaimContextScope.COMPARISON
+
+
+def _persisted_claim(
+    job: LogicalJobSpec,
+    *,
+    ordinal: int,
+    claim_class: ClaimClass,
+    value: str,
+    polarity: ClaimPolarity = ClaimPolarity.POSITIVE,
+) -> ContextualClaim:
+    claim = NarrativeClaim(
+        logical_job_id=job.job_id,
+        job_kind=job.kind,
+        ordinal=ordinal,
+        claim_class=claim_class,
+        text=f"Trust is {value}.",
+        support=ClaimSupport(
+            SupportKind.DIRECT_EVIDENCE,
+            (
+                AuthorityReference(
+                    AuthoritySystem.M10,
+                    "evidence",
+                    f"evidence-{job.owner_id}-{ordinal}",
+                    job.owner_id,
+                ),
+            ),
+        ),
+        semantics=ClaimSemantics("Alice", "trust", polarity, value),
+    )
+    return ContextualClaim(claim, job)
+
+
+def test_factual_conflict_requires_same_route_temporal_occurrence_and_class_context() -> None:
+    base = _scene_job(route="route-a", occurrence="occurrence-a")
+    same_context = replace(base, owner_id="scene-a-copy")
+    # Scene identity itself is a temporal anchor for scene claims, so use the same owner for a
+    # same-scene contradiction and a different ordinal to retain distinct claim IDs.
+    left = _persisted_claim(base, ordinal=0, claim_class=ClaimClass.FACTUAL, value="high")
+    right = _persisted_claim(base, ordinal=1, claim_class=ClaimClass.FACTUAL, value="low")
+    assert same_context.context == base.context
+
+    findings = contradiction_findings((left, right))
+
+    assert len(findings) == 1
+    assert findings[0].severity is ContradictionSeverity.AUTHORITY_VIOLATION
+    assert findings[0].left_identity.route_id == "route-a"
+    assert findings[0].left_identity.occurrence_id == "occurrence-a"
+
+
+def test_mutually_exclusive_routes_and_temporal_change_do_not_false_positive() -> None:
+    route_a = _scene_job(route="route-a", temporal="chapter-start")
+    route_b = _scene_job(route="route-b", temporal="chapter-start")
+    later = _scene_job(route="route-a", temporal="chapter-end")
+    claims = (
+        _persisted_claim(route_a, ordinal=0, claim_class=ClaimClass.FACTUAL, value="low"),
+        _persisted_claim(route_b, ordinal=0, claim_class=ClaimClass.FACTUAL, value="high"),
+        _persisted_claim(later, ordinal=0, claim_class=ClaimClass.FACTUAL, value="high"),
+    )
+
+    assert contradiction_findings(claims) == ()
+
+
+def test_interpretive_disagreement_is_review_warning_not_authority_violation() -> None:
+    job = _scene_job()
+    left = _persisted_claim(
+        job,
+        ordinal=0,
+        claim_class=ClaimClass.INTERPRETIVE,
+        value="protective",
+    )
+    right = _persisted_claim(
+        job,
+        ordinal=1,
+        claim_class=ClaimClass.INTERPRETIVE,
+        value="controlling",
+    )
+
+    finding = contradiction_findings((left, right))[0]
+
+    assert finding.severity is ContradictionSeverity.REVIEW_WARNING

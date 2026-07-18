@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Protocol, cast
 
@@ -38,6 +39,42 @@ from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.narrative.authority import load_narrative_authority
+from renpy_story_mapper.narrative.batching import BatchLimits
+from renpy_story_mapper.narrative.contracts import (
+    BudgetLimits,
+    ConsentManifest,
+    ProviderSettings,
+)
+from renpy_story_mapper.narrative.evidence import ClaimDagError
+from renpy_story_mapper.narrative.persistence import LookupState, M13Persistence, RecordKind
+from renpy_story_mapper.narrative.pipeline import (
+    NarrativePipelineResult,
+    run_complete_narrative,
+)
+from renpy_story_mapper.narrative.presentation import (
+    narrative_artifact_detail,
+    narrative_claim_citations,
+    narrative_snapshot,
+)
+from renpy_story_mapper.narrative.projection import NarrativeInputMode
+from renpy_story_mapper.narrative.provider import (
+    CodexCliNarrativeProvider,
+    NarrativeProvider,
+    validate_codex_provider_settings,
+)
+from renpy_story_mapper.narrative.scheduler import (
+    SchedulerPolicy,
+    SchedulerRunRecord,
+    SchedulerRunState,
+    SchedulerUsage,
+    scheduler_compatibility_id,
+)
+from renpy_story_mapper.narrative.workflow import (
+    PreparedNarrativeRun,
+    grant_narrative_consent,
+    prepare_narrative_scene_run,
+)
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -78,6 +115,15 @@ from renpy_story_mapper.web.contracts import (
     M12_DESTINATIONS_REQUEST_FIELDS,
     M12_RESULT_REQUEST_FIELDS,
     M12_SOLVE_REQUEST_FIELDS,
+    M13_API_ROUTES,
+    M13_ARTIFACT_REQUEST_FIELDS,
+    M13_BATCH_LIMIT_FIELDS,
+    M13_CITATIONS_REQUEST_FIELDS,
+    M13_LIMIT_FIELDS,
+    M13_PREPARE_REQUEST_FIELDS,
+    M13_PROVIDER_SETTING_FIELDS,
+    M13_SNAPSHOT_REQUEST_FIELDS,
+    M13_START_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -157,6 +203,77 @@ class DialogAdapter(Protocol):
     def choose_save_project(self) -> Path | None: ...
 
 
+type M13ProviderFactory = Callable[[], NarrativeProvider]
+
+
+@dataclass(frozen=True)
+class _PreparedM13WebRun:
+    prepared: PreparedNarrativeRun
+    provider: NarrativeProvider
+    policy: SchedulerPolicy
+    retry_request: dict[str, JsonValue]
+
+
+def _next_m13_durable_sequence(
+    persistence: M13Persistence,
+    authority_binding: Mapping[str, object],
+) -> int:
+    maximum = max(
+        (
+            value
+            for record in persistence.list_records(
+                RecordKind.RUN,
+                authority_binding=authority_binding,
+            )
+            if record.state is LookupState.HIT
+            and record.payload is not None
+            and isinstance((value := record.payload.get("durable_sequence")), int)
+            and not isinstance(value, bool)
+            and value > 0
+        ),
+        default=0,
+    )
+    return maximum + 1
+
+
+def _m13_scheduler_usage(raw: object) -> SchedulerUsage | None:
+    if not isinstance(raw, Mapping):
+        return None
+    integer_fields = (
+        "provider_calls",
+        "input_tokens",
+        "output_tokens",
+        "elapsed_ms",
+        "peak_concurrency",
+    )
+    values = {field: raw.get(field) for field in integer_fields}
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in values.values()
+    ):
+        return None
+    cost = raw.get("cost_micros")
+    estimated = raw.get("usage_estimated")
+    if (
+        cost is not None
+        and (not isinstance(cost, int) or isinstance(cost, bool) or cost < 0)
+    ) or not isinstance(estimated, bool):
+        return None
+    input_tokens = cast(int, values["input_tokens"])
+    output_tokens = cast(int, values["output_tokens"])
+    if raw.get("total_tokens") != input_tokens + output_tokens:
+        return None
+    return SchedulerUsage(
+        provider_calls=cast(int, values["provider_calls"]),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        elapsed_ms=cast(int, values["elapsed_ms"]),
+        cost_micros=cost,
+        peak_concurrency=cast(int, values["peak_concurrency"]),
+        usage_estimated=estimated,
+    )
+
+
 class SelectionRegistry:
     """Per-launch opaque references; paths are never serialized to the browser."""
 
@@ -187,6 +304,7 @@ class ProjectApi:
         *,
         state_store: UserStateStore | None = None,
         m07_provider_factory: ProviderFactory | None = None,
+        m13_provider_factory: M13ProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -214,6 +332,11 @@ class ProjectApi:
         self._m07_run_selected_ids: tuple[str, ...] = ()
         self._m12_identities: dict[str, RouteCacheIdentity] = {}
         self._m12_attempts: dict[str, dict[str, JsonValue]] = {}
+        self._m13_provider_factory = m13_provider_factory or _default_m13_provider_factory
+        self._m13_prepared: _PreparedM13WebRun | None = None
+        self._m13_preview: dict[str, JsonValue] | None = None
+        self._m13_active_provider: NarrativeProvider | None = None
+        self._m13_result: NarrativePipelineResult | None = None
 
     def close(self) -> None:
         self.cancel()
@@ -227,6 +350,10 @@ class ProjectApi:
         with self._lock:
             if self._cancel_event is not None:
                 self._cancel_event.set()
+            provider = self._m13_active_provider
+        if provider is not None:
+            with suppress(Exception):
+                provider.cancel()
 
     def dispatch(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if method == "GET" and path == "/api/v1/bootstrap":
@@ -257,6 +384,7 @@ class ProjectApi:
                     "m10": dict(M10_API_ROUTES),
                     "m11": dict(M11_API_ROUTES),
                     "m12": dict(M12_API_ROUTES),
+                    "m13": dict(M13_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -335,16 +463,12 @@ class ProjectApi:
                     canonical,
                     analysis_state,
                     view=require_string(body, "view", maximum=16),
-                    offset=bounded_int(
-                        body, "offset", default=0, minimum=0, maximum=2_000_000
-                    ),
+                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
                     limit=bounded_int(body, "limit", default=30, minimum=1, maximum=30),
                     edge_offset=bounded_int(
                         body, "edge_offset", default=0, minimum=0, maximum=2_000_000
                     ),
-                    edge_limit=bounded_int(
-                        body, "edge_limit", default=180, minimum=1, maximum=180
-                    ),
+                    edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
                     query=optional_string(body, "query", maximum=256),
                     focus=optional_string(body, "focus", maximum=512),
                     projection_unavailable_reason=projection_reason,
@@ -446,9 +570,7 @@ class ProjectApi:
             with Project.open(self._project()) as opened_project:
                 page = M12RouteService(opened_project).destinations(
                     query=optional_string(body, "query", maximum=256),
-                    offset=bounded_int(
-                        body, "offset", default=0, minimum=0, maximum=2_000_000
-                    ),
+                    offset=bounded_int(body, "offset", default=0, minimum=0, maximum=2_000_000),
                     limit=bounded_int(body, "limit", default=30, minimum=1, maximum=50),
                 )
             return json_value(page)
@@ -503,6 +625,18 @@ class ProjectApi:
                 identity = self._m12_identities.get(request_identity)
                 attempt = self._m12_attempts.get(request_identity)
             if identity is None:
+                with Project.open(self._project()) as opened_project:
+                    authority = load_narrative_authority(
+                        opened_project,
+                        include_m12=True,
+                    )
+                durable = [
+                    result
+                    for result in authority.m12_results
+                    if result.get("request_identity") == request_identity
+                ]
+                if len(durable) == 1:
+                    return json_value(dict(durable[0]))
                 raise ApiProblem(404, "m12_result_not_found", "The route result is unavailable.")
             try:
                 with Project.open(self._project()) as opened_project:
@@ -539,6 +673,86 @@ class ProjectApi:
                     attempt_message,
                 )
             raise ApiProblem(409, "m12_result_pending", "The route result is not ready.")
+        if method == "POST" and path == M13_API_ROUTES["prepare"]:
+            exact_fields(
+                body,
+                allowed=M13_PREPARE_REQUEST_FIELDS,
+                required=(
+                    "requested_model",
+                    "provider_settings",
+                    "mode",
+                    "include_m12_material",
+                    "limits",
+                    "batch_limits",
+                ),
+            )
+            return json_value(self._m13_prepare(body))
+        if method == "POST" and path == M13_API_ROUTES["start"]:
+            exact_fields(
+                body,
+                allowed=M13_START_REQUEST_FIELDS,
+                required=M13_START_REQUEST_FIELDS,
+            )
+            return json_value(self._m13_start(body))
+        if method == "POST" and path == M13_API_ROUTES["status"]:
+            exact_fields(body, allowed=())
+            return json_value(self._m13_status())
+        if method == "POST" and path == M13_API_ROUTES["cancel"]:
+            exact_fields(body, allowed=())
+            return json_value(self._m13_cancel())
+        if method == "POST" and path == M13_API_ROUTES["snapshot"]:
+            exact_fields(body, allowed=M13_SNAPSHOT_REQUEST_FIELDS)
+            with Project.open(self._project()) as opened_project:
+                snapshot = narrative_snapshot(
+                    opened_project,
+                    offset=bounded_int(
+                        body,
+                        "offset",
+                        default=0,
+                        minimum=0,
+                        maximum=2_000_000,
+                    ),
+                    limit=bounded_int(body, "limit", default=100, minimum=1, maximum=200),
+                )
+            return json_value(snapshot)
+        if method == "POST" and path == M13_API_ROUTES["artifact"]:
+            exact_fields(
+                body,
+                allowed=M13_ARTIFACT_REQUEST_FIELDS,
+                required=M13_ARTIFACT_REQUEST_FIELDS,
+            )
+            try:
+                with Project.open(self._project()) as opened_project:
+                    detail = narrative_artifact_detail(
+                        opened_project,
+                        require_string(body, "artifact_id", maximum=160),
+                    )
+            except KeyError as exc:
+                raise ApiProblem(
+                    404,
+                    "m13_artifact_not_found",
+                    "The current narrative artifact is unavailable.",
+                ) from exc
+            return json_value(detail)
+        if method == "POST" and path == M13_API_ROUTES["citations"]:
+            exact_fields(
+                body,
+                allowed=M13_CITATIONS_REQUEST_FIELDS,
+                required=M13_CITATIONS_REQUEST_FIELDS,
+            )
+            try:
+                with Project.open(self._project()) as opened_project:
+                    citations = narrative_claim_citations(
+                        opened_project,
+                        require_string(body, "claim_id", maximum=160),
+                    )
+            except (ClaimDagError, KeyError) as exc:
+                raise ApiProblem(
+                    404,
+                    "m13_claim_not_found",
+                    "The current narrative claim is unavailable.",
+                ) from exc
+            return json_value(citations)
         if method == "POST" and path == M07_API_ROUTES["route_map"]:
             exact_fields(body, allowed=("offset", "limit", "edge_offset", "edge_limit"))
             page = self._m07_workflow().route_map(
@@ -547,9 +761,7 @@ class ProjectApi:
                 edge_offset=bounded_int(
                     body, "edge_offset", default=0, minimum=0, maximum=2_000_000
                 ),
-                edge_limit=bounded_int(
-                    body, "edge_limit", default=180, minimum=1, maximum=180
-                ),
+                edge_limit=bounded_int(body, "edge_limit", default=180, minimum=1, maximum=180),
             )
             return json_value(self._story_display_route_page(page))
         if method == "POST" and path == M07_API_ROUTES["route_search"]:
@@ -825,6 +1037,536 @@ class ProjectApi:
             "kind": selection.kind,
         }
 
+    def _m13_prepare(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        with self._lock:
+            if self._future is not None and not self._future.done():
+                raise ApiProblem(409, "operation_busy", "Another project operation is in progress.")
+        limits_value = object_value(body, "limits")
+        exact_fields(
+            limits_value,
+            allowed=M13_LIMIT_FIELDS,
+            required=M13_LIMIT_FIELDS[:-1],
+            name="M13 limits",
+        )
+        batch_value = object_value(body, "batch_limits")
+        exact_fields(
+            batch_value,
+            allowed=M13_BATCH_LIMIT_FIELDS,
+            required=M13_BATCH_LIMIT_FIELDS,
+            name="M13 batch limits",
+        )
+        max_cost = optional_bounded_int(
+            limits_value,
+            "max_cost_micros",
+            minimum=0,
+            maximum=10_000_000_000,
+        )
+        if max_cost is not None:
+            raise ApiProblem(
+                409,
+                "m13_cost_unavailable",
+                "This provider does not expose reliable preflight pricing; "
+                "use call and token limits.",
+            )
+        limits = BudgetLimits(
+            max_provider_calls=bounded_int(
+                limits_value,
+                "max_provider_calls",
+                default=5_000,
+                minimum=1,
+                maximum=100_000,
+            ),
+            max_input_tokens=bounded_int(
+                limits_value,
+                "max_input_tokens",
+                default=50_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            max_output_tokens=bounded_int(
+                limits_value,
+                "max_output_tokens",
+                default=20_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            max_total_tokens=bounded_int(
+                limits_value,
+                "max_total_tokens",
+                default=70_000_000,
+                minimum=1,
+                maximum=2_000_000_000,
+            ),
+            timeout_seconds=bounded_int(
+                limits_value,
+                "timeout_seconds",
+                default=3_600,
+                minimum=1,
+                maximum=86_400,
+            ),
+            max_concurrency=bounded_int(
+                limits_value,
+                "max_concurrency",
+                default=4,
+                minimum=1,
+                maximum=32,
+            ),
+        )
+        batch_limits = BatchLimits(
+            maximum_items=bounded_int(
+                batch_value,
+                "maximum_items",
+                default=16,
+                minimum=1,
+                maximum=64,
+            ),
+            maximum_input_chars=bounded_int(
+                batch_value,
+                "maximum_input_chars",
+                default=500_000,
+                minimum=1,
+                maximum=500_000,
+            ),
+            maximum_input_tokens=bounded_int(
+                batch_value,
+                "maximum_input_tokens",
+                default=100_000,
+                minimum=1,
+                maximum=200_000,
+            ),
+        )
+        mode_value = require_string(body, "mode", maximum=32)
+        try:
+            mode = NarrativeInputMode(mode_value)
+        except ValueError as exc:
+            raise ValueError("unsupported M13 privacy mode") from exc
+        selected_scene_ids = (
+            required_string_tuple(body, "selected_scene_ids", maximum_items=5_000)
+            if "selected_scene_ids" in body
+            else None
+        )
+        locale = optional_string(body, "locale", maximum=64) or "und"
+        perspective = optional_string(body, "perspective", maximum=128) or "default"
+        requested_model = require_string(body, "requested_model", maximum=200)
+        include_m12_material = boolean(body, "include_m12_material")
+        resume_run_id = optional_string(body, "resume_run_id", maximum=160)
+        resume_consent_id = optional_string(body, "resume_consent_id", maximum=160)
+        if bool(resume_run_id) != bool(resume_consent_id):
+            raise ApiProblem(
+                409,
+                "m13_resume_incompatible",
+                "A durable retry requires both the exact run and consent identities.",
+            )
+        settings_value = object_value(body, "provider_settings")
+        exact_fields(
+            settings_value,
+            allowed=M13_PROVIDER_SETTING_FIELDS,
+            required=M13_PROVIDER_SETTING_FIELDS,
+            name="provider_settings",
+        )
+        provider_settings = ProviderSettings(
+            (
+                (
+                    "model_reasoning_effort",
+                    require_string(settings_value, "model_reasoning_effort", maximum=32),
+                ),
+                ("fast_mode", boolean(settings_value, "fast_mode")),
+            )
+        )
+        validate_codex_provider_settings(provider_settings)
+        retry_request: dict[str, JsonValue] = {
+            "requested_model": requested_model,
+            "provider_settings": provider_settings.to_dict(),
+            "mode": mode.value,
+            "include_m12_material": include_m12_material,
+            "limits": limits.to_dict(),
+            "batch_limits": {
+                "maximum_items": batch_limits.maximum_items,
+                "maximum_input_chars": batch_limits.maximum_input_chars,
+                "maximum_input_tokens": batch_limits.maximum_input_tokens,
+            },
+            "locale": locale,
+            "perspective": perspective,
+        }
+        if selected_scene_ids is not None:
+            retry_request["selected_scene_ids"] = list(selected_scene_ids)
+        provider = self._m13_provider_factory()
+        with Project.open(self._project()) as opened_project:
+            prepared = prepare_narrative_scene_run(
+                opened_project,
+                provider,
+                run_id=resume_run_id or f"m13-run-{uuid.uuid4().hex}",
+                requested_model=requested_model,
+                settings=provider_settings,
+                mode=mode,
+                include_m12_material=include_m12_material,
+                limits=limits,
+                batch_limits=batch_limits,
+                selected_scene_ids=selected_scene_ids,
+                locale=locale,
+                perspective=perspective,
+            )
+            if resume_run_id is not None and resume_consent_id is not None:
+                self._require_m13_compatible_resume(
+                    opened_project,
+                    prepared,
+                    retry_request,
+                    resume_run_id=resume_run_id,
+                    resume_consent_id=resume_consent_id,
+                )
+        web_run = _PreparedM13WebRun(
+            prepared,
+            provider,
+            SchedulerPolicy(batch_limits),
+            retry_request,
+        )
+        preview = prepared.preview_dict()
+        preview["consent_manifest_id"] = prepared.consent_preview.manifest_id
+        preview["requires_confirm_cloud"] = True
+        preview["selected_scene_count"] = len(prepared.scene_run.jobs)
+        preview["cloud_enabled"] = False
+        with self._lock:
+            self._m13_prepared = web_run
+            self._m13_preview = dict(preview)
+            self._m13_result = None
+        return preview
+
+    def _require_m13_compatible_resume(
+        self,
+        project: Project,
+        prepared: PreparedNarrativeRun,
+        retry_request: Mapping[str, JsonValue],
+        *,
+        resume_run_id: str,
+        resume_consent_id: str,
+    ) -> None:
+        persistence = project.m13_persistence()
+        authority_binding = prepared.authority.binding.to_dict()
+        consent_lookup = persistence.lookup(
+            RecordKind.CONSENT,
+            resume_consent_id,
+            authority_binding=authority_binding,
+        )
+        run_lookup = persistence.lookup(
+            RecordKind.RUN,
+            resume_run_id,
+            authority_binding=authority_binding,
+        )
+        granted = replace(prepared.consent_preview, consent_granted=True)
+        expected_request = {
+            **dict(retry_request),
+            "resume_run_id": resume_run_id,
+            "resume_consent_id": resume_consent_id,
+        }
+        compatible = (
+            consent_lookup.state is LookupState.HIT
+            and consent_lookup.payload is not None
+            and run_lookup.state is LookupState.HIT
+            and run_lookup.payload is not None
+            and granted.manifest_id == resume_consent_id
+            and storage.canonical_json(consent_lookup.payload)
+            == storage.canonical_json(granted.to_dict())
+            and run_lookup.payload.get("run_id") == resume_run_id
+            and run_lookup.payload.get("consent_manifest_id") == resume_consent_id
+            and run_lookup.payload.get("browser_preparation_id") == prepared.preparation_id
+            and (
+                run_lookup.payload.get("browser_pipeline_complete") is False
+                or run_lookup.payload.get("state")
+                in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            )
+            and isinstance(run_lookup.payload.get("browser_retry_request"), Mapping)
+            and storage.canonical_json(run_lookup.payload["browser_retry_request"])
+            == storage.canonical_json(expected_request)
+        )
+        if not compatible:
+            raise ApiProblem(
+                409,
+                "m13_resume_incompatible",
+                "The durable M13 run is not compatible with this exact retry request. "
+                "Prepare a new manifest and grant new consent.",
+            )
+
+    def _m13_start(self, body: dict[str, JsonValue]) -> dict[str, object]:
+        preparation_id = require_string(body, "preparation_id", maximum=160)
+        if not boolean(body, "confirm_cloud"):
+            raise ApiProblem(
+                409,
+                "m13_consent_required",
+                "The exact M13 cloud manifest was not confirmed.",
+            )
+        with self._lock:
+            web_run = self._m13_prepared
+            if web_run is None or not secrets.compare_digest(
+                web_run.prepared.preparation_id,
+                preparation_id,
+            ):
+                raise ApiProblem(
+                    409,
+                    "m13_preparation_stale",
+                    "The M13 preparation is missing or stale.",
+                )
+            if not web_run.prepared.provider_status.available:
+                raise ApiProblem(
+                    409,
+                    "m13_provider_unavailable",
+                    "The selected M13 provider is unavailable.",
+                )
+            self._m13_prepared = None
+            self._m13_active_provider = web_run.provider
+        try:
+            with Project.open(self._project()) as opened_project:
+                consent = grant_narrative_consent(opened_project, web_run.prepared)
+                self._persist_m13_browser_identity(opened_project, web_run, consent)
+            started = self._start(
+                "m13_narrative",
+                lambda cancelled: self._m13_execute(web_run, consent, cancelled),
+            )
+        except Exception:
+            with self._lock:
+                self._m13_prepared = web_run
+                self._m13_active_provider = None
+            raise
+        status = self._m13_status()
+        status["analysis"] = started.get("analysis") if isinstance(started, dict) else None
+        return status
+
+    def _m13_execute(
+        self,
+        web_run: _PreparedM13WebRun,
+        consent: ConsentManifest,
+        cancelled: threading.Event,
+    ) -> None:
+        try:
+            with Project.open(self._project()) as opened_project:
+                result = run_complete_narrative(
+                    opened_project,
+                    web_run.provider,
+                    web_run.prepared,
+                    consent,
+                    policy=web_run.policy,
+                    cancelled=cancelled.is_set,
+                )
+                self._persist_m13_browser_run(opened_project, web_run, result)
+            with self._lock:
+                self._m13_result = result
+        finally:
+            with self._lock:
+                if self._m13_active_provider is web_run.provider:
+                    self._m13_active_provider = None
+
+    @staticmethod
+    def _persist_m13_browser_identity(
+        project: Project,
+        web_run: _PreparedM13WebRun,
+        consent: ConsentManifest,
+    ) -> None:
+        """Persist exact retry authority before asynchronous execution can begin."""
+
+        persistence = project.m13_persistence()
+        authority_binding = web_run.prepared.authority.binding.to_dict()
+        sequence = _next_m13_durable_sequence(persistence, authority_binding)
+        cumulative_usage = SchedulerUsage()
+        existing = persistence.lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=authority_binding,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            if (
+                existing.payload.get("consent_manifest_id") != consent.manifest_id
+                or not isinstance(existing.payload.get("provider"), Mapping)
+                or storage.canonical_json(existing.payload["provider"])
+                != storage.canonical_json(consent.provider.to_dict())
+            ):
+                raise ValueError("browser retry run identity is incompatible")
+            parsed = _m13_scheduler_usage(
+                existing.payload.get("cumulative_usage", existing.payload.get("usage"))
+            )
+            if parsed is None:
+                raise ValueError("browser retry cumulative usage is invalid")
+            cumulative_usage = parsed
+        elif existing.state is not LookupState.MISS:
+            raise ValueError("browser retry run state is unavailable")
+        retry_request: dict[str, JsonValue] = {
+            **web_run.retry_request,
+            "resume_run_id": consent.run_id,
+            "resume_consent_id": consent.manifest_id,
+        }
+        usage = SchedulerUsage()
+        initial = SchedulerRunRecord(
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            state=SchedulerRunState.RUNNING,
+            provider=consent.provider,
+            usage=usage,
+            succeeded_jobs=0,
+            partial_jobs=0,
+            failed_jobs=0,
+            refused_jobs=0,
+            cancelled_jobs=0,
+            compatibility_id=scheduler_compatibility_id(
+                consent,
+                web_run.prepared.scheduled_jobs,
+            ),
+            cumulative_usage=cumulative_usage,
+        )
+        payload = initial.to_dict()
+        payload["durable_sequence"] = sequence
+        payload["browser_preparation_id"] = web_run.prepared.preparation_id
+        payload["browser_pipeline_complete"] = False
+        payload["browser_retry_request"] = retry_request
+        persistence.put_run(
+            consent.run_id,
+            payload,
+            authority_binding=authority_binding,
+        )
+
+    @staticmethod
+    def _persist_m13_browser_run(
+        project: Project,
+        web_run: _PreparedM13WebRun,
+        result: NarrativePipelineResult,
+    ) -> None:
+        persistence = project.m13_persistence()
+        authority_binding = web_run.prepared.authority.binding.to_dict()
+        sequence = _next_m13_durable_sequence(persistence, authority_binding)
+        retry_request: dict[str, JsonValue] = {
+            **web_run.retry_request,
+            "resume_run_id": result.record.run_id,
+            "resume_consent_id": result.record.consent_manifest_id,
+        }
+        payload = result.record.to_dict()
+        payload["durable_sequence"] = sequence
+        payload["browser_preparation_id"] = web_run.prepared.preparation_id
+        payload["browser_pipeline_complete"] = True
+        payload["browser_retry_request"] = retry_request
+        persistence.put_run(
+            result.record.run_id,
+            payload,
+            authority_binding=authority_binding,
+        )
+
+    def _m13_status(self) -> dict[str, object]:
+        with self._lock:
+            task = (
+                self._task
+                if self._task is not None and self._task.kind == "m13_narrative"
+                else None
+            )
+            preview = None if self._m13_preview is None else dict(self._m13_preview)
+            result = self._m13_result
+            cancellation_pending = self._cancel_event is not None and self._cancel_event.is_set()
+            prepared = self._m13_prepared is not None
+        durable_run = (
+            self._m13_unambiguous_durable_run()
+            if (task is None or task.state != "running") and not prepared
+            else None
+        )
+        durable_state = (
+            cast(str, durable_run["state"])
+            if durable_run is not None and isinstance(durable_run.get("state"), str)
+            else None
+        )
+        durable_interrupted = (
+            durable_run is not None
+            and durable_run.get("browser_pipeline_complete") is False
+        )
+        if task is not None and task.state == "running":
+            state = "cancelling" if cancellation_pending else "running"
+        elif result is not None:
+            state = result.record.state.value
+        elif task is not None and task.state == "failed":
+            state = "failed"
+        elif task is not None and task.state == "cancelled":
+            state = "cancelled"
+        elif prepared:
+            state = "prepared"
+        elif durable_interrupted or durable_state == "running":
+            state = "interrupted"
+        elif durable_state is not None:
+            state = durable_state
+        else:
+            state = "disabled"
+        latest_run = durable_run if durable_run is not None else (
+            None if result is None else result.record.to_dict()
+        )
+        retry_request: Mapping[str, object] | None = (
+            cast(Mapping[str, object], durable_run["browser_retry_request"])
+            if durable_run is not None
+            and (
+                durable_interrupted
+                or durable_state in {"running", "partial", "failed", "cancelled", "hard_limit"}
+            )
+            and isinstance(durable_run.get("browser_retry_request"), Mapping)
+            else None
+        )
+        return {
+            "schema": "m13-run-status-v1",
+            "state": state,
+            "cloud_enabled": state in {"running", "cancelling"},
+            "provider_transmission_active": state in {"running", "cancelling"},
+            "preparation": preview,
+            "task": task,
+            "latest_run": latest_run,
+            "artifacts": None if result is None else result.artifacts,
+            "unresolved_codes": [] if result is None else list(result.unresolved_codes),
+            "durable_completed_work_preserved": True,
+            "retry_available": retry_request is not None,
+            "retry_request": None if retry_request is None else dict(retry_request),
+        }
+
+    def _m13_unambiguous_durable_run(self) -> dict[str, object] | None:
+        """Restore the sole current-authority run without guessing chronological order."""
+
+        with Project.open(self._project()) as opened_project:
+            authority = load_narrative_authority(opened_project, include_m12=True)
+            records = opened_project.m13_persistence().list_records(
+                RecordKind.RUN,
+                authority_binding=authority.binding.to_dict(),
+            )
+        current = [
+            dict(record.payload)
+            for record in records
+            if record.state is LookupState.HIT and record.payload is not None
+        ]
+        sequenced = [
+            (cast(int, payload["durable_sequence"]), payload)
+            for payload in current
+            if isinstance(payload.get("durable_sequence"), int)
+            and not isinstance(payload["durable_sequence"], bool)
+            and cast(int, payload["durable_sequence"]) > 0
+        ]
+        if sequenced:
+            maximum = max(sequence for sequence, _payload in sequenced)
+            latest = [payload for sequence, payload in sequenced if sequence == maximum]
+            return latest[0] if len(latest) == 1 else None
+        return current[0] if len(current) == 1 else None
+
+    def _m13_cancel(self) -> dict[str, object]:
+        with self._lock:
+            task = self._task
+            if task is None or task.kind != "m13_narrative" or task.state != "running":
+                provider = None
+                active = False
+            else:
+                active = True
+                if self._cancel_event is not None:
+                    self._cancel_event.set()
+                provider = self._m13_active_provider
+                self._task = TaskStatus(
+                    task.id,
+                    task.kind,
+                    task.state,
+                    "cancelling",
+                    task.percent,
+                    False,
+                    task.error,
+                )
+        if active and provider is not None:
+            with suppress(Exception):
+                provider.cancel()
+        return self._m13_status()
+
     def _recent_projects(self) -> list[JsonValue]:
         result: list[JsonValue] = []
         for path in self._state_store.recent_projects():
@@ -941,6 +1683,7 @@ class ProjectApi:
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
+            self._clear_m13_locked()
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -972,6 +1715,7 @@ class ProjectApi:
             self._m07_consent_snapshot = None
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
+            self._clear_m13_locked()
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:
@@ -983,11 +1727,11 @@ class ProjectApi:
             project,
             source,
             cancel_check=cancelled.is_set,
-            progress=lambda stage, percent: self._deterministic_progress(
-                "refresh", stage, percent
-            ),
+            progress=lambda stage, percent: self._deterministic_progress("refresh", stage, percent),
         )
         self._clear_m07_run_metrics()
+        with self._lock:
+            self._clear_m13_locked()
 
     def _deterministic_progress(self, kind: str, stage: str, percent: int) -> None:
         with self._lock:
@@ -1017,9 +1761,7 @@ class ProjectApi:
             raise ValueError("the project has no valid M07 route map")
         return cast(dict[str, object], route)
 
-    def _remember_m12_identity(
-        self, request_identity: str, identity: RouteCacheIdentity
-    ) -> None:
+    def _remember_m12_identity(self, request_identity: str, identity: RouteCacheIdentity) -> None:
         with self._lock:
             self._m12_identities.pop(request_identity, None)
             self._m12_identities[request_identity] = identity
@@ -1069,10 +1811,14 @@ class ProjectApi:
             canonical_hash = raw_state.get("canonical_hash")
             generation = source_generation if isinstance(source_generation, str) else "unknown"
             authority_hash = canonical_hash if isinstance(canonical_hash, str) else "0" * 64
-            row = project._require_open().execute(
-                """SELECT payload_hash FROM payloads
+            row = (
+                project._require_open()
+                .execute(
+                    """SELECT payload_hash FROM payloads
                    WHERE collection='m10_canonical_graph' AND record_key='authoritative'"""
-            ).fetchone()
+                )
+                .fetchone()
+            )
             if (
                 raw_state.get("canonical_availability") != "current_complete"
                 or canonical_generation != generation
@@ -1153,9 +1899,8 @@ class ProjectApi:
             analysis_state = project.payload("m10_analysis_state", "authoritative")
         if not isinstance(analysis_state, dict):
             raise ValueError("the project has no valid M10 generation state")
-        if (
-            analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION
-            or not isinstance(analysis_state.get("source_generation"), str)
+        if analysis_state.get("schema_version") != ANALYSIS_STATE_SCHEMA_VERSION or not isinstance(
+            analysis_state.get("source_generation"), str
         ):
             raise ValueError("the project has an incompatible M10 generation state")
         canonical = (
@@ -1200,8 +1945,7 @@ class ProjectApi:
             projection_reason = "projection_canonical_hash_mismatch"
         elif (
             analysis_state.get("simplified_generation") != projection["source_generation"]
-            or analysis_state.get("simplified_canonical_hash")
-            != projection["canonical_graph_hash"]
+            or analysis_state.get("simplified_canonical_hash") != projection["canonical_graph_hash"]
         ):
             projection = None
             projection_reason = "projection_analysis_state_mismatch"
@@ -1446,6 +2190,12 @@ class ProjectApi:
         self._m07_run_elapsed_seconds = None
         self._m07_run_cache_hits = 0
         self._m07_run_selected_ids = ()
+
+    def _clear_m13_locked(self) -> None:
+        self._m13_prepared = None
+        self._m13_preview = None
+        self._m13_active_provider = None
+        self._m13_result = None
 
     def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
         node_offset = bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000)
@@ -2436,6 +3186,12 @@ def _default_m07_provider_factory(_scope: RouteScope) -> OrganizationProvider:
     from renpy_story_mapper.organization.provider import CodexCliProvider
 
     return CodexCliProvider(CodexMode.CODEX_CHATGPT)
+
+
+def _default_m13_provider_factory() -> NarrativeProvider:
+    """Construct the sterile v1 cloud adapter without selecting a repository model."""
+
+    return CodexCliNarrativeProvider()
 
 
 def _budget_policy(body: dict[str, JsonValue], *, with_finite_defaults: bool) -> BudgetPolicy:

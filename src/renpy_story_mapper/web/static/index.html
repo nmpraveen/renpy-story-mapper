@@ -42,6 +42,8 @@
             <div><p id="mapEyebrow" class="eyebrow">AI Story Map</p><h1 id="mapTitle">The story at a glance</h1></div>
             <div class="view-switch" role="group" aria-label="Compare map presentations"><button id="sceneMapButton" class="switch-button" type="button" aria-pressed="true">Scenes</button><button id="aiMapButton" class="switch-button" type="button" aria-pressed="false">AI Story Map</button><button id="inspectionMapButton" class="switch-button" type="button" aria-pressed="false">Inspection</button><button id="canonicalMapButton" class="switch-button" type="button" aria-pressed="false">Canonical</button><button id="technicalMapButton" class="switch-button" type="button" aria-pressed="false">M07 Structure</button></div>
             <label class="search-control"><span class="sr-only">Search visible story events</span><input id="searchInput" type="search" placeholder="Search map  /" autocomplete="off" aria-keyshortcuts="/"></label>
+            <label class="narrative-toggle"><input id="narrativeToggle" type="checkbox"> Narrative</label>
+            <button id="narrativeJobsButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="narrativeDrawer">Jobs</button>
             <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">View</button>
             <button id="organizeButton" class="accent-button" type="button">Preview AI scope</button>
             <div id="filterPanel" class="popover" hidden><label><input id="technicalToggle" type="checkbox" checked> Technical corridors</label><label><input id="unresolvedToggle" type="checkbox" checked> Unresolved paths</label></div>
@@ -73,6 +75,27 @@
             </aside>
           </div>
 
+          <aside id="narrativeDrawer" class="narrative-drawer" hidden aria-labelledby="narrativeDrawerTitle">
+            <header><div><p class="eyebrow">Optional AI layer</p><h2 id="narrativeDrawerTitle">Narrative jobs</h2></div><button id="closeNarrativeDrawer" class="icon-button" type="button" aria-label="Close narrative jobs">&times;</button></header>
+            <p class="authority-note">M10 facts, M11 structure, and M12 route results remain authoritative. Cloud AI is disabled until one exact run is consented.</p>
+            <form id="narrativeRunForm" class="narrative-run-form">
+              <label>Provider model<input id="narrativeModel" type="text" maxlength="200" autocomplete="off" placeholder="Exact configured model" required></label>
+              <div class="narrative-form-row"><label>Reasoning<select id="narrativeReasoningEffort"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option><option value="xhigh">Extra high</option></select></label><label class="check-label"><input id="narrativeFastMode" type="checkbox" disabled> Fast mode off</label></div>
+              <label>Selected scope<input value="All current scenes" readonly aria-readonly="true"></label>
+              <div class="narrative-form-row"><label>Input mode<select id="narrativeMode"><option value="fact_only">Fact only</option><option value="story_text">Story text</option></select></label><label class="check-label"><input id="narrativeIncludeM12" type="checkbox" checked> Include M12</label></div>
+              <details><summary>Run limits</summary><div class="narrative-limit-grid">
+                <label>Calls<input id="narrativeCallLimit" type="number" min="1" max="100000" value="5000"></label>
+                <label>Total tokens<input id="narrativeTokenLimit" type="number" min="1" max="2000000000" value="70000000"></label>
+                <label>Time (seconds)<input id="narrativeTimeLimit" type="number" min="1" max="86400" value="3600"></label>
+                <label>Concurrency<input id="narrativeConcurrency" type="number" min="1" max="32" value="4"></label>
+              </div><p class="authority-note">Cost estimate and hard cost limit are unavailable for this adapter. Input and output token limits are also enforced.</p></details>
+              <div class="narrative-run-actions"><button id="prepareNarrative" class="accent-button" type="submit">Prepare consent</button><button id="cancelNarrative" class="secondary-button" type="button" hidden>Cancel run</button><button id="retryNarrative" class="secondary-button" type="button" hidden>Retry failed jobs</button></div>
+              <p id="narrativeRunStatus" class="route-status" aria-live="polite">Cloud AI is off. Preparing a manifest sends no story material.</p>
+            </form>
+            <div id="narrativeCoverage" class="narrative-coverage"></div>
+            <div id="narrativeJobList" class="narrative-job-list"></div>
+          </aside>
+
           <aside id="organizationPanel" class="organization-panel" aria-labelledby="organizationTitle">
             <div class="organization-heading"><p class="eyebrow">Bounded Luna run</p><h2 id="organizationTitle">Organization</h2><button id="selectVisibleNodes" class="secondary-button" type="button">Use visible nodes</button></div>
             <div id="scopePreview" class="scope-preview" aria-live="polite">No story text is sent until an exact preview is confirmed.</div>
@@ -92,6 +115,7 @@
     </main>
 
     <dialog id="consentDialog" aria-labelledby="consentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Exact cloud consent</p><h2 id="consentTitle">Confirm this bounded story window</h2><p>The values below are bound unchanged to this one Luna run.</p><dl id="consentFacts" class="consent-facts"></dl><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Confirm exact run</button></div></form></dialog>
+    <dialog id="narrativeConsentDialog" aria-labelledby="narrativeConsentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Manifest-bound cloud consent</p><h2 id="narrativeConsentTitle">Confirm this Narrative run</h2><p>Confirmation applies once to this selected scope. The run proceeds automatically until completion, cancellation, provider refusal, or a hard limit.</p><dl id="narrativeConsentFacts" class="consent-facts"></dl><p class="authority-note">Only structured bounded inputs are sent. Completed validated work remains durable.</p><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmNarrative" value="default" class="accent-button">Confirm and run</button></div></form></dialog>
     <dialog id="reviewDialog" aria-labelledby="reviewTitle"><div class="dialog-card review-card"><header><div><p class="eyebrow">Candidate assembly</p><h2 id="reviewTitle">Review before apply</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header><div id="reviewCoverage"></div><p class="authority-note">Fallback, partial, failed, and cancelled scopes remain visibly technical.</p><div id="reviewCandidates" class="review-candidates"></div><div class="dialog-actions"><button id="discardAssembly" class="secondary-button" type="button">Discard</button><button id="applyAssembly" class="accent-button" type="button">Apply</button></div></div></dialog>
     <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle"><div class="dialog-card"><header><h2 id="diagnosticsTitle">Diagnostics</h2><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div></dialog>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

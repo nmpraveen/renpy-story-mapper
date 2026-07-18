@@ -1,0 +1,211 @@
+{
+  "schema": "m13-current-evidence-index-v1",
+  "milestone": "M13",
+  "validation_date": "2026-07-17",
+  "lifecycle": "PR ready",
+  "current_cycle": {
+    "phase_zero_head_sha": "e17ba5e3de295c83bba223f858098b65d84291b6",
+    "lifecycle_commit_sha": "f629e53a1a2a619f79c46329a57fb4fb82f83ba1",
+    "track_a_reviewed_head_sha": "2685de031db68682697134e5cad64e0246e1929d",
+    "track_b_reviewed_head_sha": "251e063fc0467f73f14d0771b2a4fd236772e6b0",
+    "integrated_candidate_head_sha": "9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b",
+    "reviewed_lifecycle_head_sha": "ba71cda82eba2e605f97041923329ee9afd2a681",
+    "additional_correction_head_sha": "a7e242b4534f7217d469308392d932795201cb57",
+    "multiplicity_correction_head_sha": "18f2edf6ba8ed1f73fe9fe8d492538b4bcef600b",
+    "final_correction_head_sha": "ba71cda82eba2e605f97041923329ee9afd2a681",
+    "track_a_review": "PASS after one bounded correction; no P0/P1/P2",
+    "track_b_review": "PASS; no P0/P1/P2; finding 6 false positive",
+    "integrated_focused": "Multiplicity and nontransmission regressions failed first; reservation set passed 5 and workflow/scheduler passed 57; Ruff, strict mypy, and diff checks passed",
+    "prior_integrated_review": "FAIL at 532eefc; one P1 because one unresolved reservation did not consume per-job attempt history; no P0/new P2",
+    "final_review": "PASS at ba71cda; no P0/P1/new P2",
+    "final_reviewer": "/root/m13_multiplicity_rereview",
+    "blocking_finding": null,
+    "correction_limit": "The authorized duplicate-reservation correction and independent rereview are complete.",
+    "final_windows_release": "PASS in 710.9 seconds; 1135 passed, 7 hardware-sensitive deselected in 683.13 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
+    "pr_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
+    "remote_pr_verification": "PR #23 open, non-draft, mergeable, CLEAN, unmerged; no configured status checks",
+    "not_run": "Provider/live and browser/private-scale reruns were not repeated for the narrow provider-free recovery correction; no merge or M14 action was performed",
+    "status": "PR ready; independent rereview, final Windows Release, push, and remote PR verification passed"
+  },
+  "historical_prior_cycle_evidence": true,
+  "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
+  "reviewed_pr_head_sha": "d0c116b5a1fb9ed221981d380fd42eab464f31fe",
+  "validated_runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
+  "validated_evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
+  "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json",
+  "runtime_commits": [
+    "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
+    "7c784d4513a865e7978ec9da03d89999f48747b5",
+    "9a93edfce3a4686d4d31ec98cc185fd95dc2569b",
+    "a5d9f9e86fdc548b2f44d787e92d4d5d3c5bab99",
+    "3533d49a61e77c76794b4ba8338ccf60ee8201ef"
+  ],
+  "evidence": [
+    {
+      "id": "failing-first-exact-m12",
+      "classification": "public",
+      "criteria": [2, 4, 8, 10, 11, 12, 21],
+      "command": "py -3.12 -m pytest tests/test_m13_scene_jobs.py::test_m12_result_and_path_authority_remain_separate_across_lanes tests/test_m13_preparation.py::test_scene_jobs_bind_exact_prompt_local_m12_claims_and_disable_cleanly tests/test_m13_pipeline.py::test_m12_leaf_projection_separates_result_and_path_authority tests/test_m13_validation.py::test_scene_exact_m12_evidence_rejects_changed_prerequisite_and_status_upgrade -q",
+      "result": "4 failed before correction; expanded targeted set passed 6 and owned focused set passed 66 after correction",
+      "worker_commit": "f81d5553a7077cceed49614d08082e980df349ca",
+      "integrated_commit": "9a93edfce3a4686d4d31ec98cc185fd95dc2569b",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-resume-accounting",
+      "classification": "public",
+      "criteria": [1, 6, 7, 14, 15, 16],
+      "result": "6 failing-first regressions; 53 owned tests and 13 adjacent pipeline/reduction tests passed after correction",
+      "worker_commit": "0a21ed134a88a395cd4fbf66915a06be00664284",
+      "integrated_commit": "a5d9f9e86fdc548b2f44d787e92d4d5d3c5bab99",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-browser-settings",
+      "classification": "public",
+      "criteria": [1, 7, 14, 15],
+      "result": "6 failed and 6 passed before correction; settings/privacy owned suite passed 103 after correction",
+      "worker_commit": "97dd22009ed648b508c56fd36097dd56f315b4fd",
+      "integrated_commit": "01581ad0eb86dcc33bbea1c2dc85b7d4e335f058",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "failing-first-privacy",
+      "classification": "public",
+      "criteria": [14, 16],
+      "result": "collection failed before correction because the shared validator did not exist; required reject/allow matrix passed within the 103-test owned suite after correction",
+      "worker_commit": "8bee6bd8ae446060b464bbf90e368bc768ea6807",
+      "integrated_commit": "7c784d4513a865e7978ec9da03d89999f48747b5",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "focused-m13",
+      "classification": "public",
+      "criteria": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22],
+      "command": "py -3.12 -m pytest tests -k m13 -q",
+      "result": "291 passed, 1 skipped, 794 deselected in 260.38 seconds",
+      "limitations": "The skipped hardware wrapper is covered by the separately executed real-Chrome acceptance.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "adjacent-m12-persistence",
+      "classification": "public",
+      "criteria": [2, 7, 12, 21, 22],
+      "command": "py -3.12 -m pytest tests/test_m12_*.py tests/test_m13_persistence.py -q",
+      "result": "139 passed, 1 skipped in 19.35 seconds with PYTHONPATH=src",
+      "limitations": "One earlier invocation omitted PYTHONPATH and failed during collection only; the corrected command and Release passed.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "windows-release",
+      "classification": "public",
+      "criteria": [22, 23],
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/validate.ps1 -Tier Release",
+      "result": "1,079 passed and 7 hardware-sensitive tests deselected in 355.38 seconds; Ruff, strict mypy over 92 source files, pip check, four JavaScript syntax checks, whitespace, isolated sdist/wheel build, install, import, browser assets, and notices passed",
+      "limitations": "An earlier Release run found only stale browser-asset hashes; after exact manifest reconciliation the targeted hash regression and this complete Release rerun passed.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "unbounded-github-release",
+      "classification": "public",
+      "criteria": [22, 23],
+      "command": "GitHub Actions pull-request-checks run 29604661539: .\\scripts\\validate.ps1 -Tier Release -NoTimeout",
+      "result": "passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2: 1081 passed, 7 deselected in 790.16 seconds; Ruff, strict mypy over 92 source files, dependency, JavaScript, whitespace, isolated build/install/import, browser assets, and notices passed; Release step completed in 806 seconds and the job in 14 minutes 22 seconds",
+      "run_url": "https://github.com/nmpraveen/renpy-story-mapper/actions/runs/29604661539",
+      "limitations": "No local validation rerun was performed after the user's clarification. Repository workflow and validation subprocess cutoffs were disabled for this one unbounded GitHub run.",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "real-browser",
+      "classification": "public",
+      "criteria": [7, 9, 14, 15, 17, 21, 22],
+      "command": "py -3.12 scripts/m13_browser_acceptance.py --output-dir <isolated-output>",
+      "result": "passed in real Chrome at 100% and 200%; exact M10/M11/M12/M13 Detail/Evidence navigation passed; zero remote requests, zero creator/game executions, and zero provider calls during citation navigation and cache replay",
+      "report_sha256": "ce60b2350b558fc1bf07611b00379186a3cf79a6fe4b6263fcac7f67e858f19b",
+      "report_retention": "local sanitized diagnostic; hash and result are durable here",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "provider-free-private-scale",
+      "classification": "private-hash-only",
+      "criteria": [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 19, 21, 22],
+      "command": "py -3.12 scripts/m13_provider_free_acceptance.py --baseline <isolated-private-baseline> --output <isolated-output> --minimum-scenes 1812",
+      "result": "passed: 1,812 scenes, 2,590 logical jobs, complete fault/recovery hierarchy, 3,634 claims, exact zero-call replay, unchanged authority/source snapshots, all safety counters zero, and working project removed",
+      "report_sha256": "17b1bbb19707698f7730e9a07bb20425a074c6c3707165b424981a19ad960092",
+      "report_retention": "local sanitized diagnostic; no private source, asset, path, prompt, or response is committed",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "offline-live-harness",
+      "classification": "public",
+      "criteria": [5, 7, 12, 14, 15, 16, 21, 22],
+      "command": "py -3.12 -m pytest tests/test_m13_live_acceptance.py -q",
+      "result": "5 passed in 165.79 seconds with only the in-process simulator; stale confirmation and settings drift rejected before submit",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    },
+    {
+      "id": "current-head-authorized-live",
+      "classification": "public",
+      "criteria": [2, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 20, 21, 22, 23],
+      "command": "real Chrome plus production ProjectApi prepare/start using the default Codex provider under one exact approved manifest, followed by fail-closed exact cache replay",
+      "result": "passed at head 677d88152e100afd154bb54da249582ff0a2ffcd: terminal partial was valid claim salvage; 90 jobs (88 succeeded, 2 partial), 24 calls, 1524766 input and 93316 output tokens, complete route-aware hierarchy, 1035 published claims, zero unresolved references/cycles, exact zero-call replay, unchanged source/authority, and no raw prompt/response retention",
+      "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
+      "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
+      "authorization_statement": "I consent for everything untill the goal is achieved",
+      "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
+      "preflight_sha256": "5f26b20f18de7b7c3cf7e6a35c5c6f52d1951d7bb036424d35d8af67b571bc6a",
+      "screenshot_sha256": "aca50179df28d5a64e6f42e1004ee7e6eb353825d15de50f8d8a655ad0782ebe",
+      "artifact_payload_set_sha256": "2e795955fca24e58f9ee82bcf07d48b50e2953fc563f5c0f7003bbc1057079dc",
+      "deterministic_rendering_sha256": "af50407c592537938dcec83c7532ca13ebeac81560c9da0801508410c07aef5b",
+      "report_retention": "local sanitized diagnostic; only hashes, counts, exact identities, settings, limits, and dispositions are durable here",
+      "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
+    }
+  ],
+  "review": {
+    "status": "passed",
+    "reviewed_head_sha": "e79384bb7d16b93b734a47111981996261047965",
+    "runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
+    "reviewer": "/root/m13_final_targeted_review",
+    "verdict": "PASS; no P0, P1, or new P2",
+    "focused_results": [
+      "105 passed in 25.66 seconds",
+      "32 passed in 6.14 seconds",
+      "2 passed in 0.06 seconds"
+    ],
+    "worktree_state": "detached and clean; zero tracked or untracked edits",
+    "external_actions": 0,
+    "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
+  },
+  "live_evidence_disposition": {
+    "historical_live_evidence": "accepted only as historical evidence at its recorded pre-correction head",
+    "current_head_transmissions": 24,
+    "current_head_status": "Passed. The exact approved production-path run at head 677d88152e100afd154bb54da249582ff0a2ffcd published all 90 eligible jobs and the complete route-aware hierarchy. Fail-closed exact replay made zero submit attempts, calls, or tokens and reproduced artifact hashes/rendering exactly.",
+    "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
+    "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
+    "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
+    "replay_provider_submits": 0,
+    "replay_provider_calls": 0,
+    "replay_total_tokens": 0
+  },
+  "pull_request": {
+    "number": 23,
+    "branch": "codex/m13-narrative-layer",
+    "state": "open",
+    "draft": false,
+    "merged": false,
+    "current_product_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
+    "current_product_evidence_head_remote_verified": true,
+    "mergeable": true,
+    "merge_state_status": "CLEAN",
+    "configured_status_checks": 0,
+    "evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
+    "evidence_head_remote_verified": true,
+    "remote_workflow_disposition": "The initial evidence-head run ended pytest at the repository helper's fixed 900.24-second cutoff after 73 percent with no failed test reported. The user clarified that local validation must not be rerun but GitHub may run without limits. After repository workflow/process cutoffs were removed, unbounded run 29604661539 passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2 with 1081 passed, 7 deselected, and every quality/build/package gate green."
+  },
+  "known_limitations": [
+    "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
+    "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
+    "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
+    "PR #23 is PR ready, open, non-draft, clean, and unmerged; merge remains separately approval-gated."
+  ]
+}

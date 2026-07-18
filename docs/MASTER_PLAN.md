@@ -1,10 +1,15 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-15
+Last revised: 2026-07-17
 
-Status: M01 through M11 are complete and merged. M12 is PR ready again after resolving the four
-changes requested on [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22) as of
-2026-07-15.
+Status: M01 through M12 are complete and merged. M13 was explicitly approved on 2026-07-16,
+retains its semantic-review `PASS`, and is `PR ready` on existing unmerged PR #23. Final
+duplicate-reservation corrections `18f2edf` and `ba71cda` pass failing-first regressions,
+independent exact-head rereview with no P0/P1/new P2, and a full Windows Release with 1,135 tests
+passed, 7 hardware-sensitive deselections, and every quality/build/package gate green.
+Product/evidence head `120a4ec` is pushed and remotely verified open, non-draft, mergeable, and
+`CLEAN`; GitHub reports no configured status checks. Prior review, live/replay, and Release results
+remain historical evidence for their exact heads. Merge remains separately approval-gated.
 
 ## 1. Product goal
 
@@ -1134,12 +1139,24 @@ It may improve narrative readability without replacing the M10 canonical authori
 
 ### M12 - Route-to-target solving
 
-Status: PR ready in [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22); unmerged.
+Status: Complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
+with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16.
 
 M12 owns route-to-target solving and explicit path requirements. It must remain conservative for
 unresolved or dynamic behavior and must not claim arbitrary expression satisfiability.
 
 ### M13 - AI narrative layer
+
+Status: PR ready on existing unmerged PR #23. The recorded semantic `PASS` remains valid.
+Historical runtime `3533d49a61e77c76794b4ba8338ccf60ee8201ef`, targeted-review head
+`e79384b`, approved live/replay head `677d881`, and unbounded GitHub run `29604661539` at
+`7bf5404` retain their exact-head evidence only. Final duplicate-reservation corrections `18f2edf`
+and `ba71cda` pass failing-first regressions, 57 workflow/scheduler tests, Ruff, strict mypy, and
+diff checks. Independent exact-head rereview passes with no P0/P1/new P2, and final Windows Release
+passes 1,135 tests with 7 hardware-sensitive deselections plus every quality/build/package gate.
+Product/evidence head `120a4ec` is pushed to PR #23 and remotely verified open, non-draft,
+mergeable, and `CLEAN`; GitHub reports no configured status checks. Merge remains separately
+approval-gated.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1236,5 +1253,5 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute the approved M12 contract through its semantic gate, implementation, validation, and one
-approval-gated pull request. Do not merge M12 or begin M13 without separate user direction.
+Hold M13 at `PR ready` on open, unmerged PR #23. Do not perform another provider/live
+transmission, merge PR #23, or begin M14 without the applicable separate user approval.

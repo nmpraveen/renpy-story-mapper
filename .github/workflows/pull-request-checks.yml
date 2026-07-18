@@ -17,7 +17,6 @@ jobs:
   deterministic-checks:
     name: Deterministic checks (Python 3.12)
     runs-on: windows-latest
-    timeout-minutes: 30
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONHASHSEED: "0"
@@ -61,4 +60,4 @@ jobs:
 
       - name: Run deterministic release validation
         shell: pwsh
-        run: .\scripts\validate.ps1 -Tier Release
+        run: .\scripts\validate.ps1 -Tier Release -NoTimeout

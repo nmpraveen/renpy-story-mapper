@@ -1,0 +1,866 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from renpy_story_mapper.m12_model import TechnicalStatus
+from renpy_story_mapper.m12_service import M12RouteService
+from renpy_story_mapper.narrative.authority import load_narrative_authority
+from renpy_story_mapper.narrative.batching import BatchLimits
+from renpy_story_mapper.narrative.contracts import (
+    BudgetLimits,
+    ProviderIdentity,
+    ProviderSettings,
+)
+from renpy_story_mapper.narrative.hierarchy import (
+    HierarchyPartitionConfig,
+    PersistentRouteSpec,
+)
+from renpy_story_mapper.narrative.persistence import LookupState, RecordKind
+from renpy_story_mapper.narrative.pipeline import (
+    _composite_identity,
+    _m12_leaves,
+    _route_specs,
+    project_scene_placements,
+    run_complete_narrative,
+)
+from renpy_story_mapper.narrative.presentation import narrative_artifact_detail
+from renpy_story_mapper.narrative.projection import NarrativeInputMode
+from renpy_story_mapper.narrative.provider import (
+    PROMPT_TEMPLATE_VERSION,
+    RESPONSE_SCHEMA_VERSION,
+    ProviderOutputItem,
+    ProviderRequest,
+    ProviderResponse,
+    ProviderStatus,
+    ProviderUsage,
+)
+from renpy_story_mapper.narrative.scheduler import SchedulerPolicy
+from renpy_story_mapper.narrative.segments import SegmentPartitionConfig
+from renpy_story_mapper.narrative.workflow import (
+    grant_narrative_consent,
+    prepare_narrative_scene_run,
+    run_prepared_scene_jobs,
+)
+from renpy_story_mapper.project import Project, create_ingested_project
+from renpy_story_mapper.storage import canonical_json
+
+FIXTURE = Path(__file__).parent / "fixtures" / "m12" / "route_targets.rpy"
+
+
+def test_composite_occurrence_identity_normalizes_strict_json_arrays() -> None:
+    values = ("occurrence-first", "occurrence-second")
+
+    identity = _composite_identity("occurrence-set", values)
+
+    assert identity is not None
+    assert identity.startswith("occurrence-set:")
+    assert identity == _composite_identity("occurrence-set", values)
+    assert identity != _composite_identity("occurrence-set", tuple(reversed(values)))
+
+
+@dataclass
+class CompleteHierarchyProvider:
+    requests: list[ProviderRequest] = field(default_factory=list)
+    refused_scene_title: str | None = None
+
+    def status(self) -> ProviderStatus:
+        return ProviderStatus(
+            True,
+            "approved-test-cloud",
+            "test-structured-adapter",
+            "test-adapter-v1",
+            "test-cli-v1",
+        )
+
+    def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+        del cancelled
+        self.requests.append(request)
+        identity = ProviderIdentity(
+            "approved-test-cloud",
+            "test-structured-adapter",
+            "test-adapter-v1",
+            request.requested_model,
+            request.requested_model,
+            ProviderSettings(),
+        )
+        outputs: list[ProviderOutputItem] = []
+        for index, item in enumerate(request.items):
+            payload = item.payload
+            job_kind = str(payload["job_kind"])
+            scene = job_kind == "scene"
+            if scene and payload.get("deterministic_title") == self.refused_scene_title:
+                outputs.append(
+                    ProviderOutputItem(
+                        item.logical_job_id,
+                        index,
+                        None,
+                        error_code="content_refusal",
+                    )
+                )
+                continue
+            claim_class = "interpretive" if job_kind == "character" else "factual"
+            artifact_handles = [
+                str(claim["handle"])
+                for child in payload.get("child_artifacts", [])
+                for claim in child.get("claims", [])
+            ]
+            exact_handles = [
+                str(claim["handle"])
+                for claim in payload.get("exact_m12_authority_claims", [])
+            ]
+            synthesis_handles = [
+                handle for handle in artifact_handles if handle not in set(exact_handles)
+            ]
+            claims = []
+            if scene or synthesis_handles:
+                claims = [
+                    {
+                        "claim_class": claim_class,
+                        "context_scope": "atomic",
+                        "text": f"Supported {job_kind} claim {index + 1}.",
+                        "evidence_handles": ["E1"] if scene else [],
+                        "child_claim_handles": [] if scene else [synthesis_handles[0]],
+                        "subject": job_kind,
+                        "predicate": "has supported result",
+                        "polarity": "positive",
+                        "normalized_value": str(index + 1),
+                    }
+                ]
+            outputs.append(
+                ProviderOutputItem(
+                    item.logical_job_id,
+                    index,
+                    {
+                        "logical_job_id": item.logical_job_id,
+                        "title": f"{job_kind.replace('_', ' ').title()} {index + 1}",
+                        "summary": f"Bounded {job_kind} result {index + 1}.",
+                        "claims": claims,
+                    },
+                )
+            )
+        return ProviderResponse(
+            request.request_id,
+            identity,
+            tuple(outputs),
+            ProviderUsage(50, 25, 5),
+            PROMPT_TEMPLATE_VERSION,
+            RESPONSE_SCHEMA_VERSION,
+        )
+
+    def cancel(self) -> None:
+        return
+
+
+def _project(tmp_path: Path) -> Project:
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_bytes(FIXTURE.read_bytes())
+    project = create_ingested_project(tmp_path / "m13-pipeline.rsmproj", source)
+    service = M12RouteService(project)
+    destination = next(
+        item for item in service.destinations(limit=50)["nodes"] if item["kind"] == "generic_scene"
+    )
+    outcome = service.solve(service.prepare(destination["kind"], destination["target_id"]))
+    assert outcome.result is not None
+    return project
+
+
+def _limits() -> BudgetLimits:
+    return BudgetLimits(500, 20_000_000, 20_000_000, 40_000_000, 300, 4)
+
+
+def _batch_limits() -> BatchLimits:
+    return BatchLimits(16, 500_000, 100_000)
+
+
+def _run(
+    project: Project,
+    provider: CompleteHierarchyProvider,
+    run_id: str,
+):
+    prepared = prepare_narrative_scene_run(
+        project,
+        provider,
+        run_id=run_id,
+        requested_model="runtime-selected-model",
+        mode=NarrativeInputMode.FACT_ONLY,
+        include_m12_material=True,
+        limits=_limits(),
+        batch_limits=_batch_limits(),
+    )
+    consent = grant_narrative_consent(project, prepared)
+    return run_complete_narrative(
+        project,
+        provider,
+        prepared,
+        consent,
+        policy=SchedulerPolicy(_batch_limits()),
+    )
+
+
+def test_complete_pipeline_publishes_route_aware_plot_and_exact_m12_leaf(
+    tmp_path: Path,
+) -> None:
+    provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        source_hashes = tuple((item.path, item.content_hash) for item in project.sources())
+        authority_before = load_narrative_authority(project, include_m12=True).binding
+        m12_bytes_before = tuple(
+            canonical_json(dict(item))
+            for item in load_narrative_authority(project, include_m12=True).m12_results
+        )
+        result = _run(project, provider, "complete-pipeline")
+        authority_after = load_narrative_authority(project, include_m12=True).binding
+        m12_bytes_after = tuple(
+            canonical_json(dict(item))
+            for item in load_narrative_authority(project, include_m12=True).m12_results
+        )
+
+        assert result.record.state.value == "succeeded"
+        assert result.artifacts.plot_artifact_id is not None
+        assert result.artifacts.segment_artifact_ids
+        assert result.artifacts.chapter_artifact_ids
+        assert result.artifacts.route_artifact_ids
+        assert result.artifacts.ending_artifact_ids
+        assert provider.requests
+        assert source_hashes == tuple(
+            (item.path, item.content_hash) for item in project.sources()
+        )
+        assert authority_before == authority_after
+        assert m12_bytes_before == m12_bytes_after
+
+        provider_payloads = [
+            item.payload for request in provider.requests for item in request.items
+        ]
+        for job_kind in ("scene", "route", "ending", "plot"):
+            matching_payloads = [
+                payload
+                for payload in provider_payloads
+                if payload.get("job_kind") == job_kind
+                and payload.get("exact_m12_authority_claims")
+            ]
+            assert matching_payloads, f"{job_kind} jobs lost exact M12 authority leaves"
+
+        plot = project.m13_persistence().lookup(
+            RecordKind.ARTIFACT,
+            result.artifacts.plot_artifact_id,
+        )
+        assert plot.state is LookupState.HIT
+        assert plot.payload is not None
+        hierarchy = plot.payload["hierarchy"]
+        assert isinstance(hierarchy, dict)
+        assert hierarchy["chronology_policy"] == "shared_then_separate_routes_and_endings"
+        entries = hierarchy["section_entries"]
+        assert isinstance(entries, list)
+        assert all(item["job_kind"] != "scene" for item in entries)
+        entry_sections = {item["path"]["section"] for item in entries}
+        if entry_sections == {"common_shared_story"}:
+            assert all(item["contains_structured_alternatives"] for item in entries)
+            assert all(item["structure_manifest_id"] for item in entries)
+        else:
+            assert entry_sections >= {
+                "common_shared_story",
+                "persistent_route",
+                "ending",
+            }
+
+        m12_claims = [
+            item.payload
+            for item in project.m13_persistence().list_records(RecordKind.CLAIM)
+            if item.state is LookupState.HIT
+            and item.payload is not None
+            and item.payload.get("job_kind") == "authority_fact"
+        ]
+        assert m12_claims
+        exact_text = {str(item["text"]) for item in m12_claims}
+        assert {"incomplete_solve", "Best known route"} <= exact_text
+
+        current_m12 = load_narrative_authority(project, include_m12=True).m12_results[0]
+        alternatives = current_m12["alternatives"]
+        assert isinstance(alternatives, list) and alternatives
+        route_details = [
+            narrative_artifact_detail(project, artifact_id)
+            for artifact_id in result.artifacts.route_artifact_ids
+        ]
+        alternative_detail = next(
+            detail
+            for detail in route_details
+            if any(
+                item["authority_kind"] == "path"
+                and item["path_role"] == "alternative"
+                for item in detail["m12_authority"]
+            )
+        )
+        hierarchy_path = alternative_detail["hierarchy"]["path"]
+        annotations = alternative_detail["m12_authority"]
+        path_annotations = [
+            item for item in annotations if item["authority_kind"] == "path"
+        ]
+        result_annotations = [
+            item for item in annotations if item["authority_kind"] == "result"
+        ]
+        assert path_annotations and result_annotations
+        assert all(
+            item["status"] is None and item["badge"] is None
+            for item in path_annotations
+        )
+        assert all(
+            item["path_role"] is None and item["path_ordinal"] is None
+            for item in result_annotations
+        )
+        alternative_annotations = [
+            item for item in path_annotations if item["path_role"] == "alternative"
+        ]
+        assert alternative_annotations
+        assert all(
+            item["route_id"] == hierarchy_path["route_id"]
+            and item["persistent_lane_id"] == hierarchy_path["persistent_lane_id"]
+            for item in alternative_annotations
+        )
+        for annotation in alternative_annotations:
+            ordinal = annotation["path_ordinal"]
+            assert isinstance(ordinal, int) and ordinal > 0
+            source_path = alternatives[ordinal - 1]
+            assert annotation["persistent_lane_ids"] == source_path["persistent_lane_ids"]
+            assert annotation["path_provenance"] == source_path.get(
+                "provenance",
+                source_path,
+            )
+            assert annotation["persistent_commitment_texts"] == [
+                item["text"]
+                for item in source_path["persistent_commitment_claims"]
+            ]
+            assert annotation["warning_texts"] == source_path["uncertainty_warnings"]
+
+        route_payload = next(
+            payload
+            for payload in provider_payloads
+            if payload.get("job_kind") == "route"
+            and any(
+                claim.get("text") == "alternative"
+                and claim.get("semantics", {}).get("predicate") == "path_role"
+                for claim in payload.get("exact_m12_authority_claims", [])
+            )
+        )
+        validation_claims = route_payload["exact_m12_authority_claims"]
+        alternative_subjects = {
+            claim["semantics"]["subject"]
+            for claim in validation_claims
+            if claim["semantics"]["predicate"] == "path_role"
+            and claim["text"] == "alternative"
+        }
+        result_status_subjects = {
+            claim["semantics"]["subject"]
+            for claim in validation_claims
+            if claim["semantics"]["predicate"] in {"status", "badge"}
+        }
+        assert alternative_subjects
+        assert alternative_subjects.isdisjoint(result_status_subjects)
+        assert all(
+            {"path_role", "path_ordinal", "persistent_lane:0", "path_provenance"}
+            <= {
+                claim["semantics"]["predicate"]
+                for claim in validation_claims
+                if claim["semantics"]["subject"] == subject
+            }
+            for subject in alternative_subjects
+        )
+
+        rendered_claims = alternative_detail["claims"]
+        rendered_alternative_subjects = {
+            claim["semantics"]["subject"]
+            for claim in rendered_claims
+            if claim["semantics"] is not None
+            and claim["semantics"]["predicate"] == "path_role"
+            and claim["text"] == "alternative"
+        }
+        rendered_result_subjects = {
+            claim["semantics"]["subject"]
+            for claim in rendered_claims
+            if claim["semantics"] is not None
+            and claim["semantics"]["predicate"] in {"status", "badge"}
+        }
+        assert rendered_alternative_subjects == alternative_subjects
+        assert rendered_alternative_subjects.isdisjoint(rendered_result_subjects)
+
+
+def test_complete_pipeline_exact_replay_makes_zero_provider_calls(tmp_path: Path) -> None:
+    project_path = tmp_path / "m13-pipeline.rsmproj"
+    first_provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        first = _run(project, first_provider, "pipeline-first")
+    assert first_provider.requests
+
+    replay_provider = CompleteHierarchyProvider()
+    with Project.open(project_path) as project:
+        replay = _run(project, replay_provider, "pipeline-replay")
+
+        assert replay_provider.requests == []
+        assert replay.record.usage.provider_calls == 0
+        assert replay.artifacts == first.artifacts
+        assert all(item.cache_replay for item in replay.jobs)
+
+
+def test_complete_pipeline_preserves_restored_usage_after_cache_only_scene_phase(
+    tmp_path: Path,
+) -> None:
+    provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="pipeline-resumed-accounting",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        seeded = run_prepared_scene_jobs(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+        assert seeded.record.cumulative_usage is not None
+        restored = seeded.record.cumulative_usage
+        assert restored.provider_calls == len(provider.requests) > 0
+
+        provider.requests.clear()
+        resumed = run_complete_narrative(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+
+        scene_phase = resumed.phases[0].record
+        assert scene_phase.usage.provider_calls == 0
+        assert scene_phase.cumulative_usage == restored
+        assert resumed.record.cumulative_usage is not None
+        assert resumed.record.cumulative_usage.provider_calls == (
+            restored.provider_calls + len(provider.requests)
+        )
+        assert resumed.record.cumulative_usage.input_tokens == (
+            restored.input_tokens + (50 * len(provider.requests))
+        )
+        assert resumed.record.cumulative_usage.output_tokens == (
+            restored.output_tokens + (25 * len(provider.requests))
+        )
+
+
+def test_complete_pipeline_reduces_every_oversized_hierarchy_level(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-pipeline.rsmproj"
+    segment_config = SegmentPartitionConfig(
+        "und",
+        "default",
+        minimum_children=1,
+        target_children=2,
+        maximum_children=2,
+        maximum_input_tokens=100_000,
+    )
+    hierarchy_config = HierarchyPartitionConfig(
+        "und",
+        "default",
+        maximum_children=2,
+        maximum_input_tokens=100_000,
+    )
+
+    first_provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="tiny-fan-in",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        result = run_complete_narrative(
+            project,
+            first_provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+            segment_config=segment_config,
+            hierarchy_config=hierarchy_config,
+        )
+
+        assert result.record.state.value == "succeeded"
+        assert result.unresolved_codes == ()
+        assert result.artifacts.plot_artifact_id is not None
+        generic_reductions = 0
+        for artifact_id in result.artifacts.segment_artifact_ids:
+            lookup = project.m13_persistence().lookup(RecordKind.ARTIFACT, artifact_id)
+            assert lookup.state is LookupState.HIT
+            assert lookup.payload is not None
+            hierarchy = lookup.payload["hierarchy"]
+            assert len(hierarchy["section_entries"]) <= 2
+            if any(
+                entry["job_kind"] in {"chapter", "route", "ending"}
+                for entry in hierarchy["section_entries"]
+            ):
+                generic_reductions += 1
+        assert generic_reductions > 0
+
+        plot = project.m13_persistence().lookup(
+            RecordKind.ARTIFACT,
+            result.artifacts.plot_artifact_id,
+        )
+        assert plot.payload is not None
+        assert len(plot.payload["hierarchy"]["section_entries"]) <= 2
+        assert (
+            plot.payload["hierarchy"]["chronology_policy"]
+            == "shared_then_separate_routes_and_endings"
+        )
+
+    replay_provider = CompleteHierarchyProvider()
+    with Project.open(project_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            replay_provider,
+            run_id="tiny-fan-in-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        replay = run_complete_narrative(
+            project,
+            replay_provider,
+            prepared,
+            grant_narrative_consent(project, prepared),
+            policy=SchedulerPolicy(_batch_limits()),
+            segment_config=segment_config,
+            hierarchy_config=hierarchy_config,
+        )
+        assert replay_provider.requests == []
+        assert replay.artifacts == result.artifacts
+
+
+def test_content_refusal_is_job_local_and_retry_reuses_valid_artifacts(
+    tmp_path: Path,
+) -> None:
+    first_provider = CompleteHierarchyProvider(refused_scene_title="Blue Route")
+    with _project(tmp_path) as project:
+        first = _run(project, first_provider, "pipeline-local-refusal")
+
+        assert first.record.state.value == "partial"
+        assert first.record.refused_jobs == 1
+        assert first.artifacts.plot_artifact_id is not None
+        refused = [item for item in first.jobs if item.state.value == "refused"]
+        assert len(refused) == 1
+        published_before = {
+            item.record_id
+            for item in project.m13_persistence().list_records(RecordKind.ARTIFACT)
+            if item.state is LookupState.HIT
+        }
+
+        recovery_provider = CompleteHierarchyProvider()
+        recovered = _run(project, recovery_provider, "pipeline-refusal-retry")
+        published_after = {
+            item.record_id
+            for item in project.m13_persistence().list_records(RecordKind.ARTIFACT)
+            if item.state is LookupState.HIT
+        }
+
+        assert recovered.record.state.value == "succeeded"
+        assert recovery_provider.requests
+        assert len(recovery_provider.requests) < len(first_provider.requests)
+        assert any(item.cache_replay for item in recovered.jobs)
+        assert published_before <= published_after
+
+
+def test_selected_scene_scope_does_not_plan_unselected_persistent_routes(
+    tmp_path: Path,
+) -> None:
+    provider = CompleteHierarchyProvider()
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        placement = next(
+            item
+            for item in project_scene_placements(authority.scene_model)
+            if item.path.route_id is None and item.path.ending_id is None
+        )
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="selected-common-scene",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(placement.scene_id,),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        result = run_complete_narrative(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+
+        assert len(prepared.scene_run.jobs) == 1
+        assert result.record.state.value == "succeeded"
+        assert result.artifacts.route_artifact_ids == ()
+        assert result.artifacts.ending_artifact_ids == ()
+        assert result.artifacts.plot_artifact_id is not None
+
+
+def test_m12_leaf_projection_keeps_multiple_relevant_result_identities(
+    tmp_path: Path,
+) -> None:
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        original = dict(authority.m12_results[0])
+        duplicate = dict(original)
+        duplicate["request_identity"] = f"{original['request_identity']}-second"
+        routes = _route_specs(authority.scene_model)
+
+        leaves = _m12_leaves(
+            (original, duplicate),
+            routes,
+            locale="en-US",
+            perspective="reader",
+        )
+
+        relevant = next(items for items in leaves.values() if items)
+        assert len(relevant) == 2
+        assert {item.authority.result_identity for item in relevant} == {
+            str(original["request_identity"]),
+            str(duplicate["request_identity"]),
+        }
+        assert all(item.authority.status.value == original["status"] for item in relevant)
+
+
+def test_m12_leaf_projection_keeps_exact_requirement_expression() -> None:
+    result = {
+        "request_identity": "m12-prerequisite-result",
+        "status": "route_with_prerequisites",
+        "badge": "Route with prerequisites",
+        "recommended": {
+            "persistent_lane_ids": ["route-a"],
+            "requirements": [
+                {"expression": "route_points >= 2", "text": "not authoritative"}
+            ],
+            "persistent_commitment_claims": [{"text": "Commit to Route A."}],
+            "uncertainty_warnings": [],
+        },
+        "alternatives": [],
+        "termination_reason": "best_route_proven",
+        "diagnostics": [],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (PersistentRouteSpec("route-a", "route-a", 0, "Route A"),),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    path_leaf = next(
+        item for item in leaves["route-a"] if item.authority.authority_kind == "path"
+    )
+    assert path_leaf.authority.prerequisite_texts == (
+        "route_points >= 2",
+    )
+    assert path_leaf.authority.persistent_commitment_texts == ("Commit to Route A.",)
+
+
+def test_m12_leaf_projection_separates_result_and_path_authority() -> None:
+    result = {
+        "request_identity": "m12-two-path-result",
+        "status": "best_known_route",
+        "badge": "Best known route",
+        "recommended": {
+            "persistent_lane_ids": ["route-a"],
+            "requirements": [{"expression": "chapter >= 2"}],
+            "persistent_commitment_claims": [{"text": "Commit A."}],
+            "uncertainty_warnings": ["A is conditional."],
+            "provenance": {"scene_ids": ["scene-a"]},
+        },
+        "alternatives": [
+            {
+                "persistent_lane_ids": ["route-b"],
+                "requirements": [{"expression": "chapter >= 2"}],
+                "persistent_commitment_claims": [{"text": "Commit B."}],
+                "uncertainty_warnings": ["B is only an alternative."],
+                "provenance": {"scene_ids": ["scene-b"]},
+            }
+        ],
+        "complete": False,
+        "termination_reason": "limit:alternatives",
+        "diagnostics": ["Bounded result."],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (
+            PersistentRouteSpec("route-a", "route-a", 0, "Route A"),
+            PersistentRouteSpec("route-b", "route-b", 1, "Route B"),
+        ),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    result_leaves = [item for item in leaves[None] if item.authority.authority_kind == "result"]
+    assert len(result_leaves) == 1
+    result_authority = result_leaves[0].authority
+    assert result_authority.status is TechnicalStatus.BEST_KNOWN
+    assert result_authority.prerequisite_texts == ("chapter >= 2",)
+    assert result_authority.completion is False
+    assert result_authority.conclusion_texts == (
+        "limit:alternatives",
+        "Bounded result.",
+    )
+
+    recommended = next(
+        item for item in leaves["route-a"] if item.authority.authority_kind == "path"
+    ).authority
+    alternative = next(
+        item for item in leaves["route-b"] if item.authority.authority_kind == "path"
+    ).authority
+    assert (recommended.path_role, recommended.path_ordinal) == ("recommended", 0)
+    assert (alternative.path_role, alternative.path_ordinal) == ("alternative", 1)
+    assert alternative.status is None
+    assert alternative.badge is None
+    assert alternative.persistent_lane_ids == ("route-b",)
+    assert alternative.persistent_commitment_texts == ("Commit B.",)
+    assert alternative.warning_texts == ("B is only an alternative.",)
+    assert alternative.path_provenance == {"scene_ids": ["scene-b"]}
+
+
+def test_m12_leaf_projection_keeps_negative_result_without_route() -> None:
+    result = {
+        "request_identity": "m12-negative-result",
+        "status": "no_route_in_resolved_static_graph",
+        "badge": "No proven route",
+        "recommended": None,
+        "alternatives": [],
+        "termination_reason": "exhaustive",
+        "diagnostics": ["No statically resolved route reaches the destination."],
+    }
+
+    leaves = _m12_leaves(
+        (result,),
+        (PersistentRouteSpec("route-a", "route-a", 0, "Route A"),),
+        locale="en-US",
+        perspective="reader",
+    )
+
+    leaf = leaves[None][0]
+    assert leaf.authority.route_id is None
+    assert leaf.authority.persistent_lane_id is None
+    assert leaf.authority.status.value == "no_route_in_resolved_static_graph"
+    assert leaf.authority.conclusion_texts == (
+        "exhaustive",
+        "No statically resolved route reaches the destination.",
+    )
+
+
+def test_character_artifacts_keep_common_and_route_specific_roles_separate(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "game"
+    source.mkdir()
+    story = FIXTURE.read_text(encoding="utf-8")
+    story = 'define ava = Character("Ava")\ndefine ben = Character("Ben")\n\n' + story
+    story = story.replace(
+        '    "The route begins in the foyer."',
+        '    ava "The route begins in the foyer."',
+    ).replace(
+        '    "The red commitment stays separate."',
+        '    ava "The red commitment stays separate."',
+    ).replace(
+        '    "The blue commitment stays separate."',
+        '    ben "The blue commitment stays separate."',
+    ).replace(
+        '    "The red route ends here."',
+        '    ava "The red route ends here."',
+    ).replace(
+        '    "The blue route ends here."',
+        '    ben "The blue route ends here."',
+    )
+    (source / "story.rpy").write_text(story, encoding="utf-8")
+    provider = CompleteHierarchyProvider()
+    with create_ingested_project(tmp_path / "characters.rsmproj", source) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        placements = {
+            item.scene_id: item for item in project_scene_placements(authority.scene_model)
+        }
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="route-aware-characters",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=True,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        expected_routes: dict[str, set[str]] = {"ava": set(), "ben": set()}
+        for item in prepared.scene_run.jobs:
+            context = item.payload["structural_context"]
+            assert isinstance(context, dict)
+            participation = context["m13_character_participation"]
+            assert isinstance(participation, dict)
+            for speaker in participation["character_ids"]:
+                route_id = placements[item.job.spec.owner_id].path.route_id
+                if route_id is not None:
+                    expected_routes[str(speaker)].add(route_id)
+                support_records = item.payload["support_records"]
+                assert isinstance(support_records, list)
+                matching = [
+                    support
+                    for support in support_records
+                    if speaker in support["record"].get("character_ids", [])
+                ]
+                assert matching
+                assert all(support["record"]["source_text"] is None for support in matching)
+        consent = grant_narrative_consent(project, prepared)
+        result = run_complete_narrative(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(_batch_limits()),
+        )
+
+        assert len(result.artifacts.character_artifact_ids) == 2
+        artifacts = []
+        for artifact_id in result.artifacts.character_artifact_ids:
+            lookup = project.m13_persistence().lookup(RecordKind.ARTIFACT, artifact_id)
+            assert lookup.state is LookupState.HIT
+            assert lookup.payload is not None
+            artifacts.append(lookup.payload)
+        observed_routes: set[frozenset[str]] = set()
+        for artifact in artifacts:
+            assert artifact["job_kind"] == "character"
+            assert artifact["claims"][0]["claim_class"] == "interpretive"
+            hierarchy = artifact["hierarchy"]
+            assert (
+                hierarchy["chronology_policy"]
+                == "shared_then_separate_routes_and_endings"
+            )
+            route_ids = {
+                entry["path"]["route_id"]
+                for entry in hierarchy["section_entries"]
+                if entry["path"]["route_id"] is not None
+            }
+            assert len(route_ids) == 1
+            observed_routes.add(frozenset(route_ids))
+        assert observed_routes == {
+            frozenset(route_ids) for route_ids in expected_routes.values()
+        }

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from renpy_story_mapper.m07_model import M07ModelService
     from renpy_story_mapper.m11_persistence import M11Persistence
     from renpy_story_mapper.m12_persistence import M12Persistence
+    from renpy_story_mapper.narrative.persistence import M13Persistence
     from renpy_story_mapper.presentation import PresentationService
     from renpy_story_mapper.story_organization import StoryOrganizationService
 
@@ -784,6 +785,13 @@ class Project:
         from renpy_story_mapper.m12_persistence import M12Persistence
 
         return M12Persistence(self)
+
+    def m13_persistence(self) -> M13Persistence:
+        """Return the durable, authority-bound M13 narrative record store."""
+
+        from renpy_story_mapper.narrative.persistence import M13Persistence
+
+        return M13Persistence(self)
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""
