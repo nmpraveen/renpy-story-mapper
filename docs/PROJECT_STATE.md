@@ -115,6 +115,15 @@ rereview for exactly this duplicate-reservation multiplicity P1. Verification re
 changing the done condition or semantic `PASS`. Provider/live transmission, merge, M14, protected
 untracked content, and any broader product work remain excluded.
 
+The duplicate-reservation correction is frozen through `18f2edf` and reviewer-driven exact
+nontransmission correspondence correction `ba71cda82eba2e605f97041923329ee9afd2a681`. Failing-first
+regressions proved both multiplicity cases and the finalized `NOT_TRANSMITTED` zero-call case before
+the fixes. The reservation-focused set passes 5, workflow/scheduler passes 57, and Ruff, strict
+mypy, and diff checks pass. Independent reviewer `/root/m13_multiplicity_rereview` returned `PASS`
+at exact clean head `ba71cda` with no P0, P1, or new P2. M13 remains in `Verification` only for the
+minimum final Windows/PR evidence required at the corrected head; no provider/live rerun is
+authorized or needed for this provider-free correction.
+
 ## Historical prior correction verification (not current-cycle proof)
 
 The bounded correction runtime is frozen at

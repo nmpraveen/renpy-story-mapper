@@ -1,12 +1,21 @@
 # M13 validation report
 
-Status: Verification blocked by one additional-rereview P1; PR #23 is not currently ready
+Status: Verification; final correction rereview passes, final Windows/PR evidence pending
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Validation date: 2026-07-17
+
+## Final duplicate-reservation correction evidence (current)
+
+At the test-only states, both duplicate-reservation variants failed by resubmitting the target
+under a total ceiling of two, and the finalized nontransmitted case restored 12 ms instead of 6 ms
+while duplicating history. Corrections `18f2edf` and `ba71cda` make the reservation set pass 5 and
+workflow/scheduler pass 57; Ruff, strict mypy, and diff checks pass. Independent exact-head
+rereview at `ba71cda` is `PASS` with no P0, P1, or new P2. No provider/live or external action was
+used. Final Windows/PR evidence remains pending.
 
 ## Additional recovered-reservation correction evidence (current)
 

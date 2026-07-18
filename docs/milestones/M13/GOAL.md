@@ -132,6 +132,12 @@ The user subsequently authorized one further failing-first correction and indepe
 for exactly the duplicate-reservation multiplicity P1. This does not reopen any other product
 scope or approval gate.
 
+Corrections `18f2edf` and `ba71cda` preserve reservation multiplicity and match persisted attempts
+one-to-one, including finalized nontransmitted call-number-zero attempts. The focused reservation
+set passes 5 and workflow/scheduler passes 57 with Ruff, strict mypy, and diff checks green.
+Independent rereview at exact clean head `ba71cda` is `PASS` with no P0, P1, or new P2. The
+remaining work is contract-required final Windows/PR evidence only.
+
 ## Deliverables
 
 - Versioned M13 contracts for logical jobs, input revisions, provider transport batches, consent,

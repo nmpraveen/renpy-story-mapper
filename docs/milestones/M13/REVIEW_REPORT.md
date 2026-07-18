@@ -1,14 +1,28 @@
 # M13 integrated and independent review report
 
-Status: FAIL for the additional recovered-reservation rereview; one P1, no P0/new P2
+Status: PASS for the final duplicate-reservation rereview; no P0, P1, or new P2
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Current correction head: `a7e242b4534f7217d469308392d932795201cb57`
+Current correction head: `ba71cda82eba2e605f97041923329ee9afd2a681`
 
 Review date: 2026-07-17
 
-## Additional recovered-reservation rereview (current)
+## Final duplicate-reservation rereview (current)
+
+Independent reviewer `/root/m13_multiplicity_rereview` reviewed exact clean head `ba71cda`, ranges
+`58ba7ed..18f2edf` and `18f2edf..ba71cda`, and returned `PASS` with no P0, P1, or new P2. The
+reservation-focused set passed 5, workflow/scheduler passed 57, and Ruff, strict mypy, and range
+diff checks passed.
+
+Provider-free probes confirmed one-to-one matching: positive calls require exact batch/job/attempt/
+provider-call identity; zero-call attempts cover only one unresolved or explicitly nontransmitted
+matching reservation. Unmatched reservation multiplicity is preserved, cumulative usage is not
+double-counted, total/subtype ceilings remain enforced, and compatibility, idempotency, and cache
+behavior remain green. Review was read-only with no provider/live, private, network/GitHub, PR,
+push, merge, or M14 action. Sol/High was selected; fast-mode selection was unavailable/unverified.
+
+## Historical additional recovered-reservation rereview
 
 Independent reviewer `/root/m13_reservation_rereview` reviewed exact clean head `a7e242b` and
 range `a97e10d..a7e242b` read-only. The intended failing-first regression genuinely failed before
