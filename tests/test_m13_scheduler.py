@@ -928,6 +928,75 @@ def test_initial_elapsed_usage_enforces_one_cumulative_pipeline_timeout() -> Non
     assert result.jobs[0].error_code == "hard_limit"
 
 
+def test_cross_phase_reopen_adds_prior_and_durable_usage_before_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    prior_completed_phases = SchedulerUsage(
+        provider_calls=2,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=4,
+    )
+    interrupted_current_phase = SchedulerUsage(
+        provider_calls=1,
+        input_tokens=40,
+        output_tokens=20,
+        elapsed_ms=7,
+        cost_micros=3,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    expected_cumulative = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=100,
+        output_tokens=50,
+        elapsed_ms=18,
+        cost_micros=8,
+        peak_concurrency=4,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "prior cumulative plus recovered durable usage must block a new submit"
+        ),
+    )
+    sink = MemorySink(cumulative_usage=interrupted_current_phase)
+    scheduler = NarrativeScheduler(
+        provider,
+        sink,
+        SchedulerPolicy(batch_limits=BatchLimits(8, 500_000, 100_000)),
+        clock=lambda: 100.0,
+    )
+
+    result = scheduler.run(
+        (job,),
+        _consent(
+            identity,
+            logical_jobs=1,
+            estimated_calls=1,
+            call_limit=expected_cumulative.provider_calls,
+            input_limit=expected_cumulative.input_tokens,
+            output_limit=expected_cumulative.output_tokens,
+            total_limit=expected_cumulative.total_tokens,
+            max_cost_micros=expected_cumulative.cost_micros,
+            estimated_cost_micros=1,
+            cost_confidence=CostConfidence.RELIABLE,
+        ),
+        _validator,
+        initial_usage=prior_completed_phases,
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.error_code == "hard_limit"
+    assert result.record.cumulative_usage == expected_cumulative
+    assert result.jobs[0].attempt_count == 0
+    assert result.jobs[0].error_code == "hard_limit"
+
+
 def test_postflight_token_overrun_publishes_nothing_and_stops_at_hard_limit() -> None:
     identity = _provider_identity()
     jobs = (_job(0, identity, input_tokens=2, output_tokens=2),)
