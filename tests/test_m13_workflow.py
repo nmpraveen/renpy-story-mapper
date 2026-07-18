@@ -978,6 +978,115 @@ def test_checkpoint_rejects_duplicate_or_changed_covered_event(
             )
 
 
+def test_checkpoint_phase_usage_cannot_regress_below_exact_covered_events(
+    tmp_path: Path,
+) -> None:
+    @dataclass
+    class TimeoutProvider(DeterministicNarrativeProvider):
+        def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+            del cancelled
+            self.calls.append(request)
+            raise ProviderTimeoutError(
+                "provider_timeout",
+                "provider-free checkpoint accounting fixture",
+                transient=True,
+            )
+
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    timeout_provider = TimeoutProvider()
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        scenes = authority.scene_model.get("scenes")
+        assert isinstance(scenes, list) and scenes
+        first_scene = scenes[0]
+        assert isinstance(first_scene, dict)
+        scene_id = first_scene.get("id")
+        assert isinstance(scene_id, str)
+        prepared = prepare_narrative_scene_run(
+            project,
+            timeout_provider,
+            run_id="run-checkpoint-phase-regression",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=replace(_limits(), max_provider_calls=6),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        failed = run_prepared_scene_jobs(
+            project,
+            timeout_provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(
+                _batch_limits(),
+                maximum_transient_attempts_per_job=5,
+            ),
+        )
+        assert failed.record.current_phase_usage is not None
+        assert failed.record.current_phase_usage.provider_calls == 5
+        lookup = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert lookup.state is LookupState.HIT
+        assert lookup.payload is not None
+        payload = deepcopy(dict(lookup.payload))
+        checkpoint = payload["usage_checkpoint"]
+        assert isinstance(checkpoint, dict)
+        covered = checkpoint["covered_events"]
+        assert isinstance(covered, list) and len(covered) == 5
+        checkpoint["current_phase_usage"] = SchedulerUsage().to_dict()
+        project.m13_persistence().put_run(
+            consent.run_id,
+            payload,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+    retry_provider = DeterministicNarrativeProvider()
+    error: ValueError | None = None
+    result: SchedulerRunRecord | None = None
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            retry_provider,
+            run_id="run-checkpoint-phase-regression",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=replace(_limits(), max_provider_calls=6),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        try:
+            result = run_prepared_scene_jobs(
+                project,
+                retry_provider,
+                resumed,
+                grant_narrative_consent(project, resumed),
+                policy=SchedulerPolicy(
+                    _batch_limits(),
+                    maximum_transient_attempts_per_job=6,
+                ),
+            ).record
+        except ValueError as exc:
+            error = exc
+
+    reported_calls = (
+        None
+        if result is None or result.cumulative_usage is None
+        else result.cumulative_usage.provider_calls
+    )
+    assert retry_provider.calls == [], (
+        "checkpoint phase usage regressed below five exact covered calls and allowed "
+        f"{len(retry_provider.calls)} submit with {reported_calls} cumulative calls"
+    )
+    assert error is not None
+    assert "checkpoint phase usage conflicts with covered events" in str(error)
+
+
 def test_restart_after_timeout_includes_failed_usage_before_retry(tmp_path: Path) -> None:
     @dataclass
     class TimeoutProvider(DeterministicNarrativeProvider):
