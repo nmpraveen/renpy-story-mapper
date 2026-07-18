@@ -10,15 +10,16 @@ Updated: 2026-07-17
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
 - Integration branch: `codex/m13-narrative-layer`.
-- Status: Verification.
+- Status: PR ready.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
   failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
   Detail/Evidence navigation.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` is active for the exact M13
-  done condition in this resumed thread. Historical task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
+- Native Codex goal: task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` owns the exact M13 done
+  condition and is completed only after this PR-readiness reconciliation is pushed and remotely
+  verified. Historical task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
   stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
   reached its prior authorized done condition at its exact head; task/goal
   `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
@@ -26,8 +27,10 @@ Updated: 2026-07-17
   currently non-draft, clean, and unmerged. Reconciled live evidence commit
   `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
   `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before the prior
-  lifecycle closeout. Exact current local/remote PR head is
-  `e17ba5e3de295c83bba223f858098b65d84291b6`; merge remains separately approval-gated.
+  lifecycle closeout. Current product/evidence head
+  `120a4ec22214182f3b6ab80ac3ce112e6c46d371` is pushed and remotely verified; the PR is open,
+  non-draft, mergeable, and `CLEAN`, with no configured status checks. Merge remains separately
+  approval-gated.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -129,8 +132,10 @@ passed with 7 hardware-sensitive deselections in 683.13 seconds; Ruff, strict my
 files, dependency, JavaScript, whitespace, isolated build/install/import, browser-asset, and notice
 checks all passed. Historical current private-scale and live/replay evidence remains exact-head
 evidence; the narrow provider-free recovery correction is covered by its failing-first fault cases,
-independent review, and full Release. Existing PR #23 update and remote verification remain before
-`PR ready`.
+independent review, and full Release. Product/evidence head `120a4ec` was pushed to existing PR #23
+and remotely verified open, non-draft, mergeable, and `CLEAN`; GitHub reports no configured status
+checks. M13 is `PR ready`. No provider/live rerun, merge, M14 work, or protected-untracked-path
+change occurred.
 
 ## Historical prior correction verification (not current-cycle proof)
 

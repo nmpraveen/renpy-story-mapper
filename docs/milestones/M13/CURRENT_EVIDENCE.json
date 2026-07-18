@@ -2,7 +2,7 @@
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
   "validation_date": "2026-07-17",
-  "lifecycle": "Verification",
+  "lifecycle": "PR ready",
   "current_cycle": {
     "phase_zero_head_sha": "e17ba5e3de295c83bba223f858098b65d84291b6",
     "lifecycle_commit_sha": "f629e53a1a2a619f79c46329a57fb4fb82f83ba1",
@@ -22,8 +22,10 @@
     "blocking_finding": null,
     "correction_limit": "The authorized duplicate-reservation correction and independent rereview are complete.",
     "final_windows_release": "PASS in 710.9 seconds; 1135 passed, 7 hardware-sensitive deselected in 683.13 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
-    "not_run": "Provider/live and browser/private-scale reruns were not repeated for the narrow provider-free recovery correction; push, PR mutation, merge, and M14 remained pending before PR update",
-    "status": "verification; independent rereview and final Windows Release passed, existing PR #23 update pending"
+    "pr_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
+    "remote_pr_verification": "PR #23 open, non-draft, mergeable, CLEAN, unmerged; no configured status checks",
+    "not_run": "Provider/live and browser/private-scale reruns were not repeated for the narrow provider-free recovery correction; no merge or M14 action was performed",
+    "status": "PR ready; independent rereview, final Windows Release, push, and remote PR verification passed"
   },
   "historical_prior_cycle_evidence": true,
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
@@ -191,6 +193,11 @@
     "state": "open",
     "draft": false,
     "merged": false,
+    "current_product_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
+    "current_product_evidence_head_remote_verified": true,
+    "mergeable": true,
+    "merge_state_status": "CLEAN",
+    "configured_status_checks": 0,
     "evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
     "evidence_head_remote_verified": true,
     "remote_workflow_disposition": "The initial evidence-head run ended pytest at the repository helper's fixed 900.24-second cutoff after 73 percent with no failed test reported. The user clarified that local validation must not be rerun but GitHub may run without limits. After repository workflow/process cutoffs were removed, unbounded run 29604661539 passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2 with 1081 passed, 7 deselected, and every quality/build/package gate green."

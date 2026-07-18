@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification; final correction rereview and Windows Release pass, PR update pending
+Status: PR ready; final correction rereview, Windows Release, and remote PR verification pass
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -18,8 +18,9 @@ rereview at `ba71cda` is `PASS` with no P0, P1, or new P2. No provider/live or e
 used. `powershell -ExecutionPolicy Bypass -File .\scripts\validate.ps1 -Tier Release -NoTimeout`
 then passed in 710.9 seconds: 1,135 tests passed with 7 hardware-sensitive deselections in 683.13
 seconds, Ruff passed, strict mypy passed over 92 source files, and dependency, JavaScript,
-whitespace, isolated build/install/import, asset, and notice gates all passed. Existing PR #23
-update/remote verification remains pending.
+whitespace, isolated build/install/import, asset, and notice gates all passed. Product/evidence
+head `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed to existing PR #23 and remotely verified
+open, non-draft, mergeable, and `CLEAN`; GitHub reports no configured status checks.
 
 ## Additional recovered-reservation correction evidence (current)
 

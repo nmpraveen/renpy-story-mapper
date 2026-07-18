@@ -1,12 +1,13 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (semantic review PASS retained)
+Status: PR ready (semantic review PASS retained)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
 bounded correction handoff, plus the user's 2026-07-17 final bounded eight-finding correction
 authorization for existing PR #23 and explicit authorization for one additional narrowly bounded
-recovered-reservation correction and independent rereview
+recovered-reservation correction and independent rereview, followed by explicit authorization for
+the final duplicate-reservation multiplicity correction and rereview
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
@@ -140,8 +141,9 @@ remaining work is contract-required final Windows/PR evidence only.
 
 Final Windows Release passes at the corrected head: 1,135 passed, 7 hardware-sensitive tests
 deselected, with Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated
-build/install/import, asset, and notice checks green. Existing PR #23 update/remote verification is
-the only remaining PR-readiness action.
+build/install/import, asset, and notice checks green. Product/evidence head `120a4ec` is pushed and
+remotely verified on existing PR #23, which is open, non-draft, mergeable, and `CLEAN`; GitHub
+reports no configured status checks. M13 is `PR ready`, while merge remains separately gated.
 
 ## Deliverables
 
@@ -331,7 +333,8 @@ now `Integration` pending new integrated-head evidence.
   record that exact limitation rather than copying fixed provider settings into this M13 contract
   or claiming an unverifiable fast-mode configuration.
 - Historical targeted review at `e79384b`, criterion 20 at `677d881`, and unbounded GitHub Release
-  run `29604661539` at `7bf5404` retain exact-head evidence only. Current rereview at `a7e242b`
-  fails with one P1; PR #23 is not ready.
+  run `29604661539` at `7bf5404` retain exact-head evidence only. Final rereview at `ba71cda`
+  passes with no P0/P1/new P2, final Windows Release passes, and PR #23 is `PR ready` at pushed
+  product/evidence head `120a4ec`.
 - Keep the native Codex goal active through integration, verification, evidence, review, and PR
-  preparation. It completes only at genuine `PR ready`; current Verification does not qualify.
+  preparation. It completes only after genuine `PR ready` is pushed and remotely verified.

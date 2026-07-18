@@ -1,18 +1,15 @@
 # M13 optional AI narrative layer completion report
 
-Status: Historical prior PR-ready report; current additional correction is Verification-blocked
-by one independent-rereview P1 on existing PR #23
+Status: PR ready on existing unmerged PR #23
 
 Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
 
 Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) remains open and
-unmerged. It is currently non-draft and clean remotely. Current-head review and live/replay gates pass;
-reconciled evidence commit `d5fdcaa3a0a15db05f232171754216093cadd026` was pushed and remotely
-verified, and unbounded GitHub Release run `29604661539` passed at branch head
-`7bf54042639a781313cf6c924e09a0ee023a86f2`, before final lifecycle closeout. Merge always
-requires separate approval.
+unmerged. Product/evidence head `120a4ec22214182f3b6ab80ac3ce112e6c46d371` is pushed and remotely
+verified; the PR is non-draft, mergeable, and `CLEAN`, and GitHub reports no configured status
+checks. Merge always requires separate approval.
 
 ## Outcome
 
@@ -20,20 +17,20 @@ Current final-correction note: multiplicity correction `18f2edf` and exact nontr
 correspondence correction `ba71cda` pass their failing-first reservation cases, 57 combined
 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent exact-head rereview is
 `PASS` with no P0/P1/new P2. Final Windows Release passes 1,135 tests with 7 hardware-sensitive
-deselections plus every quality/build/package gate. Existing PR #23 update and remote verification
-remain before the current lifecycle can return to `PR ready`; no provider/live rerun or merge was
-performed.
+deselections plus every quality/build/package gate. Product/evidence head `120a4ec` is pushed and
+remotely verified on PR #23. M13 is `PR ready`; no provider/live rerun or merge was performed.
 
-Current additional-correction note: failing-first correction `a7e242b` closes the one-reservation
+Historical additional-correction interim note: failing-first correction `a7e242b` closes the one-reservation
 reopen case and passes 54 workflow/scheduler tests, Ruff, strict mypy, and diff checks. Independent
 rereview nevertheless returned `FAIL` with one P1 and no P0/new P2: multiple compatible durable
 reservations for the same historically reused logical attempt are collapsed to one recovered
 history slot, allowing a third submission under a ceiling of two. The authorized additional
 correction/rereview is consumed. The Release run was stopped after this verdict; no push, PR
 mutation, provider/live transmission, browser/private-scale/GitHub acceptance, merge, or M14 work
-followed. M13 remains in Verification and PR #23 is not ready.
+followed at that interim point. The later authorized multiplicity correction and rereview resolved
+this finding as recorded above.
 
-Current lifecycle note: the final correction tracks integrated at `9ab1dbd`, and focused
+Historical cross-track lifecycle note: the final correction tracks integrated at `9ab1dbd`, and focused
 verification at lifecycle head `532eefc933460ed1876a715df1b12a921e24b3c0` passed 227 tests,
 Ruff, strict mypy, JavaScript syntax, and diff checks. Final independent review returned `FAIL`
 with one P1 and no P0/new P2: an unresolved reservation is conservatively charged but does not
@@ -41,10 +38,9 @@ consume the per-job total-attempt ceiling after reopen. Findings 1 and 3-8 pass,
 6 as a proved false positive. All prior evidence below remains historical evidence for its named
 head and must not be presented as proof of the pending corrected head.
 
-Track A already used the handoff's one bounded correction and rereview, so no second product loop
-was started. The corrected local head was not pushed; Release, browser, private-scale, GitHub,
-provider/live, PR mutation, merge, and M14 actions were not performed. The current done condition
-is unmet pending explicit authorization for one additional narrowly bounded correction.
+At that interim point Track A had already used the handoff's one bounded correction and rereview,
+so no second product loop was started. The user later supplied the separately recorded narrow
+authorization that produced the current passing correction and rereview.
 
 The authorized bounded-correction runtime is frozen at `3533d49`. Exact M12 result/path/scene/
 hierarchy authority, compatible durable resume, cumulative and failed-call accounting, browser
@@ -63,11 +59,16 @@ M13 is `PR ready`.
 
 ## Current correction acceptance
 
-This table is historical prior-cycle evidence and is not acceptance of lifecycle head `532eefc`.
-Current final review is `FAIL` with the P1 recorded above.
+The earlier full-stack evidence remains exact-head evidence. The narrow provider-free recovery
+change is accepted by its failing-first regressions, exact-head independent rereview, and final
+Windows Release.
 
 | Gate | Result |
 |---|---|
+| Final recovered-reservation correction | `18f2edf` and `ba71cda`; failing-first multiplicity/nontransmission cases; 57 workflow/scheduler tests; Ruff and strict mypy pass |
+| Final independent rereview | PASS at exact `ba71cda`; no P0/P1/new P2 |
+| Final Windows Release | 1,135 passed, 7 hardware-sensitive deselected; all quality/build/package gates green |
+| Current remote PR | Product/evidence head `120a4ec` verified open, non-draft, mergeable, and `CLEAN`; no configured status checks |
 | Runtime and local/Windows | Runtime `3533d49`; focused M13 291/1, adjacent M12+persistence 139/1, Release 1,079/7 and all quality/build/package checks pass |
 | Browser and private scale | Chrome 100%/200% passes with zero navigation/provider calls; 1,812-scene private-scale simulation passes with exact zero-call replay |
 | Independent review | PASS at `e79384b`; no P0/P1/new P2; detached clean zero-edit review |
@@ -105,9 +106,10 @@ head proof for the reopened correction areas.
 
 ## Closeout state
 
-- Current local/runtime/browser/private gates pass at `3533d49`; targeted review passes at
-  `e79384b`; approved final-head live/replay passes at `677d881`.
-- Native task/goal `019f7048-93db-7383-a869-fc4c78939994` reached its authorized done condition
-  after unbounded GitHub Release run `29604661539` passed and this PR-readiness reconciliation.
-- Existing PR #23 is open, non-draft, and unmerged. Do not merge PR #23, perform another live
-  provider transmission, or begin M14.
+- Current final correction passes through `ba71cda`; final rereview has no P0/P1/new P2; Windows
+  Release passes 1,135/7 and every quality/build/package gate.
+- Native task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` owns this final done condition.
+- Product/evidence head `120a4ec` is remotely verified on existing PR #23. The PR is open,
+  non-draft, mergeable, `CLEAN`, and unmerged, with no configured status checks.
+- Do not merge PR #23, perform another live provider transmission, or begin M14 without separate
+  approval.
