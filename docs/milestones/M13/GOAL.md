@@ -1,18 +1,21 @@
 # M13 - Optional AI narrative layer
 
-Status: PR ready (post-merge corrective product/review and exact-head CI gates PASS)
+Status: Complete (corrective PR #24 merged after product, review, and exact-head CI gates passed)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
 bounded correction handoff, plus the user's 2026-07-17 final bounded eight-finding correction
 authorization for existing PR #23 and explicit authorization for one additional narrowly bounded
 recovered-reservation correction and independent rereview, followed by explicit authorization for
-the final duplicate-reservation multiplicity correction and rereview, and the user's 2026-07-17
-bounded post-merge cumulative-resource recovery correction authorization
+the final duplicate-reservation multiplicity correction and rereview, the user's 2026-07-17
+bounded post-merge cumulative-resource recovery correction authorization, and the user's explicit
+2026-07-18 authorization to merge corrective PR #24
 
 Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Integration branch: `codex/m13-post-merge-usage-recovery`
+Final merge: corrective PR #24 commit `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`
+
+Integration branch: `main`; lifecycle reconciliation branch `codex/m13-post-merge-closeout`
 
 ## Done condition
 
@@ -25,6 +28,11 @@ deterministic maps, scene membership, route results, source inputs, and provider
 remain unchanged and useful, required Windows and private acceptance passes, no unresolved P0 or
 P1 finding remains, and one approval-gated M13 pull request is genuinely ready but not created or
 merged without separate user approval.
+
+That condition is complete: the user separately authorized the merge, exact final PR head
+`9e7d387025ed29fdd1c7a43442db4dffda3db0ad` passed GitHub Release run `29632577820`, and PR #24
+merged into `main` as `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` on 2026-07-18. M14 remains
+deferred and was not started.
 
 ## Objective
 
@@ -54,8 +62,9 @@ At `a71d588`, the provider-free four-module matrix passes 97 tests; Track A Revi
 and final Track C pass with no P0-P3. One local Windows Release passed at predecessor `5c792c1`
 before Track C exposed the final checkpoint-aggregate P1; the final two-file correction is covered
 by focused exact-head tests and independent rereviews. GitHub Release run `29632020095` passed at
-pushed evidence head `f8525a2`; PR #24 is open, non-draft, mergeable, and `CLEAN`. No additional
-local Release, live provider transmission, merge, M14, or broad refactor is authorized.
+pushed evidence head `f8525a2`. Exact final PR head `9e7d387` passed GitHub Release run
+`29632577820`; PR #24 then merged as `3fff476`. No additional local Release or live-provider
+transmission occurred, and M14 and broad refactoring remain outside this completed contract.
 
 ## Authorized PR #23 correction constraints
 
@@ -265,8 +274,17 @@ Track A Reviewer A, Track B, and final Track C each return PASS with no P0-P3. T
 local Windows Release passed 1,149/7 at predecessor `5c792c1`; the final two-file change has focused
 and independent exact-head coverage, and pull-request Release CI is required at the final lifecycle
 head. Exact-head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and
-corrective PR #24 is open, non-draft, mergeable, `CLEAN`, and PR ready. No provider/live, merge, or
-M14 action is authorized.
+corrective PR #24 reached PR ready. The user then separately authorized its merge; final PR head
+`9e7d387` passed run `29632577820`, and PR #24 merged as `3fff476` at
+2026-07-18T11:12:47Z. No provider/live or M14 action occurred.
+
+### Merge closeout - 2026-07-18
+
+PR #24 is `MERGED`. Its normal merge commit has parents `d37fe236` and `9e7d387`, and remote
+`main` resolves to `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. The reviewed correction is
+therefore on `main`, the M13 lifecycle is `Complete`, and native goal lookup reports no active goal
+record after the merge. No branch deletion, provider/live transmission, M14 work, destructive
+cleanup, or protected-path action was performed.
 
 ## Deliverables
 
@@ -399,8 +417,8 @@ approved final-head browser/backend live run plus exact fail-closed replay pass 
 Existing PR #23 contains that reconciled historical evidence and was remotely verified. The user-authorized
 unbounded GitHub Release run `29604661539` passed at branch head
 `7bf54042639a781313cf6c924e09a0ee023a86f2` with 1,081 passed, 7 deselected, and every
-quality/build/package gate green. That prior lifecycle reached `PR ready`; the active lifecycle is
-now `Integration` pending new integrated-head evidence.
+quality/build/package gate green. That prior lifecycle reached `PR ready`; the current lifecycle is
+`Complete` after corrective PR #24 merged as `3fff476`.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|

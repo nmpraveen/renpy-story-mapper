@@ -1,18 +1,17 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-17
+Last revised: 2026-07-18
 
-Status: M01 through M12 are complete and merged. M13 implementation PR #23 merged at
-`d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. A bounded post-merge cumulative-resource correction
-is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d` on corrective PR #24. Provider-free
+Status: M01 through M13 are complete and merged. M13 implementation PR #23 merged at
+`d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
+is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
 failing-first tests, 97 focused tests, Track A/Track B/final Track C reviews, and the single local
 Windows Release gate pass; the local Release ran at predecessor product head `5c792c1` before
 Track C found the final checkpoint-integrity P1, while the exact corrected head is covered by the
-focused matrix and independent rereviews. Lifecycle reconciliation is complete and exact PR-head
-CI run `29632020095` passed at exact pushed evidence head `f8525a2`; PR #24 is open, non-draft,
-mergeable, and `CLEAN`, and is genuinely PR ready. Prior browser, live/replay, private-scale, and
-Release results remain historical evidence only for their named heads. Merge remains separately
-approval-gated and M14 remains deferred.
+focused matrix and independent rereviews. Exact final PR head `9e7d387` passed CI run
+`29632577820`, and corrective PR #24 merged as
+`3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. Prior browser, live/replay, private-scale, and
+Release results remain historical evidence only for their named heads. M14 remains deferred.
 
 ## 1. Product goal
 
@@ -1151,17 +1150,17 @@ unresolved or dynamic behavior and must not claim arbitrary expression satisfiab
 
 ### M13 - AI narrative layer
 
-Status: Post-merge corrective PR #24 is `PR ready`. PR #23 merged at `d37fe236`.
+Status: Complete and merged. PR #23 merged at `d37fe236`; corrective PR #24 merged at `3fff476`.
 Corrected product head `a71d588` conserves disjoint prior/current usage exactly once, validates
 checkpoint usage against exact covered durable events, preserves peak as a maximum, and fails
 closed for unknown or ambiguous legacy cost/provenance. The provider-free four-module matrix passes
 97 tests; Track A, Track B, and final Track C return PASS with no P0-P3. The single authorized local
 Windows Release passed 1,149 tests with 7 hardware-sensitive deselections and every quality/build/
 package gate at predecessor `5c792c1`; the final two-file checkpoint correction is covered by
-focused tests and two exact-head independent rereviews. Exact-head GitHub Release run `29632020095`
-passed at pushed evidence head `f8525a2`; PR #24 is open, non-draft, mergeable, and `CLEAN`.
-Historical browser, live/replay, and private-scale evidence is not presented as exact-head
-accounting proof. Merge remains separately approval-gated.
+focused tests and two exact-head independent rereviews. GitHub Release run `29632020095` passed at
+pushed evidence head `f8525a2`, and exact final PR head `9e7d387` passed run `29632577820` before
+PR #24 merged as `3fff476`. Historical browser, live/replay, and private-scale evidence is not
+presented as exact-head accounting proof.
 
 M13 owns the optional AI narrative layer: titles, summaries, characters, motives, and
 chapter/route/full-plot summaries. AI output remains evidence-linked, reviewable, and subordinate
@@ -1258,7 +1257,7 @@ and unresolved items.
 
 ## 11. Current next action
 
-Hold corrective PR #24 at `PR ready` for the user's merge decision. Do not perform another
-provider/live transmission, merge PR #24, or begin M14 without the applicable separate user
-approval. After merge, reconcile the final merge SHA and close the still-active native M13 goal
-before any roadmap successor begins.
+M13 is `Complete`. Corrective PR #24 merged into `main` as
+`3fff4762ce3e46174723e2adf35c2f7db19f2b2e` after exact final-head Release CI passed. Do not
+perform another provider/live transmission or begin M14 without separate user approval. M14
+remains deferred and no roadmap successor is active.

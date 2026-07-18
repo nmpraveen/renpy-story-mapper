@@ -1,6 +1,6 @@
 # M13 optional AI narrative layer completion report
 
-Status: PR ready on post-merge corrective PR #24
+Status: Complete; corrective PR #24 merged
 
 Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
@@ -8,8 +8,9 @@ Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
 Pull requests: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Corrective
-[PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open, non-draft, mergeable,
-and `CLEAN` from `codex/m13-post-merge-usage-recovery`. Merge always requires separate approval.
+[PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) merged from final head
+`9e7d387025ed29fdd1c7a43442db4dffda3db0ad` as normal merge commit
+`3fff4762ce3e46174723e2adf35c2f7db19f2b2e` at 2026-07-18T11:12:47Z.
 
 ## Post-merge corrective outcome (current)
 
@@ -27,12 +28,17 @@ evidence and is closed by failing-first `bd46caf` plus correction `a71d588`. The
 local Windows Release passed at `5c792c1` with 1,149 passed and 7 hardware-sensitive deselections,
 plus every quality/build/package gate. It was not repeated after the final two-file correction;
 exact corrected-head focused tests and independent reviews pass. GitHub Release run `29632020095`
-passed in 17m17s at pushed evidence head `f8525a2`; PR #24 is genuinely PR ready.
+passed in 17m17s at pushed evidence head `f8525a2`. Exact final PR head `9e7d387` passed GitHub
+Release run `29632577820` in 19m04s before the authorized merge.
 
-No provider/live transmission, browser/private-scale rerun, merge, M14, destructive cleanup, or
-protected-path action occurred. Historical browser UI/static facts remain inheritable; prior live,
+No provider/live transmission, browser/private-scale rerun, M14, destructive cleanup, branch
+deletion, or protected-path action occurred. Historical browser UI/static facts remain inheritable; prior live,
 browser retry/reopen accounting, private-scale accounting, and replay counts remain exact-head
 history only.
+
+M13 is now `Complete`. Remote `main` contains the exact reviewed PR head through merge commit
+`3fff476`; native goal lookup reports no active goal record after merge; M14 remains deferred and
+was not started.
 
 ## Historical pre-merge PR #23 outcome
 

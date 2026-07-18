@@ -2,7 +2,9 @@
 
 Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Integration branch: `codex/m13-post-merge-usage-recovery`
+Final merge: corrective PR #24 commit `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`
+
+Integration branch: `main`; lifecycle reconciliation branch `codex/m13-post-merge-closeout`
 
 Orchestration limitation: current collaboration controls expose model and reasoning-effort but
 not a fast-mode selector. Current M13 tasks were dispatched explicitly with `gpt-5.6-sol` and High
@@ -11,7 +13,7 @@ fixed provider settings in M13 product contracts or tests.
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
-| Post-merge cumulative-resource correction coordination | Phase Coordinator, this visible parent task; goal `019f7308-a9a6-7562-a422-ab09c1ec077f` | Reopen M13 contract; integrate bounded provider-free corrections; freeze verification/evidence; corrective PR | User authorization; merged baseline `d37fe236`; retained semantic `PASS` | In progress | Milestone is PR ready: product/review gates pass at `a71d588`; run `29632020095` passes at `f8525a2`; PR #24 non-draft/clean; goal remains active through merge |
+| Post-merge cumulative-resource correction coordination | Phase Coordinator, this visible parent task; goal `019f7308-a9a6-7562-a422-ab09c1ec077f` | Reopen M13 contract; integrate bounded provider-free corrections; freeze verification/evidence; corrective PR and merge closeout | User authorization; merged baseline `d37fe236`; retained semantic `PASS` | Complete | Product/review gates pass at `a71d588`; final PR head `9e7d387` passed run `29632577820`; PR #24 merged as `3fff476`; native goal lookup reports no active record after merge |
 | Track A runtime correction | Visible Track A Coordinator `019f730d-53a7-7d51-a6b5-b5a4062c79d3` | Sole product writer; failing-first provenance/checkpoint model, minimal implementation, focused verification, Reviewer A | Contract commit; Track B design gate; Track C P1 | Complete | Final source head `76286b3`, integrated as `a71d588`; 97 focused pass; Reviewer A PASS no P0-P3 |
 | Track B independent audit | Visible Track B Coordinator `019f730d-53a7-7d51-a6b5-b5c28fef11f4` | Read-only full invariant, evidence inheritance, lifecycle/roadmap/M09 audit | Integrated frozen candidate | Complete | PASS at exact `a71d588`; no P0-P3; 15-test adversarial matrix and static checks pass; M09 PR #16 merge verified |
 | Track C frozen exact-diff review | Visible Track C Coordinator `019f7376-756d-75c1-af72-d572b5bf36ba` | Read-only exact-diff correctness/security and evidence adequacy; final verdict | Frozen product candidate and corrective PR #24 | Complete | Initial CHANGES REQUESTED at `5c792c1`; final Reviewer C PASS at `a71d588`, no P0-P3; 97 focused pass; docs rereview PASS at `f8525a2` |

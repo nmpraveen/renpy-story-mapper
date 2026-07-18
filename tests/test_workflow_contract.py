@@ -34,7 +34,7 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "Active milestone: M13 - Optional AI narrative layer" in state
     assert any(
         f"- Status: {status}." in state
-        for status in ("In progress", "Integration", "Verification", "PR ready")
+        for status in ("In progress", "Integration", "Verification", "PR ready", "Complete")
     )
     assert "Semantic review: [`PASS`]" in state
     assert "docs/milestones/M13/GOAL.md" in state
