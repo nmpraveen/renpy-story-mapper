@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
@@ -55,7 +55,9 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerConfigurationError,
     SchedulerJobRecord,
     SchedulerPolicy,
+    SchedulerResumeUsage,
     SchedulerRunRecord,
+    SchedulerRunResult,
     SchedulerRunState,
     SchedulerSink,
     SchedulerUsage,
@@ -277,6 +279,7 @@ class MemorySink:
     finalizations: list[SchedulerCallFinalization] = field(default_factory=list)
     after_publish: Callable[[ScheduledSceneJob], None] | None = None
     cumulative_usage: SchedulerUsage = field(default_factory=SchedulerUsage)
+    checkpoint_prior_usage: SchedulerUsage | None = None
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         return self.caches.get(job.cache_identity.key)
@@ -295,9 +298,12 @@ class MemorySink:
         consent: ConsentManifest,
         jobs: tuple[ScheduledSceneJob, ...],
         compatibility_id: str,
-    ) -> SchedulerUsage:
+    ) -> SchedulerResumeUsage:
         del consent, jobs, compatibility_id
-        return self.cumulative_usage
+        return SchedulerResumeUsage(
+            current_phase_usage=self.cumulative_usage,
+            checkpoint_prior_cumulative_usage=self.checkpoint_prior_usage,
+        )
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         self.jobs.append(record)
@@ -926,6 +932,275 @@ def test_initial_elapsed_usage_enforces_one_cumulative_pipeline_timeout() -> Non
     assert result.record.usage.elapsed_ms >= 60_000
     assert provider.requests == []
     assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_cross_phase_reopen_adds_prior_and_durable_usage_before_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    prior_completed_phases = SchedulerUsage(
+        provider_calls=2,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=4,
+    )
+    interrupted_current_phase = SchedulerUsage(
+        provider_calls=1,
+        input_tokens=40,
+        output_tokens=20,
+        elapsed_ms=7,
+        cost_micros=3,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    expected_cumulative = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=100,
+        output_tokens=50,
+        elapsed_ms=18,
+        cost_micros=8,
+        peak_concurrency=4,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "prior cumulative plus recovered durable usage must block a new submit"
+        ),
+    )
+    sink = MemorySink(cumulative_usage=interrupted_current_phase)
+    scheduler = NarrativeScheduler(
+        provider,
+        sink,
+        SchedulerPolicy(batch_limits=BatchLimits(8, 500_000, 100_000)),
+        clock=lambda: 100.0,
+    )
+
+    result = scheduler.run(
+        (job,),
+        _consent(
+            identity,
+            logical_jobs=1,
+            estimated_calls=1,
+            call_limit=expected_cumulative.provider_calls,
+            input_limit=expected_cumulative.input_tokens,
+            output_limit=expected_cumulative.output_tokens,
+            total_limit=expected_cumulative.total_tokens,
+            max_cost_micros=expected_cumulative.cost_micros,
+            estimated_cost_micros=1,
+            cost_confidence=CostConfidence.RELIABLE,
+        ),
+        _validator,
+        initial_usage=prior_completed_phases,
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.error_code == "hard_limit"
+    assert result.record.cumulative_usage == expected_cumulative
+    assert result.jobs[0].attempt_count == 0
+    assert result.jobs[0].error_code == "hard_limit"
+
+
+def test_supplied_prior_cannot_regress_below_exact_checkpoint_prior() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint_prior = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda request, _number: _response(
+            request,
+            identity,
+            (_success_item(request.items[0].logical_job_id, 0),),
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    )
+    sink = MemorySink(checkpoint_prior_usage=checkpoint_prior)
+    result: SchedulerRunResult | None = None
+    error: SchedulerConfigurationError | None = None
+
+    try:
+        result = _scheduler(provider, sink).run(
+            (job,),
+            _consent(
+                identity,
+                logical_jobs=1,
+                estimated_calls=1,
+                call_limit=4,
+            ),
+            _validator,
+            initial_usage=SchedulerUsage(),
+        )
+    except SchedulerConfigurationError as exc:
+        error = exc
+
+    reported_calls = (
+        None
+        if result is None or result.record.cumulative_usage is None
+        else result.record.cumulative_usage.provider_calls
+    )
+    assert provider.requests == [], (
+        "supplied prior regressed below an exact three-call checkpoint and allowed "
+        f"{len(provider.requests)} submit with {reported_calls} cumulative calls"
+    )
+    assert error is not None
+    assert "supplied prior usage regresses below exact checkpoint prior" in str(error)
+
+
+def test_checkpoint_prior_dominance_checks_every_usage_semantic() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    regressions = (
+        replace(checkpoint, provider_calls=2),
+        replace(checkpoint, input_tokens=59),
+        replace(checkpoint, output_tokens=29),
+        replace(checkpoint, elapsed_ms=10),
+        replace(checkpoint, cost_micros=4),
+        replace(checkpoint, peak_concurrency=1),
+        replace(checkpoint, usage_estimated=False),
+    )
+    unknown_checkpoint = replace(checkpoint, cost_micros=None)
+    known_after_unknown = replace(checkpoint, cost_micros=100)
+
+    for supplied, required in (
+        *((item, checkpoint) for item in regressions),
+        (known_after_unknown, unknown_checkpoint),
+    ):
+        provider = ScriptedProvider(
+            identity,
+            lambda _request, _number: pytest.fail(
+                "a regressed or ambiguous prior must fail before submit"
+            ),
+        )
+        with pytest.raises(
+            SchedulerConfigurationError,
+            match="supplied prior usage regresses below exact checkpoint prior",
+        ):
+            _scheduler(
+                provider,
+                MemorySink(checkpoint_prior_usage=required),
+            ).run(
+                (job,),
+                _consent(identity, logical_jobs=1, estimated_calls=1, call_limit=4),
+                _validator,
+                initial_usage=supplied,
+            )
+        assert provider.requests == []
+
+
+def test_checkpoint_prior_accepts_one_proven_monotonic_supplied_value() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    checkpoint = SchedulerUsage(
+        provider_calls=2,
+        input_tokens=40,
+        output_tokens=20,
+        elapsed_ms=7,
+        cost_micros=5,
+        peak_concurrency=1,
+    )
+    supplied = SchedulerUsage(
+        provider_calls=3,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=None,
+        peak_concurrency=2,
+        usage_estimated=True,
+    )
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "the monotonic supplied prior must enforce the call limit"
+        ),
+    )
+
+    result = _scheduler(
+        provider,
+        MemorySink(checkpoint_prior_usage=checkpoint),
+    ).run(
+        (job,),
+        _consent(identity, logical_jobs=1, estimated_calls=1, call_limit=3),
+        _validator,
+        initial_usage=supplied,
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.prior_cumulative_usage == supplied
+    assert result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage.provider_calls == supplied.provider_calls
+    assert result.record.cumulative_usage.cost_micros is None
+    assert result.record.cumulative_usage.usage_estimated is True
+    assert result.record.cumulative_usage.peak_concurrency == supplied.peak_concurrency
+
+
+def test_cross_phase_unknown_cost_fails_closed_before_submit() -> None:
+    identity = _provider_identity()
+    job = _job(0, identity, input_tokens=1, output_tokens=1, cost_micros=1)
+    provider = ScriptedProvider(
+        identity,
+        lambda _request, _number: pytest.fail(
+            "unknown recovered cost under a hard cap must block submit"
+        ),
+    )
+    sink = MemorySink(
+        cumulative_usage=SchedulerUsage(
+            provider_calls=1,
+            input_tokens=40,
+            output_tokens=20,
+            elapsed_ms=7,
+            cost_micros=None,
+            peak_concurrency=2,
+            usage_estimated=True,
+        )
+    )
+
+    result = _scheduler(provider, sink).run(
+        (job,),
+        _consent(
+            identity,
+            logical_jobs=1,
+            max_cost_micros=100,
+            estimated_cost_micros=1,
+            cost_confidence=CostConfidence.RELIABLE,
+        ),
+        _validator,
+        initial_usage=SchedulerUsage(
+            provider_calls=2,
+            input_tokens=60,
+            output_tokens=30,
+            elapsed_ms=11,
+            cost_micros=5,
+            peak_concurrency=4,
+        ),
+    )
+
+    assert provider.requests == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage.cost_micros is None
+    assert result.record.cumulative_usage.provider_calls == 3
+    assert result.record.cumulative_usage.peak_concurrency == 4
 
 
 def test_postflight_token_overrun_publishes_nothing_and_stops_at_hard_limit() -> None:

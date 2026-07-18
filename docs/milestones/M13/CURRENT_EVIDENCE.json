@@ -1,31 +1,35 @@
 {
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
-  "validation_date": "2026-07-17",
+  "validation_date": "2026-07-18",
   "lifecycle": "PR ready",
   "current_cycle": {
-    "phase_zero_head_sha": "e17ba5e3de295c83bba223f858098b65d84291b6",
-    "lifecycle_commit_sha": "f629e53a1a2a619f79c46329a57fb4fb82f83ba1",
-    "track_a_reviewed_head_sha": "2685de031db68682697134e5cad64e0246e1929d",
-    "track_b_reviewed_head_sha": "251e063fc0467f73f14d0771b2a4fd236772e6b0",
-    "integrated_candidate_head_sha": "9ab1dbd873420ad4a7f679b87bd39b1ee9b8582b",
-    "reviewed_lifecycle_head_sha": "ba71cda82eba2e605f97041923329ee9afd2a681",
-    "additional_correction_head_sha": "a7e242b4534f7217d469308392d932795201cb57",
-    "multiplicity_correction_head_sha": "18f2edf6ba8ed1f73fe9fe8d492538b4bcef600b",
-    "final_correction_head_sha": "ba71cda82eba2e605f97041923329ee9afd2a681",
-    "track_a_review": "PASS after one bounded correction; no P0/P1/P2",
-    "track_b_review": "PASS; no P0/P1/P2; finding 6 false positive",
-    "integrated_focused": "Multiplicity and nontransmission regressions failed first; reservation set passed 5 and workflow/scheduler passed 57; Ruff, strict mypy, and diff checks passed",
-    "prior_integrated_review": "FAIL at 532eefc; one P1 because one unresolved reservation did not consume per-job attempt history; no P0/new P2",
-    "final_review": "PASS at ba71cda; no P0/P1/new P2",
-    "final_reviewer": "/root/m13_multiplicity_rereview",
+    "merged_baseline_sha": "d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a",
+    "contract_baseline_sha": "6f9fb52b30a2de92642450d9de67c2552c94417f",
+    "integrated_product_head_sha": "a71d5888d55d0d5a19ddb84efd522dccdcbe282d",
+    "track_a_source_head_sha": "76286b3f45491acb53682fadd8d127a9d7a9d180",
+    "track_a_task_id": "019f730d-53a7-7d51-a6b5-b5a4062c79d3",
+    "track_b_task_id": "019f730d-53a7-7d51-a6b5-b5c28fef11f4",
+    "track_c_task_id": "019f7376-756d-75c1-af72-d572b5bf36ba",
+    "failing_first_commits": [
+      "564574c92023a753522b5473251ac840cf3b68a9",
+      "01a1fe36b692e886d1dc6a09c0d4bc811d3faf24",
+      "7d0791fbc9e0559090a4bc743e03673edb4e4448",
+      "b74b47c308532965f50253236385fad6be80c3a5",
+      "bd46cafa12ba9b530d6c77ac6344eb0bf235ef0a"
+    ],
+    "track_a_review": "PASS at source head 76286b3; no P0-P3",
+    "track_b_review": "PASS at integrated head a71d588; no P0-P3",
+    "track_c_initial_review": "CHANGES REQUESTED at 5c792c1; one P1 because checkpoint phase usage could undercount exact covered events",
+    "track_c_final_review": "PASS at integrated head a71d588; no P0-P3",
+    "integrated_focused": "97 scheduler/workflow/pipeline/API tests passed in 114.63 seconds; Ruff, strict mypy over four production files, and full-range diff check passed",
+    "checkpoint_integrity": "Covered usage derives from exact event identity/state/payload hashes; calls/input/output/peak/estimated are exact, elapsed is a conservative lower bound, and unknown cost cannot narrow",
     "blocking_finding": null,
-    "correction_limit": "The authorized duplicate-reservation correction and independent rereview are complete.",
-    "final_windows_release": "PASS in 710.9 seconds; 1135 passed, 7 hardware-sensitive deselected in 683.13 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
-    "pr_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
-    "remote_pr_verification": "PR #23 open, non-draft, mergeable, CLEAN, unmerged; no configured status checks",
-    "not_run": "Provider/live and browser/private-scale reruns were not repeated for the narrow provider-free recovery correction; no merge or M14 action was performed",
-    "status": "PR ready; independent rereview, final Windows Release, push, and remote PR verification passed"
+    "local_windows_release": "PASS at predecessor 5c792c1: 1149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
+    "exact_head_release_disposition": "The one authorized local Release preceded the final two-file correction; exact corrected-head full Release remains the pull-request CI gate",
+    "pull_request": "Corrective PR #24 open, non-draft, mergeable, CLEAN, and PR ready",
+    "not_run": "No provider/live, browser/private-scale, or replay rerun; no merge, M14, destructive cleanup, or protected-path action",
+    "status": "Product and independent review gates passed; lifecycle reconciled; GitHub Release run 29632020095 passed at f8525a2; PR ready"
   },
   "historical_prior_cycle_evidence": true,
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
@@ -144,7 +148,7 @@
       "durable_location": "docs/milestones/M13/CURRENT_EVIDENCE.json"
     },
     {
-      "id": "current-head-authorized-live",
+      "id": "historical-pre-merge-authorized-live",
       "classification": "public",
       "criteria": [2, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 20, 21, 22, 23],
       "command": "real Chrome plus production ProjectApi prepare/start using the default Codex provider under one exact approved manifest, followed by fail-closed exact cache replay",
@@ -163,49 +167,65 @@
   ],
   "review": {
     "status": "passed",
+    "reviewed_head_sha": "a71d5888d55d0d5a19ddb84efd522dccdcbe282d",
+    "reviewers": [
+      "Track A Reviewer A",
+      "Track B independent audit",
+      "Track C final Reviewer C"
+    ],
+    "verdict": "PASS; no P0-P3",
+    "focused_results": [
+      "97 scheduler/workflow/pipeline/API tests passed in 114.63 seconds",
+      "Track B 15-test adversarial recovery matrix passed",
+      "Track C 12-case checkpoint truth table passed"
+    ],
+    "worktree_state": "review worktrees clean with zero tracked edits",
+    "external_actions": 0,
+    "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
+  },
+  "historical_pre_merge_review": {
+    "status": "passed",
     "reviewed_head_sha": "e79384bb7d16b93b734a47111981996261047965",
     "runtime_head_sha": "3533d49a61e77c76794b4ba8338ccf60ee8201ef",
     "reviewer": "/root/m13_final_targeted_review",
     "verdict": "PASS; no P0, P1, or new P2",
-    "focused_results": [
-      "105 passed in 25.66 seconds",
-      "32 passed in 6.14 seconds",
-      "2 passed in 0.06 seconds"
-    ],
-    "worktree_state": "detached and clean; zero tracked or untracked edits",
-    "external_actions": 0,
     "durable_location": "docs/milestones/M13/REVIEW_REPORT.md"
   },
   "live_evidence_disposition": {
-    "historical_live_evidence": "accepted only as historical evidence at its recorded pre-correction head",
-    "current_head_transmissions": 24,
-    "current_head_status": "Passed. The exact approved production-path run at head 677d88152e100afd154bb54da249582ff0a2ffcd published all 90 eligible jobs and the complete route-aware hierarchy. Fail-closed exact replay made zero submit attempts, calls, or tokens and reproduced artifact hashes/rendering exactly.",
-    "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
-    "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
-    "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
-    "replay_provider_submits": 0,
-    "replay_provider_calls": 0,
-    "replay_total_tokens": 0
+    "current_cycle_provider_transmissions": 0,
+    "current_cycle_status": "not run; this post-merge correction is provider-free",
+    "historical_pre_merge_live": {
+      "evidence_head_sha": "677d88152e100afd154bb54da249582ff0a2ffcd",
+      "status": "passed at its historical exact head only",
+      "provider_transmissions": 24,
+      "preparation_id": "m13_preparation_a7a83c97243684e472cd50ef5cae3672281b488c07a83a13bc513b563366591e",
+      "consent_manifest_id": "m13_consent_c6cfaadb6c48c0882a919ec2048b3889fb94381ca67c534814f7ab9c91e70c05",
+      "report_sha256": "f97bbfec2f6f1859182c9418dfd92807b006217b6e9498fc5365de96fac0313f",
+      "replay_provider_submits": 0,
+      "replay_provider_calls": 0,
+      "replay_total_tokens": 0
+    }
   },
   "pull_request": {
-    "number": 23,
-    "branch": "codex/m13-narrative-layer",
+    "number": 24,
+    "branch": "codex/m13-post-merge-usage-recovery",
+    "base": "main",
     "state": "open",
     "draft": false,
     "merged": false,
-    "current_product_evidence_head_sha": "120a4ec22214182f3b6ab80ac3ce112e6c46d371",
-    "current_product_evidence_head_remote_verified": true,
-    "mergeable": true,
-    "merge_state_status": "CLEAN",
-    "configured_status_checks": 0,
-    "evidence_head_sha": "7bf54042639a781313cf6c924e09a0ee023a86f2",
-    "evidence_head_remote_verified": true,
-    "remote_workflow_disposition": "The initial evidence-head run ended pytest at the repository helper's fixed 900.24-second cutoff after 73 percent with no failed test reported. The user clarified that local validation must not be rerun but GitHub may run without limits. After repository workflow/process cutoffs were removed, unbounded run 29604661539 passed at branch head 7bf54042639a781313cf6c924e09a0ee023a86f2 with 1081 passed, 7 deselected, and every quality/build/package gate green."
+    "product_head_sha": "a71d5888d55d0d5a19ddb84efd522dccdcbe282d",
+    "remote_exact_head_ci": "GitHub Release run 29632020095 passed in 17m17s at f8525a27b78c3db91864e5f5332ad0deff3c864a",
+    "historical_merged_pr": {
+      "number": 23,
+      "merge_commit_sha": "d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a",
+      "merged": true
+    }
   },
   "known_limitations": [
     "Deeply nested temporary-container presentation remains deepest-only; the bounded non-cross-contamination regression passes and broader redesign is deferred P2.",
     "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
     "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
-    "PR #23 is PR ready, open, non-draft, clean, and unmerged; merge remains separately approval-gated."
+    "The one authorized local Windows Release ran at predecessor 5c792c1 before the final two-file checkpoint correction; exact corrected-head full validation is required from pull-request CI.",
+    "PR #24 is open, non-draft, mergeable, CLEAN, and PR ready; merge remains separately approval-gated."
   ]
 }

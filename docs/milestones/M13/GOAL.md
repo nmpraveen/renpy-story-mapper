@@ -1,17 +1,18 @@
 # M13 - Optional AI narrative layer
 
-Status: PR ready (semantic review PASS retained)
+Status: PR ready (post-merge corrective product/review and exact-head CI gates PASS)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
 bounded correction handoff, plus the user's 2026-07-17 final bounded eight-finding correction
 authorization for existing PR #23 and explicit authorization for one additional narrowly bounded
 recovered-reservation correction and independent rereview, followed by explicit authorization for
-the final duplicate-reservation multiplicity correction and rereview
+the final duplicate-reservation multiplicity correction and rereview, and the user's 2026-07-17
+bounded post-merge cumulative-resource recovery correction authorization
 
-Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
+Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Integration branch: `codex/m13-narrative-layer`
+Integration branch: `codex/m13-post-merge-usage-recovery`
 
 ## Done condition
 
@@ -32,6 +33,29 @@ and current M12 route results. Produce concise human-readable titles, summaries,
 participation and bounded interpretations, hierarchical route-aware summaries, and optional weak
 boundary review overlays without transferring deterministic authority to AI or requiring AI for
 the existing map, scene view, evidence workspace, or route solver.
+
+## Post-merge correction acceptance
+
+Merged implementation baseline is PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
+Corrective PR #24 product candidate `a71d5888d55d0d5a19ddb84efd522dccdcbe282d` must remain
+provider-free and limited to cumulative-resource provenance and directly necessary compatibility.
+It is accepted only when disjoint prior/current usage adds exactly once, overlap is excluded by
+immutable event coverage, peak concurrency remains a maximum, unknown cost fails closed, and every
+hard limit sees restored usage before a submit. Ambiguous legacy aggregates may support zero-submit
+cache replay but may not authorize a miss.
+
+Falling below exact checkpoint prior or exact covered-event usage is a configuration error before
+cache/admission/submit. Covered durable events contribute calls/input/output/elapsed/known cost by
+addition, peak by maximum, and estimated by OR; unknown contributing cost stays unknown. Exact
+checkpoint values may include scheduler elapsed overhead but may not understate covered event
+elapsed. Later uncovered events remain additive once.
+
+At `a71d588`, the provider-free four-module matrix passes 97 tests; Track A Reviewer A, Track B,
+and final Track C pass with no P0-P3. One local Windows Release passed at predecessor `5c792c1`
+before Track C exposed the final checkpoint-aggregate P1; the final two-file correction is covered
+by focused exact-head tests and independent rereviews. GitHub Release run `29632020095` passed at
+pushed evidence head `f8525a2`; PR #24 is open, non-draft, mergeable, and `CLEAN`. No additional
+local Release, live provider transmission, merge, M14, or broad refactor is authorized.
 
 ## Authorized PR #23 correction constraints
 
@@ -144,6 +168,105 @@ deselected, with Ruff, strict mypy over 92 files, dependency, JavaScript, whites
 build/install/import, asset, and notice checks green. Product/evidence head `120a4ec` is pushed and
 remotely verified on existing PR #23, which is open, non-draft, mergeable, and `CLEAN`; GitHub
 reports no configured status checks. M13 is `PR ready`, while merge remains separately gated.
+
+## Bounded post-merge cumulative-resource correction
+
+PR #23 is merged at `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. M13 is reopened to
+Verification for one provider-free correction: when an interrupted later phase is reopened with
+both prior-phase cumulative usage and current-phase durable usage, disjoint calls, input tokens,
+output tokens, elapsed time, and known monetary cost must be restored exactly once before every
+hard-limit admission decision. Overlapping histories must not be counted twice, and peak
+concurrency remains a high-water maximum rather than an additive total.
+
+The correction must preserve existing attempt/retry ceilings, durable reservation multiplicity,
+UNKNOWN/TRANSMITTED conservatism, explicit NOT_TRANSMITTED behavior, unknown-cost fail-closed
+behavior, M10-M12 authority/projection semantics, consent identity, privacy, cache/replay, and
+browser behavior. It must establish explicit provenance or separation between prior-phase
+cumulative usage and current-phase durable usage; component-wise summation without overlap
+protection is not acceptable.
+
+### Correction acceptance criteria
+
+1. A failing-first provider-free regression proves that prior completed-phase usage plus a later
+   interrupted phase's compatible durable usage cannot admit another submit at the hard-limit
+   boundary.
+2. Additive conservation is proved for provider calls, input tokens, output tokens, elapsed time,
+   and known cost; peak concurrency is proved to remain a maximum.
+3. UNKNOWN/TRANSMITTED, explicit NOT_TRANSMITTED, reservation multiplicity and attempt matching,
+   repeated reopen, cache hits, compatible cumulative records, legacy payloads, overlap
+   de-duplication, and unknown-cost fail-closed behavior have focused coverage.
+4. Track A's design and implementation receive read-only Track A and Track B approval before
+   integration, and frozen exact-diff Track C review returns PASS with no unresolved P0/P1.
+5. The integrated frozen product head passes focused scheduler/workflow/pipeline/API verification
+   and one complete Windows Release. Historical provider, browser, replay, and private-scale
+   evidence is inherited only where the exact changed code cannot invalidate it.
+6. M13 lifecycle and evidence files truthfully identify PR #23 as merged, the corrective PR and
+   exact heads, M13 as Verification/PR-ready until merge, M14 as deferred, and the verified M09
+   merged-status correction.
+7. The corrective branch is pushed, one corrective PR is opened and made ready only after exact-
+   head CI passes, and neither that PR nor M14 is merged or started.
+
+### Correction evidence and handoff
+
+Record the contract baseline commit, Track A/B/C visible task IDs and worktrees, failing-first and
+passing commands, exact integration/final SHAs, review findings and correction loops, Release/CI
+results, inherited-evidence boundaries, changed files, remaining risks, and corrective PR state.
+Track tasks must not create native goals. The Phase Coordinator owns the one active native goal
+through PR preparation and must not mark it complete before the corrective PR is merged.
+
+### Historical correction blocker - 2026-07-17
+
+Track A's failing-first commit `249132d1b4190f7a1693f6de68779db30c2c91a1` proved the
+cross-phase undercount. Its candidate advanced through `b9b8f631543411e02187e627e6179a163aca7ce6`,
+loop-one correction `0cb4b3de026efd0d551bef1b63b13ac9965fa3b7`, and loop-two correction
+`82d233169d0dbedce0cdc5c2e164df313eff8a70`. The focused provider-free matrix passes 90 tests
+plus Ruff, strict mypy, and diff checks at the final Track A head.
+
+Exact-head Reviewer A nevertheless returned `FAIL` with a remaining P1: a legacy opaque browser
+ambiguity marker is discovered only through a phase-compatible run lookup. A cache-only phase can
+rewrite the sole run record under its compatibility ID; a later phase with a different ID then
+loses the ambiguity and can submit. The provider-free adversarial probe observed nine prohibited
+submissions. Both authorized correction/rereview loops are consumed, so no third product
+correction, integration, Release, Track C, push, or corrective PR is permitted without renewed
+user authorization. The Phase Coordinator branch has not integrated the failed Track A candidate.
+
+Track B independently confirmed the same compatibility-crossing opaque-legacy P1 without edits.
+Its read-only lifecycle audit also verified through GitHub that M09 PR #16 merged on 2026-07-13,
+contradicting the still-unmerged wording in `MASTER_PLAN.md` and the M09 completion report. That
+historical correction remains deferred to authorized Phase 3. The failed candidate changes
+scheduler, workflow, pipeline, and browser API accounting: prior M10-M12 authority/source hashes
+and unchanged static browser assets remain historical evidence, while live/replay/private-scale
+accounting and browser retry-lifecycle behavior cannot establish exact-head correctness for a
+future candidate without the contract's final inheritance review.
+
+### Resumed provider-free authority - 2026-07-17
+
+The user resumed the blocked M13 goal and authorized all bounded provider-free correction and
+rereview loops reasonably necessary to resolve this exact cumulative-resource accounting defect
+and make one corrective PR genuinely ready. This authority continues through integration,
+focused tests, one Windows Release, Track C review, lifecycle/evidence reconciliation, branch
+push, corrective PR creation, and exact-head CI. The change remains limited to M13 resource-
+accounting provenance and directly necessary compatibility behavior.
+
+Live-provider transmission, PR merge, M14, destructive cleanup, broad unrelated refactoring, and
+materially broader product scope remain excluded. The coordinator must stop if the correction
+cannot be resolved safely inside this boundary. The prior two-loop cap no longer blocks further
+provider-free correction/rereview cycles for this exact defect.
+
+### Integrated correction outcome - 2026-07-18
+
+The final product candidate is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Failing-first
+commits prove additive undercount, cross-phase opaque-marker loss, checkpoint-prior regression, and
+checkpoint covered-event understatement. Track C's initial `CHANGES REQUESTED` at `5c792c1`
+identified the last case; failing-first `bd46caf` and correction `a71d588` close it.
+
+The parent four-module matrix passes 97 tests; Ruff, strict mypy, and full-range diff checks pass.
+Track A Reviewer A, Track B, and final Track C each return PASS with no P0-P3. The one authorized
+local Windows Release passed 1,149/7 at predecessor `5c792c1`; the final two-file change has focused
+and independent exact-head coverage, and pull-request Release CI is required at the final lifecycle
+head. Exact-head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and
+corrective PR #24 is open, non-draft, mergeable, `CLEAN`, and PR ready. No provider/live, merge, or
+M14 action is authorized.
 
 ## Deliverables
 

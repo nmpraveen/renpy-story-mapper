@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-17
+Updated: 2026-07-18 (post-merge M13 corrective PR ready)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -8,29 +8,112 @@ Updated: 2026-07-17
 
 - Active milestone: M13 - Optional AI narrative layer.
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
-- Baseline: merged `main` at `f67df8a7cb805bf4adf8590585bae700d2f3117f`.
-- Integration branch: `codex/m13-narrative-layer`.
+- Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
+- Integration branch: `codex/m13-post-merge-usage-recovery`.
 - Status: PR ready.
+- PR-readiness state: product and independent review gates pass, lifecycle is reconciled, exact-
+  head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and PR #24 is
+  open, non-draft, mergeable, and `CLEAN`.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
   failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
   Detail/Evidence navigation.
 - Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: task/goal `019f7264-0e92-7e33-a372-ee81de102ab8` owns the exact M13 done
-  condition and is completed only after this PR-readiness reconciliation is pushed and remotely
-  verified. Historical task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
+- Native Codex goal: this Phase Coordinator task/goal
+  `019f7308-a9a6-7562-a422-ab09c1ec077f` owns the bounded post-merge correction objective and
+  remains active through implementation, integration, verification, corrective-PR preparation,
+  and merge; it must not be completed before merge. Historical task/goal
+  `019f7264-0e92-7e33-a372-ee81de102ab8` owned the prior PR-readiness reconciliation. Historical
+  task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
   stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
   reached its prior authorized done condition at its exact head; task/goal
   `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
-- Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is open,
-  currently non-draft, clean, and unmerged. Reconciled live evidence commit
+- Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is merged at
+  `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its prior reconciled live evidence commit
   `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
   `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before the prior
-  lifecycle closeout. Current product/evidence head
-  `120a4ec22214182f3b6ab80ac3ce112e6c46d371` is pushed and remotely verified; the PR is open,
-  non-draft, mergeable, and `CLEAN`, with no configured status checks. Merge remains separately
-  approval-gated.
+  lifecycle closeout. Product/evidence head
+  `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
+  at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
+  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open,
+  non-draft, mergeable, and `CLEAN` on `codex/m13-post-merge-usage-recovery`; merge remains
+  separately approval-gated.
+
+The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
+merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's
+reviewed second-parent tree. Static inspection confirms that cross-phase reopen can undercount
+disjoint prior cumulative and current durable usage through component-wise maximums. M13 is
+therefore reopened to Verification on `codex/m13-post-merge-usage-recovery`; M14 remains deferred.
+The Phase Coordinator owns the single native goal. Visible Track A
+`019f730d-53a7-7d51-a6b5-b5a4062c79d3` and Track B
+`019f730d-53a7-7d51-a6b5-b5c28fef11f4` were created in separate worktrees after contract commit
+`6f9fb52b30a2de92642450d9de67c2552c94417f`; Track C was deferred until the integrated product
+candidate froze, then created in its own read-only worktree.
+Visible task dispatch can select `gpt-5.6-sol` and High reasoning but exposes no fast-mode
+selector, so fast-mode state is unavailable and unverified rather than claimed disabled.
+
+Track A produced failing-first commit `249132d`, main provenance correction `b9b8f63`, loop-one
+correction `0cb4b3d`, and loop-two correction `82d2331`. Its final focused gate passed 90
+provider-free scheduler/workflow/pipeline/API tests plus Ruff, strict mypy, and diff checks.
+Reviewer A returned `FAIL` at exact clean head `82d2331` with one remaining P1: an opaque legacy
+browser ambiguity can be preserved by a cache-only phase but become unreachable when a later
+phase uses a different scheduler compatibility ID, after which a provider-free adversarial probe
+observed nine prohibited submits. Both authorized correction/rereview loops are consumed. The
+Phase Coordinator stopped without integrating Track A, running Release, creating Track C,
+pushing, opening a corrective PR, transmitting to a provider, merging, or starting M14. Renewed
+user authorization is required for any third narrowly bounded correction and rereview.
+
+Track B independently confirmed the same P1 without edits. Read-only remote audit verified M09
+PR #16 is `MERGED` with `mergedAt=2026-07-13T18:55:27Z`, directly contradicting the current
+`MASTER_PLAN.md` and M09 completion-report claims that it remains unmerged; the authorized Phase 3
+reconciliation has not begun. The failed Track A range changes scheduler, workflow, pipeline, and
+browser API accounting. Historical M10-M12 authority/source hashes and unchanged static browser
+assets remain inheritable facts, but prior live/replay/private-scale accounting and browser retry
+lifecycle runs are not exact-head proof for any future corrected candidate. M14 remains deferred.
+
+The user then resumed the native goal and authorized all bounded provider-free correction and
+rereview loops reasonably necessary for this exact cumulative-resource accounting defect,
+including integration, focused tests, one Windows Release, Track C, lifecycle/evidence
+reconciliation, push, corrective PR creation, and CI. Verification resumes through the existing
+visible Track A and Track B tasks. Live-provider transmission, PR merge, M14, destructive cleanup,
+broad unrelated refactoring, and materially broader product scope remain excluded.
+
+## Post-merge cumulative-resource correction (current)
+
+The corrected product candidate is `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`, descended from
+merged PR #23 baseline `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Track A visible task
+`019f730d-53a7-7d51-a6b5-b5a4062c79d3`, Track B visible task
+`019f730d-53a7-7d51-a6b5-b5c28fef11f4`, and Track C visible task
+`019f7376-756d-75c1-af72-d572b5bf36ba` all used `gpt-5.6-sol` with High reasoning. Their task
+surface exposed no fast-mode selector, so fast mode is unavailable/unverified rather than claimed
+disabled.
+
+The correction separates exact prior cumulative usage, checkpoint current-phase usage, and durable
+events. Disjoint calls/input/output/elapsed/known cost add once; peak concurrency is a maximum;
+estimated usage is monotonic; unknown contributing cost remains unknown. Exact checkpoint coverage
+binds event identity/state/payload hash, excludes covered events from re-addition, and adds later
+uncovered events once. Supplied prior usage cannot regress exact checkpoint prior. Run-scoped opaque
+legacy usage survives scheduler/pipeline/API/browser writers; cache-only replay remains zero-submit,
+while any ambiguous miss fails closed.
+
+Track C initially returned `CHANGES REQUESTED` at `5c792c1` because a checkpoint's stored phase
+aggregate could be lowered independently from five exact covered transmitted events. Failing-first
+commit `bd46caf` reproduced one escaped submit; correction `a71d588` derives covered usage from the
+exact events and rejects conflicting calls/tokens/peak/estimated/cost or regressed elapsed before
+cache, admission, or submit. Track A Reviewer A, Track B, and final Reviewer C all return `PASS`
+with no P0-P3 at `a71d588`.
+
+Parent verification passes 97 scheduler/workflow/pipeline/API tests, Ruff, strict mypy over the four
+changed production files, and the full-range diff check. The single authorized local Windows
+Release passed at predecessor candidate `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected,
+plus every quality/build/package gate. It was not repeated after the final two-file correction; the
+exact corrected head instead has focused tests, two independent rereviews, and exact pushed-head
+GitHub Release run `29632020095` passed. Historical browser UI/static navigation facts remain
+inheritable because those assets did not
+change. Prior live-provider, browser retry/reopen accounting, private-scale accounting, and replay
+counts remain historical exact-head evidence rather than proof of the correction. No live provider
+transmission, merge, M14 work, destructive cleanup, or protected-path change occurred.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware
@@ -46,7 +129,7 @@ semantic `PASS`. Phase 0 fetched and verified local, remote, and PR head
 tracked worktree and index were clean. Existing untracked `docs/handoffs/`, `output/`, and `tmp/`
 content was preserved untouched.
 
-## Final bounded correction cycle (current)
+## Historical final bounded PR #23 correction cycle
 
 The parent coordinator's read-only Phase 0 audit reproduced findings 1-5, 7, and 8 by deterministic
 probe or exact code path at `e17ba5e`; finding 6 is the current false-positive candidate. Exact
@@ -289,7 +372,7 @@ before built-in replay; commit `0aa0415` accepts only succeeded/partial publicat
 strict rejection for failed/refused/cancelled/hard-limit outcomes. Combined report SHA-256 is
 `93a22d669d625b8366f47792d13a7dac98db1c8bab1f7f85bd0a77b46d81a621`. No second provider
 execution occurred. At that checkpoint no PR had been created; the user later explicitly approved
-and opened draft PR #23. It remains unmerged.
+and opened draft PR #23. It later merged at `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 
 M12 is complete and merged through [PR #22](https://github.com/nmpraveen/renpy-story-mapper/pull/22)
 with normal merge commit `f67df8a7cb805bf4adf8590585bae700d2f3117f` on 2026-07-16. Its

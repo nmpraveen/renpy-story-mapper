@@ -6,8 +6,9 @@ Branch: `codex/m09-static-story-metadata`
 
 Baseline: `d8ec4d258cff28d66aecfd951e5a831e1e9818a1`
 
-PR state: [PR #16](https://github.com/nmpraveen/renpy-story-mapper/pull/16) is open and intentionally
-left unmerged for user review.
+PR state: [PR #16](https://github.com/nmpraveen/renpy-story-mapper/pull/16) merged on 2026-07-13 at
+`f327896c0ff9c05177eae7d8f5e82e38f38f3e45`. The earlier open/unmerged wording was stale and is
+corrected from verified GitHub merge metadata.
 
 ## Outcome
 

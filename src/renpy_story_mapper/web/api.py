@@ -274,6 +274,26 @@ def _m13_scheduler_usage(raw: object) -> SchedulerUsage | None:
     )
 
 
+def _m13_run_opaque_usage(payload: Mapping[str, object]) -> SchedulerUsage | None:
+    fields = tuple(
+        field
+        for field in (
+            "opaque_legacy_cumulative_usage",
+            "browser_legacy_opaque_cumulative_usage",
+        )
+        if field in payload
+    )
+    if not fields:
+        return None
+    values = tuple(_m13_scheduler_usage(payload[field]) for field in fields)
+    if any(value is None for value in values):
+        raise ValueError("browser retry opaque usage is invalid")
+    parsed = tuple(cast(SchedulerUsage, value) for value in values)
+    if any(value != parsed[0] for value in parsed[1:]):
+        raise ValueError("browser retry opaque usage markers conflict")
+    return parsed[0]
+
+
 class SelectionRegistry:
     """Per-launch opaque references; paths are never serialized to the browser."""
 
@@ -1316,10 +1336,14 @@ class ProjectApi:
         try:
             with Project.open(self._project()) as opened_project:
                 consent = grant_narrative_consent(opened_project, web_run.prepared)
-                self._persist_m13_browser_identity(opened_project, web_run, consent)
+                prior_usage = self._persist_m13_browser_identity(
+                    opened_project, web_run, consent
+                )
             started = self._start(
                 "m13_narrative",
-                lambda cancelled: self._m13_execute(web_run, consent, cancelled),
+                lambda cancelled: self._m13_execute(
+                    web_run, consent, prior_usage, cancelled
+                ),
             )
         except Exception:
             with self._lock:
@@ -1334,6 +1358,7 @@ class ProjectApi:
         self,
         web_run: _PreparedM13WebRun,
         consent: ConsentManifest,
+        prior_usage: SchedulerUsage,
         cancelled: threading.Event,
     ) -> None:
         try:
@@ -1345,8 +1370,11 @@ class ProjectApi:
                     consent,
                     policy=web_run.policy,
                     cancelled=cancelled.is_set,
+                    initial_usage=prior_usage,
                 )
-                self._persist_m13_browser_run(opened_project, web_run, result)
+                self._persist_m13_browser_run(
+                    opened_project, web_run, result, prior_usage
+                )
             with self._lock:
                 self._m13_result = result
         finally:
@@ -1359,13 +1387,14 @@ class ProjectApi:
         project: Project,
         web_run: _PreparedM13WebRun,
         consent: ConsentManifest,
-    ) -> None:
+    ) -> SchedulerUsage:
         """Persist exact retry authority before asynchronous execution can begin."""
 
         persistence = project.m13_persistence()
         authority_binding = web_run.prepared.authority.binding.to_dict()
         sequence = _next_m13_durable_sequence(persistence, authority_binding)
         cumulative_usage = SchedulerUsage()
+        legacy_opaque_usage: SchedulerUsage | None = None
         existing = persistence.lookup(
             RecordKind.RUN,
             consent.run_id,
@@ -1379,12 +1408,19 @@ class ProjectApi:
                 != storage.canonical_json(consent.provider.to_dict())
             ):
                 raise ValueError("browser retry run identity is incompatible")
-            parsed = _m13_scheduler_usage(
+            parsed_cumulative = _m13_scheduler_usage(
                 existing.payload.get("cumulative_usage", existing.payload.get("usage"))
             )
-            if parsed is None:
+            if parsed_cumulative is None:
                 raise ValueError("browser retry cumulative usage is invalid")
-            cumulative_usage = parsed
+            legacy_opaque_usage = _m13_run_opaque_usage(existing.payload)
+            parsed_prior = _m13_scheduler_usage(
+                existing.payload.get("browser_prior_cumulative_usage")
+            )
+            if parsed_prior is not None:
+                cumulative_usage = parsed_prior
+            elif legacy_opaque_usage is None:
+                legacy_opaque_usage = parsed_cumulative
         elif existing.state is not LookupState.MISS:
             raise ValueError("browser retry run state is unavailable")
         retry_request: dict[str, JsonValue] = {
@@ -1414,18 +1450,23 @@ class ProjectApi:
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = False
+        payload["browser_prior_cumulative_usage"] = cumulative_usage.to_dict()
+        if legacy_opaque_usage is not None:
+            payload["opaque_legacy_cumulative_usage"] = legacy_opaque_usage.to_dict()
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             consent.run_id,
             payload,
             authority_binding=authority_binding,
         )
+        return cumulative_usage
 
     @staticmethod
     def _persist_m13_browser_run(
         project: Project,
         web_run: _PreparedM13WebRun,
         result: NarrativePipelineResult,
+        prior_usage: SchedulerUsage,
     ) -> None:
         persistence = project.m13_persistence()
         authority_binding = web_run.prepared.authority.binding.to_dict()
@@ -1436,9 +1477,21 @@ class ProjectApi:
             "resume_consent_id": result.record.consent_manifest_id,
         }
         payload = result.record.to_dict()
+        existing = persistence.lookup(
+            RecordKind.RUN,
+            result.record.run_id,
+            authority_binding=authority_binding,
+        )
+        if existing.state is LookupState.HIT and existing.payload is not None:
+            legacy_opaque_usage = _m13_run_opaque_usage(existing.payload)
+            if legacy_opaque_usage is not None:
+                payload["opaque_legacy_cumulative_usage"] = (
+                    legacy_opaque_usage.to_dict()
+                )
         payload["durable_sequence"] = sequence
         payload["browser_preparation_id"] = web_run.prepared.preparation_id
         payload["browser_pipeline_complete"] = True
+        payload["browser_prior_cumulative_usage"] = prior_usage.to_dict()
         payload["browser_retry_request"] = retry_request
         persistence.put_run(
             result.record.run_id,

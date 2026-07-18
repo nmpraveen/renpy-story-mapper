@@ -167,3 +167,25 @@ PASS
 The corrected contract has one observable outcome, exact authority boundaries, bounded reduction
 and provenance designs, privacy and failure semantics, ordered implementation slices, and
 executable acceptance evidence. No further planning round or scope revision is required.
+
+## Post-merge cumulative-resource correction gate - 2026-07-17
+
+PASS
+
+The user-authorized correction retains M13's done condition and exclusions. Static inspection at
+merged baseline `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a` confirms that
+`NarrativeScheduler.run()` combines durable current-phase usage with supplied prior cumulative
+usage through component-wise maximums. Those histories can be disjoint, so calls, tokens,
+elapsed time, and known cost can be understated before hard-limit admission. Peak concurrency is
+the exception and remains a maximum.
+
+The architecture boundary is limited to scheduler/workflow/pipeline cumulative-usage provenance
+and directly focused tests. Track A alone may write product code. Before implementation, its
+failing-first regression and proposed provenance/separation model must pass a shared Track B
+semantic/invariant review. The model must add disjoint usage once, de-duplicate overlap and
+compatible finished records, preserve reservation/attempt correspondence and legacy behavior,
+and fail closed for unknown cost. M10-M12 authority, consent/privacy identity, cache/replay,
+browser behavior, provider execution, broad refactoring, PR merge, and M14 are outside the change
+surface. The correction criteria map to failing-first focused tests, two read-only design/code
+reviews, an exact-diff final review, integrated focused checks, one Windows Release, lifecycle
+schema/docs checks, and exact-head PR CI.

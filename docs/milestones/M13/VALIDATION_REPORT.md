@@ -1,14 +1,42 @@
 # M13 validation report
 
-Status: PR ready; final correction rereview, Windows Release, and remote PR verification pass
+Status: PR ready; post-merge product/review and exact pushed-head CI gates pass
 
-Baseline: `f67df8a7cb805bf4adf8590585bae700d2f3117f`
+Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
-Runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
+Historical pre-merge runtime freeze: `3533d49a61e77c76794b4ba8338ccf60ee8201ef`
 
-Validation date: 2026-07-17
+Validation date: 2026-07-18
 
-## Final duplicate-reservation correction evidence (current)
+## Post-merge cumulative-resource correction evidence (current)
+
+Corrected integrated product head: `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`.
+
+| Check | Result |
+|---|---|
+| Original additive recovery regression | Failed first at test commit `564574c`: prior cumulative plus current durable usage reached the hard limit but one submit escaped |
+| Opaque cross-phase propagation regressions | Failed first at `01a1fe3` and `7d0791f`: cache-only compatibility changes and raw/API propagation could lose ambiguity and permit nine submits |
+| Exact checkpoint-prior dominance | Failed first at `b74b47c`: checkpoint prior 3 plus supplied prior 0 admitted one submit |
+| Covered-event checkpoint integrity | Failed first at `bd46caf`: five exact covered transmitted events with zeroed phase usage admitted one submit and reported one call |
+| Parent focused gate | `py -3.12 -m pytest tests/test_m13_scheduler.py tests/test_m13_workflow.py tests/test_m13_pipeline.py tests/test_m13_api_integration.py -q -p no:cacheprovider` -> 97 passed in 114.63 seconds |
+| Static gates | Ruff passed; strict mypy passed over four changed production files; `git diff --check d37fe236..a71d588` passed |
+| Track A review | PASS at source `76286b3`; no P0-P3; 13-test adversarial selection passed |
+| Track B full-range review | PASS at integrated `a71d588`; no P0-P3; 15-test adversarial recovery matrix passed |
+| Track C review | Initial CHANGES REQUESTED at `5c792c1`; final PASS at `a71d588`, no P0-P3; original five-call probe now fails closed with zero resumed submit |
+| Single local Windows Release | At predecessor `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import/assets/notices all passed |
+| Exact pushed-head full gate | GitHub Release run `29632020095` passed in 17m17s at `f8525a2` |
+
+The local Release was intentionally not repeated after Track C's final two-file correction because
+the user authorized one Windows Release. Exact-head assurance for `a71d588` consists of the 97-test
+focused matrix and independent Track B/Track C rereviews. The pushed lifecycle head additionally
+passed repository Release CI run `29632020095`; PR #24 was then marked ready.
+
+Browser static assets and M10-M12 authority/source data did not change and their static facts remain
+inheritable. Historical live-provider outputs, browser retry/reopen accounting, private-scale
+accounting counts, and zero-call replay are retained only as exact-head history. No live provider,
+browser/private-scale rerun, merge, M14, or destructive action was performed.
+
+## Historical final duplicate-reservation correction evidence
 
 At the test-only states, both duplicate-reservation variants failed by resubmitting the target
 under a total ceiling of two, and the finalized nontransmitted case restored 12 ms instead of 6 ms
@@ -22,7 +50,7 @@ whitespace, isolated build/install/import, asset, and notice gates all passed. P
 head `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed to existing PR #23 and remotely verified
 open, non-draft, mergeable, and `CLEAN`; GitHub reports no configured status checks.
 
-## Additional recovered-reservation correction evidence (current)
+## Historical additional recovered-reservation correction evidence
 
 Correction `a7e242b4534f7217d469308392d932795201cb57` added a reopen regression for the exact prior P1.
 At the test-only state, `py -3.12 -m pytest tests/test_m13_workflow.py -k
@@ -81,7 +109,7 @@ historical heads.
 | Initial remote PR workflow at evidence head `d5fdcaa` | Repository helper ended pytest at its fixed 900.24-second cutoff after 73%, with no failed test reported; all later quality/build/package checks passed | Historical infrastructure cutoff, not a product-test failure |
 | Unbounded GitHub Release at branch head `7bf54042639a781313cf6c924e09a0ee023a86f2` | Run `29604661539` passed: 1,081 tests passed, 7 deselected in 790.16 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import, browser assets, and notices passed | Release step 806 seconds; complete job 14 minutes 22 seconds; no repository workflow/process cutoff; no local rerun |
 
-## Current approved final-head live execution and replay
+## Historical approved pre-merge live execution and replay
 
 The zero-submit preparation first stopped as required. A copied-source confirmation attempt then
 failed closed before provider discovery because the absolute source locator is authority-bound;
@@ -326,9 +354,9 @@ acceptance. Per the one-cycle limit, neither was corrected or retried.
   provider requests.
 - Historical live failures remain preserved above. The final exact `740e321` live execution and
   fail-closed replay satisfy criterion 20; the two partial scenes are valid claim-level salvage.
-- Final-head independent budget review and post-live evidence audit both pass with no unresolved
-  P0/P1. Post-correction focused and Release results are recorded in this report.
+- Historical final-head independent budget review and post-live evidence audit both passed with no
+  unresolved P0/P1. Their focused and Release results remain recorded as exact-head history.
 - The root task API did not expose a fast-mode selector. The canary manifest/adapter bound
   `fast_mode=false`; this does not claim that the task API independently verified that setting.
-- Explicitly approved draft [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is
-  open and mergeable. It remains unmerged and requires separate approval before merge.
+- Explicitly approved [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) was open and
+  mergeable at that historical checkpoint; it later merged at `d37fe236`.

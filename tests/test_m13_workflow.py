@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -35,7 +36,10 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerAttemptRecord,
     SchedulerCallFinalization,
     SchedulerCallReservation,
+    SchedulerConfigurationError,
     SchedulerPolicy,
+    SchedulerRunRecord,
+    SchedulerRunState,
     SchedulerUsage,
     scheduler_compatibility_id,
 )
@@ -612,6 +616,477 @@ def test_exact_same_run_reopen_restores_cumulative_usage_with_zero_new_calls(
     assert all(item.cache_replay for item in replay_result.jobs)
 
 
+def test_checkpoint_adds_only_durable_events_written_after_it_once(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    first_provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="run-checkpoint-later-durable",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        first = run_prepared_scene_jobs(
+            project,
+            first_provider,
+            prepared,
+            consent,
+            policy=_policy(),
+        )
+        assert first.record.current_phase_usage is not None
+        checkpoint_phase = first.record.current_phase_usage
+        compatibility_id = scheduler_compatibility_id(
+            consent, prepared.scheduled_jobs
+        )
+        job = prepared.scheduled_jobs[0]
+        later_usage = SchedulerUsage(
+            provider_calls=1,
+            input_tokens=9,
+            output_tokens=4,
+            elapsed_ms=6,
+            cost_micros=2,
+            peak_concurrency=1,
+            usage_estimated=True,
+        )
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            prepared.scheduled_jobs,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        sink.reserve_call(
+            SchedulerCallReservation(
+                reservation_id="m13_reservation_after_checkpoint",
+                run_id=consent.run_id,
+                consent_manifest_id=consent.manifest_id,
+                compatibility_id=compatibility_id,
+                batch_id="batch:after-checkpoint",
+                logical_job_ids=(job.logical_job_id,),
+                logical_attempt_numbers=(2,),
+                provider_call_number=checkpoint_phase.provider_calls + 1,
+                provider=consent.provider,
+                usage=later_usage,
+            )
+        )
+        resumed_phase = sink.resume_usage(
+            consent, prepared.scheduled_jobs, compatibility_id
+        ).current_phase_usage
+
+    expected = SchedulerUsage(
+        provider_calls=checkpoint_phase.provider_calls + 1,
+        input_tokens=checkpoint_phase.input_tokens + 9,
+        output_tokens=checkpoint_phase.output_tokens + 4,
+        elapsed_ms=checkpoint_phase.elapsed_ms + 6,
+        cost_micros=(
+            None
+            if checkpoint_phase.cost_micros is None
+            else checkpoint_phase.cost_micros + 2
+        ),
+        peak_concurrency=max(checkpoint_phase.peak_concurrency, 1),
+        usage_estimated=True,
+    )
+    assert resumed_phase == expected
+
+    replay_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        replay = prepare_narrative_scene_run(
+            project,
+            replay_provider,
+            run_id="run-checkpoint-later-durable",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        replay_consent = grant_narrative_consent(project, replay)
+        replay_result = run_prepared_scene_jobs(
+            project,
+            replay_provider,
+            replay,
+            replay_consent,
+            policy=_policy(),
+        )
+
+    assert replay_provider.calls == []
+    assert replay_result.record.cumulative_usage == expected
+
+    with Project.open(project_path) as project:
+        repeated = prepare_narrative_scene_run(
+            project,
+            DeterministicNarrativeProvider(),
+            run_id="run-checkpoint-later-durable",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        repeated_consent = grant_narrative_consent(project, repeated)
+        repeated_sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            repeated.scheduled_jobs,
+            authority_binding=repeated.authority.binding.to_dict(),
+        )
+        repeated_phase = repeated_sink.resume_usage(
+            repeated_consent,
+            repeated.scheduled_jobs,
+            scheduler_compatibility_id(repeated_consent, repeated.scheduled_jobs),
+        ).current_phase_usage
+
+    assert repeated_phase == expected
+
+
+def test_opaque_legacy_checkpoint_fails_closed_before_submit(tmp_path: Path) -> None:
+    provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-opaque-legacy-checkpoint",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        compatibility_id = scheduler_compatibility_id(
+            consent, prepared.scheduled_jobs
+        )
+        legacy_usage = SchedulerUsage(
+            provider_calls=1,
+            input_tokens=20,
+            output_tokens=10,
+            elapsed_ms=5,
+            cost_micros=3,
+            peak_concurrency=1,
+        )
+        legacy = SchedulerRunRecord(
+            run_id=consent.run_id,
+            consent_manifest_id=consent.manifest_id,
+            state=SchedulerRunState.FAILED,
+            provider=consent.provider,
+            usage=legacy_usage,
+            succeeded_jobs=0,
+            partial_jobs=0,
+            failed_jobs=len(prepared.scheduled_jobs),
+            refused_jobs=0,
+            cancelled_jobs=0,
+            compatibility_id=compatibility_id,
+            cumulative_usage=legacy_usage,
+        ).to_dict()
+        project.m13_persistence().put_run(
+            consent.run_id,
+            legacy,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+        with pytest.raises(
+            SchedulerConfigurationError,
+            match="legacy cumulative usage overlaps durable state without provenance",
+        ):
+            run_prepared_scene_jobs(
+                project,
+                provider,
+                prepared,
+                consent,
+                policy=_policy(),
+            )
+
+    assert provider.calls == []
+
+
+def test_opaque_legacy_checkpoint_allows_zero_submit_cache_replay(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    first_provider = DeterministicNarrativeProvider()
+    with _project(tmp_path) as project:
+        prepared = prepare_narrative_scene_run(
+            project,
+            first_provider,
+            run_id="run-legacy-cache-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        first = run_prepared_scene_jobs(
+            project,
+            first_provider,
+            prepared,
+            consent,
+            policy=_policy(),
+        )
+        lookup = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert lookup.state is LookupState.HIT
+        assert lookup.payload is not None
+        legacy = dict(lookup.payload)
+        legacy.pop("usage_checkpoint", None)
+        legacy.pop("prior_cumulative_usage", None)
+        legacy.pop("current_phase_usage", None)
+        project.m13_persistence().put_run(
+            consent.run_id,
+            legacy,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+    replay_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        replay = prepare_narrative_scene_run(
+            project,
+            replay_provider,
+            run_id="run-legacy-cache-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        replay_result = run_prepared_scene_jobs(
+            project,
+            replay_provider,
+            replay,
+            grant_narrative_consent(project, replay),
+            policy=_policy(),
+        )
+
+    assert replay_provider.calls == []
+    assert replay_result.record.usage.provider_calls == 0
+    assert replay_result.record.cumulative_usage == first.record.cumulative_usage
+    assert all(item.cache_replay for item in replay_result.jobs)
+
+    repeated_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        retained = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert retained.state is LookupState.HIT
+        assert retained.payload is not None
+        assert "usage_checkpoint" not in retained.payload
+        repeated = prepare_narrative_scene_run(
+            project,
+            repeated_provider,
+            run_id="run-legacy-cache-replay",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        repeated_result = run_prepared_scene_jobs(
+            project,
+            repeated_provider,
+            repeated,
+            grant_narrative_consent(project, repeated),
+            policy=_policy(),
+        )
+
+    assert repeated_provider.calls == []
+    assert repeated_result.record.cumulative_usage == first.record.cumulative_usage
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "changed_state"])
+def test_checkpoint_rejects_duplicate_or_changed_covered_event(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    with _project(tmp_path) as project:
+        provider = DeterministicNarrativeProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-checkpoint-covered-event-validation",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        run_prepared_scene_jobs(
+            project,
+            provider,
+            prepared,
+            consent,
+            policy=_policy(),
+        )
+        lookup = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert lookup.state is LookupState.HIT
+        assert lookup.payload is not None
+        payload = deepcopy(dict(lookup.payload))
+        checkpoint = payload["usage_checkpoint"]
+        assert isinstance(checkpoint, dict)
+        covered = checkpoint["covered_events"]
+        assert isinstance(covered, list) and covered
+        if mutation == "duplicate":
+            covered.append(deepcopy(covered[0]))
+        else:
+            assert isinstance(covered[0], dict)
+            covered[0]["state"] = "finalized:changed"
+        project.m13_persistence().put_run(
+            consent.run_id,
+            payload,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            DeterministicNarrativeProvider(),
+            run_id="run-checkpoint-covered-event-validation",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=_limits(),
+            batch_limits=_batch_limits(),
+        )
+        resumed_consent = grant_narrative_consent(project, resumed)
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            resumed.scheduled_jobs,
+            authority_binding=resumed.authority.binding.to_dict(),
+        )
+        expected = "malformed" if mutation == "duplicate" else "covered event changed"
+        with pytest.raises(ValueError, match=expected):
+            sink.resume_usage(
+                resumed_consent,
+                resumed.scheduled_jobs,
+                scheduler_compatibility_id(
+                    resumed_consent, resumed.scheduled_jobs
+                ),
+            )
+
+
+def test_checkpoint_phase_usage_cannot_regress_below_exact_covered_events(
+    tmp_path: Path,
+) -> None:
+    @dataclass
+    class TimeoutProvider(DeterministicNarrativeProvider):
+        def submit(self, request: ProviderRequest, cancelled: object) -> ProviderResponse:
+            del cancelled
+            self.calls.append(request)
+            raise ProviderTimeoutError(
+                "provider_timeout",
+                "provider-free checkpoint accounting fixture",
+                transient=True,
+            )
+
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    timeout_provider = TimeoutProvider()
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        scenes = authority.scene_model.get("scenes")
+        assert isinstance(scenes, list) and scenes
+        first_scene = scenes[0]
+        assert isinstance(first_scene, dict)
+        scene_id = first_scene.get("id")
+        assert isinstance(scene_id, str)
+        prepared = prepare_narrative_scene_run(
+            project,
+            timeout_provider,
+            run_id="run-checkpoint-phase-regression",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=replace(_limits(), max_provider_calls=6),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        failed = run_prepared_scene_jobs(
+            project,
+            timeout_provider,
+            prepared,
+            consent,
+            policy=SchedulerPolicy(
+                _batch_limits(),
+                maximum_transient_attempts_per_job=5,
+            ),
+        )
+        assert failed.record.current_phase_usage is not None
+        assert failed.record.current_phase_usage.provider_calls == 5
+        lookup = project.m13_persistence().lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        assert lookup.state is LookupState.HIT
+        assert lookup.payload is not None
+        payload = deepcopy(dict(lookup.payload))
+        checkpoint = payload["usage_checkpoint"]
+        assert isinstance(checkpoint, dict)
+        covered = checkpoint["covered_events"]
+        assert isinstance(covered, list) and len(covered) == 5
+        checkpoint["current_phase_usage"] = SchedulerUsage().to_dict()
+        project.m13_persistence().put_run(
+            consent.run_id,
+            payload,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+
+    retry_provider = DeterministicNarrativeProvider()
+    error: ValueError | None = None
+    result: SchedulerRunRecord | None = None
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            retry_provider,
+            run_id="run-checkpoint-phase-regression",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=replace(_limits(), max_provider_calls=6),
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        try:
+            result = run_prepared_scene_jobs(
+                project,
+                retry_provider,
+                resumed,
+                grant_narrative_consent(project, resumed),
+                policy=SchedulerPolicy(
+                    _batch_limits(),
+                    maximum_transient_attempts_per_job=6,
+                ),
+            ).record
+        except ValueError as exc:
+            error = exc
+
+    reported_calls = (
+        None
+        if result is None or result.cumulative_usage is None
+        else result.cumulative_usage.provider_calls
+    )
+    assert retry_provider.calls == [], (
+        "checkpoint phase usage regressed below five exact covered calls and allowed "
+        f"{len(retry_provider.calls)} submit with {reported_calls} cumulative calls"
+    )
+    assert error is not None
+    assert "checkpoint phase usage conflicts with covered events" in str(error)
+
+
 def test_restart_after_timeout_includes_failed_usage_before_retry(tmp_path: Path) -> None:
     @dataclass
     class TimeoutProvider(DeterministicNarrativeProvider):
@@ -757,7 +1232,9 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
 
         sink.reserve_call(reservation)
         sink.reserve_call(reservation)
-        unresolved = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
+        unresolved = sink.resume_usage(
+            consent, prepared.scheduled_jobs, compatibility_id
+        ).current_phase_usage
         assert unresolved == SchedulerUsage(
             provider_calls=2,
             input_tokens=150,
@@ -789,7 +1266,7 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
             consent,
             prepared.scheduled_jobs,
             compatibility_id,
-        )
+        ).current_phase_usage
         assert still_unresolved == unresolved
 
         finalization = SchedulerCallFinalization(
@@ -810,7 +1287,9 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
         )
         sink.finalize_call(finalization)
         sink.finalize_call(finalization)
-        finalized = sink.resume_usage(consent, prepared.scheduled_jobs, compatibility_id)
+        finalized = sink.resume_usage(
+            consent, prepared.scheduled_jobs, compatibility_id
+        ).current_phase_usage
         assert finalized == SchedulerUsage(
             provider_calls=2,
             input_tokens=140,
@@ -828,6 +1307,143 @@ def test_unresolved_call_reservation_recovers_once_and_finalizes_idempotently(
                     usage=replace(finalization.usage, input_tokens=91),
                 )
             )
+
+
+def test_cross_phase_reopen_adds_prior_usage_to_unfinished_durable_call(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "m13-workflow.rsmproj"
+    limits = replace(_limits(), max_provider_calls=5)
+    with _project(tmp_path) as project:
+        authority = load_narrative_authority(project, include_m12=True)
+        raw_scenes = authority.scene_model.get("scenes")
+        assert isinstance(raw_scenes, list) and raw_scenes
+        first_scene = raw_scenes[0]
+        assert isinstance(first_scene, dict)
+        scene_id = first_scene.get("id")
+        assert isinstance(scene_id, str)
+        provider = DeterministicNarrativeProvider()
+        prepared = prepare_narrative_scene_run(
+            project,
+            provider,
+            run_id="run-cross-phase-unfinished-call",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=limits,
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        consent = grant_narrative_consent(project, prepared)
+        compatibility_id = scheduler_compatibility_id(
+            consent, prepared.scheduled_jobs
+        )
+        job = prepared.scheduled_jobs[0]
+        sink = M13SchedulerPersistenceSink(
+            project.m13_persistence(),
+            prepared.scheduled_jobs,
+            authority_binding=prepared.authority.binding.to_dict(),
+        )
+        sink.reserve_call(
+            SchedulerCallReservation(
+                reservation_id="m13_reservation_cross_phase_interrupted",
+                run_id=consent.run_id,
+                consent_manifest_id=consent.manifest_id,
+                compatibility_id=compatibility_id,
+                batch_id="batch:cross-phase-interrupted",
+                logical_job_ids=(job.logical_job_id,),
+                logical_attempt_numbers=(1,),
+                provider_call_number=1,
+                provider=consent.provider,
+                usage=SchedulerUsage(
+                    provider_calls=1,
+                    input_tokens=40,
+                    output_tokens=20,
+                    elapsed_ms=7,
+                    cost_micros=3,
+                    peak_concurrency=2,
+                    usage_estimated=True,
+                ),
+            )
+        )
+
+    resumed_provider = DeterministicNarrativeProvider()
+    prior = SchedulerUsage(
+        provider_calls=4,
+        input_tokens=60,
+        output_tokens=30,
+        elapsed_ms=11,
+        cost_micros=5,
+        peak_concurrency=4,
+    )
+    with Project.open(project_path) as project:
+        resumed = prepare_narrative_scene_run(
+            project,
+            resumed_provider,
+            run_id="run-cross-phase-unfinished-call",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=limits,
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        result = run_prepared_scene_jobs(
+            project,
+            resumed_provider,
+            resumed,
+            grant_narrative_consent(project, resumed),
+            policy=_policy(),
+            initial_usage=prior,
+        )
+
+    assert resumed_provider.calls == []
+    assert result.record.state is SchedulerRunState.HARD_LIMIT
+    assert result.record.cumulative_usage is not None
+    assert replace(result.record.cumulative_usage, elapsed_ms=18) == SchedulerUsage(
+        provider_calls=5,
+        input_tokens=100,
+        output_tokens=50,
+        elapsed_ms=18,
+        cost_micros=8,
+        peak_concurrency=4,
+        usage_estimated=True,
+    )
+    assert result.record.cumulative_usage.elapsed_ms >= 18
+    assert result.jobs[0].attempt_count == 1
+    assert result.jobs[0].error_code == "hard_limit"
+
+    repeated_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        repeated = prepare_narrative_scene_run(
+            project,
+            repeated_provider,
+            run_id="run-cross-phase-unfinished-call",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=limits,
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        repeated_result = run_prepared_scene_jobs(
+            project,
+            repeated_provider,
+            repeated,
+            grant_narrative_consent(project, repeated),
+            policy=_policy(),
+        )
+
+    assert repeated_provider.calls == []
+    assert repeated_result.record.cumulative_usage is not None
+    assert result.record.cumulative_usage is not None
+    assert replace(
+        repeated_result.record.cumulative_usage,
+        elapsed_ms=result.record.cumulative_usage.elapsed_ms,
+    ) == result.record.cumulative_usage
+    assert repeated_result.record.cumulative_usage.elapsed_ms >= (
+        result.record.cumulative_usage.elapsed_ms
+    )
 
 
 def test_not_transmitted_reservation_matches_zero_call_attempt_after_reopen(
@@ -929,7 +1545,7 @@ def test_not_transmitted_reservation_matches_zero_call_attempt_after_reopen(
             resumed_consent,
             resumed.scheduled_jobs,
             resumed_compatibility_id,
-        )
+        ).current_phase_usage
         resumed_job = next(
             item
             for item in resumed.scheduled_jobs

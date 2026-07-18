@@ -215,6 +215,7 @@ def run_complete_narrative(
     pricing: ProviderPricing | None = None,
     include_characters: bool = True,
     cancelled: CancelledCallback = lambda: False,
+    initial_usage: SchedulerUsage | None = None,
 ) -> NarrativePipelineResult:
     """Run the consented scope automatically until completion, cancellation, or a hard limit."""
 
@@ -253,6 +254,7 @@ def run_complete_narrative(
         consent,
         policy=policy,
         cancelled=cancelled,
+        initial_usage=initial_usage,
     )
     phases.append(scene_run)
     usage = _cumulative_usage(scene_run.record)
@@ -2028,6 +2030,18 @@ def _finish_pipeline(
             },
         },
     )
+    existing = project.m13_persistence().lookup(
+        RecordKind.RUN,
+        consent.run_id,
+        authority_binding=project_scene_authority_binding(project),
+    )
+    if existing.state is LookupState.HIT and existing.payload is not None:
+        for field in (
+            "opaque_legacy_cumulative_usage",
+            "browser_legacy_opaque_cumulative_usage",
+        ):
+            if field in existing.payload:
+                payload[field] = cast(JsonValue, existing.payload[field])
     project.m13_persistence().put_run(
         consent.run_id,
         payload,

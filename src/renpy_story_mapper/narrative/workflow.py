@@ -60,8 +60,10 @@ from renpy_story_mapper.narrative.scheduler import (
     SchedulerCallReservation,
     SchedulerJobRecord,
     SchedulerPolicy,
+    SchedulerResumeUsage,
     SchedulerRunRecord,
     SchedulerRunResult,
+    SchedulerRunState,
     SchedulerUsage,
     ValidatedLogicalOutput,
 )
@@ -83,6 +85,21 @@ class _ReservationAttemptCandidate:
     reservation_id: str
     call_key: _AttemptCallKey
     allow_zero_call_match: bool
+
+
+@dataclass(frozen=True)
+class _DurableUsageEvent:
+    event_id: str
+    state: str
+    payload_hash: str
+    usage: SchedulerUsage
+
+    def checkpoint_dict(self) -> dict[str, object]:
+        return {
+            "event_id": self.event_id,
+            "state": self.state,
+            "payload_hash": self.payload_hash,
+        }
 
 
 @dataclass(frozen=True)
@@ -246,6 +263,7 @@ def run_prepared_scene_jobs(
     *,
     policy: SchedulerPolicy,
     cancelled: CancelledCallback = lambda: False,
+    initial_usage: SchedulerUsage | None = None,
 ) -> SchedulerRunResult:
     """Run the exact granted scene scope and atomically retain every valid item."""
 
@@ -296,6 +314,7 @@ def run_prepared_scene_jobs(
         consent,
         validate,
         cancelled=cancelled,
+        initial_usage=initial_usage,
     )
 
 
@@ -320,6 +339,10 @@ class M13SchedulerPersistenceSink:
         self._recovered_attempts: dict[
             _AttemptHistoryKey, list[tuple[int, str]]
         ] = {}
+        self._resume_consent: ConsentManifest | None = None
+        self._resume_compatibility_id: str | None = None
+        self._opaque_legacy_resume = False
+        self._run_opaque_usage: SchedulerUsage | None = None
 
     def lookup_exact_cache(self, job: ScheduledSceneJob) -> CacheReplay | None:
         result = self._persistence.lookup_cache(
@@ -356,7 +379,11 @@ class M13SchedulerPersistenceSink:
         consent: ConsentManifest,
         jobs: Sequence[ScheduledSceneJob],
         compatibility_id: str,
-    ) -> SchedulerUsage:
+    ) -> SchedulerResumeUsage:
+        self._resume_consent = consent
+        self._resume_compatibility_id = compatibility_id
+        self._opaque_legacy_resume = False
+        self._run_opaque_usage = None
         consent_lookup = self._persistence.lookup(
             RecordKind.CONSENT,
             consent.manifest_id,
@@ -368,7 +395,63 @@ class M13SchedulerPersistenceSink:
             or storage.canonical_json(consent_lookup.payload)
             != storage.canonical_json(consent.to_dict())
         ):
-            return SchedulerUsage()
+            return SchedulerResumeUsage()
+
+        run_scope = self._persistence.lookup(
+            RecordKind.RUN,
+            consent.run_id,
+            authority_binding=self._authority,
+        )
+        pipeline_opaque_usage: SchedulerUsage | None = None
+        if run_scope.state is LookupState.HIT and run_scope.payload is not None:
+            opaque_fields = tuple(
+                field
+                for field in (
+                    "opaque_legacy_cumulative_usage",
+                    "browser_legacy_opaque_cumulative_usage",
+                )
+                if field in run_scope.payload
+            )
+            if opaque_fields:
+                if (
+                    run_scope.payload.get("consent_manifest_id")
+                    != consent.manifest_id
+                    or not isinstance(run_scope.payload.get("provider"), Mapping)
+                    or storage.canonical_json(run_scope.payload["provider"])
+                    != storage.canonical_json(consent.provider.to_dict())
+                ):
+                    raise ValueError("opaque browser usage has incompatible run identity")
+                opaque_values = tuple(
+                    _scheduler_usage_from_payload(run_scope.payload[field])
+                    for field in opaque_fields
+                )
+                if any(value is None for value in opaque_values):
+                    raise ValueError("run-scoped opaque usage is invalid")
+                parsed_opaque = tuple(
+                    cast(SchedulerUsage, value) for value in opaque_values
+                )
+                if any(value != parsed_opaque[0] for value in parsed_opaque[1:]):
+                    raise ValueError("run-scoped opaque usage markers conflict")
+                pipeline_opaque_usage = parsed_opaque[0]
+                self._opaque_legacy_resume = True
+                self._run_opaque_usage = pipeline_opaque_usage
+            elif "usage_checkpoint" not in run_scope.payload:
+                modern_browser_running = (
+                    run_scope.payload.get("state")
+                    == SchedulerRunState.RUNNING.value
+                    and "browser_prior_cumulative_usage" in run_scope.payload
+                )
+                if not modern_browser_running:
+                    raw_aggregate = run_scope.payload.get(
+                        "cumulative_usage", run_scope.payload.get("usage")
+                    )
+                    pipeline_opaque_usage = _scheduler_usage_from_payload(
+                        raw_aggregate
+                    )
+                    if pipeline_opaque_usage is None:
+                        raise ValueError("legacy aggregate usage is invalid")
+                    self._opaque_legacy_resume = True
+                    self._run_opaque_usage = pipeline_opaque_usage
 
         compatible_keys = {
             (
@@ -381,10 +464,12 @@ class M13SchedulerPersistenceSink:
             for job in jobs
         }
         attempts = self._load_compatible_attempt_payloads(compatible_keys)
-        reserved_usage, reservation_attempts = self._load_compatible_call_usage(
+        reserved_usage, reservation_attempts, call_events = (
+            self._load_compatible_call_usage(
             consent,
             jobs,
             compatibility_id,
+        )
         )
         matched_attempts, unmatched_reservations = _match_reservation_attempts(
             attempts,
@@ -401,9 +486,12 @@ class M13SchedulerPersistenceSink:
             for index, attempt in enumerate(attempts)
             if index not in matched_attempts
         )
+        legacy_event = _legacy_attempt_usage_event(legacy_attempts)
+        durable_events = tuple(
+            (*call_events, *((legacy_event,) if legacy_event is not None else ()))
+        )
         usage = _sum_scheduler_usage(
-            _usage_from_attempt_payloads(legacy_attempts),
-            reserved_usage,
+            _usage_from_attempt_payloads(legacy_attempts), reserved_usage
         )
         run = self._persistence.lookup_compatible_run(
             consent.run_id,
@@ -413,12 +501,45 @@ class M13SchedulerPersistenceSink:
             authority_binding=self._authority,
         )
         if run.state is LookupState.HIT and run.payload is not None:
+            if (
+                run.payload.get("state") == SchedulerRunState.RUNNING.value
+                and run.payload.get("browser_pipeline_complete") is False
+            ):
+                return SchedulerResumeUsage(
+                    current_phase_usage=usage,
+                    opaque_legacy_cumulative_usage=pipeline_opaque_usage,
+                )
+            checkpoint = run.payload.get("usage_checkpoint")
+            if checkpoint is not None:
+                checkpoint_prior, checkpoint_phase = _resume_checkpoint_usage(
+                    checkpoint,
+                    compatibility_id,
+                    durable_events,
+                )
+                return SchedulerResumeUsage(
+                    current_phase_usage=checkpoint_phase,
+                    checkpoint_prior_cumulative_usage=checkpoint_prior,
+                    opaque_legacy_cumulative_usage=pipeline_opaque_usage,
+                )
             persisted = _scheduler_usage_from_payload(
                 run.payload.get("cumulative_usage", run.payload.get("usage"))
             )
             if persisted is not None:
-                usage = _merge_scheduler_usage(usage, persisted)
-        return usage
+                self._opaque_legacy_resume = True
+                opaque_usage = _merge_scheduler_usage(usage, persisted)
+                if pipeline_opaque_usage is not None:
+                    opaque_usage = _merge_scheduler_usage(
+                        opaque_usage, pipeline_opaque_usage
+                    )
+                self._run_opaque_usage = opaque_usage
+                return SchedulerResumeUsage(
+                    current_phase_usage=usage,
+                    opaque_legacy_cumulative_usage=opaque_usage,
+                )
+        return SchedulerResumeUsage(
+            current_phase_usage=usage,
+            opaque_legacy_cumulative_usage=pipeline_opaque_usage,
+        )
 
     def record_job(self, record: SchedulerJobRecord) -> None:
         job = self._require_job(record.logical_job_id)
@@ -530,6 +651,60 @@ class M13SchedulerPersistenceSink:
 
     def record_run(self, record: SchedulerRunRecord) -> None:
         payload = record.to_dict()
+        if (
+            record.current_phase_usage is not None
+            and record.prior_cumulative_usage is not None
+            and self._resume_consent is not None
+            and self._resume_compatibility_id == record.compatibility_id
+            and not self._opaque_legacy_resume
+        ):
+            consent = self._resume_consent
+            compatible_keys = {
+                (
+                    consent.run_id,
+                    consent.manifest_id,
+                    job.logical_job_id,
+                    job.input_revision_id,
+                    job.cache_identity.key,
+                )
+                for job in self._jobs.values()
+            }
+            attempts = self._load_compatible_attempt_payloads(compatible_keys)
+            _usage, reservation_attempts, call_events = (
+                self._load_compatible_call_usage(
+                    consent,
+                    tuple(self._jobs.values()),
+                    record.compatibility_id or "",
+                )
+            )
+            matched_attempts, _unmatched = _match_reservation_attempts(
+                attempts, reservation_attempts
+            )
+            legacy_attempts = tuple(
+                attempt
+                for index, attempt in enumerate(attempts)
+                if index not in matched_attempts
+            )
+            legacy_event = _legacy_attempt_usage_event(legacy_attempts)
+            events = tuple(
+                (*call_events, *((legacy_event,) if legacy_event is not None else ()))
+            )
+            if len({event.event_id for event in events}) != len(events):
+                raise ValueError("durable usage events have duplicate identities")
+            payload["usage_checkpoint"] = cast(
+                JsonValue,
+                {
+                    "schema": "m13-scheduler-usage-checkpoint-v1",
+                    "kind": "completed_scheduler",
+                    "compatibility_id": record.compatibility_id,
+                    "prior_cumulative_usage": record.prior_cumulative_usage.to_dict(),
+                    "current_phase_usage": record.current_phase_usage.to_dict(),
+                    "covered_events": [
+                        event.checkpoint_dict()
+                        for event in sorted(events, key=lambda item: item.event_id)
+                    ],
+                },
+            )
         existing = self._persistence.lookup(
             RecordKind.RUN,
             record.run_id,
@@ -539,11 +714,17 @@ class M13SchedulerPersistenceSink:
             for field in (
                 "browser_preparation_id",
                 "browser_pipeline_complete",
+                "browser_legacy_opaque_cumulative_usage",
+                "browser_prior_cumulative_usage",
                 "browser_retry_request",
                 "durable_sequence",
             ):
                 if field in existing.payload:
                     payload[field] = cast(JsonValue, existing.payload[field])
+        if self._run_opaque_usage is not None:
+            payload["opaque_legacy_cumulative_usage"] = cast(
+                JsonValue, self._run_opaque_usage.to_dict()
+            )
         if record.error_code is not None:
             payload["error"] = cast(JsonValue, sanitized_error(record.error_code))
         self._persistence.put_run(
@@ -584,6 +765,7 @@ class M13SchedulerPersistenceSink:
     ) -> tuple[
         SchedulerUsage,
         tuple[_ReservationAttemptCandidate, ...],
+        tuple[_DurableUsageEvent, ...],
     ]:
         jobs_by_id = {job.logical_job_id: job for job in jobs}
         expected_job_ids = set(jobs_by_id)
@@ -645,6 +827,7 @@ class M13SchedulerPersistenceSink:
             raise ValueError("durable call finalization has no compatible reservation")
         usage = SchedulerUsage()
         recovered_attempts: list[_ReservationAttemptCandidate] = []
+        events: list[_DurableUsageEvent] = []
         for reservation_id in sorted(reservations):
             reservation = reservations[reservation_id]
             finalization = finalizations.get(reservation_id)
@@ -653,6 +836,7 @@ class M13SchedulerPersistenceSink:
             if parsed is None:
                 raise ValueError("durable call usage is malformed")
             usage = _sum_scheduler_usage(usage, parsed)
+            disposition_state = "reserved"
             allow_zero_call_match = finalization is None
             if finalization is not None:
                 raw_disposition = finalization.get("transmission_disposition")
@@ -667,6 +851,20 @@ class M13SchedulerPersistenceSink:
                 allow_zero_call_match = (
                     disposition is TransmissionDisposition.NOT_TRANSMITTED
                 )
+                disposition_state = f"finalized:{disposition.value}"
+            events.append(
+                _DurableUsageEvent(
+                    event_id=f"reservation:{reservation_id}",
+                    state=disposition_state,
+                    payload_hash=canonical_hash(
+                        {
+                            "reservation": reservation,
+                            "finalization": finalization,
+                        }
+                    ),
+                    usage=parsed,
+                )
+            )
             logical_job_ids = cast(list[object], reservation["logical_job_ids"])
             logical_attempt_numbers = cast(
                 list[object], reservation["logical_attempt_numbers"]
@@ -703,7 +901,7 @@ class M13SchedulerPersistenceSink:
                         allow_zero_call_match=allow_zero_call_match,
                     )
                 )
-        return usage, tuple(recovered_attempts)
+        return usage, tuple(recovered_attempts), tuple(events)
 
     def _require_job(self, logical_job_id: str) -> ScheduledSceneJob:
         try:
@@ -911,6 +1109,119 @@ def _usage_from_attempt_payloads(
         cost_micros=None if cost_unknown else cost_micros,
         peak_concurrency=1 if provider_calls else 0,
         usage_estimated=usage_estimated,
+    )
+
+
+def _legacy_attempt_usage_event(
+    attempts: Sequence[Mapping[str, object]],
+) -> _DurableUsageEvent | None:
+    if not attempts:
+        return None
+    ordered = tuple(
+        sorted(
+            (dict(attempt) for attempt in attempts),
+            key=lambda item: (
+                str(item.get("attempt_id", "")),
+                canonical_hash(item),
+            ),
+        )
+    )
+    identities = [
+        str(item.get("attempt_id", canonical_hash(item))) for item in ordered
+    ]
+    return _DurableUsageEvent(
+        event_id=f"legacy-attempt-set:{canonical_hash(identities)}",
+        state="legacy_attempt_set",
+        payload_hash=canonical_hash(list(ordered)),
+        usage=_usage_from_attempt_payloads(ordered),
+    )
+
+
+def _resume_checkpoint_usage(
+    raw_checkpoint: object,
+    compatibility_id: str,
+    durable_events: Sequence[_DurableUsageEvent],
+) -> tuple[SchedulerUsage, SchedulerUsage]:
+    if not isinstance(raw_checkpoint, Mapping):
+        raise ValueError("scheduler usage checkpoint is malformed")
+    if (
+        raw_checkpoint.get("schema") != "m13-scheduler-usage-checkpoint-v1"
+        or raw_checkpoint.get("kind") != "completed_scheduler"
+        or raw_checkpoint.get("compatibility_id") != compatibility_id
+    ):
+        raise ValueError("scheduler usage checkpoint is incompatible")
+    phase_usage = _scheduler_usage_from_payload(
+        raw_checkpoint.get("current_phase_usage")
+    )
+    prior_usage = _scheduler_usage_from_payload(
+        raw_checkpoint.get("prior_cumulative_usage")
+    )
+    covered = raw_checkpoint.get("covered_events")
+    if prior_usage is None or phase_usage is None or not isinstance(covered, list):
+        raise ValueError("scheduler usage checkpoint is malformed")
+    current_by_id: dict[str, _DurableUsageEvent] = {}
+    for event in durable_events:
+        if event.event_id in current_by_id:
+            raise ValueError("durable usage events have duplicate identities")
+        current_by_id[event.event_id] = event
+    covered_ids: set[str] = set()
+    covered_usage = SchedulerUsage()
+    for raw_event in covered:
+        if not isinstance(raw_event, Mapping):
+            raise ValueError("scheduler usage checkpoint coverage is malformed")
+        event_id = raw_event.get("event_id")
+        state = raw_event.get("state")
+        payload_hash = raw_event.get("payload_hash")
+        if (
+            not isinstance(event_id, str)
+            or not event_id
+            or not isinstance(state, str)
+            or not state
+            or not isinstance(payload_hash, str)
+            or not payload_hash
+            or event_id in covered_ids
+        ):
+            raise ValueError("scheduler usage checkpoint coverage is malformed")
+        covered_ids.add(event_id)
+        current = current_by_id.get(event_id)
+        if (
+            current is None
+            or current.state != state
+            or current.payload_hash != payload_hash
+        ):
+            raise ValueError("scheduler usage checkpoint covered event changed")
+        covered_usage = _sum_scheduler_usage(covered_usage, current.usage)
+    if not _checkpoint_phase_usage_matches(phase_usage, covered_usage):
+        raise ValueError("checkpoint phase usage conflicts with covered events")
+    usage = phase_usage
+    for event_id, event in sorted(current_by_id.items()):
+        if event_id not in covered_ids:
+            usage = _sum_scheduler_usage(usage, event.usage)
+    return prior_usage, usage
+
+
+def _checkpoint_phase_usage_matches(
+    checkpoint: SchedulerUsage,
+    covered: SchedulerUsage,
+) -> bool:
+    exact_resources = (
+        checkpoint.provider_calls == covered.provider_calls
+        and checkpoint.input_tokens == covered.input_tokens
+        and checkpoint.output_tokens == covered.output_tokens
+        and checkpoint.peak_concurrency == covered.peak_concurrency
+        and checkpoint.usage_estimated is covered.usage_estimated
+    )
+    if covered.cost_micros is None:
+        cost_compatible = checkpoint.cost_micros is None
+    else:
+        cost_compatible = (
+            checkpoint.cost_micros is None
+            or checkpoint.cost_micros == covered.cost_micros
+        )
+    return (
+        exact_resources
+        and checkpoint.elapsed_ms >= covered.elapsed_ms
+        and cost_compatible
     )
 
 
