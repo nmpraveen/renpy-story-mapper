@@ -1165,6 +1165,7 @@ def _resume_checkpoint_usage(
             raise ValueError("durable usage events have duplicate identities")
         current_by_id[event.event_id] = event
     covered_ids: set[str] = set()
+    covered_usage = SchedulerUsage()
     for raw_event in covered:
         if not isinstance(raw_event, Mapping):
             raise ValueError("scheduler usage checkpoint coverage is malformed")
@@ -1189,11 +1190,39 @@ def _resume_checkpoint_usage(
             or current.payload_hash != payload_hash
         ):
             raise ValueError("scheduler usage checkpoint covered event changed")
+        covered_usage = _sum_scheduler_usage(covered_usage, current.usage)
+    if not _checkpoint_phase_usage_matches(phase_usage, covered_usage):
+        raise ValueError("checkpoint phase usage conflicts with covered events")
     usage = phase_usage
     for event_id, event in sorted(current_by_id.items()):
         if event_id not in covered_ids:
             usage = _sum_scheduler_usage(usage, event.usage)
     return prior_usage, usage
+
+
+def _checkpoint_phase_usage_matches(
+    checkpoint: SchedulerUsage,
+    covered: SchedulerUsage,
+) -> bool:
+    exact_resources = (
+        checkpoint.provider_calls == covered.provider_calls
+        and checkpoint.input_tokens == covered.input_tokens
+        and checkpoint.output_tokens == covered.output_tokens
+        and checkpoint.peak_concurrency == covered.peak_concurrency
+        and checkpoint.usage_estimated is covered.usage_estimated
+    )
+    if covered.cost_micros is None:
+        cost_compatible = checkpoint.cost_micros is None
+    else:
+        cost_compatible = (
+            checkpoint.cost_micros is None
+            or checkpoint.cost_micros == covered.cost_micros
+        )
+    return (
+        exact_resources
+        and checkpoint.elapsed_ms >= covered.elapsed_ms
+        and cost_compatible
+    )
 
 
 def _call_record_id(kind: str, reservation_id: str) -> str:
