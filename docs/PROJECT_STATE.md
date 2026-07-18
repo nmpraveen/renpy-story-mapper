@@ -10,7 +10,7 @@ Updated: 2026-07-17 (post-merge M13 correction reopened)
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 - Integration branch: `codex/m13-post-merge-usage-recovery`.
-- Status: Verification.
+- Status: Blocked in Verification.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
@@ -47,6 +47,17 @@ The Phase Coordinator owns the single native goal. Visible Track A
 candidate freezes.
 Visible task dispatch can select `gpt-5.6-sol` and High reasoning but exposes no fast-mode
 selector, so fast-mode state is unavailable and unverified rather than claimed disabled.
+
+Track A produced failing-first commit `249132d`, main provenance correction `b9b8f63`, loop-one
+correction `0cb4b3d`, and loop-two correction `82d2331`. Its final focused gate passed 90
+provider-free scheduler/workflow/pipeline/API tests plus Ruff, strict mypy, and diff checks.
+Reviewer A returned `FAIL` at exact clean head `82d2331` with one remaining P1: an opaque legacy
+browser ambiguity can be preserved by a cache-only phase but become unreachable when a later
+phase uses a different scheduler compatibility ID, after which a provider-free adversarial probe
+observed nine prohibited submits. Both authorized correction/rereview loops are consumed. The
+Phase Coordinator stopped without integrating Track A, running Release, creating Track C,
+pushing, opening a corrective PR, transmitting to a provider, merging, or starting M14. Renewed
+user authorization is required for any third narrowly bounded correction and rereview.
 
 The user approved and activated M13 on 2026-07-16 with binding amendments for bounded internal
 summary segments, logical-job/transport-batch separation, a lazy claim DAG, context-aware

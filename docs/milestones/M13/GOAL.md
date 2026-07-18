@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (semantic review PASS retained; bounded post-merge correction active)
+Status: Blocked in Verification (semantic review PASS retained; correction-loop cap reached)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
@@ -190,6 +190,22 @@ passing commands, exact integration/final SHAs, review findings and correction l
 results, inherited-evidence boundaries, changed files, remaining risks, and corrective PR state.
 Track tasks must not create native goals. The Phase Coordinator owns the one active native goal
 through PR preparation and must not mark it complete before the corrective PR is merged.
+
+### Current correction blocker - 2026-07-17
+
+Track A's failing-first commit `249132d1b4190f7a1693f6de68779db30c2c91a1` proved the
+cross-phase undercount. Its candidate advanced through `b9b8f631543411e02187e627e6179a163aca7ce6`,
+loop-one correction `0cb4b3de026efd0d551bef1b63b13ac9965fa3b7`, and loop-two correction
+`82d233169d0dbedce0cdc5c2e164df313eff8a70`. The focused provider-free matrix passes 90 tests
+plus Ruff, strict mypy, and diff checks at the final Track A head.
+
+Exact-head Reviewer A nevertheless returned `FAIL` with a remaining P1: a legacy opaque browser
+ambiguity marker is discovered only through a phase-compatible run lookup. A cache-only phase can
+rewrite the sole run record under its compatibility ID; a later phase with a different ID then
+loses the ambiguity and can submit. The provider-free adversarial probe observed nine prohibited
+submissions. Both authorized correction/rereview loops are consumed, so no third product
+correction, integration, Release, Track C, push, or corrective PR is permitted without renewed
+user authorization. The Phase Coordinator branch has not integrated the failed Track A candidate.
 
 ## Deliverables
 
