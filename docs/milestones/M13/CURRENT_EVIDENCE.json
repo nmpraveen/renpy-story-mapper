@@ -2,7 +2,7 @@
   "schema": "m13-current-evidence-index-v1",
   "milestone": "M13",
   "validation_date": "2026-07-18",
-  "lifecycle": "Verification",
+  "lifecycle": "PR ready",
   "current_cycle": {
     "merged_baseline_sha": "d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a",
     "contract_baseline_sha": "6f9fb52b30a2de92642450d9de67c2552c94417f",
@@ -27,9 +27,9 @@
     "blocking_finding": null,
     "local_windows_release": "PASS at predecessor 5c792c1: 1149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependencies, JavaScript, whitespace, isolated build/install/import, assets, and notices passed",
     "exact_head_release_disposition": "The one authorized local Release preceded the final two-file correction; exact corrected-head full Release remains the pull-request CI gate",
-    "pull_request": "Draft corrective PR #24; exact lifecycle head CI pending",
+    "pull_request": "Corrective PR #24 open, non-draft, mergeable, CLEAN, and PR ready",
     "not_run": "No provider/live, browser/private-scale, or replay rerun; no merge, M14, destructive cleanup, or protected-path action",
-    "status": "Product and independent review gates passed; lifecycle reconciled; exact corrective-PR-head CI pending"
+    "status": "Product and independent review gates passed; lifecycle reconciled; GitHub Release run 29632020095 passed at f8525a2; PR ready"
   },
   "historical_prior_cycle_evidence": true,
   "baseline_sha": "f67df8a7cb805bf4adf8590585bae700d2f3117f",
@@ -211,10 +211,10 @@
     "branch": "codex/m13-post-merge-usage-recovery",
     "base": "main",
     "state": "open",
-    "draft": true,
+    "draft": false,
     "merged": false,
     "product_head_sha": "a71d5888d55d0d5a19ddb84efd522dccdcbe282d",
-    "remote_exact_head_ci": "pending after lifecycle reconciliation push",
+    "remote_exact_head_ci": "GitHub Release run 29632020095 passed in 17m17s at f8525a27b78c3db91864e5f5332ad0deff3c864a",
     "historical_merged_pr": {
       "number": 23,
       "merge_commit_sha": "d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a",
@@ -226,6 +226,6 @@
     "The collaboration dispatcher exposed model and reasoning selectors but no fast-mode selector; workers used gpt-5.6-sol with High reasoning and fast mode is accurately recorded as unavailable/unverified at orchestration level.",
     "Private and browser reports remain local diagnostics; only sanitized hashes, counts, commands, and dispositions are committed.",
     "The one authorized local Windows Release ran at predecessor 5c792c1 before the final two-file checkpoint correction; exact corrected-head full validation is required from pull-request CI.",
-    "PR #24 remains draft until exact lifecycle-head CI passes; merge remains separately approval-gated."
+    "PR #24 is open, non-draft, mergeable, CLEAN, and PR ready; merge remains separately approval-gated."
   ]
 }

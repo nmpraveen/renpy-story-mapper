@@ -1,6 +1,6 @@
 # M13 - Optional AI narrative layer
 
-Status: Verification (post-merge corrective product/review gates PASS; exact PR-head CI pending)
+Status: PR ready (post-merge corrective product/review and exact-head CI gates PASS)
 
 Scope authority: `docs/MASTER_PLAN.md`, the approved planning proposal, the user's 2026-07-16
 implementation approval and twelve binding amendment sections, the user's earlier 2026-07-17
@@ -53,9 +53,9 @@ elapsed. Later uncovered events remain additive once.
 At `a71d588`, the provider-free four-module matrix passes 97 tests; Track A Reviewer A, Track B,
 and final Track C pass with no P0-P3. One local Windows Release passed at predecessor `5c792c1`
 before Track C exposed the final checkpoint-aggregate P1; the final two-file correction is covered
-by focused exact-head tests and independent rereviews. Exact corrective-PR-head CI is therefore the
-remaining PR-readiness gate. No additional local Release, live provider transmission, merge, M14,
-or broad refactor is authorized.
+by focused exact-head tests and independent rereviews. GitHub Release run `29632020095` passed at
+pushed evidence head `f8525a2`; PR #24 is open, non-draft, mergeable, and `CLEAN`. No additional
+local Release, live provider transmission, merge, M14, or broad refactor is authorized.
 
 ## Authorized PR #23 correction constraints
 
@@ -264,8 +264,9 @@ The parent four-module matrix passes 97 tests; Ruff, strict mypy, and full-range
 Track A Reviewer A, Track B, and final Track C each return PASS with no P0-P3. The one authorized
 local Windows Release passed 1,149/7 at predecessor `5c792c1`; the final two-file change has focused
 and independent exact-head coverage, and pull-request Release CI is required at the final lifecycle
-head. Corrective PR #24 is draft until that CI passes. No provider/live, merge, or M14 action is
-authorized.
+head. Exact-head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and
+corrective PR #24 is open, non-draft, mergeable, `CLEAN`, and PR ready. No provider/live, merge, or
+M14 action is authorized.
 
 ## Deliverables
 

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-18 (post-merge M13 correction in final CI verification)
+Updated: 2026-07-18 (post-merge M13 corrective PR ready)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -10,9 +10,10 @@ Updated: 2026-07-18 (post-merge M13 correction in final CI verification)
 - Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
 - Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`.
 - Integration branch: `codex/m13-post-merge-usage-recovery`.
-- Status: Verification.
-- Verification state: product and independent review gates pass, lifecycle is reconciled, and
-  exact corrective-PR-head CI is the remaining PR-readiness gate.
+- Status: PR ready.
+- PR-readiness state: product and independent review gates pass, lifecycle is reconciled, exact-
+  head GitHub Release run `29632020095` passed at pushed evidence head `f8525a2`, and PR #24 is
+  open, non-draft, mergeable, and `CLEAN`.
 - Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
   existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
   ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
@@ -35,8 +36,9 @@ Updated: 2026-07-18 (post-merge M13 correction in final CI verification)
   lifecycle closeout. Product/evidence head
   `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
   at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
-  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open as a
-  draft on `codex/m13-post-merge-usage-recovery`; merge remains separately approval-gated.
+  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) is open,
+  non-draft, mergeable, and `CLEAN` on `codex/m13-post-merge-usage-recovery`; merge remains
+  separately approval-gated.
 
 The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
 merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's
@@ -106,8 +108,9 @@ Parent verification passes 97 scheduler/workflow/pipeline/API tests, Ruff, stric
 changed production files, and the full-range diff check. The single authorized local Windows
 Release passed at predecessor candidate `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected,
 plus every quality/build/package gate. It was not repeated after the final two-file correction; the
-exact corrected head instead has focused tests, two independent rereviews, and requires exact-head
-CI. Historical browser UI/static navigation facts remain inheritable because those assets did not
+exact corrected head instead has focused tests, two independent rereviews, and exact pushed-head
+GitHub Release run `29632020095` passed. Historical browser UI/static navigation facts remain
+inheritable because those assets did not
 change. Prior live-provider, browser retry/reopen accounting, private-scale accounting, and replay
 counts remain historical exact-head evidence rather than proof of the correction. No live provider
 transmission, merge, M14 work, destructive cleanup, or protected-path change occurred.

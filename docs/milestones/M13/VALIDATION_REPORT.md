@@ -1,6 +1,6 @@
 # M13 validation report
 
-Status: Verification; post-merge product/review gates pass and exact corrective-PR-head CI remains
+Status: PR ready; post-merge product/review and exact pushed-head CI gates pass
 
 Baseline: merged PR #23 commit `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`
 
@@ -24,12 +24,12 @@ Corrected integrated product head: `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`.
 | Track B full-range review | PASS at integrated `a71d588`; no P0-P3; 15-test adversarial recovery matrix passed |
 | Track C review | Initial CHANGES REQUESTED at `5c792c1`; final PASS at `a71d588`, no P0-P3; original five-call probe now fails closed with zero resumed submit |
 | Single local Windows Release | At predecessor `5c792c1`: 1,149 passed, 7 hardware-sensitive deselected in 447.49 seconds; Ruff, strict mypy over 92 files, dependency, JavaScript, whitespace, isolated build/install/import/assets/notices all passed |
-| Exact final-head full gate | Pending GitHub pull-request Release validation after lifecycle commit is pushed |
+| Exact pushed-head full gate | GitHub Release run `29632020095` passed in 17m17s at `f8525a2` |
 
 The local Release was intentionally not repeated after Track C's final two-file correction because
 the user authorized one Windows Release. Exact-head assurance for `a71d588` consists of the 97-test
-focused matrix and independent Track B/Track C rereviews; the pushed lifecycle head must additionally
-pass the repository's full Release CI before PR #24 is marked ready.
+focused matrix and independent Track B/Track C rereviews. The pushed lifecycle head additionally
+passed repository Release CI run `29632020095`; PR #24 was then marked ready.
 
 Browser static assets and M10-M12 authority/source data did not change and their static facts remain
 inheritable. Historical live-provider outputs, browser retry/reopen accounting, private-scale
