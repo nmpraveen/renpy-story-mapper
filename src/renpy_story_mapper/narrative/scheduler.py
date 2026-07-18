@@ -430,6 +430,7 @@ class SchedulerResumeUsage:
     """Provenance-separated usage reconstructed before scheduler admission."""
 
     current_phase_usage: SchedulerUsage = SchedulerUsage()
+    checkpoint_prior_cumulative_usage: SchedulerUsage | None = None
     opaque_legacy_cumulative_usage: SchedulerUsage | None = None
 
 
@@ -667,7 +668,11 @@ class NarrativeScheduler:
         self._validate_start(ordered, consent)
         compatibility_id = scheduler_compatibility_id(consent, ordered)
         resumed = self._sink.resume_usage(consent, ordered, compatibility_id)
-        prior_usage = SchedulerUsage() if initial_usage is None else initial_usage
+        prior_usage = (
+            resumed.checkpoint_prior_cumulative_usage or SchedulerUsage()
+            if initial_usage is None
+            else initial_usage
+        )
         phase_usage = resumed.current_phase_usage
         usage = _sum_cumulative_usage(prior_usage, phase_usage)
         if resumed.opaque_legacy_cumulative_usage is not None:

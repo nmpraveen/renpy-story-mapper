@@ -1302,6 +1302,30 @@ def test_cross_phase_reopen_adds_prior_usage_to_unfinished_durable_call(
     assert result.jobs[0].attempt_count == 1
     assert result.jobs[0].error_code == "hard_limit"
 
+    repeated_provider = DeterministicNarrativeProvider()
+    with Project.open(project_path) as project:
+        repeated = prepare_narrative_scene_run(
+            project,
+            repeated_provider,
+            run_id="run-cross-phase-unfinished-call",
+            requested_model="runtime-selected-model",
+            mode=NarrativeInputMode.FACT_ONLY,
+            include_m12_material=False,
+            limits=limits,
+            batch_limits=_batch_limits(),
+            selected_scene_ids=(scene_id,),
+        )
+        repeated_result = run_prepared_scene_jobs(
+            project,
+            repeated_provider,
+            repeated,
+            grant_narrative_consent(project, repeated),
+            policy=_policy(),
+        )
+
+    assert repeated_provider.calls == []
+    assert repeated_result.record.cumulative_usage == result.record.cumulative_usage
+
 
 def test_not_transmitted_reservation_matches_zero_call_attempt_after_reopen(
     tmp_path: Path,

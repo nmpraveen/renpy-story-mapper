@@ -450,12 +450,14 @@ class M13SchedulerPersistenceSink:
                 return SchedulerResumeUsage(current_phase_usage=usage)
             checkpoint = run.payload.get("usage_checkpoint")
             if checkpoint is not None:
+                checkpoint_prior, checkpoint_phase = _resume_checkpoint_usage(
+                    checkpoint,
+                    compatibility_id,
+                    durable_events,
+                )
                 return SchedulerResumeUsage(
-                    current_phase_usage=_resume_checkpoint_phase_usage(
-                        checkpoint,
-                        compatibility_id,
-                        durable_events,
-                    )
+                    current_phase_usage=checkpoint_phase,
+                    checkpoint_prior_cumulative_usage=checkpoint_prior,
                 )
             persisted = _scheduler_usage_from_payload(
                 run.payload.get("cumulative_usage", run.payload.get("usage"))
@@ -1061,11 +1063,11 @@ def _legacy_attempt_usage_event(
     )
 
 
-def _resume_checkpoint_phase_usage(
+def _resume_checkpoint_usage(
     raw_checkpoint: object,
     compatibility_id: str,
     durable_events: Sequence[_DurableUsageEvent],
-) -> SchedulerUsage:
+) -> tuple[SchedulerUsage, SchedulerUsage]:
     if not isinstance(raw_checkpoint, Mapping):
         raise ValueError("scheduler usage checkpoint is malformed")
     if (
@@ -1077,8 +1079,11 @@ def _resume_checkpoint_phase_usage(
     phase_usage = _scheduler_usage_from_payload(
         raw_checkpoint.get("current_phase_usage")
     )
+    prior_usage = _scheduler_usage_from_payload(
+        raw_checkpoint.get("prior_cumulative_usage")
+    )
     covered = raw_checkpoint.get("covered_events")
-    if phase_usage is None or not isinstance(covered, list):
+    if prior_usage is None or phase_usage is None or not isinstance(covered, list):
         raise ValueError("scheduler usage checkpoint is malformed")
     current_by_id: dict[str, _DurableUsageEvent] = {}
     for event in durable_events:
@@ -1114,7 +1119,7 @@ def _resume_checkpoint_phase_usage(
     for event_id, event in sorted(current_by_id.items()):
         if event_id not in covered_ids:
             usage = _sum_scheduler_usage(usage, event.usage)
-    return usage
+    return prior_usage, usage
 
 
 def _call_record_id(kind: str, reservation_id: str) -> str:
