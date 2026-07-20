@@ -46,9 +46,9 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
   that setting will be recorded unavailable/unverified rather than claimed disabled.
 - Historical product/evidence heads `38c2ccb` and `02a7e8c` failed final review and remain superseded.
-  The reviewed corrections are integrated through coordinator head `972a578`; the small exact-only
-  browser-harness qualification and lifecycle/evidence reconciliation are awaiting the evidence
-  commit before final Release.
+  The reviewed corrections are integrated through coordinator head `972a578`; corrected evidence,
+  the exact-prefix browser-harness qualification, and lifecycle reconciliation are committed at
+  evidence head `1c043bf`.
 - Fresh provider-free exact evidence under `output/playwright/m15-private-final/` passes with the
   explicit correction: 70 corridors, 70 events, 84 nodes, 85 edges, five ordered clusters, setup
   through line 26 collapsed, Prologue at 27, Day 1 at 52, four exact choice/rejoin pairs, and zero
@@ -59,6 +59,11 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
   Terrance/Janet Detail/Evidence traversal, and zero provider/M12/remote requests. The regenerated
   `docs/milestones/M15/VISIBLE_ORDER.txt` starts Prologue at line 27. Native `INFOGRAPHIC.png`
   remains valid and contains no private story text.
+- Final Windows Release at evidence head `1c043bf` passed: 1,270 tests with eight
+  hardware-sensitive deselections; Ruff; strict mypy over 109 source files; dependency,
+  JavaScript, and whitespace checks; isolated sdist/wheel build, install, import, browser assets,
+  and notices. The initial invocation selected an incomplete local `.venv`; the authoritative pass
+  used the validator's explicit Python 3.12 option and no product-test failure occurred.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
@@ -67,8 +72,8 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
 - Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
   scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
   from the three-atom minimum narrative run and 35 from unresolved safety.
-- Pull request: pending final exact-head Release and final cross-track PASS. One M15 PR will be
-  prepared and left unmerged for explicit user approval.
+- Pull request: pending final cross-track PASS. One M15 PR will be prepared and left unmerged for
+  explicit user approval.
 - Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
   a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
 
