@@ -17,6 +17,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     NarrativeEvent,
     NarrativeMap,
     NarrativeMapEdge,
+    NarrativeMapNode,
     NarrativeNodeKind,
 )
 from renpy_story_mapper.narrative_map.presentation import build_narrative_presentation
@@ -75,6 +76,7 @@ def build_narrative_map(
         persistent_split_nodes,
         persistent_merge_nodes,
     )
+    edges = (*edges, *_hidden_technical_continuity(edges, presentation.nodes))
     incoming = {item.target_node_id for item in edges}
     base_nodes = [
         item
@@ -182,6 +184,77 @@ def _quotient_edges(
         )
         for key in order
     )
+
+
+def _hidden_technical_continuity(
+    edges: Sequence[NarrativeMapEdge],
+    nodes: Sequence[NarrativeMapNode],
+) -> tuple[NarrativeMapEdge, ...]:
+    """Collapse authoritative paths through hidden technical nodes for normal presentation."""
+
+    technical_ids = {
+        item.node_id
+        for item in nodes
+        if item.kind is NarrativeNodeKind.TECHNICAL_COVERAGE
+    }
+    if not technical_ids:
+        return ()
+    outgoing: dict[str, list[NarrativeMapEdge]] = defaultdict(list)
+    for edge in edges:
+        outgoing[edge.source_node_id].append(edge)
+    result: list[NarrativeMapEdge] = []
+    seen: set[str] = set()
+
+    def walk(
+        source_id: str,
+        current_id: str,
+        path: tuple[NarrativeMapEdge, ...],
+        visited: frozenset[str],
+    ) -> None:
+        for edge in outgoing.get(current_id, ()):
+            target_id = edge.target_node_id
+            extended = (*path, edge)
+            if target_id in technical_ids:
+                if target_id not in visited:
+                    walk(source_id, target_id, extended, visited | {target_id})
+                continue
+            if target_id == source_id or any(
+                item.kind is not NarrativeEdgeKind.CONTINUATION for item in extended
+            ):
+                continue
+            authority_ids = ordered_unique(
+                authority_id
+                for item in extended
+                for authority_id in item.authority_edge_ids
+            )
+            continuity = NarrativeMapEdge(
+                source_node_id=source_id,
+                target_node_id=target_id,
+                kind=NarrativeEdgeKind.CONTINUATION,
+                authority_edge_ids=authority_ids,
+                requirement_ids=ordered_unique(
+                    requirement_id
+                    for item in extended
+                    for requirement_id in item.requirement_ids
+                ),
+                effect_ids=ordered_unique(
+                    effect_id for item in extended for effect_id in item.effect_ids
+                ),
+            )
+            if continuity.edge_id not in seen:
+                seen.add(continuity.edge_id)
+                result.append(continuity)
+
+    for edge in edges:
+        if edge.source_node_id in technical_ids or edge.target_node_id not in technical_ids:
+            continue
+        walk(
+            edge.source_node_id,
+            edge.target_node_id,
+            (edge,),
+            frozenset((edge.target_node_id,)),
+        )
+    return tuple(result)
 
 
 def _edge_kind(

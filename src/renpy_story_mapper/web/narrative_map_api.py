@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Final
 
+from renpy_story_mapper import storage
 from renpy_story_mapper.canonical_graph_contract import (
     CANONICAL_GRAPH_SCHEMA,
     CanonicalFact,
@@ -28,6 +29,14 @@ from renpy_story_mapper.narrative_map import (
     build_boundary_candidates,
     build_narrative_corridors,
     build_narrative_map,
+    resolve_leading_technical_coverage_correction,
+)
+from renpy_story_mapper.narrative_map.adapters import bind_m15_authority
+from renpy_story_mapper.narrative_map.contracts import LeadingTechnicalCoverageCorrection
+from renpy_story_mapper.narrative_map.coverage_corrections import (
+    M15_LEADING_TECHNICAL_CORRECTION_KEY,
+    M15_LEADING_TECHNICAL_CORRECTIONS_COLLECTION,
+    LeadingTechnicalCorrectionRepository,
 )
 from renpy_story_mapper.project import Project
 
@@ -46,6 +55,7 @@ class NarrativeMapSnapshot:
     model: SceneModel
     events: tuple[NarrativeEvent, ...]
     narrative_map: NarrativeMap
+    correction_status: dict[str, str]
 
 
 def narrative_map_page(
@@ -271,7 +281,16 @@ def _load_snapshot(project: Project) -> NarrativeMapSnapshot | str:
         return selection.reason or "m11_not_published"
     try:
         model = scene_model_from_stored_results(selection.phase_results)
-        corridors = build_narrative_corridors(canonical, model)
+        correction, correction_status = _select_technical_correction(
+            project,
+            canonical,
+            model,
+        )
+        corridors = build_narrative_corridors(
+            canonical,
+            model,
+            technical_correction=correction,
+        )
         service = NarrativeMapService(NarrativeMapRepository(project))
         decisions = service.read_boundary_decisions(build_boundary_candidates(corridors))
         events = assemble_narrative_events(
@@ -297,7 +316,39 @@ def _load_snapshot(project: Project) -> NarrativeMapSnapshot | str:
         return "narrative_map_projection_invalid"
     if len(projected.nodes) > MAX_MAP_NODES or len(projected.edges) > MAX_MAP_EDGES:
         return "narrative_map_exceeds_bounded_surface"
-    return NarrativeMapSnapshot(canonical, model, enriched_events, projected)
+    return NarrativeMapSnapshot(
+        canonical,
+        model,
+        enriched_events,
+        projected,
+        correction_status,
+    )
+
+
+def _select_technical_correction(
+    project: Project,
+    canonical: CanonicalGraph,
+    model: SceneModel,
+) -> tuple[LeadingTechnicalCoverageCorrection | None, dict[str, str]]:
+    """Select only an exact current correction and report a bounded safe outcome."""
+
+    authority = bind_m15_authority(canonical, model)
+    present = M15_LEADING_TECHNICAL_CORRECTION_KEY in project.payload_keys(
+        M15_LEADING_TECHNICAL_CORRECTIONS_COLLECTION
+    )
+    if not present:
+        return None, {"state": "not_applied", "diagnostic": "absent"}
+    try:
+        correction = LeadingTechnicalCorrectionRepository(project).load(authority)
+    except storage.ProjectCorruptError:
+        return None, {"state": "not_applied", "diagnostic": "stored_invalid"}
+    if correction is None:
+        return None, {"state": "not_applied", "diagnostic": "stale_authority"}
+    try:
+        resolve_leading_technical_coverage_correction(canonical, model, correction)
+    except (TypeError, ValueError):
+        return None, {"state": "not_applied", "diagnostic": "resolution_invalid"}
+    return correction, {"state": "applied", "diagnostic": "valid"}
 
 
 def _page_payload(snapshot: NarrativeMapSnapshot) -> dict[str, object]:
@@ -327,6 +378,8 @@ def _page_payload(snapshot: NarrativeMapSnapshot) -> dict[str, object]:
         "presentation_levels": ["narrative_map", "detail_evidence"],
         "authority_hash": snapshot.canonical.authority_hash,
         "map_hash": snapshot.narrative_map.normalized_hash,
+        "technical_correction_id": snapshot.narrative_map.technical_correction_id,
+        "correction_status": dict(snapshot.correction_status),
         "nodes": node_payloads,
         "edges": edge_payloads,
         "lanes": lanes,
@@ -588,6 +641,11 @@ def _unavailable(reason: str) -> dict[str, object]:
         "lanes": [],
         "initial_node_ids": [],
         "hidden_technical_count": 0,
+        "technical_correction_id": None,
+        "correction_status": {
+            "state": "not_applied",
+            "diagnostic": "map_unavailable",
+        },
         "total_nodes": 0,
         "total_edges": 0,
         "provider_calls": 0,

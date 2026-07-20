@@ -12,6 +12,7 @@ import pytest
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
 from renpy_story_mapper.narrative.provider import ProviderUsage
+from renpy_story_mapper.narrative_map import assemble_narrative_events
 from renpy_story_mapper.narrative_map.ai_projection import (
     EvidenceRecord,
     prepare_boundary_jobs,
@@ -69,6 +70,7 @@ def _corridor(
     *,
     hard_before: bool = False,
     hard_after: bool = False,
+    technical_correction_id: str | None = None,
 ) -> NarrativeCorridor:
     atom_id = f"atom-{name}"
     evidence_id = f"evidence-{name}"
@@ -87,6 +89,7 @@ def _corridor(
         hard_boundary_before=hard_before,
         hard_boundary_after=hard_after,
         soft_boundary_signals=(BoundarySignal.NARRATIVE_OBJECTIVE,),
+        technical_correction_id=technical_correction_id,
         provenance=Provenance(
             atom_ids=(atom_id,),
             node_ids=(f"node-{ordinal}", f"node-{ordinal + 1}"),
@@ -104,6 +107,7 @@ def _candidate(left: NarrativeCorridor, right: NarrativeCorridor) -> BoundaryCan
         right_corridor_id=right.corridor_id,
         signals=(BoundarySignal.NARRATIVE_OBJECTIVE,),
         evidence_ids=(left.provenance.evidence_ids[0], right.provenance.evidence_ids[0]),
+        technical_correction_id=left.technical_correction_id,
     )
 
 
@@ -269,6 +273,45 @@ def test_boundary_projection_covers_each_adjacent_soft_candidate_once() -> None:
     assert len({job.job_id for job in jobs}) == 2
     assert all(job.payload["candidate_id"] == job.subject_id for job in jobs)
     assert all("hard_boundary" not in str(job.payload) for job in jobs)
+
+
+def test_correction_bearing_subjects_invalidate_track_b_job_and_cache_identity() -> None:
+    plain = (_corridor("a", 0), _corridor("b", 1))
+    corrected = (
+        _corridor("a", 0, technical_correction_id="technical-correction-sanitized"),
+        _corridor("b", 1, technical_correction_id="technical-correction-sanitized"),
+    )
+    plain_boundary = prepare_boundary_jobs(
+        plain,
+        (_candidate(*plain),),
+        _evidence(*plain),
+    )[0]
+    corrected_boundary = prepare_boundary_jobs(
+        corrected,
+        (_candidate(*corrected),),
+        _evidence(*corrected),
+    )[0]
+    plain_event = assemble_narrative_events(plain)[0]
+    corrected_event = assemble_narrative_events(corrected)[0]
+    plain_summary = prepare_event_summary_jobs(
+        (plain_event,),
+        _evidence(*plain),
+    )[0]
+    corrected_summary = prepare_event_summary_jobs(
+        (corrected_event,),
+        _evidence(*corrected),
+    )[0]
+
+    for uncorrected, with_correction in (
+        (plain_boundary, corrected_boundary),
+        (plain_summary, corrected_summary),
+    ):
+        assert uncorrected.subject_id != with_correction.subject_id
+        assert uncorrected.input_hash != with_correction.input_hash
+        assert uncorrected.job_id != with_correction.job_id
+        assert NarrativeMapRepository.cache_key(
+            uncorrected, _profile()
+        ) != NarrativeMapRepository.cache_key(with_correction, _profile())
 
 
 def test_sterile_provider_uses_m15_prompt_and_schema_without_process_authority() -> None:

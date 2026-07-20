@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from m15_test_support import linear_authority
 from renpy_story_mapper.canonical_graph_contract import CanonicalNodeKind
 from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.narrative_map import (
     NarrativeEdgeKind,
     NarrativeNodeKind,
+    Provenance,
+    SourceLocator,
     assemble_narrative_events,
     build_narrative_corridors,
     build_narrative_map,
@@ -96,6 +100,70 @@ def test_hidden_technical_coverage_is_attached_without_equal_weight_story_promot
 
     assert result.hidden_technical_atom_ids == ("atom-1",)
     assert all(item.title.casefold() not in {"start", "clean"} for item in result.nodes)
+
+
+def test_hidden_technical_event_retains_authoritative_story_continuity() -> None:
+    canonical, model = linear_authority(
+        (AtomKind.NARRATION, AtomKind.TECHNICAL, AtomKind.NARRATION),
+        labels=("Story before", "Sanitized technical transition", "Story after"),
+    )
+    combined = build_narrative_corridors(canonical, model)[0]
+    corridors = tuple(
+        replace(
+            combined,
+            ordered_atom_ids=(f"atom-{index}",),
+            entry_node_id=f"node-{index}",
+            exit_node_id=f"node-{index}",
+            incident_edge_ids=(
+                ("edge-0",)
+                if index == 0
+                else ("edge-1",)
+                if index == 2
+                else ("edge-0", "edge-1")
+            ),
+            hard_boundary_before=index > 0,
+            hard_boundary_after=index < 2,
+            technical_atom_ids=(("atom-1",) if index == 1 else ()),
+            provenance=Provenance(
+                atom_ids=(f"atom-{index}",),
+                node_ids=(f"node-{index}",),
+                edge_ids=(
+                    ("edge-0",)
+                    if index == 0
+                    else ("edge-1",)
+                    if index == 2
+                    else ("edge-0", "edge-1")
+                ),
+                evidence_ids=(f"evidence-{index}",),
+                locators=(
+                    SourceLocator(
+                        "game/synthetic.rpy", index + 1, index + 1, "physical_source"
+                    ),
+                ),
+            ),
+        )
+        for index in range(3)
+    )
+    events = assemble_narrative_events(corridors)
+
+    result = build_narrative_map(canonical, events, corridors=corridors)
+
+    event_nodes = {
+        item.event_id: item
+        for item in result.nodes
+        if item.event_id is not None
+    }
+    before = event_nodes[events[0].event_id]
+    technical = event_nodes[events[1].event_id]
+    after = event_nodes[events[2].event_id]
+    assert technical.kind is NarrativeNodeKind.TECHNICAL_COVERAGE
+    continuity = next(
+        item
+        for item in result.edges
+        if item.source_node_id == before.node_id and item.target_node_id == after.node_id
+    )
+    assert continuity.kind is NarrativeEdgeKind.CONTINUATION
+    assert continuity.authority_edge_ids == ("edge-0", "edge-1")
 
 
 def test_call_return_and_persistent_region_edge_precedence() -> None:

@@ -16,8 +16,15 @@ from typing import Any, Final
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
-from renpy_story_mapper.project import create_ingested_project
+from renpy_story_mapper.narrative_map import create_leading_technical_coverage_correction
+from renpy_story_mapper.narrative_map.adapters import atom_locators
+from renpy_story_mapper.narrative_map.contracts import SourceLocator
+from renpy_story_mapper.narrative_map.coverage_corrections import (
+    LeadingTechnicalCorrectionRepository,
+)
+from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.narrative_map_api import NarrativeMapSnapshot, _load_snapshot
 from renpy_story_mapper.web.security import SessionSecurity
 from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
 from renpy_story_mapper.web.state import UserStateStore
@@ -61,7 +68,7 @@ class _NoDialogs:
         return None
 
 
-def _fixture_project(root: Path) -> tuple[Path, Path, str]:
+def _fixture_project(root: Path) -> tuple[Path, Path, str, str]:
     source = root / "game" / "story.rpy"
     source.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURE, source)
@@ -69,7 +76,40 @@ def _fixture_project(root: Path) -> tuple[Path, Path, str]:
     project_path = root / "m15-track-c-browser.rsmproj"
     with create_ingested_project(project_path, source.parent):
         pass
-    return project_path, source, source_hash
+    with Project.open(project_path) as project:
+        snapshot = _load_snapshot(project)
+        if not isinstance(snapshot, NarrativeMapSnapshot):
+            raise AssertionError(f"Sanitized Narrative Map fixture is unavailable: {snapshot}")
+        evidence = {item.id: item for item in snapshot.canonical.evidence}
+        correction = None
+        for atom in snapshot.model.atoms:
+            for locator in atom_locators(atom, evidence):
+                try:
+                    correction = create_leading_technical_coverage_correction(
+                        snapshot.canonical,
+                        snapshot.model,
+                        (
+                            SourceLocator(
+                                locator.relative_path,
+                                locator.start_line,
+                                locator.end_line,
+                                locator.line_basis,
+                            ),
+                        ),
+                        reason="User-approved sanitized browser technical coverage.",
+                    )
+                except ValueError:
+                    continue
+                break
+            if correction is not None:
+                break
+        if correction is None:
+            raise AssertionError("Sanitized browser fixture has no exact leading-prefix locator")
+        LeadingTechnicalCorrectionRepository(project).save(
+            correction,
+            expected_correction_hash=None,
+        )
+    return project_path, source, source_hash, correction.correction_id
 
 
 def _requests(session: Any) -> list[str]:
@@ -231,23 +271,30 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
                 "import('./app.js').then(m=>({mode:m.state.mode,badge:document.querySelector('#projectBadge').textContent,"
                 "routePanel:!!document.querySelector('#routePanel'),solveRoute:!!document.querySelector('#solveRoute'),"
                 "organization:!!document.querySelector('#organizationPanel'),mapNodes:m.state.page.nodes.length,"
-                "mapEdges:m.state.page.edges.length,selected:m.state.selectedId,level:document.documentElement.dataset.activeLevel}))"
+                "mapEdges:m.state.page.edges.length,selected:m.state.selectedId,level:document.documentElement.dataset.activeLevel,"
+                "correctionStatus:m.state.page.correction_status,correctionId:m.state.page.technical_correction_id}))"
             )
             if normal["mode"] != "narrative" or normal["badge"] != "Narrative Map":
                 raise AssertionError(f"Narrative Map was not the default browser journey: {normal}")
             if normal["routePanel"] or normal["solveRoute"] or normal["organization"]:
                 raise AssertionError(f"A retired visible surface remains: {normal}")
+            if normal["correctionStatus"] != {"state": "applied", "diagnostic": "valid"} or not normal["correctionId"]:
+                raise AssertionError(f"The sanitized working-copy correction was not applied: {normal}")
 
             technical = session.evaluate(
                 "import('./app.js').then(m=>{const toggle=document.querySelector('#technicalToggle');"
                 "const count=()=>document.querySelectorAll('.station[data-kind=technical_coverage]').length;"
                 "const initial=count();toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
                 "const before=count();toggle.checked=false;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
-                "const hidden=count();toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
-                "return {initial,before,hidden,restored:count(),server:m.state.page.nodes.filter(n=>n.kind==='technical_coverage').length};})"
+                "const hidden=count();const visibleIds=new Set([...document.querySelectorAll('.station')].map(n=>n.dataset.elementId));"
+                "const hiddenContinuity=m.state.page.edges.filter(e=>visibleIds.has(e.source_id)&&visibleIds.has(e.target_id)&&e.authority_edge_ids.length>1).length;"
+                "toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
+                "return {initial,before,hidden,hiddenContinuity,restored:count(),server:m.state.page.nodes.filter(n=>n.kind==='technical_coverage').length};})"
             )
             if not technical["before"] or technical["hidden"] or technical["restored"] != technical["before"]:
                 raise AssertionError(f"Technical coverage control did not change the visible map: {technical}")
+            if not technical["hiddenContinuity"]:
+                raise AssertionError(f"Hidden technical coverage severed story continuity: {technical}")
 
             geometry = _geometry(session)
             layout = DRIVER._layout(session)
@@ -420,7 +467,7 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
     policies: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="rsm-m15-browser-") as temporary:
         root = Path(temporary)
-        project, source, source_hash = _fixture_project(root)
+        project, source, source_hash, correction_id = _fixture_project(root)
         for zoom in ZOOMS:
             capture, csp = _serve(
                 project,
@@ -444,6 +491,7 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
         "provider_constructions": provider_counter[0],
         "remote_requests": 0,
         "m12_solve_or_destination_requests": 0,
+        "technical_correction_id": correction_id,
         "csp": policies,
         "captures": captures,
     }
