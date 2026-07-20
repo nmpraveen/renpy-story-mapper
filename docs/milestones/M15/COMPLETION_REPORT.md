@@ -44,6 +44,8 @@ clean exact heads are preserved in separate worktrees and neither was integrated
 | Track A exact private acceptance | Pass at unintegrated head | 70 corridors/events, 84 map nodes, 85 map edges, five major clusters, exact choice/rejoin pairs, Terrance end 278 and Janet start 280, required order, no blocked titles, zero provider calls/game execution, and unchanged private fingerprints |
 | Track B corrected candidate | Blocked | Clean head `6702e933dba82d19da8ea59ae246020eaebc9e80`; 24 focused/frozen tests, 135 adjacent M13 regressions, 90 reviewer tests, Ruff, strict mypy over 102 files, dependency and diff checks passed; exact rereview retains two P1s |
 | Provider/private safety through stop | Pass | Track A used immutable read-only local fixture access; Track B did not access private text; neither task made a cloud/live provider call; no candidate was integrated, pushed, or opened as a PR |
+| Phase Coordinator Track A blocker probe | Finding confirmed | Read-only inline CPython 3.12 probe at `aa570f3` passed two corridors with source lines `[2, 1]`, both hard-boundary flags set, and the same incident edge; assembler returned two events instead of failing closed |
+| Phase Coordinator Track B blocker probe | Findings confirmed | Read-only inline CPython 3.12 probe at `6702e93` constructed request bounds above the consent limits, submitted a one-call consent twice, omitted a valid claim from the semantic lock when one sibling had unknown evidence, and accepted a replacement claim against that lock |
 
 ## Review findings
 
@@ -55,6 +57,15 @@ clean exact heads are preserved in separate worktrees and neither was integrated
   event-summary repair can replace individually valid claims when a sibling claim is invalid.
 - Both independent reviewers used `gpt-5.6-sol` High with fast mode unavailable/unverified, made
   no edits, and exhausted the contract's one correction/one rereview cycle.
+- The narrow Track A correction scope is: reject descending same-context order regardless of
+  shared incident provenance; add the shared-edge hard-boundary regression; replace direct
+  synthetic `NarrativeCorridor` construction with synthetic M10/M11 inputs passed through
+  corridor, event, and map construction; and derive exact cluster order and line bounds from
+  event membership/presentation output rather than expected constants.
+- The narrow Track B correction scope is: enforce request bounds at or below the manifest;
+  consume call grants safely at the provider boundary so a one-call consent cannot submit twice;
+  add oversized, sequential-reuse, and concurrent-reuse regressions; and lock every individually
+  valid summary claim so an invalid sibling alone cannot authorize its replacement.
 
 ## Integration and PR state
 

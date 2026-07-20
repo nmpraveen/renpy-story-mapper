@@ -37,6 +37,9 @@ Updated: 2026-07-20 (M15 blocked before integration; native goal remains active)
   `6702e933dba82d19da8ea59ae246020eaebc9e80`; rereview retains P1s in direct-request consent
   budget consumption and claim-level summary repair. Neither track is integrated. Track C,
   Windows/browser/package acceptance, final review, push, and PR remain unstarted.
+- The Phase Coordinator independently reproduced all four residual P1s with read-only inline
+  CPython 3.12 probes at the exact reviewed heads. The minimum next correction/test scope is
+  recorded in `docs/milestones/M15/COMPLETION_REPORT.md`; no candidate worktree was modified.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
