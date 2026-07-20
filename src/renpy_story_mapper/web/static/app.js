@@ -558,7 +558,7 @@ async function enterAvailableWorkspace() {
   const available = await resetRoutePaging();
   await loadNarrative();
   await loadNarrativeRunStatus();
-  if (available) renderMap();
+  if (available) renderMap({ preserveViewport: true });
   return available;
 }
 

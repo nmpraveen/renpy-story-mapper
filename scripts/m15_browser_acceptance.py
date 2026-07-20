@@ -146,6 +146,79 @@ def _geometry(session: Any) -> dict[str, object]:
     return result
 
 
+def _pan_with_browser_input(session: Any, *, repetitions: int = 5) -> dict[str, object]:
+    session.evaluate("document.querySelector('#mapViewport').scrollIntoView({block:'center'})")
+    initial = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
+    gestures: list[dict[str, object]] = []
+    for index in range(repetitions):
+        point = session.evaluate(
+            "(()=>{const v=document.querySelector('#mapViewport');const r=v.getBoundingClientRect();"
+            "const left=Math.max(20,r.left+20),right=Math.min(innerWidth-20,r.right-20);"
+            "const top=Math.max(20,r.top+20),bottom=Math.min(innerHeight-20,r.bottom-20);"
+            "for(let y=top;y<=bottom;y+=24)for(let x=left;x<=right;x+=24){"
+            "const target=document.elementFromPoint(x,y);"
+            "if(target&&v.contains(target)&&!target.closest('.station,.edge-stop,.continuation-portal,button,input'))"
+            "return {x,y,target:target.tagName.toLowerCase()};}"
+            "throw new Error('No blank visible Narrative Map pan target was found');})()"
+        )
+        before = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
+        dx = 48 if index % 2 == 0 else -38
+        dy = 30 if index % 2 == 0 else -22
+        end_x = point["x"] + dx
+        end_y = point["y"] + dy
+        session.command(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseMoved", "x": point["x"], "y": point["y"], "button": "none"},
+        )
+        session.command(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mousePressed",
+                "x": point["x"],
+                "y": point["y"],
+                "button": "left",
+                "buttons": 1,
+                "clickCount": 1,
+            },
+        )
+        for step in range(1, 6):
+            session.command(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseMoved",
+                    "x": point["x"] + dx * step / 5,
+                    "y": point["y"] + dy * step / 5,
+                    "button": "left",
+                    "buttons": 1,
+                },
+            )
+        session.command(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseReleased",
+                "x": end_x,
+                "y": end_y,
+                "button": "left",
+                "buttons": 0,
+                "clickCount": 1,
+            },
+        )
+        after = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
+        if after == before:
+            raise AssertionError(
+                f"Browser-routed pointer pan {index + 1}/{repetitions} did not move the Narrative Map: "
+                f"point={point}, offset={after}"
+            )
+        gestures.append({"start": point, "before": before, "after": after})
+    return {
+        "input": "Chrome DevTools Protocol mouse pointer stream",
+        "repetitions": repetitions,
+        "before": initial,
+        "after": gestures[-1]["after"],
+        "gestures": gestures,
+    }
+
+
 def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="rsm-m15-chrome-", ignore_cleanup_errors=True) as temporary:
         process, session = DRIVER._session(browser, zoom, Path(temporary))
@@ -196,19 +269,8 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
             if restored_scale < 0.8:
                 raise AssertionError(f"Narrative Map readability could not be restored after Fit: {restored_scale}")
 
-            pan_before = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
-            session.evaluate(
-                "(()=>{const v=document.querySelector('#mapViewport');"
-                "const r=v.getBoundingClientRect();"
-                "Object.defineProperty(v,'setPointerCapture',{value:()=>{},configurable:true});"
-                "v.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:1,clientX:r.left+8,clientY:r.top+8}));"
-                "v.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:1,clientX:r.left+63,clientY:r.top+43}));"
-                "v.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:0,clientX:r.left+63,clientY:r.top+43}));"
-                "delete v.setPointerCapture;})()"
-            )
-            pan = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
-            if pan == pan_before:
-                raise AssertionError(f"Pointer pan did not move the Narrative Map: {pan}")
+            pan_stress = _pan_with_browser_input(session)
+            pan = pan_stress["after"]
 
             session.evaluate("document.querySelector('#zoomIn').click();document.querySelector('#zoomOut').click()")
             selected_before = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
@@ -249,6 +311,7 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
                 "restored_scale": restored_scale,
                 "layout": layout,
                 "pan_offset": pan,
+                "pan_stress": pan_stress,
                 "search_selection": {"before": selected_before, "after": selected_after},
                 "keyboard_selection": keyboard_selected,
                 "detail": detail,

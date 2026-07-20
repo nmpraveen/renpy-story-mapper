@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +43,9 @@ def test_m15_browser_harness_covers_track_c_gates() -> None:
         "#fitMap",
         "scaled",
         "restored_scale",
-        "new PointerEvent('pointerdown'",
+        "Input.dispatchMouseEvent",
+        "elementFromPoint",
+        "pan_stress",
         "Input.dispatchKeyEvent",
         "detail_evidence",
         "Content-Security-Policy",
@@ -65,6 +69,41 @@ def test_m15_browser_harness_help_uses_output_directory_contract() -> None:
     assert completed.returncode == 0
     assert "--output-dir" in completed.stdout
     assert "--browser" in completed.stdout
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="Node.js is required for browser client behavior checks",
+)
+def test_workspace_background_completion_preserves_an_active_viewport() -> None:
+    app = (ROOT / "src" / "renpy_story_mapper" / "web" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    start = app.index("async function enterAvailableWorkspace")
+    end = app.index("\n}\n", start) + 2
+    behavior = app[start:end]
+    script = f"""
+      {behavior}
+      const calls = [];
+      const showPrimary = (value) => calls.push(["primary", value]);
+      const showLevel = (value) => calls.push(["level", value]);
+      const resetRoutePaging = async () => {{ calls.push(["initial-render"]); return true; }};
+      const loadNarrative = async () => calls.push(["narrative"]);
+      const loadNarrativeRunStatus = async () => calls.push(["status"]);
+      const renderMap = (options = {{}}) => calls.push(["final-render", options]);
+      const available = await enterAvailableWorkspace();
+      process.stdout.write(JSON.stringify({{ available, calls }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["available"] is True
+    assert result["calls"][-1] == ["final-render", {"preserveViewport": True}]
 
 
 @pytest.mark.hardware_sensitive
