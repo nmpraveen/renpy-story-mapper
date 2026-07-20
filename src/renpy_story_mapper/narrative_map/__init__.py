@@ -53,4 +53,3 @@ __all__ = [
     "SourceLocator",
     "stable_m15_id",
 ]
-
