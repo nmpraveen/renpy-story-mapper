@@ -546,9 +546,9 @@ def _synthetic_authority(
             (f"evidence-{node_id}",),
             (),
             (origins[node_id],),
-            attributes,
+            {"source_kind": source_kind, "source_text": label, **attributes},
         )
-        for node_id, _atom_kind, canonical_kind, label, _source_kind, attributes in node_specs
+        for node_id, _atom_kind, canonical_kind, label, source_kind, attributes in node_specs
     )
     edges = tuple(
         CanonicalEdge(

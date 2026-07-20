@@ -69,7 +69,10 @@ def linear_authority(
             evidence_ids=(f"evidence-{index}",),
             proof_ids=(),
             origins=(origins[index],),
-            attributes={},
+            attributes={
+                "source_kind": source_kinds[index],
+                "source_text": labels[index],
+            },
         )
         for index, kind in enumerate(kinds)
     )

@@ -169,3 +169,61 @@ def test_day_and_chapter_progression_are_hard_contexts_with_no_boundary_job() ->
     )
     with pytest.raises(ValueError, match="exact adjacent soft candidate"):
         assemble_narrative_events(corridors, (decision,))
+
+
+def test_progression_context_uses_m10_source_evidence_not_m11_label() -> None:
+    canonical, model = linear_authority(
+        (AtomKind.NARRATION, AtomKind.VISUAL_CHANGE, AtomKind.NARRATION),
+        labels=("Prelude", "Scene room", "Story"),
+        source_kinds=("statement", "scene", "statement"),
+    )
+    ordinary_nodes = tuple(
+        replace(
+            item,
+            attributes={
+                "source_kind": ("scene" if index == 1 else "statement"),
+                "source_text": ("scene room" if index == 1 else "statement"),
+            },
+        )
+        for index, item in enumerate(canonical.nodes)
+    )
+    misleading_atoms = tuple(
+        replace(item, label="Scene day") if index == 1 else item
+        for index, item in enumerate(model.atoms)
+    )
+    ordinary_canonical = replace(canonical, nodes=ordinary_nodes)
+    ordinary_model = replace(
+        model,
+        binding=replace(model.binding, canonical_hash=ordinary_canonical.authority_hash),
+        atoms=misleading_atoms,
+    )
+    ordinary_corridors = build_narrative_corridors(ordinary_canonical, ordinary_model)
+    assert {item.chapter_id for item in ordinary_corridors} == {None}
+
+    day_nodes = tuple(
+        replace(
+            item,
+            attributes={
+                **item.attributes,
+                "source_text": "scene day with dissolve" if index == 1 else "statement",
+            },
+        )
+        for index, item in enumerate(ordinary_nodes)
+    )
+    nonsemantic_atoms = tuple(
+        replace(item, label="Scene room") if index == 1 else item
+        for index, item in enumerate(model.atoms)
+    )
+    day_canonical = replace(canonical, nodes=day_nodes)
+    day_model = replace(
+        model,
+        binding=replace(model.binding, canonical_hash=day_canonical.authority_hash),
+        atoms=nonsemantic_atoms,
+    )
+    day_corridors = build_narrative_corridors(day_canonical, day_model)
+    day_index = next(
+        index for index, item in enumerate(day_corridors) if "atom-1" in item.ordered_atom_ids
+    )
+    assert day_corridors[day_index].chapter_id == "progression:node-1"
+    assert day_corridors[day_index].hard_boundary_before
+    assert day_corridors[day_index - 1].hard_boundary_after

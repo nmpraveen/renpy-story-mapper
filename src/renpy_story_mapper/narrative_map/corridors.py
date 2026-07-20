@@ -32,6 +32,7 @@ from renpy_story_mapper.narrative_map.contracts import (
 
 _PROGRESSION_RE = re.compile(r"^(day|chapter|prologue)$", re.IGNORECASE)
 _VISUAL_COMMANDS = {"scene", "show", "hide", "image", "with", "at", "as"}
+_SCENE_MODIFIER_WORDS = {"with", "at", "onlayer", "zorder", "behind"}
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ def build_narrative_corridors(
     progression_atom_ids = {
         atom.id
         for atom in ordered_atoms
-        if _is_standalone_progression_marker(atom, canonical_by_node[atom.primary_node_id])
+        if _is_standalone_progression_marker(canonical_by_node[atom.primary_node_id])
     }
     progression_by_atom = _progression_contexts(ordered_atoms, progression_atom_ids)
     contexts: dict[str, _Context] = {}
@@ -584,13 +585,18 @@ def _visual_family(label: str) -> str | None:
     return meaningful[0] if meaningful else None
 
 
-def _is_standalone_progression_marker(atom: StoryAtom, node: CanonicalNode) -> bool:
-    source_kind = node.attributes.get("source_kind", atom.source_kind)
-    if atom.kind is not AtomKind.VISUAL_CHANGE or source_kind != "scene":
+def _is_standalone_progression_marker(node: CanonicalNode) -> bool:
+    source_kind_value = node.attributes.get("source_kind")
+    source_text_value = node.attributes.get("source_text")
+    if source_kind_value != "scene" or not isinstance(source_text_value, str):
         return False
-    words = re.findall(r"[a-z]+", atom.label.casefold())
-    meaningful = [item for item in words if item not in _VISUAL_COMMANDS]
-    return len(meaningful) == 1 and _PROGRESSION_RE.fullmatch(meaningful[0]) is not None
+    words = re.findall(r"[a-z]+", source_text_value.casefold())
+    return (
+        len(words) >= 2
+        and words[0] == "scene"
+        and _PROGRESSION_RE.fullmatch(words[1]) is not None
+        and (len(words) == 2 or words[2] in _SCENE_MODIFIER_WORDS)
+    )
 
 
 def _is_collapsed_technical(atom: StoryAtom) -> bool:
