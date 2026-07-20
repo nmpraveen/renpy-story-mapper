@@ -128,16 +128,16 @@ evidence remain deterministic.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Prior pass is stale; amended correction contract and combined matrices pending |
-| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Failed at final review; correction application and regenerated evidence pending |
-| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Prior pass; revalidation pending after amended API correction path |
-| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Prior pass; correction identity/cache invalidation revalidation pending; no live consent required |
-| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Prior evidence is stale; regenerated corrected browser evidence pending |
-| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Prior pass; working-copy correction and original-input immutability revalidation pending |
-| 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | In progress; track/combined gates pass, final evidence-head Release pending |
-| 18 | Track and final exact-head review reports with finding disposition | In progress; Track A and final integrated review require fresh PASS after correction |
-| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; visible-order/browser evidence is stale; infographic remains valid; PR pending |
-| 20 | Correction schema/identity, atomic persistence/reopen, rejection matrix, API/browser application, cache invalidation, regenerated exact/browser evidence | Pending; semantic amendment must PASS before implementation |
+| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Pass; corrected Track A exact head `bc4106a`, two independent PASS reviews, 53 focused and 80 adjacent M10/M11 tests |
+| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Pass; fresh corrected working-copy report and regenerated `VISIBLE_ORDER.txt`, Prologue 27 / Day 1 52 / five ordered clusters |
+| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Pass; reviewed Track C correction head `d8a77ca`, integrated matrices and fresh exact browser traversal |
+| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Pass; correction-bearing candidate/event/job/cache identities do not alias; zero calls; no live consent required |
+| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Pass; fresh exact captures, 85/85 finite edges, zero overlaps, technical coverage hidden, zero forbidden requests |
+| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Pass; source and original comparison project unchanged; working copy unchanged during evaluation; zero game/creator execution |
+| 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | In progress; Track C Release had 1,268 passes plus one now-reconciled lifecycle-marker failure; final evidence-head Release pending |
+| 18 | Track and final exact-head review reports with finding disposition | In progress; corrected Track A and Track C reviews PASS with no P0-P2; final integrated review pending |
+| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; corrected artifacts complete and infographic valid; PR pending |
+| 20 | Correction schema/identity, atomic persistence/reopen, rejection matrix, API/browser application, cache invalidation, regenerated exact/browser evidence | Pass; strict version/occurrence qualification, atomic reopen, fail-closed matrix, normal API/browser application, identity invalidation, fresh evidence |
 
 ## Exclusions
 

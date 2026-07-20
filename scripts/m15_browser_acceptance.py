@@ -259,7 +259,14 @@ def _pan_with_browser_input(session: Any, *, repetitions: int = 5) -> dict[str, 
     }
 
 
-def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, object]:
+def _capture(
+    browser: Path,
+    output: Path,
+    zoom: int,
+    origin: str,
+    *,
+    require_hidden_continuity: bool = True,
+) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="rsm-m15-chrome-", ignore_cleanup_errors=True) as temporary:
         process, session = DRIVER._session(browser, zoom, Path(temporary))
         try:
@@ -293,7 +300,7 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
             )
             if not technical["before"] or technical["hidden"] or technical["restored"] != technical["before"]:
                 raise AssertionError(f"Technical coverage control did not change the visible map: {technical}")
-            if not technical["hiddenContinuity"]:
+            if require_hidden_continuity and not technical["hiddenContinuity"]:
                 raise AssertionError(f"Hidden technical coverage severed story continuity: {technical}")
 
             geometry = _geometry(session)
