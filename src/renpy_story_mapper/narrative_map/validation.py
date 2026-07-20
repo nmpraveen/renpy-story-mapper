@@ -292,6 +292,7 @@ def validate_event_summary_response(
         warnings = ()
     raw_claims = payload.get("claims")
     claims: list[EventSummaryClaim] = []
+    indexed_claims: list[tuple[int, EventSummaryClaim]] = []
     if not isinstance(raw_claims, list):
         findings.append(ValidationFinding("claims_not_array", event.event_id))
     else:
@@ -334,7 +335,21 @@ def validate_event_summary_response(
             assert claim_class is not None
             assert isinstance(claim_text, str)
             assert evidence_ids is not None
-            claims.append(EventSummaryClaim(claim_class, claim_text, evidence_ids))
+            claim = EventSummaryClaim(claim_class, claim_text, evidence_ids)
+            claims.append(claim)
+            indexed_claims.append((index, claim))
+        duplicate_claim_ids = {
+            claim_id
+            for claim_id, count in Counter(
+                claim.claim_id for _, claim in indexed_claims
+            ).items()
+            if count > 1
+        }
+        findings.extend(
+            ValidationFinding("duplicate_claim", event.event_id, index)
+            for index, claim in indexed_claims
+            if claim.claim_id in duplicate_claim_ids
+        )
     if findings:
         return EventSummaryValidationResult(None, tuple(findings))
     assert isinstance(title, str)

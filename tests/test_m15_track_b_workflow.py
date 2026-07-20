@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -31,6 +33,7 @@ from renpy_story_mapper.narrative_map.persistence import (
 )
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeConsentManifest,
+    NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     ProviderProfile,
@@ -42,7 +45,11 @@ from renpy_story_mapper.narrative_map.validation import (
     validate_event_summary_response,
 )
 from renpy_story_mapper.narrative_map.workflow import NarrativeBoundaryWorkflow
-from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
+from renpy_story_mapper.organization.sterile_runner import (
+    SterileRunnerError,
+    SterileRunRequest,
+    SterileRunResult,
+)
 from renpy_story_mapper.project import Project
 
 
@@ -231,6 +238,21 @@ class _FakeSterileRunner:
         self.cancel_count += 1
 
 
+class _FailingSterileRunner:
+    def __init__(self) -> None:
+        self.requests: list[SterileRunRequest] = []
+
+    def execute(
+        self, request: SterileRunRequest, cancelled: Callable[[], bool]
+    ) -> SterileRunResult:
+        assert not cancelled()
+        self.requests.append(request)
+        raise SterileRunnerError("synthetic_failure", "Synthetic sterile failure.")
+
+    def cancel(self) -> None:
+        pass
+
+
 def test_boundary_projection_covers_each_adjacent_soft_candidate_once() -> None:
     first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
     candidates = (_candidate(first, second), _candidate(second, third))
@@ -308,6 +330,313 @@ def test_sterile_provider_revalidates_consent_freshness_at_submit() -> None:
     with pytest.raises(ValueError, match="fresh"):
         SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
     assert runner.requests == []
+
+
+def test_provider_request_cannot_exceed_exact_consent_transport_bounds() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="bounded-request",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+        maximum_input_bytes=100,
+        maximum_output_bytes=200,
+        timeout_seconds=1.0,
+    )
+    common = {
+        "request_id": "bounded-request-1",
+        "consent": consent,
+        "profile": _profile(),
+        "job": job,
+    }
+
+    with pytest.raises(ValueError, match=r"input.*consent"):
+        NarrativeMapProviderRequest(
+            **common,
+            maximum_input_bytes=101,
+            maximum_output_bytes=200,
+            timeout_seconds=1.0,
+        )
+    with pytest.raises(ValueError, match=r"output.*consent"):
+        NarrativeMapProviderRequest(
+            **common,
+            maximum_input_bytes=100,
+            maximum_output_bytes=201,
+            timeout_seconds=1.0,
+        )
+    with pytest.raises(ValueError, match=r"timeout.*consent"):
+        NarrativeMapProviderRequest(
+            **common,
+            maximum_input_bytes=100,
+            maximum_output_bytes=200,
+            timeout_seconds=2.0,
+        )
+
+
+def test_sterile_provider_consumes_one_call_consent_before_sequential_reuse() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    runner = _FakeSterileRunner(payload)
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="single-call",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    request = NarrativeMapProviderRequest(
+        request_id="single-call-request",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    provider = SterileNarrativeMapProvider(runner=runner)
+
+    provider.submit(request, lambda: False)
+    with pytest.raises(NarrativeMapProviderError, match="provider call grant") as exc_info:
+        provider.submit(request, lambda: False)
+    assert exc_info.value.error_code == "consent_call_limit"
+    assert len(runner.requests) == 1
+
+
+def test_consent_call_ledger_survives_manifest_copy_and_provider_instance() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="copied-single-call",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    copied_consent = replace(consent)
+    first_request = NarrativeMapProviderRequest(
+        request_id="copied-single-call-1",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    second_request = NarrativeMapProviderRequest(
+        request_id="copied-single-call-2",
+        consent=copied_consent,
+        profile=_profile(),
+        job=job,
+    )
+    first_runner = _FakeSterileRunner(payload)
+    second_runner = _FakeSterileRunner(payload)
+
+    SterileNarrativeMapProvider(runner=first_runner).submit(first_request, lambda: False)
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
+        SterileNarrativeMapProvider(runner=second_runner).submit(
+            second_request, lambda: False
+        )
+
+    assert exc_info.value.error_code == "consent_call_limit"
+    assert len(first_runner.requests) == 1
+    assert second_runner.requests == []
+
+
+def test_sterile_provider_atomically_reserves_one_call_under_double_submit() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    runner = _FakeSterileRunner(payload)
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="concurrent-single-call",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    request = NarrativeMapProviderRequest(
+        request_id="concurrent-single-call-request",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    provider = SterileNarrativeMapProvider(runner=runner)
+    ready = Barrier(3)
+
+    def submit() -> object:
+        ready.wait()
+        try:
+            return provider.submit(request, lambda: False)
+        except NarrativeMapProviderError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (executor.submit(submit), executor.submit(submit))
+        ready.wait()
+        outcomes = tuple(future.result() for future in futures)
+
+    assert sum(isinstance(outcome, NarrativeMapProviderResponse) for outcome in outcomes) == 1
+    failures = [
+        outcome for outcome in outcomes if isinstance(outcome, NarrativeMapProviderError)
+    ]
+    assert len(failures) == 1
+    assert "provider call grant" in str(failures[0])
+    assert failures[0].error_code == "consent_call_limit"
+    assert len(runner.requests) == 1
+
+
+def test_sterile_provider_does_not_refund_grant_after_runner_failure() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="failed-single-call",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    request = NarrativeMapProviderRequest(
+        request_id="failed-single-call-request",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    runner = _FailingSterileRunner()
+    provider = SterileNarrativeMapProvider(runner=runner)
+
+    with pytest.raises(NarrativeMapProviderError) as first_error:
+        provider.submit(request, lambda: False)
+    assert first_error.value.error_code == "synthetic_failure"
+    with pytest.raises(NarrativeMapProviderError) as second_error:
+        provider.submit(request, lambda: False)
+    assert second_error.value.error_code == "consent_call_limit"
+    assert len(runner.requests) == 1
+
+
+def test_submit_revalidates_mutated_bounds_without_consuming_call_grant() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="mutated-bounds",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+        maximum_input_bytes=10_000,
+    )
+    request = NarrativeMapProviderRequest(
+        request_id="mutated-bounds-request",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+        maximum_input_bytes=10_000,
+    )
+    runner = _FakeSterileRunner(payload)
+    provider = SterileNarrativeMapProvider(runner=runner)
+
+    object.__setattr__(request, "maximum_input_bytes", 10_001)
+    with pytest.raises(ValueError, match=r"input.*consent"):
+        provider.submit(request, lambda: False)
+    assert runner.requests == []
+
+    object.__setattr__(request, "maximum_input_bytes", 10_000)
+    provider.submit(request, lambda: False)
+    assert len(runner.requests) == 1
+
+
+def test_cancellation_before_reservation_does_not_consume_call_grant() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="cancel-before-reserve",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    request = NarrativeMapProviderRequest(
+        request_id="cancel-before-reserve-request",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    runner = _FakeSterileRunner(payload)
+    provider = SterileNarrativeMapProvider(runner=runner)
+
+    with pytest.raises(NarrativeMapProviderError) as cancelled_error:
+        provider.submit(request, lambda: True)
+    assert cancelled_error.value.error_code == "cancelled"
+    provider.submit(request, lambda: False)
+    assert len(runner.requests) == 1
 
 
 def test_boundary_projection_rejects_nonadjacent_and_hard_candidates() -> None:
@@ -732,6 +1061,272 @@ def test_summary_schema_repair_cannot_change_valid_title_semantics(tmp_path: Pat
         ).run_event_summary_jobs((job,), consent=_consent((job,)))
         assert report.validated_job_ids == ()
         assert report.failed_job_ids == (job.job_id,)
+
+
+def test_summary_repair_cannot_replace_valid_claim_when_sibling_is_invalid(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    original_claim = {
+        "claim_class": "factual",
+        "text": "The first supported fact remains fixed.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    replacement_claim = {
+        "claim_class": "factual",
+        "text": "A different supported fact replaces it.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    repaired_sibling = {
+        "claim_class": "interpretive",
+        "text": "The exchange suggests a difficult choice.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    provider = _FakeProvider(
+        [
+            {
+                "event_id": event.event_id,
+                "title": "A difficult exchange",
+                "summary": "The characters discuss a difficult choice.",
+                "characters": ["Narrator"],
+                "claims": [
+                    original_claim,
+                    {
+                        "claim_class": "factual",
+                        "text": "Unsupported sibling.",
+                        "evidence_ids": ["foreign-evidence"],
+                    },
+                ],
+                "warnings": [],
+            },
+            {
+                "event_id": event.event_id,
+                "title": "A difficult exchange",
+                "summary": "The characters discuss a difficult choice.",
+                "characters": ["Narrator"],
+                "claims": [replacement_claim, repaired_sibling],
+                "warnings": [],
+            },
+        ]
+    )
+
+    with Project.create(tmp_path / "summary-claim-reinterpretation.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+
+    assert report.validated_job_ids == ()
+    assert report.failed_job_ids == (job.job_id,)
+    assert report.provider_calls == 2
+
+
+def test_summary_repair_preserves_valid_claim_slot_and_exact_evidence_identity(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    original_claim = {
+        "claim_class": "factual",
+        "text": "The supported fact remains in its original slot.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    repaired_sibling = {
+        "claim_class": "interpretive",
+        "text": "The exchange suggests a difficult choice.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    common = {
+        "event_id": event.event_id,
+        "title": "A difficult exchange",
+        "summary": "The characters discuss a difficult choice.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            {
+                **common,
+                "claims": [
+                    original_claim,
+                    {
+                        "claim_class": "factual",
+                        "text": "Unsupported sibling.",
+                        "evidence_ids": ["foreign-evidence"],
+                    },
+                ],
+            },
+            {**common, "claims": [original_claim, repaired_sibling]},
+        ]
+    )
+
+    with Project.create(tmp_path / "summary-claim-repair.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(
+            repository, provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+        record = repository.get(job.kind, job.job_id)
+
+    assert report.validated_job_ids == (job.job_id,)
+    assert report.failed_job_ids == ()
+    assert record is not None
+    assert record.result is not None
+    claims = record.result["claims"]
+    assert isinstance(claims, list)
+    assert tuple(claim["text"] for claim in claims if isinstance(claim, dict)) == (
+        original_claim["text"],
+        repaired_sibling["text"],
+    )
+    first_claim = claims[0]
+    assert isinstance(first_claim, dict)
+    assert first_claim["evidence_ids"] == [first.provenance.evidence_ids[0]]
+
+
+def test_event_summary_validation_rejects_duplicate_claims() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    claim = {
+        "claim_class": "factual",
+        "text": "The same supported fact.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    result = validate_event_summary_response(
+        {
+            "event_id": event.event_id,
+            "title": "A difficult exchange",
+            "summary": "The characters discuss a difficult choice.",
+            "characters": ["Narrator"],
+            "claims": [claim, claim],
+            "warnings": [],
+        },
+        event,
+        known_characters=("Narrator",),
+        provider_identity=None,
+    )
+
+    assert result.summary is None
+    assert [finding.code for finding in result.findings].count("duplicate_claim") == 2
+
+
+@pytest.mark.parametrize("mutation", ["reorder", "evidence", "append", "duplicate"])
+def test_summary_claim_slots_reject_order_evidence_and_invention_mutations(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    claim_a = {
+        "claim_class": "factual",
+        "text": "The first supported fact stays ordered.",
+        "evidence_ids": [
+            first.provenance.evidence_ids[0],
+            second.provenance.evidence_ids[0],
+        ],
+    }
+    claim_b = {
+        "claim_class": "interpretive",
+        "text": "The second supported claim stays ordered.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    fixed = {
+        "claim_class": "factual",
+        "text": "The invalid slot is repaired in place.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    repair_claims = [claim_a, fixed, claim_b]
+    if mutation == "reorder":
+        repair_claims = [claim_b, fixed, claim_a]
+    elif mutation == "evidence":
+        repair_claims = [
+            {**claim_a, "evidence_ids": list(reversed(claim_a["evidence_ids"]))},
+            fixed,
+            claim_b,
+        ]
+    elif mutation == "append":
+        repair_claims = [claim_a, fixed, claim_b, {**fixed, "text": "Invented append."}]
+    elif mutation == "duplicate":
+        repair_claims = [claim_a, claim_a, claim_b]
+    common = {
+        "event_id": event.event_id,
+        "title": "An ordered exchange",
+        "summary": "The exchange retains only evidence-backed claims.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            {
+                **common,
+                "claims": [
+                    claim_a,
+                    {
+                        "claim_class": "factual",
+                        "text": "Unsupported middle slot.",
+                        "evidence_ids": ["foreign-evidence"],
+                    },
+                    claim_b,
+                ],
+            },
+            {**common, "claims": repair_claims},
+        ]
+    )
+
+    with Project.create(tmp_path / f"claim-{mutation}.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+
+    assert report.validated_job_ids == ()
+    assert report.failed_job_ids == (job.job_id,)
+
+
+def test_summary_repair_cannot_invent_claims_when_claims_array_was_missing(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    common = {
+        "event_id": event.event_id,
+        "title": "A bounded repair",
+        "summary": "The repair cannot invent an unrequested claim slot.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            common,
+            {
+                **common,
+                "claims": [
+                    {
+                        "claim_class": "factual",
+                        "text": "Invented during repair.",
+                        "evidence_ids": [first.provenance.evidence_ids[0]],
+                    }
+                ],
+            },
+        ]
+    )
+
+    with Project.create(tmp_path / "claim-invention.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+
+    assert report.validated_job_ids == ()
+    assert report.failed_job_ids == (job.job_id,)
 
 
 def test_fabricated_soft_signal_cannot_enter_projection() -> None:

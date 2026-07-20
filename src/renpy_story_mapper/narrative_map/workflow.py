@@ -539,20 +539,39 @@ def _semantic_lock(
         warnings, MAX_REASON_LENGTH
     ):
         locked["warnings"] = cast(list[JsonValue], warnings)
-    claim_failures = {
-        "claim_not_object",
-        "invalid_claim_class",
-        "invalid_claim_text",
-        "invalid_evidence",
-        "unknown_evidence",
-    }
     claims = payload.get("claims")
-    if (
-        "claims_not_array" not in finding_codes
-        and not finding_codes.intersection(claim_failures)
-        and isinstance(claims, list)
-    ):
-        locked["claims"] = cast(list[JsonValue], claims)
+    invalid_claim_indexes = {
+        finding.index for finding in findings if finding.index is not None
+    }
+    locked_claims: list[JsonValue] = []
+    if isinstance(claims, list):
+        for index, claim in enumerate(claims):
+            if index in invalid_claim_indexes or not isinstance(claim, Mapping):
+                continue
+            claim_class = claim.get("claim_class")
+            text = claim.get("text")
+            evidence_ids = claim.get("evidence_ids")
+            if (
+                set(claim) == {"claim_class", "text", "evidence_ids"}
+                and isinstance(claim_class, str)
+                and isinstance(text, str)
+                and isinstance(evidence_ids, list)
+                and all(isinstance(item, str) for item in evidence_ids)
+            ):
+                locked_claims.append(
+                    {
+                        "index": index,
+                        "claim": {
+                            "claim_class": claim_class,
+                            "text": text,
+                            "evidence_ids": list(cast(list[str], evidence_ids)),
+                        },
+                    }
+                )
+    locked["__claim_slots__"] = {
+        "length": len(claims) if isinstance(claims, list) else 0,
+        "locked": locked_claims,
+    }
     return locked
 
 
@@ -564,10 +583,45 @@ def _matches_semantic_lock(
     if not locked:
         return True
     current = _semantic_lock(job, payload, ())
-    return all(
+    scalar_match = all(
         key in current and canonical_hash(current[key]) == canonical_hash(value)
         for key, value in locked.items()
+        if key != "__claim_slots__"
     )
+    if not scalar_match:
+        return False
+    claim_slots = locked.get("__claim_slots__")
+    return claim_slots is None or _matches_claim_slots(payload, claim_slots)
+
+
+def _matches_claim_slots(payload: object, constraint: JsonValue) -> bool:
+    if not isinstance(payload, Mapping) or not isinstance(constraint, Mapping):
+        return False
+    claims = payload.get("claims")
+    length = constraint.get("length")
+    locked = constraint.get("locked")
+    if (
+        not isinstance(claims, list)
+        or not isinstance(length, int)
+        or isinstance(length, bool)
+        or len(claims) != length
+        or not isinstance(locked, list)
+    ):
+        return False
+    for entry in locked:
+        if not isinstance(entry, Mapping) or set(entry) != {"index", "claim"}:
+            return False
+        index = entry.get("index")
+        claim = entry.get("claim")
+        if (
+            not isinstance(index, int)
+            or isinstance(index, bool)
+            or not 0 <= index < len(claims)
+            or not isinstance(claim, Mapping)
+            or canonical_hash(claims[index]) != canonical_hash(claim)
+        ):
+            return False
+    return True
 
 
 def _repair_text(value: object, maximum: int) -> bool:

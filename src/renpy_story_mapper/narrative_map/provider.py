@@ -11,10 +11,11 @@ import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from importlib.resources import as_file, files
+from threading import Lock
 from typing import Protocol, cast
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
@@ -43,6 +44,35 @@ MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 
 CancelledCallback = Callable[[], bool]
+
+
+class _ConsentCallLedger:
+    """Transient atomic call grants shared by copies of one consent manifest."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._bound_manifest_id: str | None = None
+        self._reserved_calls = 0
+
+    def reserve(
+        self,
+        manifest: NarrativeConsentManifest,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+    ) -> None:
+        with self._lock:
+            manifest.validate_job(job, profile)
+            manifest_id = manifest.manifest_id
+            if self._bound_manifest_id is None:
+                self._bound_manifest_id = manifest_id
+            elif self._bound_manifest_id != manifest_id:
+                raise ValueError("M15 consent call ledger identity does not match")
+            if self._reserved_calls >= manifest.maximum_provider_calls:
+                raise NarrativeMapProviderError(
+                    "consent_call_limit",
+                    "The M15 consent has no remaining provider call grant.",
+                )
+            self._reserved_calls += 1
 
 
 class ProviderJobKind(StrEnum):
@@ -170,6 +200,11 @@ class NarrativeConsentManifest:
     timeout_seconds: float
     consent_granted: bool = False
     version: str = "m15-narrative-consent-v1"
+    _call_ledger: _ConsentCallLedger = field(
+        default_factory=_ConsentCallLedger,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not self.run_id or self.run_id != self.run_id.strip():
@@ -295,6 +330,15 @@ class NarrativeConsentManifest:
         if issued > now + timedelta(minutes=1) or now >= expires:
             raise ValueError("M15 provider consent is not fresh")
 
+    def reserve_provider_call(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+    ) -> None:
+        """Atomically consume one call grant immediately before transmission."""
+
+        self._call_ledger.reserve(self, job, profile)
+
 
 @dataclass(frozen=True)
 class NarrativeMapProviderRequest:
@@ -314,16 +358,32 @@ class NarrativeMapProviderRequest:
         ):
             if not value or value != value.strip():
                 raise ValueError(f"{label} must be a non-empty trimmed string")
-        if (
-            self.timeout_seconds <= 0
-            or self.maximum_input_bytes <= 0
-            or self.maximum_output_bytes <= 0
-        ):
-            raise ValueError("provider bounds must be positive")
         if len(self.repair_codes) != len(set(self.repair_codes)):
             raise ValueError("repair codes must be unique")
         if bool(self.repair_codes) != (self.repair_semantics is not None):
             raise ValueError("schema repair metadata must be supplied together")
+        self.validate_for_submission()
+
+    def validate_for_submission(self) -> None:
+        if (
+            not isinstance(self.timeout_seconds, int | float)
+            or isinstance(self.timeout_seconds, bool)
+            or not math.isfinite(float(self.timeout_seconds))
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("provider timeout bound must be finite and positive")
+        for value, label in (
+            (self.maximum_input_bytes, "input"),
+            (self.maximum_output_bytes, "output"),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"provider {label} bound must be a positive integer")
+        if self.maximum_input_bytes > self.consent.maximum_input_bytes:
+            raise ValueError("provider input bound exceeds consent")
+        if self.maximum_output_bytes > self.consent.maximum_output_bytes:
+            raise ValueError("provider output bound exceeds consent")
+        if self.timeout_seconds > self.consent.timeout_seconds:
+            raise ValueError("provider timeout bound exceeds consent")
         self.consent.validate_job(self.job, self.profile)
 
     @property
@@ -391,7 +451,7 @@ class SterileNarrativeMapProvider:
     ) -> NarrativeMapProviderResponse:
         if cancelled():
             raise NarrativeMapProviderError("cancelled", "The provider request was cancelled.")
-        request.consent.validate_job(request.job, request.profile)
+        request.validate_for_submission()
         prompt_name, schema_name = _resource_names(request.job.kind)
         prompt = _serialize_prompt(request, prompt_name)
         if len(prompt) > request.maximum_input_bytes:
@@ -404,16 +464,22 @@ class SterileNarrativeMapProvider:
             )
         try:
             with as_file(schema_resource) as schema_path:
+                sterile_request = SterileRunRequest(
+                    model=request.profile.requested_model,
+                    schema_path=schema_path,
+                    stdin=prompt,
+                    timeout_seconds=request.timeout_seconds,
+                    maximum_output_bytes=request.maximum_output_bytes,
+                    model_reasoning_effort=reasoning,
+                )
+                if cancelled():
+                    raise NarrativeMapProviderError(
+                        "cancelled", "The provider request was cancelled."
+                    )
+                request.consent.reserve_provider_call(request.job, request.profile)
                 started_at = time.monotonic()
                 result = self._runner.execute(
-                    SterileRunRequest(
-                        model=request.profile.requested_model,
-                        schema_path=schema_path,
-                        stdin=prompt,
-                        timeout_seconds=request.timeout_seconds,
-                        maximum_output_bytes=request.maximum_output_bytes,
-                        model_reasoning_effort=reasoning,
-                    ),
+                    sterile_request,
                     cancelled,
                 )
         except SterileRunnerError as exc:
