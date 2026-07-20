@@ -15,6 +15,7 @@ from renpy_story_mapper.narrative_map import (
     CoverageState,
     LeadingTechnicalCoverageCorrection,
     NarrativeNodeKind,
+    QualifiedSourceLocator,
     SourceLocator,
     assemble_narrative_events,
     build_boundary_candidates,
@@ -29,6 +30,16 @@ def _locator(index: int) -> SourceLocator:
     return SourceLocator("game/synthetic.rpy", index + 1, index + 1, "physical_source")
 
 
+def _qualified(atom_id: str, locator: SourceLocator) -> QualifiedSourceLocator:
+    marker = atom_id.removeprefix("atom-")
+    return QualifiedSourceLocator(
+        atom_id=atom_id,
+        primary_node_id=f"node-{marker}",
+        evidence_ids=(f"evidence-{marker}",),
+        source=locator,
+    )
+
+
 def _correction(
     canonical: object,
     model: object,
@@ -40,7 +51,10 @@ def _correction(
     return LeadingTechnicalCoverageCorrection(
         authority=authority or bind_m15_authority(canonical, model),  # type: ignore[arg-type]
         reason="User classified the exact leading setup as technical coverage.",
-        qualified_locators=locators,
+        qualified_locators=tuple(
+            _qualified(atom_id, locators[min(index, len(locators) - 1)])
+            for index, atom_id in enumerate(atom_ids)
+        ),
         ordered_atom_ids=atom_ids,
     )
 
@@ -60,7 +74,10 @@ def test_correction_contract_is_versioned_serializable_stable_and_bounded() -> N
     assert payload["normalized_hash"] == correction.normalized_hash
     assert payload["authority"] == bind_m15_authority(canonical, model).to_dict()
     assert payload["ordered_atom_ids"] == ["atom-0", "atom-1"]
-    assert payload["qualified_locators"] == [_locator(0).to_dict(), _locator(1).to_dict()]
+    assert payload["qualified_locators"] == [
+        _qualified("atom-0", _locator(0)).to_dict(),
+        _qualified("atom-1", _locator(1)).to_dict(),
+    ]
     assert LeadingTechnicalCoverageCorrection.from_dict(payload) == correction
     assert _correction(canonical, model).correction_id == correction.correction_id
 
@@ -71,7 +88,19 @@ def test_correction_contract_is_versioned_serializable_stable_and_bounded() -> N
     with pytest.raises(ValueError, match="unique"):
         replace(correction, ordered_atom_ids=("atom-0", "atom-0"))
     with pytest.raises(ValueError, match="unique"):
-        replace(correction, qualified_locators=(_locator(0), _locator(0)))
+        replace(
+            correction,
+            qualified_locators=(
+                _qualified("atom-0", _locator(0)),
+                _qualified("atom-0", _locator(0)),
+            ),
+        )
+    with pytest.raises(ValueError, match="unsupported"):
+        replace(correction, rule_version="m15-leading-technical-coverage-rule-v999")
+    with pytest.raises(ValueError, match="unsupported"):
+        LeadingTechnicalCoverageCorrection.from_dict(
+            {**payload, "rule_version": "m15-leading-technical-coverage-rule-v999"}
+        )
     with pytest.raises(ValueError, match="schema"):
         LeadingTechnicalCoverageCorrection.from_dict({**payload, "schema": "unknown"})
     with pytest.raises(ValueError, match="normalized hash"):
@@ -132,38 +161,40 @@ def test_unknown_stale_mismatched_nonprefix_and_out_of_order_reject(
     assert all(not item.technical_atom_ids for item in conservative)
 
 
-def test_ambiguous_qualified_locator_rejects() -> None:
+def test_mismatched_qualified_occurrence_rejects() -> None:
     canonical, model = _four_story_atoms()
-    duplicate_source = dict(canonical.evidence[0].source)
-    evidence = (
-        canonical.evidence[0],
-        replace(canonical.evidence[1], source=duplicate_source),
-        *canonical.evidence[2:],
-    )
-    ambiguous_canonical = replace(canonical, evidence=evidence)
-    ambiguous_model = replace(
-        model,
-        binding=replace(model.binding, canonical_hash=ambiguous_canonical.authority_hash),
-    )
-    correction = _correction(
-        ambiguous_canonical,
-        ambiguous_model,
-        ("atom-0",),
-        (_locator(0),),
+    correction = _correction(canonical, model, ("atom-0",), (_locator(0),))
+    correction = replace(
+        correction,
+        qualified_locators=(replace(correction.qualified_locators[0], primary_node_id="node-1"),),
     )
 
-    with pytest.raises(ValueError, match=r"ambiguous|uniquely"):
+    with pytest.raises(ValueError, match=r"node|mismatch"):
         resolve_leading_technical_coverage_correction(
-            ambiguous_canonical,
-            ambiguous_model,
+            canonical,
+            model,
             correction,
         )
     conservative = build_narrative_corridors(
-        ambiguous_canonical,
-        ambiguous_model,
+        canonical,
+        model,
         technical_correction=correction,
     )
     assert all(not item.technical_atom_ids for item in conservative)
+
+
+def test_qualified_locator_cannot_name_a_later_repeated_occurrence() -> None:
+    canonical, model = _four_story_atoms()
+    with pytest.raises(ValueError, match=r"order|tuple"):
+        LeadingTechnicalCoverageCorrection(
+            authority=bind_m15_authority(canonical, model),
+            reason="User classified exact leading technical coverage.",
+            qualified_locators=(
+                _qualified("atom-0", _locator(0)),
+                _qualified("atom-2", _locator(0)),
+            ),
+            ordered_atom_ids=("atom-0",),
+        )
 
 
 def test_empty_correction_rejects_at_contract_boundary() -> None:

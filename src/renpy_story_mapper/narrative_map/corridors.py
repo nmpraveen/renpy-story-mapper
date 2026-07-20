@@ -28,6 +28,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     LeadingTechnicalCoverageCorrection,
     NarrativeCorridor,
     Provenance,
+    QualifiedSourceLocator,
     SourceLocator,
 )
 
@@ -456,29 +457,17 @@ def resolve_leading_technical_coverage_correction(
         raise ValueError("technical correction atom IDs are not the ordered prefix")
 
     evidence_by_id = {item.id: item for item in canonical.evidence}
-    atom_locator_sets = {item.id: atom_locators(item, evidence_by_id) for item in ordered_atoms}
-    locator_hits = [
-        tuple(
-            index
-            for index, locator in enumerate(correction.qualified_locators)
-            if any(_locator_contains(locator, item) for item in atom_locator_sets[atom_id])
-        )
-        for atom_id in ordered_ids
-    ]
-    resolved_length = 0
-    while resolved_length < len(locator_hits) and locator_hits[resolved_length]:
-        if len(locator_hits[resolved_length]) != 1:
-            raise ValueError("technical correction locator resolution is ambiguous")
-        resolved_length += 1
-    if not all(
-        any(index in hits for hits in locator_hits[:resolved_length])
-        for index in range(len(correction.qualified_locators))
-    ):
-        raise ValueError("technical correction locator does not resolve the leading prefix")
-    if ordered_ids[:resolved_length] != correction.ordered_atom_ids:
-        raise ValueError(
-            "technical correction locators are ambiguous or do not match its atom tuple"
-        )
+    atom_by_id = {item.id: item for item in ordered_atoms}
+    for qualified in correction.qualified_locators:
+        atom = atom_by_id.get(qualified.atom_id)
+        if atom is None:
+            raise ValueError("technical correction locator names an unknown atom")
+        if atom.primary_node_id != qualified.primary_node_id:
+            raise ValueError("technical correction locator primary node is mismatched")
+        if atom.provenance.evidence_ids != qualified.evidence_ids:
+            raise ValueError("technical correction locator evidence is stale or mismatched")
+        if qualified.source not in atom_locators(atom, evidence_by_id):
+            raise ValueError("technical correction locator source does not resolve uniquely")
     return correction.ordered_atom_ids
 
 
@@ -510,10 +499,28 @@ def create_leading_technical_coverage_correction(
         resolved.append(atom.id)
     if used_locators != set(range(len(qualified_locators))):
         raise ValueError("technical correction locator does not resolve the leading prefix")
+    qualified: list[QualifiedSourceLocator] = []
+    for atom in ordered_atoms[: len(resolved)]:
+        exact_locators = atom_locators(atom, evidence_by_id)
+        matching = tuple(
+            item
+            for item in exact_locators
+            if any(_locator_contains(source, item) for source in qualified_locators)
+        )
+        if not matching:
+            raise ValueError("technical correction locator does not resolve the leading prefix")
+        qualified.append(
+            QualifiedSourceLocator(
+                atom_id=atom.id,
+                primary_node_id=atom.primary_node_id,
+                evidence_ids=atom.provenance.evidence_ids,
+                source=matching[0],
+            )
+        )
     correction = LeadingTechnicalCoverageCorrection(
         authority=bind_m15_authority(canonical, scene_model),
         reason=reason,
-        qualified_locators=tuple(qualified_locators),
+        qualified_locators=tuple(qualified),
         ordered_atom_ids=tuple(resolved),
     )
     resolve_leading_technical_coverage_correction(canonical, scene_model, correction)

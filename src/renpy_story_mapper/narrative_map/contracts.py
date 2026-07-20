@@ -167,12 +167,35 @@ class SourceLocator:
 
 
 @dataclass(frozen=True)
+class QualifiedSourceLocator:
+    """One source range qualified by exact M11/M10 occurrence identity."""
+
+    atom_id: str
+    primary_node_id: str
+    evidence_ids: tuple[str, ...]
+    source: SourceLocator
+
+    def __post_init__(self) -> None:
+        _require_text(self.atom_id, "qualified locator atom ID")
+        _require_text(self.primary_node_id, "qualified locator primary node ID")
+        _require_unique(self.evidence_ids, "qualified locator evidence ID")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "atom_id": self.atom_id,
+            "primary_node_id": self.primary_node_id,
+            "evidence_ids": list(self.evidence_ids),
+            "source": self.source.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class LeadingTechnicalCoverageCorrection:
     """Explicit authority for one exact, leading technical-coverage prefix."""
 
     authority: AuthorityBinding
     reason: str
-    qualified_locators: tuple[SourceLocator, ...]
+    qualified_locators: tuple[QualifiedSourceLocator, ...]
     ordered_atom_ids: tuple[str, ...]
     rule_version: str = M15_TECHNICAL_CORRECTION_RULE_VERSION
 
@@ -189,7 +212,13 @@ class LeadingTechnicalCoverageCorrection:
             raise ValueError("technical correction qualified locators exceed the bounded limit")
         if len(self.qualified_locators) != len(set(self.qualified_locators)):
             raise ValueError("technical correction qualified locators must be unique")
+        if any(not isinstance(item, QualifiedSourceLocator) for item in self.qualified_locators):
+            raise ValueError("technical correction locators must be occurrence-qualified")
         _require_text(self.rule_version, "technical correction rule version")
+        if self.rule_version != M15_TECHNICAL_CORRECTION_RULE_VERSION:
+            raise ValueError("technical correction rule version is unsupported")
+        if tuple(item.atom_id for item in self.qualified_locators) != self.ordered_atom_ids:
+            raise ValueError("qualified locator order must equal the correction atom tuple")
 
     def identity_dict(self) -> dict[str, JsonValue]:
         return {
@@ -255,31 +284,44 @@ class LeadingTechnicalCoverageCorrection:
         atom_values = value["ordered_atom_ids"]
         if not isinstance(locator_values, list) or not isinstance(atom_values, list):
             raise ValueError("technical correction references must be arrays")
-        locators: list[SourceLocator] = []
+        locators: list[QualifiedSourceLocator] = []
         for item in locator_values:
             if not isinstance(item, dict) or set(item) != {
-                "relative_path",
-                "start_line",
-                "end_line",
-                "line_basis",
+                "atom_id",
+                "primary_node_id",
+                "evidence_ids",
+                "source",
             }:
                 raise ValueError("technical correction locator is malformed")
+            source = item["source"]
+            evidence_ids = item["evidence_ids"]
             if (
-                not isinstance(item["relative_path"], str)
-                or not isinstance(item["line_basis"], str)
-                or isinstance(item["start_line"], bool)
-                or not isinstance(item["start_line"], int)
-                or isinstance(item["end_line"], bool)
-                or not isinstance(item["end_line"], int)
+                not isinstance(item["atom_id"], str)
+                or not isinstance(item["primary_node_id"], str)
+                or not isinstance(evidence_ids, list)
+                or not all(isinstance(value, str) for value in evidence_ids)
+                or not isinstance(source, dict)
+                or set(source) != {"relative_path", "start_line", "end_line", "line_basis"}
+                or not isinstance(source["relative_path"], str)
+                or not isinstance(source["line_basis"], str)
+                or isinstance(source["start_line"], bool)
+                or not isinstance(source["start_line"], int)
+                or isinstance(source["end_line"], bool)
+                or not isinstance(source["end_line"], int)
             ):
                 raise ValueError("technical correction locator is malformed")
             try:
                 locators.append(
-                    SourceLocator(
-                        relative_path=item["relative_path"],
-                        start_line=item["start_line"],
-                        end_line=item["end_line"],
-                        line_basis=item["line_basis"],
+                    QualifiedSourceLocator(
+                        atom_id=item["atom_id"],
+                        primary_node_id=item["primary_node_id"],
+                        evidence_ids=tuple(evidence_ids),
+                        source=SourceLocator(
+                            relative_path=source["relative_path"],
+                            start_line=source["start_line"],
+                            end_line=source["end_line"],
+                            line_basis=source["line_basis"],
+                        ),
                     )
                 )
             except (TypeError, ValueError) as exc:

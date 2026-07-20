@@ -81,7 +81,7 @@ def test_exact_msday1_golden_choice_rejoins_and_terrance_janet_boundary() -> Non
     private_root = Path.home() / "Documents" / "Codex" / "Renpy"
     fixture_root = private_root / "MsDay1"
     comparison = private_root / "tmp" / "msday1-sentinel-validation.rsmproj"
-    working = private_root / "tmp" / "m15-track-a-corrected-structural.rsmproj"
+    working = private_root / "tmp" / "m15-track-a-qualified.rsmproj"
     if not working.is_file() or not comparison.is_file():
         pytest.skip("correction-seeded private M15 working copy is not present")
     report = evaluator(fixture_root, working, comparison)

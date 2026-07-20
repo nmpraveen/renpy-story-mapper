@@ -14,6 +14,7 @@ from renpy_story_mapper.m11_scene_model import M11_SCENE_MODEL_SCHEMA
 from renpy_story_mapper.narrative_map.contracts import (
     AuthorityBinding,
     LeadingTechnicalCoverageCorrection,
+    QualifiedSourceLocator,
     SourceLocator,
 )
 from renpy_story_mapper.project import PayloadRecord, Project
@@ -87,7 +88,7 @@ class LeadingTechnicalCorrectionRepository:
                             M15_LEADING_TECHNICAL_CORRECTION_KEY,
                             _envelope(correction),
                             source_paths=tuple(
-                                item.relative_path for item in correction.qualified_locators
+                                item.source.relative_path for item in correction.qualified_locators
                             ),
                         ),
                     )
@@ -197,6 +198,7 @@ def _correction_from_structural_storage(
     ordered_atoms = _structural_control_order(atoms, edges)
 
     resolved: list[str] = []
+    exact_locators: list[SourceLocator] = []
     used_locators: set[int] = set()
     for atom in ordered_atoms:
         atom_locators = tuple(
@@ -224,6 +226,13 @@ def _correction_from_structural_storage(
             raise ValueError("technical correction locator resolution is ambiguous")
         used_locators.add(hits[0])
         resolved.append(atom.atom_id)
+        exact_locators.append(
+            next(
+                item
+                for item in atom_locators
+                if _locator_contains(qualified_locators[hits[0]], item)
+            )
+        )
     if used_locators != set(range(len(qualified_locators))):
         raise ValueError("technical correction locator does not resolve the leading prefix")
     if not resolved or len(resolved) >= len(ordered_atoms):
@@ -231,7 +240,15 @@ def _correction_from_structural_storage(
     return LeadingTechnicalCoverageCorrection(
         authority=authority,
         reason=M15_TECHNICAL_CORRECTION_SAFE_REASON,
-        qualified_locators=qualified_locators,
+        qualified_locators=tuple(
+            QualifiedSourceLocator(
+                atom_id=atom.atom_id,
+                primary_node_id=atom.node_id,
+                evidence_ids=atom.evidence_ids,
+                source=exact_locators[index],
+            )
+            for index, atom in enumerate(ordered_atoms[: len(resolved)])
+        ),
         ordered_atom_ids=tuple(resolved),
     )
 

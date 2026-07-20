@@ -29,6 +29,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     NarrativeMapNode,
     NarrativeNodeKind,
     Provenance,
+    QualifiedSourceLocator,
     SourceLocator,
     stable_m15_id,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "NarrativeMapService",
     "NarrativeNodeKind",
     "Provenance",
+    "QualifiedSourceLocator",
     "SourceLocator",
     "assemble_narrative_events",
     "build_boundary_candidates",

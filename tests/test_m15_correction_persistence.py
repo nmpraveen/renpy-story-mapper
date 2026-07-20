@@ -17,6 +17,7 @@ from renpy_story_mapper.m11_scene_projection import (
 from renpy_story_mapper.narrative_map import (
     AuthorityBinding,
     LeadingTechnicalCoverageCorrection,
+    QualifiedSourceLocator,
     SourceLocator,
 )
 from renpy_story_mapper.narrative_map.coverage_corrections import (
@@ -47,7 +48,20 @@ def _correction(marker: str = "current") -> LeadingTechnicalCoverageCorrection:
     return LeadingTechnicalCoverageCorrection(
         authority=_authority(marker),
         reason="User classified the exact leading setup as technical coverage.",
-        qualified_locators=(SourceLocator("game/story.rpy", 1, 2, "source"),),
+        qualified_locators=(
+            QualifiedSourceLocator(
+                "atom-0",
+                "node-0",
+                ("evidence-0",),
+                SourceLocator("game/story.rpy", 1, 1, "source"),
+            ),
+            QualifiedSourceLocator(
+                "atom-1",
+                "node-1",
+                ("evidence-1",),
+                SourceLocator("game/story.rpy", 2, 2, "source"),
+            ),
+        ),
         ordered_atom_ids=("atom-0", "atom-1"),
     )
 
@@ -79,7 +93,15 @@ def test_correction_compare_and_set_rejects_stale_replacement_without_mutation(
     replacement = LeadingTechnicalCoverageCorrection(
         authority=first.authority,
         reason="A replacement with a different exact prefix.",
-        qualified_locators=(SourceLocator("game/story.rpy", 1, 3, "source"),),
+        qualified_locators=(
+            *first.qualified_locators,
+            QualifiedSourceLocator(
+                "atom-2",
+                "node-2",
+                ("evidence-2",),
+                SourceLocator("game/story.rpy", 3, 3, "source"),
+            ),
+        ),
         ordered_atom_ids=("atom-0", "atom-1", "atom-2"),
     )
     with Project.create(path) as project:
