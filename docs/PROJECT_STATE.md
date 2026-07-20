@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 resumed before integration; native goal active)
+Updated: 2026-07-20 (M15 Verification; integrated product and evidence artifacts complete)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -12,10 +12,10 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
   `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: In progress. The user authorized all future M15 correction and independent-rereview
-  cycles and removed any coordinator-imposed worker cap; tasks may use as many workers as the
-  Codex platform permits. Neither track may be integrated and Track C may not start until both
-  tracks independently pass. Provider calls remain separately gated.
+- Status: Verification. The user authorized all future M15 correction and independent-rereview
+  cycles and removed any coordinator-imposed worker cap. All three tracks are integrated; the
+  final exact evidence-head Release, cross-track review, and PR preparation remain. Provider calls
+  remain separately gated and none occurred.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
   failing-first fixtures are frozen at exact head
   `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
@@ -33,29 +33,23 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
   `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`. The expected shared-export conflict preserved both
   APIs; combined 66 focused M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, strict
   mypy, dependency integrity, and diff checks passed.
-- Track C: active in task `019f80a7-5e33-7e81-8a4c-1aa7749d51bc`, worktree
-  `C:/Users/prave/.codex/worktrees/fb82/Renpy`, from exact integrated base
-  `07e9ecd1635b8963cf36bb2c98248a5f703c5718`; API/browser, visible legacy-surface retirement,
-  compatibility, package/browser evidence, and independent rereview are in progress.
+- Track C: independently accepted at clean exact head
+  `47d7104ee527737f726f457a5ee4e2cbf3e05069` after initial delivery plus bounded viewport-race and
+  repeated-title search corrections. Focused/adjacent/static/package and real Chrome gates pass;
+  exact-head rereview returned `PASS` with no P0-P2.
 - Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
   that setting will be recorded unavailable/unverified rather than claimed disabled.
-- Track A task `019f8042-8627-7780-a515-355056881714` runs in
-  `C:/Users/prave/.codex/worktrees/8630/Renpy`; Track B task
-  `019f8042-8632-7512-a2e3-42ac6932e558` runs in
-  `C:/Users/prave/.codex/worktrees/c6d6/Renpy`. Both were dispatched from exact shared head
-  `1ec0664` with explicit `gpt-5.6-sol` and High reasoning. The creation surface exposes no
-  fast-mode selector, so fast mode remains unavailable/unverified.
-- Track A is preserved clean at `aa570f3ea7e6cba200cb2585f2f97386128cb07a`. Its exact private
-  provider-free acceptance passes, but rereview retains P1s in descending hard-boundary
-  validation and full-pipeline acceptance proof. Track B is preserved clean at
-  `6702e933dba82d19da8ea59ae246020eaebc9e80`; rereview retains P1s in direct-request consent
-  budget consumption and claim-level summary repair. Neither track is integrated. Track C,
-  Windows/browser/package acceptance, final review, push, and PR remain unstarted.
-- The Phase Coordinator independently reproduced all four residual P1s with read-only inline
-  CPython 3.12 probes at the exact reviewed heads. The minimum next correction/test scope is
-  recorded in `docs/milestones/M15/COMPLETION_REPORT.md`; no candidate worktree was modified.
+- Integrated product head is `38c2ccb994ea5b85554cbd6eec6f325c158de29e`. Exact provider-free
+  acceptance passes with 70 corridors/events, 84 nodes, 85 edges, five ordered clusters, four
+  exact choice/rejoin pairs, nine synthetic cases, zero provider/game execution, and unchanged
+  private source/project fingerprints.
+- Exact private Chrome passes at 100% and 200% with 85/85 finite connectors, zero overlap,
+  technical coverage hidden by default, corrected Fit/pan/search/selection, and direct Terrance
+  and Janet Detail/Evidence traversal. Evidence is local under `output/playwright/m15-private-final/`.
+- Sanitized durable evidence now includes `docs/milestones/M15/VISIBLE_ORDER.txt` and native
+  `docs/milestones/M15/INFOGRAPHIC.png`; neither contains private story text.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
@@ -64,7 +58,8 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
 - Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
   scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
   from the three-atom minimum narrative run and 35 from unresolved safety.
-- Pull request: none. One M15 PR will be prepared and left unmerged for explicit user approval.
+- Pull request: pending final exact-head Release and cross-track review. One M15 PR will be prepared
+  and left unmerged for explicit user approval.
 - Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
   a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
 

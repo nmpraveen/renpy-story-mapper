@@ -1,13 +1,12 @@
 # M15 - MsDay1 Narrative Map correction
 
-Status: In progress
+Status: Verification
 
 Resumption: On 2026-07-20 the user authorized all future M15 correction and independent-rereview
-cycles and removed any coordinator-imposed worker cap. Track A resumes from
-`aa570f3ea7e6cba200cb2585f2f97386128cb07a` and Track B from
-`6702e933dba82d19da8ea59ae246020eaebc9e80`. Tasks may use as many workers as the Codex platform
-permits. The done condition and semantic `PASS` are unchanged. Neither track may be integrated and
-Track C may not start until both tracks independently pass; provider calls remain separately gated.
+cycles and removed any coordinator-imposed worker cap. Tasks may use as many workers as the Codex
+platform permits. The done condition and semantic `PASS` remain unchanged. All three tracks have
+now independently passed and are integrated; provider calls remain separately gated and none
+occurred.
 
 Scope authority: `docs/MASTER_PLAN.md`; the user-approved
 `docs/handoffs/2026-07-20-msday1-narrative-map/IMPLEMENTATION_PLAN.md`; and the user's explicit
@@ -114,15 +113,15 @@ evidence remain deterministic.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Pending |
-| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Pending |
-| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Pending |
-| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Pending |
-| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Pending |
-| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Pending |
-| 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | Pending |
-| 18 | Track and final exact-head review reports with finding disposition | Pending |
-| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | Pending |
+| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Pass; Track A and combined matrices, nine synthetic cases, exact 70/84/85 shape |
+| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Pass; immutable exact input, five clusters, `VISIBLE_ORDER.txt`, local 100%/200% evidence |
+| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Pass; exact/browser compatibility matrices and zero request counters |
+| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Pass; provider-free matrices and zero calls; live consent not required or authorized |
+| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Pass; exact 85/85 connectors, zero overlaps, corrected pan/search, evidence traversal |
+| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Pass; exact source/project fingerprints unchanged and no game/provider execution |
+| 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | In progress; track/combined gates pass, final evidence-head Release pending |
+| 18 | Track and final exact-head review reports with finding disposition | In progress; all track reviews pass, final cross-track review pending |
+| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; artifacts complete, ready unmerged PR pending |
 
 ## Exclusions
 

@@ -1,0 +1,67 @@
+M15 MsDay1 visible-order export
+Sanitized structural evidence: no dialogue, narration, labels, or story text.
+Source SHA-256: 14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6
+Visible map: 84 nodes, 85 edges
+Assembled events: 70 (39 visible story-event ranges; 4 line-793 scope-sentinel occurrences represented by rejoins; 27 technical-only coverage events collapsed)
+
+CLUSTER PROLOGUE | story-facing lines 7-50
+  EVENT 01 | source lines 7-7
+  EVENT 02 | source lines 8-10
+  EVENT 03 | source lines 10-10
+  EVENT 04 | source lines 14-14
+  EVENT 05 | source lines 16-18
+  EVENT 06 | source lines 20-20
+  EVENT 07 | source lines 21-21 | temporary-choice, arm
+  EVENT 08 | source lines 22-22 | temporary-choice, arm
+  EVENT 09 | source lines 23-23 | temporary-choice, arm
+  EVENT 10 | source lines 24-25 | temporary-choice, arm
+  EVENT 11 | source lines 27-50
+
+CLUSTER TERRANCE | story-facing lines 52-278
+  EVENT 12 | source lines 52-141
+  EVENT 13 | source lines 143-143
+    CHOICE line 143 | ordered temporary arms | REJOIN line 165
+  EVENT 14 | source lines 144-144 | temporary-choice, arm
+  EVENT 15 | source lines 145-154 | temporary-choice, arm
+  EVENT 16 | source lines 155-157 | temporary-choice, arm
+  EVENT 17 | source lines 159-163 | temporary-choice, arm
+  EVENT 18 | source lines 165-189
+  EVENT 19 | source lines 191-191
+    CHOICE line 191 | ordered temporary arms | REJOIN line 233
+  EVENT 20 | source lines 192-192 | temporary-choice, arm
+  EVENT 21 | source lines 196-223 | temporary-choice, arm
+  EVENT 22 | source lines 224-224 | temporary-choice, arm
+  EVENT 23 | source lines 228-230 | temporary-choice, arm
+  EVENT 24 | source lines 233-278
+
+CLUSTER JANET | story-facing lines 280-332
+  EVENT 25 | source lines 280-332
+
+CLUSTER DINNER | story-facing lines 334-430
+  EVENT 26 | source lines 334-430
+
+CLUSTER FAYE | story-facing lines 431-789
+  EVENT 27 | source lines 431-621
+  EVENT 28 | source lines 623-623
+    CHOICE line 623 | ordered temporary arms | REJOIN line 793
+  EVENT 29 | source lines 624-624 | temporary-choice, arm
+  EVENT 30 | source lines 625-627 | temporary-choice, arm
+  EVENT 31 | source lines 628-628 | temporary-choice, arm
+  EVENT 32 | source lines 633-672 | temporary-choice, arm
+  EVENT 33 | source lines 674-674 | temporary-choice, arm
+    CHOICE line 674 | ordered temporary arms | REJOIN line 793
+  EVENT 34 | source lines 675-675 | temporary-choice, arm
+  EVENT 35 | source lines 676-704 | temporary-choice, arm
+  EVENT 36 | source lines 705-707 | temporary-choice, arm
+  EVENT 37 | source lines 709-724 | temporary-choice, arm
+  EVENT 38 | source lines 725-732 | temporary-choice, arm
+  EVENT 39 | source lines 733-789 | temporary-choice, arm
+
+CHOICE / REJOIN ORDER
+  1. CHOICE line 143 -> ordered temporary arms -> REJOIN line 165
+  2. CHOICE line 191 -> ordered temporary arms -> REJOIN line 233
+  3. CHOICE line 623 -> ordered temporary arms -> REJOIN line 793
+  4. CHOICE line 674 -> ordered temporary arms -> REJOIN line 793
+
+Technical coverage: 27 technical-only events are collapsed by default and are not promoted to equal-weight story events.
+Full MsDenvers is not validated by this export.

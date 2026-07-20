@@ -1,97 +1,90 @@
 # M15 MsDay1 Narrative Map correction completion report
 
-Status: In progress
+Status: Verification
 
 Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
 
-Integration commit: Pending
+Integrated product head: `38c2ccb994ea5b85554cbd6eec6f325c158de29e`
 
 Pull request: Pending; one PR will be opened and left unmerged for user approval
 
 ## Outcome
 
-M15 resumed before integration after the user authorized all future M15 correction and independent-
-rereview cycles and removed any coordinator-imposed worker cap. The Track A and Track B heads
-remain separate and unintegrated while those cycles run; the done condition and semantic `PASS`
-are unchanged. Provider calls remain separately gated.
+The integrated M15 product now projects the exact private Day 1 authority as a deterministic
+Narrative Map with 70 corridors/events, 84 visible map nodes, 85 authoritative edges, five ordered
+major clusters, and four ordered temporary choices with proven rejoins. The default browser journey
+is the Story Map; technical coverage is collapsed, the visible M12 route solver and legacy AI
+organization controls are retired, and their compatibility backends and stored-result readers are
+preserved.
+
+No M15 provider call occurred. The exact private source, accepted comparison project, and original
+archive remain outside Git and unchanged. Full MsDenvers remains explicitly unvalidated.
 
 ## Acceptance evidence
 
 | Criterion | Result | Evidence |
 |---|---|---|
-| 1-5 | Pending | Contract, deterministic corridor/event/map, and provenance evidence pending |
-| 6-8 | Pending | Exact private Day 1 semantic and visible-shape evidence pending |
-| 9-11 | Pending | Detail/Evidence, visible retirement, and compatibility evidence pending |
-| 12-13 | Pending | Durable fake-provider, cache/reopen/resume, zero-call, and consent evidence pending |
-| 14 | Pending | 100%/200% browser, keyboard, and layout evidence pending |
-| 15-16 | Pending | Authority/source/archive immutability and safety evidence pending |
-| 17 | Pending | Focused and full Windows/package validation pending |
-| 18 | Pending | Track and final independent reviews pending |
-| 19 | Pending | Screenshots, text export, infographic, limitations, and PR state pending |
+| 1-5 | Pass | Versioned contracts; deterministic corridor/event/quotient tests; 70 corridors/events, 84 nodes, 85 edges; nine synthetic topology cases; Track A exact-head review `PASS` |
+| 6-8 | Pass | Exact source hash; 793-line scope; five-cluster order `prologue -> terrance -> janet -> dinner -> faye`; Terrance end 278, Janet start 280; sanitized `VISIBLE_ORDER.txt`; technical coverage collapsed |
+| 9-11 | Pass | Exact Detail/Evidence traversal; normal browser omits route/AI controls; M12/M13 stored citation and legacy fallback compatibility matrices pass |
+| 12-13 | Pass | Track B fault/cache/reopen/resume matrix; exact cache semantics; browser/private acceptance recorded zero provider constructions/calls and zero M12 solve/destination requests |
+| 14 | Pass | Chrome 100%/200%, 85/85 finite connectors, zero overlaps, Fit/pan/zoom/keyboard/search; repeated-title selection correction; Terrance/Janet evidence traversal |
+| 15-16 | Pass | Exact source and accepted project SHA-256/size/mtime unchanged; no game/Ren'Py/creator execution; no private story text committed |
+| 17 | In progress | Track and combined focused/Release/package gates pass; one final exact evidence-head Release is required after lifecycle/artifact integration |
+| 18 | In progress | Track A/B/C exact-head reviews pass with no P0-P2; final integrated cross-track review pending |
+| 19 | In progress | Exact screenshots, text export, completion report, and native infographic exist; ready unmerged PR pending |
 
 ## Validation
 
 | Command / review | Result | Artifact or notes |
 |---|---|---|
-| Baseline branch and status | Pass | `main` and `origin/main` matched `a447a4e`; tracked tree clean; unrelated untracked content preserved |
-| Exact private source pre-access fingerprint | Pass | SHA-256 `14aa44ed...5d588a6`, 42,818 bytes, `2026-07-20T14:57:21.9287268Z` |
-| M11 baseline comparison | Pass | 773 atoms, 165 scenes, nine temporary structures, one chapter, 174 presentation nodes; 115 minimum-run and 35 unresolved-safety boundaries |
-| Current-browser baseline at 100%/200% | Pass | `output/playwright/m15-baseline/`; current first page visibly contains repeated `Start`, `Clean`, raw visual titles, old AI/M07 controls, and the M12 route panel; no provider action performed |
-| Semantic review | Pass | `SEMANTIC_REVIEW.md` on 2026-07-20 |
-| Frozen M15 contracts | Pass | Exact shared head `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; 7 contract tests passed; targeted Ruff and strict mypy passed |
-| Failing-first implementation gate | Pass | Before track implementation, the M15 gate produced the expected 10 failures/1 pass: missing Track A/B interfaces, provider-free acceptance, and browser retirement behavior; the exact source-fingerprint/current-baseline guard passed |
-| Track dispatch | Complete | Track A task `019f8042-8627-7780-a515-355056881714` and Track B task `019f8042-8632-7512-a2e3-42ac6932e558` ran in separate worktrees from exact shared head `1ec0664`; both explicitly selected `gpt-5.6-sol` and High reasoning; fast-mode selection was unavailable/unverified |
-| Track A corrected candidate | Pass at unintegrated head | Clean exact head `6a28002f9f9165c70733eae5433537feebaa61a7`; 27 Track A/frozen/portable tests, 37 adjacent M10/M11 tests, Ruff, strict mypy over 102 files, diff check, all nine synthetic cases, and independent P0-P2 rereview passed |
-| Track A exact private acceptance | Pass at unintegrated head | 70 corridors/events, 84 map nodes, 85 map edges, five major clusters, exact choice/rejoin pairs, Terrance end 278 and Janet start 280, required order, zero provider calls/game execution, and unchanged private source/project fingerprints |
-| Track B corrected candidate | Pass and integrated | Clean exact head `47fa6f48f3bf01e8ed91608407296d34210cf92c`; 46 focused/frozen, 157 adjacent M13, and 196 reviewer-expanded tests passed; exact rereview returned `PASS` with no P0-P2; zero live/provider/private access |
-| Ordered A+B integration | Pass | Track A then Track B integrated through coordinator head `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`; the one expected shared `__init__.py` conflict preserved both public APIs; combined 66 M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, mypy, pip, and diff checks passed |
-| Provider/private safety through stop | Pass | Track A used immutable read-only local fixture access; Track B did not access private text; neither task made a cloud/live provider call; no candidate was integrated, pushed, or opened as a PR |
-| Phase Coordinator Track A blocker probe | Finding confirmed | Read-only inline CPython 3.12 probe at `aa570f3` passed two corridors with source lines `[2, 1]`, both hard-boundary flags set, and the same incident edge; assembler returned two events instead of failing closed |
-| Phase Coordinator Track B blocker probe | Findings confirmed | Read-only inline CPython 3.12 probe at `6702e93` constructed request bounds above the consent limits, submitted a one-call consent twice, omitted a valid claim from the semantic lock when one sibling had unknown evidence, and accepted a replacement claim against that lock |
+| Semantic review | Pass | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-20 |
+| Frozen contract gate | Pass | Shared head `1ec0664`; 7 contract tests, Ruff, strict mypy; expected 10 failing-first failures/1 fingerprint guard pass before implementation |
+| Track A final | Pass | Head `6a28002f`; 27 focused/portable and 37 adjacent M10/M11 tests; nine synthetic cases; exact private acceptance; independent review no P0-P2 |
+| Track B final | Pass | Head `47fa6f48`; 46 focused/frozen, 157 adjacent M13, and 196 reviewer-expanded tests; consent/accounting/repair/cache semantics; no provider/private access; independent review no P0-P2 |
+| A+B integration | Pass | Integrated through `9c0f5d8`; 66 focused M15, 69 adjacent M10/M11, 157 adjacent M13; Ruff, strict mypy, pip, diff checks |
+| Track C initial delivery | Pass after correction loops | Initial/fix heads `17f447c`, `0eadb246`; 244 reviewer tests; real Chrome geometry/retirement/citation/security/package gates; independent review no P0-P2 |
+| Viewport race correction | Pass | Track C `8adc549`, integrated as `d562e49`; failing unchanged runs 1/10 locally and 2/5 on parent; corrected coordinator 12/12 plus Release, reviewer 10/10, parent 10/10: 330 successful browser-routed pointer gestures total; reviewer no P0-P2 |
+| Repeated-title search correction | Pass | Track C `47d7104`, integrated as `38c2ccb`; failing-first duplicate-title regression; 224 focused/adjacent tests and Chrome at both zooms; reviewer 245 tests plus fresh Chrome; no P0-P2 |
+| Combined Windows Release before final search correction | Pass | 1,236 tests, 8 deselected in 368.27 seconds; Ruff, strict mypy over 108 files, pip, four JavaScript checks, whitespace, sdist/wheel, isolated install/import/assets, real browser |
+| Exact provider-free Day 1 | Pass | `scripts/m15_provider_free_acceptance.py`; 70 corridors/events, 84 nodes, 85 edges, five clusters, exact choice/rejoin pairs, nine synthetic cases, zero provider/game execution, source/project unchanged |
+| Exact private Chrome | Pass | `output/playwright/m15-private-final/`; 84 nodes, 85/85 finite edges, zero overlaps, technical coverage hidden; 100%/200%; Terrance 60 and Janet 52 evidence records; zero provider/M12 requests; source/project unchanged |
+| Exact private screenshots | Pass | `m15-private-story-map-100.png` SHA-256 `620ba4a4...ab297e3`; `m15-private-story-map-200.png` SHA-256 `3b73a87e...4ee1f`; private artifacts remain outside Git |
+| Sanitized visible-order export | Pass | `docs/milestones/M15/VISIBLE_ORDER.txt`; no dialogue, narration, labels, or story text |
+| Native infographic | Pass | `docs/milestones/M15/INFOGRAPHIC.png`; SHA-256 `34360c5c...e16100`; generated with the native image tool; sanitized structural facts only |
 
-## Review findings
+## Review findings and corrections
 
-- Track A rereview `FAIL` at `aa570f3`: `assembly.py` still permits descending hard-boundary
-  input when corridors share an incident edge, and the provider-free acceptance runner still
-  constructs synthetic corridors or infers parts of exact output instead of proving the full
-  corridor-to-event-to-map pipeline.
-- Track A correction at `d2a67bd` closed those product findings. Its rereview found one portability
-  P1 because two normal tests could fall back to the private fixture; `6a28002f` converted them to
-  synthetic-only authority checks, and the final independent rereview returned `PASS` with no
-  P0-P2 findings and no private-fixture access.
-- Track B rereview `FAIL` at `6702e93`: direct requests can exceed/reuse consent budgets, and
-  event-summary repair can replace individually valid claims when a sibling claim is invalid.
-- Track B correction/review cycles then closed consent bounds and atomic reuse, durable attempt/call
-  accounting, positional claim semantics, extra-field normalization, and event-owned evidence
-  scope. The final independent rereview at `47fa6f48` returned `PASS` with no P0-P2 findings.
-- Both first-cycle independent reviewers used `gpt-5.6-sol` High with fast mode
-  unavailable/unverified and made no edits. The former one-cycle cap was superseded by the user's
-  authorization for all future M15 correction/rereview cycles and platform-permitted workers.
-- The narrow Track A correction scope is: reject descending same-context order regardless of
-  shared incident provenance; add the shared-edge hard-boundary regression; replace direct
-  synthetic `NarrativeCorridor` construction with synthetic M10/M11 inputs passed through
-  corridor, event, and map construction; and derive exact cluster order and line bounds from
-  event membership/presentation output rather than expected constants.
-- The narrow Track B correction scope is: enforce request bounds at or below the manifest;
-  consume call grants safely at the provider boundary so a one-call consent cannot submit twice;
-  add oversized, sequential-reuse, and concurrent-reuse regressions; and lock every individually
-  valid summary claim so an invalid sibling alone cannot authorize its replacement.
+- Track A correction cycles closed descending hard-boundary order, full-pipeline acceptance, and
+  private-fixture portability findings. Final exact-head rereview: `PASS`, no P0-P2.
+- Track B correction cycles closed consent request bounds, atomic reuse, durable call accounting,
+  claim repair semantics, extra-field normalization, and event-owned evidence. Final exact-head
+  rereview: `PASS`, no P0-P2.
+- Track C closed two coordinator-discovered exact-browser defects after its initial review: a late
+  workspace refresh reset active Fit/pan, and repeated-title search replaced a still-valid
+  selection. Both received failing-first tests, real Chrome evidence, bounded corrections, and
+  fresh independent exact-head rereviews with no P0-P2.
+- All track tasks used `gpt-5.6-sol` with High reasoning. Their task surface exposed no fast-mode
+  selector, so fast mode is unavailable/unverified rather than claimed disabled.
 
 ## Integration and PR state
 
-- Integrated A+B diff reviewed against contract and exclusions: Yes; Track C/final diff pending
-- Required checks passed: No
-- Blocking findings resolved or explicitly accepted: No
-- PR genuinely ready: No
+- Integrated A+B+C product diff reviewed against contract and exclusions: Yes
+- Exact provider-free/private/browser evidence complete: Yes
+- Final exact evidence-head Release: Pending
+- Final independent cross-track review: Pending
+- Blocking track findings resolved: Yes
+- PR genuinely ready: No; branch push and one unmerged PR remain
 
 ## Remaining limitations
 
 - Full MsDenvers remains unvalidated and outside M15.
-- All future M15 correction and independent-rereview cycles are authorized, with no coordinator-
-  imposed worker cap. No integration or Track C dispatch is permitted until both A and B pass.
-- Live Day 1 AI acceptance is not authorized and is optional; no provider call has occurred.
-- Product implementation, track reviews, final browser/Windows acceptance, infographic, and PR are
-  pending.
+- Live Day 1 AI boundary/summary acceptance is optional and was not authorized; no provider call
+  occurred. The deterministic fallback remains the accepted provider-free result.
+- Exact private screenshots and machine reports remain local under `output/` so private evidence
+  never enters Git; the committed visible-order export and infographic contain sanitized facts only.
+- Repository/client prose cannot select or verify the Phase Coordinator's own runtime model or fast
+  mode; track dispatches explicitly used Sol/High, and fast mode was unavailable/unverified.
 
-Complete the native Codex goal only when `PR genuinely ready` is `Yes` and the rows above contain
-durable evidence.
+Complete the native Codex goal only after the final exact-head Release and cross-track review pass,
+the evidence rows are reconciled, and one ready but unmerged M15 PR is open.
