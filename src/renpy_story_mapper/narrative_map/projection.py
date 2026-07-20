@@ -48,11 +48,24 @@ def build_narrative_map(
         major_start_event_ids=_major_start_events(materialized, corridors),
     )
     node_kind = {item.id: item.kind for item in canonical.nodes}
+    persistent_split_nodes = {
+        item.split_node_id
+        for item in canonical.regions
+        if item.kind in {"persistent_route", "terminal_split"}
+    }
+    persistent_merge_nodes = {
+        item.merge_node_id
+        for item in canonical.regions
+        if item.kind in {"persistent_route", "terminal_split"}
+        and item.merge_node_id is not None
+    }
     edges = _quotient_edges(
         canonical.edges,
         presentation.canonical_node_to_map_node,
         node_kind,
         presentation.rejoin_nodes,
+        persistent_split_nodes,
+        persistent_merge_nodes,
     )
     incoming = {item.target_node_id for item in edges}
     base_nodes = [
@@ -109,6 +122,8 @@ def _quotient_edges(
     node_to_map: Mapping[str, str],
     node_kind: Mapping[str, CanonicalNodeKind],
     rejoin_nodes: Mapping[str, str],
+    persistent_split_nodes: set[str],
+    persistent_merge_nodes: set[str],
 ) -> tuple[NarrativeMapEdge, ...]:
     grouped: dict[
         tuple[str, str, NarrativeEdgeKind, tuple[str, ...], tuple[str, ...]], list[str]
@@ -119,7 +134,13 @@ def _quotient_edges(
         target = node_to_map.get(edge.target_id)
         if source is None or target is None:
             raise ValueError(f"authoritative edge {edge.id} escapes Narrative Event membership")
-        kind = _edge_kind(edge, node_kind, rejoin_nodes)
+        kind = _edge_kind(
+            edge,
+            node_kind,
+            rejoin_nodes,
+            persistent_split_nodes,
+            persistent_merge_nodes,
+        )
         if source == target and kind is not NarrativeEdgeKind.LOOP:
             continue
         requirements = _attribute_ids(edge.attributes, "gate_ids", "requirement_ids")
@@ -145,6 +166,8 @@ def _edge_kind(
     edge: CanonicalEdge,
     node_kind: Mapping[str, CanonicalNodeKind],
     rejoin_nodes: Mapping[str, str],
+    persistent_split_nodes: set[str],
+    persistent_merge_nodes: set[str],
 ) -> NarrativeEdgeKind:
     roles = {str(item).casefold() for item in _iter_values(edge.attributes.get("semantic_roles"))}
     raw = edge.kind.casefold()
@@ -152,16 +175,18 @@ def _edge_kind(
         return NarrativeEdgeKind.UNRESOLVED
     if "loop" in raw or any("loop" in item or "back" in item for item in roles):
         return NarrativeEdgeKind.LOOP
-    if "call" in raw or any("call" in item and "return" not in item for item in roles):
-        return NarrativeEdgeKind.CALL
     if "return" in raw or any("return" in item for item in roles):
         return NarrativeEdgeKind.RETURN
+    if "call" in raw or any("call" in item and "return" not in item for item in roles):
+        return NarrativeEdgeKind.CALL
+    if edge.target_id in persistent_merge_nodes or any(
+        "persistent" in item and "merge" in item for item in roles
+    ):
+        return NarrativeEdgeKind.PERSISTENT_MERGE
+    if edge.source_id in persistent_split_nodes or any("persistent" in item for item in roles):
+        return NarrativeEdgeKind.PERSISTENT_SPLIT
     if edge.target_id in rejoin_nodes or any("rejoin" in item or "merge" in item for item in roles):
         return NarrativeEdgeKind.REJOIN
-    if any("persistent" in item and "merge" in item for item in roles):
-        return NarrativeEdgeKind.PERSISTENT_MERGE
-    if any("persistent" in item for item in roles):
-        return NarrativeEdgeKind.PERSISTENT_SPLIT
     if node_kind.get(edge.source_id) is CanonicalNodeKind.CHOICE or any(
         "choice" in item or "arm" in item for item in roles
     ):

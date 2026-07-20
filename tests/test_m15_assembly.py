@@ -149,6 +149,14 @@ def test_persistent_lanes_and_call_occurrences_never_merge() -> None:
     assert len({(item.lane_id, item.call_occurrence_id) for item in events}) == 4
 
 
+def test_hard_boundaries_do_not_exempt_descending_source_order() -> None:
+    later = _corridor(2, hard_after=True)
+    earlier = _corridor(1, hard_before=True)
+
+    with pytest.raises(ValueError, match="out of source/control order"):
+        assemble_narrative_events((later, earlier))
+
+
 def test_decision_across_a_hard_boundary_is_rejected() -> None:
     first = _corridor(1, hard_after=True)
     second = _corridor(

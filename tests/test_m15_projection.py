@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from m15_test_support import linear_authority
+from renpy_story_mapper.canonical_graph_contract import CanonicalNodeKind
 from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.narrative_map import (
     NarrativeEdgeKind,
@@ -9,6 +10,7 @@ from renpy_story_mapper.narrative_map import (
     build_narrative_corridors,
     build_narrative_map,
 )
+from renpy_story_mapper.narrative_map.projection import _edge_kind
 
 
 def test_quotient_edges_copy_only_authoritative_provenance_requirements_and_effects() -> None:
@@ -94,3 +96,47 @@ def test_hidden_technical_coverage_is_attached_without_equal_weight_story_promot
 
     assert result.hidden_technical_atom_ids == ("atom-1",)
     assert all(item.title.casefold() not in {"start", "clean"} for item in result.nodes)
+
+
+def test_call_return_and_persistent_region_edge_precedence() -> None:
+    canonical, _model = linear_authority((AtomKind.CALL, AtomKind.NARRATION))
+    edge = canonical.edges[0]
+    node_kinds = {item.id: item.kind for item in canonical.nodes}
+
+    call_return = type(edge)(**{**edge.__dict__, "kind": "call_return"})
+    assert _edge_kind(call_return, node_kinds, {}, set(), set()) is NarrativeEdgeKind.RETURN
+
+    persistent_merge = type(edge)(
+        **{
+            **edge.__dict__,
+            "attributes": {"semantic_roles": ["merge"]},
+        }
+    )
+    assert (
+        _edge_kind(
+            persistent_merge,
+            node_kinds,
+            {edge.target_id: "map-rejoin"},
+            set(),
+            {edge.target_id},
+        )
+        is NarrativeEdgeKind.PERSISTENT_MERGE
+    )
+
+    persistent_split = type(edge)(
+        **{
+            **edge.__dict__,
+            "source_id": edge.source_id,
+            "target_id": edge.target_id,
+        }
+    )
+    assert (
+        _edge_kind(
+            persistent_split,
+            {**node_kinds, edge.source_id: CanonicalNodeKind.CONDITION},
+            {},
+            {edge.source_id},
+            set(),
+        )
+        is NarrativeEdgeKind.PERSISTENT_SPLIT
+    )

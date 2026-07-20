@@ -14,9 +14,15 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
+from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.m11_scene_projection import scene_model_from_stored_results
 from renpy_story_mapper.m12_service import canonical_graph_from_mapping
 from renpy_story_mapper.narrative_map import (
+    AuthorityBinding,
+    NarrativeCorridor,
+    Provenance,
+    SourceLocator,
     assemble_narrative_events,
     build_narrative_corridors,
     build_narrative_map,
@@ -61,24 +67,7 @@ def evaluate_exact_msday1(
 
     atom_by_id = {item.id: item for item in model.atoms}
     line_by_atom = {item.id: item.source_order[1] for item in model.atoms}
-    merge_atom_by_node = {item.primary_node_id: item for item in model.atoms}
-    branch_by_id = {item.id: item for item in model.temporary_branches}
-    branch_pairs: dict[int, int] = {}
-    for branch in model.temporary_branches:
-        split_line = line_by_atom[branch.split_atom_id]
-        if split_line not in EXPECTED_MENU_LINES:
-            continue
-        scope_branch = branch
-        while scope_branch.parent_branch_id is not None:
-            scope_branch = branch_by_id[scope_branch.parent_branch_id]
-        if scope_branch.continuation_atom_id is not None:
-            rejoin_line = line_by_atom[scope_branch.continuation_atom_id]
-        else:
-            merge_atom = merge_atom_by_node.get(scope_branch.merge_node_id)
-            if merge_atom is None:
-                raise ValueError("a frozen narrative choice lost its canonical rejoin")
-            rejoin_line = merge_atom.source_order[1]
-        branch_pairs[split_line] = rejoin_line
+    branch_pairs = _canonical_choice_pairs(canonical, model)
     expected_pairs = {143: 165, 191: 233, 623: 793, 674: 793}
     if branch_pairs != expected_pairs:
         raise ValueError("the exact narrative choice/rejoin anchors changed")
@@ -143,15 +132,31 @@ def evaluate_exact_msday1(
         "map_node_count": len(narrative_map.nodes),
         "map_edge_count": len(narrative_map.edges),
         "major_cluster_count": map_cluster_count,
-        "terrance_choice_rejoins": [[143, 165], [191, 233]],
-        "faye_choice_rejoins": [[623, 793], [674, 793]],
+        "terrance_choice_rejoins": cast(
+            JsonValue,
+            [[line, branch_pairs[line]] for line in EXPECTED_MENU_LINES[:2]],
+        ),
+        "faye_choice_rejoins": cast(
+            JsonValue,
+            [[line, branch_pairs[line]] for line in EXPECTED_MENU_LINES[2:]],
+        ),
         "terrance_event_end_line": max(
             item.source_order[1]
             for item in model.atoms
             if 52 <= item.source_order[1] < 280 and item.story_facing
         ),
-        "janet_event_start_line": 280,
-        "major_event_order": cast(JsonValue, list(EXPECTED_MAJOR_ORDER)),
+        "janet_event_start_line": normalized_starts[1],
+        "major_event_order": cast(
+            JsonValue,
+            [
+                name
+                for _start, name in zip(
+                    (first_story_line, *normalized_starts),
+                    EXPECTED_MAJOR_ORDER,
+                    strict=True,
+                )
+            ],
+        ),
         "blocked_technical_titles": cast(JsonValue, blocked),
         "provider_calls": 0,
         "game_execution_count": 0,
@@ -161,7 +166,7 @@ def evaluate_exact_msday1(
 
 
 def evaluate_synthetic_manifest(path: Path) -> dict[str, JsonValue]:
-    """Validate that the frozen provider-free manifest covers every required topology."""
+    """Execute and validate every frozen provider-free synthetic topology."""
 
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, Mapping) or value.get("schema") != "m15-synthetic-acceptance-v1":
@@ -183,13 +188,286 @@ def evaluate_synthetic_manifest(path: Path) -> dict[str, JsonValue]:
     identifiers = {str(item.get("id")) for item in cases if isinstance(item, Mapping)}
     if identifiers != expected:
         raise ValueError("the M15 synthetic topology matrix is incomplete")
+    results: dict[str, JsonValue] = {}
+    for item in cases:
+        if not isinstance(item, Mapping):
+            raise ValueError("each M15 synthetic case must be an object")
+        case_id = str(item.get("id"))
+        raw_signals = item.get("signals")
+        raw_expected = item.get("expected")
+        if (
+            not isinstance(raw_signals, Sequence)
+            or isinstance(raw_signals, str | bytes)
+            or not isinstance(raw_expected, Mapping)
+        ):
+            raise ValueError(f"synthetic case {case_id!r} is malformed")
+        signals = tuple(str(signal) for signal in raw_signals)
+        observed = _evaluate_synthetic_case(case_id, signals)
+        expected_values = {str(key): value for key, value in raw_expected.items()}
+        unexpected = {
+            key: {"expected": value, "observed": observed.get(key)}
+            for key, value in expected_values.items()
+            if observed.get(key) != value
+        }
+        if unexpected:
+            raise ValueError(f"synthetic case {case_id!r} failed: {unexpected}")
+        results[case_id] = cast(JsonValue, observed)
     return {
         "schema": "m15-provider-free-synthetic-report-v1",
         "case_count": len(identifiers),
         "case_ids": cast(JsonValue, sorted(identifiers)),
+        "results": results,
         "provider_calls": 0,
         "game_execution_count": 0,
     }
+
+
+_SYNTHETIC_AUTHORITY = AuthorityBinding(
+    source_generation="synthetic-generation",
+    canonical_schema="synthetic-canonical-v1",
+    canonical_hash="synthetic-canonical-hash",
+    atom_schema="synthetic-atoms-v1",
+    atom_hash="synthetic-atom-hash",
+)
+
+
+def _evaluate_synthetic_case(case_id: str, signals: tuple[str, ...]) -> dict[str, JsonValue]:
+    """Build real corridors/events for one manifest case and report its frozen predicates."""
+
+    if case_id in {"linear-dialogue", "frequent-pose-changes"}:
+        corridor = _synthetic_corridor(case_id, 0, signals)
+        events = assemble_narrative_events((corridor,), expected_atom_ids=corridor.ordered_atom_ids)
+        return {
+            "event_count": len(events),
+            "choice_count": sum(len(event.nested_choice_ids) for event in events),
+            "complete_coverage": tuple(events[0].ordered_atom_ids) == corridor.ordered_atom_ids,
+            "visual_changes_are_hard_boundaries": (
+                corridor.hard_boundary_before or corridor.hard_boundary_after
+            ),
+        }
+
+    if case_id == "local-detour":
+        corridors: tuple[NarrativeCorridor, ...] = (
+            _synthetic_corridor(case_id, 0, ("choice_split",), choice_ids=("choice",)),
+            _synthetic_corridor(case_id, 1, ("arm_0",), container="choice", arm="arm_0"),
+            _synthetic_corridor(case_id, 2, ("arm_1",), container="choice", arm="arm_1"),
+            _synthetic_corridor(
+                case_id, 3, ("proven_rejoin", "continuation"), rejoins=("rejoin",)
+            ),
+        )
+        events = assemble_narrative_events(
+            corridors,
+            expected_atom_ids=(
+                atom for corridor in corridors for atom in corridor.ordered_atom_ids
+            ),
+        )
+        return {
+            "temporary": any(event.temporary_container_id is not None for event in events),
+            "arm_count": len(
+                {event.temporary_arm_id for event in events if event.temporary_arm_id is not None}
+            ),
+            "rejoin_count": len({node for event in events for node in event.rejoin_node_ids}),
+            "continuation_owned_once": sum(
+                atom.endswith("-continuation")
+                for event in events
+                for atom in event.ordered_atom_ids
+            )
+            == 1,
+        }
+
+    if case_id == "nested-local-detour":
+        corridors = (
+            _synthetic_corridor(case_id, 0, ("choice_split",), choice_ids=("choice",)),
+            _synthetic_corridor(
+                case_id,
+                1,
+                ("arm_0", "nested_choice"),
+                container="choice",
+                arm="arm_0",
+                choice_ids=("nested-choice",),
+            ),
+            _synthetic_corridor(case_id, 2, ("arm_1",), container="choice", arm="arm_1"),
+            _synthetic_corridor(case_id, 3, ("proven_rejoin",), rejoins=("rejoin",)),
+        )
+        events = assemble_narrative_events(
+            corridors,
+            expected_atom_ids=(
+                atom for corridor in corridors for atom in corridor.ordered_atom_ids
+            ),
+        )
+        arms = [event for event in events if event.temporary_arm_id is not None]
+        return {
+            "temporary": bool(arms),
+            "nested_choice_count": len(
+                {
+                    choice
+                    for event in arms
+                    for choice in event.nested_choice_ids
+                    if choice == "nested-choice"
+                }
+            ),
+            "arms_escape_container": any(
+                event.temporary_container_id != "choice" for event in arms
+            ),
+        }
+
+    if case_id == "persistent-branches":
+        corridors = tuple(
+            _synthetic_corridor(case_id, index, (signal,), lane=f"lane_{index}")
+            for index, signal in enumerate(signals[1:])
+        )
+        events = assemble_narrative_events(corridors)
+        return {
+            "temporary": any(event.temporary_container_id is not None for event in events),
+            "lane_count": len({event.lane_id for event in events}),
+            "invented_merge": any(len(event.ordered_corridor_ids) > 1 for event in events),
+        }
+
+    if case_id == "call-occurrences":
+        occurrences = tuple(signal for signal in signals if signal.startswith("call_"))
+        corridors = tuple(
+            _synthetic_corridor(case_id, index, (signal,), occurrence=signal)
+            for index, signal in enumerate(occurrences)
+        )
+        events = assemble_narrative_events(corridors)
+        return {
+            "occurrence_count": len({event.call_occurrence_id for event in events}),
+            "cross_occurrence_membership": any(
+                len(event.ordered_corridor_ids) > 1 for event in events
+            ),
+        }
+
+    if case_id == "loop":
+        corridor = _synthetic_corridor(case_id, 0, signals, loop="loop")
+        event = assemble_narrative_events((corridor,))[0]
+        return {
+            "loop_preserved": event.loop_id == "loop",
+            "invented_linearization": event.loop_id is None,
+        }
+
+    if case_id in {"terminal", "unresolved-transfer"}:
+        marker = "terminal" if case_id == "terminal" else "unresolved"
+        corridor = _synthetic_corridor(case_id, 0, signals, exit_node=marker, hard_after=True)
+        event = assemble_narrative_events((corridor,))[0]
+        if case_id == "terminal":
+            return {
+                "terminal_preserved": event.exit_node_id == marker and corridor.hard_boundary_after,
+                "invented_continuation": event.exit_node_id != marker,
+            }
+        return {
+            "conservative_boundary": event.exit_node_id == marker and corridor.hard_boundary_after,
+            "invented_target": event.exit_node_id != marker,
+        }
+    raise ValueError(f"unsupported synthetic case {case_id!r}")
+
+
+def _synthetic_corridor(
+    case_id: str,
+    ordinal: int,
+    signals: tuple[str, ...],
+    *,
+    lane: str = "lane",
+    occurrence: str | None = None,
+    loop: str | None = None,
+    container: str | None = None,
+    arm: str | None = None,
+    choice_ids: tuple[str, ...] = (),
+    rejoins: tuple[str, ...] = (),
+    exit_node: str | None = None,
+    hard_after: bool = False,
+) -> NarrativeCorridor:
+    atom_ids = tuple(
+        f"{case_id}-{ordinal}-{signal_index}-{signal}"
+        for signal_index, signal in enumerate(signals)
+    )
+    locator = SourceLocator("synthetic.rpy", ordinal + 1, ordinal + 1, "synthetic")
+    return NarrativeCorridor(
+        authority=_SYNTHETIC_AUTHORITY,
+        lane_id=lane,
+        chapter_id=None,
+        call_occurrence_id=occurrence,
+        loop_id=loop,
+        temporary_container_id=container,
+        temporary_arm_id=arm,
+        ordered_atom_ids=atom_ids,
+        entry_node_id=f"{case_id}-entry-{ordinal}",
+        exit_node_id=exit_node or f"{case_id}-exit-{ordinal}",
+        incident_edge_ids=(f"{case_id}-edge-{ordinal}",),
+        choice_ids=choice_ids,
+        rejoin_node_ids=rejoins,
+        hard_boundary_after=hard_after,
+        technical_atom_ids=tuple(
+            atom_id
+            for atom_id, signal in zip(atom_ids, signals, strict=True)
+            if signal == "visual_change"
+        ),
+        provenance=Provenance(atom_ids=atom_ids, locators=(locator,)),
+    )
+
+
+def _canonical_choice_pairs(
+    canonical: CanonicalGraph,
+    model: SceneModel,
+) -> dict[int, int]:
+    """Derive the four acceptance pairs from M10 regions and resolved outgoing edges."""
+
+    line_by_node = {item.primary_node_id: item.source_order[1] for item in model.atoms}
+    region_by_id = {item.id: item for item in canonical.regions}
+    outgoing: dict[str, list[str]] = {}
+    for edge in canonical.edges:
+        if edge.resolved:
+            outgoing.setdefault(edge.source_id, []).append(edge.target_id)
+    temporary = {
+        "local_detour",
+        "optional_detour",
+        "reconvergent_route_segment",
+    }
+    temporary_merge_nodes = {
+        item.merge_node_id
+        for item in canonical.regions
+        if item.kind in temporary and item.merge_node_id is not None
+    }
+    result: dict[int, int] = {}
+    for region in canonical.regions:
+        split_line = line_by_node.get(region.split_node_id)
+        if split_line not in EXPECTED_MENU_LINES:
+            continue
+        scope = region
+        while True:
+            explicit = scope.attributes.get("parent_region_id")
+            candidates = [
+                item
+                for item in canonical.regions
+                if item.id != scope.id
+                and item.kind in temporary
+                and scope.split_node_id in item.member_node_ids
+            ]
+            parent = (
+                region_by_id.get(explicit)
+                if isinstance(explicit, str)
+                else min(candidates, key=lambda item: len(item.member_node_ids), default=None)
+            )
+            if parent is None or parent.kind not in temporary:
+                break
+            scope = parent
+        if scope.merge_node_id is None:
+            raise ValueError("a narrative choice lost its authoritative M10 merge")
+        continuation_lines: list[int] = []
+        pending = list(outgoing.get(scope.merge_node_id, ()))
+        visited: set[str] = set()
+        while pending:
+            target = pending.pop()
+            if target in visited:
+                raise ValueError("a narrative choice continuation contains a merge cycle")
+            visited.add(target)
+            if target in temporary_merge_nodes:
+                pending.extend(outgoing.get(target, ()))
+            elif target in line_by_node:
+                continuation_lines.append(line_by_node[target])
+        if not continuation_lines:
+            raise ValueError("a narrative choice lost its authoritative M10 continuation")
+        result[int(split_line)] = max(continuation_lines)
+    return result
 
 
 def _read_authority(

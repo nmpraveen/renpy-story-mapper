@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from m15_test_support import linear_authority
 from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.narrative_map import (
@@ -70,3 +72,31 @@ def test_terminal_and_unresolved_transfers_are_isolated_hard_boundaries() -> Non
     assert len(corridors) == 3
     assert corridors[1].hard_boundary_before and corridors[1].hard_boundary_after
     assert corridors[2].hard_boundary_before and corridors[2].hard_boundary_after
+
+
+def test_m11_scene_lane_and_chapter_membership_are_not_topology_authority() -> None:
+    canonical, model = linear_authority((AtomKind.NARRATION, AtomKind.DIALOGUE))
+    altered_lane_id = "m11-lane-must-not-own-topology"
+    altered_chapter_id = "m11-chapter-must-not-own-topology"
+    altered_scene = replace(
+        model.scenes[0],
+        chapter_id=altered_chapter_id,
+        lane_id=altered_lane_id,
+    )
+    altered_lane = replace(model.lanes[0], id=altered_lane_id)
+    altered_chapter = replace(
+        model.chapters[0],
+        id=altered_chapter_id,
+        lane_ids=(altered_lane_id,),
+    )
+    altered_model = replace(
+        model,
+        scenes=(altered_scene,),
+        lanes=(altered_lane,),
+        chapters=(altered_chapter,),
+    )
+
+    corridors = build_narrative_corridors(canonical, altered_model)
+
+    assert {item.chapter_id for item in corridors} == {None}
+    assert {item.lane_id for item in corridors} == {"lane_story_spine"}

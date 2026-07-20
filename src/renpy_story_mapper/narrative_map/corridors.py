@@ -8,9 +8,15 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
+from typing import cast
 
-from renpy_story_mapper.canonical_graph_contract import CanonicalEdge, CanonicalGraph
-from renpy_story_mapper.m11_scene_model import AtomKind, Scene, SceneModel, StoryAtom
+from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalEdge,
+    CanonicalGraph,
+    CanonicalNode,
+    CanonicalRegion,
+)
+from renpy_story_mapper.m11_scene_model import AtomKind, SceneModel, StoryAtom
 from renpy_story_mapper.narrative_map.adapters import (
     atom_locators,
     bind_m15_authority,
@@ -64,19 +70,21 @@ def build_narrative_corridors(
     if set(atoms) != {item.id for item in scene_model.atoms}:
         raise ValueError("M11 atom IDs must be unique")
 
-    scene_by_atom = _scene_ownership(scene_model)
-    occurrence_by_atom = _occurrence_ownership(scene_model)
-    temporary_by_atom, choice_by_atom, rejoin_by_node = _temporary_ownership(scene_model)
-    loop_by_atom = _loop_ownership(scene_model)
+    canonical_by_node = {item.id: item for item in canonical.nodes}
+    occurrence_by_node = _call_occurrences(canonical.edges)
+    temporary_by_node, choice_by_node, rejoin_by_node = _temporary_ownership(
+        canonical.regions,
+        canonical_by_node,
+    )
     contexts: dict[str, _Context] = {}
-    for atom_id in atoms:
-        scene = scene_by_atom[atom_id]
-        container_id, arm_id = temporary_by_atom.get(atom_id, (None, None))
+    for atom_id, atom in atoms.items():
+        node = canonical_by_node[atom.primary_node_id]
+        container_id, arm_id = temporary_by_node.get(atom.primary_node_id, (None, None))
         contexts[atom_id] = _Context(
-            chapter_id=scene.chapter_id,
-            lane_id=scene.lane_id,
-            occurrence_id=occurrence_by_atom.get(atom_id),
-            loop_id=loop_by_atom.get(atom_id) or scene.loop_hub_id,
+            chapter_id=None,
+            lane_id=_canonical_lane(node.attributes),
+            occurrence_id=occurrence_by_node.get(atom.primary_node_id),
+            loop_id=_canonical_loop(node.attributes),
             container_id=container_id,
             arm_id=arm_id,
         )
@@ -84,6 +92,11 @@ def build_narrative_corridors(
     ordered_atoms = _control_order(tuple(atoms.values()), edges)
     leading_technical = _leading_technical_ids(ordered_atoms)
     soft_before = _soft_boundaries(ordered_atoms, contexts, edges)
+    choice_by_atom = {
+        atom.id: choice_by_node[atom.primary_node_id]
+        for atom in ordered_atoms
+        if atom.primary_node_id in choice_by_node
+    }
     split_atom_ids = set(choice_by_atom)
     rejoin_atom_ids = {atom.id for atom in ordered_atoms if atom.primary_node_id in rejoin_by_node}
 
@@ -233,56 +246,69 @@ def ordered_unique_locators(values: Iterable[SourceLocator]) -> tuple[SourceLoca
     return tuple(result)
 
 
-def _scene_ownership(scene_model: SceneModel) -> dict[str, Scene]:
-    result: dict[str, Scene] = {}
-    for scene in scene_model.scenes:
-        for atom_id in scene.atom_ids:
-            if atom_id in result:
-                raise ValueError(f"atom {atom_id} has duplicate scene ownership")
-            result[atom_id] = scene
-    if set(result) != {item.id for item in scene_model.atoms}:
-        raise ValueError("every M11 atom requires exact scene ownership")
-    return result
-
-
-def _occurrence_ownership(scene_model: SceneModel) -> dict[str, str]:
-    owners: dict[str, list[str]] = defaultdict(list)
-    for occurrence in scene_model.occurrences:
-        owners[occurrence.call_atom_id].append(occurrence.id)
-        for atom_id in occurrence.referenced_atom_ids:
-            owners[atom_id].append(occurrence.id)
-    result: dict[str, str] = {}
-    for atom_id, occurrence_ids in owners.items():
-        unique = ordered_unique(occurrence_ids)
-        result[atom_id] = unique[0] if len(unique) == 1 else "shared_call_content"
-    return result
-
-
 def _temporary_ownership(
-    scene_model: SceneModel,
+    regions: Sequence[CanonicalRegion],
+    canonical_by_node: dict[str, CanonicalNode],
 ) -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, ...]], dict[str, str]]:
-    branches = {item.id: item for item in scene_model.temporary_branches}
+    region_by_id = {item.id: item for item in regions}
+    temporary_kinds = {
+        "local_detour",
+        "optional_detour",
+        "reconvergent_route_segment",
+    }
     depth: dict[str, int] = {}
 
-    def branch_depth(branch_id: str) -> int:
-        if branch_id in depth:
-            return depth[branch_id]
-        parent = branches[branch_id].parent_branch_id
-        depth[branch_id] = 0 if parent is None else branch_depth(parent) + 1
-        return depth[branch_id]
+    def region_depth(region_id: str) -> int:
+        if region_id in depth:
+            return depth[region_id]
+        region = region_by_id[region_id]
+        parent = region.attributes.get("parent_region_id")
+        parent_id = parent if isinstance(parent, str) and parent in region_by_id else None
+        if parent_id is None:
+            containers = [
+                item
+                for item in regions
+                if item.id != region.id
+                and item.kind in temporary_kinds
+                and region.split_node_id in item.member_node_ids
+            ]
+            container = min(containers, key=lambda item: len(item.member_node_ids), default=None)
+            parent_id = None if container is None else container.id
+        depth[region_id] = 0 if parent_id is None else region_depth(parent_id) + 1
+        return depth[region_id]
 
     memberships: dict[str, list[tuple[int, str, str]]] = defaultdict(list)
     choices: dict[str, list[str]] = defaultdict(list)
     rejoin_by_node: dict[str, str] = {}
-    for branch in scene_model.temporary_branches:
-        region_id = branch.canonical_region_id
-        choices[branch.split_atom_id].append(region_id)
-        prior = rejoin_by_node.setdefault(branch.merge_node_id, branch.merge_node_id)
-        if prior != branch.merge_node_id:
-            raise ValueError("temporary rejoins must retain canonical node identity")
-        for arm in branch.arms:
-            for atom_id in arm.atom_ids:
-                memberships[atom_id].append((branch_depth(branch.id), region_id, arm.id))
+    for region in regions:
+        if region.kind not in temporary_kinds:
+            continue
+        split = canonical_by_node[region.split_node_id]
+        split_attributes = split.attributes
+        if split.kind.value == "choice" or split_attributes.get("source_kind") == "menu":
+            choices[region.split_node_id].append(region.id)
+        if region.merge_node_id is not None:
+            rejoin_by_node[region.merge_node_id] = region.merge_node_id
+        arms = region.attributes.get("arms")
+        if not isinstance(arms, Sequence) or isinstance(arms, str | bytes):
+            raise ValueError(f"canonical region {region.id} has invalid arm authority")
+        for raw_arm in arms:
+            if not isinstance(raw_arm, dict):
+                raise ValueError(f"canonical region {region.id} has invalid arm authority")
+            arm = cast(dict[str, object], raw_arm)
+            arm_id = arm.get("id")
+            entry_node_id = arm.get("entry_node_id")
+            members = arm.get("member_node_ids")
+            if (
+                not isinstance(arm_id, str)
+                or not isinstance(entry_node_id, str)
+                or not isinstance(members, Sequence)
+                or isinstance(members, str | bytes)
+            ):
+                raise ValueError(f"canonical region {region.id} has invalid arm authority")
+            member_ids = [entry_node_id, *(item for item in members if isinstance(item, str))]
+            for node_id in member_ids:
+                memberships[node_id].append((region_depth(region.id), region.id, arm_id))
     ownership: dict[str, tuple[str, str]] = {}
     for atom_id, items in memberships.items():
         ordered = sorted(items)
@@ -290,15 +316,36 @@ def _temporary_ownership(
     return ownership, {key: ordered_unique(value) for key, value in choices.items()}, rejoin_by_node
 
 
-def _loop_ownership(scene_model: SceneModel) -> dict[str, str]:
+def _call_occurrences(edges: Sequence[CanonicalEdge]) -> dict[str, str]:
     result: dict[str, str] = {}
-    scenes = {item.id: item for item in scene_model.scenes}
-    for hub in scene_model.loop_hubs:
-        result[hub.hub_atom_id] = hub.id
-        for scene_id in hub.scene_ids:
-            for atom_id in scenes[scene_id].atom_ids:
-                result.setdefault(atom_id, hub.id)
+    for edge in edges:
+        call_site_id = edge.attributes.get("call_site_id")
+        if not isinstance(call_site_id, str) or not call_site_id:
+            continue
+        prior = result.setdefault(edge.source_id, call_site_id)
+        if prior != call_site_id:
+            raise ValueError("one canonical call source has multiple occurrence identities")
     return result
+
+
+def _canonical_lane(attributes: object) -> str:
+    if isinstance(attributes, dict):
+        route = attributes.get("route")
+        if isinstance(route, dict):
+            lane_id = route.get("lane_id")
+            if isinstance(lane_id, str) and lane_id:
+                return lane_id
+    return "lane_story_spine"
+
+
+def _canonical_loop(attributes: object) -> str | None:
+    if not isinstance(attributes, dict):
+        return None
+    loop_ids = attributes.get("loop_ids")
+    if not isinstance(loop_ids, Sequence) or isinstance(loop_ids, str | bytes):
+        return None
+    values = sorted(item for item in loop_ids if isinstance(item, str) and item)
+    return None if not values else "/".join(values)
 
 
 def _control_order(
