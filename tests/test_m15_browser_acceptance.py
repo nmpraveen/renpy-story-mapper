@@ -46,6 +46,8 @@ def test_m15_browser_harness_covers_track_c_gates() -> None:
         "Input.dispatchMouseEvent",
         "elementFromPoint",
         "pan_stress",
+        "search_semantics",
+        "repeated-title",
         "Input.dispatchKeyEvent",
         "detail_evidence",
         "Content-Security-Policy",
@@ -104,6 +106,76 @@ def test_workspace_background_completion_preserves_an_active_viewport() -> None:
     result = json.loads(completed.stdout)
     assert result["available"] is True
     assert result["calls"][-1] == ["final-render", {"preserveViewport": True}]
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="Node.js is required for browser client behavior checks",
+)
+def test_narrative_search_preserves_matching_selection_and_falls_back_when_absent() -> None:
+    app = (ROOT / "src" / "renpy_story_mapper" / "web" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    start = app.index("async function searchM10WholeGraph")
+    end = app.index("\n}\n", start) + 2
+    behavior = app[start:end]
+    script = f"""
+      {behavior}
+      const input = {{ value: "Repeated title" }};
+      const status = {{ textContent: "" }};
+      const $ = (selector) => selector === "#searchInput" ? input : status;
+      const calls = [];
+      const renders = [];
+      const response = {{ status: "available", nodes: [
+        {{ id: "node-first", title: "Repeated title", summary: "first" }},
+        {{ id: "node-selected", title: "Repeated title", summary: "second" }},
+        {{ id: "node-other", title: "Different title", summary: "third" }},
+      ], edges: [], search: {{ query: "Repeated title", matches: [
+        {{ id: "node-first", title: "Repeated title" }},
+        {{ id: "node-selected", title: "Repeated title" }},
+      ] }} }};
+      const state = {{ mode: "narrative", selectedId: "node-selected", page: response }};
+      const api = {{ narrativeMap: async (query, focus) => {{
+        calls.push([query, focus]); return response;
+      }} }};
+      const normalizedPage = (page) => page;
+      const renderMap = (options) => renders.push(options);
+      const renderAnalysisAvailability = () => {{}};
+      const CSS = {{ escape: (value) => value }};
+      const graph = {{ world: {{ querySelector: () => null }} }};
+      await searchM10WholeGraph();
+      const retained = state.selectedId;
+      state.selectedId = "node-other";
+      await searchM10WholeGraph();
+      const fallback = state.selectedId;
+      state.selectedId = "node-selected";
+      input.value = "";
+      await searchM10WholeGraph();
+      process.stdout.write(JSON.stringify({{
+        retained, fallback, empty: state.selectedId, calls, renders
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["retained"] == "node-selected"
+    assert result["fallback"] == "node-first"
+    assert result["empty"] == "node-selected"
+    assert result["calls"] == [
+        ["Repeated title", "node-selected"],
+        ["Repeated title", "node-other"],
+        [None, "node-selected"],
+    ]
+    assert result["renders"] == [
+        {"preserveViewport": True},
+        {"preserveViewport": True},
+        {"preserveViewport": True},
+    ]
 
 
 @pytest.mark.hardware_sensitive

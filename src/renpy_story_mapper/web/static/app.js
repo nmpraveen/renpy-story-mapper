@@ -589,7 +589,7 @@ async function searchM10WholeGraph() {
     const page = normalizedPage(raw, "narrative"); state.page = page; state.narrativeMapPage = page;
     const matches = page.search?.matches || [];
     if (query && !matches.length) $("#selectionStatus").textContent = "No Narrative Map matches";
-    else if (query && matches.length) state.selectedId = matches[0].id;
+    else if (query && matches.length && !matches.some((item) => item.id === state.selectedId)) state.selectedId = matches[0].id;
     renderMap({ preserveViewport: true });
     if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
     return;

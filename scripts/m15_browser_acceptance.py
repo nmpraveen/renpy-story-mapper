@@ -273,15 +273,55 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
             pan = pan_stress["after"]
 
             session.evaluate("document.querySelector('#zoomIn').click();document.querySelector('#zoomOut').click()")
-            selected_before = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
-            title = session.evaluate("document.querySelector('.station[aria-selected=true] .station-title').textContent")
+            repeated = session.evaluate(
+                "import('./app.js').then(m=>{const groups=new Map();"
+                "for(const node of m.state.page.nodes){const title=String(node.title||'');"
+                "if(!groups.has(title))groups.set(title,[]);groups.get(title).push(node.id);}"
+                "for(const [title,ids] of groups){if(!title||ids.length<2)continue;"
+                "const query=title.toLocaleLowerCase();const matches=m.state.page.nodes.filter(node=>"
+                "`${node.id} ${node.title} ${node.summary||''}`.toLocaleLowerCase().includes(query));"
+                "const target=ids.find(id=>id!==matches[0]?.id);"
+                "const index=m.graph.elements().findIndex(item=>item.id===target);"
+                "const absent=m.state.page.nodes.find(node=>node.id!==target);"
+                "if(target&&index>=0&&absent)return {title,target,index,first:matches[0].id,absent:absent.id};}"
+                "return null;})"
+            )
+            if not repeated:
+                raise AssertionError("The sanitized browser fixture did not expose a repeated-title search case")
             session.evaluate(
-                f"(()=>{{const input=document.querySelector('#searchInput');input.value={json.dumps(title)};input.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
+                "import('./app.js').then(m=>m.graph.world.querySelector(`[data-element-id=\"${CSS.escape(m.state.selectedId)}\"]`)?.focus())"
+            )
+            session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Home", "code": "Home"})
+            session.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Home", "code": "Home"})
+            for _index in range(repeated["index"]):
+                session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "ArrowRight", "code": "ArrowRight"})
+                session.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": "ArrowRight", "code": "ArrowRight"})
+            keyboard_target = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
+            if keyboard_target != repeated["target"]:
+                raise AssertionError(f"Keyboard could not select the repeated-title target: {repeated}, selected={keyboard_target}")
+            selected_before = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
+            session.evaluate(
+                f"(()=>{{const input=document.querySelector('#searchInput');input.value={json.dumps(repeated['title'])};input.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
             )
             session.wait("import('./app.js').then(m=>m.state.page.search?.query===document.querySelector('#searchInput').value)")
             selected_after = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
             if selected_before != selected_after:
                 raise AssertionError(f"Search did not preserve the selected element: {selected_before} -> {selected_after}")
+
+            session.evaluate(
+                f"(()=>{{const input=document.querySelector('#searchInput');input.value={json.dumps(repeated['absent'])};input.dispatchEvent(new Event('input',{{bubbles:true}}));}})()"
+            )
+            session.wait("import('./app.js').then(m=>m.state.page.search?.query===document.querySelector('#searchInput').value)")
+            absent_selected = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
+            if absent_selected != repeated["absent"]:
+                raise AssertionError(f"Search did not select the first match when the prior selection was absent: {repeated}, selected={absent_selected}")
+            session.evaluate(
+                "(()=>{const input=document.querySelector('#searchInput');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));})()"
+            )
+            session.wait("import('./app.js').then(m=>m.state.page.search?.query==='')")
+            empty_selected = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
+            if empty_selected != absent_selected:
+                raise AssertionError(f"Clearing search changed the selected element: {absent_selected} -> {empty_selected}")
 
             session.evaluate("document.querySelector('.station[aria-selected=true]').focus()")
             session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "ArrowRight", "code": "ArrowRight"})
@@ -313,6 +353,12 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
                 "pan_offset": pan,
                 "pan_stress": pan_stress,
                 "search_selection": {"before": selected_before, "after": selected_after},
+                "search_semantics": {
+                    "repeated_title": repeated,
+                    "preserved": selected_after,
+                    "selection_absent_fallback": absent_selected,
+                    "empty_query_preserved": empty_selected,
+                },
                 "keyboard_selection": keyboard_selected,
                 "detail": detail,
                 "requests": request_evidence,
