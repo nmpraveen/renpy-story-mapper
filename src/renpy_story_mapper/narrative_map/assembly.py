@@ -129,6 +129,7 @@ def _event_from_group(group: tuple[NarrativeCorridor, ...]) -> NarrativeEvent:
             CoverageState.TECHNICAL if technical_only else CoverageState.DETERMINISTIC_FALLBACK
         ),
         provenance=provenance,
+        technical_correction_id=first.technical_correction_id,
     )
 
 
@@ -142,6 +143,9 @@ def _validate_corridors(
         raise ValueError("duplicate corridor membership is forbidden")
     if any(item.authority != authority for item in corridors):
         raise ValueError("corridors from different authority bindings cannot be assembled")
+    correction_ids = {item.technical_correction_id for item in corridors}
+    if len(correction_ids) != 1:
+        raise ValueError("corridors from different technical corrections cannot be assembled")
     atoms = [atom_id for item in corridors for atom_id in item.ordered_atom_ids]
     if len(atoms) != len(set(atoms)):
         raise ValueError("corridor atom membership overlaps")

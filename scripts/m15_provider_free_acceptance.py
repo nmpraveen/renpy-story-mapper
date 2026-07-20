@@ -61,11 +61,23 @@ from renpy_story_mapper.narrative_map import (
     build_narrative_map,
 )
 from renpy_story_mapper.narrative_map.contracts import NarrativeNodeKind
+from renpy_story_mapper.narrative_map.coverage_corrections import (
+    M15_LEADING_TECHNICAL_CORRECTION_KEY,
+    M15_LEADING_TECHNICAL_CORRECTIONS_COLLECTION,
+    decode_leading_technical_correction_envelope,
+)
 
 EXPECTED_SOURCE_HASH = "14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6"
 EXPECTED_MENU_LINES = (143, 191, 623, 674)
 EXPECTED_MAJOR_STARTS = (52, 280, 334, 431)
 EXPECTED_MAJOR_ORDER = ("prologue", "terrance", "janet", "dinner", "faye")
+EXPECTED_MAJOR_MEMBERSHIP_BOUNDS = (
+    ("prologue", (27, 50)),
+    ("terrance", (52, 278)),
+    ("janet", (280, 332)),
+    ("dinner", (334, 430)),
+    ("faye", (431, 789)),
+)
 EXPECTED_SETUP_END_LINE = 26
 EXPECTED_PROLOGUE_START_RANGE = (27, 51)
 BLOCKED_TITLES = {"start", "clean", "module ending", "technical merge"}
@@ -79,6 +91,7 @@ type RegionSpec = tuple[str, str, str, str | None, tuple[str, ...], dict[str, ob
 def evaluate_exact_msday1(
     fixture_root: Path,
     project_path: Path,
+    comparison_project_path: Path | None = None,
 ) -> dict[str, JsonValue]:
     """Evaluate exact private Day 1 authority without emitting or modifying story content."""
 
@@ -88,15 +101,30 @@ def evaluate_exact_msday1(
         raise FileNotFoundError("the opt-in MsDay1 source and comparison project are required")
     before_source = _fingerprint(source)
     before_project = _fingerprint(project_path)
+    comparison_project = (
+        None if comparison_project_path is None else comparison_project_path.resolve()
+    )
+    if comparison_project is not None and comparison_project == project_path.resolve():
+        raise ValueError("the seeded working project must differ from the comparison project")
+    before_comparison = None if comparison_project is None else _fingerprint(comparison_project)
     if before_source[0] != EXPECTED_SOURCE_HASH:
         raise ValueError("the private source hash does not match the frozen M15 fixture")
     if len(source.read_bytes().splitlines()) != 793:
         raise ValueError("the exact private scope must contain 793 reconstructed lines")
 
-    canonical_value, phase_results = _read_authority(project_path)
+    canonical_value, phase_results, correction_value = _read_authority(project_path)
     canonical = canonical_graph_from_mapping(canonical_value)
     model = scene_model_from_stored_results(phase_results)
-    corridors = build_narrative_corridors(canonical, model)
+    correction = (
+        None
+        if correction_value is None
+        else decode_leading_technical_correction_envelope(correction_value)
+    )
+    corridors = build_narrative_corridors(
+        canonical,
+        model,
+        technical_correction=correction,
+    )
     events = assemble_narrative_events(
         corridors,
         expected_atom_ids=(item.id for item in model.atoms),
@@ -132,7 +160,12 @@ def evaluate_exact_msday1(
 
     after_source = _fingerprint(source)
     after_project = _fingerprint(project_path)
-    if before_source != after_source or before_project != after_project:
+    after_comparison = None if comparison_project is None else _fingerprint(comparison_project)
+    if (
+        before_source != after_source
+        or before_project != after_project
+        or before_comparison != after_comparison
+    ):
         raise RuntimeError("read-only acceptance changed a private input")
     return {
         "schema": "m15-provider-free-exact-report-v1",
@@ -142,6 +175,13 @@ def evaluate_exact_msday1(
         "project_sha256": before_project[0],
         "project_size": before_project[1],
         "project_mtime_ns": before_project[2],
+        "comparison_project_sha256": (None if before_comparison is None else before_comparison[0]),
+        "comparison_project_size": (None if before_comparison is None else before_comparison[1]),
+        "comparison_project_mtime_ns": (
+            None if before_comparison is None else before_comparison[2]
+        ),
+        "technical_correction_id": (None if correction is None else correction.correction_id),
+        "technical_correction_hash": (None if correction is None else correction.normalized_hash),
         "canonical_hash": canonical.authority_hash,
         "atom_hash": model.structural_hash,
         "corridor_count": len(corridors),
@@ -168,6 +208,7 @@ def evaluate_exact_msday1(
         "game_execution_count": 0,
         "source_unchanged": True,
         "project_unchanged": True,
+        "comparison_project_unchanged": True,
     }
 
 
@@ -276,18 +317,18 @@ def _exact_product_observations(
         <= EXPECTED_PROLOGUE_START_RANGE[1]
     ):
         raise ValueError("the visible Prologue cluster lost its story-facing evidence")
-    expected_cluster_starts = (cluster_starts[0], *EXPECTED_MAJOR_STARTS)
-    if cluster_starts != expected_cluster_starts:
-        raise ValueError("exact visible map order does not match frozen major cluster starts")
-    expected_labels_by_start = dict(zip(expected_cluster_starts, EXPECTED_MAJOR_ORDER, strict=True))
-    cluster_labels = tuple(expected_labels_by_start[item] for item in cluster_starts)
+    if tuple(cluster_bounds) != tuple(item[1] for item in EXPECTED_MAJOR_MEMBERSHIP_BOUNDS):
+        raise ValueError("exact visible map membership does not match frozen major cluster bounds")
+    labels_by_bounds = {
+        expected_bounds: label for label, expected_bounds in EXPECTED_MAJOR_MEMBERSHIP_BOUNDS
+    }
+    cluster_labels = tuple(labels_by_bounds[bounds] for bounds in cluster_bounds)
     if cluster_labels != EXPECTED_MAJOR_ORDER:
         raise ValueError("exact visible map order does not match frozen major event order")
     normally_visible_event_ids = {
         item.event_id
         for item in narrative_map.nodes
-        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE
-        and item.event_id is not None
+        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE and item.event_id is not None
     }
     if any(
         atom_by_id[atom_id].source_order[1] <= EXPECTED_SETUP_END_LINE
@@ -1041,7 +1082,11 @@ def _canonical_choice_pairs(
 
 def _read_authority(
     project_path: Path,
-) -> tuple[dict[str, object], dict[str, Mapping[str, object]]]:
+) -> tuple[
+    dict[str, object],
+    dict[str, Mapping[str, object]],
+    dict[str, object] | None,
+]:
     uri = f"file:{project_path.as_posix()}?mode=ro&immutable=1"
     with sqlite3.connect(uri, uri=True) as database:
         canonical = _payload(database, "m10_canonical_graph", "authoritative")
@@ -1059,7 +1104,31 @@ def _read_authority(
                 raise ValueError("an M11 phase pointer has invalid identity")
             envelope = _payload(database, "m11_phase_results", key)
             results[phase] = _mapping(envelope.get("result"), "M11 phase result")
-    return canonical, results
+        correction = _optional_payload(
+            database,
+            M15_LEADING_TECHNICAL_CORRECTIONS_COLLECTION,
+            M15_LEADING_TECHNICAL_CORRECTION_KEY,
+        )
+    return canonical, results, correction
+
+
+def _optional_payload(
+    database: sqlite3.Connection,
+    collection: str,
+    record_key: str,
+) -> dict[str, object] | None:
+    row = database.execute(
+        "SELECT payload_json FROM payloads WHERE collection=? AND record_key=?",
+        (collection, record_key),
+    ).fetchone()
+    if row is None:
+        return None
+    if not isinstance(row[0], str | bytes):
+        raise ValueError(f"project payload {collection}/{record_key} is corrupt")
+    value = json.loads(row[0])
+    if not isinstance(value, dict):
+        raise ValueError(f"project payload {collection}/{record_key} is not an object")
+    return cast(dict[str, object], value)
 
 
 def _payload(
@@ -1103,6 +1172,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture-root", type=Path)
     parser.add_argument("--project", type=Path)
+    parser.add_argument("--comparison-project", type=Path)
     parser.add_argument(
         "--synthetic-manifest",
         type=Path,
@@ -1113,7 +1183,11 @@ def main() -> int:
         "synthetic": evaluate_synthetic_manifest(arguments.synthetic_manifest)
     }
     if arguments.fixture_root is not None and arguments.project is not None:
-        reports["exact"] = evaluate_exact_msday1(arguments.fixture_root, arguments.project)
+        reports["exact"] = evaluate_exact_msday1(
+            arguments.fixture_root,
+            arguments.project,
+            arguments.comparison_project,
+        )
     print(json.dumps(reports, indent=2, sort_keys=True))
     return 0
 

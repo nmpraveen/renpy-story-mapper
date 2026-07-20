@@ -78,7 +78,13 @@ def test_exact_msday1_golden_choice_rejoins_and_terrance_janet_boundary() -> Non
     evaluator = getattr(module, "evaluate_exact_msday1", None)
     assert callable(evaluator), "failing-first: exact Day 1 evaluator is missing"
 
-    report = evaluator(ROOT / "MsDay1", ROOT / "tmp" / "msday1-sentinel-validation.rsmproj")
+    private_root = Path.home() / "Documents" / "Codex" / "Renpy"
+    fixture_root = private_root / "MsDay1"
+    comparison = private_root / "tmp" / "msday1-sentinel-validation.rsmproj"
+    working = private_root / "tmp" / "m15-track-a-corrected-structural.rsmproj"
+    if not working.is_file() or not comparison.is_file():
+        pytest.skip("correction-seeded private M15 working copy is not present")
+    report = evaluator(fixture_root, working, comparison)
     assert report["terrance_choice_rejoins"] == [[143, 165], [191, 233]]
     assert report["faye_choice_rejoins"] == [[623, 793], [674, 793]]
     assert report["terrance_event_end_line"] < 280
@@ -88,3 +94,7 @@ def test_exact_msday1_golden_choice_rejoins_and_terrance_janet_boundary() -> Non
     assert report["day1_event_start_line"] == 52
     assert report["major_event_order"] == ["prologue", "terrance", "janet", "dinner", "faye"]
     assert report["blocked_technical_titles"] == []
+    assert report["technical_correction_id"]
+    assert report["source_unchanged"]
+    assert report["project_unchanged"]
+    assert report["comparison_project_unchanged"]

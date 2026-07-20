@@ -41,6 +41,14 @@ def build_narrative_map(
         raise ValueError("Narrative Events are bound to a different M10 graph")
     if any(item.authority != authority for item in materialized):
         raise ValueError("Narrative Events from different authorities cannot share a map")
+    correction_ids = {item.technical_correction_id for item in materialized}
+    if len(correction_ids) != 1:
+        raise ValueError("Narrative Events from different technical corrections cannot share a map")
+    technical_correction_id = materialized[0].technical_correction_id
+    if corridors and any(
+        item.technical_correction_id != technical_correction_id for item in corridors
+    ):
+        raise ValueError("Narrative corridors and events use different technical corrections")
 
     presentation = build_narrative_presentation(
         canonical,
@@ -57,8 +65,7 @@ def build_narrative_map(
     persistent_merge_nodes = {
         item.merge_node_id
         for item in canonical.regions
-        if item.kind in {"persistent_route", "terminal_split"}
-        and item.merge_node_id is not None
+        if item.kind in {"persistent_route", "terminal_split"} and item.merge_node_id is not None
     }
     edges = _quotient_edges(
         canonical.edges,
@@ -90,6 +97,7 @@ def build_narrative_map(
         edges=edges,
         initial_node_ids=initial,
         hidden_technical_atom_ids=hidden,
+        technical_correction_id=technical_correction_id,
     )
 
 

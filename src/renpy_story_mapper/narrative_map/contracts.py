@@ -18,6 +18,8 @@ M15_BOUNDARY_SCHEMA = "m15-boundary-decision-v1"
 M15_EVENT_SCHEMA = "m15-narrative-event-v1"
 M15_MAP_SCHEMA = "m15-narrative-map-v1"
 M15_CORRIDOR_RULE_VERSION = "m15-corridor-rules-v1"
+M15_TECHNICAL_CORRECTION_SCHEMA = "m15-leading-technical-coverage-correction-v1"
+M15_TECHNICAL_CORRECTION_RULE_VERSION = "m15-leading-technical-coverage-rule-v1"
 
 MAX_REASON_LENGTH = 500
 MAX_TITLE_LENGTH = 80
@@ -165,6 +167,146 @@ class SourceLocator:
 
 
 @dataclass(frozen=True)
+class LeadingTechnicalCoverageCorrection:
+    """Explicit authority for one exact, leading technical-coverage prefix."""
+
+    authority: AuthorityBinding
+    reason: str
+    qualified_locators: tuple[SourceLocator, ...]
+    ordered_atom_ids: tuple[str, ...]
+    rule_version: str = M15_TECHNICAL_CORRECTION_RULE_VERSION
+
+    def __post_init__(self) -> None:
+        _require_text(self.reason, "technical correction reason", maximum=MAX_REASON_LENGTH)
+        _require_unique(
+            self.ordered_atom_ids,
+            "technical correction atom ID",
+            allow_empty=False,
+        )
+        if not self.qualified_locators:
+            raise ValueError("technical correction qualified locators require at least one value")
+        if len(self.qualified_locators) > MAX_REFERENCES:
+            raise ValueError("technical correction qualified locators exceed the bounded limit")
+        if len(self.qualified_locators) != len(set(self.qualified_locators)):
+            raise ValueError("technical correction qualified locators must be unique")
+        _require_text(self.rule_version, "technical correction rule version")
+
+    def identity_dict(self) -> dict[str, JsonValue]:
+        return {
+            "schema": M15_TECHNICAL_CORRECTION_SCHEMA,
+            "rule_version": self.rule_version,
+            "authority": self.authority.to_dict(),
+            "reason": self.reason,
+            "qualified_locators": [item.to_dict() for item in self.qualified_locators],
+            "ordered_atom_ids": list(self.ordered_atom_ids),
+        }
+
+    @property
+    def normalized_hash(self) -> str:
+        return canonical_hash(self.identity_dict())
+
+    @property
+    def correction_id(self) -> str:
+        return stable_m15_id("technical_correction", self.identity_dict())
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "correction_id": self.correction_id,
+            "normalized_hash": self.normalized_hash,
+            **self.identity_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> LeadingTechnicalCoverageCorrection:
+        if not isinstance(value, dict):
+            raise ValueError("technical correction must be an object")
+        required = {
+            "correction_id",
+            "normalized_hash",
+            "schema",
+            "rule_version",
+            "authority",
+            "reason",
+            "qualified_locators",
+            "ordered_atom_ids",
+        }
+        if set(value) != required:
+            raise ValueError("technical correction has unknown or missing fields")
+        if value["schema"] != M15_TECHNICAL_CORRECTION_SCHEMA:
+            raise ValueError("technical correction schema is unsupported")
+        authority_value = value["authority"]
+        if not isinstance(authority_value, dict) or set(authority_value) != {
+            "source_generation",
+            "canonical_schema",
+            "canonical_hash",
+            "atom_schema",
+            "atom_hash",
+        }:
+            raise ValueError("technical correction authority is malformed")
+        if not all(isinstance(authority_value[item], str) for item in authority_value):
+            raise ValueError("technical correction authority is malformed")
+        if not isinstance(value["reason"], str) or not isinstance(value["rule_version"], str):
+            raise ValueError("technical correction text fields are malformed")
+        if not isinstance(value["correction_id"], str) or not isinstance(
+            value["normalized_hash"], str
+        ):
+            raise ValueError("technical correction identity is malformed")
+        locator_values = value["qualified_locators"]
+        atom_values = value["ordered_atom_ids"]
+        if not isinstance(locator_values, list) or not isinstance(atom_values, list):
+            raise ValueError("technical correction references must be arrays")
+        locators: list[SourceLocator] = []
+        for item in locator_values:
+            if not isinstance(item, dict) or set(item) != {
+                "relative_path",
+                "start_line",
+                "end_line",
+                "line_basis",
+            }:
+                raise ValueError("technical correction locator is malformed")
+            if (
+                not isinstance(item["relative_path"], str)
+                or not isinstance(item["line_basis"], str)
+                or isinstance(item["start_line"], bool)
+                or not isinstance(item["start_line"], int)
+                or isinstance(item["end_line"], bool)
+                or not isinstance(item["end_line"], int)
+            ):
+                raise ValueError("technical correction locator is malformed")
+            try:
+                locators.append(
+                    SourceLocator(
+                        relative_path=item["relative_path"],
+                        start_line=item["start_line"],
+                        end_line=item["end_line"],
+                        line_basis=item["line_basis"],
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("technical correction locator is malformed") from exc
+        if not all(isinstance(item, str) for item in atom_values):
+            raise ValueError("technical correction atom IDs must be strings")
+        correction = cls(
+            authority=AuthorityBinding(
+                source_generation=authority_value["source_generation"],
+                canonical_schema=authority_value["canonical_schema"],
+                canonical_hash=authority_value["canonical_hash"],
+                atom_schema=authority_value["atom_schema"],
+                atom_hash=authority_value["atom_hash"],
+            ),
+            reason=value["reason"],
+            qualified_locators=tuple(locators),
+            ordered_atom_ids=tuple(atom_values),
+            rule_version=value["rule_version"],
+        )
+        if value["normalized_hash"] != correction.normalized_hash:
+            raise ValueError("technical correction normalized hash does not match")
+        if value["correction_id"] != correction.correction_id:
+            raise ValueError("technical correction ID does not match")
+        return correction
+
+
+@dataclass(frozen=True)
 class Provenance:
     atom_ids: tuple[str, ...] = ()
     node_ids: tuple[str, ...] = ()
@@ -215,6 +357,7 @@ class NarrativeCorridor:
     hard_boundary_after: bool = False
     soft_boundary_signals: tuple[BoundarySignal, ...] = ()
     technical_atom_ids: tuple[str, ...] = ()
+    technical_correction_id: str | None = None
     provenance: Provenance = Provenance()
     rule_version: str = M15_CORRIDOR_RULE_VERSION
 
@@ -235,6 +378,7 @@ class NarrativeCorridor:
         _require_unique(self.choice_ids, "corridor choice ID")
         _require_unique(self.rejoin_node_ids, "corridor rejoin node ID")
         _require_unique(self.technical_atom_ids, "technical atom ID")
+        _require_optional_text(self.technical_correction_id, "technical correction ID")
         if not set(self.technical_atom_ids).issubset(self.ordered_atom_ids):
             raise ValueError("technical coverage must belong to the corridor's ordered atoms")
         if len(self.soft_boundary_signals) != len(set(self.soft_boundary_signals)):
@@ -262,6 +406,7 @@ class NarrativeCorridor:
             "hard_boundary_after": self.hard_boundary_after,
             "soft_boundary_signals": [item.value for item in self.soft_boundary_signals],
             "technical_atom_ids": list(self.technical_atom_ids),
+            "technical_correction_id": self.technical_correction_id,
             "provenance": self.provenance.to_dict(),
         }
 
@@ -280,6 +425,7 @@ class BoundaryCandidate:
     right_corridor_id: str
     signals: tuple[BoundarySignal, ...]
     evidence_ids: tuple[str, ...] = ()
+    technical_correction_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.left_corridor_id, "left corridor ID")
@@ -289,6 +435,7 @@ class BoundaryCandidate:
         if not self.signals or len(self.signals) != len(set(self.signals)):
             raise ValueError("soft boundary candidates require unique signals")
         _require_unique(self.evidence_ids, "boundary evidence ID")
+        _require_optional_text(self.technical_correction_id, "technical correction ID")
 
     def identity_dict(self) -> dict[str, JsonValue]:
         return {
@@ -298,6 +445,7 @@ class BoundaryCandidate:
             "right_corridor_id": self.right_corridor_id,
             "signals": [item.value for item in self.signals],
             "evidence_ids": list(self.evidence_ids),
+            "technical_correction_id": self.technical_correction_id,
         }
 
     @property
@@ -399,6 +547,7 @@ class NarrativeEvent:
     deterministic_title: str
     coverage_state: CoverageState
     provenance: Provenance
+    technical_correction_id: str | None = None
     ai_title: str | None = None
     ai_summary: str | None = None
     ai_claim_ids: tuple[str, ...] = ()
@@ -429,6 +578,7 @@ class NarrativeEvent:
         if self.ai_summary is not None:
             _require_text(self.ai_summary, "AI event summary", maximum=MAX_SUMMARY_LENGTH)
         _require_unique(self.ai_claim_ids, "AI claim ID")
+        _require_optional_text(self.technical_correction_id, "technical correction ID")
 
     def identity_dict(self) -> dict[str, JsonValue]:
         return {
@@ -448,6 +598,7 @@ class NarrativeEvent:
             "rejoin_node_ids": list(self.rejoin_node_ids),
             "coverage_state": self.coverage_state.value,
             "provenance": self.provenance.to_dict(),
+            "technical_correction_id": self.technical_correction_id,
         }
 
     @property
@@ -569,11 +720,13 @@ class NarrativeMap:
     edges: tuple[NarrativeMapEdge, ...]
     initial_node_ids: tuple[str, ...]
     hidden_technical_atom_ids: tuple[str, ...] = ()
+    technical_correction_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_unique(self.event_ids, "Narrative Map event ID", allow_empty=False)
         _require_unique(self.initial_node_ids, "initial Narrative Map node ID", allow_empty=False)
         _require_unique(self.hidden_technical_atom_ids, "hidden technical atom ID")
+        _require_optional_text(self.technical_correction_id, "technical correction ID")
         node_ids = tuple(item.node_id for item in self.nodes)
         edge_ids = tuple(item.edge_id for item in self.edges)
         _require_unique(node_ids, "Narrative Map node ID", allow_empty=False)
@@ -596,6 +749,7 @@ class NarrativeMap:
             "edges": [item.to_dict() for item in self.edges],
             "initial_node_ids": list(self.initial_node_ids),
             "hidden_technical_atom_ids": list(self.hidden_technical_atom_ids),
+            "technical_correction_id": self.technical_correction_id,
         }
 
     @property

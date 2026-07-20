@@ -11,7 +11,11 @@ import pytest
 
 from renpy_story_mapper.canonical_graph_contract import CanonicalNodeKind
 from renpy_story_mapper.m11_scene_model import AtomKind
-from renpy_story_mapper.narrative_map import NarrativeNodeKind
+from renpy_story_mapper.narrative_map import (
+    NarrativeNodeKind,
+    SourceLocator,
+    create_leading_technical_coverage_correction,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -232,7 +236,17 @@ def test_setup_choice_prefix_is_hidden_before_the_prologue_anchor(
     ]
     monkeypatch.setattr(module, "_synthetic_specs", lambda _case, _signals: (nodes, edges, regions))
     canonical, model = module._synthetic_authority("setup-prefix", ("sanitized",))
-    corridors = module.build_narrative_corridors(canonical, model)
+    correction = create_leading_technical_coverage_correction(
+        canonical,
+        model,
+        (SourceLocator("synthetic.rpy", 1, 5, "physical_source"),),
+        reason="User-approved sanitized leading technical coverage.",
+    )
+    corridors = module.build_narrative_corridors(
+        canonical,
+        model,
+        technical_correction=correction,
+    )
     events = module.assemble_narrative_events(
         corridors,
         expected_atom_ids=(item.id for item in model.atoms),
@@ -251,18 +265,14 @@ def test_setup_choice_prefix_is_hidden_before_the_prologue_anchor(
     normally_visible = [
         item
         for item in narrative_map.nodes
-        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE
-        and item.event_id is not None
+        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE and item.event_id is not None
     ]
     assert all(
         setup_atom_ids.isdisjoint(event_by_id[item.event_id].ordered_atom_ids)
         for item in normally_visible
     )
-    prologue_event = next(
-        item for item in events if "atom-prologue_story" in item.ordered_atom_ids
-    )
+    prologue_event = next(item for item in events if "atom-prologue_story" in item.ordered_atom_ids)
     assert any(
-        item.event_id == prologue_event.event_id
-        and item.kind is NarrativeNodeKind.EVENT_CLUSTER
+        item.event_id == prologue_event.event_id and item.kind is NarrativeNodeKind.EVENT_CLUSTER
         for item in narrative_map.nodes
     )

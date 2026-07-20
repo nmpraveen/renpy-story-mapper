@@ -10,6 +10,8 @@ from renpy_story_mapper.narrative_map.contracts import (
     M15_CORRIDOR_SCHEMA,
     M15_EVENT_SCHEMA,
     M15_MAP_SCHEMA,
+    M15_TECHNICAL_CORRECTION_RULE_VERSION,
+    M15_TECHNICAL_CORRECTION_SCHEMA,
     AuthorityBinding,
     BoundaryCandidate,
     BoundaryDecision,
@@ -18,6 +20,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     BoundarySignal,
     CoverageState,
     EvidenceNavigation,
+    LeadingTechnicalCoverageCorrection,
     NarrativeCorridor,
     NarrativeEdgeKind,
     NarrativeEvent,
@@ -32,6 +35,8 @@ from renpy_story_mapper.narrative_map.contracts import (
 from renpy_story_mapper.narrative_map.corridors import (
     build_boundary_candidates,
     build_narrative_corridors,
+    create_leading_technical_coverage_correction,
+    resolve_leading_technical_coverage_correction,
 )
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
 from renpy_story_mapper.narrative_map.projection import build_narrative_map
@@ -48,6 +53,8 @@ __all__ = [
     "M15_CORRIDOR_SCHEMA",
     "M15_EVENT_SCHEMA",
     "M15_MAP_SCHEMA",
+    "M15_TECHNICAL_CORRECTION_RULE_VERSION",
+    "M15_TECHNICAL_CORRECTION_SCHEMA",
     "AuthorityBinding",
     "BoundaryCandidate",
     "BoundaryDecision",
@@ -56,6 +63,7 @@ __all__ = [
     "BoundarySignal",
     "CoverageState",
     "EvidenceNavigation",
+    "LeadingTechnicalCoverageCorrection",
     "NarrativeBoundaryWorkflow",
     "NarrativeConsentManifest",
     "NarrativeCorridor",
@@ -73,6 +81,8 @@ __all__ = [
     "build_boundary_candidates",
     "build_narrative_corridors",
     "build_narrative_map",
+    "create_leading_technical_coverage_correction",
+    "resolve_leading_technical_coverage_correction",
     "stable_m15_id",
     "validate_boundary_response",
     "validate_event_summary_response",

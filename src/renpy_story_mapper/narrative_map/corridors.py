@@ -25,6 +25,7 @@ from renpy_story_mapper.narrative_map.adapters import (
 from renpy_story_mapper.narrative_map.contracts import (
     BoundaryCandidate,
     BoundarySignal,
+    LeadingTechnicalCoverageCorrection,
     NarrativeCorridor,
     Provenance,
     SourceLocator,
@@ -57,6 +58,8 @@ class _Segment:
 def build_narrative_corridors(
     canonical: CanonicalGraph,
     scene_model: SceneModel,
+    *,
+    technical_correction: LeadingTechnicalCoverageCorrection | None = None,
 ) -> tuple[NarrativeCorridor, ...]:
     """Build ordered, evidence-complete corridors without trusting M11 scene membership.
 
@@ -97,12 +100,21 @@ def build_narrative_corridors(
             arm_id=arm_id,
         )
 
-    leading_technical = _leading_technical_ids(
-        ordered_atoms,
-        canonical.regions,
-        edges,
-        progression_atom_ids,
-    )
+    correction_id: str | None = None
+    if technical_correction is None:
+        leading_technical = _leading_technical_ids(ordered_atoms)
+    else:
+        try:
+            resolved_prefix = resolve_leading_technical_coverage_correction(
+                canonical,
+                scene_model,
+                technical_correction,
+            )
+        except ValueError:
+            leading_technical = _leading_technical_ids(ordered_atoms)
+        else:
+            leading_technical = set(resolved_prefix)
+            correction_id = technical_correction.correction_id
     soft_before = _soft_boundaries(
         ordered_atoms,
         contexts,
@@ -218,6 +230,7 @@ def build_narrative_corridors(
                 hard_boundary_after=segment.hard_after,
                 soft_boundary_signals=segment.signals,
                 technical_atom_ids=technical,
+                technical_correction_id=correction_id,
                 provenance=provenance,
             )
         )
@@ -250,6 +263,7 @@ def build_boundary_candidates(
                         evidence_ids=ordered_unique(
                             (*left.provenance.evidence_ids, *right.provenance.evidence_ids)
                         ),
+                        technical_correction_id=right.technical_correction_id,
                     )
                 )
     return tuple(candidates)
@@ -411,71 +425,108 @@ def _source_key(atom: StoryAtom) -> tuple[object, ...]:
     return (path.replace("\\", "/"), line, column, kind_rank, node_id)
 
 
-def _leading_technical_ids(
-    atoms: Sequence[StoryAtom],
-    regions: Sequence[CanonicalRegion],
-    edges: Sequence[CanonicalEdge],
-    progression_atom_ids: set[str],
-) -> set[str]:
+def _leading_technical_ids(atoms: Sequence[StoryAtom]) -> set[str]:
     result: set[str] = set()
     for atom in atoms:
         if atom.story_facing:
             break
         result.add(atom.id)
-    position = {item.id: index for index, item in enumerate(atoms)}
-    atom_by_node = {item.primary_node_id: item for item in atoms}
-    first_progression = min(
-        (position[item] for item in progression_atom_ids),
-        default=len(atoms),
-    )
-    temporary_kinds = {"local_detour", "optional_detour", "reconvergent_route_segment"}
-    temporary_merge_nodes = {
-        item.merge_node_id
-        for item in regions
-        if item.kind in temporary_kinds and item.merge_node_id is not None
-    }
-    outgoing: dict[str, list[str]] = defaultdict(list)
-    for edge in edges:
-        if edge.resolved:
-            outgoing[edge.source_id].append(edge.target_id)
-    anchor_positions: list[int] = []
-    for region in regions:
-        split_atom = atom_by_node.get(region.split_node_id)
-        if (
-            region.kind not in temporary_kinds
-            or split_atom is None
-            or region.merge_node_id is None
-            or position[split_atom.id] >= first_progression
-        ):
-            continue
-        member_atoms = [
-            atom_by_node[node_id] for node_id in region.member_node_ids if node_id in atom_by_node
-        ]
-        if not any(
-            item.kind in {AtomKind.CONDITION, AtomKind.STATE_CHANGE, AtomKind.TECHNICAL}
-            for item in member_atoms
-        ):
-            continue
-        pending = list(outgoing.get(region.merge_node_id, ()))
-        visited: set[str] = set()
-        while pending:
-            node_id = pending.pop()
-            if node_id in visited:
-                raise ValueError("leading technical continuation contains a merge cycle")
-            visited.add(node_id)
-            if node_id in temporary_merge_nodes:
-                pending.extend(outgoing.get(node_id, ()))
-                continue
-            anchor = atom_by_node.get(node_id)
-            if (
-                anchor is not None
-                and anchor.story_facing
-                and position[anchor.id] < first_progression
-            ):
-                anchor_positions.append(position[anchor.id])
-    if anchor_positions:
-        result.update(item.id for item in atoms[: max(anchor_positions)])
     return result
+
+
+def resolve_leading_technical_coverage_correction(
+    canonical: CanonicalGraph,
+    scene_model: SceneModel,
+    correction: LeadingTechnicalCoverageCorrection,
+) -> tuple[str, ...]:
+    """Resolve a correction only when both locators and IDs prove the same strict prefix."""
+
+    authority = bind_m15_authority(canonical, scene_model)
+    if correction.authority != authority:
+        raise ValueError("technical correction authority is stale")
+    ordered_atoms = _control_order(tuple(scene_model.atoms), tuple(canonical.edges))
+    ordered_ids = tuple(item.id for item in ordered_atoms)
+    prefix_length = len(correction.ordered_atom_ids)
+    if prefix_length == 0 or prefix_length >= len(ordered_ids):
+        raise ValueError("technical correction must identify a strict prefix")
+    unknown = set(correction.ordered_atom_ids) - set(ordered_ids)
+    if unknown:
+        raise ValueError("technical correction contains an unknown atom ID")
+    if correction.ordered_atom_ids != ordered_ids[:prefix_length]:
+        raise ValueError("technical correction atom IDs are not the ordered prefix")
+
+    evidence_by_id = {item.id: item for item in canonical.evidence}
+    atom_locator_sets = {item.id: atom_locators(item, evidence_by_id) for item in ordered_atoms}
+    locator_hits = [
+        tuple(
+            index
+            for index, locator in enumerate(correction.qualified_locators)
+            if any(_locator_contains(locator, item) for item in atom_locator_sets[atom_id])
+        )
+        for atom_id in ordered_ids
+    ]
+    resolved_length = 0
+    while resolved_length < len(locator_hits) and locator_hits[resolved_length]:
+        if len(locator_hits[resolved_length]) != 1:
+            raise ValueError("technical correction locator resolution is ambiguous")
+        resolved_length += 1
+    if not all(
+        any(index in hits for hits in locator_hits[:resolved_length])
+        for index in range(len(correction.qualified_locators))
+    ):
+        raise ValueError("technical correction locator does not resolve the leading prefix")
+    if ordered_ids[:resolved_length] != correction.ordered_atom_ids:
+        raise ValueError(
+            "technical correction locators are ambiguous or do not match its atom tuple"
+        )
+    return correction.ordered_atom_ids
+
+
+def create_leading_technical_coverage_correction(
+    canonical: CanonicalGraph,
+    scene_model: SceneModel,
+    qualified_locators: Sequence[SourceLocator],
+    *,
+    reason: str,
+) -> LeadingTechnicalCoverageCorrection:
+    """Create authority only when qualified locators prove one exact strict prefix."""
+
+    ordered_atoms = _control_order(tuple(scene_model.atoms), tuple(canonical.edges))
+    evidence_by_id = {item.id: item for item in canonical.evidence}
+    resolved: list[str] = []
+    used_locators: set[int] = set()
+    for atom in ordered_atoms:
+        locators = atom_locators(atom, evidence_by_id)
+        hits = tuple(
+            index
+            for index, locator in enumerate(qualified_locators)
+            if any(_locator_contains(locator, atom_locator) for atom_locator in locators)
+        )
+        if not hits:
+            break
+        if len(hits) != 1:
+            raise ValueError("technical correction locator resolution is ambiguous")
+        used_locators.add(hits[0])
+        resolved.append(atom.id)
+    if used_locators != set(range(len(qualified_locators))):
+        raise ValueError("technical correction locator does not resolve the leading prefix")
+    correction = LeadingTechnicalCoverageCorrection(
+        authority=bind_m15_authority(canonical, scene_model),
+        reason=reason,
+        qualified_locators=tuple(qualified_locators),
+        ordered_atom_ids=tuple(resolved),
+    )
+    resolve_leading_technical_coverage_correction(canonical, scene_model, correction)
+    return correction
+
+
+def _locator_contains(qualified: SourceLocator, atom: SourceLocator) -> bool:
+    return (
+        qualified.relative_path.replace("\\", "/") == atom.relative_path.replace("\\", "/")
+        and qualified.line_basis == atom.line_basis
+        and qualified.start_line <= atom.start_line
+        and qualified.end_line >= atom.end_line
+    )
 
 
 def _progression_contexts(
@@ -600,14 +651,19 @@ def _is_standalone_progression_marker(node: CanonicalNode) -> bool:
 
 
 def _is_collapsed_technical(atom: StoryAtom) -> bool:
-    return atom.source_kind == "module_end" or not atom.story_facing or atom.kind in {
-        AtomKind.VISUAL_CHANGE,
-        AtomKind.CONDITION,
-        AtomKind.STATE_CHANGE,
-        AtomKind.CALL,
-        AtomKind.LOOP,
-        AtomKind.TECHNICAL,
-    }
+    return (
+        atom.source_kind == "module_end"
+        or not atom.story_facing
+        or atom.kind
+        in {
+            AtomKind.VISUAL_CHANGE,
+            AtomKind.CONDITION,
+            AtomKind.STATE_CHANGE,
+            AtomKind.CALL,
+            AtomKind.LOOP,
+            AtomKind.TECHNICAL,
+        }
+    )
 
 
 def _entry_exit_nodes(
