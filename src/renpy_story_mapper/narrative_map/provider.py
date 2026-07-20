@@ -7,10 +7,12 @@ may cross into :mod:`narrative_map.persistence`.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from importlib.resources import as_file, files
 from typing import Protocol, cast
@@ -114,6 +116,7 @@ class PreparedNarrativeJob:
         )
         if self.subject_id != expected_subject:
             raise ValueError("job subject does not match its frozen contract identity")
+        self.validate_integrity()
 
     @property
     def job_id(self) -> str:
@@ -145,28 +148,187 @@ class PreparedNarrativeJob:
             "story_facing": self.story_facing,
         }
 
+    def validate_integrity(self) -> None:
+        if canonical_hash(self.payload) != self.input_hash:
+            raise ValueError("prepared M15 input hash does not match its provider payload")
+
+
+@dataclass(frozen=True)
+class NarrativeConsentManifest:
+    """Fresh, granted consent bound to exact jobs, provider identity, and transport limits."""
+
+    run_id: str
+    profile: ProviderProfile
+    job_ids: tuple[str, ...]
+    job_identity_hashes: tuple[str, ...]
+    job_identity_hash: str
+    issued_utc: str
+    expires_utc: str
+    maximum_provider_calls: int
+    maximum_input_bytes: int
+    maximum_output_bytes: int
+    timeout_seconds: float
+    consent_granted: bool = False
+    version: str = "m15-narrative-consent-v1"
+
+    def __post_init__(self) -> None:
+        if not self.run_id or self.run_id != self.run_id.strip():
+            raise ValueError("consent run ID must be a non-empty trimmed string")
+        if not self.job_ids or len(self.job_ids) != len(set(self.job_ids)):
+            raise ValueError("consent scope requires unique M15 jobs")
+        if len(self.job_identity_hashes) != len(self.job_ids):
+            raise ValueError("consent job identities must cover the exact scope")
+        transport_limits = (
+            self.maximum_provider_calls,
+            self.maximum_input_bytes,
+            self.maximum_output_bytes,
+        )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+            for value in transport_limits
+        ):
+            raise ValueError("consent transport limits must be positive")
+        if self.maximum_input_bytes > MAXIMUM_INPUT_BYTES:
+            raise ValueError("consent input limit exceeds the sterile boundary")
+        if self.maximum_output_bytes > MAXIMUM_OUTPUT_BYTES:
+            raise ValueError("consent output limit exceeds the sterile boundary")
+        if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
+            raise ValueError("consent timeout must be positive")
+        _consent_times(self.issued_utc, self.expires_utc)
+
+    @classmethod
+    def for_jobs(
+        cls,
+        *,
+        run_id: str,
+        profile: ProviderProfile,
+        jobs: Sequence[PreparedNarrativeJob],
+        consent_granted: bool = False,
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int | None = None,
+        maximum_input_bytes: int = MAXIMUM_INPUT_BYTES,
+        maximum_output_bytes: int = MAXIMUM_OUTPUT_BYTES,
+        timeout_seconds: float = 300.0,
+    ) -> NarrativeConsentManifest:
+        if not jobs:
+            raise ValueError("consent scope requires at least one M15 job")
+        if valid_for <= timedelta(0) or valid_for > timedelta(hours=1):
+            raise ValueError("consent freshness window must be between zero and one hour")
+        for job in jobs:
+            job.validate_integrity()
+        issued = datetime.now(UTC)
+        return cls(
+            run_id=run_id,
+            profile=profile,
+            job_ids=tuple(job.job_id for job in jobs),
+            job_identity_hashes=tuple(
+                canonical_hash(job.durable_metadata()) for job in jobs
+            ),
+            job_identity_hash=_job_identity_hash(jobs),
+            issued_utc=issued.isoformat(),
+            expires_utc=(issued + valid_for).isoformat(),
+            maximum_provider_calls=(
+                maximum_provider_calls
+                if maximum_provider_calls is not None
+                else 2 * len(jobs)
+            ),
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+            consent_granted=consent_granted,
+        )
+
+    @property
+    def manifest_id(self) -> str:
+        return stable_m15_id("consent", self.identity_dict())
+
+    def identity_dict(self) -> dict[str, JsonValue]:
+        return {
+            "version": self.version,
+            "run_id": self.run_id,
+            "profile": self.profile.to_dict(),
+            "job_ids": list(self.job_ids),
+            "job_identity_hashes": list(self.job_identity_hashes),
+            "job_identity_hash": self.job_identity_hash,
+            "issued_utc": self.issued_utc,
+            "expires_utc": self.expires_utc,
+            "maximum_provider_calls": self.maximum_provider_calls,
+            "maximum_input_bytes": self.maximum_input_bytes,
+            "maximum_output_bytes": self.maximum_output_bytes,
+            "timeout_seconds": self.timeout_seconds,
+        }
+
+    def validate_for(
+        self,
+        jobs: Sequence[PreparedNarrativeJob],
+        profile: ProviderProfile,
+    ) -> None:
+        if not self.consent_granted:
+            raise ValueError("M15 provider transmission requires granted consent")
+        self.validate_fresh()
+        if canonical_hash(self.profile.to_dict()) != canonical_hash(profile.to_dict()):
+            raise ValueError("M15 consent provider profile does not match")
+        if tuple(job.job_id for job in jobs) != self.job_ids:
+            raise ValueError("M15 consent scope does not match the scheduled jobs")
+        for job in jobs:
+            job.validate_integrity()
+        if _job_identity_hash(jobs) != self.job_identity_hash:
+            raise ValueError("M15 consent input identity does not match")
+
+    def validate_job(self, job: PreparedNarrativeJob, profile: ProviderProfile) -> None:
+        if not self.consent_granted:
+            raise ValueError("M15 provider transmission requires granted consent")
+        self.validate_fresh()
+        if canonical_hash(self.profile.to_dict()) != canonical_hash(profile.to_dict()):
+            raise ValueError("M15 consent provider profile does not match")
+        job.validate_integrity()
+        try:
+            index = self.job_ids.index(job.job_id)
+        except ValueError:
+            raise ValueError("M15 consent scope does not include the provider job") from None
+        if canonical_hash(job.durable_metadata()) != self.job_identity_hashes[index]:
+            raise ValueError("M15 consent job identity does not match")
+
+    def validate_fresh(self) -> None:
+        issued, expires = _consent_times(self.issued_utc, self.expires_utc)
+        now = datetime.now(UTC)
+        if issued > now + timedelta(minutes=1) or now >= expires:
+            raise ValueError("M15 provider consent is not fresh")
+
 
 @dataclass(frozen=True)
 class NarrativeMapProviderRequest:
     request_id: str
-    consent_manifest_id: str
+    consent: NarrativeConsentManifest
     profile: ProviderProfile
     job: PreparedNarrativeJob
     repair_codes: tuple[str, ...] = ()
+    repair_semantics: Mapping[str, JsonValue] | None = None
     timeout_seconds: float = 300.0
+    maximum_input_bytes: int = MAXIMUM_INPUT_BYTES
     maximum_output_bytes: int = MAXIMUM_OUTPUT_BYTES
 
     def __post_init__(self) -> None:
         for value, label in (
             (self.request_id, "provider request ID"),
-            (self.consent_manifest_id, "consent manifest ID"),
         ):
             if not value or value != value.strip():
                 raise ValueError(f"{label} must be a non-empty trimmed string")
-        if self.timeout_seconds <= 0 or self.maximum_output_bytes <= 0:
+        if (
+            self.timeout_seconds <= 0
+            or self.maximum_input_bytes <= 0
+            or self.maximum_output_bytes <= 0
+        ):
             raise ValueError("provider bounds must be positive")
         if len(self.repair_codes) != len(set(self.repair_codes)):
             raise ValueError("repair codes must be unique")
+        if bool(self.repair_codes) != (self.repair_semantics is not None):
+            raise ValueError("schema repair metadata must be supplied together")
+        self.consent.validate_job(self.job, self.profile)
+
+    @property
+    def consent_manifest_id(self) -> str:
+        return self.consent.manifest_id
 
 
 @dataclass(frozen=True)
@@ -229,9 +391,10 @@ class SterileNarrativeMapProvider:
     ) -> NarrativeMapProviderResponse:
         if cancelled():
             raise NarrativeMapProviderError("cancelled", "The provider request was cancelled.")
+        request.job.validate_integrity()
         prompt_name, schema_name = _resource_names(request.job.kind)
         prompt = _serialize_prompt(request, prompt_name)
-        if len(prompt) > MAXIMUM_INPUT_BYTES:
+        if len(prompt) > request.maximum_input_bytes:
             raise NarrativeMapProviderError("input_limit", "The provider request is too large.")
         schema_resource = files("renpy_story_mapper.narrative_map.schemas").joinpath(schema_name)
         reasoning = request.profile.settings.to_dict().get("reasoning_effort")
@@ -315,6 +478,7 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
             "response_schema": request.job.response_schema,
             "schema_only_repair": bool(request.repair_codes),
             "repair_codes": list(request.repair_codes),
+            "locked_semantics": request.repair_semantics,
             "job": request.job.payload,
         },
     }
@@ -385,3 +549,22 @@ def _usage(result: SterileRunResult) -> tuple[int, int, int | None]:
     ):
         raise NarrativeMapProviderError("usage_metadata_invalid", "Provider cost is invalid.")
     return cast(int, input_tokens), cast(int, output_tokens), cost
+
+
+def _job_identity_hash(jobs: Sequence[PreparedNarrativeJob]) -> str:
+    return canonical_hash([job.durable_metadata() for job in jobs])
+
+
+def _consent_times(issued_value: str, expires_value: str) -> tuple[datetime, datetime]:
+    try:
+        issued = datetime.fromisoformat(issued_value)
+        expires = datetime.fromisoformat(expires_value)
+    except ValueError:
+        raise ValueError("consent timestamps must be ISO-8601 values") from None
+    if issued.tzinfo is None or expires.tzinfo is None:
+        raise ValueError("consent timestamps must be timezone-aware")
+    issued = issued.astimezone(UTC)
+    expires = expires.astimezone(UTC)
+    if expires <= issued or expires - issued > timedelta(hours=1):
+        raise ValueError("consent freshness window is invalid")
+    return issued, expires

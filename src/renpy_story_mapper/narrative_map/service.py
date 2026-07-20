@@ -17,6 +17,7 @@ from renpy_story_mapper.narrative_map.persistence import (
     NarrativeMapRepository,
 )
 from renpy_story_mapper.narrative_map.provider import (
+    NarrativeConsentManifest,
     NarrativeMapProvider,
     PreparedNarrativeJob,
     ProviderJobKind,
@@ -121,12 +122,12 @@ class NarrativeMapService:
         *,
         provider: NarrativeMapProvider,
         profile: ProviderProfile,
-        consent_manifest_id: str,
+        consent: NarrativeConsentManifest,
         cancelled: Callable[[], bool] | None = None,
     ) -> NarrativeWorkflowReport:
         return NarrativeBoundaryWorkflow(self._repository, provider, profile).run_boundary_jobs(
             jobs,
-            consent_manifest_id=consent_manifest_id,
+            consent=consent,
             cancelled=cancelled,
         )
 
@@ -136,14 +137,14 @@ class NarrativeMapService:
         *,
         provider: NarrativeMapProvider,
         profile: ProviderProfile,
-        consent_manifest_id: str,
+        consent: NarrativeConsentManifest,
         cancelled: Callable[[], bool] | None = None,
     ) -> NarrativeWorkflowReport:
         return NarrativeBoundaryWorkflow(
             self._repository, provider, profile
         ).run_event_summary_jobs(
             jobs,
-            consent_manifest_id=consent_manifest_id,
+            consent=consent,
             cancelled=cancelled,
         )
 

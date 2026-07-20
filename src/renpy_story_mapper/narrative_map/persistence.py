@@ -400,8 +400,18 @@ def _validate_durable(value: object) -> None:
 
 
 def _usage_payload(usage: ProviderUsage, provider_calls: int) -> dict[str, JsonValue]:
-    if provider_calls < 1:
-        raise ValueError("persisted provider usage requires at least one call")
+    if provider_calls < 0:
+        raise ValueError("persisted provider call count cannot be negative")
+    if provider_calls == 0 and any(
+        value != 0
+        for value in (
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.elapsed_ms,
+            usage.cost_micros or 0,
+        )
+    ):
+        raise ValueError("zero-call cache replay cannot carry provider usage")
     return {
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,

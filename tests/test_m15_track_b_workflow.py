@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
 from renpy_story_mapper.narrative.provider import ProviderUsage
@@ -26,6 +29,7 @@ from renpy_story_mapper.narrative_map.persistence import (
     NarrativeMapRepository,
 )
 from renpy_story_mapper.narrative_map.provider import (
+    NarrativeConsentManifest,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     ProviderProfile,
@@ -143,11 +147,31 @@ def _profile() -> ProviderProfile:
     )
 
 
+def _consent(
+    jobs: tuple[object, ...],
+    *,
+    profile: ProviderProfile | None = None,
+    granted: bool = True,
+) -> NarrativeConsentManifest:
+    return NarrativeConsentManifest.for_jobs(
+        run_id="synthetic-run-1",
+        profile=profile or _profile(),
+        jobs=jobs,
+        consent_granted=granted,
+    )
+
+
 class _FakeProvider:
-    def __init__(self, payloads: list[dict[str, object]]) -> None:
+    def __init__(
+        self,
+        payloads: list[dict[str, object]],
+        *,
+        identity_profile: ProviderProfile | None = None,
+    ) -> None:
         self.payloads = list(payloads)
         self.requests: list[NarrativeMapProviderRequest] = []
         self.cancel_count = 0
+        self.identity_profile = identity_profile or _profile()
 
     def submit(
         self,
@@ -160,12 +184,12 @@ class _FakeProvider:
         return NarrativeMapProviderResponse(
             request_id=request.request_id,
             provider=ProviderIdentity(
-                provider="fake",
-                adapter="deterministic-fake",
-                adapter_version="1",
-                requested_model="fake-model",
-                resolved_model="fake-model",
-                settings=ProviderSettings((("reasoning_effort", "high"),)),
+                provider=self.identity_profile.provider,
+                adapter=self.identity_profile.adapter,
+                adapter_version=self.identity_profile.adapter_version,
+                requested_model=self.identity_profile.requested_model,
+                resolved_model=self.identity_profile.requested_model,
+                settings=self.identity_profile.settings,
             ),
             payload=payload,
             usage=ProviderUsage(10, 5, 1),
@@ -244,7 +268,7 @@ def test_sterile_provider_uses_m15_prompt_and_schema_without_process_authority()
     runner = _FakeSterileRunner(payload)
     request = NarrativeMapProviderRequest(
         request_id="request-1",
-        consent_manifest_id="consent-1",
+        consent=_consent((job,)),
         profile=_profile(),
         job=job,
     )
@@ -441,7 +465,7 @@ def test_workflow_allows_one_schema_repair_and_exact_reopen_cache_is_zero_submit
     with Project.create(project_path) as project:
         report = NarrativeBoundaryWorkflow(
             NarrativeMapRepository(project), provider, _profile()
-        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
         assert report.validated_job_ids == (job.job_id,)
         assert report.provider_calls == 2
         assert provider.requests[0].repair_codes == ()
@@ -452,7 +476,7 @@ def test_workflow_allows_one_schema_repair_and_exact_reopen_cache_is_zero_submit
     with Project.open(project_path) as project:
         report = NarrativeBoundaryWorkflow(
             NarrativeMapRepository(project), replay_provider, _profile()
-        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
         assert report.validated_job_ids == (job.job_id,)
         assert report.provider_calls == 0
         assert report.cache_hits == 1
@@ -493,7 +517,7 @@ def test_cancellation_preserves_validated_work_and_resume_retries_only_missing_j
             NarrativeMapRepository(project), provider, _profile()
         ).run_boundary_jobs(
             jobs,
-            consent_manifest_id="consent-1",
+            consent=_consent(jobs),
             cancelled=cancelled,
         )
         assert report.validated_job_ids == (jobs[0].job_id,)
@@ -503,7 +527,7 @@ def test_cancellation_preserves_validated_work_and_resume_retries_only_missing_j
     with Project.open(project_path) as project:
         report = NarrativeBoundaryWorkflow(
             NarrativeMapRepository(project), resume_provider, _profile()
-        ).run_boundary_jobs(jobs, consent_manifest_id="consent-1")
+        ).run_boundary_jobs(jobs, consent=_consent(jobs))
         assert report.provider_calls == 1
         assert len(resume_provider.requests) == 1
         assert resume_provider.requests[0].job.job_id == jobs[1].job_id
@@ -521,7 +545,7 @@ def test_summary_failure_preserves_event_and_service_reads_never_call_provider(
     with Project.create(tmp_path / "summary.rsmproj") as project:
         repository = NarrativeMapRepository(project)
         report = NarrativeBoundaryWorkflow(repository, provider, _profile()).run_event_summary_jobs(
-            (summary_job,), consent_manifest_id="consent-1"
+            (summary_job,), consent=_consent((summary_job,))
         )
         assert report.failed_job_ids == (summary_job.job_id,)
         service = NarrativeMapService(repository)
@@ -562,7 +586,7 @@ def test_cache_identity_includes_exact_provider_settings(tmp_path: Path) -> None
         first_provider = _FakeProvider([payload])
         NarrativeBoundaryWorkflow(
             NarrativeMapRepository(project), first_provider, _profile()
-        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
 
     changed_profile = ProviderProfile(
         provider="fake",
@@ -571,10 +595,168 @@ def test_cache_identity_includes_exact_provider_settings(tmp_path: Path) -> None
         requested_model="fake-model",
         settings=ProviderSettings((("reasoning_effort", "xhigh"),)),
     )
-    changed_provider = _FakeProvider([payload])
+    changed_provider = _FakeProvider([payload], identity_profile=changed_profile)
     with Project.open(project_path) as project:
         report = NarrativeBoundaryWorkflow(
             NarrativeMapRepository(project), changed_provider, changed_profile
-        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        ).run_boundary_jobs(
+            (job,), consent=_consent((job,), profile=changed_profile)
+        )
         assert report.provider_calls == 1
         assert report.cache_hits == 0
+
+
+def test_exact_consent_is_granted_and_bound_to_jobs_and_profile(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    provider = _FakeProvider([])
+    with Project.create(tmp_path / "consent.rsmproj") as project:
+        workflow = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        )
+        with pytest.raises(ValueError, match="granted"):
+            workflow.run_boundary_jobs((job,), consent=_consent((job,), granted=False))
+        with pytest.raises(ValueError, match="scope"):
+            workflow.run_boundary_jobs((job,), consent=_consent((), granted=True))
+    assert provider.requests == []
+
+
+def test_schema_repair_cannot_change_a_valid_boundary_decision(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    provider = _FakeProvider(
+        [
+            {
+                "decisions": [
+                    {"candidate_id": candidate.candidate_id, "decision": "merge"}
+                ]
+            },
+            {
+                "decisions": [
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "decision": "split",
+                        "reason": "Changed meaning.",
+                        "confidence": 0.9,
+                        "warnings": [],
+                    }
+                ]
+            },
+        ]
+    )
+    with Project.create(tmp_path / "semantic-repair.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
+        assert report.validated_job_ids == ()
+        assert report.failed_job_ids == (job.job_id,)
+        assert report.provider_calls == 2
+
+
+def test_mutated_prepared_payload_fails_before_submit(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    mutated_payload = dict(job.payload)
+    mutated_payload["invented_membership"] = ["foreign-atom"]
+    with pytest.raises(ValueError, match="input hash"):
+        replace(job, payload=mutated_payload)
+
+    consent = _consent((job,))
+    job.payload["invented_membership"] = ["foreign-atom"]
+    provider = _FakeProvider([])
+    with (
+        Project.create(tmp_path / "mutated-input.rsmproj") as project,
+        pytest.raises(ValueError, match="input hash"),
+    ):
+        NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_boundary_jobs((job,), consent=consent)
+    assert provider.requests == []
+
+
+def test_summary_schema_repair_cannot_change_valid_title_semantics(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    provider = _FakeProvider(
+        [
+            {"event_id": event.event_id, "title": "Original action"},
+            {
+                "event_id": event.event_id,
+                "title": "Different action",
+                "summary": "A complete synthetic summary.",
+                "characters": ["Narrator"],
+                "claims": [],
+                "warnings": [],
+            },
+        ]
+    )
+    with Project.create(tmp_path / "summary-repair-lock.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+        assert report.validated_job_ids == ()
+        assert report.failed_job_ids == (job.job_id,)
+
+
+def test_fabricated_soft_signal_cannot_enter_projection() -> None:
+    first = replace(_corridor("a", 0), soft_boundary_signals=())
+    second = replace(_corridor("b", 1), soft_boundary_signals=())
+    with pytest.raises(ValueError, match="soft signal"):
+        prepare_boundary_jobs(
+            (first, second), (_candidate(first, second),), _evidence(first, second)
+        )
+
+
+def test_cache_replay_restores_service_visible_validated_record(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    profile_b = ProviderProfile(
+        provider="fake",
+        adapter="deterministic-fake",
+        adapter_version="1",
+        requested_model="fake-model",
+        settings=ProviderSettings((("reasoning_effort", "xhigh"),)),
+    )
+    project_path = tmp_path / "cache-restore.rsmproj"
+    with Project.create(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        NarrativeBoundaryWorkflow(
+            repository, _FakeProvider([payload]), _profile()
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
+        NarrativeBoundaryWorkflow(
+            repository,
+            _FakeProvider([payload], identity_profile=profile_b),
+            profile_b,
+        ).run_boundary_jobs((job,), consent=_consent((job,), profile=profile_b))
+        replay = NarrativeBoundaryWorkflow(
+            repository, _FakeProvider([]), _profile()
+        ).run_boundary_jobs((job,), consent=_consent((job,)))
+        assert replay.provider_calls == 0
+        assert replay.cache_hits == 1
+        decision = NarrativeMapService(repository).read_boundary_decisions((candidate,))[0]
+        assert decision.decision.value == "split"

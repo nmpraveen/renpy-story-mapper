@@ -106,8 +106,9 @@ def prepare_boundary_jobs(
             raise ValueError(
                 "cross-lane or cross-occurrence boundaries cannot enter a provider job"
             )
-        if not candidate.signals:
-            raise ValueError("provider boundary jobs require a soft signal")
+        proven_signals = set(left.soft_boundary_signals) | set(right.soft_boundary_signals)
+        if not candidate.signals or not set(candidate.signals).issubset(proven_signals):
+            raise ValueError("provider boundary jobs require a proven deterministic soft signal")
         ordered_evidence = _ordered_evidence(
             (*left.ordered_atom_ids, *right.ordered_atom_ids), evidence_by_atom
         )
