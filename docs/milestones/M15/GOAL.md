@@ -2,11 +2,12 @@
 
 Status: In progress
 
-Resumption: On 2026-07-20 the user explicitly authorized one additional narrowly bounded
-correction and independent rereview for each of Track A head
-`aa570f3ea7e6cba200cb2585f2f97386128cb07a` and Track B head
-`6702e933dba82d19da8ea59ae246020eaebc9e80`. The done condition and semantic `PASS` are unchanged.
-Neither track may be integrated and Track C may not start until both additional rereviews pass.
+Resumption: On 2026-07-20 the user authorized all future M15 correction and independent-rereview
+cycles and removed any coordinator-imposed worker cap. Track A resumes from
+`aa570f3ea7e6cba200cb2585f2f97386128cb07a` and Track B from
+`6702e933dba82d19da8ea59ae246020eaebc9e80`. Tasks may use as many workers as the Codex platform
+permits. The done condition and semantic `PASS` are unchanged. Neither track may be integrated and
+Track C may not start until both tracks independently pass; provider calls remain separately gated.
 
 Scope authority: `docs/MASTER_PLAN.md`; the user-approved
 `docs/handoffs/2026-07-20-msday1-narrative-map/IMPLEMENTATION_PLAN.md`; and the user's explicit

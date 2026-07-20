@@ -12,9 +12,10 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
   `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: In progress. The user explicitly authorized one additional narrowly bounded correction
-  and independent rereview for each of the two residual Track A and Track B P1 pairs. Neither
-  track may be integrated and Track C may not start until both additional rereviews pass.
+- Status: In progress. The user authorized all future M15 correction and independent-rereview
+  cycles and removed any coordinator-imposed worker cap; tasks may use as many workers as the
+  Codex platform permits. Neither track may be integrated and Track C may not start until both
+  tracks independently pass. Provider calls remain separately gated.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
   failing-first fixtures are frozen at exact head
   `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the

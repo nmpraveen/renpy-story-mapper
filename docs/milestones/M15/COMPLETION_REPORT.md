@@ -10,10 +10,10 @@ Pull request: Pending; one PR will be opened and left unmerged for user approval
 
 ## Outcome
 
-M15 resumed before integration after the user explicitly authorized one additional narrowly
-bounded correction and independent rereview for each blocked Track A and Track B head. Their
-clean heads remain separate and unintegrated while those corrections run; the done condition and
-semantic `PASS` are unchanged.
+M15 resumed before integration after the user authorized all future M15 correction and independent-
+rereview cycles and removed any coordinator-imposed worker cap. The Track A and Track B heads
+remain separate and unintegrated while those cycles run; the done condition and semantic `PASS`
+are unchanged. Provider calls remain separately gated.
 
 ## Acceptance evidence
 
@@ -56,8 +56,9 @@ semantic `PASS` are unchanged.
   corridor-to-event-to-map pipeline.
 - Track B rereview `FAIL` at `6702e93`: direct requests can exceed/reuse consent budgets, and
   event-summary repair can replace individually valid claims when a sibling claim is invalid.
-- Both independent reviewers used `gpt-5.6-sol` High with fast mode unavailable/unverified, made
-  no edits, and exhausted the contract's one correction/one rereview cycle.
+- Both first-cycle independent reviewers used `gpt-5.6-sol` High with fast mode
+  unavailable/unverified and made no edits. The former one-cycle cap was superseded by the user's
+  authorization for all future M15 correction/rereview cycles and platform-permitted workers.
 - The narrow Track A correction scope is: reject descending same-context order regardless of
   shared incident provenance; add the shared-edge hard-boundary regression; replace direct
   synthetic `NarrativeCorridor` construction with synthetic M10/M11 inputs passed through
@@ -78,8 +79,8 @@ semantic `PASS` are unchanged.
 ## Remaining limitations
 
 - Full MsDenvers remains unvalidated and outside M15.
-- The user authorized one additional narrowly bounded correction and independent rereview for
-  each of Track A and Track B. No integration or Track C dispatch is permitted until both pass.
+- All future M15 correction and independent-rereview cycles are authorized, with no coordinator-
+  imposed worker cap. No integration or Track C dispatch is permitted until both A and B pass.
 - Live Day 1 AI acceptance is not authorized and is optional; no provider call has occurred.
 - Product implementation, track reviews, final browser/Windows acceptance, infographic, and PR are
   pending.
