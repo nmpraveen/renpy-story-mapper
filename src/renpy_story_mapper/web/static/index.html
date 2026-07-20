@@ -17,7 +17,7 @@
   <div class="app-shell">
     <header class="masthead">
       <button id="homeButton" class="wordmark" type="button" aria-label="Return to welcome"><span class="wordmark-mark" aria-hidden="true">R</span><span>Story Mapper</span></button>
-      <div id="projectIdentity" class="project-identity" hidden><strong id="projectName"></strong><span id="projectBadge" class="status-badge">Technical Structure</span></div>
+      <div id="projectIdentity" class="project-identity" hidden><strong id="projectName"></strong><span id="projectBadge" class="status-badge">Story Map</span></div>
       <div class="masthead-actions">
         <button id="refreshProject" class="quiet-button" type="button" hidden>Refresh</button>
         <button id="diagnosticsButton" class="quiet-button" type="button">Diagnostics</button>
@@ -39,17 +39,14 @@
       <section id="workspaceView" class="workspace" hidden aria-label="Story workspace">
         <section id="routeMapView" class="route-map-view" data-level="route_map" aria-labelledby="mapTitle">
           <div class="commandbar">
-            <div><p id="mapEyebrow" class="eyebrow">AI Story Map</p><h1 id="mapTitle">The story at a glance</h1></div>
-            <div class="view-switch" role="group" aria-label="Compare map presentations"><button id="sceneMapButton" class="switch-button" type="button" aria-pressed="true">Scenes</button><button id="aiMapButton" class="switch-button" type="button" aria-pressed="false">AI Story Map</button><button id="inspectionMapButton" class="switch-button" type="button" aria-pressed="false">Inspection</button><button id="canonicalMapButton" class="switch-button" type="button" aria-pressed="false">Canonical</button><button id="technicalMapButton" class="switch-button" type="button" aria-pressed="false">M07 Structure</button></div>
+            <div><p id="mapEyebrow" class="eyebrow">Story Map</p><h1 id="mapTitle">Chronological story</h1></div>
             <label class="search-control"><span class="sr-only">Search visible story events</span><input id="searchInput" type="search" placeholder="Search map  /" autocomplete="off" aria-keyshortcuts="/"></label>
-            <label class="narrative-toggle"><input id="narrativeToggle" type="checkbox"> Narrative</label>
-            <button id="narrativeJobsButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="narrativeDrawer">Jobs</button>
             <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">View</button>
-            <button id="organizeButton" class="accent-button" type="button">Preview AI scope</button>
             <div id="filterPanel" class="popover" hidden><label><input id="technicalToggle" type="checkbox" checked> Technical corridors</label><label><input id="unresolvedToggle" type="checkbox" checked> Unresolved paths</label></div>
+            <details id="advancedViews" class="advanced-views"><summary>Advanced</summary><div role="group" aria-label="Diagnostic story views"><button id="inspectionMapButton" class="quiet-button" type="button">Inspection</button><button id="canonicalMapButton" class="quiet-button" type="button">Canonical</button><button id="narrativeJobsButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="narrativeDrawer">Legacy evidence</button></div></details>
           </div>
 
-          <div id="fallbackNotice" class="fallback-notice" hidden role="status"><strong id="fallbackTitle">Scene presentation unavailable.</strong><span id="fallbackReason">M10 Inspection is shown.</span></div>
+          <div id="fallbackNotice" class="fallback-notice" hidden role="status"><strong id="fallbackTitle">Narrative Map unavailable.</strong><span id="fallbackReason">Deterministic inspection fallback is shown.</span></div>
           <div id="analysisFailureBanner" class="analysis-failure-banner" hidden role="alert"><strong id="analysisFailureTitle">Analysis incomplete</strong><span id="analysisFailureSummary"></span><span id="analysisCompletedPhases"></span></div>
           <section id="partialAnalysisPanel" class="partial-analysis-panel" hidden aria-labelledby="partialAnalysisTitle"><p class="eyebrow">Partial analysis</p><h2 id="partialAnalysisTitle">No map is available yet</h2><p id="partialAnalysisSummary"></p></section>
           <div id="mapLayout" class="map-layout">
@@ -61,18 +58,6 @@
               <footer class="map-status"><span id="visibleStatus">0 events</span><span id="selectionStatus">No selection</span><span>Pan · Zoom · Fit</span></footer>
             </section>
 
-            <aside id="routePanel" class="route-panel" aria-labelledby="routePanelTitle">
-              <header class="route-panel-heading"><div><p class="eyebrow">Route</p><h2 id="routePanelTitle">Reach this scene</h2></div><span id="routeBadge" class="route-badge" hidden></span></header>
-              <p id="routeDestination" class="route-destination">Select a scene or M10 record.</p>
-              <button id="solveRoute" class="accent-button route-action" type="button" disabled>How do I reach this?</button>
-              <p id="routeStatus" class="route-status" role="status" aria-live="polite">Select a supported destination.</p>
-              <div class="route-controls"><button id="cancelRoute" class="secondary-button" type="button" hidden>Cancel</button><button id="retryRoute" class="secondary-button" type="button" hidden>Retry</button><button id="exportRouteJson" class="secondary-button" type="button" hidden>Export JSON</button></div>
-              <div id="routeResult" class="route-result" hidden>
-                <section id="recommendedRoute" aria-labelledby="recommendedRouteTitle"><h3 id="recommendedRouteTitle">Recommended route</h3><div id="recommendedRouteBody"></div></section>
-                <section id="routeAlternativesSection" aria-labelledby="routeAlternativesTitle" hidden><h3 id="routeAlternativesTitle">Alternatives</h3><div id="routeAlternatives"></div></section>
-                <details id="routeTechnical"><summary>Technical status and evidence</summary><div id="routeTechnicalBody"></div><button id="openRouteEvidence" class="quiet-button" type="button">Open Detail / Evidence</button></details>
-              </div>
-            </aside>
           </div>
 
           <aside id="narrativeDrawer" class="narrative-drawer" hidden aria-labelledby="narrativeDrawerTitle">
@@ -96,12 +81,6 @@
             <div id="narrativeJobList" class="narrative-job-list"></div>
           </aside>
 
-          <aside id="organizationPanel" class="organization-panel" aria-labelledby="organizationTitle">
-            <div class="organization-heading"><p class="eyebrow">Bounded Luna run</p><h2 id="organizationTitle">Organization</h2><button id="selectVisibleNodes" class="secondary-button" type="button">Use visible nodes</button></div>
-            <div id="scopePreview" class="scope-preview" aria-live="polite">No story text is sent until an exact preview is confirmed.</div>
-            <div id="organizationMetrics" class="organization-metrics"></div>
-            <div class="organization-actions"><button id="cancelOrganization" class="secondary-button" type="button" hidden>Cancel</button><button id="resumeOrganization" class="secondary-button" type="button" hidden>Resume</button><button id="reviewPartial" class="secondary-button" type="button" hidden>Review</button></div>
-          </aside>
         </section>
 
         <section id="detailView" class="detail-view" data-level="detail_evidence" hidden aria-labelledby="detailTitle">
@@ -114,9 +93,7 @@
       </section>
     </main>
 
-    <dialog id="consentDialog" aria-labelledby="consentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Exact cloud consent</p><h2 id="consentTitle">Confirm this bounded story window</h2><p>The values below are bound unchanged to this one Luna run.</p><dl id="consentFacts" class="consent-facts"></dl><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Confirm exact run</button></div></form></dialog>
     <dialog id="narrativeConsentDialog" aria-labelledby="narrativeConsentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Manifest-bound cloud consent</p><h2 id="narrativeConsentTitle">Confirm this Narrative run</h2><p>Confirmation applies once to this selected scope. The run proceeds automatically until completion, cancellation, provider refusal, or a hard limit.</p><dl id="narrativeConsentFacts" class="consent-facts"></dl><p class="authority-note">Only structured bounded inputs are sent. Completed validated work remains durable.</p><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmNarrative" value="default" class="accent-button">Confirm and run</button></div></form></dialog>
-    <dialog id="reviewDialog" aria-labelledby="reviewTitle"><div class="dialog-card review-card"><header><div><p class="eyebrow">Candidate assembly</p><h2 id="reviewTitle">Review before apply</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header><div id="reviewCoverage"></div><p class="authority-note">Fallback, partial, failed, and cancelled scopes remain visibly technical.</p><div id="reviewCandidates" class="review-candidates"></div><div class="dialog-actions"><button id="discardAssembly" class="secondary-button" type="button">Discard</button><button id="applyAssembly" class="accent-button" type="button">Apply</button></div></div></dialog>
     <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle"><div class="dialog-card"><header><h2 id="diagnosticsTitle">Diagnostics</h2><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div></dialog>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>

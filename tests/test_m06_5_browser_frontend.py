@@ -95,9 +95,11 @@ def test_keyboard_focus_tabs_and_map_commands_are_implemented() -> None:
 def test_organization_is_never_implicit() -> None:
     app = _text("app.js")
     api = _text("api.js")
-    assert "api.prepareOrganization()" in app
-    assert '$("#consentDialog").showModal()' in app
-    assert "api.startOrganization" in app
+    assert "api.prepareOrganization(" not in app
+    assert '$("#consentDialog").showModal()' not in app
+    assert "api.startOrganization(" not in app
+    assert "async prepareOrganization" in api
+    assert "async startOrganization" in api
     assert "confirm_cloud: true" in api
     assert "organizationPrepare" in _text("contract.js")
 
@@ -124,18 +126,17 @@ def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
     assert "payload.unresolved" not in app
 
 
-def test_production_review_shape_decisions_and_pagination_are_explicit() -> None:
+def test_production_review_apis_remain_compatible_without_visible_controls() -> None:
     app = _text("app.js")
     api = _text("api.js")
     html = _text("index.html")
-    assert "state.organization?.coverage" in app
-    assert "value.assembly_id" in app
+    assert "state.organization" not in app
     assert "assembly_id: assemblyId" in api
     assert "ENDPOINTS.assemblyApply" in api
     assert "ENDPOINTS.assemblyDiscard" in api
-    assert "api.applyAssembly" in app
-    assert "api.discardAssembly" in app
-    assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
+    assert "api.applyAssembly(" not in app
+    assert "api.discardAssembly(" not in app
+    assert 'id="reviewPartial"' not in html and 'id="applyAssembly"' not in html
 
 
 def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:

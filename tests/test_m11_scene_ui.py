@@ -9,57 +9,46 @@ def _text(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
-def test_scene_presentation_is_the_primary_bounded_packaged_view() -> None:
+def test_scene_api_is_retained_but_narrative_map_is_primary() -> None:
     html = _text("index.html")
     app = _text("app.js")
     api = _text("api.js")
     contract = _text("contract.js")
-    graph = _text("graph.js")
-
-    assert 'id="sceneMapButton"' in html
+    assert 'id="sceneMapButton"' not in html
     assert 'id="chapterIndex"' in html
     assert 'id="chapterList"' in html
-    assert 'mode: "scenes"' in app
-    assert 'state.mode = "scenes"' in app
-    assert "state.scenePage" in app
-    assert "api.sceneMap" in app and "api.sceneDetail" in app
+    assert 'mode: "narrative"' in app
+    assert "api.sceneMap" not in app and "api.sceneDetail" not in app
+    assert "async sceneMap" in api and "async sceneDetail" in api
+    assert "api.narrativeMap(" in app
     assert "relationship_limit" in api
     assert 'sceneMap: "/api/v1/m11/scene-map"' in contract
     assert 'sceneDetail: "/api/v1/m11/detail"' in contract
     assert "value.nodes.length > RENDER_LIMITS.nodes" in contract
     assert "value.relationships.length > RENDER_LIMITS.edges" in contract
     assert "membership_reference_count" in contract
-    assert "interactive: false" in app
-    assert "edge.interactive !== false" in graph
-    assert '.sort((left, right) => Number(left.ordinal || 0)' in app
-    assert "order: sceneNodeOrder(node)" in app
-    assert "Number(node.page_order)" in app
-    assert "Number(node.ordinal)" in app
+    assert 'narrativeMap: "/api/v1/m15/narrative-map"' in contract
 
 
-def test_scene_detail_has_provenance_escape_without_ai_interpretation() -> None:
+def test_narrative_detail_has_provenance_escape_without_ai_interpretation() -> None:
     html = _text("index.html")
     app = _text("app.js")
 
     assert 'id="canonicalEscapeButton"' in html
     assert 'id="interpretationPanel"' in html
-    assert '$("#interpretationPanel").hidden = sceneMode' in app
-    assert "detail.canonical_records?.[0]?.id" in app
-    assert "detail.canonical_escape_ids?.[0]" in app
-    assert "detail.atoms" in app
-    assert "temporary_branch.arms" in app
-    assert "detail.selected_occurrence" in app
-    assert "detail.boundary" in app
-    assert 'openDetail(lane.id)' in app
-    assert 'openDetail(chapter.id)' in app
+    assert '$("#interpretationPanel").hidden = state.mode === "narrative"' in app
+    assert "await api.narrativeDetail(elementId)" in app
+    assert "detail.canonical_focus_id" in app
+    assert "renderTechnicalMembers(detail)" in app
+    assert "renderInspectionDerivations(detail)" in app
 
 
-def test_scene_map_falls_back_explicitly_to_m10_inspection() -> None:
+def test_narrative_map_falls_back_explicitly_to_m10_inspection() -> None:
     html = _text("index.html")
     app = _text("app.js")
 
-    assert 'id="fallbackTitle">Scene presentation unavailable.' in html
-    assert "M10 Inspection" in app
+    assert 'id="fallbackTitle">Narrative Map unavailable.' in html
+    assert "Deterministic inspection fallback" in app
     assert 'state.mode = "inspection"' in app
 
 

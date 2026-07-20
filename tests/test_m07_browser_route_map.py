@@ -61,7 +61,7 @@ def test_cross_page_edges_are_selectable_continuation_portals() -> None:
     assert ".continuation-portal" in css
 
 
-def test_real_nested_evidence_and_non_authoritative_ai_review() -> None:
+def test_real_nested_evidence_remains_while_ai_review_ui_is_retired() -> None:
     app = _text("app.js")
     html = _text("index.html")
     contract = _text("API_CONTRACT.md")
@@ -71,12 +71,8 @@ def test_real_nested_evidence_and_non_authoritative_ai_review() -> None:
     assert "candidate.correction" in app and "candidate.pinned" in app
     assert "technical map is authoritative" in app
     assert "Candidates do not replace the technical map until applied" in html
-    assert 'id="discardAssembly"' in html and 'id="applyAssembly"' in html
-    assert "state.organization?.assembly?.items" in app
-    assert "await api.discardAssembly(state.assemblyId)" in app
-    assert app.index("await api.discardAssembly(state.assemblyId)") < app.index(
-        'toast("Candidate discarded from the project")'
-    )
+    assert 'id="discardAssembly"' not in html and 'id="applyAssembly"' not in html
+    assert "state.organization" not in app
     assert "/api/v1/m07/assembly/discard" in contract
     assert "current backend does not" not in contract.casefold()
     assert not any(marker in contract for marker in ("Ã", "Â", "â"))
@@ -102,14 +98,11 @@ def test_detail_evidence_preserves_and_labels_qualified_line_basis() -> None:
     assert 'record.basis || "line"' not in renderer
 
 
-def test_polling_waits_for_actual_terminal_status() -> None:
+def test_organization_polling_is_not_part_of_the_normal_bundle() -> None:
     app = _text("app.js")
-    polling = app[
-        app.index("async function pollOrganization()") : app.index("function showReview()")
-    ]
-    assert "while (active.has(state.organization?.status))" in polling
-    assert "await loadOrganization()" in polling
-    assert "running" in polling and "cancelling" in polling and "queued" in polling
+    assert "pollOrganization" not in app
+    assert "loadOrganization" not in app
+    assert "showReview" not in app
 
 
 def test_bounded_search_navigation_and_accessibility_contracts() -> None:
@@ -148,7 +141,7 @@ def test_api_fails_closed_on_unbounded_or_incomplete_prepare_binding() -> None:
     assert 'assemblyDiscard: "/api/v1/m07/assembly/discard"' in route_contract
     assert "ENDPOINTS.assemblyDiscard" in api
     assert "body: { assembly_id: assemblyId }" in api
-    assert "api.startOrganization(state.prepared)" in app
+    assert "api.startOrganization(" not in app
     assert "const completed = await pollAnalysis()" in app
 
 

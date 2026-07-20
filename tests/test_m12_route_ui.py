@@ -15,32 +15,25 @@ def _text(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
-def test_route_panel_stays_inside_the_existing_two_level_workspace() -> None:
+def test_route_panel_is_retired_inside_the_existing_two_level_workspace() -> None:
     html = _text("index.html")
     app = _text("app.js")
 
     assert html.count('data-level="') == 2
     assert 'data-level="route_map"' in html
     assert 'data-level="detail_evidence"' in html
-    assert 'id="routePanel"' in html
-    assert 'id="solveRoute"' in html
-    assert ">How do I reach this?</button>" in html
-    assert 'id="openRouteEvidence"' in html
-    assert ">Open Detail / Evidence</button>" in html
-    assert "state.route.activeSourceId" in app
-    assert "candidate?.selected_occurrence_id" in app
-    assert (
-        "candidate?.selected_occurrence_id || state.route.activeSourceId || "
-        "state.route.destination?.target_id"
-    ) in app
-    assert "item?.entry_precondition" in app
-    assert "Start with ${identity} = ${JSON.stringify(entry.value)}." in app
+    assert 'id="routePanel"' not in html
+    assert 'id="solveRoute"' not in html
+    assert "How do I reach this?" not in html
+    assert "state.route" not in app
+    assert "api.solveRoute(" not in app
+    assert "api.routeDestinations(" not in app
     assert "state.detailRunToken + 1" in app
     assert "token !== state.detailRunToken" in app
     assert "third" not in html.casefold()
 
 
-def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> None:
+def test_m12_badges_remain_in_compatibility_client_without_visible_panel() -> None:
     api = _text("api.js")
     app = _text("app.js")
     html = _text("index.html")
@@ -53,39 +46,10 @@ def test_route_panel_has_exact_badges_and_separated_deterministic_sections() -> 
     ):
         assert badge in api
 
-    for heading in (
-        "Instructions",
-        "Starting assumptions",
-        "Ordered human scenes",
-        "Visible choices",
-        "Repeated actions",
-        "Requirements",
-        "Earlier satisfying effects",
-        "Persistent commitments",
-        "Uncertainty warnings",
-    ):
-        assert heading in app
-
-    assert 'id="recommendedRoute"' in html
-    assert 'id="routeAlternativesSection"' in html
-    assert 'id="routeTechnical"' in html
-    assert "renderRouteCandidate" in app
-    assert "selected_occurrence_id" in app
-    assert "Provenance and evidence" in app
-    assert "satisfying_effect_id" in app
-    assert "item?.source" in app
-    assert 'element("details", "route-claim")' in app
-    for claim_collection in (
-        "scene_claims",
-        "visible_choice_claims",
-        "satisfying_effect_claims",
-        "repeated_action_claims",
-        "persistent_commitment_claims",
-        "uncertainty_claims",
-    ):
-        assert claim_collection in app
-    assert "stableRouteJson(value)" in app
-    assert "result.negative_provenance" in app
+    assert 'id="recommendedRoute"' not in html
+    assert 'id="routeAlternativesSection"' not in html
+    assert 'id="routeTechnical"' not in html
+    assert "renderRouteCandidate" not in app
     assert "walkthrough" not in (api + app + html).casefold()
     assert ".innerHTML" not in app
     assert "replaceChildren" in app and "textContent" in app
@@ -102,45 +66,32 @@ def test_route_client_uses_bootstrap_paths_and_exact_request_shapes() -> None:
     assert 'this.request(this.m12Path("destinations")' in api
     assert 'this.request(this.m12Path("solve")' in api
     assert 'this.request(this.m12Path("result")' in api
-    assert "api.routeDestinations(source.id, 0, ROUTE_PAGE_SIZE)" in app
-    assert "api.solveRoute(destination.kind, destination.target_id)" in app
-    assert "api.routeResult(response.request_identity)" in app
+    assert "api.routeDestinations(" not in app
+    assert "api.solveRoute(" not in app
+    assert "api.routeResult(navigation.request_identity)" in app
     assert '"/api/v1/' not in api
 
 
-def test_route_lifecycle_exposes_cancel_retry_cache_stale_and_failure_states() -> None:
+def test_route_lifecycle_controls_are_not_exposed_by_the_normal_website() -> None:
     html = _text("index.html")
     app = _text("app.js")
 
     for element_id in ("cancelRoute", "retryRoute", "exportRouteJson", "routeStatus"):
-        assert f'id="{element_id}"' in html
-    assert "await api.cancelAnalysis()" in app
-    assert 'while (["pending", "running", "cancelling"].includes(task.state))' in app
-    assert "await waitForRouteTask(cancelling, cancelToken)" in app
-    assert 'state.route.phase = "cancelled"' in app
-    assert 'state.route.phase = state.route.stale ? "stale" : "complete"' in app
-    assert 'route.cached ? "Cached route ready."' in app
-    assert 'route.phase = stale ? "stale" : "failure"' in app
-    assert 'error.status === 409' not in app
-    assert 'String(error.code || "").toLocaleLowerCase().includes("stale")' in app
-    assert "Search incomplete. No reachability or infeasibility conclusion was published." in app
-    assert "state.route.result = result" in app
-    assert "Boolean(state.route.result)" in app
-    assert "const cancelToken = state.route.runToken" in app
+        assert f'id="{element_id}"' not in html
+    assert "runRouteSolve" not in app
+    assert "cancelRouteSolve" not in app
+    assert "exportRouteJson" not in app
     assert 'role="status" aria-live="polite"' in html
 
 
-def test_json_export_is_stable_bounded_to_the_normalized_result_and_path_safe() -> None:
+def test_stable_m12_json_reader_remains_in_the_compatibility_client() -> None:
     api = _text("api.js")
     app = _text("app.js")
 
     assert "Object.keys(item).sort()" in api
-    assert "stableRouteJson(result)" in app
-    assert "new Blob" in app
-    assert 'type: "application/json;charset=utf-8"' in app
-    assert "URL.createObjectURL" in app and "URL.revokeObjectURL" in app
-    assert "replace(/[^a-z0-9._-]+/gi" in app
-    assert "result.request_identity" in app
+    assert "stableRouteJson" in api
+    assert "stableRouteJson" not in app
+    assert "api.routeResult(navigation.request_identity)" in app
 
 
 @pytest.mark.skipif(
