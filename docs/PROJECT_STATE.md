@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 in progress; semantic review passed and native goal active)
+Updated: 2026-07-20 (M15 blocked before integration; native goal remains active)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -12,7 +12,9 @@ Updated: 2026-07-20 (M15 in progress; semantic review passed and native goal act
   `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: In progress.
+- Status: Blocked. Track A and Track B each retain two independently reproduced P1 findings after
+  the contract's single bounded correction/rereview cycle. Renewed user authorization is required
+  for one further narrowly bounded correction and independent rereview per track.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
   failing-first fixtures are frozen at exact head
   `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
@@ -29,6 +31,12 @@ Updated: 2026-07-20 (M15 in progress; semantic review passed and native goal act
   `C:/Users/prave/.codex/worktrees/c6d6/Renpy`. Both were dispatched from exact shared head
   `1ec0664` with explicit `gpt-5.6-sol` and High reasoning. The creation surface exposes no
   fast-mode selector, so fast mode remains unavailable/unverified.
+- Track A is preserved clean at `aa570f3ea7e6cba200cb2585f2f97386128cb07a`. Its exact private
+  provider-free acceptance passes, but rereview retains P1s in descending hard-boundary
+  validation and full-pipeline acceptance proof. Track B is preserved clean at
+  `6702e933dba82d19da8ea59ae246020eaebc9e80`; rereview retains P1s in direct-request consent
+  budget consumption and claim-level summary repair. Neither track is integrated. Track C,
+  Windows/browser/package acceptance, final review, push, and PR remain unstarted.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records

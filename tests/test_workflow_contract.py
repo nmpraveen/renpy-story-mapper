@@ -34,7 +34,14 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "Active milestone: M15 - MsDay1 Narrative Map correction" in state
     assert any(
         f"- Status: {status}." in state
-        for status in ("In progress", "Integration", "Verification", "PR ready", "Complete")
+        for status in (
+            "In progress",
+            "Integration",
+            "Verification",
+            "PR ready",
+            "Complete",
+            "Blocked",
+        )
     )
     assert "Semantic review: [`PASS`]" in state
     assert "docs/milestones/M15/GOAL.md" in state

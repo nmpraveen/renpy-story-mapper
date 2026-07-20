@@ -1,6 +1,12 @@
 # M15 - MsDay1 Narrative Map correction
 
-Status: In progress
+Status: Blocked
+
+Blocker: Track A exact head `aa570f3ea7e6cba200cb2585f2f97386128cb07a` and Track B exact
+head `6702e933dba82d19da8ea59ae246020eaebc9e80` each retain two independently reproduced P1
+findings after the contract's single bounded correction and rereview. Neither track is integrated.
+Renewed user authorization is required for one further narrowly bounded correction and independent
+rereview per track before integration can continue.
 
 Scope authority: `docs/MASTER_PLAN.md`; the user-approved
 `docs/handoffs/2026-07-20-msday1-narrative-map/IMPLEMENTATION_PLAN.md`; and the user's explicit
