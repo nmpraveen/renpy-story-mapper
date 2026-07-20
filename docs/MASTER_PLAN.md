@@ -1,8 +1,10 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-18
+Last revised: 2026-07-20
 
-Status: M01 through M13 are complete and merged. M13 implementation PR #23 merged at
+Status: M01 through M13 are complete and merged. M15 - MsDay1 Narrative Map correction is the
+single active milestone after explicit user approval on 2026-07-20; M14 remains deferred. M13
+implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
 is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
 failing-first tests, 97 focused tests, Track A/Track B/final Track C reviews, and the single local
@@ -11,7 +13,7 @@ Track C found the final checkpoint-integrity P1, while the exact corrected head 
 focused matrix and independent rereviews. Exact final PR head `9e7d387` passed CI run
 `29632577820`, and corrective PR #24 merged as
 `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. Prior browser, live/replay, private-scale, and
-Release results remain historical evidence only for their named heads. M14 remains deferred.
+Release results remain historical evidence only for their named heads.
 
 ## 1. Product goal
 
@@ -185,8 +187,8 @@ than present them as proven facts.
 - Effects appear on the event or path that causes them.
 - Numeric deltas use compact badges such as `Love +1` or `Money -10`.
 - Boolean or categorical changes use badges such as `Dating = true` or `Job = Company Z`.
-- Important changes may be promoted to Levels 1 or 2; all extracted changes remain available at
-  Level 3.
+- Important changes may be promoted to the Route Map; all extracted changes remain available in
+  Detail and Evidence.
 - The same underlying variable may have a user-editable display name and category.
 
 ## 6. Technical architecture
@@ -1171,6 +1173,43 @@ to deterministic authority.
 M14 owns dynamic framework adapters and optional runtime tracing. It is deferred indefinitely for
 now and is not part of M10-M13 implementation work.
 
+### M15 - MsDay1 Narrative Map correction
+
+Status: In progress after semantic-review `PASS` and native-goal activation on 2026-07-20.
+
+Objective: replace the fragmented M11/M13 micro-scene presentation with a readable chronological
+Narrative Map whose visible units are meaningful human events and whose connectivity, choices,
+gates, effects, merges, terminals, unresolved behavior, and evidence remain deterministically
+owned by M10.
+
+Locked boundaries:
+
+- M11 story atoms may provide ordered evidence; current M11 scene boundaries, membership, titles,
+  and presentation are comparison inputs rather than authority for the new map.
+- Build ordered deterministic corridors, submit only adjacent soft-boundary decisions to AI,
+  assemble complete event membership in Python, summarize frozen events independently, and derive
+  the Narrative Map quotient graph only from M10 edges.
+- The first acceptance target is the exact private `MsDay1` fixture. It must show a separate
+  Prologue, one coherent Terrance cluster with two temporary choices/rejoins, then separate Janet,
+  family-dinner, and Faye clusters with Faye's nested choices and final scope rejoin.
+- Make Story Map the default browser surface. Hide the visible M12 route solver and old M07/M08 AI
+  organization controls from the normal journey while retaining their backends, persistence,
+  stored results, old-project fallback, and M13 M12-citation Detail/Evidence compatibility.
+- Opening, rendering, navigation, selection, evidence traversal, and exact cache replay make zero
+  provider calls. Any live Day 1 provider run requires a fresh exact manifest and separate user
+  consent; full MsDenvers processing remains deferred.
+- No private source or story text enters Git, no game or Ren'Py code executes, original inputs stay
+  read-only, and the two-level Route Map plus Detail/Evidence model remains authoritative.
+- Use one Phase Coordinator, three separate user-visible Track A/B/C tasks/worktrees with
+  independent exact-head reviews, and one final read-only cross-track review. Prepare one M15 PR
+  and leave it unmerged for explicit user approval.
+
+M15 is PR-ready only when the exact Day 1 map is immediately understandable at 100% and 200%, every
+visible element reaches exact evidence, provider-free and Windows/package/safety checks pass, no
+unresolved P0-P2 correctness/security/narrative-quality finding remains, source/authority
+immutability is proved, and the completion report, text export, screenshots, native infographic,
+and ready unmerged PR are durable.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -1257,7 +1296,9 @@ and unresolved items.
 
 ## 11. Current next action
 
-M13 is `Complete`. Corrective PR #24 merged into `main` as
-`3fff4762ce3e46174723e2adf35c2f7db19f2b2e` after exact final-head Release CI passed. Do not
-perform another provider/live transmission or begin M14 without separate user approval. M14
-remains deferred and no roadmap successor is active.
+M15 is the single active milestone on baseline
+`a447a4eefbd7c093bdb2767e62a393805af068ac`. Complete its contract, native goal, single early
+semantic gate, frozen shared schemas/failing-first acceptance fixtures, three user-visible tracks,
+ordered integration, provider-free Day 1/browser/Windows verification, independent reviews, and
+one ready unmerged PR. Do not perform a provider/live transmission without a fresh exact manifest
+and separate approval; do not expand to full MsDenvers or begin M14.

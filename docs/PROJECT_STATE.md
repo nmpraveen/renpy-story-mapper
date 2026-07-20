@@ -1,44 +1,39 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-18 (M13 corrective PR merged; milestone complete)
+Updated: 2026-07-20 (M15 in progress; semantic review passed and native goal active)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M13 - Optional AI narrative layer (complete; no successor activated).
-- Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
-- Baseline: merged corrective PR #24 commit `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`.
-- Integration branch: `main`; post-merge records are prepared on `codex/m13-post-merge-closeout`.
-- Status: Complete.
-- Completion state: product and independent review gates pass; exact final-head GitHub Release run
-  `29632577820` passed at `9e7d387025ed29fdd1c7a43442db4dffda3db0ad`; PR #24 merged into
-  `main` as `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` on 2026-07-18.
-- Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
-  existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
-  ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
-  failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
-  Detail/Evidence navigation.
-- Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: Phase Coordinator task/goal
-  `019f7308-a9a6-7562-a422-ab09c1ec077f` owned the bounded post-merge correction objective through
-  the authorized merge. After merge, native goal lookup reports no active goal record, so no active
-  native M13 goal remains. Historical task/goal
-  `019f7264-0e92-7e33-a372-ee81de102ab8` owned the prior PR-readiness reconciliation. Historical
-  task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
-  stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
-  reached its prior authorized done condition at its exact head; task/goal
-  `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
-- Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is merged at
-  `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its prior reconciled live evidence commit
-  `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
-  `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before the prior
-  lifecycle closeout. Product/evidence head
-  `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
-  at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
-  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) merged from
-  final head `9e7d387025ed29fdd1c7a43442db4dffda3db0ad` into `main` as
-  `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` at 2026-07-18T11:12:47Z.
+- Active milestone: M15 - MsDay1 Narrative Map correction.
+- Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`; tracked `main` matched
+  `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
+  `output/`, and `tmp/` content is preserved.
+- Integration branch: `codex/m15-msday1-narrative-map`.
+- Status: In progress.
+- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
+  failing-first fixtures are the active implementation slice before track divergence.
+- Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c`, created from the
+  exact `GOAL.md` done condition after confirming no prior active native goal.
+- Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
+  not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
+  select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
+  that setting will be recorded unavailable/unverified rather than claimed disabled.
+- Private fixture: exact input SHA-256
+  `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
+  `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
+  original archive SHA-256 `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`,
+  2,140,282 bytes, and timestamp nanoseconds `1783041076000000000`.
+- Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
+  scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
+  from the three-atom minimum narrative run and 35 from unresolved safety.
+- Pull request: none. One M15 PR will be prepared and left unmerged for explicit user approval.
+- Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
+  a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
+
+## M13 historical lifecycle
 
 The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
 merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's
