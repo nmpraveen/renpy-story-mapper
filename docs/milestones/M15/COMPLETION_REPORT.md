@@ -35,6 +35,9 @@ Pending implementation and acceptance. M15 is active after explicit user approva
 | M11 baseline comparison | Pass | 773 atoms, 165 scenes, nine temporary structures, one chapter, 174 presentation nodes; 115 minimum-run and 35 unresolved-safety boundaries |
 | Current-browser baseline at 100%/200% | Pass | `output/playwright/m15-baseline/`; current first page visibly contains repeated `Start`, `Clean`, raw visual titles, old AI/M07 controls, and the M12 route panel; no provider action performed |
 | Semantic review | Pass | `SEMANTIC_REVIEW.md` on 2026-07-20 |
+| Frozen M15 contracts | Pass | Exact shared head `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; 7 contract tests passed; targeted Ruff and strict mypy passed |
+| Failing-first implementation gate | Pass | Before track implementation, the M15 gate produced the expected 10 failures/1 pass: missing Track A/B interfaces, provider-free acceptance, and browser retirement behavior; the exact source-fingerprint/current-baseline guard passed |
+| Track dispatch | In progress | Track A task `019f8042-8627-7780-a515-355056881714` and Track B task `019f8042-8632-7512-a2e3-42ac6932e558` run in separate worktrees from exact shared head `1ec0664`; both explicitly select `gpt-5.6-sol` and High reasoning; fast-mode selection is unavailable/unverified |
 
 ## Review findings
 

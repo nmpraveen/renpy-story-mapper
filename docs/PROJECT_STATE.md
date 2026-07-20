@@ -14,13 +14,21 @@ Updated: 2026-07-20 (M15 in progress; semantic review passed and native goal act
 - Integration branch: `codex/m15-msday1-narrative-map`.
 - Status: In progress.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
-  failing-first fixtures are the active implementation slice before track divergence.
+  failing-first fixtures are frozen at exact head
+  `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
+  pre-implementation gate produced the expected 10 failures/1 pass.
 - Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c`, created from the
   exact `GOAL.md` done condition after confirming no prior active native goal.
 - Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
   that setting will be recorded unavailable/unverified rather than claimed disabled.
+- Track A task `019f8042-8627-7780-a515-355056881714` runs in
+  `C:/Users/prave/.codex/worktrees/8630/Renpy`; Track B task
+  `019f8042-8632-7512-a2e3-42ac6932e558` runs in
+  `C:/Users/prave/.codex/worktrees/c6d6/Renpy`. Both were dispatched from exact shared head
+  `1ec0664` with explicit `gpt-5.6-sol` and High reasoning. The creation surface exposes no
+  fast-mode selector, so fast mode remains unavailable/unverified.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
