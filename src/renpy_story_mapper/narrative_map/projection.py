@@ -46,6 +46,7 @@ def build_narrative_map(
         canonical,
         materialized,
         major_start_event_ids=_major_start_events(materialized, corridors),
+        collapsed_prefix_event_ids=_leading_technical_events(materialized),
     )
     node_kind = {item.id: item.kind for item in canonical.nodes}
     persistent_split_nodes = {
@@ -99,6 +100,7 @@ def _major_start_events(
     corridor_by_id = {item.corridor_id: item for item in corridors}
     result: set[str] = set()
     found_story = False
+    current_chapter_id: str | None = None
     for event in events:
         technical = event.coverage_state.value == "technical"
         top_level = event.temporary_container_id is None and event.temporary_arm_id is None
@@ -106,14 +108,26 @@ def _major_start_events(
             corridor_by_id[item] for item in event.ordered_corridor_ids if item in corridor_by_id
         ]
         soft_start = any(item.soft_boundary_signals for item in event_corridors)
-        if top_level and not technical and (not found_story or soft_start):
+        chapter_start = found_story and event.chapter_id != current_chapter_id
+        if top_level and not technical and (not found_story or soft_start or chapter_start):
             result.add(event.event_id)
             found_story = True
+        if top_level and not technical:
+            current_chapter_id = event.chapter_id
     if not result:
         for event in events:
             if event.coverage_state.value != "technical":
                 result.add(event.event_id)
                 break
+    return frozenset(result)
+
+
+def _leading_technical_events(events: tuple[NarrativeEvent, ...]) -> frozenset[str]:
+    result: set[str] = set()
+    for event in events:
+        if event.coverage_state.value != "technical":
+            break
+        result.add(event.event_id)
     return frozenset(result)
 
 

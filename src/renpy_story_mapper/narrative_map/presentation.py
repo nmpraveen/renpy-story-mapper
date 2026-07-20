@@ -34,6 +34,7 @@ def build_narrative_presentation(
     events: tuple[NarrativeEvent, ...],
     *,
     major_start_event_ids: frozenset[str] = frozenset(),
+    collapsed_prefix_event_ids: frozenset[str] = frozenset(),
 ) -> PresentationIndex:
     """Build stable event/choice/arm/rejoin nodes with Detail/Evidence navigation."""
 
@@ -150,16 +151,22 @@ def build_narrative_presentation(
             owner_region = canonical_regions.get(choice_id)
             if owner_region is None:
                 raise ValueError("a narrative choice lacks exact M10 region authority")
+            technical_choice = event.event_id in collapsed_prefix_event_ids
             nodes.append(
                 NarrativeMapNode(
                     node_id=map_node_id,
-                    kind=NarrativeNodeKind.CHOICE,
+                    kind=(
+                        NarrativeNodeKind.TECHNICAL_COVERAGE
+                        if technical_choice
+                        else NarrativeNodeKind.CHOICE
+                    ),
                     title=_caption(canonical_nodes[owner_region.split_node_id]),
                     ordinal=len(nodes),
                     navigation=EvidenceNavigation("canonical_region", choice_id),
                     event_id=event.event_id,
                     parent_node_id=parent_id,
                     choice_id=choice_id,
+                    technical_count=len(event.ordered_atom_ids) if technical_choice else 0,
                 )
             )
             canonical_to_map[owner_region.split_node_id] = map_node_id
@@ -169,16 +176,22 @@ def build_narrative_presentation(
             rejoin_owner[rejoin_id] = event.event_id
             map_node_id = stable_m15_id("map_rejoin", [event.event_id, rejoin_id])
             rejoin_nodes[rejoin_id] = map_node_id
+            technical_rejoin = event.event_id in collapsed_prefix_event_ids
             nodes.append(
                 NarrativeMapNode(
                     node_id=map_node_id,
-                    kind=NarrativeNodeKind.REJOIN,
+                    kind=(
+                        NarrativeNodeKind.TECHNICAL_COVERAGE
+                        if technical_rejoin
+                        else NarrativeNodeKind.REJOIN
+                    ),
                     title="Proven rejoin",
                     ordinal=len(nodes),
                     navigation=EvidenceNavigation("canonical_node", rejoin_id),
                     event_id=event.event_id,
                     parent_node_id=parent_id,
                     rejoin_node_id=rejoin_id,
+                    technical_count=len(event.ordered_atom_ids) if technical_rejoin else 0,
                 )
             )
             canonical_to_map[rejoin_id] = map_node_id

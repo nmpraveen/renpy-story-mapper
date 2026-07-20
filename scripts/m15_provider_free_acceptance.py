@@ -66,6 +66,8 @@ EXPECTED_SOURCE_HASH = "14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edeb
 EXPECTED_MENU_LINES = (143, 191, 623, 674)
 EXPECTED_MAJOR_STARTS = (52, 280, 334, 431)
 EXPECTED_MAJOR_ORDER = ("prologue", "terrance", "janet", "dinner", "faye")
+EXPECTED_SETUP_END_LINE = 26
+EXPECTED_PROLOGUE_START_RANGE = (27, 51)
 BLOCKED_TITLES = {"start", "clean", "module ending", "technical merge"}
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
@@ -157,6 +159,9 @@ def evaluate_exact_msday1(
         ),
         "terrance_event_end_line": observations.cluster_bounds[1][1],
         "janet_event_start_line": observations.cluster_bounds[2][0],
+        "technical_setup_end_line": observations.cluster_starts[0] - 1,
+        "prologue_event_start_line": observations.cluster_starts[0],
+        "day1_event_start_line": observations.cluster_starts[1],
         "major_event_order": cast(JsonValue, list(observations.cluster_labels)),
         "blocked_technical_titles": cast(JsonValue, blocked),
         "provider_calls": 0,
@@ -220,7 +225,11 @@ def _exact_product_observations(
     base_by_event: dict[str, NarrativeMapNode] = {}
     node_by_id = {item.node_id: item for item in narrative_map.nodes}
     for node in narrative_map.nodes:
-        if node.event_id in event_by_id and node.kind in base_kinds:
+        technical_auxiliary = (
+            node.kind is NarrativeNodeKind.TECHNICAL_COVERAGE
+            and node.navigation.target_kind in {"canonical_region", "canonical_node"}
+        )
+        if node.event_id in event_by_id and node.kind in base_kinds and not technical_auxiliary:
             if node.event_id is None:
                 raise ValueError("exact presentation event identity is missing")
             if node.event_id in base_by_event:
@@ -260,7 +269,12 @@ def _exact_product_observations(
             raise ValueError("an exact visible major cluster has no story-facing event ownership")
         cluster_bounds.append((min(story_lines), max(story_lines)))
     cluster_starts = tuple(item[0] for item in cluster_bounds)
-    if not cluster_starts or cluster_starts[0] >= EXPECTED_MAJOR_STARTS[0]:
+    if (
+        not cluster_starts
+        or not EXPECTED_PROLOGUE_START_RANGE[0]
+        <= cluster_starts[0]
+        <= EXPECTED_PROLOGUE_START_RANGE[1]
+    ):
         raise ValueError("the visible Prologue cluster lost its story-facing evidence")
     expected_cluster_starts = (cluster_starts[0], *EXPECTED_MAJOR_STARTS)
     if cluster_starts != expected_cluster_starts:
@@ -269,6 +283,22 @@ def _exact_product_observations(
     cluster_labels = tuple(expected_labels_by_start[item] for item in cluster_starts)
     if cluster_labels != EXPECTED_MAJOR_ORDER:
         raise ValueError("exact visible map order does not match frozen major event order")
+    normally_visible_event_ids = {
+        item.event_id
+        for item in narrative_map.nodes
+        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE
+        and item.event_id is not None
+    }
+    if any(
+        atom_by_id[atom_id].source_order[1] <= EXPECTED_SETUP_END_LINE
+        for event_id in normally_visible_event_ids
+        for atom_id in event_by_id[event_id].ordered_atom_ids
+    ):
+        raise ValueError("exact technical setup leaked into a normally visible story node")
+    if cluster_starts[0] - 1 != EXPECTED_SETUP_END_LINE:
+        raise ValueError("exact technical setup boundary changed")
+    if cluster_starts[1] != EXPECTED_MAJOR_STARTS[0]:
+        raise ValueError("exact Day 1 cluster no longer starts at its frozen anchor")
 
     line_by_node = {item.primary_node_id: item.source_order[1] for item in model.atoms}
     visible_choice_ids = {

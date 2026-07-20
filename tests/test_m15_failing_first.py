@@ -83,5 +83,8 @@ def test_exact_msday1_golden_choice_rejoins_and_terrance_janet_boundary() -> Non
     assert report["faye_choice_rejoins"] == [[623, 793], [674, 793]]
     assert report["terrance_event_end_line"] < 280
     assert report["janet_event_start_line"] == 280
+    assert report["technical_setup_end_line"] == 26
+    assert 27 <= report["prologue_event_start_line"] <= 51
+    assert report["day1_event_start_line"] == 52
     assert report["major_event_order"] == ["prologue", "terrance", "janet", "dinner", "faye"]
     assert report["blocked_technical_titles"] == []

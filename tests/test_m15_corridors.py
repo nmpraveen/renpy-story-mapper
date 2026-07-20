@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from m15_test_support import linear_authority
 from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.narrative_map import (
+    BoundaryCandidate,
+    BoundaryDecision,
+    BoundaryDecisionKind,
+    BoundaryProviderIdentity,
     BoundarySignal,
+    assemble_narrative_events,
+    build_boundary_candidates,
     build_narrative_corridors,
+    build_narrative_map,
 )
 
 
@@ -100,3 +109,63 @@ def test_m11_scene_lane_and_chapter_membership_are_not_topology_authority() -> N
 
     assert {item.chapter_id for item in corridors} == {None}
     assert {item.lane_id for item in corridors} == {"lane_story_spine"}
+
+
+def test_day_and_chapter_progression_are_hard_contexts_with_no_boundary_job() -> None:
+    canonical, model = linear_authority(
+        (
+            AtomKind.NARRATION,
+            AtomKind.VISUAL_CHANGE,
+            AtomKind.NARRATION,
+            AtomKind.VISUAL_CHANGE,
+            AtomKind.NARRATION,
+        ),
+        labels=("Prelude", "Scene day", "Day story", "Scene chapter", "Chapter story"),
+        source_kinds=("statement", "scene", "statement", "scene", "statement"),
+    )
+
+    corridors = build_narrative_corridors(canonical, model)
+    events = assemble_narrative_events(corridors)
+    build_narrative_map(canonical, events, corridors=corridors)
+    day_index = next(
+        index for index, item in enumerate(corridors) if "atom-1" in item.ordered_atom_ids
+    )
+    chapter_index = next(
+        index for index, item in enumerate(corridors) if "atom-3" in item.ordered_atom_ids
+    )
+
+    assert corridors[day_index].hard_boundary_before
+    assert corridors[day_index - 1].hard_boundary_after
+    assert corridors[chapter_index].hard_boundary_before
+    assert corridors[chapter_index - 1].hard_boundary_after
+    assert corridors[day_index].chapter_id is not None
+    assert corridors[chapter_index].chapter_id is not None
+    assert corridors[day_index].chapter_id != corridors[chapter_index].chapter_id
+    assert build_boundary_candidates(corridors) == ()
+
+    left = corridors[day_index - 1]
+    right = corridors[day_index]
+    injected = BoundaryCandidate(
+        left.authority,
+        left.corridor_id,
+        right.corridor_id,
+        (BoundarySignal.NARRATIVE_OBJECTIVE,),
+    )
+    decision = BoundaryDecision(
+        injected,
+        BoundaryDecisionKind.MERGE,
+        "Injected progression merge must fail closed.",
+        1.0,
+        BoundaryProviderIdentity(
+            "fake",
+            "v1",
+            "fake",
+            "fake",
+            "settings",
+            "p1",
+            "s1",
+            "i1",
+        ),
+    )
+    with pytest.raises(ValueError, match="exact adjacent soft candidate"):
+        assemble_narrative_events(corridors, (decision,))

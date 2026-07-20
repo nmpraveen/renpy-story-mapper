@@ -9,6 +9,10 @@ from typing import cast
 
 import pytest
 
+from renpy_story_mapper.canonical_graph_contract import CanonicalNodeKind
+from renpy_story_mapper.m11_scene_model import AtomKind
+from renpy_story_mapper.narrative_map import NarrativeNodeKind
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -110,3 +114,155 @@ def test_exact_observation_rejects_reordered_visible_presentation() -> None:
             reordered_map,
             {},
         )
+
+
+def test_setup_choice_prefix_is_hidden_before_the_prologue_anchor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _acceptance_module()
+    nodes = [
+        (
+            "technical_setup",
+            AtomKind.TECHNICAL,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Synthetic setup",
+            "statement",
+            {},
+        ),
+        (
+            "setup_choice",
+            AtomKind.CHOICE,
+            CanonicalNodeKind.CHOICE,
+            "Synthetic setup choice",
+            "menu",
+            {},
+        ),
+        (
+            "setup_dialogue",
+            AtomKind.DIALOGUE,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Synthetic setup dialogue",
+            "statement",
+            {},
+        ),
+        (
+            "setup_state",
+            AtomKind.STATE_CHANGE,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Synthetic setup state",
+            "opaque",
+            {},
+        ),
+        (
+            "setup_rejoin",
+            AtomKind.NARRATION,
+            CanonicalNodeKind.MERGE,
+            "Synthetic setup rejoin",
+            "merge",
+            {},
+        ),
+        (
+            "prologue_anchor",
+            AtomKind.VISUAL_CHANGE,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Scene prologue framing",
+            "scene",
+            {},
+        ),
+        (
+            "prologue_story",
+            AtomKind.NARRATION,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Synthetic prologue story",
+            "statement",
+            {},
+        ),
+        (
+            "day_marker",
+            AtomKind.VISUAL_CHANGE,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Scene day",
+            "scene",
+            {},
+        ),
+        (
+            "day_story",
+            AtomKind.NARRATION,
+            CanonicalNodeKind.SCRIPT_UNIT,
+            "Synthetic day story",
+            "statement",
+            {},
+        ),
+    ]
+    edges = [
+        ("edge-entry", "technical_setup", "setup_choice", "continuation", True, {}),
+        ("edge-arm-0", "setup_choice", "setup_dialogue", "choice", True, {}),
+        ("edge-arm-1", "setup_choice", "setup_state", "choice", True, {}),
+        ("edge-merge-0", "setup_dialogue", "setup_rejoin", "continuation", True, {}),
+        ("edge-merge-1", "setup_state", "setup_rejoin", "continuation", True, {}),
+        ("edge-prologue", "setup_rejoin", "prologue_anchor", "continuation", True, {}),
+        ("edge-prologue-story", "prologue_anchor", "prologue_story", "continuation", True, {}),
+        ("edge-day", "prologue_story", "day_marker", "continuation", True, {}),
+        ("edge-day-story", "day_marker", "day_story", "continuation", True, {}),
+    ]
+    regions = [
+        (
+            "setup-region",
+            "local_detour",
+            "setup_choice",
+            "setup_rejoin",
+            ("setup_choice", "setup_dialogue", "setup_state", "setup_rejoin"),
+            {
+                "arms": [
+                    {
+                        "id": "setup-arm-0",
+                        "ordinal": 0,
+                        "entry_node_id": "setup_dialogue",
+                        "member_node_ids": ["setup_dialogue"],
+                    },
+                    {
+                        "id": "setup-arm-1",
+                        "ordinal": 1,
+                        "entry_node_id": "setup_state",
+                        "member_node_ids": ["setup_state"],
+                    },
+                ]
+            },
+        )
+    ]
+    monkeypatch.setattr(module, "_synthetic_specs", lambda _case, _signals: (nodes, edges, regions))
+    canonical, model = module._synthetic_authority("setup-prefix", ("sanitized",))
+    corridors = module.build_narrative_corridors(canonical, model)
+    events = module.assemble_narrative_events(
+        corridors,
+        expected_atom_ids=(item.id for item in model.atoms),
+    )
+    narrative_map = module.build_narrative_map(canonical, events, corridors=corridors)
+
+    setup_atom_ids = {
+        "atom-technical_setup",
+        "atom-setup_choice",
+        "atom-setup_dialogue",
+        "atom-setup_state",
+        "atom-setup_rejoin",
+    }
+    assert setup_atom_ids <= set(narrative_map.hidden_technical_atom_ids)
+    event_by_id = {item.event_id: item for item in events}
+    normally_visible = [
+        item
+        for item in narrative_map.nodes
+        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE
+        and item.event_id is not None
+    ]
+    assert all(
+        setup_atom_ids.isdisjoint(event_by_id[item.event_id].ordered_atom_ids)
+        for item in normally_visible
+    )
+    prologue_event = next(
+        item for item in events if "atom-prologue_story" in item.ordered_atom_ids
+    )
+    assert any(
+        item.event_id == prologue_event.event_id
+        and item.kind is NarrativeNodeKind.EVENT_CLUSTER
+        for item in narrative_map.nodes
+    )

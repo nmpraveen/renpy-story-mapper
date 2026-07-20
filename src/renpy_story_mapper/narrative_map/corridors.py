@@ -76,12 +76,19 @@ def build_narrative_corridors(
         canonical.regions,
         canonical_by_node,
     )
+    ordered_atoms = _control_order(tuple(atoms.values()), edges)
+    progression_atom_ids = {
+        atom.id
+        for atom in ordered_atoms
+        if _is_standalone_progression_marker(atom, canonical_by_node[atom.primary_node_id])
+    }
+    progression_by_atom = _progression_contexts(ordered_atoms, progression_atom_ids)
     contexts: dict[str, _Context] = {}
     for atom_id, atom in atoms.items():
         node = canonical_by_node[atom.primary_node_id]
         container_id, arm_id = temporary_by_node.get(atom.primary_node_id, (None, None))
         contexts[atom_id] = _Context(
-            chapter_id=None,
+            chapter_id=progression_by_atom[atom_id],
             lane_id=_canonical_lane(node.attributes),
             occurrence_id=occurrence_by_node.get(atom.primary_node_id),
             loop_id=_canonical_loop(node),
@@ -89,9 +96,18 @@ def build_narrative_corridors(
             arm_id=arm_id,
         )
 
-    ordered_atoms = _control_order(tuple(atoms.values()), edges)
-    leading_technical = _leading_technical_ids(ordered_atoms)
-    soft_before = _soft_boundaries(ordered_atoms, contexts, edges)
+    leading_technical = _leading_technical_ids(
+        ordered_atoms,
+        canonical.regions,
+        edges,
+        progression_atom_ids,
+    )
+    soft_before = _soft_boundaries(
+        ordered_atoms,
+        contexts,
+        edges,
+        progression_atom_ids,
+    )
     choice_by_atom = {
         atom.id: choice_by_node[atom.primary_node_id]
         for atom in ordered_atoms
@@ -394,12 +410,83 @@ def _source_key(atom: StoryAtom) -> tuple[object, ...]:
     return (path.replace("\\", "/"), line, column, kind_rank, node_id)
 
 
-def _leading_technical_ids(atoms: Sequence[StoryAtom]) -> set[str]:
+def _leading_technical_ids(
+    atoms: Sequence[StoryAtom],
+    regions: Sequence[CanonicalRegion],
+    edges: Sequence[CanonicalEdge],
+    progression_atom_ids: set[str],
+) -> set[str]:
     result: set[str] = set()
     for atom in atoms:
-        if atom.kind in {AtomKind.DIALOGUE, AtomKind.NARRATION} and atom.story_facing:
+        if atom.story_facing:
             break
         result.add(atom.id)
+    position = {item.id: index for index, item in enumerate(atoms)}
+    atom_by_node = {item.primary_node_id: item for item in atoms}
+    first_progression = min(
+        (position[item] for item in progression_atom_ids),
+        default=len(atoms),
+    )
+    temporary_kinds = {"local_detour", "optional_detour", "reconvergent_route_segment"}
+    temporary_merge_nodes = {
+        item.merge_node_id
+        for item in regions
+        if item.kind in temporary_kinds and item.merge_node_id is not None
+    }
+    outgoing: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        if edge.resolved:
+            outgoing[edge.source_id].append(edge.target_id)
+    anchor_positions: list[int] = []
+    for region in regions:
+        split_atom = atom_by_node.get(region.split_node_id)
+        if (
+            region.kind not in temporary_kinds
+            or split_atom is None
+            or region.merge_node_id is None
+            or position[split_atom.id] >= first_progression
+        ):
+            continue
+        member_atoms = [
+            atom_by_node[node_id] for node_id in region.member_node_ids if node_id in atom_by_node
+        ]
+        if not any(
+            item.kind in {AtomKind.CONDITION, AtomKind.STATE_CHANGE, AtomKind.TECHNICAL}
+            for item in member_atoms
+        ):
+            continue
+        pending = list(outgoing.get(region.merge_node_id, ()))
+        visited: set[str] = set()
+        while pending:
+            node_id = pending.pop()
+            if node_id in visited:
+                raise ValueError("leading technical continuation contains a merge cycle")
+            visited.add(node_id)
+            if node_id in temporary_merge_nodes:
+                pending.extend(outgoing.get(node_id, ()))
+                continue
+            anchor = atom_by_node.get(node_id)
+            if (
+                anchor is not None
+                and anchor.story_facing
+                and position[anchor.id] < first_progression
+            ):
+                anchor_positions.append(position[anchor.id])
+    if anchor_positions:
+        result.update(item.id for item in atoms[: max(anchor_positions)])
+    return result
+
+
+def _progression_contexts(
+    atoms: Sequence[StoryAtom],
+    progression_atom_ids: set[str],
+) -> dict[str, str | None]:
+    result: dict[str, str | None] = {}
+    current: str | None = None
+    for atom in atoms:
+        if atom.id in progression_atom_ids:
+            current = f"progression:{atom.primary_node_id}"
+        result[atom.id] = current
     return result
 
 
@@ -407,6 +494,7 @@ def _soft_boundaries(
     atoms: Sequence[StoryAtom],
     contexts: dict[str, _Context],
     edges: Sequence[CanonicalEdge],
+    progression_atom_ids: set[str],
 ) -> dict[str, tuple[BoundarySignal, ...]]:
     result: dict[str, list[BoundarySignal]] = defaultdict(list)
     by_context: dict[_Context, list[StoryAtom]] = defaultdict(list)
@@ -415,19 +503,13 @@ def _soft_boundaries(
 
     resolved_pairs = {(item.source_id, item.target_id) for item in edges if item.resolved}
     for stream in by_context.values():
-        for index, atom in enumerate(stream):
-            if _is_standalone_progression_marker(atom) and any(
-                later.story_facing and later.kind in {AtomKind.DIALOGUE, AtomKind.NARRATION}
-                for later in stream[index + 1 :]
-            ):
-                result[atom.id].append(BoundarySignal.NARRATIVE_OBJECTIVE)
         for left, right in pairwise(stream):
             if (
                 left.source_order[0] != right.source_order[0]
                 and (left.primary_node_id, right.primary_node_id) in resolved_pairs
             ):
                 result[right.id].append(BoundarySignal.RESOLVED_TRANSFER)
-        _stable_visual_boundaries(stream, result)
+        _stable_visual_boundaries(stream, result, progression_atom_ids)
         _stable_cast_boundaries(stream, result)
     return {key: tuple(dict.fromkeys(values)) for key, values in result.items()}
 
@@ -435,6 +517,7 @@ def _soft_boundaries(
 def _stable_visual_boundaries(
     stream: Sequence[StoryAtom],
     result: dict[str, list[BoundarySignal]],
+    progression_atom_ids: set[str],
 ) -> None:
     scenes = [
         (index, item, _visual_family(item.label))
@@ -462,7 +545,7 @@ def _stable_visual_boundaries(
         current_position = scenes[visual_index][0]
         previous_position = scenes[visual_index - 1][0]
         if any(
-            _is_standalone_progression_marker(item)
+            item.id in progression_atom_ids
             for item in stream[previous_position + 1 : current_position]
         ):
             continue
@@ -501,8 +584,9 @@ def _visual_family(label: str) -> str | None:
     return meaningful[0] if meaningful else None
 
 
-def _is_standalone_progression_marker(atom: StoryAtom) -> bool:
-    if atom.kind is not AtomKind.VISUAL_CHANGE or atom.source_kind != "scene":
+def _is_standalone_progression_marker(atom: StoryAtom, node: CanonicalNode) -> bool:
+    source_kind = node.attributes.get("source_kind", atom.source_kind)
+    if atom.kind is not AtomKind.VISUAL_CHANGE or source_kind != "scene":
         return False
     words = re.findall(r"[a-z]+", atom.label.casefold())
     meaningful = [item for item in words if item not in _VISUAL_COMMANDS]
@@ -510,7 +594,7 @@ def _is_standalone_progression_marker(atom: StoryAtom) -> bool:
 
 
 def _is_collapsed_technical(atom: StoryAtom) -> bool:
-    return not atom.story_facing or atom.kind in {
+    return atom.source_kind == "module_end" or not atom.story_facing or atom.kind in {
         AtomKind.VISUAL_CHANGE,
         AtomKind.CONDITION,
         AtomKind.STATE_CHANGE,
