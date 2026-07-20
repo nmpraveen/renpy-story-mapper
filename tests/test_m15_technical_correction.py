@@ -107,6 +107,31 @@ def test_correction_contract_is_versioned_serializable_stable_and_bounded() -> N
         LeadingTechnicalCoverageCorrection.from_dict({**payload, "normalized_hash": "0" * 64})
 
 
+def test_qualified_locator_backslash_path_survives_roundtrip_and_resolution() -> None:
+    canonical, model = _four_story_atoms()
+    correction = _correction(canonical, model, ("atom-0",), (_locator(0),))
+    correction = replace(
+        correction,
+        qualified_locators=(
+            replace(
+                correction.qualified_locators[0],
+                source=SourceLocator(
+                    "game\\synthetic.rpy",
+                    1,
+                    1,
+                    "physical_source",
+                ),
+            ),
+        ),
+    )
+
+    reopened = LeadingTechnicalCoverageCorrection.from_dict(correction.to_dict())
+
+    assert reopened == correction
+    assert reopened.qualified_locators[0].source.relative_path == "game/synthetic.rpy"
+    assert resolve_leading_technical_coverage_correction(canonical, model, reopened) == ("atom-0",)
+
+
 def test_valid_correction_resolves_only_the_exact_strict_prefix() -> None:
     canonical, model = _four_story_atoms()
     correction = _correction(canonical, model)

@@ -153,6 +153,7 @@ class SourceLocator:
         path = PurePosixPath(self.relative_path.replace("\\", "/"))
         if path.is_absolute() or ".." in path.parts or ":" in path.parts[0]:
             raise ValueError("source locators require a safe relative path")
+        object.__setattr__(self, "relative_path", path.as_posix())
         if self.start_line < 1 or self.end_line < self.start_line:
             raise ValueError("source locators require a valid inclusive line range")
         _require_text(self.line_basis, "line basis")
