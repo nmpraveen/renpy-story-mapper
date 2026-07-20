@@ -71,6 +71,7 @@ class _ConsentCallLedger:
                 raise NarrativeMapProviderError(
                     "consent_call_limit",
                     "The M15 consent has no remaining provider call grant.",
+                    provider_call_reserved=False,
                 )
             self._reserved_calls += 1
 
@@ -422,12 +423,20 @@ class StructuredRunner(Protocol):
 class NarrativeMapProviderError(RuntimeError):
     """A sanitized failure code; callers persist the code and never the message."""
 
-    def __init__(self, error_code: str, message: str, *, transient: bool = False) -> None:
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        transient: bool = False,
+        provider_call_reserved: bool = True,
+    ) -> None:
         if _ERROR_CODE.fullmatch(error_code) is None:
             raise ValueError("provider error codes must be sanitized identifiers")
         super().__init__(message)
         self.error_code = error_code
         self.transient = transient
+        self.provider_call_reserved = provider_call_reserved
 
 
 class SterileNarrativeMapProvider:
@@ -450,18 +459,38 @@ class SterileNarrativeMapProvider:
         cancelled: CancelledCallback,
     ) -> NarrativeMapProviderResponse:
         if cancelled():
-            raise NarrativeMapProviderError("cancelled", "The provider request was cancelled.")
-        request.validate_for_submission()
-        prompt_name, schema_name = _resource_names(request.job.kind)
-        prompt = _serialize_prompt(request, prompt_name)
+            raise NarrativeMapProviderError(
+                "cancelled",
+                "The provider request was cancelled.",
+                provider_call_reserved=False,
+            )
+        try:
+            request.validate_for_submission()
+            prompt_name, schema_name = _resource_names(request.job.kind)
+            prompt = _serialize_prompt(request, prompt_name)
+        except NarrativeMapProviderError:
+            raise
+        except Exception:
+            raise NarrativeMapProviderError(
+                "provider_request_invalid",
+                "The provider request failed local validation.",
+                provider_call_reserved=False,
+            ) from None
         if len(prompt) > request.maximum_input_bytes:
-            raise NarrativeMapProviderError("input_limit", "The provider request is too large.")
+            raise NarrativeMapProviderError(
+                "input_limit",
+                "The provider request is too large.",
+                provider_call_reserved=False,
+            )
         schema_resource = files("renpy_story_mapper.narrative_map.schemas").joinpath(schema_name)
         reasoning = request.profile.settings.to_dict().get("reasoning_effort")
         if reasoning is not None and not isinstance(reasoning, str):
             raise NarrativeMapProviderError(
-                "runtime_configuration_rejected", "The reasoning profile is invalid."
+                "runtime_configuration_rejected",
+                "The reasoning profile is invalid.",
+                provider_call_reserved=False,
             )
+        provider_call_reserved = False
         try:
             with as_file(schema_resource) as schema_path:
                 sterile_request = SterileRunRequest(
@@ -474,9 +503,12 @@ class SterileNarrativeMapProvider:
                 )
                 if cancelled():
                     raise NarrativeMapProviderError(
-                        "cancelled", "The provider request was cancelled."
+                        "cancelled",
+                        "The provider request was cancelled.",
+                        provider_call_reserved=False,
                     )
                 request.consent.reserve_provider_call(request.job, request.profile)
+                provider_call_reserved = True
                 started_at = time.monotonic()
                 result = self._runner.execute(
                     sterile_request,
@@ -487,6 +519,16 @@ class SterileNarrativeMapProvider:
                 exc.error_code,
                 "The sterile provider process failed safely.",
                 transient=exc.transient,
+            ) from None
+        except NarrativeMapProviderError:
+            raise
+        except Exception:
+            if provider_call_reserved:
+                raise
+            raise NarrativeMapProviderError(
+                "provider_request_invalid",
+                "The provider request could not cross the sterile boundary.",
+                provider_call_reserved=False,
             ) from None
         payload = _extract_payload(result)
         resolved_model = _resolved_model(result, request.profile.requested_model)
@@ -528,11 +570,15 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
         template = json.loads(resource.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         raise NarrativeMapProviderError(
-            "prompt_template_invalid", "The M15 prompt template is unavailable."
+            "prompt_template_invalid",
+            "The M15 prompt template is unavailable.",
+            provider_call_reserved=False,
         ) from None
     if not isinstance(template, dict) or template.get("version") != request.job.prompt_version:
         raise NarrativeMapProviderError(
-            "prompt_version_mismatch", "The M15 prompt identity does not match."
+            "prompt_version_mismatch",
+            "The M15 prompt identity does not match.",
+            provider_call_reserved=False,
         )
     envelope = {
         **template,

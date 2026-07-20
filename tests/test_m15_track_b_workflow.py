@@ -327,8 +327,10 @@ def test_sterile_provider_revalidates_consent_freshness_at_submit() -> None:
     )
     runner = _FakeSterileRunner({"decisions": []})
 
-    with pytest.raises(ValueError, match="fresh"):
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
         SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+    assert exc_info.value.error_code == "provider_request_invalid"
+    assert not exc_info.value.provider_call_reserved
     assert runner.requests == []
 
 
@@ -590,13 +592,169 @@ def test_submit_revalidates_mutated_bounds_without_consuming_call_grant() -> Non
     provider = SterileNarrativeMapProvider(runner=runner)
 
     object.__setattr__(request, "maximum_input_bytes", 10_001)
-    with pytest.raises(ValueError, match=r"input.*consent"):
+    with pytest.raises(NarrativeMapProviderError) as invalid_error:
         provider.submit(request, lambda: False)
+    assert invalid_error.value.error_code == "provider_request_invalid"
+    assert not invalid_error.value.provider_call_reserved
     assert runner.requests == []
 
     object.__setattr__(request, "maximum_input_bytes", 10_000)
     provider.submit(request, lambda: False)
     assert len(runner.requests) == 1
+
+
+def test_workflow_does_not_count_pre_reservation_input_rejection_as_provider_call(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="local-input-rejection",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+        maximum_input_bytes=1,
+    )
+    runner = _FakeSterileRunner({"decisions": []})
+
+    with Project.create(tmp_path / "local-input-rejection.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(
+            repository,
+            SterileNarrativeMapProvider(runner=runner),
+            _profile(),
+        ).run_boundary_jobs((job,), consent=consent)
+        record = repository.get(job.kind, job.job_id)
+
+    assert report.failed_job_ids == (job.job_id,)
+    assert report.provider_calls == 0
+    assert runner.requests == []
+    assert record is not None
+    assert record.attempt_count == 1
+    assert record.provider_calls == 0
+    assert record.usage is None
+
+
+def test_local_rejection_does_not_reduce_later_job_call_admission(tmp_path: Path) -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    candidates = (_candidate(first, second), _candidate(second, third))
+    evidence = _evidence(first, second, third)
+    first_evidence = evidence[first.ordered_atom_ids[0]]
+    evidence[first.ordered_atom_ids[0]] = replace(first_evidence, text="x" * 20_000)
+    jobs = prepare_boundary_jobs(
+        (first, second, third),
+        candidates,
+        evidence,
+    )
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidates[1].candidate_id,
+                "decision": "split",
+                "reason": "The later objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="local-failure-then-call",
+        profile=_profile(),
+        jobs=jobs,
+        consent_granted=True,
+        maximum_provider_calls=1,
+        maximum_input_bytes=5_000,
+    )
+    runner = _FakeSterileRunner(payload)
+
+    with Project.create(tmp_path / "local-failure-admission.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project),
+            SterileNarrativeMapProvider(runner=runner),
+            _profile(),
+        ).run_boundary_jobs(jobs, consent=consent)
+
+    assert report.failed_job_ids == (jobs[0].job_id,)
+    assert report.validated_job_ids == (jobs[1].job_id,)
+    assert report.provider_calls == 1
+    assert len(runner.requests) == 1
+
+
+def test_workflow_persists_post_reservation_failure_as_consumed_call(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="reserved-failure-accounting",
+        profile=_profile(),
+        jobs=(job,),
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    runner = _FailingSterileRunner()
+
+    with Project.create(tmp_path / "reserved-failure-accounting.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(
+            repository,
+            SterileNarrativeMapProvider(runner=runner),
+            _profile(),
+        ).run_boundary_jobs((job,), consent=consent)
+        record = repository.get(job.kind, job.job_id)
+
+    assert report.failed_job_ids == (job.job_id,)
+    assert report.provider_calls == 1
+    assert len(runner.requests) == 1
+    assert record is not None
+    assert record.attempt_count == 1
+    assert record.provider_calls == 1
+    assert record.usage is None
+
+
+def test_consumed_call_prevents_later_job_without_fabricating_attempt(
+    tmp_path: Path,
+) -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    jobs = prepare_boundary_jobs(
+        (first, second, third),
+        (_candidate(first, second), _candidate(second, third)),
+        _evidence(first, second, third),
+    )
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="consumed-call-admission",
+        profile=_profile(),
+        jobs=jobs,
+        consent_granted=True,
+        maximum_provider_calls=1,
+    )
+    runner = _FailingSterileRunner()
+
+    with Project.create(tmp_path / "consumed-call-admission.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(
+            repository,
+            SterileNarrativeMapProvider(runner=runner),
+            _profile(),
+        ).run_boundary_jobs(jobs, consent=consent)
+        first_record = repository.get(jobs[0].kind, jobs[0].job_id)
+        second_record = repository.get(jobs[1].kind, jobs[1].job_id)
+
+    assert report.failed_job_ids == tuple(job.job_id for job in jobs)
+    assert report.provider_calls == 1
+    assert len(runner.requests) == 1
+    assert first_record is not None
+    assert first_record.attempt_count == 1
+    assert first_record.provider_calls == 1
+    assert second_record is not None
+    assert second_record.attempt_count == 0
+    assert second_record.provider_calls == 0
+    assert second_record.error_code == "budget_exceeded"
 
 
 def test_cancellation_before_reservation_does_not_consume_call_grant() -> None:
@@ -825,6 +983,12 @@ def test_workflow_allows_one_schema_repair_and_exact_reopen_cache_is_zero_submit
         assert provider.requests[0].repair_codes == ()
         assert provider.requests[1].repair_codes
         assert provider.requests[0].job.subject_id == provider.requests[1].job.subject_id
+        record = NarrativeMapRepository(project).get(job.kind, job.job_id)
+        assert record is not None
+        assert record.attempt_count == 2
+        assert record.provider_calls == 2
+        assert record.usage is not None
+        assert record.usage["provider_calls"] == 2
 
     replay_provider = _FakeProvider([])
     with Project.open(project_path) as project:
@@ -835,6 +999,10 @@ def test_workflow_allows_one_schema_repair_and_exact_reopen_cache_is_zero_submit
         assert report.provider_calls == 0
         assert report.cache_hits == 1
         assert replay_provider.requests == []
+        replay_record = NarrativeMapRepository(project).get(job.kind, job.job_id)
+        assert replay_record is not None
+        assert replay_record.attempt_count == 2
+        assert replay_record.provider_calls == 2
 
 
 def test_cancellation_preserves_validated_work_and_resume_retries_only_missing_jobs(
@@ -1124,6 +1292,89 @@ def test_summary_repair_cannot_replace_valid_claim_when_sibling_is_invalid(
     assert report.provider_calls == 2
 
 
+def test_summary_repair_cannot_replace_valid_claim_with_only_extra_schema_field(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    original_claim = {
+        "claim_class": "factual",
+        "text": "This supported claim is already semantically valid.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+        "schema_note": "remove this extra field only",
+    }
+    replacement_claim = {
+        "claim_class": "factual",
+        "text": "A different claim must not replace it.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    common = {
+        "event_id": event.event_id,
+        "title": "A schema-only repair",
+        "summary": "The existing claim semantics must remain unchanged.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            {**common, "claims": [original_claim]},
+            {**common, "claims": [replacement_claim]},
+        ]
+    )
+
+    with Project.create(tmp_path / "claim-extra-field-lock.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+
+    assert report.validated_job_ids == ()
+    assert report.failed_job_ids == (job.job_id,)
+    assert report.provider_calls == 2
+
+
+def test_summary_repair_may_remove_extra_claim_field_without_changing_semantics(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    normalized_claim = {
+        "claim_class": "factual",
+        "text": "This supported claim remains exact.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    common = {
+        "event_id": event.event_id,
+        "title": "A schema-only repair",
+        "summary": "Only the forbidden property is removed.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            {**common, "claims": [{**normalized_claim, "schema_note": "remove"}]},
+            {**common, "claims": [normalized_claim]},
+        ]
+    )
+
+    with Project.create(tmp_path / "claim-extra-field-removal.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(
+            repository, provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+        record = repository.get(job.kind, job.job_id)
+
+    assert report.validated_job_ids == (job.job_id,)
+    assert record is not None
+    assert record.result is not None
+    assert record.result["claims"] == [normalized_claim]
+
+
 def test_summary_repair_preserves_valid_claim_slot_and_exact_evidence_identity(
     tmp_path: Path,
 ) -> None:
@@ -1378,5 +1629,9 @@ def test_cache_replay_restores_service_visible_validated_record(tmp_path: Path) 
         ).run_boundary_jobs((job,), consent=_consent((job,)))
         assert replay.provider_calls == 0
         assert replay.cache_hits == 1
+        replay_record = repository.get(job.kind, job.job_id)
+        assert replay_record is not None
+        assert replay_record.attempt_count == 0
+        assert replay_record.provider_calls == 0
         decision = NarrativeMapService(repository).read_boundary_decisions((candidate,))[0]
         assert decision.decision.value == "split"

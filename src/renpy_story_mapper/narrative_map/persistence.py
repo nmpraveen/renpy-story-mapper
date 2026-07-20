@@ -45,6 +45,7 @@ class NarrativeJobRecord:
     profile_hash: str
     status: NarrativeJobStatus
     attempt_count: int
+    provider_calls: int
     result: Mapping[str, object] | None
     provider_identity: Mapping[str, object] | None
     usage: Mapping[str, object] | None
@@ -77,6 +78,7 @@ class NarrativeMapRepository:
             profile,
             status=NarrativeJobStatus.PENDING,
             attempt_count=0,
+            provider_calls=0,
             result=None,
             provider_identity=None,
             usage=None,
@@ -107,6 +109,7 @@ class NarrativeMapRepository:
         profile: ProviderProfile,
         *,
         attempt_count: int,
+        provider_calls: int,
         error_code: str,
         provider_identity: Mapping[str, object] | None = None,
         usage: ProviderUsage | None = None,
@@ -118,13 +121,14 @@ class NarrativeMapRepository:
             profile,
             status=NarrativeJobStatus.FAILED,
             attempt_count=attempt_count,
+            provider_calls=provider_calls,
             result=None,
             provider_identity=(
                 None
                 if provider_identity is None
                 else _detached_mapping(provider_identity, "failed provider identity")
             ),
-            usage=None if usage is None else _usage_payload(usage, attempt_count),
+            usage=None if usage is None else _usage_payload(usage, provider_calls),
             error_code=error_code,
         )
         self._write(job.kind, job.job_id, payload)
@@ -136,18 +140,20 @@ class NarrativeMapRepository:
         profile: ProviderProfile,
         *,
         attempt_count: int,
+        provider_calls: int,
         result: Mapping[str, object],
         provider_identity: Mapping[str, object],
         usage: ProviderUsage,
     ) -> NarrativeJobRecord:
         normalized_result = _detached_mapping(result, "validated M15 result")
         normalized_identity = _detached_mapping(provider_identity, "provider identity")
-        usage_payload = _usage_payload(usage, attempt_count)
+        usage_payload = _usage_payload(usage, provider_calls)
         payload = self._envelope(
             job,
             profile,
             status=NarrativeJobStatus.VALIDATED,
             attempt_count=attempt_count,
+            provider_calls=provider_calls,
             result=normalized_result,
             provider_identity=normalized_identity,
             usage=usage_payload,
@@ -223,13 +229,14 @@ class NarrativeMapRepository:
         *,
         status: NarrativeJobStatus,
         attempt_count: int,
+        provider_calls: int,
         result: Mapping[str, object] | None,
         provider_identity: Mapping[str, object] | None,
         usage: Mapping[str, object] | None,
         error_code: str | None,
     ) -> dict[str, object]:
-        if attempt_count < 0:
-            raise ValueError("M15 attempt counts cannot be negative")
+        if attempt_count < 0 or not 0 <= provider_calls <= attempt_count:
+            raise ValueError("M15 attempt and provider-call counts are inconsistent")
         payload: dict[str, object] = {
             "schema": PERSISTENCE_SCHEMA,
             **job.durable_metadata(),
@@ -238,6 +245,7 @@ class NarrativeMapRepository:
             "profile_hash": canonical_hash(profile.to_dict()),
             "status": status.value,
             "attempt_count": attempt_count,
+            "provider_calls": provider_calls,
             "result": result,
             "provider_identity": provider_identity,
             "usage": usage,
@@ -335,12 +343,18 @@ class NarrativeMapRepository:
         if status is None:
             raise storage.ProjectCorruptError("M15 job status is invalid")
         attempt_count = raw.get("attempt_count")
+        provider_calls = raw.get("provider_calls")
         if (
             not isinstance(attempt_count, int)
             or isinstance(attempt_count, bool)
             or attempt_count < 0
+            or not isinstance(provider_calls, int)
+            or isinstance(provider_calls, bool)
+            or not 0 <= provider_calls <= attempt_count
         ):
-            raise storage.ProjectCorruptError("M15 job attempt count is invalid")
+            raise storage.ProjectCorruptError(
+                "M15 job attempt and provider-call counts are invalid"
+            )
         result = raw.get("result")
         provider_identity = raw.get("provider_identity")
         usage = raw.get("usage")
@@ -350,6 +364,8 @@ class NarrativeMapRepository:
             raise storage.ProjectCorruptError("M15 provider identity is invalid")
         if usage is not None and not isinstance(usage, Mapping):
             raise storage.ProjectCorruptError("M15 usage is invalid")
+        if usage is not None and usage.get("provider_calls") != provider_calls:
+            raise storage.ProjectCorruptError("M15 usage provider-call count is inconsistent")
         error_code = raw.get("error_code")
         if error_code is not None and (
             not isinstance(error_code, str) or not _ERROR_CODE.fullmatch(error_code)
@@ -366,6 +382,7 @@ class NarrativeMapRepository:
             profile_hash=cast(str, raw["profile_hash"]),
             status=status,
             attempt_count=attempt_count,
+            provider_calls=provider_calls,
             result=cast(Mapping[str, object] | None, result),
             provider_identity=cast(Mapping[str, object] | None, provider_identity),
             usage=cast(Mapping[str, object] | None, usage),

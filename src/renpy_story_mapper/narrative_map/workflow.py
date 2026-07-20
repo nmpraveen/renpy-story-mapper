@@ -34,6 +34,7 @@ from renpy_story_mapper.narrative_map.provider import (
 )
 from renpy_story_mapper.narrative_map.validation import (
     BoundaryValidationResult,
+    ClaimClass,
     EventSummary,
     EventSummaryValidationResult,
     ValidationFinding,
@@ -136,6 +137,7 @@ class NarrativeBoundaryWorkflow:
                         job,
                         self._profile,
                         attempt_count=0,
+                        provider_calls=0,
                         result=cached_result,
                         provider_identity=cached_identity,
                         usage=ProviderUsage(0, 0, 0, cost_micros=0),
@@ -146,16 +148,17 @@ class NarrativeBoundaryWorkflow:
             outcome = self._submit_with_repair(
                 job,
                 consent=consent,
-                maximum_attempts=consent.maximum_provider_calls - provider_calls,
+                maximum_provider_calls=consent.maximum_provider_calls - provider_calls,
                 cancelled=cancelled,
             )
-            provider_calls += outcome.attempt_count
+            provider_calls += outcome.provider_calls
             usages.extend(outcome.usages)
             if outcome.cancelled:
                 self._repository.record_failure(
                     job,
                     self._profile,
                     attempt_count=outcome.attempt_count,
+                    provider_calls=outcome.provider_calls,
                     error_code="cancelled",
                     provider_identity=(
                         None
@@ -171,7 +174,8 @@ class NarrativeBoundaryWorkflow:
                 self._repository.record_failure(
                     job,
                     self._profile,
-                    attempt_count=max(1, outcome.attempt_count),
+                    attempt_count=outcome.attempt_count,
+                    provider_calls=outcome.provider_calls,
                     error_code=outcome.error_code or "invalid_output",
                     provider_identity=(
                         None
@@ -186,6 +190,7 @@ class NarrativeBoundaryWorkflow:
                 job,
                 self._profile,
                 attempt_count=outcome.attempt_count,
+                provider_calls=outcome.provider_calls,
                 result=outcome.result,
                 provider_identity=outcome.provider_identity.to_dict(),
                 usage=_combined_usage(outcome.usages),
@@ -207,20 +212,22 @@ class NarrativeBoundaryWorkflow:
         job: PreparedNarrativeJob,
         *,
         consent: NarrativeConsentManifest,
-        maximum_attempts: int,
+        maximum_provider_calls: int,
         cancelled: CancelledCallback,
     ) -> _JobOutcome:
         findings: tuple[ValidationFinding, ...] = ()
         usages: list[ProviderUsage] = []
+        provider_calls = 0
         last_identity: BoundaryProviderIdentity | None = None
         locked_semantics: dict[str, JsonValue] = {}
         for attempt in (1, 2):
-            if attempt > maximum_attempts:
+            if provider_calls >= maximum_provider_calls:
                 return _JobOutcome(
                     None,
                     last_identity,
                     tuple(usages),
                     attempt - 1,
+                    provider_calls,
                     "budget_exceeded",
                     False,
                 )
@@ -230,6 +237,7 @@ class NarrativeBoundaryWorkflow:
                     last_identity,
                     tuple(usages),
                     attempt - 1,
+                    provider_calls,
                     "cancelled",
                     True,
                 )
@@ -262,29 +270,40 @@ class NarrativeBoundaryWorkflow:
             try:
                 response = self._provider.submit(request, cancelled)
             except NarrativeMapProviderError as exc:
+                provider_calls += int(exc.provider_call_reserved)
                 return _JobOutcome(
                     None,
                     last_identity,
                     tuple(usages),
                     attempt,
+                    provider_calls,
                     exc.error_code,
                     exc.error_code == "cancelled",
                 )
             except Exception:
+                provider_calls += 1
                 return _JobOutcome(
                     None,
                     last_identity,
                     tuple(usages),
                     attempt,
+                    provider_calls,
                     "internal_error",
                     False,
                 )
+            provider_calls += 1
             usages.append(response.usage)
             try:
                 identity = self._validated_identity(job, request.request_id, response)
             except ValueError:
                 return _JobOutcome(
-                    None, None, tuple(usages), attempt, "provider_identity_mismatch", False
+                    None,
+                    None,
+                    tuple(usages),
+                    attempt,
+                    provider_calls,
+                    "provider_identity_mismatch",
+                    False,
                 )
             last_identity = identity
             if attempt == 2 and not _matches_semantic_lock(
@@ -295,15 +314,32 @@ class NarrativeBoundaryWorkflow:
                     last_identity,
                     tuple(usages),
                     attempt,
+                    provider_calls,
                     "semantic_reinterpretation",
                     False,
                 )
             result, findings = self._validate_response(job, response.payload, identity)
             if result is not None:
-                return _JobOutcome(result, identity, tuple(usages), attempt, None, False)
+                return _JobOutcome(
+                    result,
+                    identity,
+                    tuple(usages),
+                    attempt,
+                    provider_calls,
+                    None,
+                    False,
+                )
             if attempt == 1:
                 locked_semantics = _semantic_lock(job, response.payload, findings)
-        return _JobOutcome(None, last_identity, tuple(usages), 2, "invalid_output", False)
+        return _JobOutcome(
+            None,
+            last_identity,
+            tuple(usages),
+            2,
+            provider_calls,
+            "invalid_output",
+            False,
+        )
 
     def _validated_identity(
         self,
@@ -416,6 +452,7 @@ class _JobOutcome:
     provider_identity: BoundaryProviderIdentity | None
     usages: tuple[ProviderUsage, ...]
     attempt_count: int
+    provider_calls: int
     error_code: str | None
     cancelled: bool
 
@@ -540,32 +577,15 @@ def _semantic_lock(
     ):
         locked["warnings"] = cast(list[JsonValue], warnings)
     claims = payload.get("claims")
-    invalid_claim_indexes = {
-        finding.index for finding in findings if finding.index is not None
-    }
     locked_claims: list[JsonValue] = []
     if isinstance(claims, list):
         for index, claim in enumerate(claims):
-            if index in invalid_claim_indexes or not isinstance(claim, Mapping):
-                continue
-            claim_class = claim.get("claim_class")
-            text = claim.get("text")
-            evidence_ids = claim.get("evidence_ids")
-            if (
-                set(claim) == {"claim_class", "text", "evidence_ids"}
-                and isinstance(claim_class, str)
-                and isinstance(text, str)
-                and isinstance(evidence_ids, list)
-                and all(isinstance(item, str) for item in evidence_ids)
-            ):
+            projection = _claim_semantic_projection(job, claim)
+            if projection is not None:
                 locked_claims.append(
                     {
                         "index": index,
-                        "claim": {
-                            "claim_class": claim_class,
-                            "text": text,
-                            "evidence_ids": list(cast(list[str], evidence_ids)),
-                        },
+                        "claim": projection,
                     }
                 )
     locked["__claim_slots__"] = {
@@ -622,6 +642,37 @@ def _matches_claim_slots(payload: object, constraint: JsonValue) -> bool:
         ):
             return False
     return True
+
+
+def _claim_semantic_projection(
+    job: PreparedNarrativeJob,
+    claim: object,
+) -> dict[str, JsonValue] | None:
+    if not isinstance(claim, Mapping):
+        return None
+    claim_class_value = claim.get("claim_class")
+    try:
+        claim_class = (
+            ClaimClass(claim_class_value) if isinstance(claim_class_value, str) else None
+        )
+    except ValueError:
+        claim_class = None
+    text = claim.get("text")
+    evidence_ids = claim.get("evidence_ids")
+    if (
+        claim_class is None
+        or not _repair_text(text, MAX_SUMMARY_LENGTH)
+        or not isinstance(evidence_ids, list)
+        or not evidence_ids
+        or not _repair_text_list(evidence_ids, MAX_REASON_LENGTH)
+        or any(evidence_id not in job.known_evidence_ids for evidence_id in evidence_ids)
+    ):
+        return None
+    return {
+        "claim_class": claim_class.value,
+        "text": cast(str, text),
+        "evidence_ids": list(cast(list[str], evidence_ids)),
+    }
 
 
 def _repair_text(value: object, maximum: int) -> bool:
