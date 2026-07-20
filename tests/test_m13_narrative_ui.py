@@ -121,8 +121,9 @@ def test_every_resolved_narrative_citation_gets_an_exact_compact_control() -> No
         }},
       }};
       const switchMode = async (mode) => {{ state.mode = mode; }};
-      const openDetail = async (elementId, strict) => {{
-        opened.push({{ kind: "detail", mode: state.mode, element_id: elementId, strict }});
+      const openDetail = async (elementId, strict, detailMode = state.mode) => {{
+        opened.push({{ kind: "detail", mode: state.mode,
+          detail_mode: detailMode, element_id: elementId, strict }});
         document.documentElement.dataset.activeLevel = "detail_evidence";
       }};
       const markNarrativeCitationSelection = (selection) => {{ selections.push(selection); }};
@@ -200,10 +201,17 @@ def test_every_resolved_narrative_citation_gets_an_exact_compact_control() -> No
         },
     ]
     assert result["opened"] == [
-        {"kind": "detail", "mode": "scenes", "element_id": "scene-owned", "strict": True},
+        {
+            "kind": "detail",
+            "mode": "technical",
+            "detail_mode": "scenes",
+            "element_id": "scene-owned",
+            "strict": True,
+        },
         {
             "kind": "detail",
             "mode": "canonical",
+            "detail_mode": "canonical",
             "element_id": "node-owned",
             "strict": True,
         },

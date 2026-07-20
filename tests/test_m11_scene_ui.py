@@ -18,7 +18,10 @@ def test_scene_api_is_retained_but_narrative_map_is_primary() -> None:
     assert 'id="chapterIndex"' in html
     assert 'id="chapterList"' in html
     assert 'mode: "narrative"' in app
-    assert "api.sceneMap" not in app and "api.sceneDetail" not in app
+    assert "api.sceneMap" not in app
+    assert 'detailMode === "scenes"' in app
+    assert "api.sceneDetail(elementId)" in app
+    assert 'switchMode("scenes")' not in app
     assert "async sceneMap" in api and "async sceneDetail" in api
     assert "api.narrativeMap(" in app
     assert "relationship_limit" in api
@@ -36,11 +39,15 @@ def test_narrative_detail_has_provenance_escape_without_ai_interpretation() -> N
 
     assert 'id="canonicalEscapeButton"' in html
     assert 'id="interpretationPanel"' in html
-    assert '$("#interpretationPanel").hidden = state.mode === "narrative"' in app
+    assert (
+        '$("#interpretationPanel").hidden = detailMode === "narrative" || '
+        "sceneCitation"
+    ) in app
     assert "await api.narrativeDetail(elementId)" in app
     assert "detail.canonical_focus_id" in app
     assert "renderTechnicalMembers(detail)" in app
-    assert "renderInspectionDerivations(detail)" in app
+    assert "renderInspectionDerivations(detail, detailMode)" in app
+    assert "openDetail(linked.id, false, detailMode)" in app
 
 
 def test_narrative_map_falls_back_explicitly_to_m10_inspection() -> None:

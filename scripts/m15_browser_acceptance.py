@@ -124,6 +124,9 @@ def _geometry(session: Any) -> dict[str, object]:
             viewportHeight:document.querySelector('#mapViewport').clientHeight,
             edgePositions:m.graph.edgePositions.size,
             finiteEdges:[...m.graph.edgePositions.values()].filter(v=>[v.source.x,v.source.y,v.target.x,v.target.y].every(Number.isFinite)).length,
+            serverEdges:m.state.page.edges.length,
+            technicalNodes:stations.filter(node=>node.dataset.kind==='technical_coverage').length,
+            scale:m.graph.scale,
           });
         })"""
     )
@@ -136,6 +139,10 @@ def _geometry(session: Any) -> dict[str, object]:
         raise AssertionError(f"Nested Track C geometry was not rendered: {result}")
     if result["edgePositions"] != result["finiteEdges"]:
         raise AssertionError(f"A Narrative Map connector was severed: {result}")
+    if result["edgePositions"] != result["serverEdges"]:
+        raise AssertionError(f"A server-projected Narrative Map connector disappeared: {result}")
+    if not result["technicalNodes"]:
+        raise AssertionError(f"Technical Narrative Map coverage was not delivered: {result}")
     return result
 
 
@@ -158,23 +165,52 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
             if normal["routePanel"] or normal["solveRoute"] or normal["organization"]:
                 raise AssertionError(f"A retired visible surface remains: {normal}")
 
+            technical = session.evaluate(
+                "import('./app.js').then(m=>{const toggle=document.querySelector('#technicalToggle');"
+                "const count=()=>document.querySelectorAll('.station[data-kind=technical_coverage]').length;"
+                "const initial=count();toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
+                "const before=count();toggle.checked=false;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
+                "const hidden=count();toggle.checked=true;toggle.dispatchEvent(new Event('change',{bubbles:true}));"
+                "return {initial,before,hidden,restored:count(),server:m.state.page.nodes.filter(n=>n.kind==='technical_coverage').length};})"
+            )
+            if not technical["before"] or technical["hidden"] or technical["restored"] != technical["before"]:
+                raise AssertionError(f"Technical coverage control did not change the visible map: {technical}")
+
             geometry = _geometry(session)
             layout = DRIVER._layout(session)
+            if geometry["scale"] < 0.8:
+                raise AssertionError(f"The default Narrative Map is not readable at normal scale: {geometry}")
+
+            session.evaluate("document.querySelector('#fitMap').click()")
+            fitted = session.evaluate(
+                "import('./app.js').then(m=>{const v=document.querySelector('#mapViewport');"
+                "return {scale:m.graph.scale,bounds:m.graph.bounds,viewport:{width:v.clientWidth,height:v.clientHeight},"
+                "scaled:{width:m.graph.bounds.width*m.graph.scale,height:m.graph.bounds.height*m.graph.scale}};})"
+            )
+            if fitted["scaled"]["width"] > fitted["viewport"]["width"] - 24 or fitted["scaled"]["height"] > fitted["viewport"]["height"] - 24:
+                raise AssertionError(f"Fit did not contain the whole Narrative Map: {fitted}")
+            restored_scale = session.evaluate(
+                "import('./app.js').then(m=>{while(m.graph.scale<.8)m.graph.zoomBy(.1);"
+                "document.querySelector('#zoomValue').textContent=`${Math.round(m.graph.scale*100)}%`;return m.graph.scale;})"
+            )
+            if restored_scale < 0.8:
+                raise AssertionError(f"Narrative Map readability could not be restored after Fit: {restored_scale}")
 
             pan_before = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
             session.evaluate(
                 "(()=>{const v=document.querySelector('#mapViewport');"
+                "const r=v.getBoundingClientRect();"
                 "Object.defineProperty(v,'setPointerCapture',{value:()=>{},configurable:true});"
-                "v.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7,clientX:8,clientY:8}));"
-                "v.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:7,clientX:63,clientY:43}));"
-                "v.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7,clientX:63,clientY:43}));"
+                "v.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:1,clientX:r.left+8,clientY:r.top+8}));"
+                "v.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:1,clientX:r.left+63,clientY:r.top+43}));"
+                "v.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7,pointerType:'mouse',button:0,buttons:0,clientX:r.left+63,clientY:r.top+43}));"
                 "delete v.setPointerCapture;})()"
             )
             pan = session.evaluate("import('./app.js').then(m=>({x:m.graph.offset.x,y:m.graph.offset.y}))")
             if pan == pan_before:
                 raise AssertionError(f"Pointer pan did not move the Narrative Map: {pan}")
 
-            session.evaluate("document.querySelector('#zoomIn').click();document.querySelector('#zoomOut').click();document.querySelector('#fitMap').click()")
+            session.evaluate("document.querySelector('#zoomIn').click();document.querySelector('#zoomOut').click()")
             selected_before = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
             title = session.evaluate("document.querySelector('.station[aria-selected=true] .station-title').textContent")
             session.evaluate(
@@ -189,7 +225,7 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
             session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "ArrowRight", "code": "ArrowRight"})
             session.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": "ArrowRight", "code": "ArrowRight"})
             keyboard_selected = session.evaluate("import('./app.js').then(m=>m.state.selectedId)")
-            session.evaluate("window.scrollTo(0,0);document.scrollingElement.scrollTop=0;document.body.scrollTop=0;document.querySelector('#toast').hidden=true")
+            session.evaluate("document.querySelector('#mapViewport').scrollIntoView({block:'center'});document.querySelector('#toast').hidden=true")
             map_shot = output / f"m15-track-c-map-{zoom}.png"
             DRIVER._screenshot(session, map_shot)
             session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter"})
@@ -208,6 +244,9 @@ def _capture(browser: Path, output: Path, zoom: int, origin: str) -> dict[str, o
                 "zoom_percent": zoom,
                 "default": normal,
                 "geometry": geometry,
+                "technical_toggle": technical,
+                "fit": fitted,
+                "restored_scale": restored_scale,
                 "layout": layout,
                 "pan_offset": pan,
                 "search_selection": {"before": selected_before, "after": selected_after},

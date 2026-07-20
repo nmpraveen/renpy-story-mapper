@@ -305,13 +305,11 @@ def _page_payload(snapshot: NarrativeMapSnapshot) -> dict[str, object]:
     node_payloads = [
         _node_payload(item, event_by_id, snapshot.canonical)
         for item in snapshot.narrative_map.nodes
-        if item.kind is not NarrativeNodeKind.TECHNICAL_COVERAGE
     ]
     visible_node_ids = {str(item["id"]) for item in node_payloads}
     edge_payloads = [
         _edge_payload(item)
         for item in snapshot.narrative_map.edges
-        if item.source_node_id in visible_node_ids or item.target_node_id in visible_node_ids
     ]
     lane_ids = _ordered_unique(str(item["lane_id"]) for item in node_payloads)
     lanes = [
@@ -366,7 +364,7 @@ def _node_payload(
         "kind": node.kind.value,
         "title": node.title,
         "summary": summary or "Exact deterministic story structure",
-        "order": source_line * 10 + _kind_order(node.kind),
+        "order": source_line * 10_000 + _kind_order(node.kind) * 1_000 + node.ordinal,
         "ordinal": node.ordinal,
         "lane_id": lane_id,
         "lane_kind": "detour" if node.kind is NarrativeNodeKind.CHOICE_ARM else "spine",

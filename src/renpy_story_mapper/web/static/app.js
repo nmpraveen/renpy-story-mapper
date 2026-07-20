@@ -131,9 +131,11 @@ async function openNarrativeDetailEvidence(claim, response, citation, button) {
       renderM12NarrativeCitation(result, selection);
       return;
     }
-    const targetMode = navigation.mode === "canonical" ? "canonical" : "scenes";
-    if (state.mode !== targetMode) await switchMode(targetMode);
-    await openDetail(navigation.element_id, true);
+    if (navigation.mode === "scenes") await openDetail(navigation.element_id, true, "scenes");
+    else {
+      if (state.mode !== "canonical") await switchMode("canonical");
+      await openDetail(navigation.element_id, true, "canonical");
+    }
     if (document.documentElement.dataset.activeLevel !== "detail_evidence") throw new TypeError("The cited authority detail is unavailable");
     markNarrativeCitationSelection(selection);
   } catch (error) { button.disabled = false; button.textContent = label; toast(error.message); }
@@ -728,7 +730,7 @@ function renderTechnicalMembers(detail) {
   $("#technicalMembers").hidden = !host.children.length;
 }
 
-function renderInspectionDerivations(detail) {
+function renderInspectionDerivations(detail, detailMode = state.mode) {
   const regionHost = $("#regionDerivation"); const proofHost = $("#proofDerivation"); const linkHost = $("#linkedRecords");
   regionHost.replaceChildren(); proofHost.replaceChildren(); linkHost.replaceChildren();
   if (detail.region) {
@@ -740,14 +742,45 @@ function renderInspectionDerivations(detail) {
     }
   }
   for (const proof of detail.proofs || []) { const record = element("article", "derivation-record"); record.append(element("strong", "", String(proof.kind || "proof").replaceAll("_", " ")), element("p", "", proof.explanation || "Deterministic derivation"), element("span", "", `Inputs: ${(proof.input_ids || []).join(" · ")}`)); proofHost.append(record); }
-  for (const linked of detail.linked_records || []) { if (linked.id === detail.element?.id) continue; const button = element("button", "quiet-button linked-record", `${String(linked.kind || "record").replaceAll("_", " ")} · ${linked.title || linked.id}`); button.type = "button"; button.addEventListener("click", () => openDetail(linked.id)); linkHost.append(button); }
+  for (const linked of detail.linked_records || []) { if (linked.id === detail.element?.id) continue; const button = element("button", "quiet-button linked-record", `${String(linked.kind || "record").replaceAll("_", " ")} · ${linked.title || linked.id}`); button.type = "button"; button.addEventListener("click", () => openDetail(linked.id, false, detailMode)); linkHost.append(button); }
   $("#derivationPanel").hidden = !(regionHost.children.length || proofHost.children.length || linkHost.children.length);
 }
 
-async function openDetail(elementId, strict = false) {
+function normalizedSceneDetail(detail, elementId) {
+  const occurrence = detail.selected_occurrence || detail.call_occurrences?.find((item) => item.id === detail.selected_occurrence_id);
+  const selected = occurrence || detail.temporary_branch || detail.boundary || detail.chapter || detail.lane || detail.scene || detail.loop_hubs?.[0] || { id: elementId, kind: "scene" };
+  const pageNode = state.page?.nodes.find((node) => node.id === elementId);
+  const atoms = detail.atoms || [];
+  const relatedScenes = detail.related_scenes || [];
+  const kind = occurrence ? "call-site occurrence" : detail.temporary_branch ? "temporary branch" : detail.boundary ? "scene boundary" : detail.chapter ? "chapter" : detail.lane ? "persistent lane" : detail.loop_hubs?.length ? "repeatable scene" : "scene";
+  const summary = occurrence
+    ? `${occurrence.referenced_atom_ids?.length || 0} narrative atom references at this call site.`
+    : detail.temporary_branch
+      ? `${detail.temporary_branch.arms?.length || 0} temporary arms nested inside the parent scene.`
+      : detail.chapter || detail.lane || detail.boundary
+        ? `${relatedScenes.length} related scenes in this bounded detail response.`
+        : `${atoms.length} deterministic story atoms with canonical and source provenance.`;
+  const choices = (detail.temporary_branch?.arms || []).map((arm) => ({ id: arm.id, caption: `Arm ${Number(arm.ordinal || 0) + 1}`, label: `${arm.scene_ids?.length || 0} arm-local scenes`, expression: "" }));
+  const requirements = (occurrence?.guard_fact_ids || []).map((id) => ({ id, label: "Call-site guard", expression: id }));
+  const canonicalFocus = detail.canonical_records?.[0]?.id || detail.canonical_escape_ids?.[0] || null;
+  const linkedRecords = [];
+  if (occurrence && detail.caller_scene) linkedRecords.push({ ...detail.caller_scene, kind: "caller scene" });
+  if (detail.scene && detail.boundary && detail.boundary.id !== elementId) linkedRecords.push({ ...detail.boundary, title: `${String(detail.boundary.strength || "scene").replaceAll("_", " ")} boundary`, kind: "scene boundary" });
+  return {
+    ...detail,
+    element: { ...selected, id: elementId, title: pageNode?.title || selected.title || kind, kind, summary },
+    member_route_nodes: [...atoms.map((atom) => ({ ...atom, title: atom.label || String(atom.kind || "story atom").replaceAll("_", " ") })), ...relatedScenes.map((scene) => ({ ...scene, title: scene.title || "Related scene" }))],
+    member_route_edges: [], predecessor_ids: [], successor_ids: [], choices, requirements, effects: [],
+    dialogue: atoms.filter((atom) => atom.kind === "dialogue"), narration: atoms.filter((atom) => atom.kind === "narration"), facts: [],
+    linked_records: linkedRecords, canonical_focus_id: canonicalFocus, canonical_focus_offset: 0,
+  };
+}
+
+async function openDetail(elementId, strict = false, detailMode = state.mode) {
   const token = state.detailRunToken + 1; state.detailRunToken = token;
   try {
-    const detail = state.mode === "narrative" ? await api.narrativeDetail(elementId) : await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId);
+    const sceneCitation = detailMode === "scenes";
+    let detail = sceneCitation ? await api.sceneDetail(elementId) : detailMode === "narrative" ? await api.narrativeDetail(elementId) : await api.inspectionDetail(detailMode === "canonical" ? "canonical" : "simplified", elementId);
     if (token !== state.detailRunToken) {
       if (strict) throw new TypeError("The cited authority detail was superseded");
       return;
@@ -757,21 +790,22 @@ async function openDetail(elementId, strict = false) {
       if (strict) throw new TypeError("The cited authority detail is unavailable");
       return;
     }
+    if (sceneCitation) detail = normalizedSceneDetail(detail, elementId);
     state.detail = detail; state.selectedId = elementId;
     const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.presentation_role || selected.role || selected.kind || "Story element").replaceAll("_", " ");
     $("#detailKind").textContent = String(selected.source_kind || selected.presentation_role || selected.kind || selected.role || "route element").replaceAll("_", " ");
     $("#detailSummary").textContent = selected.unsupported_status || selected.summary || "Authoritative local context and exact source evidence.";
-    $("#canonicalEscapeButton").hidden = state.mode === "canonical" || !detail.canonical_focus_id;
+    $("#canonicalEscapeButton").hidden = detailMode === "canonical" || !detail.canonical_focus_id;
     const strip = $("#pathStrip"); strip.replaceChildren();
     for (const id of detail.predecessor_ids || []) strip.append(element("span", "path-stop predecessor", `← ${titleFor(id)}`));
     strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
     for (const id of detail.successor_ids || []) strip.append(element("span", "path-stop successor", `${titleFor(id)} →`));
     renderTechnicalMembers(detail);
-    renderInspectionDerivations(detail);
+    renderInspectionDerivations(detail, detailMode);
     const facts = $("#detailFacts"); facts.replaceChildren(); const allFacts = detail.facts || [];
     addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements || allFacts.filter((item) => String(item.kind || "").includes("gate") || String(item.type || "").includes("require")), "gate"); addFactGroup(facts, "Effects", detail.effects || allFacts.filter((item) => String(item.kind || "").includes("effect")), "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
     const interpretations = $("#interpretations"); interpretations.replaceChildren();
-    $("#interpretationPanel").hidden = state.mode === "narrative";
+    $("#interpretationPanel").hidden = detailMode === "narrative" || sceneCitation;
     const candidates = detail.ai_candidates || detail.candidates || selected.ai_candidates || [];
     const claims = detail.claims || candidates.flatMap((candidate) => candidate.claims || []);
     for (const candidate of candidates) { const article = element("article", "interpretation candidate"); article.append(element("strong", "", candidate.title || candidate.label || "Candidate"), element("p", "", candidate.summary || candidate.text || "")); if (candidate.correction) article.append(element("span", "correction", `Correction: ${candidate.correction.title || candidate.correction.text || "provided"}`)); if (candidate.pinned) article.append(element("span", "pin", "Pinned by reviewer")); interpretations.append(article); }

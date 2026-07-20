@@ -10,6 +10,7 @@ from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.state import UserStateStore
 
 FIXTURE = Path(__file__).parent / "fixtures" / "linear.rpy"
+CONTROL_REGIONS = Path(__file__).parent / "fixtures" / "m06" / "control_regions.rpy"
 STATIC = Path(__file__).parents[1] / "src" / "renpy_story_mapper" / "web" / "static"
 
 
@@ -73,6 +74,42 @@ def test_m15_bootstrap_and_map_are_read_only_bounded_and_provider_free(
         assert page["nodes"]
         assert all(item["navigation"]["mode"] == "detail_evidence" for item in page["nodes"])
         assert all(item["authority_edge_ids"] for item in page["edges"])
+        node_ids = {item["id"] for item in page["nodes"]}
+        assert all(
+            item["source_id"] in node_ids and item["target_id"] in node_ids
+            for item in page["edges"]
+        )
+    finally:
+        api.close()
+
+
+def test_narrative_map_delivers_technical_nodes_and_complete_connectors(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "game"
+    source_dir.mkdir()
+    (source_dir / "story.rpy").write_bytes(CONTROL_REGIONS.read_bytes())
+    project_path = tmp_path / "control-regions.rsmproj"
+    create_ingested_project(project_path, source_dir).close()
+    api = _api(tmp_path, source_dir, project_path)
+    try:
+        page = api.dispatch("POST", "/api/v1/m15/narrative-map", {})
+        technical = [
+            item for item in page["nodes"] if item["kind"] == "technical_coverage"
+        ]
+        assert technical
+        node_ids = {item["id"] for item in page["nodes"]}
+        assert len(page["edges"]) == page["total_edges"]
+        assert all(
+            item["source_id"] in node_ids and item["target_id"] in node_ids
+            for item in page["edges"]
+        )
+        for item in technical:
+            detail = api.dispatch(
+                "POST", "/api/v1/m15/detail", {"element_id": item["id"]}
+            )
+            assert detail["element"]["id"] == item["id"]
+            assert detail["evidence"]
     finally:
         api.close()
 
@@ -174,6 +211,9 @@ def test_m13_stored_m12_citation_reader_remains_packaged() -> None:
     api = (STATIC / "api.js").read_text(encoding="utf-8")
 
     assert 'navigation.mode === "m12_result"' in app
+    assert 'openDetail(navigation.element_id, true, "scenes")' in app
+    assert 'switchMode("scenes")' not in app
+    assert "api.sceneDetail(elementId)" in app
     assert "api.routeResult(navigation.request_identity)" in app
     assert "async routeResult(requestIdentity)" in api
     assert 'const M12_ROUTE_KEYS = Object.freeze(["destinations", "solve", "result"]);' in api

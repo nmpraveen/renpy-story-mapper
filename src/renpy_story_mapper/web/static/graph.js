@@ -202,7 +202,13 @@ export class RouteGraph {
     this.world.style.width = `${this.bounds.width}px`;
     this.world.style.height = `${this.bounds.height}px`;
     this.select(this.elements().some((item) => item.id === selectedId) ? selectedId : this.nodes[0]?.id, false);
-    if (preserveViewport) this.transform(); else this.fit();
+    if (preserveViewport) this.transform();
+    else if (narrative) {
+      this.scale = 1;
+      this.offset = { x: 16, y: 16 };
+      this.transform();
+      this.onViewportChange?.(this.scale);
+    } else this.fit();
   }
 
   elements() { return [...this.nodes, ...this.edges.filter((edge) => edge.interactive !== false)]; }
@@ -242,7 +248,7 @@ export class RouteGraph {
 
   zoomBy(delta, anchor = null) {
     const before = this.scale;
-    this.scale = clamp(Math.round((this.scale + delta) * 10) / 10, .5, 2);
+    this.scale = clamp(Math.round((this.scale + delta) * 100) / 100, .01, 2);
     if (anchor && before !== this.scale) {
       const ratio = this.scale / before;
       this.offset.x = anchor.x - (anchor.x - this.offset.x) * ratio;
@@ -256,7 +262,7 @@ export class RouteGraph {
   fit() {
     if (!this.nodes.length) return;
     const rect = this.viewport.getBoundingClientRect();
-    this.scale = clamp(Math.min((rect.width - 32) / this.bounds.width, (rect.height - 32) / this.bounds.height, 1), .5, 1);
+    this.scale = clamp(Math.min((rect.width - 32) / this.bounds.width, (rect.height - 32) / this.bounds.height, 1), .01, 1);
     this.offset = { x: 16, y: 16 };
     this.transform();
     this.onViewportChange?.(this.scale);
