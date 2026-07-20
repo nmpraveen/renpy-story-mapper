@@ -6,7 +6,7 @@ Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
 
 Integrated corrected product head: `972a578`; evidence/Release head: `1c043bf`
 
-Pull request: Pending; one PR will be opened and left unmerged for user approval
+Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open non-draft and left unmerged for user approval; final updated-head checks pending
 
 ## Outcome
 
@@ -85,7 +85,7 @@ archive remain outside Git and unchanged. Full MsDenvers remains explicitly unva
 - Final exact evidence-head Release: Pass at `1c043bf`
 - Final independent cross-track review: Pass at `a5e507e`
 - Blocking track findings resolved: Yes
-- PR genuinely ready: No; branch push and one unmerged PR remain
+- PR genuinely ready: Pending exact updated-head checks; PR #26 is open non-draft and unmerged
 
 ## Remaining limitations
 

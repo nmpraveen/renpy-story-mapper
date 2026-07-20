@@ -78,7 +78,9 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
 - Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
   scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
   from the three-atom minimum narrative run and 35 from unresolved safety.
-- Pull request: final cross-track review is `PASS`; branch push and one ready unmerged M15 PR remain.
+- Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) is open,
+  non-draft, and unmerged on `codex/m15-msday1-narrative-map`. Final local Release and independent
+  review are `PASS`; exact updated PR-head checks remain before the `PR ready` lifecycle transition.
 - Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
   a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
 
