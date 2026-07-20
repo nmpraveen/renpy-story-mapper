@@ -32,7 +32,11 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
 - Ordered A+B integration: complete through coordinator head
   `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`. The expected shared-export conflict preserved both
   APIs; combined 66 focused M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, strict
-  mypy, dependency integrity, and diff checks passed. Track C is the next gated implementation.
+  mypy, dependency integrity, and diff checks passed.
+- Track C: active in task `019f80a7-5e33-7e81-8a4c-1aa7749d51bc`, worktree
+  `C:/Users/prave/.codex/worktrees/fb82/Renpy`, from exact integrated base
+  `07e9ecd1635b8963cf36bb2c98248a5f703c5718`; API/browser, visible legacy-surface retirement,
+  compatibility, package/browser evidence, and independent rereview are in progress.
 - Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
