@@ -41,8 +41,8 @@ are unchanged. Provider calls remain separately gated.
 | Frozen M15 contracts | Pass | Exact shared head `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; 7 contract tests passed; targeted Ruff and strict mypy passed |
 | Failing-first implementation gate | Pass | Before track implementation, the M15 gate produced the expected 10 failures/1 pass: missing Track A/B interfaces, provider-free acceptance, and browser retirement behavior; the exact source-fingerprint/current-baseline guard passed |
 | Track dispatch | Complete | Track A task `019f8042-8627-7780-a515-355056881714` and Track B task `019f8042-8632-7512-a2e3-42ac6932e558` ran in separate worktrees from exact shared head `1ec0664`; both explicitly selected `gpt-5.6-sol` and High reasoning; fast-mode selection was unavailable/unverified |
-| Track A corrected candidate | Blocked | Clean head `aa570f3ea7e6cba200cb2585f2f97386128cb07a`; 27 Track A tests, 37 adjacent M10/M11 tests, Ruff, strict mypy over 101 files, diff check, all nine synthetic cases, and exact private acceptance passed; exact rereview retains two P1s |
-| Track A exact private acceptance | Pass at unintegrated head | 70 corridors/events, 84 map nodes, 85 map edges, five major clusters, exact choice/rejoin pairs, Terrance end 278 and Janet start 280, required order, no blocked titles, zero provider calls/game execution, and unchanged private fingerprints |
+| Track A corrected candidate | Pass at unintegrated head | Clean exact head `6a28002f9f9165c70733eae5433537feebaa61a7`; 27 Track A/frozen/portable tests, 37 adjacent M10/M11 tests, Ruff, strict mypy over 102 files, diff check, all nine synthetic cases, and independent P0-P2 rereview passed |
+| Track A exact private acceptance | Pass at unintegrated head | 70 corridors/events, 84 map nodes, 85 map edges, five major clusters, exact choice/rejoin pairs, Terrance end 278 and Janet start 280, required order, zero provider calls/game execution, and unchanged private source/project fingerprints |
 | Track B corrected candidate | Blocked | Clean head `6702e933dba82d19da8ea59ae246020eaebc9e80`; 24 focused/frozen tests, 135 adjacent M13 regressions, 90 reviewer tests, Ruff, strict mypy over 102 files, dependency and diff checks passed; exact rereview retains two P1s |
 | Provider/private safety through stop | Pass | Track A used immutable read-only local fixture access; Track B did not access private text; neither task made a cloud/live provider call; no candidate was integrated, pushed, or opened as a PR |
 | Phase Coordinator Track A blocker probe | Finding confirmed | Read-only inline CPython 3.12 probe at `aa570f3` passed two corridors with source lines `[2, 1]`, both hard-boundary flags set, and the same incident edge; assembler returned two events instead of failing closed |
@@ -54,6 +54,10 @@ are unchanged. Provider calls remain separately gated.
   input when corridors share an incident edge, and the provider-free acceptance runner still
   constructs synthetic corridors or infers parts of exact output instead of proving the full
   corridor-to-event-to-map pipeline.
+- Track A correction at `d2a67bd` closed those product findings. Its rereview found one portability
+  P1 because two normal tests could fall back to the private fixture; `6a28002f` converted them to
+  synthetic-only authority checks, and the final independent rereview returned `PASS` with no
+  P0-P2 findings and no private-fixture access.
 - Track B rereview `FAIL` at `6702e93`: direct requests can exceed/reuse consent budgets, and
   event-summary repair can replace individually valid claims when a sibling claim is invalid.
 - Both first-cycle independent reviewers used `gpt-5.6-sol` High with fast mode

@@ -22,6 +22,10 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
   pre-implementation gate produced the expected 10 failures/1 pass.
 - Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c`, created from the
   exact `GOAL.md` done condition after confirming no prior active native goal.
+- Track A: independently accepted at clean exact head
+  `6a28002f9f9165c70733eae5433537feebaa61a7`; provider-free exact and synthetic acceptance,
+  focused/adjacent checks, strict typing/lint, coordinator diff audit, and private immutability
+  evidence passed. It remains unintegrated until Track B independently passes.
 - Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
