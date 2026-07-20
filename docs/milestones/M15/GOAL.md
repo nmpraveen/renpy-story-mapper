@@ -4,9 +4,10 @@ Status: Verification
 
 Resumption: On 2026-07-20 the user authorized all future M15 correction and independent-rereview
 cycles and removed any coordinator-imposed worker cap. Tasks may use as many workers as the Codex
-platform permits. The done condition and semantic `PASS` remain unchanged. All three tracks have
-now independently passed and are integrated; provider calls remain separately gated and none
-occurred.
+platform permits. The done condition remains unchanged. A verification amendment to the semantic
+`PASS` authorizes an exact-bound user technical-coverage correction after final review proved the
+frozen M10/M11 facts cannot distinguish the approved setup from meaningful pre-Day story. Provider
+calls remain separately gated and none occurred.
 
 Scope authority: `docs/MASTER_PLAN.md`; the user-approved
 `docs/handoffs/2026-07-20-msday1-narrative-map/IMPLEMENTATION_PLAN.md`; and the user's explicit
@@ -41,6 +42,9 @@ evidence remain deterministic.
 - Evidence-bounded AI boundary-decision and final-event summary workflows with independent durable
   cache, validation, repair, cancellation, resume, and provider-free fallback.
 - Deterministic contiguous event assembly and quotient topology with exact M10/M11 provenance.
+- A versioned, durable, exact-authority-bound leading technical-coverage correction that fails
+  closed, permits only one deterministic prefix partition, and cannot alter M10 topology,
+  choices, ownership outside that cut, or AI authority.
 - A default browser Story Map with chronological event clusters and nested temporary choices.
 - Retirement of visible M12 route-solving and legacy M07/M08 AI organization controls while
   preserving backend, persistence, stored-result, old-project, and M13-citation compatibility.
@@ -54,7 +58,8 @@ evidence remain deterministic.
    provenance.
 2. Deterministic corridors preserve source/control order per lane and call occurrence, attach
    technical coverage without promotion, cut at authoritative hard boundaries, and preserve
-   temporary split/rejoin ownership.
+   temporary split/rejoin ownership. A valid user correction may classify only an exact leading
+   atom prefix as technical coverage; without one, ambiguous story-facing content stays visible.
 3. AI receives only adjacent soft-boundary decisions and, after membership freezes, independent
    event-summary jobs. It cannot create membership, edges, gates, effects, choice order, rejoins,
    filesystem/web/tool authority, or cross a hard boundary.
@@ -93,8 +98,9 @@ evidence remain deterministic.
     access, and readable temporary-choice geometry work at 100% and 200% without overflow,
     overlapping cards, severed connectors, arbitrary story slices, or invented lines.
 15. Existing M10/M11/M12/M13 authority and stored-result bytes remain unchanged except for an
-    intentionally versioned new Narrative Map payload; no migration deletes legacy narrative,
-    organization, route, correction, claim, or evidence records.
+    intentionally versioned new Narrative Map payload and exact-bound M15 coverage correction; no
+    migration deletes legacy narrative, organization, route, correction, claim, or evidence
+    records.
 16. The private source and original archive remain byte-, size-, and timestamp-identical after
     access; no Ren'Py, creator Python, screen, game code, or runtime tracing executes; private
     source and story text never enter Git.
@@ -108,20 +114,30 @@ evidence remain deterministic.
     representative Terrance/Janet evidence traversal, provider-free and any authorized live/replay
     metrics, immutability evidence, known limitations, explicit full-MsDenvers non-validation, the
     native `INFOGRAPHIC.png`, and one ready but unmerged M15 pull request.
+20. The leading technical-coverage correction reuses the full M10/M11 `AuthorityBinding`, has a
+    versioned schema/rule and stable normalized identity, and contains a bounded reason, qualified
+    locators, and atom IDs equal to `ordered_atoms[:n]` for exactly one
+    `0 < n < len(ordered_atoms)`. It persists atomically in the acceptance working copy and
+    survives reopen; participates in corridor, map, job, and cache identity/invalidation; and is
+    applied by the normal API/browser path. Absent, stale, corrupt, mismatched, ambiguous,
+    non-prefix, or out-of-order corrections are rejected without hiding story-facing content.
+    Exact private and 100%/200% browser evidence is regenerated after application, while the
+    original source/project/archive remain unchanged.
 
 ## Required evidence
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Pass; Track A and combined matrices, nine synthetic cases, exact 70/84/85 shape |
-| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Pass; immutable exact input, five clusters, `VISIBLE_ORDER.txt`, local 100%/200% evidence |
-| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Pass; exact/browser compatibility matrices and zero request counters |
-| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Pass; provider-free matrices and zero calls; live consent not required or authorized |
-| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Pass; exact 85/85 connectors, zero overlaps, corrected pan/search, evidence traversal |
-| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Pass; exact source/project fingerprints unchanged and no game/provider execution |
+| 1-5 | Contract/schema tests, corridor/event/quotient fixtures, provenance and fail-closed tests | Prior pass is stale; amended correction contract and combined matrices pending |
+| 6-8 | Exact private Day 1 hashes, anchor assertions, golden-shape text export, screenshots | Failed at final review; correction application and regenerated evidence pending |
+| 9-11 | API/UI tests, real-browser traversal, zero-M12-request counter, legacy compatibility tests | Prior pass; revalidation pending after amended API correction path |
+| 12-13 | Fake-provider fault/reopen/cache matrix, zero-call counters, consent manifest if separately approved | Prior pass; correction identity/cache invalidation revalidation pending; no live consent required |
+| 14 | Real Chrome at 100% and 200%, keyboard/layout diagnostics and screenshots | Prior evidence is stale; regenerated corrected browser evidence pending |
+| 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Prior pass; working-copy correction and original-input immutability revalidation pending |
 | 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | In progress; track/combined gates pass, final evidence-head Release pending |
-| 18 | Track and final exact-head review reports with finding disposition | In progress; all track reviews pass, final cross-track review pending |
-| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; artifacts complete, ready unmerged PR pending |
+| 18 | Track and final exact-head review reports with finding disposition | In progress; Track A and final integrated review require fresh PASS after correction |
+| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; visible-order/browser evidence is stale; infographic remains valid; PR pending |
+| 20 | Correction schema/identity, atomic persistence/reopen, rejection matrix, API/browser application, cache invalidation, regenerated exact/browser evidence | Pending; semantic amendment must PASS before implementation |
 
 ## Exclusions
 

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 Verification; integrated product and evidence artifacts complete)
+Updated: 2026-07-20 (M15 Verification; semantic correction amendment under rereview)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,19 +13,21 @@ Updated: 2026-07-20 (M15 Verification; integrated product and evidence artifacts
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
 - Status: Verification. The user authorized all future M15 correction and independent-rereview
-  cycles and removed any coordinator-imposed worker cap. All three tracks are integrated; the
-  final exact evidence-head Release, cross-track review, and PR preparation remain. Provider calls
-  remain separately gated and none occurred.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
-  failing-first fixtures are frozen at exact head
+  cycles and removed any coordinator-imposed worker cap. Final integrated review found unresolved
+  setup-coverage and progression-authority defects. Track A is reopened, prior exact/browser
+  evidence is stale, and a narrow exact-bound user coverage-correction amendment is under semantic
+  rereview. Provider calls remain separately gated and none occurred.
+- Semantic review: initial [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20; verification
+  amendment revised after an independent `REVISE` and currently awaits rereview. Shared schemas
+  and failing-first fixtures were originally frozen at exact head
   `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
   pre-implementation gate produced the expected 10 failures/1 pass.
 - Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c`, created from the
   exact `GOAL.md` done condition after confirming no prior active native goal.
-- Track A: independently accepted at clean exact head
-  `6a28002f9f9165c70733eae5433537feebaa61a7`; provider-free exact and synthetic acceptance,
-  focused/adjacent checks, strict typing/lint, coordinator diff audit, and private immutability
-  evidence passed.
+- Track A: reopened after final integrated review. Earlier head
+  `6a28002f9f9165c70733eae5433537feebaa61a7` passed its then-current review, but later adversarial
+  review invalidated setup/progression authority. M10-only progression is corrected at Track A
+  head `49b214b`; the amended exact-bound leading-coverage correction and fresh PASS remain pending.
 - Track B: independently accepted at clean exact head
   `47fa6f48f3bf01e8ed91608407296d34210cf92c`; provider consent/accounting, claim repair,
   persistence/cache/resume, focused/adjacent checks, and zero-live-provider/private evidence passed.
@@ -41,15 +43,14 @@ Updated: 2026-07-20 (M15 Verification; integrated product and evidence artifacts
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
   that setting will be recorded unavailable/unverified rather than claimed disabled.
-- Integrated product head is `38c2ccb994ea5b85554cbd6eec6f325c158de29e`. Exact provider-free
-  acceptance passes with 70 corridors/events, 84 nodes, 85 edges, five ordered clusters, four
-  exact choice/rejoin pairs, nine synthetic cases, zero provider/game execution, and unchanged
-  private source/project fingerprints.
-- Exact private Chrome passes at 100% and 200% with 85/85 finite connectors, zero overlap,
-  technical coverage hidden by default, corrected Fit/pan/search/selection, and direct Terrance
-  and Janet Detail/Evidence traversal. Evidence is local under `output/playwright/m15-private-final/`.
-- Sanitized durable evidence now includes `docs/milestones/M15/VISIBLE_ORDER.txt` and native
-  `docs/milestones/M15/INFOGRAPHIC.png`; neither contains private story text.
+- Integrated product head `38c2ccb994ea5b85554cbd6eec6f325c158de29e` and evidence head
+  `02a7e8ceb91aec19cd5c9f35586c38984201bbc2` are historical failed-review states, not accepted
+  candidates. Their 70/70/84/85 exact metrics and prior Release results must be regenerated.
+- Prior exact private Chrome evidence under `output/playwright/m15-private-final/` is stale because
+  it rendered setup as visible story. Fresh 100%/200% continuity, geometry, and traversal evidence
+  is required after the correction.
+- `docs/milestones/M15/VISIBLE_ORDER.txt` is stale and must be regenerated. Native
+  `docs/milestones/M15/INFOGRAPHIC.png` remains valid and contains no private story text.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
@@ -58,8 +59,9 @@ Updated: 2026-07-20 (M15 Verification; integrated product and evidence artifacts
 - Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
   scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
   from the three-atom minimum narrative run and 35 from unresolved safety.
-- Pull request: pending final exact-head Release and cross-track review. One M15 PR will be prepared
-  and left unmerged for explicit user approval.
+- Pull request: pending semantic amendment PASS, corrected Track A/integration, regenerated
+  evidence, final exact-head Release, and final cross-track PASS. One M15 PR will be prepared and
+  left unmerged for explicit user approval.
 - Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
   a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
 

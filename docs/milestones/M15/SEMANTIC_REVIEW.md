@@ -6,6 +6,49 @@ Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
 
 Decision: PASS
 
+Amendment decision (2026-07-20): PASS
+
+## Verification amendment - exact-bound technical coverage correction
+
+The final integrated review proved that the approved leading setup and an adversarial meaningful
+pre-Day choice can be identical under the frozen M10 topology and M11 atom facts. M10 also has no
+categorical Prologue marker at the approved line-27 anchor. Continuing to infer the cut would hide
+valid story in some projects, while leaving the setup visible would fail the approved M15 outcome.
+
+The user's 2026-07-20 authorization of all M15 corrections therefore activates the Master Plan's
+existing user-correction authority for this one ambiguity. M15 may persist an exact-authority-bound
+**leading technical coverage correction** with these constraints:
+
+- it reuses the full `AuthorityBinding` (`source_generation`, M10 schema/hash, and M11 atom
+  schema/hash), has a correction schema and rule version, a stable normalized ID/hash, a bounded
+  privacy-safe non-empty reason, qualified locators, and an explicit ordered atom-ID tuple;
+- for reconstructed `ordered_atoms`, the tuple must equal `ordered_atoms[:n]` where
+  `0 < n < len(ordered_atoms)`. The qualified locators must resolve uniquely to that same tuple.
+  Unknown, duplicate, stale, mismatched, ambiguous, non-prefix, or out-of-order corrections are
+  rejected and keep ambiguous story-facing content visible;
+- it may impose exactly one deterministic derived corridor/event partition between the corrected
+  prefix and `ordered_atoms[n]`, while preserving complete, ordered, non-overlapping, exactly-once
+  atom ownership. It changes only that partition, `technical_atom_ids`, coverage state, and
+  collapsed presentation;
+- it cannot create, delete, reorder, or redirect M10 edges, choices, arms, rejoins, gates,
+  effects, terminals, or unresolved records; change ownership anywhere outside the one corrected
+  prefix cut; create an AI candidate; or grant AI any membership or topology authority;
+- without a valid correction, deterministic construction remains conservative and keeps
+  story-facing content visible;
+- the approved MsDay1 correction is resolved from qualified source locators for reconstructed
+  lines 1-26, stores no private text, and is written only to an acceptance working copy. The
+  original source and comparison project remain byte-, size-, and timestamp-identical;
+- the correction is a versioned M15 payload and participates in normalized identity/cache
+  invalidation. It does not mutate or reinterpret stored M10/M11/M12/M13 authority.
+
+This amendment does not change the done condition. It supplies the missing explicit semantic
+authority while preserving M10 as the sole topology authority and keeping no-correction behavior
+safe for other projects. Failing-first contract, persistence, stale-binding, adversarial, exact
+private, API, browser, and independent rereview evidence are required before integration resumes.
+Atomic persistence/reopen, absent/stale/corrupt/mismatched/ambiguous rejection, correction identity
+in corridor/map/job/cache invalidation, working-copy API application, conservative no-correction
+visibility, and regenerated 100%/200% evidence are explicit acceptance gates.
+
 ## Requirements
 
 | Requirement / exclusion | Authority | Interpretation | Verified |
@@ -13,6 +56,7 @@ Decision: PASS
 | Readable two-level Story Map | `docs/MASTER_PLAN.md` §§1, 4 and approved plan §§1, 4-5 | Replace micro-scenes with chronological human events; Detail/Evidence is the only second level | Yes |
 | M10 deterministic authority | Master rules 3-8; approved plan §3 | M10 owns topology, choices, conditions, effects, merges, terminals, unresolved behavior, and source evidence | Yes |
 | M11 atoms, not M11 scene authority | Approved plan §§2-3 | Reuse ordered evidence atoms; current M11 boundaries/membership/titles are comparison inputs only | Yes |
+| User technical-coverage correction | Master Plan core records; user correction authorization; verification amendment above | An exact-bound user correction may classify only a strict leading atom prefix as collapsed technical coverage; it has no topology or AI authority | Yes |
 | Bounded AI responsibility | Master rules 8-10; approved plan §§6-7 | AI decides adjacent soft boundaries and later titles/summaries only; Python owns membership and quotient edges | Yes |
 | Exact private Day 1 scope | Approved plan §§3-4, 10 and `MsDay1/SOURCE_MANIFEST.json` | Hash/line anchors are acceptance evidence only; private story text never enters Git or prompts as a golden answer | Yes |
 | Nested temporary choices | Master §4; approved plan §§4-7 | Local choices remain inside their event cluster and visibly reconnect at proven M10 rejoins | Yes |
