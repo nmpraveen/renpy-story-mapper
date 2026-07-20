@@ -25,7 +25,14 @@ Updated: 2026-07-20 (M15 resumed before integration; native goal active)
 - Track A: independently accepted at clean exact head
   `6a28002f9f9165c70733eae5433537feebaa61a7`; provider-free exact and synthetic acceptance,
   focused/adjacent checks, strict typing/lint, coordinator diff audit, and private immutability
-  evidence passed. It remains unintegrated until Track B independently passes.
+  evidence passed.
+- Track B: independently accepted at clean exact head
+  `47fa6f48f3bf01e8ed91608407296d34210cf92c`; provider consent/accounting, claim repair,
+  persistence/cache/resume, focused/adjacent checks, and zero-live-provider/private evidence passed.
+- Ordered A+B integration: complete through coordinator head
+  `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`. The expected shared-export conflict preserved both
+  APIs; combined 66 focused M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, strict
+  mypy, dependency integrity, and diff checks passed. Track C is the next gated implementation.
 - Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
   not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
   select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so

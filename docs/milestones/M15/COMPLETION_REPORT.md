@@ -43,7 +43,8 @@ are unchanged. Provider calls remain separately gated.
 | Track dispatch | Complete | Track A task `019f8042-8627-7780-a515-355056881714` and Track B task `019f8042-8632-7512-a2e3-42ac6932e558` ran in separate worktrees from exact shared head `1ec0664`; both explicitly selected `gpt-5.6-sol` and High reasoning; fast-mode selection was unavailable/unverified |
 | Track A corrected candidate | Pass at unintegrated head | Clean exact head `6a28002f9f9165c70733eae5433537feebaa61a7`; 27 Track A/frozen/portable tests, 37 adjacent M10/M11 tests, Ruff, strict mypy over 102 files, diff check, all nine synthetic cases, and independent P0-P2 rereview passed |
 | Track A exact private acceptance | Pass at unintegrated head | 70 corridors/events, 84 map nodes, 85 map edges, five major clusters, exact choice/rejoin pairs, Terrance end 278 and Janet start 280, required order, zero provider calls/game execution, and unchanged private source/project fingerprints |
-| Track B corrected candidate | Blocked | Clean head `6702e933dba82d19da8ea59ae246020eaebc9e80`; 24 focused/frozen tests, 135 adjacent M13 regressions, 90 reviewer tests, Ruff, strict mypy over 102 files, dependency and diff checks passed; exact rereview retains two P1s |
+| Track B corrected candidate | Pass and integrated | Clean exact head `47fa6f48f3bf01e8ed91608407296d34210cf92c`; 46 focused/frozen, 157 adjacent M13, and 196 reviewer-expanded tests passed; exact rereview returned `PASS` with no P0-P2; zero live/provider/private access |
+| Ordered A+B integration | Pass | Track A then Track B integrated through coordinator head `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`; the one expected shared `__init__.py` conflict preserved both public APIs; combined 66 M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, mypy, pip, and diff checks passed |
 | Provider/private safety through stop | Pass | Track A used immutable read-only local fixture access; Track B did not access private text; neither task made a cloud/live provider call; no candidate was integrated, pushed, or opened as a PR |
 | Phase Coordinator Track A blocker probe | Finding confirmed | Read-only inline CPython 3.12 probe at `aa570f3` passed two corridors with source lines `[2, 1]`, both hard-boundary flags set, and the same incident edge; assembler returned two events instead of failing closed |
 | Phase Coordinator Track B blocker probe | Findings confirmed | Read-only inline CPython 3.12 probe at `6702e93` constructed request bounds above the consent limits, submitted a one-call consent twice, omitted a valid claim from the semantic lock when one sibling had unknown evidence, and accepted a replacement claim against that lock |
@@ -60,6 +61,9 @@ are unchanged. Provider calls remain separately gated.
   P0-P2 findings and no private-fixture access.
 - Track B rereview `FAIL` at `6702e93`: direct requests can exceed/reuse consent budgets, and
   event-summary repair can replace individually valid claims when a sibling claim is invalid.
+- Track B correction/review cycles then closed consent bounds and atomic reuse, durable attempt/call
+  accounting, positional claim semantics, extra-field normalization, and event-owned evidence
+  scope. The final independent rereview at `47fa6f48` returned `PASS` with no P0-P2 findings.
 - Both first-cycle independent reviewers used `gpt-5.6-sol` High with fast mode
   unavailable/unverified and made no edits. The former one-cycle cap was superseded by the user's
   authorization for all future M15 correction/rereview cycles and platform-permitted workers.
@@ -75,7 +79,7 @@ are unchanged. Provider calls remain separately gated.
 
 ## Integration and PR state
 
-- Integrated diff reviewed against contract and exclusions: No
+- Integrated A+B diff reviewed against contract and exclusions: Yes; Track C/final diff pending
 - Required checks passed: No
 - Blocking findings resolved or explicitly accepted: No
 - PR genuinely ready: No
