@@ -1375,6 +1375,66 @@ def test_summary_repair_may_remove_extra_claim_field_without_changing_semantics(
     assert record.result["claims"] == [normalized_claim]
 
 
+def test_summary_repair_may_fix_prompt_known_but_event_unowned_evidence(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    complete_event = _event(first, second)
+    event = replace(
+        complete_event,
+        provenance=Provenance(
+            atom_ids=complete_event.ordered_atom_ids,
+            evidence_ids=(first.provenance.evidence_ids[0],),
+        ),
+    )
+    job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    owned_claim = {
+        "claim_class": "factual",
+        "text": "The event-owned fact remains exact.",
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    invalid_sibling = {
+        "claim_class": "interpretive",
+        "text": "This sibling initially cites prompt-known but unowned evidence.",
+        "evidence_ids": [second.provenance.evidence_ids[0]],
+    }
+    repaired_sibling = {
+        **invalid_sibling,
+        "evidence_ids": [first.provenance.evidence_ids[0]],
+    }
+    common = {
+        "event_id": event.event_id,
+        "title": "An owned-evidence repair",
+        "summary": "The invalid sibling is repaired to event-owned evidence.",
+        "characters": ["Narrator"],
+        "warnings": [],
+    }
+    provider = _FakeProvider(
+        [
+            {
+                **common,
+                "claims": [{**owned_claim, "schema_note": "remove"}, invalid_sibling],
+            },
+            {**common, "claims": [owned_claim, repaired_sibling]},
+        ]
+    )
+
+    with Project.create(tmp_path / "known-unowned-evidence.rsmproj") as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_event_summary_jobs((job,), consent=_consent((job,)))
+
+    assert job.known_evidence_ids == (
+        first.provenance.evidence_ids[0],
+        second.provenance.evidence_ids[0],
+    )
+    assert event.provenance.evidence_ids == (first.provenance.evidence_ids[0],)
+    assert report.validated_job_ids == (job.job_id,)
+    assert report.failed_job_ids == ()
+
+
 def test_summary_repair_preserves_valid_claim_slot_and_exact_evidence_identity(
     tmp_path: Path,
 ) -> None:

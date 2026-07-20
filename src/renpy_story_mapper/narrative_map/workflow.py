@@ -648,8 +648,9 @@ def _claim_semantic_projection(
     job: PreparedNarrativeJob,
     claim: object,
 ) -> dict[str, JsonValue] | None:
-    if not isinstance(claim, Mapping):
+    if not isinstance(job.subject, NarrativeEvent) or not isinstance(claim, Mapping):
         return None
+    allowed_evidence_ids = set(job.subject.provenance.evidence_ids)
     claim_class_value = claim.get("claim_class")
     try:
         claim_class = (
@@ -665,7 +666,7 @@ def _claim_semantic_projection(
         or not isinstance(evidence_ids, list)
         or not evidence_ids
         or not _repair_text_list(evidence_ids, MAX_REASON_LENGTH)
-        or any(evidence_id not in job.known_evidence_ids for evidence_id in evidence_ids)
+        or any(evidence_id not in allowed_evidence_ids for evidence_id in evidence_ids)
     ):
         return None
     return {
