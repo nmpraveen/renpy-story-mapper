@@ -34,6 +34,13 @@ from renpy_story_mapper.narrative_map.corridors import (
     build_narrative_corridors,
 )
 from renpy_story_mapper.narrative_map.projection import build_narrative_map
+from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
+from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.validation import (
+    validate_boundary_response,
+    validate_event_summary_response,
+)
+from renpy_story_mapper.narrative_map.workflow import NarrativeBoundaryWorkflow
 
 __all__ = [
     "M15_BOUNDARY_SCHEMA",
@@ -48,12 +55,15 @@ __all__ = [
     "BoundarySignal",
     "CoverageState",
     "EvidenceNavigation",
+    "NarrativeBoundaryWorkflow",
     "NarrativeCorridor",
     "NarrativeEdgeKind",
     "NarrativeEvent",
     "NarrativeMap",
     "NarrativeMapEdge",
     "NarrativeMapNode",
+    "NarrativeMapRepository",
+    "NarrativeMapService",
     "NarrativeNodeKind",
     "Provenance",
     "SourceLocator",
@@ -62,4 +72,6 @@ __all__ = [
     "build_narrative_corridors",
     "build_narrative_map",
     "stable_m15_id",
+    "validate_boundary_response",
+    "validate_event_summary_response",
 ]

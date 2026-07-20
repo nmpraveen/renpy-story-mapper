@@ -1,0 +1,580 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from pathlib import Path
+
+from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
+from renpy_story_mapper.narrative.provider import ProviderUsage
+from renpy_story_mapper.narrative_map.ai_projection import (
+    EvidenceRecord,
+    prepare_boundary_jobs,
+    prepare_event_summary_jobs,
+)
+from renpy_story_mapper.narrative_map.contracts import (
+    AuthorityBinding,
+    BoundaryCandidate,
+    BoundarySignal,
+    CoverageState,
+    NarrativeCorridor,
+    NarrativeEvent,
+    Provenance,
+    SourceLocator,
+)
+from renpy_story_mapper.narrative_map.persistence import (
+    NarrativeJobStatus,
+    NarrativeMapRepository,
+)
+from renpy_story_mapper.narrative_map.provider import (
+    NarrativeMapProviderRequest,
+    NarrativeMapProviderResponse,
+    ProviderProfile,
+    SterileNarrativeMapProvider,
+)
+from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.validation import (
+    validate_boundary_response,
+    validate_event_summary_response,
+)
+from renpy_story_mapper.narrative_map.workflow import NarrativeBoundaryWorkflow
+from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
+from renpy_story_mapper.project import Project
+
+
+def _authority() -> AuthorityBinding:
+    return AuthorityBinding(
+        source_generation="generation-1",
+        canonical_schema="m10-canonical-graph-v1",
+        canonical_hash="canonical-hash",
+        atom_schema="m11-story-atoms-v1",
+        atom_hash="atom-hash",
+    )
+
+
+def _corridor(
+    name: str,
+    ordinal: int,
+    *,
+    hard_before: bool = False,
+    hard_after: bool = False,
+) -> NarrativeCorridor:
+    atom_id = f"atom-{name}"
+    evidence_id = f"evidence-{name}"
+    return NarrativeCorridor(
+        authority=_authority(),
+        lane_id="lane-1",
+        chapter_id="day-1",
+        call_occurrence_id="call-1",
+        loop_id=None,
+        temporary_container_id=None,
+        temporary_arm_id=None,
+        ordered_atom_ids=(atom_id,),
+        entry_node_id=f"node-{ordinal}",
+        exit_node_id=f"node-{ordinal + 1}",
+        incident_edge_ids=(f"edge-{ordinal}",),
+        hard_boundary_before=hard_before,
+        hard_boundary_after=hard_after,
+        soft_boundary_signals=(BoundarySignal.NARRATIVE_OBJECTIVE,),
+        provenance=Provenance(
+            atom_ids=(atom_id,),
+            node_ids=(f"node-{ordinal}", f"node-{ordinal + 1}"),
+            edge_ids=(f"edge-{ordinal}",),
+            evidence_ids=(evidence_id,),
+            locators=(SourceLocator("game/story.rpy", ordinal + 1, ordinal + 1, "physical"),),
+        ),
+    )
+
+
+def _candidate(left: NarrativeCorridor, right: NarrativeCorridor) -> BoundaryCandidate:
+    return BoundaryCandidate(
+        authority=_authority(),
+        left_corridor_id=left.corridor_id,
+        right_corridor_id=right.corridor_id,
+        signals=(BoundarySignal.NARRATIVE_OBJECTIVE,),
+        evidence_ids=(left.provenance.evidence_ids[0], right.provenance.evidence_ids[0]),
+    )
+
+
+def _evidence(*corridors: NarrativeCorridor) -> dict[str, EvidenceRecord]:
+    return {
+        corridor.ordered_atom_ids[0]: EvidenceRecord(
+            atom_id=corridor.ordered_atom_ids[0],
+            evidence_id=corridor.provenance.evidence_ids[0],
+            ordinal=index,
+            kind="dialogue",
+            text=f"Synthetic story text {index}",
+            speaker="Narrator",
+            locator=corridor.provenance.locators[0],
+        )
+        for index, corridor in enumerate(corridors)
+    }
+
+
+def _event(*corridors: NarrativeCorridor) -> NarrativeEvent:
+    atom_ids = tuple(corridor.ordered_atom_ids[0] for corridor in corridors)
+    evidence_ids = tuple(corridor.provenance.evidence_ids[0] for corridor in corridors)
+    return NarrativeEvent(
+        authority=_authority(),
+        ordered_corridor_ids=tuple(corridor.corridor_id for corridor in corridors),
+        ordered_atom_ids=atom_ids,
+        chapter_id="day-1",
+        lane_id="lane-1",
+        call_occurrence_id="call-1",
+        temporary_container_id=None,
+        temporary_arm_id=None,
+        loop_id=None,
+        entry_node_id=corridors[0].entry_node_id,
+        exit_node_id=corridors[-1].exit_node_id,
+        nested_choice_ids=(),
+        rejoin_node_ids=(),
+        deterministic_title="Event at line 1",
+        coverage_state=CoverageState.COMPLETE,
+        provenance=Provenance(atom_ids=atom_ids, evidence_ids=evidence_ids),
+    )
+
+
+def _profile() -> ProviderProfile:
+    return ProviderProfile(
+        provider="fake",
+        adapter="deterministic-fake",
+        adapter_version="1",
+        requested_model="fake-model",
+        settings=ProviderSettings((("reasoning_effort", "high"),)),
+    )
+
+
+class _FakeProvider:
+    def __init__(self, payloads: list[dict[str, object]]) -> None:
+        self.payloads = list(payloads)
+        self.requests: list[NarrativeMapProviderRequest] = []
+        self.cancel_count = 0
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        assert not cancelled()
+        self.requests.append(request)
+        payload = self.payloads.pop(0)
+        return NarrativeMapProviderResponse(
+            request_id=request.request_id,
+            provider=ProviderIdentity(
+                provider="fake",
+                adapter="deterministic-fake",
+                adapter_version="1",
+                requested_model="fake-model",
+                resolved_model="fake-model",
+                settings=ProviderSettings((("reasoning_effort", "high"),)),
+            ),
+            payload=payload,
+            usage=ProviderUsage(10, 5, 1),
+        )
+
+    def cancel(self) -> None:
+        self.cancel_count += 1
+
+
+class _FakeSterileRunner:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+        self.requests: list[SterileRunRequest] = []
+        self.cancel_count = 0
+
+    def execute(
+        self, request: SterileRunRequest, cancelled: Callable[[], bool]
+    ) -> SterileRunResult:
+        assert not cancelled()
+        self.requests.append(request)
+        return SterileRunResult(
+            events=(
+                {
+                    "item": {
+                        "type": "agent_message",
+                        "text": json.dumps(self.payload),
+                    }
+                },
+                {
+                    "model": "fake-model",
+                    "usage": {"input_tokens": 10, "output_tokens": 5, "cost_micros": 0},
+                },
+            ),
+            cli_version="fake-cli",
+        )
+
+    def cancel(self) -> None:
+        self.cancel_count += 1
+
+
+def test_boundary_projection_covers_each_adjacent_soft_candidate_once() -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    candidates = (_candidate(first, second), _candidate(second, third))
+
+    jobs = prepare_boundary_jobs(
+        (first, second, third),
+        candidates,
+        _evidence(first, second, third),
+    )
+
+    assert tuple(job.subject_id for job in jobs) == tuple(
+        candidate.candidate_id for candidate in candidates
+    )
+    assert len({job.job_id for job in jobs}) == 2
+    assert all(job.payload["candidate_id"] == job.subject_id for job in jobs)
+    assert all("hard_boundary" not in str(job.payload) for job in jobs)
+
+
+def test_sterile_provider_uses_m15_prompt_and_schema_without_process_authority() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    runner = _FakeSterileRunner(payload)
+    request = NarrativeMapProviderRequest(
+        request_id="request-1",
+        consent_manifest_id="consent-1",
+        profile=_profile(),
+        job=job,
+    )
+
+    response = SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+
+    assert response.payload == payload
+    assert len(runner.requests) == 1
+    sterile_request = runner.requests[0]
+    assert sterile_request.schema_path.name == "boundary_decision_v1.schema.json"
+    prompt = json.loads(sterile_request.stdin)
+    assert prompt["version"] == "m15-boundary-prompt-v1"
+    assert prompt["request"]["job"]["candidate_id"] == candidate.candidate_id
+    assert "use filesystem, web, tools, MCP, or application authority" in prompt["forbidden"]
+
+
+def test_boundary_projection_rejects_nonadjacent_and_hard_candidates() -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    try:
+        prepare_boundary_jobs(
+            (first, second, third),
+            (_candidate(first, third),),
+            _evidence(first, second, third),
+        )
+    except ValueError as exc:
+        assert "adjacent" in str(exc)
+    else:
+        raise AssertionError("non-adjacent boundary entered a provider job")
+
+    hard_left = _corridor("hard-left", 3, hard_after=True)
+    hard_right = _corridor("hard-right", 4, hard_before=True)
+    try:
+        prepare_boundary_jobs(
+            (hard_left, hard_right),
+            (_candidate(hard_left, hard_right),),
+            _evidence(hard_left, hard_right),
+        )
+    except ValueError as exc:
+        assert "hard boundary" in str(exc)
+    else:
+        raise AssertionError("hard boundary entered a provider job")
+
+
+def test_boundary_validation_is_item_isolated_and_detects_omissions_duplicates_and_extras() -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    left, right = _candidate(first, second), _candidate(second, third)
+    result = validate_boundary_response(
+        {
+            "decisions": [
+                {
+                    "candidate_id": left.candidate_id,
+                    "decision": "merge",
+                    "reason": "The action continues.",
+                    "confidence": 0.9,
+                    "warnings": [],
+                },
+                {
+                    "candidate_id": left.candidate_id,
+                    "decision": "split",
+                    "reason": "Duplicate reinterpretation.",
+                    "confidence": 0.8,
+                    "warnings": [],
+                },
+                {
+                    "candidate_id": "unknown",
+                    "decision": "split",
+                    "reason": "Wrong scope.",
+                    "confidence": 0.5,
+                    "warnings": [],
+                    "edges": [],
+                },
+            ]
+        },
+        (left, right),
+        provider_identity=None,
+    )
+
+    assert result.decisions == ()
+    assert result.omitted_candidate_ids == (right.candidate_id,)
+    assert {finding.code for finding in result.findings} >= {
+        "duplicate_candidate",
+        "unknown_candidate",
+        "extra_field",
+        "omitted_candidate",
+    }
+
+
+def test_event_summary_validation_checks_exact_evidence_and_fields() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    valid = validate_event_summary_response(
+        {
+            "event_id": event.event_id,
+            "title": "A difficult conversation",
+            "summary": "The characters discuss a difficult choice.",
+            "characters": ["Narrator"],
+            "claims": [
+                {
+                    "claim_class": "factual",
+                    "text": "A choice is discussed.",
+                    "evidence_ids": [first.provenance.evidence_ids[0]],
+                }
+            ],
+            "warnings": [],
+        },
+        event,
+        known_characters=("Narrator",),
+        provider_identity=None,
+    )
+    assert valid.summary is not None
+
+    invalid = validate_event_summary_response(
+        {
+            "event_id": event.event_id,
+            "title": "Start",
+            "summary": "Unsupported.",
+            "characters": ["Unknown"],
+            "claims": [
+                {
+                    "claim_class": "factual",
+                    "text": "Invented.",
+                    "evidence_ids": ["foreign-evidence"],
+                }
+            ],
+            "warnings": [],
+            "members": ["invented-membership"],
+        },
+        event,
+        known_characters=("Narrator",),
+        provider_identity=None,
+        story_facing=True,
+    )
+    assert invalid.summary is None
+    assert {finding.code for finding in invalid.findings} >= {
+        "blocked_title",
+        "unknown_character",
+        "unknown_evidence",
+        "extra_field",
+    }
+
+
+def test_repository_round_trip_is_independent_and_does_not_retain_source_packets(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second),
+        (_candidate(first, second),),
+        _evidence(first, second),
+    )[0]
+    project_path = tmp_path / "track-b.rsmproj"
+    with Project.create(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        repository.stage(job, _profile())
+        record = repository.get(job.kind, job.job_id)
+        assert record is not None
+        assert record.status is NarrativeJobStatus.PENDING
+        assert "Synthetic story text" not in project.canonical_export().decode("utf-8")
+        assert "source_packet" not in project.canonical_export().decode("utf-8")
+
+    with Project.open(project_path) as project:
+        record = NarrativeMapRepository(project).get(job.kind, job.job_id)
+        assert record is not None
+        assert record.input_hash == job.input_hash
+
+
+def test_workflow_allows_one_schema_repair_and_exact_reopen_cache_is_zero_submit(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second),
+        (candidate,),
+        _evidence(first, second),
+    )[0]
+    provider = _FakeProvider(
+        [
+            {"decisions": [{"candidate_id": candidate.candidate_id, "decision": "merge"}]},
+            {
+                "decisions": [
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "decision": "merge",
+                        "reason": "The same action continues.",
+                        "confidence": 0.9,
+                        "warnings": [],
+                    }
+                ]
+            },
+        ]
+    )
+    project_path = tmp_path / "repair.rsmproj"
+    with Project.create(project_path) as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        assert report.validated_job_ids == (job.job_id,)
+        assert report.provider_calls == 2
+        assert provider.requests[0].repair_codes == ()
+        assert provider.requests[1].repair_codes
+        assert provider.requests[0].job.subject_id == provider.requests[1].job.subject_id
+
+    replay_provider = _FakeProvider([])
+    with Project.open(project_path) as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), replay_provider, _profile()
+        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        assert report.validated_job_ids == (job.job_id,)
+        assert report.provider_calls == 0
+        assert report.cache_hits == 1
+        assert replay_provider.requests == []
+
+
+def test_cancellation_preserves_validated_work_and_resume_retries_only_missing_jobs(
+    tmp_path: Path,
+) -> None:
+    first, second, third = _corridor("a", 0), _corridor("b", 1), _corridor("c", 2)
+    candidates = (_candidate(first, second), _candidate(second, third))
+    jobs = prepare_boundary_jobs(
+        (first, second, third), candidates, _evidence(first, second, third)
+    )
+    def good_payload(candidate: BoundaryCandidate) -> dict[str, object]:
+        return {
+            "decisions": [
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "decision": "split",
+                    "reason": "The narrative objective changes.",
+                    "confidence": 0.8,
+                    "warnings": [],
+                }
+            ]
+        }
+    provider = _FakeProvider([good_payload(candidates[0])])
+    checks = 0
+
+    def cancelled() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks > 3
+
+    project_path = tmp_path / "cancel.rsmproj"
+    with Project.create(project_path) as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), provider, _profile()
+        ).run_boundary_jobs(
+            jobs,
+            consent_manifest_id="consent-1",
+            cancelled=cancelled,
+        )
+        assert report.validated_job_ids == (jobs[0].job_id,)
+        assert report.cancelled
+
+    resume_provider = _FakeProvider([good_payload(candidates[1])])
+    with Project.open(project_path) as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), resume_provider, _profile()
+        ).run_boundary_jobs(jobs, consent_manifest_id="consent-1")
+        assert report.provider_calls == 1
+        assert len(resume_provider.requests) == 1
+        assert resume_provider.requests[0].job.job_id == jobs[1].job_id
+
+
+def test_summary_failure_preserves_event_and_service_reads_never_call_provider(
+    tmp_path: Path,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    summary_job = prepare_event_summary_jobs(
+        (event,), _evidence(first, second), known_characters={event.event_id: ("Narrator",)}
+    )[0]
+    provider = _FakeProvider([{"event_id": event.event_id, "title": "Missing fields"}])
+    with Project.create(tmp_path / "summary.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(repository, provider, _profile()).run_event_summary_jobs(
+            (summary_job,), consent_manifest_id="consent-1"
+        )
+        assert report.failed_job_ids == (summary_job.job_id,)
+        service = NarrativeMapService(repository)
+        summaries = service.read_event_summaries((event,))
+        assert summaries[0].event_id == event.event_id
+        assert summaries[0].title == event.deterministic_title
+        assert summaries[0].summary is None
+        assert len(provider.requests) == 2  # initial invalid response plus one bounded repair
+        failed_record = repository.get(summary_job.kind, summary_job.job_id)
+        assert failed_record is not None
+        assert failed_record.attempt_count == 2
+        assert failed_record.provider_identity is not None
+        assert failed_record.usage is not None
+        assert failed_record.usage["provider_calls"] == 2
+        durable = project.canonical_export().decode("utf-8")
+        assert "Missing fields" not in durable
+
+
+def test_cache_identity_includes_exact_provider_settings(tmp_path: Path) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    job = prepare_boundary_jobs(
+        (first, second), (candidate,), _evidence(first, second)
+    )[0]
+    payload = {
+        "decisions": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "decision": "split",
+                "reason": "The narrative objective changes.",
+                "confidence": 0.8,
+                "warnings": [],
+            }
+        ]
+    }
+    project_path = tmp_path / "identity.rsmproj"
+    with Project.create(project_path) as project:
+        first_provider = _FakeProvider([payload])
+        NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), first_provider, _profile()
+        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+
+    changed_profile = ProviderProfile(
+        provider="fake",
+        adapter="deterministic-fake",
+        adapter_version="1",
+        requested_model="fake-model",
+        settings=ProviderSettings((("reasoning_effort", "xhigh"),)),
+    )
+    changed_provider = _FakeProvider([payload])
+    with Project.open(project_path) as project:
+        report = NarrativeBoundaryWorkflow(
+            NarrativeMapRepository(project), changed_provider, changed_profile
+        ).run_boundary_jobs((job,), consent_manifest_id="consent-1")
+        assert report.provider_calls == 1
+        assert report.cache_hits == 0
