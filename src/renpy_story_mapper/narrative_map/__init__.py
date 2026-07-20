@@ -33,8 +33,8 @@ from renpy_story_mapper.narrative_map.corridors import (
     build_boundary_candidates,
     build_narrative_corridors,
 )
-from renpy_story_mapper.narrative_map.projection import build_narrative_map
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
+from renpy_story_mapper.narrative_map.projection import build_narrative_map
 from renpy_story_mapper.narrative_map.provider import NarrativeConsentManifest
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import (
