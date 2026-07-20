@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "m15-event-summary-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "title", "summary", "characters", "claims", "warnings"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1, "maxLength": 80},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 600},
+    "characters": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_class", "text", "evidence_ids"],
+        "properties": {
+          "claim_class": {"enum": ["factual", "interpretive"]},
+          "text": {"type": "string", "minLength": 1, "maxLength": 600},
+          "evidence_ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 500},
+      "uniqueItems": true
+    }
+  }
+}

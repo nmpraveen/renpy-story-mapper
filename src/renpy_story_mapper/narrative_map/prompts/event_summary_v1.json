@@ -1,0 +1,13 @@
+{
+  "version": "m15-event-summary-prompt-v1",
+  "purpose": "Summarize one final evidence-complete event after deterministic membership is frozen.",
+  "forbidden": [
+    "change event membership",
+    "create or change graph edges",
+    "invent requirements, effects, source locations, or evidence",
+    "use filesystem, web, tools, MCP, or application authority"
+  ],
+  "title_maximum": 80,
+  "summary_maximum": 600
+}
+

@@ -1,0 +1,51 @@
+{
+  "schema": "m15-synthetic-acceptance-v1",
+  "cases": [
+    {
+      "id": "linear-dialogue",
+      "signals": ["dialogue", "narration"],
+      "expected": {"event_count": 1, "choice_count": 0, "complete_coverage": true}
+    },
+    {
+      "id": "frequent-pose-changes",
+      "signals": ["dialogue", "visual_change", "visual_change", "dialogue"],
+      "expected": {"event_count": 1, "visual_changes_are_hard_boundaries": false}
+    },
+    {
+      "id": "local-detour",
+      "signals": ["choice_split", "arm_0", "arm_1", "proven_rejoin", "continuation"],
+      "expected": {"temporary": true, "arm_count": 2, "rejoin_count": 1, "continuation_owned_once": true}
+    },
+    {
+      "id": "nested-local-detour",
+      "signals": ["choice_split", "arm_0", "nested_choice", "arm_1", "proven_rejoin"],
+      "expected": {"temporary": true, "nested_choice_count": 1, "arms_escape_container": false}
+    },
+    {
+      "id": "persistent-branches",
+      "signals": ["persistent_split", "lane_0", "lane_1"],
+      "expected": {"temporary": false, "lane_count": 2, "invented_merge": false}
+    },
+    {
+      "id": "call-occurrences",
+      "signals": ["call_0", "callee", "return_0", "call_1", "callee", "return_1"],
+      "expected": {"occurrence_count": 2, "cross_occurrence_membership": false}
+    },
+    {
+      "id": "loop",
+      "signals": ["entry", "loop_body", "back_edge", "exit"],
+      "expected": {"loop_preserved": true, "invented_linearization": false}
+    },
+    {
+      "id": "terminal",
+      "signals": ["entry", "terminal"],
+      "expected": {"terminal_preserved": true, "invented_continuation": false}
+    },
+    {
+      "id": "unresolved-transfer",
+      "signals": ["entry", "unresolved_transfer"],
+      "expected": {"conservative_boundary": true, "invented_target": false}
+    }
+  ]
+}
+
