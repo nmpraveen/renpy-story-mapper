@@ -1,6 +1,6 @@
 # M15 MsDay1 Narrative Map correction completion report
 
-Status: Blocked
+Status: In progress
 
 Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
 
@@ -10,9 +10,10 @@ Pull request: Pending; one PR will be opened and left unmerged for user approval
 
 ## Outcome
 
-M15 remains active but is blocked before integration. Track A and Track B each used the approved
-single correction/rereview cycle and each retains two independently reproduced P1 findings. Their
-clean exact heads are preserved in separate worktrees and neither was integrated.
+M15 resumed before integration after the user explicitly authorized one additional narrowly
+bounded correction and independent rereview for each blocked Track A and Track B head. Their
+clean heads remain separate and unintegrated while those corrections run; the done condition and
+semantic `PASS` are unchanged.
 
 ## Acceptance evidence
 
@@ -77,8 +78,8 @@ clean exact heads are preserved in separate worktrees and neither was integrated
 ## Remaining limitations
 
 - Full MsDenvers remains unvalidated and outside M15.
-- Track A and Track B require renewed user authorization for one further narrowly bounded
-  correction and independent rereview each. No integration or Track C dispatch is permitted first.
+- The user authorized one additional narrowly bounded correction and independent rereview for
+  each of Track A and Track B. No integration or Track C dispatch is permitted until both pass.
 - Live Day 1 AI acceptance is not authorized and is optional; no provider call has occurred.
 - Product implementation, track reviews, final browser/Windows acceptance, infographic, and PR are
   pending.

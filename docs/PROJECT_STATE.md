@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 blocked before integration; native goal remains active)
+Updated: 2026-07-20 (M15 resumed before integration; native goal active)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -12,9 +12,9 @@ Updated: 2026-07-20 (M15 blocked before integration; native goal remains active)
   `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: Blocked. Track A and Track B each retain two independently reproduced P1 findings after
-  the contract's single bounded correction/rereview cycle. Renewed user authorization is required
-  for one further narrowly bounded correction and independent rereview per track.
+- Status: In progress. The user explicitly authorized one additional narrowly bounded correction
+  and independent rereview for each of the two residual Track A and Track B P1 pairs. Neither
+  track may be integrated and Track C may not start until both additional rereviews pass.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20. Shared schemas and
   failing-first fixtures are frozen at exact head
   `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
