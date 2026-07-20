@@ -391,7 +391,7 @@ class SterileNarrativeMapProvider:
     ) -> NarrativeMapProviderResponse:
         if cancelled():
             raise NarrativeMapProviderError("cancelled", "The provider request was cancelled.")
-        request.job.validate_integrity()
+        request.consent.validate_job(request.job, request.profile)
         prompt_name, schema_name = _resource_names(request.job.kind)
         prompt = _serialize_prompt(request, prompt_name)
         if len(prompt) > request.maximum_input_bytes:

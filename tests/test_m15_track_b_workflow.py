@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -283,6 +284,30 @@ def test_sterile_provider_uses_m15_prompt_and_schema_without_process_authority()
     assert prompt["version"] == "m15-boundary-prompt-v1"
     assert prompt["request"]["job"]["candidate_id"] == candidate.candidate_id
     assert "use filesystem, web, tools, MCP, or application authority" in prompt["forbidden"]
+
+
+def test_sterile_provider_revalidates_consent_freshness_at_submit() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = _consent((job,))
+    request = NarrativeMapProviderRequest(
+        request_id="request-expiry",
+        consent=consent,
+        profile=_profile(),
+        job=job,
+    )
+    object.__setattr__(
+        consent,
+        "expires_utc",
+        (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+    )
+    runner = _FakeSterileRunner({"decisions": []})
+
+    with pytest.raises(ValueError, match="fresh"):
+        SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+    assert runner.requests == []
 
 
 def test_boundary_projection_rejects_nonadjacent_and_hard_candidates() -> None:
