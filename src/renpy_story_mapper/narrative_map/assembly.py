@@ -159,11 +159,7 @@ def _validate_corridors(
             continue
         prior = positions.get(context)
         current = (locator.relative_path, locator.start_line)
-        if (
-            prior is not None
-            and current < prior[0]
-            and not set(prior[1].incident_edge_ids).intersection(corridor.incident_edge_ids)
-        ):
+        if prior is not None and current < prior[0]:
             raise ValueError("corridors are out of source/control order within a context")
         positions[context] = (current, corridor)
 

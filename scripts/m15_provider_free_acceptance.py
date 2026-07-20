@@ -14,15 +14,48 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
-from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
-from renpy_story_mapper.m11_scene_model import SceneModel
+from renpy_story_mapper.canonical_graph_contract import (
+    CANONICAL_GRAPH_SCHEMA,
+    CanonicalEdge,
+    CanonicalGraph,
+    CanonicalNode,
+    CanonicalNodeKind,
+    CanonicalRegion,
+    DerivedProof,
+    OriginReference,
+    ReachabilityStatus,
+    SourceEvidence,
+)
+from renpy_story_mapper.m11_scene_model import (
+    M11_ATOM_RULE_VERSION,
+    M11_BOUNDARY_RULE_VERSION,
+    AtomKind,
+    BoundaryDecision,
+    BoundaryStrength,
+    CanonicalBinding,
+    CanonicalCoverage,
+    Chapter,
+    CoverageCollection,
+    CoverageDisposition,
+    CoverageEntry,
+    DecisionStatus,
+    LaneKind,
+    PersistentLane,
+    Scene,
+    SceneModel,
+    SceneRepeatability,
+    StoryAtom,
+)
+from renpy_story_mapper.m11_scene_model import (
+    Provenance as M11Provenance,
+)
 from renpy_story_mapper.m11_scene_projection import scene_model_from_stored_results
 from renpy_story_mapper.m12_service import canonical_graph_from_mapping
 from renpy_story_mapper.narrative_map import (
-    AuthorityBinding,
     NarrativeCorridor,
-    Provenance,
-    SourceLocator,
+    NarrativeEvent,
+    NarrativeMap,
+    NarrativeMapNode,
     assemble_narrative_events,
     build_narrative_corridors,
     build_narrative_map,
@@ -36,6 +69,9 @@ EXPECTED_MAJOR_ORDER = ("prologue", "terrance", "janet", "dinner", "faye")
 BLOCKED_TITLES = {"start", "clean", "module ending", "technical merge"}
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type NodeSpec = tuple[str, AtomKind, CanonicalNodeKind, str, str, dict[str, object]]
+type EdgeSpec = tuple[str, str, str, str, bool, dict[str, object]]
+type RegionSpec = tuple[str, str, str, str | None, tuple[str, ...], dict[str, object]]
 
 
 def evaluate_exact_msday1(
@@ -65,37 +101,18 @@ def evaluate_exact_msday1(
     )
     narrative_map = build_narrative_map(canonical, events, corridors=corridors)
 
-    atom_by_id = {item.id: item for item in model.atoms}
-    line_by_atom = {item.id: item.source_order[1] for item in model.atoms}
     branch_pairs = _canonical_choice_pairs(canonical, model)
     expected_pairs = {143: 165, 191: 233, 623: 793, 674: 793}
     if branch_pairs != expected_pairs:
         raise ValueError("the exact narrative choice/rejoin anchors changed")
-
-    major_starts: list[int] = []
-    first_story_line: int | None = None
-    for corridor in corridors:
-        story_lines = [
-            line_by_atom[atom_id]
-            for atom_id in corridor.ordered_atom_ids
-            if atom_id not in corridor.technical_atom_ids and atom_by_id[atom_id].story_facing
-        ]
-        if (
-            story_lines
-            and corridor.temporary_container_id is None
-            and corridor.temporary_arm_id is None
-        ):
-            if first_story_line is None:
-                first_story_line = min(story_lines)
-            if corridor.soft_boundary_signals:
-                major_starts.append(min(item.start_line for item in corridor.provenance.locators))
-    normalized_starts = tuple(
-        item for item in dict.fromkeys(major_starts) if item <= EXPECTED_MAJOR_STARTS[-1]
+    observations = _exact_product_observations(
+        canonical,
+        model,
+        corridors,
+        events,
+        narrative_map,
+        branch_pairs,
     )
-    if first_story_line is None or first_story_line >= EXPECTED_MAJOR_STARTS[0]:
-        raise ValueError("the collapsible Prologue lost its story-facing evidence")
-    if normalized_starts != EXPECTED_MAJOR_STARTS:
-        raise ValueError("provider-free major event boundaries do not match the frozen shape")
 
     blocked = sorted(
         {
@@ -105,9 +122,7 @@ def evaluate_exact_msday1(
             and node.title.casefold() in BLOCKED_TITLES
         }
     )
-    map_cluster_count = sum(
-        item.kind is NarrativeNodeKind.EVENT_CLUSTER for item in narrative_map.nodes
-    )
+    map_cluster_count = len(observations.cluster_starts)
     if map_cluster_count != len(EXPECTED_MAJOR_ORDER):
         raise ValueError("the provider-free map does not expose exactly five major clusters")
     if blocked:
@@ -140,29 +155,155 @@ def evaluate_exact_msday1(
             JsonValue,
             [[line, branch_pairs[line]] for line in EXPECTED_MENU_LINES[2:]],
         ),
-        "terrance_event_end_line": max(
-            item.source_order[1]
-            for item in model.atoms
-            if 52 <= item.source_order[1] < 280 and item.story_facing
-        ),
-        "janet_event_start_line": normalized_starts[1],
-        "major_event_order": cast(
-            JsonValue,
-            [
-                name
-                for _start, name in zip(
-                    (first_story_line, *normalized_starts),
-                    EXPECTED_MAJOR_ORDER,
-                    strict=True,
-                )
-            ],
-        ),
+        "terrance_event_end_line": observations.cluster_bounds[1][1],
+        "janet_event_start_line": observations.cluster_bounds[2][0],
+        "major_event_order": cast(JsonValue, list(observations.cluster_labels)),
         "blocked_technical_titles": cast(JsonValue, blocked),
         "provider_calls": 0,
         "game_execution_count": 0,
         "source_unchanged": True,
         "project_unchanged": True,
     }
+
+
+class _ExactObservations:
+    def __init__(
+        self,
+        cluster_starts: tuple[int, ...],
+        cluster_bounds: tuple[tuple[int, int], ...],
+        cluster_labels: tuple[str, ...],
+    ) -> None:
+        self.cluster_starts = cluster_starts
+        self.cluster_bounds = cluster_bounds
+        self.cluster_labels = cluster_labels
+
+
+def _exact_product_observations(
+    canonical: CanonicalGraph,
+    model: SceneModel,
+    corridors: tuple[NarrativeCorridor, ...],
+    events: tuple[NarrativeEvent, ...],
+    narrative_map: NarrativeMap,
+    branch_pairs: Mapping[int, int],
+) -> _ExactObservations:
+    """Derive exact gates only from assembled membership and visible presentation output."""
+
+    corridor_by_id = {item.corridor_id: item for item in corridors}
+    atom_by_id = {item.id: item for item in model.atoms}
+    event_by_id = {item.event_id: item for item in events}
+    for event in events:
+        owned_atoms = tuple(
+            atom_id
+            for corridor_id in event.ordered_corridor_ids
+            for atom_id in corridor_by_id[corridor_id].ordered_atom_ids
+        )
+        if (
+            event.ordered_atom_ids != owned_atoms
+            or event.provenance.atom_ids != owned_atoms
+            or any(atom_id not in atom_by_id for atom_id in owned_atoms)
+        ):
+            raise ValueError("exact event atom ownership does not match assembled corridors")
+    if narrative_map.event_ids != tuple(item.event_id for item in events):
+        raise ValueError("exact map event membership does not match assembled events")
+    if [item.ordinal for item in narrative_map.nodes] != list(range(len(narrative_map.nodes))):
+        raise ValueError("exact visible map order is not the presentation order")
+
+    base_kinds = {
+        NarrativeNodeKind.EVENT_CLUSTER,
+        NarrativeNodeKind.SUB_EVENT,
+        NarrativeNodeKind.CHOICE_ARM,
+        NarrativeNodeKind.CONTINUATION,
+        NarrativeNodeKind.TERMINAL,
+        NarrativeNodeKind.UNRESOLVED,
+        NarrativeNodeKind.TECHNICAL_COVERAGE,
+    }
+    base_by_event: dict[str, NarrativeMapNode] = {}
+    node_by_id = {item.node_id: item for item in narrative_map.nodes}
+    for node in narrative_map.nodes:
+        if node.event_id in event_by_id and node.kind in base_kinds:
+            if node.event_id is None:
+                raise ValueError("exact presentation event identity is missing")
+            if node.event_id in base_by_event:
+                raise ValueError("exact presentation exposes duplicate event nodes")
+            base_by_event[node.event_id] = node
+    if set(base_by_event) != set(event_by_id):
+        raise ValueError("exact presentation is missing assembled event nodes")
+
+    cluster_nodes = tuple(
+        item for item in narrative_map.nodes if item.kind is NarrativeNodeKind.EVENT_CLUSTER
+    )
+    event_ids_by_cluster: dict[str, set[str]] = {item.node_id: set() for item in cluster_nodes}
+    for event_id, event_node in base_by_event.items():
+        current_node: NarrativeMapNode | None = event_node
+        visited: set[str] = set()
+        while current_node is not None and current_node.kind is not NarrativeNodeKind.EVENT_CLUSTER:
+            if current_node.node_id in visited:
+                raise ValueError("exact presentation parentage contains a cycle")
+            visited.add(current_node.node_id)
+            current_node = (
+                None
+                if current_node.parent_node_id is None
+                else node_by_id.get(current_node.parent_node_id)
+            )
+        if current_node is not None:
+            event_ids_by_cluster[current_node.node_id].add(event_id)
+
+    cluster_bounds: list[tuple[int, int]] = []
+    for cluster in cluster_nodes:
+        story_lines = [
+            atom_by_id[atom_id].source_order[1]
+            for event_id in event_ids_by_cluster[cluster.node_id]
+            for atom_id in event_by_id[event_id].ordered_atom_ids
+            if atom_by_id[atom_id].story_facing
+        ]
+        if not story_lines:
+            raise ValueError("an exact visible major cluster has no story-facing event ownership")
+        cluster_bounds.append((min(story_lines), max(story_lines)))
+    cluster_starts = tuple(item[0] for item in cluster_bounds)
+    if not cluster_starts or cluster_starts[0] >= EXPECTED_MAJOR_STARTS[0]:
+        raise ValueError("the visible Prologue cluster lost its story-facing evidence")
+    expected_cluster_starts = (cluster_starts[0], *EXPECTED_MAJOR_STARTS)
+    if cluster_starts != expected_cluster_starts:
+        raise ValueError("exact visible map order does not match frozen major cluster starts")
+    expected_labels_by_start = dict(zip(expected_cluster_starts, EXPECTED_MAJOR_ORDER, strict=True))
+    cluster_labels = tuple(expected_labels_by_start[item] for item in cluster_starts)
+    if cluster_labels != EXPECTED_MAJOR_ORDER:
+        raise ValueError("exact visible map order does not match frozen major event order")
+
+    line_by_node = {item.primary_node_id: item.source_order[1] for item in model.atoms}
+    visible_choice_ids = {
+        item.choice_id
+        for item in narrative_map.nodes
+        if item.kind is NarrativeNodeKind.CHOICE and item.choice_id is not None
+    }
+    visible_rejoin_ids = {
+        item.rejoin_node_id
+        for item in narrative_map.nodes
+        if item.kind is NarrativeNodeKind.REJOIN and item.rejoin_node_id is not None
+    }
+    visible_arm_ids = {item.arm_id for item in narrative_map.nodes if item.arm_id is not None}
+    for split_line in branch_pairs:
+        regions = [
+            item for item in canonical.regions if line_by_node.get(item.split_node_id) == split_line
+        ]
+        if len(regions) != 1:
+            raise ValueError("an exact choice line lacks unique M10 region authority")
+        region = regions[0]
+        if region.id not in visible_choice_ids or region.merge_node_id not in visible_rejoin_ids:
+            raise ValueError("exact choice/rejoin authority is not visible in the Narrative Map")
+        arms = region.attributes.get("arms")
+        expected_arm_ids = (
+            {
+                raw_arm.get("id")
+                for raw_arm in arms
+                if isinstance(raw_arm, Mapping) and isinstance(raw_arm.get("id"), str)
+            }
+            if isinstance(arms, Sequence) and not isinstance(arms, str | bytes)
+            else set()
+        )
+        if not expected_arm_ids.issubset(visible_arm_ids):
+            raise ValueError("exact choice arm authority is not visible in the Narrative Map")
+    return _ExactObservations(cluster_starts, tuple(cluster_bounds), cluster_labels)
 
 
 def evaluate_synthetic_manifest(path: Path) -> dict[str, JsonValue]:
@@ -222,187 +363,585 @@ def evaluate_synthetic_manifest(path: Path) -> dict[str, JsonValue]:
     }
 
 
-_SYNTHETIC_AUTHORITY = AuthorityBinding(
-    source_generation="synthetic-generation",
-    canonical_schema="synthetic-canonical-v1",
-    canonical_hash="synthetic-canonical-hash",
-    atom_schema="synthetic-atoms-v1",
-    atom_hash="synthetic-atom-hash",
-)
-
-
 def _evaluate_synthetic_case(case_id: str, signals: tuple[str, ...]) -> dict[str, JsonValue]:
-    """Build real corridors/events for one manifest case and report its frozen predicates."""
+    """Run one authoritative synthetic topology through the complete Track A pipeline."""
+
+    canonical, model = _synthetic_authority(case_id, signals)
+    corridors = build_narrative_corridors(canonical, model)
+    events = assemble_narrative_events(
+        corridors,
+        expected_atom_ids=(item.id for item in model.atoms),
+    )
+    narrative_map = build_narrative_map(canonical, events, corridors=corridors)
+    map_nodes = {item.node_id: item for item in narrative_map.nodes}
 
     if case_id in {"linear-dialogue", "frequent-pose-changes"}:
-        corridor = _synthetic_corridor(case_id, 0, signals)
-        events = assemble_narrative_events((corridor,), expected_atom_ids=corridor.ordered_atom_ids)
         return {
             "event_count": len(events),
             "choice_count": sum(len(event.nested_choice_ids) for event in events),
-            "complete_coverage": tuple(events[0].ordered_atom_ids) == corridor.ordered_atom_ids,
-            "visual_changes_are_hard_boundaries": (
-                corridor.hard_boundary_before or corridor.hard_boundary_after
-            ),
+            "complete_coverage": {atom_id for event in events for atom_id in event.ordered_atom_ids}
+            == {item.id for item in model.atoms},
+            "visual_changes_are_hard_boundaries": len(events) > 1,
         }
 
     if case_id == "local-detour":
-        corridors: tuple[NarrativeCorridor, ...] = (
-            _synthetic_corridor(case_id, 0, ("choice_split",), choice_ids=("choice",)),
-            _synthetic_corridor(case_id, 1, ("arm_0",), container="choice", arm="arm_0"),
-            _synthetic_corridor(case_id, 2, ("arm_1",), container="choice", arm="arm_1"),
-            _synthetic_corridor(
-                case_id, 3, ("proven_rejoin", "continuation"), rejoins=("rejoin",)
-            ),
-        )
-        events = assemble_narrative_events(
-            corridors,
-            expected_atom_ids=(
-                atom for corridor in corridors for atom in corridor.ordered_atom_ids
-            ),
-        )
         return {
             "temporary": any(event.temporary_container_id is not None for event in events),
-            "arm_count": len(
-                {event.temporary_arm_id for event in events if event.temporary_arm_id is not None}
+            "arm_count": len({item.arm_id for item in narrative_map.nodes if item.arm_id}),
+            "rejoin_count": sum(
+                item.kind is NarrativeNodeKind.REJOIN for item in narrative_map.nodes
             ),
-            "rejoin_count": len({node for event in events for node in event.rejoin_node_ids}),
             "continuation_owned_once": sum(
-                atom.endswith("-continuation")
+                atom_id == "atom-continuation"
                 for event in events
-                for atom in event.ordered_atom_ids
+                for atom_id in event.ordered_atom_ids
             )
             == 1,
         }
 
     if case_id == "nested-local-detour":
-        corridors = (
-            _synthetic_corridor(case_id, 0, ("choice_split",), choice_ids=("choice",)),
-            _synthetic_corridor(
-                case_id,
-                1,
-                ("arm_0", "nested_choice"),
-                container="choice",
-                arm="arm_0",
-                choice_ids=("nested-choice",),
-            ),
-            _synthetic_corridor(case_id, 2, ("arm_1",), container="choice", arm="arm_1"),
-            _synthetic_corridor(case_id, 3, ("proven_rejoin",), rejoins=("rejoin",)),
-        )
-        events = assemble_narrative_events(
-            corridors,
-            expected_atom_ids=(
-                atom for corridor in corridors for atom in corridor.ordered_atom_ids
-            ),
-        )
-        arms = [event for event in events if event.temporary_arm_id is not None]
+        choice_node_ids = {
+            item.choice_id: item.node_id
+            for item in narrative_map.nodes
+            if item.kind is NarrativeNodeKind.CHOICE and item.choice_id is not None
+        }
+        arms = [item for item in narrative_map.nodes if item.arm_id is not None]
         return {
             "temporary": bool(arms),
-            "nested_choice_count": len(
-                {
-                    choice
-                    for event in arms
-                    for choice in event.nested_choice_ids
-                    if choice == "nested-choice"
-                }
-            ),
+            "nested_choice_count": max(0, len(choice_node_ids) - 1),
             "arms_escape_container": any(
-                event.temporary_container_id != "choice" for event in arms
+                item.choice_id not in choice_node_ids
+                or item.parent_node_id != choice_node_ids[item.choice_id]
+                for item in arms
             ),
         }
 
     if case_id == "persistent-branches":
-        corridors = tuple(
-            _synthetic_corridor(case_id, index, (signal,), lane=f"lane_{index}")
-            for index, signal in enumerate(signals[1:])
-        )
-        events = assemble_narrative_events(corridors)
         return {
             "temporary": any(event.temporary_container_id is not None for event in events),
             "lane_count": len({event.lane_id for event in events}),
-            "invented_merge": any(len(event.ordered_corridor_ids) > 1 for event in events),
+            "invented_merge": any(
+                item.kind.value == "persistent_merge" for item in narrative_map.edges
+            ),
         }
 
     if case_id == "call-occurrences":
-        occurrences = tuple(signal for signal in signals if signal.startswith("call_"))
-        corridors = tuple(
-            _synthetic_corridor(case_id, index, (signal,), occurrence=signal)
-            for index, signal in enumerate(occurrences)
-        )
-        events = assemble_narrative_events(corridors)
+        occurrence_ids = {
+            event.call_occurrence_id for event in events if event.call_occurrence_id is not None
+        }
         return {
-            "occurrence_count": len({event.call_occurrence_id for event in events}),
+            "occurrence_count": len(occurrence_ids),
             "cross_occurrence_membership": any(
-                len(event.ordered_corridor_ids) > 1 for event in events
+                len(
+                    {
+                        corridor.call_occurrence_id
+                        for corridor in corridors
+                        if corridor.corridor_id in event.ordered_corridor_ids
+                        and corridor.call_occurrence_id is not None
+                    }
+                )
+                > 1
+                for event in events
             ),
         }
 
     if case_id == "loop":
-        corridor = _synthetic_corridor(case_id, 0, signals, loop="loop")
-        event = assemble_narrative_events((corridor,))[0]
         return {
-            "loop_preserved": event.loop_id == "loop",
-            "invented_linearization": event.loop_id is None,
+            "loop_preserved": any(event.loop_id == "loop" for event in events)
+            and any(item.kind.value == "loop" for item in narrative_map.edges),
+            "invented_linearization": not any(
+                item.kind.value == "loop" for item in narrative_map.edges
+            ),
         }
 
-    if case_id in {"terminal", "unresolved-transfer"}:
-        marker = "terminal" if case_id == "terminal" else "unresolved"
-        corridor = _synthetic_corridor(case_id, 0, signals, exit_node=marker, hard_after=True)
-        event = assemble_narrative_events((corridor,))[0]
-        if case_id == "terminal":
-            return {
-                "terminal_preserved": event.exit_node_id == marker and corridor.hard_boundary_after,
-                "invented_continuation": event.exit_node_id != marker,
-            }
+    if case_id == "terminal":
+        terminals = {
+            item.node_id for item in narrative_map.nodes if item.kind is NarrativeNodeKind.TERMINAL
+        }
         return {
-            "conservative_boundary": event.exit_node_id == marker and corridor.hard_boundary_after,
-            "invented_target": event.exit_node_id != marker,
+            "terminal_preserved": bool(terminals),
+            "invented_continuation": any(
+                item.source_node_id in terminals for item in narrative_map.edges
+            ),
+        }
+    if case_id == "unresolved-transfer":
+        unresolved = {
+            item.node_id
+            for item in narrative_map.nodes
+            if item.kind is NarrativeNodeKind.UNRESOLVED
+        }
+        return {
+            "conservative_boundary": bool(unresolved)
+            and any(item.kind.value == "unresolved" for item in narrative_map.edges),
+            "invented_target": any(
+                item.source_node_id in unresolved and item.target_node_id in map_nodes
+                for item in narrative_map.edges
+            ),
         }
     raise ValueError(f"unsupported synthetic case {case_id!r}")
 
 
-def _synthetic_corridor(
+def _synthetic_authority(
     case_id: str,
-    ordinal: int,
     signals: tuple[str, ...],
-    *,
-    lane: str = "lane",
-    occurrence: str | None = None,
-    loop: str | None = None,
-    container: str | None = None,
-    arm: str | None = None,
-    choice_ids: tuple[str, ...] = (),
-    rejoins: tuple[str, ...] = (),
-    exit_node: str | None = None,
-    hard_after: bool = False,
-) -> NarrativeCorridor:
-    atom_ids = tuple(
-        f"{case_id}-{ordinal}-{signal_index}-{signal}"
-        for signal_index, signal in enumerate(signals)
+) -> tuple[CanonicalGraph, SceneModel]:
+    """Construct minimal validated M10/M11 authority for one declared topology."""
+
+    node_specs, edge_specs, region_specs = _synthetic_specs(case_id, signals)
+    generation = f"synthetic-{case_id}"
+    origins = {
+        node_id: OriginReference("synthetic_nodes", node_id) for node_id, *_rest in node_specs
+    }
+    evidence = tuple(
+        SourceEvidence(
+            f"evidence-{node_id}",
+            {
+                "path": "synthetic.rpy",
+                "start": {"line": index + 1, "column": 1},
+                "end": {"line": index + 1, "column": 20},
+            },
+            f"synthetic {node_id}",
+            (origins[node_id],),
+            "physical_source",
+        )
+        for index, (node_id, *_rest) in enumerate(node_specs)
     )
-    locator = SourceLocator("synthetic.rpy", ordinal + 1, ordinal + 1, "synthetic")
-    return NarrativeCorridor(
-        authority=_SYNTHETIC_AUTHORITY,
-        lane_id=lane,
-        chapter_id=None,
-        call_occurrence_id=occurrence,
-        loop_id=loop,
-        temporary_container_id=container,
-        temporary_arm_id=arm,
-        ordered_atom_ids=atom_ids,
-        entry_node_id=f"{case_id}-entry-{ordinal}",
-        exit_node_id=exit_node or f"{case_id}-exit-{ordinal}",
-        incident_edge_ids=(f"{case_id}-edge-{ordinal}",),
-        choice_ids=choice_ids,
-        rejoin_node_ids=rejoins,
-        hard_boundary_after=hard_after,
-        technical_atom_ids=tuple(
-            atom_id
-            for atom_id, signal in zip(atom_ids, signals, strict=True)
-            if signal == "visual_change"
+    nodes = tuple(
+        CanonicalNode(
+            node_id,
+            canonical_kind,
+            f"graph-{node_id}",
+            label,
+            ReachabilityStatus.PROVEN_REACHABLE,
+            (f"evidence-{node_id}",),
+            (),
+            (origins[node_id],),
+            attributes,
+        )
+        for node_id, _atom_kind, canonical_kind, label, _source_kind, attributes in node_specs
+    )
+    edges = tuple(
+        CanonicalEdge(
+            edge_id,
+            source_id,
+            target_id,
+            kind,
+            (
+                ReachabilityStatus.PROVEN_REACHABLE
+                if resolved
+                else ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR
+            ),
+            resolved,
+            (f"evidence-{source_id}",),
+            (),
+            (origins[source_id],),
+            {"gate_ids": [], "effect_ids": [], "semantic_roles": [], **attributes},
+        )
+        for edge_id, source_id, target_id, kind, resolved, attributes in edge_specs
+    )
+    proofs = tuple(
+        DerivedProof(
+            f"proof-{region_id}",
+            "synthetic_region",
+            (origins[split_id],),
+            tuple(member_ids),
+            "Synthetic authoritative topology proof.",
+        )
+        for region_id, _kind, split_id, _merge_id, member_ids, _attributes in region_specs
+    )
+    regions = tuple(
+        CanonicalRegion(
+            region_id,
+            kind,
+            split_id,
+            merge_id,
+            tuple(member_ids),
+            (origins[split_id],),
+            (f"proof-{region_id}",),
+            attributes,
+        )
+        for region_id, kind, split_id, merge_id, member_ids, attributes in region_specs
+    )
+    canonical = CanonicalGraph(
+        generation,
+        {"synthetic": generation},
+        nodes,
+        edges,
+        regions,
+        (),
+        evidence,
+        proofs,
+    )
+    canonical.validate()
+    atoms = tuple(
+        StoryAtom(
+            f"atom-{node_id}",
+            atom_kind,
+            node_id,
+            label,
+            atom_kind not in {AtomKind.TECHNICAL, AtomKind.CONDITION},
+            M11_ATOM_RULE_VERSION,
+            M11Provenance(node_ids=(node_id,), evidence_ids=(f"evidence-{node_id}",)),
+            source_kind,
+            None,
+            ("synthetic.rpy", index + 1, 1, node_id),
+        )
+        for index, (node_id, atom_kind, _kind, label, source_kind, _attrs) in enumerate(node_specs)
+    )
+    full_provenance = M11Provenance(
+        node_ids=tuple(item.id for item in nodes),
+        edge_ids=tuple(item.id for item in edges),
+        region_ids=tuple(item.id for item in regions),
+        evidence_ids=tuple(item.id for item in evidence),
+        proof_ids=tuple(item.id for item in proofs),
+    )
+    boundary = BoundaryDecision(
+        "boundary-entry",
+        None,
+        atoms[0].id,
+        BoundaryStrength.HARD,
+        DecisionStatus.ACCEPTED,
+        M11_BOUNDARY_RULE_VERSION,
+        (nodes[0].id,),
+        M11Provenance(node_ids=(nodes[0].id,), evidence_ids=(evidence[0].id,)),
+        "Synthetic entry boundary.",
+        "entry_root",
+    )
+    scene = Scene(
+        "scene-synthetic",
+        "chapter-synthetic",
+        "lane-spine",
+        "Synthetic scene",
+        0,
+        tuple(item.id for item in atoms),
+        (),
+        (),
+        SceneRepeatability.ONCE,
+        None,
+        boundary.id,
+        False,
+        full_provenance,
+    )
+    lane = PersistentLane(
+        "lane-spine",
+        LaneKind.SPINE,
+        None,
+        None,
+        None,
+        (scene.id,),
+        None,
+        None,
+        full_provenance,
+    )
+    chapter = Chapter(
+        "chapter-synthetic",
+        "Synthetic",
+        0,
+        (lane.id,),
+        (scene.id,),
+        boundary.id,
+        full_provenance,
+    )
+    coverage_entries = [
+        CoverageEntry(
+            CoverageCollection.NODE,
+            node.id,
+            CoverageDisposition.ATOM_OWNED,
+            atoms[index].id,
+            (),
+            "Synthetic node ownership.",
+        )
+        for index, node in enumerate(nodes)
+    ]
+    coverage_entries.extend(
+        CoverageEntry(
+            collection,
+            canonical_id,
+            CoverageDisposition.STRUCTURAL_REFERENCE,
+            None,
+            (),
+            "Synthetic structural authority.",
+        )
+        for collection, identifiers in (
+            (CoverageCollection.EDGE, tuple(item.id for item in edges)),
+            (CoverageCollection.REGION, tuple(item.id for item in regions)),
+        )
+        for canonical_id in identifiers
+    )
+    model = SceneModel(
+        CanonicalBinding(generation, CANONICAL_GRAPH_SCHEMA, canonical.authority_hash),
+        atoms,
+        (boundary,),
+        (scene,),
+        (),
+        (),
+        (lane,),
+        (chapter,),
+        (),
+        CanonicalCoverage(
+            tuple(item.id for item in nodes),
+            tuple(item.id for item in edges),
+            tuple(item.id for item in regions),
+            (),
+            tuple(coverage_entries),
         ),
-        provenance=Provenance(atom_ids=atom_ids, locators=(locator,)),
     )
+    model.validate()
+    return canonical, model
+
+
+def _synthetic_specs(
+    case_id: str,
+    signals: tuple[str, ...],
+) -> tuple[list[NodeSpec], list[EdgeSpec], list[RegionSpec]]:
+    """Return node, edge, and region specifications without expected result flags."""
+
+    def node(
+        node_id: str,
+        atom_kind: AtomKind = AtomKind.NARRATION,
+        canonical_kind: CanonicalNodeKind = CanonicalNodeKind.SCRIPT_UNIT,
+        label: str | None = None,
+        source_kind: str = "statement",
+        attributes: Mapping[str, object] | None = None,
+    ) -> NodeSpec:
+        return (
+            node_id,
+            atom_kind,
+            canonical_kind,
+            label or node_id.replace("_", " ").title(),
+            source_kind,
+            dict(attributes or {}),
+        )
+
+    def edge(
+        edge_id: str,
+        source_id: str,
+        target_id: str,
+        kind: str = "continuation",
+        resolved: bool = True,
+        attributes: Mapping[str, object] | None = None,
+    ) -> EdgeSpec:
+        return edge_id, source_id, target_id, kind, resolved, dict(attributes or {})
+
+    nodes: list[NodeSpec]
+    edges: list[EdgeSpec]
+    regions: list[RegionSpec] = []
+    if case_id == "linear-dialogue":
+        nodes = [node("dialogue", AtomKind.DIALOGUE), node("narration")]
+        edges = [edge("edge-0", "dialogue", "narration")]
+    elif case_id == "frequent-pose-changes":
+        nodes = [
+            node("dialogue-0", AtomKind.DIALOGUE),
+            node(
+                "pose-0", AtomKind.VISUAL_CHANGE, label="Scene room pose one", source_kind="scene"
+            ),
+            node(
+                "pose-1", AtomKind.VISUAL_CHANGE, label="Scene room pose two", source_kind="scene"
+            ),
+            node("dialogue-1", AtomKind.DIALOGUE),
+        ]
+        edges = [edge(f"edge-{index}", nodes[index][0], nodes[index + 1][0]) for index in range(3)]
+    elif case_id == "local-detour":
+        nodes = [
+            node("choice_split", AtomKind.CHOICE, CanonicalNodeKind.CHOICE, source_kind="menu"),
+            node("arm_0"),
+            node("arm_1"),
+            node("proven_rejoin", canonical_kind=CanonicalNodeKind.MERGE),
+            node("continuation"),
+        ]
+        edges = [
+            edge("edge-split-0", "choice_split", "arm_0", "choice"),
+            edge("edge-split-1", "choice_split", "arm_1", "choice"),
+            edge("edge-arm-0", "arm_0", "proven_rejoin"),
+            edge("edge-arm-1", "arm_1", "proven_rejoin"),
+            edge("edge-continuation", "proven_rejoin", "continuation"),
+        ]
+        regions = [
+            _local_region("choice", "choice_split", "proven_rejoin", (("arm_0",), ("arm_1",)))
+        ]
+    elif case_id == "nested-local-detour":
+        nodes = [
+            node("choice_split", AtomKind.CHOICE, CanonicalNodeKind.CHOICE, source_kind="menu"),
+            node("arm_0"),
+            node("nested_choice", AtomKind.CHOICE, CanonicalNodeKind.CHOICE, source_kind="menu"),
+            node("nested_arm_0"),
+            node("nested_arm_1"),
+            node("nested_rejoin", canonical_kind=CanonicalNodeKind.MERGE),
+            node("arm_1"),
+            node("proven_rejoin", canonical_kind=CanonicalNodeKind.MERGE),
+        ]
+        edges = [
+            edge("edge-outer-0", "choice_split", "arm_0", "choice"),
+            edge("edge-outer-1", "choice_split", "arm_1", "choice"),
+            edge("edge-nested-entry", "arm_0", "nested_choice"),
+            edge("edge-nested-0", "nested_choice", "nested_arm_0", "choice"),
+            edge("edge-nested-1", "nested_choice", "nested_arm_1", "choice"),
+            edge("edge-nested-merge-0", "nested_arm_0", "nested_rejoin"),
+            edge("edge-nested-merge-1", "nested_arm_1", "nested_rejoin"),
+            edge("edge-outer-merge-0", "nested_rejoin", "proven_rejoin"),
+            edge("edge-outer-merge-1", "arm_1", "proven_rejoin"),
+        ]
+        regions = [
+            _local_region(
+                "choice",
+                "choice_split",
+                "proven_rejoin",
+                (
+                    ("arm_0", "nested_choice", "nested_arm_0", "nested_arm_1", "nested_rejoin"),
+                    ("arm_1",),
+                ),
+            ),
+            _local_region(
+                "nested-choice",
+                "nested_choice",
+                "nested_rejoin",
+                (("nested_arm_0",), ("nested_arm_1",)),
+                parent="choice",
+            ),
+        ]
+    elif case_id == "persistent-branches":
+        lane_0 = {"route": {"lane_id": "lane_0"}}
+        lane_1 = {"route": {"lane_id": "lane_1"}}
+        nodes = [
+            node(
+                "persistent_split",
+                AtomKind.CONDITION,
+                CanonicalNodeKind.CONDITION,
+                attributes=lane_0,
+            ),
+            node("lane_0", attributes=lane_0),
+            node("lane_1", attributes=lane_1),
+        ]
+        edges = [
+            edge("edge-lane-0", "persistent_split", "lane_0", "choice"),
+            edge("edge-lane-1", "persistent_split", "lane_1", "choice"),
+        ]
+        regions = [
+            (
+                "persistent",
+                "persistent_route",
+                "persistent_split",
+                None,
+                ("persistent_split", "lane_0", "lane_1"),
+                {
+                    "arms": [
+                        {
+                            "id": "lane-arm-0",
+                            "ordinal": 0,
+                            "entry_node_id": "lane_0",
+                            "member_node_ids": ["lane_0"],
+                        },
+                        {
+                            "id": "lane-arm-1",
+                            "ordinal": 1,
+                            "entry_node_id": "lane_1",
+                            "member_node_ids": ["lane_1"],
+                        },
+                    ]
+                },
+            )
+        ]
+    elif case_id == "call-occurrences":
+        nodes = [
+            node("call_0", AtomKind.CALL),
+            node("callee_0"),
+            node("return_0"),
+            node("call_1", AtomKind.CALL),
+            node("callee_1"),
+            node("return_1"),
+            node("tail"),
+        ]
+        edges = [
+            edge(
+                "edge-call-0",
+                "call_0",
+                "callee_0",
+                "call",
+                attributes={"call_site_id": "occurrence-0"},
+            ),
+            edge(
+                "edge-callee-0", "callee_0", "return_0", attributes={"call_site_id": "occurrence-0"}
+            ),
+            edge(
+                "edge-return-0",
+                "return_0",
+                "call_1",
+                "call_return",
+                attributes={"call_site_id": "occurrence-0"},
+            ),
+            edge(
+                "edge-call-1",
+                "call_1",
+                "callee_1",
+                "call",
+                attributes={"call_site_id": "occurrence-1"},
+            ),
+            edge(
+                "edge-callee-1", "callee_1", "return_1", attributes={"call_site_id": "occurrence-1"}
+            ),
+            edge(
+                "edge-return-1",
+                "return_1",
+                "tail",
+                "call_return",
+                attributes={"call_site_id": "occurrence-1"},
+            ),
+        ]
+    elif case_id == "loop":
+        loop = {"loop_ids": ["loop"]}
+        nodes = [
+            node("entry"),
+            node("loop_body", AtomKind.LOOP, CanonicalNodeKind.LOOP, attributes=loop),
+            node("back_edge", attributes=loop),
+            node("exit"),
+        ]
+        edges = [
+            edge("edge-entry", "entry", "loop_body"),
+            edge("edge-body", "loop_body", "back_edge"),
+            edge("edge-back", "back_edge", "loop_body", "loop_back"),
+            edge("edge-exit", "back_edge", "exit"),
+        ]
+    elif case_id == "terminal":
+        nodes = [node("entry"), node("terminal", AtomKind.TERMINAL, CanonicalNodeKind.TERMINAL)]
+        edges = [edge("edge-terminal", "entry", "terminal", "terminal")]
+    elif case_id == "unresolved-transfer":
+        nodes = [
+            node("entry"),
+            node("unresolved_transfer", AtomKind.UNRESOLVED, CanonicalNodeKind.UNRESOLVED),
+        ]
+        edges = [
+            edge("edge-unresolved", "entry", "unresolved_transfer", "unresolved_transfer", False)
+        ]
+    else:
+        raise ValueError(f"unsupported synthetic case {case_id!r}")
+    if not signals:
+        raise ValueError("synthetic acceptance cases require declared signals")
+    return nodes, edges, regions
+
+
+def _local_region(
+    region_id: str,
+    split_id: str,
+    merge_id: str,
+    arms: tuple[tuple[str, ...], ...],
+    *,
+    parent: str | None = None,
+) -> RegionSpec:
+    attributes: dict[str, object] = {
+        "arms": [
+            {
+                "id": f"{region_id}-arm-{ordinal}",
+                "ordinal": ordinal,
+                "entry_node_id": members[0],
+                "member_node_ids": list(members),
+            }
+            for ordinal, members in enumerate(arms)
+        ]
+    }
+    if parent is not None:
+        attributes["parent_region_id"] = parent
+    members = (split_id, *(node_id for arm in arms for node_id in arm), merge_id)
+    return region_id, "local_detour", split_id, merge_id, members, attributes
 
 
 def _canonical_choice_pairs(

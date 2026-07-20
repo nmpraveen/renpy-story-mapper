@@ -84,7 +84,7 @@ def build_narrative_corridors(
             chapter_id=None,
             lane_id=_canonical_lane(node.attributes),
             occurrence_id=occurrence_by_node.get(atom.primary_node_id),
-            loop_id=_canonical_loop(node.attributes),
+            loop_id=_canonical_loop(node),
             container_id=container_id,
             arm_id=arm_id,
         )
@@ -338,14 +338,17 @@ def _canonical_lane(attributes: object) -> str:
     return "lane_story_spine"
 
 
-def _canonical_loop(attributes: object) -> str | None:
+def _canonical_loop(node: CanonicalNode) -> str | None:
+    attributes = node.attributes
     if not isinstance(attributes, dict):
-        return None
+        return node.id if node.kind.value == "loop" else None
     loop_ids = attributes.get("loop_ids")
     if not isinstance(loop_ids, Sequence) or isinstance(loop_ids, str | bytes):
-        return None
+        return node.id if node.kind.value == "loop" else None
     values = sorted(item for item in loop_ids if isinstance(item, str) and item)
-    return None if not values else "/".join(values)
+    if values:
+        return "/".join(values)
+    return node.id if node.kind.value == "loop" else None
 
 
 def _control_order(

@@ -157,6 +157,22 @@ def test_hard_boundaries_do_not_exempt_descending_source_order() -> None:
         assemble_narrative_events((later, earlier))
 
 
+def test_shared_incident_edge_does_not_exempt_descending_hard_boundaries() -> None:
+    later = replace(
+        _corridor(2, hard_after=True),
+        incident_edge_ids=("shared-edge",),
+        provenance=replace(_corridor(2).provenance, edge_ids=("shared-edge",)),
+    )
+    earlier = replace(
+        _corridor(1, hard_before=True),
+        incident_edge_ids=("shared-edge",),
+        provenance=replace(_corridor(1).provenance, edge_ids=("shared-edge",)),
+    )
+
+    with pytest.raises(ValueError, match="out of source/control order"):
+        assemble_narrative_events((later, earlier))
+
+
 def test_decision_across_a_hard_boundary_is_rejected() -> None:
     first = _corridor(1, hard_after=True)
     second = _corridor(
