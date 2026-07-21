@@ -26,6 +26,7 @@ from renpy_story_mapper.narrative_map.projection import (
     SemanticTopologyNode,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
+    choice_owns_visual_rejoin,
     project_compact_semantic_edges,
     project_compact_semantic_nodes,
 )
@@ -411,3 +412,37 @@ def test_compact_projection_retains_exact_visible_choice_paths() -> None:
         if edge.source_subject_id == story_choice.choice_id
     } == {"beat-6", "beat-7"}
     assert all(edge.authority_edge_ids for edge in edges)
+
+
+def test_nested_choice_without_own_continuation_uses_ancestor_visual_rejoin() -> None:
+    outer = ChoiceComposition(
+        "outer",
+        "cluster-story",
+        None,
+        None,
+        ("outer-a", "outer-b"),
+        ("Continue", "Stop"),
+        ("nested",),
+        ("outer-rel-a", "outer-rel-b"),
+        "outer-merge",
+        "continuation-unit",
+        "outer-region",
+    )
+    nested = ChoiceComposition(
+        "nested",
+        "cluster-story",
+        "outer",
+        "outer-a",
+        ("nested-a", "nested-b"),
+        ("Accept", "Decline"),
+        (),
+        ("nested-rel-a", "nested-rel-b"),
+        "nested-merge",
+        None,
+        "nested-region",
+    )
+    choices = {outer.choice_id: outer, nested.choice_id: nested}
+
+    assert choice_owns_visual_rejoin(outer, choices, {"outer", "nested"})
+    assert not choice_owns_visual_rejoin(nested, choices, {"outer", "nested"})
+    assert nested.rejoin_relationship_ids == ("nested-rel-a", "nested-rel-b")

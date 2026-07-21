@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from typing import cast
@@ -846,6 +846,8 @@ def project_compact_semantic_nodes(
     for choice in outline.choices:
         if choice.choice_id not in visible_choice_ids or choice.shared_target_id is None:
             continue
+        if not choice_owns_visual_rejoin(choice, choice_by_id, visible_choice_ids):
+            continue
         rejoin_id = stable_m15_id(
             "semantic_rejoin",
             {
@@ -921,6 +923,38 @@ def project_compact_semantic_nodes(
         node["ordinal"] = order - 1
         result.append(node)
     return tuple(result)
+
+
+def choice_owns_visual_rejoin(
+    choice: ChoiceComposition,
+    choices: Mapping[str, ChoiceComposition],
+    visible_choice_ids: Collection[str],
+) -> bool:
+    """Return whether a choice owns a distinct compact merge marker.
+
+    Exact nested rejoin relationships remain on the choice itself. A nested choice without its
+    own continuation feeds the first visible ancestor that owns the continuation, so drawing a
+    second marker would duplicate one visual story transition.
+    """
+
+    if choice.post_rejoin_continuation_id is not None or choice.parent_choice_id is None:
+        return True
+    seen = {choice.choice_id}
+    parent_id: str | None = choice.parent_choice_id
+    while parent_id is not None:
+        if parent_id in seen:
+            raise ValueError("compact semantic projection choice ownership contains a cycle")
+        seen.add(parent_id)
+        parent = choices.get(parent_id)
+        if parent is None:
+            raise ValueError("compact semantic projection nested choice lacks its ancestor")
+        if (
+            parent.choice_id in visible_choice_ids
+            and parent.post_rejoin_continuation_id is not None
+        ):
+            return False
+        parent_id = parent.parent_choice_id
+    return True
 
 
 def project_compact_semantic_edges(
