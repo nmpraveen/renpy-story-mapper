@@ -774,8 +774,9 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
         ("resume", "node-8", None, None),
     )
     units_list: list[FineNarrativeUnit] = []
-    for occurrence_index, occurrence_id in enumerate(("call-alpha", "call-beta")):
-        occurrence_path = (occurrence_id,)
+    for occurrence_index, occurrence_id in enumerate(("call-alpha", "call-beta", None)):
+        occurrence_path = (occurrence_id,) if occurrence_id is not None else ()
+        instance_label = occurrence_id or "direct"
         for index, (key, node_id, parent_choice, parent_arm) in enumerate(specs):
             qualified_parent = (
                 stable_m15_id(
@@ -786,12 +787,14 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
                         "call_occurrence_path": list(occurrence_path),
                     },
                 )
+                if parent_choice is not None and occurrence_path
+                else parent_choice
                 if parent_choice is not None
                 else None
             )
             base = _unit(
-                f"{key}-{occurrence_id}",
-                f"{key}-{occurrence_id}",
+                f"{key}-{instance_label}",
+                f"{key}-{instance_label}",
                 0,
                 occurrence_index * len(specs) + index + 1,
                 qualified_parent,
@@ -802,9 +805,10 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
                     base,
                     authority=authority,
                     node_ids=(node_id,),
-                    context_ids=(*occurrence_path, f"progression:{occurrence_id}"),
+                    context_ids=occurrence_path,
                     call_occurrence_id=occurrence_id,
                     call_occurrence_path=occurrence_path,
+                    call_site_path=occurrence_path,
                     entry_node_id=node_id,
                     exit_node_id=node_id,
                     provenance=replace(base.provenance, node_ids=(node_id,)),
@@ -816,7 +820,7 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
 
     choices = build_choice_compositions(canonical, units, provisional)
 
-    assert len(choices) == 4
+    assert len(choices) == 6
     assert {item.canonical_region_id for item in choices} == {
         "choice-outer",
         "choice-inner",
@@ -824,8 +828,11 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
     assert {item.call_occurrence_path for item in choices} == {
         ("call-alpha",),
         ("call-beta",),
+        (),
     }
-    assert all(item.choice_id != item.canonical_region_id for item in choices)
+    assert all(
+        item.choice_id != item.canonical_region_id for item in choices if item.call_occurrence_path
+    )
     for outer in (item for item in choices if item.canonical_region_id == "choice-outer"):
         assert len(outer.child_choice_ids) == 1
         child = next(item for item in choices if item.choice_id == outer.child_choice_ids[0])

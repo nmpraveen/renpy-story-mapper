@@ -153,7 +153,7 @@ def assemble_semantic_outline(
     beats: list[SemanticBeat] = []
     cluster_for_beat: list[str] = []
     current_top_cluster: str | None = None
-    current_top_context: tuple[str, str | None] | None = None
+    current_top_context: tuple[object, ...] | None = None
     for beat_group, start_kind in zip(beat_groups, beat_start_kind, strict=True):
         first = beat_group[0]
         membership = tuple(item.unit_id for item in beat_group)
@@ -674,12 +674,17 @@ def _validate_outline_membership(outline: SemanticOutline) -> None:
         raise ValueError("semantic choices must belong to exactly one cluster in order")
 
 
-def _major_context(unit: FineNarrativeUnit) -> tuple[str, str | None]:
+def _major_context(unit: FineNarrativeUnit) -> tuple[object, ...]:
     progression = next(
         (item for item in unit.context_ids if item.startswith("progression:")),
         None,
     )
-    return unit.lane_id, progression
+    return (
+        unit.lane_id,
+        progression,
+        unit.call_occurrence_path,
+        unit.loop_id,
+    )
 
 
 def _canonical_arms(region: CanonicalRegion) -> tuple[dict[str, object], ...]:
