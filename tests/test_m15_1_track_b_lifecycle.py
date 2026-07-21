@@ -2360,14 +2360,31 @@ def test_stale_manifest_build_compare_and_write_cannot_overwrite_replacement(
 
         assert not repository.write_semantic_build_if_manifest(
             stale_update,
+            expected_build=stale,
             stage="boundary",
             manifest_id=old.consent.manifest_id,
         )
         current = repository.read_semantic_build()
 
+        assert current is not None
+        peer_update = dict(current)
+        peer_update["state"] = SemanticBuildState.VALIDATING.value
+        repository.write_semantic_build(peer_update)
+        same_manifest_stale = dict(current)
+        same_manifest_stale["state"] = SemanticBuildState.CANCELLED.value
+        assert not repository.write_semantic_build_if_manifest(
+            same_manifest_stale,
+            expected_build=current,
+            stage="boundary",
+            manifest_id=replacement.consent.manifest_id,
+        )
+        after_peer = repository.read_semantic_build()
+
     assert current is not None
     assert current["boundary_manifest_id"] == replacement.consent.manifest_id
     assert current["state"] == SemanticBuildState.AWAITING_BOUNDARY_CONSENT.value
+    assert after_peer is not None
+    assert after_peer["state"] == SemanticBuildState.VALIDATING.value
 
 
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(

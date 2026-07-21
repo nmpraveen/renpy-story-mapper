@@ -247,6 +247,7 @@ class NarrativeMapRepository:
         self,
         payload: Mapping[str, object],
         *,
+        expected_build: Mapping[str, object],
         stage: str,
         manifest_id: str,
     ) -> bool:
@@ -256,6 +257,7 @@ class NarrativeMapRepository:
         _validate_durable(normalized)
         return self._write_payloads_if_manifest(
             ((SEMANTIC_BUILD_COLLECTION, "active", normalized),),
+            expected_build=expected_build,
             stage=stage,
             manifest_id=manifest_id,
         )
@@ -584,6 +586,7 @@ class NarrativeMapRepository:
         *,
         build: Mapping[str, object],
         publication: Mapping[str, object],
+        expected_build: Mapping[str, object],
         stage: str,
         manifest_id: str,
     ) -> bool:
@@ -598,6 +601,7 @@ class NarrativeMapRepository:
                 (SEMANTIC_BUILD_COLLECTION, "active", normalized_build),
                 (SEMANTIC_CURRENT_COLLECTION, "current", normalized_publication),
             ),
+            expected_build=expected_build,
             stage=stage,
             manifest_id=manifest_id,
         )
@@ -833,6 +837,7 @@ class NarrativeMapRepository:
         self,
         records: tuple[tuple[str, str, Mapping[str, object]], ...],
         *,
+        expected_build: Mapping[str, object],
         stage: str,
         manifest_id: str,
     ) -> bool:
@@ -857,6 +862,11 @@ class NarrativeMapRepository:
             if not isinstance(active, Mapping):
                 raise storage.ProjectCorruptError("M15.1 semantic build is not an object")
             if active.get(f"{stage}_manifest_id") != manifest_id:
+                return False
+            expected_encoded = storage.canonical_json(
+                _detached_mapping(expected_build, "expected semantic build")
+            )
+            if active_encoded != expected_encoded:
                 return False
             for collection, key, value in records:
                 payload = storage.canonical_json(value)

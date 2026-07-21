@@ -716,10 +716,12 @@ class SemanticLifecycle:
                 if preparation.stage is SemanticStage.BOUNDARIES
                 else SemanticBuildState.SUMMARIES_RUNNING
             )
+            expected_running_build = raw
             raw = _updated_state(raw, running)
             raw["cancel_requested"] = False
             if not self._repository.write_semantic_build_if_manifest(
                 raw,
+                expected_build=expected_running_build,
                 stage=prefix,
                 manifest_id=consent.manifest_id,
             ):
@@ -847,6 +849,7 @@ class SemanticLifecycle:
         if latest_was_complete or boundary_phase_advanced:
             self._repository.write_semantic_build_if_manifest(
                 updated,
+                expected_build=latest,
                 stage=prefix,
                 manifest_id=consent.manifest_id,
             )
@@ -865,7 +868,7 @@ class SemanticLifecycle:
         elif len(completed) == len(preparation.jobs):
             updated = _updated_state(updated, SemanticBuildState.VALIDATING)
             if preparation.stage is SemanticStage.SUMMARIES:
-                self._publish(preparation, updated)
+                self._publish(preparation, updated, expected_build=latest)
                 settle_finalized_reservations()
                 return report
         elif report.deferred_job_ids:
@@ -880,6 +883,7 @@ class SemanticLifecycle:
             updated = _updated_state(updated, SemanticBuildState.PARTIAL)
         self._repository.write_semantic_build_if_manifest(
             updated,
+            expected_build=latest,
             stage=prefix,
             manifest_id=consent.manifest_id,
         )
@@ -1061,6 +1065,8 @@ class SemanticLifecycle:
         self,
         preparation: SemanticStagePreparation,
         build: dict[str, object],
+        *,
+        expected_build: Mapping[str, object],
     ) -> bool:
         if preparation.outline is None or preparation.membership_hash is None:
             raise ValueError("semantic publication requires the frozen outline")
@@ -1113,6 +1119,7 @@ class SemanticLifecycle:
         return self._repository.publish_semantic_current_if_manifest(
             build=completed,
             publication=publication,
+            expected_build=expected_build,
             stage="summary",
             manifest_id=preparation.consent.manifest_id,
         )
