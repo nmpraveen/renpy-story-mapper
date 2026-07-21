@@ -1,6 +1,6 @@
 # M15.1 semantic Story Map correction report
 
-Status: In progress
+Status: Verification
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -19,9 +19,9 @@ contract.
 The corrected implementation and supported product path are integrated locally and independently
 reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
 unsupported response-schema keyword. Versioned successor schemas preserve old identities and local
-validation while removing that provider-incompatible keyword. Correction gates, a fresh boundary
-run, the separate summary stage, final private evaluation, user visual approval, and the final
-Release/PR gate remain pending.
+validation while removing that provider-incompatible keyword. Boundary and summary production are
+now complete; final private evaluation, user visual approval, and the final Release/PR gate remain
+pending.
 
 ## Evidence status
 
@@ -37,8 +37,8 @@ Release/PR gate remain pending.
 | Integrated fake-provider acceptance | Complete | Local integration head `4f6f740`; 174 M15 passed/2 expected opt-in skips, 169 compatibility passed, both enabled Chrome suites 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, whitespace, and private-reference diff scan passed |
 | Provider-schema correction | Complete and independently reviewed | Four versioned successors preserve historical resources and remove only unsupported `uniqueItems`; all four current/stale routes and all eight delegated uniqueness sites have direct regression coverage. Independent re-review passed with no P0-P2. 184 M15 passed/2 expected opt-in skips, 169 compatibility passed, enabled Chrome 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, JSON parsing, whitespace, and four public Codex CLI 0.144.0 schema canaries passed. The optional exhaustive repository run exceeded 300 seconds without emitting a failure and is not counted as passed. |
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
-| Live boundaries | Records complete; checkpoint/freeze pending | First run: 94 calls, zero validated, 93 `output_schema_rejected`, one `provider_unavailable`. Versioned retry reached 59 validated before consent expiry; the authorized one-hour resume completed all 94 records with zero job errors. Reconcile the final 94/94 accounting and freeze membership. Private artifacts are under `output/m15-1-live-acceptance-20260721-121205/` and `output/m15-1-live-acceptance-20260721-125206/`. |
-| Live summaries | Pending separate explicit consent | Frozen-membership summary preview/manifest must be presented after boundaries freeze |
+| Live boundaries | Complete | Final checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. |
+| Live summaries | Complete | At reviewed head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations are exactly 529/529; source/archive/authority rows are unchanged. Recovery, six concurrency races, record/build CAS, and combined repair disclosure were independently reviewed with no P0-P2; 203 M15 tests passed with two expected browser skips, Ruff, and strict mypy over 114 files. Private evidence is under `output/m15-1-live-acceptance-20260721-125206/`. |
 | Final reviewer and private comparison | Pending | Source-first result must freeze before comparison with private oracle/mockups |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
 | Final Release and exact PR head | Pending | Run once after visual approval; PR must remain open and unmerged |
@@ -57,8 +57,7 @@ Release/PR gate remain pending.
 
 - Corrected implementation is integrated locally but has not been pushed; the existing PR remains
   intentionally behind until live semantic, review, screenshot, Release, and final-head gates pass.
-- The first M15.1 live boundary run consumed its consent without freezing membership. Its manifest
-  cannot be reused; the corrected candidate requires a fresh exact preview before any retry.
+- Live semantic production is complete; its private artifacts remain ignored and unstaged.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
   installer/public distribution, and PR merge remain outside this correction.
 - The visible task surface can set model and reasoning but exposes no fast-mode selector; that

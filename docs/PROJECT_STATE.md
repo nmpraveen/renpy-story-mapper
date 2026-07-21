@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-21 (M15.1 correction In progress; live boundary resume)
+Updated: 2026-07-21 (M15.1 correction Verification; live semantics complete)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,7 +13,7 @@ Updated: 2026-07-21 (M15.1 correction In progress; live boundary resume)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. Revised semantic-review `PASS` and native-goal activation occurred on
+- Status: Verification. Revised semantic-review `PASS` and native-goal activation occurred on
   2026-07-21. The prior `PR ready` result is
   revoked and recorded as Changes Requested because its generic wide graph did not meet the human
   narrative outcome. Its product heads, screenshots, visible-order export, reviews, Release, and
@@ -76,6 +76,20 @@ Updated: 2026-07-21 (M15.1 correction In progress; live boundary resume)
   with no P0-P2; 196 M15 tests passed with two expected opt-in browser skips, plus Ruff, strict
   mypy over 114 source files, and whitespace checks. Live boundary records are 94/94 validated;
   one recovery-only product preparation must checkpoint the final 94/94 accounting.
+- Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
+- Live semantic production is complete at `e925afd9b9f7fb83f44518e67a6eca5f14655f30`.
+  Boundary checkpoint evidence records 94/94 validated jobs; checkpoint manifest/result SHA-256
+  are `817889a6f46a02780013ced0cb7e886cdd46765ed075d97a7463654edb26bc29` and
+  `d448ed9688e6bde4a7b2542647513ce7da2892bb35d3076a779e68dd354eca66`.
+  Summary manifest `consent_710e992d5a0f47e3108351de` completed 161/161 validated jobs and
+  published hash `139c690ea9d3ddd9b39786b6fbf65783890c21461c611ad0f617ae83af511c8f`.
+  Its manifest/result SHA-256 are `28f8612db806768b463543b0ac5ab0afcad93aadfd9c69ad327ec1d0c6cabe30`
+  and `557745d7246a532ef7c8430135c6d2d6e8831b3028fe39d5cee4e590524fc32c`.
+  Final accounting is exactly 529 provider calls/reservations; source, archive, and M10-M13
+  authority rows remained unchanged. Recovery, race-fencing, and combined-repair corrections pass
+  203 M15 tests with two expected browser skips, Ruff, strict mypy over 114 files, and independent
+  review with no P0-P2. Final private review, browser/user acceptance, Release, and PR readiness
+  remain pending.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
   preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
   deferred or excluded.
