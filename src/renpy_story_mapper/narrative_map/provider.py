@@ -52,7 +52,7 @@ SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
-_SEMANTIC_REPAIR_GUIDANCE_VERSION = "m15-semantic-repair-guidance-v2"
+SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -268,6 +268,7 @@ class NarrativeConsentManifest:
     maximum_output_bytes: int
     timeout_seconds: float
     consent_granted: bool = False
+    repair_policy_version: str | None = None
     version: str = "m15-narrative-consent-v1"
     _call_ledger: _ConsentCallLedger = field(
         default_factory=_ConsentCallLedger,
@@ -298,6 +299,12 @@ class NarrativeConsentManifest:
             raise ValueError("consent output limit exceeds the sterile boundary")
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
             raise ValueError("consent timeout must be positive")
+        if self.repair_policy_version is not None and (
+            not self.repair_policy_version
+            or self.repair_policy_version != self.repair_policy_version.strip()
+            or self.version != "m15-narrative-consent-v2"
+        ):
+            raise ValueError("consent repair policy identity is invalid")
         _consent_times(self.issued_utc, self.expires_utc)
 
     @classmethod
@@ -321,6 +328,7 @@ class NarrativeConsentManifest:
         for job in jobs:
             job.validate_integrity()
         issued = datetime.now(UTC)
+        repair_policy_version = _repair_policy_version(jobs)
         return cls(
             run_id=run_id,
             profile=profile,
@@ -340,6 +348,12 @@ class NarrativeConsentManifest:
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
             consent_granted=consent_granted,
+            repair_policy_version=repair_policy_version,
+            version=(
+                "m15-narrative-consent-v2"
+                if repair_policy_version is not None
+                else "m15-narrative-consent-v1"
+            ),
         )
 
     @property
@@ -347,7 +361,7 @@ class NarrativeConsentManifest:
         return stable_m15_id("consent", self.identity_dict())
 
     def identity_dict(self) -> dict[str, JsonValue]:
-        return {
+        identity: dict[str, JsonValue] = {
             "version": self.version,
             "run_id": self.run_id,
             "profile": self.profile.to_dict(),
@@ -361,6 +375,9 @@ class NarrativeConsentManifest:
             "maximum_output_bytes": self.maximum_output_bytes,
             "timeout_seconds": self.timeout_seconds,
         }
+        if self.repair_policy_version is not None:
+            identity["repair_policy_version"] = self.repair_policy_version
+        return identity
 
     def validate_for(
         self,
@@ -378,6 +395,8 @@ class NarrativeConsentManifest:
             job.validate_integrity()
         if _job_identity_hash(jobs) != self.job_identity_hash:
             raise ValueError("M15 consent input identity does not match")
+        if self.repair_policy_version != _repair_policy_version(jobs):
+            raise ValueError("M15 consent repair policy identity does not match")
 
     def validate_job(self, job: PreparedNarrativeJob, profile: ProviderProfile) -> None:
         if not self.consent_granted:
@@ -392,6 +411,11 @@ class NarrativeConsentManifest:
             raise ValueError("M15 consent scope does not include the provider job") from None
         if canonical_hash(job.durable_metadata()) != self.job_identity_hashes[index]:
             raise ValueError("M15 consent job identity does not match")
+        if (
+            job.kind is ProviderJobKind.SEMANTIC_SUMMARY
+            and self.repair_policy_version != SEMANTIC_REPAIR_POLICY_VERSION
+        ):
+            raise ValueError("M15 consent repair policy identity does not match")
 
     def validate_fresh(self) -> None:
         issued, expires = _consent_times(self.issued_utc, self.expires_utc)
@@ -709,10 +733,16 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
         },
     }
     if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY and request.repair_codes:
-        envelope["request"]["repair_guidance_version"] = _SEMANTIC_REPAIR_GUIDANCE_VERSION
+        if request.consent.repair_policy_version != SEMANTIC_REPAIR_POLICY_VERSION:
+            raise NarrativeMapProviderError(
+                "repair_policy_mismatch",
+                "The M15 repair policy is not bound to the exact consent.",
+                provider_call_reserved=False,
+            )
+        envelope["request"]["repair_guidance_version"] = SEMANTIC_REPAIR_POLICY_VERSION
         envelope["request"]["locked_semantics_policy"] = (
             "Copy every scalar and claim slot in request.locked_semantics exactly. Change only "
-            "fields named by request.repair_codes."
+            "fields identified by request.repair_codes as described in request.repair_guidance."
         )
         envelope["request"]["repair_guidance"] = [
             _SEMANTIC_REPAIR_GUIDANCE[code]
@@ -722,6 +752,14 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
     return json.dumps(
         envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
+
+
+def _repair_policy_version(
+    jobs: Sequence[PreparedNarrativeJob],
+) -> str | None:
+    if any(job.kind is ProviderJobKind.SEMANTIC_SUMMARY for job in jobs):
+        return SEMANTIC_REPAIR_POLICY_VERSION
+    return None
 
 
 def _extract_payload(result: SterileRunResult) -> dict[str, object]:

@@ -555,6 +555,13 @@ def _safe_manifest(preparation: SemanticStagePreparation) -> dict[str, object]:
     prompt_hash = canonical_hash(
         [[item.job_id, item.prompt_version] for item in preparation.jobs]
     )
+    if consent.repair_policy_version is not None:
+        prompt_hash = canonical_hash(
+            {
+                "base_prompt_hash": prompt_hash,
+                "repair_policy_version": consent.repair_policy_version,
+            }
+        )
     schema_hash = canonical_hash(
         [[item.job_id, item.response_schema] for item in preparation.jobs]
     )
@@ -578,6 +585,7 @@ def _safe_manifest(preparation: SemanticStagePreparation) -> dict[str, object]:
         "authority_hash": canonical_hash(preparation.authority.to_dict()),
         "correction_hash": canonical_hash({"correction_id": preparation.correction_id}),
         "prompt_hash": prompt_hash,
+        "repair_policy_version": consent.repair_policy_version,
         "schema_hash": schema_hash,
         "membership_hash": preparation.membership_hash,
         "scope_hash": scope_hash,

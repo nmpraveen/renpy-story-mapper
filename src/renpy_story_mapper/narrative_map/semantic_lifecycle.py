@@ -1473,6 +1473,7 @@ def _restore_manifest(
         maximum_output_bytes=cast(int, value["maximum_output_bytes"]),
         timeout_seconds=float(cast(float, value["timeout_seconds"])),
         consent_granted=False,
+        repair_policy_version=cast(str | None, value.get("repair_policy_version")),
         version=cast(str, value["version"]),
     )
 

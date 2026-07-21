@@ -286,6 +286,7 @@ def test_fake_provider_two_stage_publication_and_reopen_are_exact_replays(
             {"action": "prepare_boundaries"},
         )
         boundary_manifest = boundaries["manifest_id"]
+        assert boundaries["manifest"]["repair_policy_version"] is None
         api.dispatch(
             "POST",
             M15_API_ROUTES["start_boundaries"],
@@ -308,6 +309,9 @@ def test_fake_provider_two_stage_publication_and_reopen_are_exact_replays(
         summary_manifest = summaries["manifest_id"]
         assert summary_manifest != boundary_manifest
         assert summaries["requires_confirmation"] is True
+        assert summaries["manifest"]["repair_policy_version"] == (
+            "m15-semantic-repair-guidance-v2"
+        )
         api.dispatch(
             "POST",
             M15_API_ROUTES["start_summaries"],

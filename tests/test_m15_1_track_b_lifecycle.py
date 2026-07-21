@@ -677,6 +677,20 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
         repair_request, lambda: False
     )
     repair_prompt = json.loads(repair_runner.requests[0].stdin)
+    assert repair_request.consent.version == "m15-narrative-consent-v2"
+    assert repair_request.consent.repair_policy_version == (
+        "m15-semantic-repair-guidance-v2"
+    )
+    assert repair_request.consent.identity_dict()["repair_policy_version"] == (
+        "m15-semantic-repair-guidance-v2"
+    )
+    stale_repair_consent = replace(
+        repair_request.consent,
+        repair_policy_version="m15-semantic-repair-guidance-v1",
+    )
+    assert stale_repair_consent.manifest_id != repair_request.consent.manifest_id
+    with pytest.raises(ValueError, match="repair policy"):
+        stale_repair_consent.validate_for((current_job,), _profile())
     assert repair_prompt["version"] == prompt["version"]
     assert repair_prompt["request"]["repair_guidance_version"] == (
         "m15-semantic-repair-guidance-v2"
