@@ -63,6 +63,7 @@ class NarrativeWorkflowReport:
     elapsed_ms: int
     cancelled: bool
     deferred_job_ids: tuple[str, ...] = ()
+    terminal_reservations: tuple[tuple[str, int], ...] = ()
 
 
 class NarrativeBoundaryWorkflow:
@@ -166,6 +167,7 @@ class NarrativeBoundaryWorkflow:
         cache_hits = 0
         provider_calls = 0
         usages: list[ProviderUsage] = []
+        terminal_reservations: list[tuple[str, int]] = []
         was_cancelled = False
         for job in jobs:
             if cancelled():
@@ -197,6 +199,7 @@ class NarrativeBoundaryWorkflow:
                     validated.append(job.job_id)
                     cache_hits += 1
                     continue
+            initial_attempt = record.attempt_count + 1
             outcome = self._submit_with_repair(
                 job,
                 consent=consent,
@@ -205,11 +208,15 @@ class NarrativeBoundaryWorkflow:
                     - consumed_provider_calls
                     - provider_calls
                 ),
-                initial_attempt=record.attempt_count + 1,
+                initial_attempt=initial_attempt,
                 cancelled=cancelled,
             )
             provider_calls += outcome.provider_calls
             usages.extend(outcome.usages)
+            terminal_reservations.extend(
+                (job.job_id, attempt)
+                for attempt in range(initial_attempt, outcome.attempt_count + 1)
+            )
             if outcome.cancelled:
                 self._repository.record_failure(
                     job,
@@ -270,6 +277,7 @@ class NarrativeBoundaryWorkflow:
             elapsed_ms=sum(item.elapsed_ms for item in usages),
             cancelled=was_cancelled,
             deferred_job_ids=tuple(deferred),
+            terminal_reservations=tuple(terminal_reservations),
         )
 
     def _submit_with_repair(
@@ -379,13 +387,6 @@ class NarrativeBoundaryWorkflow:
             try:
                 response = self._provider.submit(request, cancelled)
             except NarrativeMapProviderError as exc:
-                if semantic_job:
-                    self._repository.settle_semantic_provider_call(
-                        manifest_id=consent.manifest_id,
-                        maximum_provider_calls=consent.maximum_provider_calls,
-                        job_id=job.job_id,
-                        attempt=attempt,
-                    )
                 provider_calls += int(exc.provider_call_reserved)
                 return _JobOutcome(
                     None,
@@ -397,13 +398,6 @@ class NarrativeBoundaryWorkflow:
                     exc.error_code == "cancelled",
                 )
             except Exception:
-                if semantic_job:
-                    self._repository.settle_semantic_provider_call(
-                        manifest_id=consent.manifest_id,
-                        maximum_provider_calls=consent.maximum_provider_calls,
-                        job_id=job.job_id,
-                        attempt=attempt,
-                    )
                 provider_calls += 1
                 return _JobOutcome(
                     None,
@@ -413,13 +407,6 @@ class NarrativeBoundaryWorkflow:
                     provider_calls,
                     "internal_error",
                     False,
-                )
-            if semantic_job:
-                self._repository.settle_semantic_provider_call(
-                    manifest_id=consent.manifest_id,
-                    maximum_provider_calls=consent.maximum_provider_calls,
-                    job_id=job.job_id,
-                    attempt=attempt,
                 )
             provider_calls += 1
             usages.append(response.usage)

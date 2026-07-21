@@ -681,7 +681,6 @@ class SemanticLifecycle:
         reconciled_manifest_ids = self._reject_overlapping_confirmed_run(
             raw,
             prefix=prefix,
-            jobs=preparation.jobs,
             profile=consent.profile,
             current_manifest_id=consent.manifest_id,
         )
@@ -768,6 +767,14 @@ class SemanticLifecycle:
                     )
             finally:
                 self._active_workflow = None
+
+        def settle_finalized_reservations() -> None:
+            self._repository.settle_semantic_provider_calls(
+                manifest_id=consent.manifest_id,
+                maximum_provider_calls=consent.maximum_provider_calls,
+                reservations_to_settle=report.terminal_reservations,
+            )
+
         latest = self._require_build()
         recovered = self._recover_stage_progress(
             latest,
@@ -831,6 +838,7 @@ class SemanticLifecycle:
         )
         if latest_was_complete or boundary_phase_advanced:
             self._repository.write_semantic_build(updated)
+            settle_finalized_reservations()
             return report
         target_key = (
             "completed_boundary_job_ids"
@@ -846,6 +854,7 @@ class SemanticLifecycle:
             updated = _updated_state(updated, SemanticBuildState.VALIDATING)
             if preparation.stage is SemanticStage.SUMMARIES:
                 self._publish(preparation, updated)
+                settle_finalized_reservations()
                 return report
         elif report.deferred_job_ids:
             updated["state"] = (
@@ -858,6 +867,7 @@ class SemanticLifecycle:
         else:
             updated = _updated_state(updated, SemanticBuildState.PARTIAL)
         self._repository.write_semantic_build(updated)
+        settle_finalized_reservations()
         return report
 
     def _reject_overlapping_confirmed_run(
@@ -865,7 +875,6 @@ class SemanticLifecycle:
         raw: Mapping[str, object],
         *,
         prefix: str,
-        jobs: Sequence[PreparedNarrativeJob],
         profile: ProviderProfile,
         current_manifest_id: str,
     ) -> tuple[str, ...]:
@@ -896,16 +905,11 @@ class SemanticLifecycle:
             ) + timedelta(seconds=prior.timeout_seconds)
             if datetime.now(UTC) > latest_possible_completion:
                 continue
-            reserved = self._repository.semantic_manifest_reservation_count(manifest_id)
-            terminal_calls = sum(
-                record.provider_calls
-                for job in jobs
-                for record in (self._repository.get(job.kind, job.job_id),)
-                if record is not None and record.consent_manifest_id == manifest_id
+            sealed = self._repository.seal_semantic_manifest_if_settled(
+                manifest_id=manifest_id,
+                maximum_provider_calls=prior.maximum_provider_calls,
             )
-            settled = self._repository.semantic_manifest_settlement_count(manifest_id)
-            completed_calls = terminal_calls if settled is None else settled
-            if reserved > completed_calls:
+            if sealed is not True:
                 raise ValueError(
                     f"a prior confirmed {prefix} manifest still has an in-flight call"
                 )

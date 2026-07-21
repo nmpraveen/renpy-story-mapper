@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
-from threading import Event
+from threading import Barrier, Event
 from typing import cast
 
 import pytest
@@ -20,7 +20,10 @@ from renpy_story_mapper.narrative_map.contracts import (
     Provenance,
     SourceLocator,
 )
-from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
+from renpy_story_mapper.narrative_map.persistence import (
+    NarrativeMapRepository,
+    SemanticCallLimitError,
+)
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeConsentManifest,
     NarrativeMapProviderError,
@@ -2120,12 +2123,11 @@ def test_rotated_manifest_accepts_prior_calls_settled_independently_of_job_recor
                 job_id=prior.jobs[0].job_id,
                 attempt=attempt,
             )
-            repository.settle_semantic_provider_call(
-                manifest_id=prior.consent.manifest_id,
-                maximum_provider_calls=2,
-                job_id=prior.jobs[0].job_id,
-                attempt=attempt,
-            )
+        repository.settle_semantic_provider_calls(
+            manifest_id=prior.consent.manifest_id,
+            maximum_provider_calls=2,
+            reservations_to_settle=((prior.jobs[0].job_id, 1), (prior.jobs[0].job_id, 2)),
+        )
 
         rotated = service.prepare_boundaries(
             units,
@@ -2151,9 +2153,68 @@ def test_rotated_manifest_accepts_prior_calls_settled_independently_of_job_recor
             prior.consent.manifest_id
         ) == 2
         assert repository.semantic_manifest_settlement_count(prior.consent.manifest_id) == 2
+        with pytest.raises(SemanticCallLimitError, match="closed"):
+            repository.reserve_semantic_provider_call(
+                manifest_id=prior.consent.manifest_id,
+                maximum_provider_calls=2,
+                job_id=prior.jobs[0].job_id,
+                attempt=3,
+            )
 
     assert report.provider_calls == 1
     assert len(provider.requests) == 1
+
+
+def test_manifest_seal_and_late_reservation_are_one_atomic_decision(tmp_path: Path) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "atomic-manifest-seal.rsmproj"
+    with Project.create(path) as project:
+        preparation = NarrativeMapService(
+            NarrativeMapRepository(project)
+        ).prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="atomic-manifest-seal",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+        )
+
+    barrier = Barrier(2)
+
+    def seal() -> bool | None:
+        with Project.open(path) as project:
+            barrier.wait(timeout=5)
+            return NarrativeMapRepository(project).seal_semantic_manifest_if_settled(
+                manifest_id=preparation.consent.manifest_id,
+                maximum_provider_calls=1,
+            )
+
+    def reserve() -> str:
+        with Project.open(path) as project:
+            barrier.wait(timeout=5)
+            try:
+                NarrativeMapRepository(project).reserve_semantic_provider_call(
+                    manifest_id=preparation.consent.manifest_id,
+                    maximum_provider_calls=1,
+                    job_id=preparation.jobs[0].job_id,
+                    attempt=1,
+                )
+            except SemanticCallLimitError:
+                return "closed"
+            return "reserved"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        seal_future = executor.submit(seal)
+        reserve_future = executor.submit(reserve)
+        result = (seal_future.result(timeout=5), reserve_future.result(timeout=5))
+
+    assert result in {(True, "closed"), (False, "reserved")}
 
 
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(

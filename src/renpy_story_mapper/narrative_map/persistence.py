@@ -386,6 +386,10 @@ class NarrativeMapRepository:
                     manifest_id=manifest_id,
                     maximum_provider_calls=maximum_provider_calls,
                 )
+                if cast(Mapping[str, object], decoded).get("closed") is True:
+                    raise SemanticCallLimitError(
+                        "the exact semantic consent is closed to new provider calls"
+                    )
             if any(
                 item["job_id"] == job_id and item["attempt"] == attempt
                 for item in reservations
@@ -410,6 +414,7 @@ class NarrativeMapRepository:
                 "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
                 "manifest_id": manifest_id,
                 "maximum_provider_calls": maximum_provider_calls,
+                "closed": False,
                 "reservations": reservations,
             }
             _validate_durable(payload)
@@ -438,15 +443,19 @@ class NarrativeMapRepository:
             )
         return ordinal
 
-    def settle_semantic_provider_call(
+    def settle_semantic_provider_calls(
         self,
         *,
         manifest_id: str,
         maximum_provider_calls: int,
-        job_id: str,
-        attempt: int,
+        reservations_to_settle: Sequence[tuple[str, int]],
     ) -> None:
-        """Atomically mark one reserved semantic provider attempt as terminal."""
+        """Atomically mark reserved attempts terminal after lifecycle finalization."""
+
+        if not reservations_to_settle:
+            return
+        if len(reservations_to_settle) != len(set(reservations_to_settle)):
+            raise ValueError("semantic call settlements must be unique")
 
         connection = self._project._require_open()
         with storage.transaction(connection):
@@ -470,24 +479,26 @@ class NarrativeMapRepository:
                 manifest_id=manifest_id,
                 maximum_provider_calls=maximum_provider_calls,
             )
-            matching = [
-                item
+            by_attempt = {
+                (cast(str, item["job_id"]), cast(int, item["attempt"])): item
                 for item in reservations
-                if item["job_id"] == job_id and item["attempt"] == attempt
-            ]
-            if len(matching) != 1 or "settled" not in matching[0]:
-                raise storage.ProjectCorruptError(
-                    "M15.1 semantic call settlement does not match a current reservation"
-                )
-            if matching[0]["settled"] is True:
-                raise storage.ProjectCorruptError(
-                    "M15.1 semantic call reservation is already settled"
-                )
-            matching[0]["settled"] = True
+            }
+            for identity in reservations_to_settle:
+                matching = by_attempt.get(identity)
+                if matching is None or "settled" not in matching:
+                    raise storage.ProjectCorruptError(
+                        "M15.1 semantic call settlement does not match a current reservation"
+                    )
+                if matching["settled"] is True:
+                    raise storage.ProjectCorruptError(
+                        "M15.1 semantic call reservation is already settled"
+                    )
+                matching["settled"] = True
             payload: dict[str, object] = {
                 "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
                 "manifest_id": manifest_id,
                 "maximum_provider_calls": maximum_provider_calls,
+                "closed": False,
                 "reservations": reservations,
             }
             _validate_durable(payload)
@@ -570,6 +581,83 @@ class NarrativeMapRepository:
         if any("settled" not in item for item in reservations):
             return None
         return sum(item["settled"] is True for item in reservations)
+
+    def seal_semantic_manifest_if_settled(
+        self,
+        *,
+        manifest_id: str,
+        maximum_provider_calls: int,
+    ) -> bool | None:
+        """Atomically close a ledger if every reservation is terminal.
+
+        ``None`` identifies a legacy ledger without durable settlement state. Once
+        closed, the manifest cannot acquire another reservation.
+        """
+
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key=?",
+                (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
+            ).fetchone()
+            if row is None:
+                reservations: list[dict[str, object]] = []
+                closed = False
+            else:
+                encoded = bytes(row["payload_json"])
+                if storage.payload_digest(encoded) != row["payload_hash"]:
+                    raise storage.ProjectCorruptError(
+                        "M15.1 semantic call ledger checksum does not match"
+                    )
+                decoded = storage.decode_json(encoded)
+                reservations = _semantic_call_reservations(
+                    decoded,
+                    manifest_id=manifest_id,
+                    maximum_provider_calls=maximum_provider_calls,
+                )
+                closed = cast(
+                    bool,
+                    cast(Mapping[str, object], decoded).get("closed", False),
+                )
+                if any("settled" not in item for item in reservations):
+                    return None
+            if closed is True:
+                return True
+            if any(item["settled"] is not True for item in reservations):
+                return False
+            payload: dict[str, object] = {
+                "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
+                "manifest_id": manifest_id,
+                "maximum_provider_calls": maximum_provider_calls,
+                "closed": True,
+                "reservations": reservations,
+            }
+            _validate_durable(payload)
+            encoded = storage.canonical_json(payload)
+            connection.execute(
+                """
+                INSERT INTO payloads(
+                    collection,record_key,payload_json,payload_hash,updated_utc
+                ) VALUES (?,?,?,?,?)
+                ON CONFLICT(collection,record_key) DO UPDATE SET
+                    payload_json=excluded.payload_json,
+                    payload_hash=excluded.payload_hash,
+                    updated_utc=excluded.updated_utc
+                """,
+                (
+                    SEMANTIC_CALL_LEDGER_COLLECTION,
+                    manifest_id,
+                    encoded,
+                    storage.payload_digest(encoded),
+                    storage.utc_now(),
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
+            )
+        return True
 
     @staticmethod
     def cache_identity(
@@ -840,6 +928,7 @@ def _semantic_call_reservations(
         or raw.get("manifest_id") != manifest_id
         or raw.get("maximum_provider_calls") != maximum_provider_calls
         or not isinstance(raw.get("reservations"), list)
+        or ("closed" in raw and not isinstance(raw.get("closed"), bool))
     ):
         raise storage.ProjectCorruptError("M15.1 semantic call ledger identity is invalid")
     reservations: list[dict[str, object]] = []
