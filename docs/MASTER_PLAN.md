@@ -1,8 +1,12 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-18
+Last revised: 2026-07-21
 
-Status: M01 through M13 are complete and merged. M13 implementation PR #23 merged at
+Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
+correction inside M15 after explicit user instruction on 2026-07-21; its prior PR-ready result was
+rejected and the lifecycle returned through Changes Requested to In progress after a revised
+semantic `PASS` and native-goal activation. The same branch and open PR #26 continue; M14 remains deferred. M13
+implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
 is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
 failing-first tests, 97 focused tests, Track A/Track B/final Track C reviews, and the single local
@@ -11,7 +15,7 @@ Track C found the final checkpoint-integrity P1, while the exact corrected head 
 focused matrix and independent rereviews. Exact final PR head `9e7d387` passed CI run
 `29632577820`, and corrective PR #24 merged as
 `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. Prior browser, live/replay, private-scale, and
-Release results remain historical evidence only for their named heads. M14 remains deferred.
+Release results remain historical evidence only for their named heads.
 
 ## 1. Product goal
 
@@ -185,8 +189,8 @@ than present them as proven facts.
 - Effects appear on the event or path that causes them.
 - Numeric deltas use compact badges such as `Love +1` or `Money -10`.
 - Boolean or categorical changes use badges such as `Dating = true` or `Job = Company Z`.
-- Important changes may be promoted to Levels 1 or 2; all extracted changes remain available at
-  Level 3.
+- Important changes may be promoted to the Route Map; all extracted changes remain available in
+  Detail and Evidence.
 - The same underlying variable may have a user-editable display name and category.
 
 ## 6. Technical architecture
@@ -1171,6 +1175,51 @@ to deterministic authority.
 M14 owns dynamic framework adapters and optional runtime tracing. It is deferred indefinitely for
 now and is not part of M10-M13 implementation work.
 
+### M15 - M15.1 semantic Story Map correction
+
+Status: In progress after the revised semantic-review `PASS` and native-goal activation on
+2026-07-21. The earlier M15 PR-ready claim is revoked; its wide generic graph and supporting
+evidence are a rejected baseline.
+
+Objective: produce a compact chronological Story Map whose visible language explains narrative
+meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
+effect, terminal, unresolved record, and evidence locator.
+
+Locked boundaries:
+
+- Construct versioned fine narrative units and one stable candidate for every legal adjacent gap.
+  Hard chapter/day, lane, call-occurrence, loop, terminal/unresolved, split, arm, and proven-rejoin
+  locks cannot be crossed.
+- AI may classify bounded adjacent gaps only. Python validates exhaustive decisions and assembles
+  complete ordered beat and major-cluster membership deterministically; missing, duplicate,
+  crossing, or invalid decisions fail closed.
+- After membership freezes, a separate summary stage may produce short action-focused titles,
+  beginning-to-end summaries, characters, and evidence-linked claims. Missing or invalid language
+  remains partial and can never be disguised by generic templates or technical counts.
+- Boundary preview/consent/run and frozen-summary preview/consent/run are separate durable stages
+  with exact expiring manifests, jobs, cache, accounting, provenance, resume/retry, atomic publish,
+  and zero-submit unchanged replay. Each live stage requires its own explicit user consent.
+- Temporary choices remain local to their parent section, with ordered exact-caption arms, nested
+  ownership, compact proven rejoins, and exactly-once continuation. M10/M11 authority and all
+  M12/M13 compatibility surfaces remain preserved.
+- Narrative mode uses normal-flow semantic HTML in a bounded vertical column, not a world canvas.
+  It must remain readable at 100% and 200%, keep connectors local, avoid horizontal page scroll and
+  fit-all shrink, and map every interactive item to matching Detail/Evidence.
+- The exact private Day 1 fixture is the first acceptance target. Private source, oracle, handoff,
+  mockups, derived prose, and images never enter Git or provider input; original inputs remain
+  read-only and no game, creator, or Ren'Py execution occurs.
+- Use one coordinator, three separate visible Track A/B/C tasks/worktrees with independent
+  exact-head reviews, and a separate final reviewer that freezes a source-first result before
+  comparing the same candidate with private references.
+- Correct the existing branch and PR #26 only. Require explicit user approval of actual final-head
+  100%/200% screenshots, then one final Windows Release/package gate and exact passing pushed-head
+  checks. Leave the PR open and unmerged.
+
+M15.1 is PR-ready only when its exact two-stage live provenance, deterministic hierarchy/topology,
+private semantic result, compact browser presentation, exhaustive evidence mapping, persistence and
+zero-submit replay, immutability, independent reviews, user visual approval, Release/package gates,
+and exact open PR #26 head all satisfy `docs/milestones/M15/GOAL.md` with no unresolved P0-P2.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -1257,7 +1306,11 @@ and unresolved items.
 
 ## 11. Current next action
 
-M13 is `Complete`. Corrective PR #24 merged into `main` as
-`3fff4762ce3e46174723e2adf35c2f7db19f2b2e` after exact final-head Release CI passed. Do not
-perform another provider/live transmission or begin M14 without separate user approval. M14
-remains deferred and no roadmap successor is active.
+M15.1 is the single active correction inside M15 on exact correction base
+`55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`. Record its replacement native goal, freeze shared
+schemas/generalized examples/failing-first tests, dispatch three separate visible reviewed tracks,
+integrate in order, and complete fake-provider verification. Then obtain separate exact boundary
+and frozen-summary consents, freeze and independently review the live candidate, obtain explicit
+user approval of actual final screenshots, and run one final Release/package/PR-head gate on the
+existing open unmerged PR #26. Do not infer either provider consent, expand to full-game scope,
+begin M14, merge the PR, or commit private evaluation material.

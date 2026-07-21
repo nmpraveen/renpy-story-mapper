@@ -5,6 +5,7 @@ import {
   assertAIStoryDetail, assertAIStoryMap, assertMapComparison, assertSceneDetail, assertSceneMap,
   assertNarrativeArtifact, assertNarrativeCitations, assertNarrativePreparation,
   assertNarrativeRunStatus, assertNarrativeSnapshot,
+  assertNarrativeMap, assertNarrativeMapDetail,
   exactOrganizationBudgets,
 } from "./contract.js";
 
@@ -196,6 +197,16 @@ export class LocalApi {
   }
   async sceneDetail(elementId) {
     return assertSceneDetail(await this.request(ENDPOINTS.sceneDetail, { method: "POST", body: { element_id: elementId } }));
+  }
+  async narrativeMap(query = null, focus = null) {
+    const body = {};
+    if (query !== null) body.query = query;
+    if (focus !== null) body.focus = focus;
+    return assertNarrativeMap(await this.request(ENDPOINTS.narrativeMap, { method: "POST", body }));
+  }
+  async narrativeDetail(elementId) {
+    if (typeof elementId !== "string" || !elementId) throw new TypeError("Narrative Map element ID is required");
+    return assertNarrativeMapDetail(await this.request(ENDPOINTS.narrativeDetail, { method: "POST", body: { element_id: elementId } }));
   }
   async narrativeSnapshot(offset = 0, limit = 200) {
     return assertNarrativeSnapshot(await this.request(ENDPOINTS.narrativeSnapshot, { method: "POST", body: { offset, limit } }));

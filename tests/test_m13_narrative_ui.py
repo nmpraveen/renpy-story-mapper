@@ -15,12 +15,13 @@ def _text(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
-def test_narrative_is_an_optional_overlay_inside_the_existing_two_levels() -> None:
+def test_legacy_narrative_evidence_is_advanced_inside_the_existing_two_levels() -> None:
     html = _text("index.html")
     app = _text("app.js")
 
     assert html.count('data-level="') == 2
-    assert 'id="narrativeToggle"' in html
+    assert 'id="narrativeToggle"' not in html
+    assert 'id="advancedViews"' in html
     assert 'id="narrativeDrawer"' in html
     assert 'id="narrativeCoverage"' in html
     assert 'id="narrativeJobList"' in html
@@ -31,10 +32,9 @@ def test_narrative_is_an_optional_overlay_inside_the_existing_two_levels() -> No
     assert 'id="narrativeFastMode"' in html
     assert 'id="narrativeMode"' in html
     assert 'id="narrativeIncludeM12"' in html
-    assert "narrativeEnabled: false" in app
-    assert 'state.mode === "scenes" && state.narrativeEnabled' in app
-    assert "deterministic_title: node.title" in app
-    assert "deterministic_summary: node.summary" in app
+    assert 'id="narrativeJobsButton"' in html
+    assert "api.narrativeMap(" in app
+    assert 'mode: "narrative"' in app
     assert "M10 facts, M11 structure, and M12 route results remain authoritative" in html
     assert "Cloud AI is disabled" in html
     assert ".innerHTML" not in app
@@ -56,13 +56,12 @@ def test_narrative_detail_separates_claim_classes_and_loads_citations_lazily() -
     assert "narrativeStatusToken" in app
     assert "token !== state.narrativeStatusToken" in app
     assert "state.narrativePreparation) return" in app
-    assert "deterministic authority unchanged" in app
-    assert "AI interpretation; deterministic authority unchanged" in app
+    assert "technical map is authoritative" in app
     assert "Route-aware structure" in app
     assert "Persistent route" in app
     assert "Temporary branch" in app
     assert "Unresolved or missing coverage" in app
-    assert "narrativeArtifact.warnings" in app
+    assert "api.routeResult(navigation.request_identity)" in app
     assert '[data-claim-class="interpretive"]' in styles
     assert '[data-claim-class="review_suggestion"]' in styles
 
@@ -122,8 +121,9 @@ def test_every_resolved_narrative_citation_gets_an_exact_compact_control() -> No
         }},
       }};
       const switchMode = async (mode) => {{ state.mode = mode; }};
-      const openDetail = async (elementId, strict) => {{
-        opened.push({{ kind: "detail", mode: state.mode, element_id: elementId, strict }});
+      const openDetail = async (elementId, strict, detailMode = state.mode) => {{
+        opened.push({{ kind: "detail", mode: state.mode,
+          detail_mode: detailMode, element_id: elementId, strict }});
         document.documentElement.dataset.activeLevel = "detail_evidence";
       }};
       const markNarrativeCitationSelection = (selection) => {{ selections.push(selection); }};
@@ -201,10 +201,17 @@ def test_every_resolved_narrative_citation_gets_an_exact_compact_control() -> No
         },
     ]
     assert result["opened"] == [
-        {"kind": "detail", "mode": "scenes", "element_id": "scene-owned", "strict": True},
+        {
+            "kind": "detail",
+            "mode": "technical",
+            "detail_mode": "scenes",
+            "element_id": "scene-owned",
+            "strict": True,
+        },
         {
             "kind": "detail",
             "mode": "canonical",
+            "detail_mode": "canonical",
             "element_id": "node-owned",
             "strict": True,
         },

@@ -3,6 +3,7 @@ export const API_VERSION = "v1";
 export const ROUTE_PAGE_SIZE = 30;
 export const ROUTE_EDGE_PAGE_SIZE = 180;
 export const RENDER_LIMITS = Object.freeze({ nodes: 30, edges: 180, items: 240 });
+export const NARRATIVE_RENDER_LIMITS = Object.freeze({ nodes: 120, edges: 360, items: 480 });
 
 export const ENDPOINTS = Object.freeze({
   bootstrap: "/api/v1/bootstrap",
@@ -38,6 +39,8 @@ export const ENDPOINTS = Object.freeze({
   narrativeStart: "/api/v1/m13/start",
   narrativeStatus: "/api/v1/m13/status",
   narrativeCancel: "/api/v1/m13/cancel",
+  narrativeMap: "/api/v1/m15/narrative-map",
+  narrativeDetail: "/api/v1/m15/detail",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -64,6 +67,35 @@ function uniqueStrings(value, label, maximum = 64) {
 }
 
 function sameArray(left, right) { return left.length === right.length && left.every((item, index) => item === right[index]); }
+
+export function assertNarrativeMap(value) {
+  if (!object(value) || value.schema !== "m15-narrative-map-page-v1" || !["available", "unavailable"].includes(value.status) || value.level !== "narrative_map" || !sameArray(value.presentation_levels, ["narrative_map", "detail_evidence"]) || value.provider_calls !== 0 || value.m12_requests !== 0 || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || !Array.isArray(value.lanes)) throw new TypeError("Invalid Narrative Map response");
+  if (value.status === "unavailable") {
+    if (!object(value.fallback) || value.fallback.label !== "Deterministic inspection fallback" || value.fallback.route !== ENDPOINTS.inspectionMap || value.fallback.view !== "simplified" || value.nodes.length || value.edges.length) throw new TypeError("Invalid Narrative Map fallback");
+    return value;
+  }
+  digest(value.authority_hash, "Narrative Map authority_hash"); digest(value.map_hash, "Narrative Map map_hash");
+  if (value.nodes.length > NARRATIVE_RENDER_LIMITS.nodes || value.edges.length > NARRATIVE_RENDER_LIMITS.edges || value.nodes.length + value.edges.length > NARRATIVE_RENDER_LIMITS.items) throw new RangeError("Narrative Map exceeds the packaged rendering boundary");
+  const nodeIds = new Set();
+  for (const node of value.nodes) {
+    if (!object(node) || typeof node.id !== "string" || !node.id || nodeIds.has(node.id) || typeof node.kind !== "string" || typeof node.title !== "string" || !Number.isFinite(node.order) || typeof node.lane_id !== "string" || !object(node.navigation) || node.navigation.mode !== "detail_evidence" || typeof node.navigation.target_id !== "string") throw new TypeError("Invalid Narrative Map node");
+    nodeIds.add(node.id);
+  }
+  const edgeIds = new Set();
+  for (const edge of value.edges) {
+    if (!object(edge) || typeof edge.id !== "string" || !edge.id || edgeIds.has(edge.id) || typeof edge.source_id !== "string" || typeof edge.target_id !== "string" || !Array.isArray(edge.authority_edge_ids) || !edge.authority_edge_ids.length || !object(edge.navigation) || edge.navigation.mode !== "detail_evidence") throw new TypeError("Invalid Narrative Map edge");
+    if (!nodeIds.has(edge.source_id) && !nodeIds.has(edge.target_id)) throw new TypeError("Narrative Map returned an unrelated edge");
+    edgeIds.add(edge.id);
+  }
+  return value;
+}
+
+export function assertNarrativeMapDetail(value) {
+  if (!object(value) || value.schema !== "m15-narrative-map-detail-v1" || value.status !== "available" || value.level !== "detail_evidence" || !object(value.element) || typeof value.element.id !== "string" || !Array.isArray(value.evidence) || value.evidence.length < 1 || value.evidence.length > 60 || value.provider_calls !== 0 || value.m12_requests !== 0) throw new TypeError("Invalid Narrative Map Detail/Evidence response");
+  digest(value.authority_hash, "Narrative Map detail authority_hash");
+  for (const record of value.evidence) if (!object(record) || typeof record.id !== "string" || !object(record.source) || typeof record.source.path !== "string" || record.source.path.startsWith("/") || !object(record.source.start) || !Number.isInteger(record.source.start.line) || record.source.start.line < 1 || typeof record.line_basis !== "string") throw new TypeError("Invalid qualified Narrative Map evidence");
+  return value;
+}
 
 export function exactOrganizationBudgets(value) {
   exactKeys(value, ORGANIZATION_BUDGET_KEYS, "Organization budgets");

@@ -4,12 +4,35 @@ The packaged browser is a presentation client for the loopback-only Python servi
 owns topology, evidence, organization state, request bounds, and path redaction. JavaScript never
 derives authoritative connectivity.
 
+## M15 Narrative Map
+
+The Narrative Map is the normal browser journey. Python constructs its chronological event
+clusters, nested temporary choice arms, proven rejoin connectors, unresolved records, and exact
+navigation from the current M10/M11 authority plus persisted M15 decisions and summaries.
+JavaScript renders that presentation and never infers graph membership or connectivity.
+
+- `POST /api/v1/m15/narrative-map` accepts only `{query?, focus?}`. It returns at most 120 nodes
+  and 360 edges, opaque lane metadata, stable navigation records, bounded whole-map search, and
+  explicit zero provider/M12 request accounting.
+- `POST /api/v1/m15/detail` accepts exactly `{element_id}`. Every visible node and connector opens
+  `detail_evidence` with at most 60 exact qualified evidence records and bounded canonical members.
+
+Both endpoints are local, read-only, deterministic, and provider-free. A missing, stale, invalid,
+or oversized Narrative Map returns a labelled unavailable response that points to deterministic
+M10 inspection. Projects created before M15 therefore remain safe to open. The normal browser
+open, navigation, search, selection, and evidence journey does not request M12 destinations or a
+solve and does not construct or start an M07/M08/M13 provider.
+
+M12 persistence, stored result reads, and M13 citations whose navigation mode is `m12_result`
+remain supported. M07/M08 storage and API contracts also remain compatible, but their former
+organization and AI Story Map controls are not exposed by the normal website.
+
 ## M10 deterministic inspection
 
-For an M10 project, the browser chooses the best deterministic result in this order: current
-simplified M10 inspection, current canonical M10 graph, a coherent stale simplified/canonical
-pair, then the M07 Technical Structure. An applied M08 AI Story Map remains selectable but does
-not override the normal M10 default.
+M10 inspection is the labelled advanced/fallback surface below the normal Narrative Map. The
+browser chooses current simplified inspection and then current canonical authority when the M15
+presentation is unavailable. Older M07/M08 presentations are retained for data/API compatibility,
+not as normal visible view selectors.
 
 - `POST /api/v1/m10/inspection-map` accepts only
   `{view, offset?, limit?, edge_offset?, edge_limit?, query?, focus?}`. `view` is `simplified` or
@@ -62,9 +85,10 @@ reclassified as an unresolved transfer.
 
 ## M08 AI Story Map
 
-After an exact current-generation assembly is applied, the browser can display the AI Story Map
-when selected. M10 deterministic inspection remains the normal default, and Technical Structure
-remains a comparison and fallback view with unchanged deterministic authority.
+This section documents the compatibility API retained for older clients and stored projects. The
+packaged normal website no longer exposes an AI Story Map selector or organization controls.
+After an exact current-generation assembly is applied, a compatible legacy client can still read
+the AI Story Map without changing deterministic authority.
 The projected boxes are real AI event groups and the projected connections are the deterministic
 quotient edges; the browser never renames technical nodes one by one or invents connectivity.
 

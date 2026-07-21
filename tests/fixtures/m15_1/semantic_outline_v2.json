@@ -1,0 +1,25 @@
+{
+  "schema": "m15-semantic-outline-v2",
+  "description": "Generalized synthetic outline with a local choice and a nested choice sharing a physical target.",
+  "ordered_unit_ids": ["u01", "u02", "u03", "u04", "u05", "u06", "u07", "u08", "u09"],
+  "eligible_gap_ids": ["g01", "g02", "g03", "g04", "g05", "g06"],
+  "decisions": [
+    ["g01", "same_beat"],
+    ["g02", "new_beat_same_cluster"],
+    ["g03", "new_major_cluster"],
+    ["g04", "new_beat_same_cluster"],
+    ["g05", "same_beat"],
+    ["g06", "new_beat_same_cluster"]
+  ],
+  "expected": {
+    "ordered_cluster_ids": ["cluster_opening", "cluster_visit"],
+    "ordered_beat_ids": ["beat_opening_a", "beat_opening_b", "beat_visit_a", "beat_visit_b", "beat_visit_c"],
+    "choice_ids": ["choice_outer", "choice_inner"],
+    "outer_arm_ids": ["outer_stop", "outer_continue"],
+    "inner_arm_ids": ["inner_stop", "inner_continue"],
+    "nested_parent_arm_id": "outer_continue",
+    "shared_target_id": "target_shared",
+    "post_rejoin_continuation_id": "u09",
+    "maximum_story_rows": 16
+  }
+}

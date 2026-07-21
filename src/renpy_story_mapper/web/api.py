@@ -124,6 +124,9 @@ from renpy_story_mapper.web.contracts import (
     M13_PROVIDER_SETTING_FIELDS,
     M13_SNAPSHOT_REQUEST_FIELDS,
     M13_START_REQUEST_FIELDS,
+    M15_API_ROUTES,
+    M15_DETAIL_REQUEST_FIELDS,
+    M15_MAP_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -141,6 +144,10 @@ from renpy_story_mapper.web.contracts import (
     string_tuple,
 )
 from renpy_story_mapper.web.inspection_api import inspection_detail, inspection_page
+from renpy_story_mapper.web.narrative_map_api import (
+    narrative_map_detail,
+    narrative_map_page,
+)
 from renpy_story_mapper.web.scene_api import scene_detail, scene_page
 from renpy_story_mapper.web.state import UserStateStore
 
@@ -405,6 +412,7 @@ class ProjectApi:
                     "m11": dict(M11_API_ROUTES),
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
+                    "m15": dict(M15_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -584,6 +592,41 @@ class ProjectApi:
                     "route": M10_API_ROUTES["inspection_map"],
                     "view": "simplified",
                 }
+            return json_value(detail)
+        if method == "POST" and path == M15_API_ROUTES["map"]:
+            exact_fields(body, allowed=M15_MAP_REQUEST_FIELDS)
+            try:
+                with Project.open(self._project()) as opened_project:
+                    page = narrative_map_page(
+                        opened_project,
+                        query=optional_string(body, "query", maximum=256),
+                        focus=optional_string(body, "focus", maximum=512),
+                    )
+            except KeyError as exc:
+                raise ApiProblem(
+                    404,
+                    "m15_element_not_found",
+                    "The Narrative Map element is unavailable.",
+                ) from exc
+            return json_value(page)
+        if method == "POST" and path == M15_API_ROUTES["detail"]:
+            exact_fields(
+                body,
+                allowed=M15_DETAIL_REQUEST_FIELDS,
+                required=M15_DETAIL_REQUEST_FIELDS,
+            )
+            try:
+                with Project.open(self._project()) as opened_project:
+                    detail = narrative_map_detail(
+                        opened_project,
+                        require_string(body, "element_id", maximum=512),
+                    )
+            except (KeyError, ValueError) as exc:
+                raise ApiProblem(
+                    404,
+                    "m15_element_not_found",
+                    "The Narrative Map element is unavailable.",
+                ) from exc
             return json_value(detail)
         if method == "POST" and path == M12_API_ROUTES["destinations"]:
             exact_fields(body, allowed=M12_DESTINATIONS_REQUEST_FIELDS)

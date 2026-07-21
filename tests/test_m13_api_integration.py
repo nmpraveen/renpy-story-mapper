@@ -203,6 +203,22 @@ def _browser_request() -> dict[str, object]:
     }
 
 
+def _wait_for_terminal_status(
+    api: ProjectApi,
+    *,
+    timeout_seconds: float = 120.0,
+) -> dict[str, object]:
+    """Wait for deterministic background work without assuming runner speed."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        status = api.dispatch("POST", "/api/v1/m13/status", {})
+        if status["state"] not in {"running", "cancelling"}:
+            return status
+        if time.monotonic() >= deadline:
+            pytest.fail(f"M13 background work did not finish within {timeout_seconds:g}s")
+        time.sleep(0.02)
+
+
 def test_m13_api_advertises_bounded_provider_free_snapshot(tmp_path: Path) -> None:
     api = _api(tmp_path)
     try:
@@ -317,13 +333,7 @@ def test_m13_api_prepares_without_transmission_then_runs_one_confirmed_manifest(
             {"preparation_id": preview["preparation_id"], "confirm_cloud": True},
         )
         assert started["state"] in {"running", "succeeded"}
-        deadline = time.monotonic() + 20
-        while True:
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            assert time.monotonic() < deadline
-            time.sleep(0.02)
+        status = _wait_for_terminal_status(api)
         assert status["state"] == "succeeded"
         assert status["latest_run"]["usage"]["provider_calls"] > 0
         assert status["latest_run"]["provider"]["settings"] == request["provider_settings"]
@@ -455,13 +465,7 @@ def test_m13_provider_response_settings_mismatch_fails_without_cache_publication
             "/api/v1/m13/start",
             {"preparation_id": preview["preparation_id"], "confirm_cloud": True},
         )
-        deadline = time.monotonic() + 20
-        while True:
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            assert time.monotonic() < deadline
-            time.sleep(0.02)
+        status = _wait_for_terminal_status(api)
 
         assert status["state"] == "failed"
         assert status["latest_run"]["succeeded_jobs"] == 0
@@ -541,11 +545,7 @@ def test_m13_reopen_restores_exact_retry_request_and_reuses_only_compatible_cons
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            time.sleep(0.01)
+        status = _wait_for_terminal_status(api)
         assert status["state"] in {"failed", "hard_limit", "partial"}
         assert provider.requests
         api.close()
@@ -618,11 +618,7 @@ def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            time.sleep(0.01)
+        status = _wait_for_terminal_status(api)
         assert status["retry_available"] is True
         api.close()
 
@@ -713,11 +709,7 @@ def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_retu
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            time.sleep(0.01)
+        status = _wait_for_terminal_status(api)
 
         assert status["state"] == "failed"
         assert status["retry_available"] is True
@@ -830,13 +822,7 @@ def test_m13_api_cancellation_reaches_provider_and_preserves_validated_artifacts
 
         cancelling = api.dispatch("POST", "/api/v1/m13/cancel", {})
         assert cancelling["state"] in {"cancelling", "cancelled"}
-        deadline = time.monotonic() + 20
-        while True:
-            status = api.dispatch("POST", "/api/v1/m13/status", {})
-            if status["state"] not in {"running", "cancelling"}:
-                break
-            assert time.monotonic() < deadline
-            time.sleep(0.02)
+        status = _wait_for_terminal_status(api)
 
         snapshot = api.dispatch(
             "POST",

@@ -104,8 +104,9 @@ def test_m12_source_has_no_execution_provider_network_or_export_subsystem() -> N
     assert not (product / "m12_walkthrough.py").exists()
     assert not (product / "m12_interpretation.py").exists()
     html = (product / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    assert '<aside id="routePanel"' in html
-    assert 'id="openRouteEvidence"' in html
+    assert '<aside id="routePanel"' not in html
+    assert 'id="openRouteEvidence"' not in html
+    assert 'id="advancedViews"' in html
     assert 'data-level="route"' not in html
 
 

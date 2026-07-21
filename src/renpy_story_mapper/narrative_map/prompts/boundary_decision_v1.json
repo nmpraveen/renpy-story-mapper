@@ -1,0 +1,13 @@
+{
+  "version": "m15-boundary-prompt-v1",
+  "purpose": "Decide only whether each supplied adjacent soft corridor boundary is a meaningful human event boundary.",
+  "forbidden": [
+    "create or change graph edges",
+    "change corridor or event membership",
+    "cross hard boundaries",
+    "invent facts or evidence",
+    "use filesystem, web, tools, MCP, or application authority",
+    "write event titles, summaries, or claims"
+  ],
+  "decisions": ["merge", "split", "uncertain"]
+}

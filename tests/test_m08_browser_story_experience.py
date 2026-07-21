@@ -20,20 +20,20 @@ def _assets() -> str:
     )
 
 
-def test_ai_story_map_remains_selectable_with_m10_as_deterministic_default() -> None:
+def test_ai_story_map_contract_remains_compatible_but_selector_is_retired() -> None:
     app = _text("app.js")
     html = _text("index.html")
     contract = _text("contract.js")
-    assert 'id="aiMapButton"' in html and 'id="technicalMapButton"' in html
+    assert 'id="aiMapButton"' not in html and 'id="technicalMapButton"' not in html
     assert "inspectionCurrent" in app and "canonicalCurrent" in app
     assert "comparison.default_view" not in app
-    assert "state.aiPage" in app and "state.technicalPage" in app
+    assert "state.aiPage" not in app and "state.technicalPage" not in app
     assert "authority_unchanged" in contract
     assert "/api/v1/m08/ai-story-map" in contract
     assert "/api/v1/m08/ai-story-detail" in contract
     assert "/api/v1/m08/comparison" in contract
-    assert "source_kind" in app and "presentation_role" in app
-    assert "Untitled story event" in app and "node.summary" in app
+    assert "api.aiStoryMap(" not in app and "api.aiStoryDetail(" not in app
+    assert "async aiStoryMap" in _text("api.js")
 
 
 def test_exactly_two_levels_and_detail_contains_all_verification_surfaces() -> None:
@@ -51,46 +51,30 @@ def test_exactly_two_levels_and_detail_contains_all_verification_surfaces() -> N
     assert not re.search(r"\bLevel\s*[123]\b", _assets(), re.IGNORECASE)
 
 
-def test_bounded_preview_and_consent_echo_remain_exact_and_nonempty() -> None:
+def test_bounded_organization_contract_remains_without_normal_ui_calls() -> None:
     app = _text("app.js")
     api = _text("api.js")
     contract = _text("contract.js")
-    assert "visibleRouteNodeIds" in app
-    assert "api.resolveBoundedWindow({ node_ids: nodeIds })" in app
-    assert "api.setOrganizationSelection([], [state.windowResolution.selection_request])" in app
-    assert "if (!nodeIds.length)" in app
-    assert "api.prepareOrganization()" in app
-    for label in (
-        "Boundaries",
-        "Evidence / facts",
-        "Input hash",
-        "Authority hash",
-        "Selection hash",
-        "Recovered-source acknowledgement",
-        "Provider",
-        "Time budgets",
-        "Token budgets",
-        "Call budget",
-    ):
-        assert label in app
+    assert "visibleRouteNodeIds" not in app
+    assert "api.resolveBoundedWindow(" not in app
+    assert "api.prepareOrganization(" not in app
     assert "organizationStartPayload" in api
     assert "prepared.scope_ids" in api and "prepared.window_ids" in api
     assert "exactOrganizationModel" in contract and "exactOrganizationBudgets" in contract
 
 
-def test_progress_review_and_fallback_language_are_honest() -> None:
+def test_organization_progress_and_review_controls_are_retired() -> None:
     app = _text("app.js")
     html = _text("index.html")
-    fields = ("validated", "fallback", "pending", "cancelled", "calls", "tokens", "eta", "cached")
-    for field in fields:
-        assert field in app
-    assert "partial with fallback" in app
-    assert 'id="cancelOrganization"' in html
-    assert 'id="resumeOrganization"' in html
-    assert 'id="reviewPartial"' in html
-    assert 'id="applyAssembly"' in html
-    assert 'id="discardAssembly"' in html
-    assert "never mislabel" not in app
+    for element_id in (
+        "cancelOrganization",
+        "resumeOrganization",
+        "reviewPartial",
+        "applyAssembly",
+        "discardAssembly",
+    ):
+        assert f'id="{element_id}"' not in html
+    assert "pollOrganization" not in app
 
 
 def test_editorial_cartography_is_local_restrained_and_free_of_mojibake() -> None:
@@ -108,14 +92,15 @@ def test_editorial_cartography_is_local_restrained_and_free_of_mojibake() -> Non
 
 def test_route_map_keeps_flexible_row_when_fallback_notice_is_hidden() -> None:
     css = _text("styles.css")
-    assert (
-        'grid-template-areas: "commandbar" "fallback" "failure" "partial" "map" '
-        '"organization"' in css
-    )
+    assert 'grid-template-areas: "commandbar" "fallback" "failure" "partial" "map"' in css
     assert "grid-area: commandbar" in css
     assert "grid-area: fallback" in css
     assert "grid-area: map" in css
-    assert "grid-area: organization" in css
+    old_layout = (
+        'grid-template-areas: "commandbar" "fallback" "failure" "partial" "map" '
+        '"organization"'
+    )
+    assert old_layout not in css
 
 
 def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> None:
@@ -153,17 +138,12 @@ def test_real_browser_harness_covers_wide_narrow_zero_provider_workflows() -> No
     assert module.VIEWPORTS == {100: (1440, 900), 200: (720, 450)}
 
 
-def test_ai_next_previous_use_exact_incident_cursor_history() -> None:
+def test_ai_incident_cursor_contract_remains_in_compatibility_client() -> None:
     app = _text("app.js")
     api = _text("api.js")
     contract = _text("contract.js")
-    assert "edge_next_cursor" in app and "edgeCursor: state.edgeCursor" in app
-    assert 'edgeCursor: state.mode === "ai" ? state.page.edge_next_cursor : null' in app
-    assert "edgeCursor: null" in app
-    assert (
-        "state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset, "
-        "edgeCursor: state.edgeCursor })" in app
-    )
+    assert "edge_next_cursor" not in app
+    assert "edgeCursor: state.edgeCursor" in app
     assert "const target = state.cursorHistory.pop()" in app
     assert "body.edge_cursor = edgeCursor" in api
     assert "incident_to_node_slice" in contract

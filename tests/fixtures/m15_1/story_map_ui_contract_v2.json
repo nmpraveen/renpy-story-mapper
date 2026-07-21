@@ -1,0 +1,10 @@
+{
+  "schema": "m15-story-map-ui-v2",
+  "layout": "normal_flow_vertical",
+  "maximum_column_css_px": 896,
+  "initial_scale": 1.0,
+  "minimum_fit_width_scale": 0.75,
+  "choice_side_by_side_min_css_px": 600,
+  "required_controls": ["build_story_map", "confirm", "cancel", "resume", "retry", "search", "expand_collapse", "detail_evidence"],
+  "forbidden_normal_layout": ["global_world_transform", "absolute_station_surface", "horizontal_page_scroll", "fit_all_shrink", "routing_only_station_cards"]
+}

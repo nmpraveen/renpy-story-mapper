@@ -140,6 +140,12 @@ M13_API_ROUTES: Final[dict[str, str]] = {
     "status": "/api/v1/m13/status",
     "cancel": "/api/v1/m13/cancel",
 }
+M15_API_ROUTES: Final[dict[str, str]] = {
+    "map": "/api/v1/m15/narrative-map",
+    "detail": "/api/v1/m15/detail",
+}
+M15_MAP_REQUEST_FIELDS: Final = ("query", "focus")
+M15_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
 M13_SNAPSHOT_REQUEST_FIELDS: Final = ("offset", "limit")
 M13_ARTIFACT_REQUEST_FIELDS: Final = ("artifact_id",)
 M13_CITATIONS_REQUEST_FIELDS: Final = ("claim_id",)

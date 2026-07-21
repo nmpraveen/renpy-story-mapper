@@ -1,4 +1,4 @@
-import { RENDER_LIMITS } from "./contract.js";
+import { NARRATIVE_RENDER_LIMITS, RENDER_LIMITS } from "./contract.js";
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const X_STEP = 222;
@@ -13,13 +13,14 @@ function stableHue(value) {
 }
 
 export class RouteGraph {
-  constructor({ viewport, world, canvas, onSelect, onOpen }) {
+  constructor({ viewport, world, canvas, onSelect, onOpen, onViewportChange }) {
     this.viewport = viewport;
     this.world = world;
     this.canvas = canvas;
     this.context = canvas.getContext("2d");
     this.onSelect = onSelect;
     this.onOpen = onOpen;
+    this.onViewportChange = onViewportChange;
     this.nodes = [];
     this.edges = [];
     this.positions = new Map();
@@ -65,8 +66,10 @@ export class RouteGraph {
     });
   }
 
-  setData(nodes, edges, selectedId = null, lanes = []) {
-    if (nodes.length > RENDER_LIMITS.nodes || edges.length > RENDER_LIMITS.edges || nodes.length + edges.length > RENDER_LIMITS.items) throw new RangeError("Route Map render boundary exceeded");
+  setData(nodes, edges, selectedId = null, lanes = [], { preserveViewport = false } = {}) {
+    const narrative = nodes.some((node) => node.navigation?.mode === "detail_evidence");
+    const limits = narrative ? NARRATIVE_RENDER_LIMITS : RENDER_LIMITS;
+    if (nodes.length > limits.nodes || edges.length > limits.edges || nodes.length + edges.length > limits.items) throw new RangeError("Route Map render boundary exceeded");
     this.nodes = [...nodes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || String(a.id).localeCompare(String(b.id)));
     const ids = new Set(nodes.map((node) => node.id));
     this.edges = edges.filter((edge) => ids.has(edge.source_id) || ids.has(edge.target_id));
@@ -88,11 +91,54 @@ export class RouteGraph {
       this.world.append(label);
     });
 
+    const siblingArms = new Map();
+    for (const node of this.nodes.filter((item) => item.kind === "choice_arm")) {
+      const parent = node.parent_node_id || node.choice_id || "choice";
+      if (!siblingArms.has(parent)) siblingArms.set(parent, []);
+      siblingArms.get(parent).push(node.id);
+    }
     this.nodes.forEach((node, index) => {
       const x = 92 + (orderIndex.get(Number(node.order || 0)) ?? index) * X_STEP;
-      const y = laneTop + (laneIndex.get(node.lane_id) ?? 0) * LANE_STEP;
+      let y = laneTop + (laneIndex.get(node.lane_id) ?? 0) * LANE_STEP;
+      if (narrative && node.kind === "sub_event") y = laneTop + 104;
+      if (narrative && node.kind === "choice_arm") {
+        const arms = siblingArms.get(node.parent_node_id || node.choice_id || "choice") || [];
+        y = laneTop + 112 + Math.max(0, arms.indexOf(node.id)) * LANE_STEP;
+      }
       const position = { x, y, width: NODE_WIDTH, height: NODE_HEIGHT, lane: node.lane_id };
       this.positions.set(node.id, position);
+    });
+
+    if (narrative) {
+      const children = new Map();
+      for (const node of this.nodes) {
+        if (!node.parent_node_id) continue;
+        if (!children.has(node.parent_node_id)) children.set(node.parent_node_id, []);
+        children.get(node.parent_node_id).push(node.id);
+      }
+      const descendants = (id, found = new Set()) => {
+        for (const child of children.get(id) || []) if (!found.has(child)) { found.add(child); descendants(child, found); }
+        return found;
+      };
+      for (const cluster of this.nodes.filter((node) => node.kind === "event_cluster")) {
+        const ids = [cluster.id, ...descendants(cluster.id)];
+        const boxes = ids.map((id) => this.positions.get(id)).filter(Boolean);
+        if (boxes.length < 2) continue;
+        const left = Math.min(...boxes.map((box) => box.x)) - 22;
+        const top = Math.min(...boxes.map((box) => box.y)) - 42;
+        const right = Math.max(...boxes.map((box) => box.x + box.width)) + 22;
+        const bottom = Math.max(...boxes.map((box) => box.y + box.height)) + 22;
+        const frame = document.createElement("section");
+        frame.className = "event-cluster-frame";
+        frame.dataset.clusterId = cluster.id;
+        frame.style.left = `${left}px`; frame.style.top = `${top}px`; frame.style.width = `${right - left}px`; frame.style.height = `${bottom - top}px`;
+        const label = document.createElement("span"); label.textContent = cluster.title || "Story event"; frame.append(label); this.world.append(frame);
+      }
+    }
+
+    this.nodes.forEach((node, index) => {
+      const position = this.positions.get(node.id);
+      const { x, y } = position;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "station";
@@ -101,6 +147,8 @@ export class RouteGraph {
       button.dataset.role = node.presentation_role || node.kind || "event";
       button.dataset.laneKind = node.lane_kind || "spine";
       button.dataset.laneId = node.lane_id || "story-spine";
+      if (node.parent_node_id) button.dataset.parentId = node.parent_node_id;
+      if (node.search_match === false) button.classList.add("search-dimmed");
       button.style.left = `${x}px`;
       button.style.top = `${y}px`;
       button.tabIndex = -1;
@@ -149,15 +197,22 @@ export class RouteGraph {
       if (interactive) button.addEventListener("click", () => { this.select(edge.id, true); this.onOpen?.(edge); });
       this.world.append(button);
     }
-    this.bounds = { width: maxX + 30, height: laneTop + laneRows.length * LANE_STEP + 50 };
+    const maxY = Math.max(laneTop, ...[...this.positions.values()].map((position) => position.y + position.height));
+    this.bounds = { width: maxX + 30, height: Math.max(laneTop + laneRows.length * LANE_STEP + 50, maxY + 70) };
     this.world.style.width = `${this.bounds.width}px`;
     this.world.style.height = `${this.bounds.height}px`;
     this.select(this.elements().some((item) => item.id === selectedId) ? selectedId : this.nodes[0]?.id, false);
-    this.fit();
+    if (preserveViewport) this.transform();
+    else if (narrative) {
+      this.scale = 1;
+      this.offset = { x: 16, y: 16 };
+      this.transform();
+      this.onViewportChange?.(this.scale);
+    } else this.fit();
   }
 
   elements() { return [...this.nodes, ...this.edges.filter((edge) => edge.interactive !== false)]; }
-  shape(kind) { return kind === "choice" || kind === "choice_outcome" ? "◆" : kind === "merge" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : "●"; }
+  shape(kind) { return kind === "choice" || kind === "choice_arm" ? "◆" : kind === "merge" || kind === "rejoin" ? "◇" : kind === "loop" ? "↻" : kind === "terminal" || kind === "ending" ? "■" : kind === "unresolved" ? "?" : kind === "sub_event" ? "○" : "●"; }
   span(className, value) { const span = document.createElement("span"); span.className = className; span.textContent = String(value); return span; }
 
   select(id, notify = true) {
@@ -193,22 +248,24 @@ export class RouteGraph {
 
   zoomBy(delta, anchor = null) {
     const before = this.scale;
-    this.scale = clamp(Math.round((this.scale + delta) * 10) / 10, .5, 2);
+    this.scale = clamp(Math.round((this.scale + delta) * 100) / 100, .01, 2);
     if (anchor && before !== this.scale) {
       const ratio = this.scale / before;
       this.offset.x = anchor.x - (anchor.x - this.offset.x) * ratio;
       this.offset.y = anchor.y - (anchor.y - this.offset.y) * ratio;
     }
     this.transform();
+    this.onViewportChange?.(this.scale);
     return this.scale;
   }
 
   fit() {
     if (!this.nodes.length) return;
     const rect = this.viewport.getBoundingClientRect();
-    this.scale = clamp(Math.min((rect.width - 32) / this.bounds.width, (rect.height - 32) / this.bounds.height, 1), .5, 1);
+    this.scale = clamp(Math.min((rect.width - 32) / this.bounds.width, (rect.height - 32) / this.bounds.height, 1), .01, 1);
     this.offset = { x: 16, y: 16 };
     this.transform();
+    this.onViewportChange?.(this.scale);
   }
 
   transform() { this.world.style.transform = `translate(${this.offset.x}px, ${this.offset.y}px) scale(${this.scale})`; this.draw(); }
