@@ -24,6 +24,7 @@ from renpy_story_mapper.narrative_map.persistence import (
     NarrativeMapRepository,
     SemanticCallLimitError,
     SemanticJobAttemptReservedError,
+    SemanticManifestClosedError,
 )
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeConsentManifest,
@@ -236,7 +237,7 @@ class NarrativeBoundaryWorkflow:
                 was_cancelled = True
                 break
             if outcome.result is None or outcome.provider_identity is None:
-                if outcome.error_code == "job_attempt_reserved":
+                if outcome.error_code in {"job_attempt_reserved", "manifest_closed"}:
                     deferred.append(job.job_id)
                     break
                 else:
@@ -350,6 +351,16 @@ class NarrativeBoundaryWorkflow:
                         maximum_provider_calls=consent.maximum_provider_calls,
                         job_id=job.job_id,
                         attempt=attempt,
+                    )
+                except SemanticManifestClosedError:
+                    return _JobOutcome(
+                        None,
+                        last_identity,
+                        tuple(usages),
+                        attempt - 1,
+                        provider_calls,
+                        "manifest_closed",
+                        False,
                     )
                 except SemanticCallLimitError:
                     return _JobOutcome(

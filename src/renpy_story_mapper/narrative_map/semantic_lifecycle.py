@@ -776,6 +776,9 @@ class SemanticLifecycle:
             )
 
         latest = self._require_build()
+        if latest.get(f"{prefix}_manifest_id") != consent.manifest_id:
+            settle_finalized_reservations()
+            return report
         recovered = self._recover_stage_progress(
             latest,
             preparation.jobs,

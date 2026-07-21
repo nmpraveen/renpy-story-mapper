@@ -43,6 +43,10 @@ class SemanticCallLimitError(RuntimeError):
     """The exact durable consent ledger has no remaining call reservation."""
 
 
+class SemanticManifestClosedError(SemanticCallLimitError):
+    """The consent ledger was sealed against every later reservation."""
+
+
 class SemanticJobAttemptReservedError(RuntimeError):
     """The exact semantic job attempt was already claimed durably."""
 
@@ -387,7 +391,7 @@ class NarrativeMapRepository:
                     maximum_provider_calls=maximum_provider_calls,
                 )
                 if cast(Mapping[str, object], decoded).get("closed") is True:
-                    raise SemanticCallLimitError(
+                    raise SemanticManifestClosedError(
                         "the exact semantic consent is closed to new provider calls"
                     )
             if any(

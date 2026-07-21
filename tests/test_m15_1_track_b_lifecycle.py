@@ -2217,6 +2217,112 @@ def test_manifest_seal_and_late_reservation_are_one_atomic_decision(tmp_path: Pa
     assert result in {(True, "closed"), (False, "reserved")}
 
 
+def test_runner_losing_seal_before_first_reservation_cannot_write_stale_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "sealed-before-first-reservation.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        old = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="old-before-first-reservation",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(old, old.granted_consent())
+
+    entered = Event()
+    release = Event()
+    original_reserve = NarrativeMapRepository.reserve_semantic_provider_call
+
+    def blocked_old_reservation(
+        repository: NarrativeMapRepository,
+        *,
+        manifest_id: str,
+        maximum_provider_calls: int,
+        job_id: str,
+        attempt: int,
+    ) -> int:
+        if manifest_id == old.consent.manifest_id:
+            entered.set()
+            assert release.wait(timeout=5)
+        return original_reserve(
+            repository,
+            manifest_id=manifest_id,
+            maximum_provider_calls=maximum_provider_calls,
+            job_id=job_id,
+            attempt=attempt,
+        )
+
+    monkeypatch.setattr(
+        NarrativeMapRepository,
+        "reserve_semantic_provider_call",
+        blocked_old_reservation,
+    )
+    old_provider = _FakeProvider([_boundary_payload(window)])
+
+    def run_old() -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            return NarrativeMapService(NarrativeMapRepository(project)).start_boundaries(
+                old,
+                provider=old_provider,
+                consent=old.granted_consent(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(run_old)
+        assert entered.wait(timeout=5)
+        with Project.open(path) as project:
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            replacement = service.prepare_boundaries(
+                units,
+                candidates,
+                (window,),
+                _evidence(units),
+                profile=_profile(),
+                run_id="replacement-after-seal",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                maximum_provider_calls=1,
+                valid_for=timedelta(minutes=59),
+                replay_existing=True,
+            )
+            replacement_provider = _FakeProvider([_boundary_payload(window)])
+            replacement_report = service.start_boundaries(
+                replacement,
+                provider=replacement_provider,
+                consent=replacement.granted_consent(),
+            )
+        release.set()
+        old_report = future.result(timeout=5)
+
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        record = repository.get(replacement.jobs[0].kind, replacement.jobs[0].job_id)
+        status = NarrativeMapService(repository).semantic_status()
+
+    assert replacement_report.provider_calls == 1
+    assert old_report.provider_calls == 0
+    assert old_report.deferred_job_ids == (old.jobs[0].job_id,)
+    assert old_provider.requests == []
+    assert record is not None
+    assert record.status.value == "validated"
+    assert record.consent_manifest_id == replacement.consent.manifest_id
+    assert status is not None
+    assert status.record.state is SemanticBuildState.VALIDATING
+
+
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(
     tmp_path: Path,
 ) -> None:
