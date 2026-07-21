@@ -232,6 +232,12 @@ class SemanticLifecycle:
     ) -> BoundaryStageOutput:
         if preparation.stage is not SemanticStage.BOUNDARIES:
             raise ValueError("boundary output requires a boundary preparation")
+        raw_build = self._require_build(preparation.build_id)
+        if (
+            raw_build.get("boundary_manifest_id") != preparation.consent.manifest_id
+            or raw_build.get("boundary_job_identity_hash") != _jobs_hash(preparation.jobs)
+        ):
+            raise ValueError("boundary output preparation is no longer current")
         decisions: list[SemanticBoundaryDecision] = []
         provenance: list[LiveSemanticProvenance] = []
         for job in preparation.jobs:
@@ -295,6 +301,7 @@ class SemanticLifecycle:
             or raw.get("correction_id") != correction_id
             or raw.get("privacy_scope") != privacy_scope
             or raw.get("authority") != outline.authority.to_dict()
+            or raw.get("profile_hash") != canonical_hash(profile.to_dict())
         ):
             self._mark_stale(raw, "summary_identity_changed")
             raise ValueError("summary preparation identity differs from the boundary build")
@@ -309,10 +316,12 @@ class SemanticLifecycle:
         )
         if outline.ordered_candidate_ids != expected_candidates:
             raise ValueError("frozen outline does not cover the exact boundary candidate order")
-        provenance_job_ids = tuple(item.job_id for item in outline.boundary_provenance)
-        if len(provenance_job_ids) != len(expected_candidates) or set(provenance_job_ids) != set(
-            boundary_ids
-        ):
+        expected_provenance = self._expected_boundary_provenance(
+            raw,
+            boundary_ids,
+            profile,
+        )
+        if outline.boundary_provenance != expected_provenance:
             raise ValueError("frozen outline lacks one-to-one live boundary provenance")
         jobs = prepare_semantic_summary_jobs(
             outline,
@@ -653,6 +662,17 @@ class SemanticLifecycle:
             raise ValueError(f"{expected.value} start requires its own preparation")
         if consent.manifest_id != preparation.consent.manifest_id:
             raise ValueError(f"{expected.value} start requires the exact reviewed consent")
+        raw = self._require_build(preparation.build_id)
+        prefix = "boundary" if expected is SemanticStage.BOUNDARIES else "summary"
+        if (
+            raw.get(f"{prefix}_manifest_id") != preparation.consent.manifest_id
+            or raw.get(f"{prefix}_job_identity_hash") != _jobs_hash(preparation.jobs)
+            or (
+                expected is SemanticStage.SUMMARIES
+                and raw.get("membership_hash") != preparation.membership_hash
+            )
+        ):
+            raise ValueError("semantic preparation is no longer the active exact stage")
         kinds = {job.kind for job in preparation.jobs}
         expected_kind = (
             ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW
@@ -707,6 +727,8 @@ class SemanticLifecycle:
         if not isinstance(manifest_value, Mapping):
             return None
         consent = _restore_manifest(manifest_value, profile)
+        if consent.manifest_id != raw.get(f"{prefix}_manifest_id"):
+            return None
         try:
             consent.validate_fresh()
         except ValueError:
@@ -737,6 +759,42 @@ class SemanticLifecycle:
             for item in decisions
             if isinstance(item, Mapping) and isinstance(item.get("candidate_id"), str)
         )
+
+    def _expected_boundary_provenance(
+        self,
+        raw: Mapping[str, object],
+        boundary_ids: Sequence[str],
+        profile: ProviderProfile,
+    ) -> tuple[LiveSemanticProvenance, ...]:
+        manifest_id = cast(str, raw["boundary_manifest_id"])
+        authority = _authority(raw.get("authority"))
+        expected: list[LiveSemanticProvenance] = []
+        for job_id in boundary_ids:
+            record = self._repository.get(ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW, job_id)
+            if record is None or record.result is None or record.provider_identity is None:
+                raise ValueError("boundary provenance requires validated durable jobs")
+            cache_identity: dict[str, JsonValue] = {
+                "kind": ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW.value,
+                "authority": authority.to_dict(),
+                "subject_id": record.subject_id,
+                "input_hash": record.input_hash,
+                "provider": profile.to_dict(),
+                "prompt_version": record.prompt_version,
+                "response_schema": record.response_schema,
+                "source_hash": cast(str, raw["source_hash"]),
+                "correction_id": cast(str, raw["correction_id"]),
+                "privacy_scope": cast(str, raw["privacy_scope"]),
+            }
+            provenance = LiveSemanticProvenance(
+                "boundaries",
+                job_id,
+                record.input_hash,
+                manifest_id,
+                canonical_hash(record.provider_identity),
+                f"m15_cache_{canonical_hash(cache_identity)}",
+            )
+            expected.extend(provenance for _ in self._window_candidate_ids(job_id))
+        return tuple(expected)
 
     def _exact_replay(
         self,
@@ -876,6 +934,8 @@ def _restore_manifest(
     value: Mapping[str, object],
     profile: ProviderProfile,
 ) -> NarrativeConsentManifest:
+    if value.get("profile") != profile.to_dict():
+        raise ValueError("persisted semantic consent profile does not match")
     return NarrativeConsentManifest(
         run_id=cast(str, value["run_id"]),
         profile=profile,

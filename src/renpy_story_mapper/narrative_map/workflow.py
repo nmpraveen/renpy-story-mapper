@@ -200,6 +200,7 @@ class NarrativeBoundaryWorkflow:
                     - consumed_provider_calls
                     - provider_calls
                 ),
+                request_ordinal_offset=consumed_provider_calls + provider_calls,
                 cancelled=cancelled,
             )
             provider_calls += outcome.provider_calls
@@ -264,6 +265,7 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         maximum_provider_calls: int,
+        request_ordinal_offset: int,
         cancelled: CancelledCallback,
     ) -> _JobOutcome:
         findings: tuple[ValidationFinding, ...] = ()
@@ -298,15 +300,20 @@ class NarrativeBoundaryWorkflow:
                 if attempt == 1
                 else tuple(dict.fromkeys(finding.code for finding in findings))
             )
-            request_id = stable_m15_id(
-                "provider_request",
-                {
-                    "job_id": job.job_id,
-                    "attempt": attempt,
-                    "consent_manifest_id": consent.manifest_id,
-                    "profile": self._profile.to_dict(),
-                },
-            )
+            request_identity: dict[str, JsonValue] = {
+                "job_id": job.job_id,
+                "attempt": attempt,
+                "consent_manifest_id": consent.manifest_id,
+                "profile": self._profile.to_dict(),
+            }
+            if job.kind in {
+                ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW,
+                ProviderJobKind.SEMANTIC_SUMMARY,
+            }:
+                request_identity["consent_call_ordinal"] = (
+                    request_ordinal_offset + provider_calls + 1
+                )
+            request_id = stable_m15_id("provider_request", request_identity)
             request = NarrativeMapProviderRequest(
                 request_id=request_id,
                 consent=consent,
