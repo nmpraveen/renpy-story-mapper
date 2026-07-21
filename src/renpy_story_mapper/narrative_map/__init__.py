@@ -83,6 +83,17 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticSummary,
     SemanticSummaryClaim,
 )
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    BoundaryStageOutput,
+    SemanticAccounting,
+    SemanticStage,
+    SemanticStagePreparation,
+    SemanticStatusView,
+)
+from renpy_story_mapper.narrative_map.semantic_projection import (
+    FrozenSummaryInput,
+    SemanticEvidenceRecord,
+)
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import (
     validate_boundary_response,
@@ -111,11 +122,13 @@ __all__ = [
     "BoundaryDecisionKind",
     "BoundaryProviderIdentity",
     "BoundarySignal",
+    "BoundaryStageOutput",
     "BoundaryWindow",
     "ChoiceComposition",
     "CoverageState",
     "EvidenceNavigation",
     "FineNarrativeUnit",
+    "FrozenSummaryInput",
     "LeadingTechnicalCoverageCorrection",
     "LiveSemanticProvenance",
     "MajorCluster",
@@ -133,14 +146,19 @@ __all__ = [
     "NarrativeNodeKind",
     "Provenance",
     "QualifiedSourceLocator",
+    "SemanticAccounting",
     "SemanticBeat",
     "SemanticBoundaryDecision",
     "SemanticBoundaryKind",
     "SemanticBuildRecord",
     "SemanticBuildState",
     "SemanticClaimClass",
+    "SemanticEvidenceRecord",
     "SemanticOutline",
     "SemanticQuotientTopology",
+    "SemanticStage",
+    "SemanticStagePreparation",
+    "SemanticStatusView",
     "SemanticSummary",
     "SemanticSummaryClaim",
     "SemanticTopologyEdge",

@@ -1,0 +1,12 @@
+{
+  "version": "m15-semantic-summary-prompt-v2",
+  "purpose": "Write concise story-facing language for one visible subject after deterministic membership is frozen.",
+  "forbidden": [
+    "change membership or create graph edges, choices, arms, rejoins, requirements, effects, or locators",
+    "invent facts, characters, evidence, source references, or technical routing language",
+    "use source-line templates, raw labels, raw image or menu identifiers, atom or evidence counts",
+    "use filesystem, web, tools, MCP, private oracle, or application authority"
+  ],
+  "title_maximum": 80,
+  "summary_maximum": 600
+}

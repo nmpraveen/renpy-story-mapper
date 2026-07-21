@@ -21,7 +21,11 @@ from renpy_story_mapper.project import Project
 
 BOUNDARY_JOBS_COLLECTION: Final = "m15_boundary_jobs"
 SUMMARY_JOBS_COLLECTION: Final = "m15_event_summary_jobs"
+SEMANTIC_BOUNDARY_JOBS_COLLECTION: Final = "m15_semantic_boundary_jobs"
+SEMANTIC_SUMMARY_JOBS_COLLECTION: Final = "m15_semantic_summary_jobs"
 CACHE_COLLECTION: Final = "m15_narrative_cache"
+SEMANTIC_BUILD_COLLECTION: Final = "m15_semantic_builds"
+SEMANTIC_CURRENT_COLLECTION: Final = "m15_semantic_current"
 PERSISTENCE_SCHEMA: Final = "m15-narrative-job-envelope-v1"
 CACHE_SCHEMA: Final = "m15-narrative-cache-v1"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
@@ -204,11 +208,53 @@ class NarrativeMapRepository:
             _detached_mapping(provider_identity, "cached provider identity"),
         )
 
+    def write_semantic_build(self, payload: Mapping[str, object]) -> None:
+        """Persist the one active M15.1 candidate without changing current publication."""
+
+        normalized = _detached_mapping(payload, "semantic build")
+        _validate_durable(normalized)
+        self._write_payloads(((SEMANTIC_BUILD_COLLECTION, "active", normalized),))
+
+    def read_semantic_build(self) -> Mapping[str, object] | None:
+        raw = self._payload(SEMANTIC_BUILD_COLLECTION, "active")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("M15.1 semantic build payload is not an object")
+        return _detached_mapping(raw, "semantic build")
+
+    def publish_semantic_current(
+        self,
+        *,
+        build: Mapping[str, object],
+        publication: Mapping[str, object],
+    ) -> None:
+        """Atomically advance candidate state and the sole current semantic publication."""
+
+        normalized_build = _detached_mapping(build, "semantic build")
+        normalized_publication = _detached_mapping(publication, "semantic publication")
+        _validate_durable(normalized_build)
+        _validate_durable(normalized_publication)
+        self._write_payloads(
+            (
+                (SEMANTIC_BUILD_COLLECTION, "active", normalized_build),
+                (SEMANTIC_CURRENT_COLLECTION, "current", normalized_publication),
+            )
+        )
+
+    def read_semantic_current(self) -> Mapping[str, object] | None:
+        raw = self._payload(SEMANTIC_CURRENT_COLLECTION, "current")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("M15.1 current semantic publication is not an object")
+        return _detached_mapping(raw, "semantic publication")
+
     @staticmethod
     def cache_identity(
         job: PreparedNarrativeJob, profile: ProviderProfile
     ) -> dict[str, JsonValue]:
-        return {
+        identity: dict[str, JsonValue] = {
             "kind": job.kind.value,
             "authority": job.authority.to_dict(),
             "subject_id": job.subject_id,
@@ -217,6 +263,15 @@ class NarrativeMapRepository:
             "prompt_version": job.prompt_version,
             "response_schema": job.response_schema,
         }
+        if job.source_hash is not None:
+            identity["source_hash"] = job.source_hash
+        if job.correction_id is not None:
+            identity["correction_id"] = job.correction_id
+        if job.membership_hash is not None:
+            identity["membership_hash"] = job.membership_hash
+        if job.privacy_scope is not None:
+            identity["privacy_scope"] = job.privacy_scope
+        return identity
 
     @classmethod
     def cache_key(cls, job: PreparedNarrativeJob, profile: ProviderProfile) -> str:
@@ -391,11 +446,13 @@ class NarrativeMapRepository:
 
 
 def _collection(kind: ProviderJobKind) -> str:
-    return (
-        BOUNDARY_JOBS_COLLECTION
-        if kind is ProviderJobKind.BOUNDARY
-        else SUMMARY_JOBS_COLLECTION
-    )
+    if kind is ProviderJobKind.BOUNDARY:
+        return BOUNDARY_JOBS_COLLECTION
+    if kind is ProviderJobKind.EVENT_SUMMARY:
+        return SUMMARY_JOBS_COLLECTION
+    if kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
+        return SEMANTIC_BOUNDARY_JOBS_COLLECTION
+    return SEMANTIC_SUMMARY_JOBS_COLLECTION
 
 
 def _detached_mapping(value: Mapping[str, object], label: str) -> dict[str, object]:

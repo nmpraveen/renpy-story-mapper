@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 
 from renpy_story_mapper.narrative_map.contracts import (
+    AuthorityBinding,
     BoundaryCandidate,
     BoundaryDecision,
     BoundaryDecisionKind,
@@ -22,6 +24,22 @@ from renpy_story_mapper.narrative_map.provider import (
     PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
+)
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    BoundaryWindow,
+    FineNarrativeUnit,
+    NarrativeGapCandidate,
+    SemanticOutline,
+)
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    BoundaryStageOutput,
+    SemanticLifecycle,
+    SemanticStagePreparation,
+    SemanticStatusView,
+)
+from renpy_story_mapper.narrative_map.semantic_projection import (
+    FrozenSummaryInput,
+    SemanticEvidenceRecord,
 )
 from renpy_story_mapper.narrative_map.workflow import (
     NarrativeBoundaryWorkflow,
@@ -41,8 +59,166 @@ class NarrativeEventSummaryView:
 class NarrativeMapService:
     """Normal reads cannot submit because this object intentionally owns no provider."""
 
+    SUMMARY_CONSENT_IS_SEPARATE = True
+
     def __init__(self, repository: NarrativeMapRepository) -> None:
         self._repository = repository
+        self._semantic = SemanticLifecycle(repository)
+
+    def prepare_boundaries(
+        self,
+        units: Sequence[FineNarrativeUnit],
+        candidates: Sequence[NarrativeGapCandidate],
+        windows: Sequence[BoundaryWindow],
+        evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
+        *,
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = "story_evidence_only",
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int | None = None,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+    ) -> SemanticStagePreparation:
+        return self._semantic.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            evidence_by_unit,
+            profile=profile,
+            run_id=run_id,
+            source_hash=source_hash,
+            correction_id=correction_id,
+            privacy_scope=privacy_scope,
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def start_boundaries(
+        self,
+        preparation: SemanticStagePreparation,
+        *,
+        provider: NarrativeMapProvider,
+        consent: NarrativeConsentManifest,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._semantic.start_boundaries(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def semantic_boundary_output(
+        self,
+        preparation: SemanticStagePreparation,
+    ) -> BoundaryStageOutput:
+        return self._semantic.boundary_output(preparation)
+
+    def prepare_summaries(
+        self,
+        outline: SemanticOutline,
+        inputs: Sequence[FrozenSummaryInput],
+        evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
+        *,
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = "story_evidence_only",
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int | None = None,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+    ) -> SemanticStagePreparation:
+        return self._semantic.prepare_summaries(
+            outline,
+            inputs,
+            evidence_by_unit,
+            profile=profile,
+            run_id=run_id,
+            source_hash=source_hash,
+            correction_id=correction_id,
+            privacy_scope=privacy_scope,
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def start_summaries(
+        self,
+        preparation: SemanticStagePreparation,
+        *,
+        provider: NarrativeMapProvider,
+        consent: NarrativeConsentManifest,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._semantic.start_summaries(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def semantic_status(
+        self,
+        *,
+        authority: AuthorityBinding | None = None,
+        source_hash: str | None = None,
+        correction_id: str | None = None,
+    ) -> SemanticStatusView | None:
+        return self._semantic.status(
+            authority=authority,
+            source_hash=source_hash,
+            correction_id=correction_id,
+        )
+
+    def cancel_semantic_build(self) -> SemanticStatusView | None:
+        return self._semantic.cancel()
+
+    def resume_semantic_build(
+        self,
+        preparation: SemanticStagePreparation,
+        *,
+        provider: NarrativeMapProvider,
+        consent: NarrativeConsentManifest,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._semantic.resume(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def retry_semantic_build(
+        self,
+        preparation: SemanticStagePreparation,
+        *,
+        provider: NarrativeMapProvider,
+        consent: NarrativeConsentManifest,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._semantic.retry(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def read_current_semantic_publication(self) -> Mapping[str, object] | None:
+        """Read the atomically published current build; this can never submit."""
+
+        return self._repository.read_semantic_current()
 
     def read_boundary_decisions(
         self, candidates: Sequence[BoundaryCandidate]

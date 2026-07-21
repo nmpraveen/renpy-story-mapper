@@ -32,6 +32,11 @@ from renpy_story_mapper.narrative_map.provider import (
     ProviderJobKind,
     ProviderProfile,
 )
+from renpy_story_mapper.narrative_map.semantic_projection import semantic_summary_payload
+from renpy_story_mapper.narrative_map.semantic_validation import (
+    validate_semantic_boundary_response,
+    validate_semantic_summary_response,
+)
 from renpy_story_mapper.narrative_map.validation import (
     BoundaryValidationResult,
     ClaimClass,
@@ -98,6 +103,28 @@ class NarrativeBoundaryWorkflow:
     ) -> NarrativeWorkflowReport:
         if any(job.kind is not ProviderJobKind.EVENT_SUMMARY for job in jobs):
             raise ValueError("summary workflow received a different M15 job kind")
+        return self._run(jobs, consent, cancelled or _not_cancelled)
+
+    def run_semantic_boundary_jobs(
+        self,
+        jobs: Sequence[PreparedNarrativeJob],
+        *,
+        consent: NarrativeConsentManifest,
+        cancelled: CancelledCallback | None = None,
+    ) -> NarrativeWorkflowReport:
+        if any(job.kind is not ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW for job in jobs):
+            raise ValueError("semantic boundary workflow received a different job kind")
+        return self._run(jobs, consent, cancelled or _not_cancelled)
+
+    def run_semantic_summary_jobs(
+        self,
+        jobs: Sequence[PreparedNarrativeJob],
+        *,
+        consent: NarrativeConsentManifest,
+        cancelled: CancelledCallback | None = None,
+    ) -> NarrativeWorkflowReport:
+        if any(job.kind is not ProviderJobKind.SEMANTIC_SUMMARY for job in jobs):
+            raise ValueError("semantic summary workflow received a different job kind")
         return self._run(jobs, consent, cancelled or _not_cancelled)
 
     def _run(
@@ -405,6 +432,33 @@ class NarrativeBoundaryWorkflow:
                 },
                 (),
             )
+        if job.kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
+            semantic_boundary = validate_semantic_boundary_response(payload, job)
+            if not semantic_boundary.valid:
+                return None, semantic_boundary.findings
+            return (
+                {
+                    "window_id": job.subject_id,
+                    "decisions": [
+                        {
+                            "candidate_id": item.candidate_id,
+                            "decision": item.decision.value,
+                            "reason": item.reason,
+                            "confidence": item.confidence,
+                            "warnings": list(item.warnings),
+                        }
+                        for item in semantic_boundary.decisions
+                    ],
+                },
+                (),
+            )
+        if job.kind is ProviderJobKind.SEMANTIC_SUMMARY:
+            semantic_summary = validate_semantic_summary_response(payload, job)
+            if not semantic_summary.valid or semantic_summary.summary is None:
+                return None, semantic_summary.findings
+            normalized = semantic_summary_payload(semantic_summary.summary)
+            normalized.pop("schema", None)
+            return normalized, ()
         if not isinstance(job.subject, NarrativeEvent):
             raise ValueError("summary job subject contract is invalid")
         summary_validation: EventSummaryValidationResult = validate_event_summary_response(
@@ -516,10 +570,29 @@ def _semantic_lock(
     if not isinstance(payload, Mapping):
         return {}
     finding_codes = {finding.code for finding in findings}
-    if job.kind is ProviderJobKind.BOUNDARY:
+    if job.kind in {ProviderJobKind.BOUNDARY, ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW}:
         raw_decisions = payload.get("decisions")
         if not isinstance(raw_decisions, list):
             return {}
+        if job.kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
+            locked_items: list[JsonValue] = []
+            for item in raw_decisions:
+                projection = _boundary_semantic_projection(item)
+                if projection is not None:
+                    locked_items.append(
+                        {
+                            "candidate_id": projection["candidate_id"],
+                            "decision": projection,
+                        }
+                    )
+            locked_window: dict[str, JsonValue] = {
+                "__decision_slots__": {
+                    "locked": locked_items,
+                },
+            }
+            if payload.get("window_id") == job.subject_id:
+                locked_window["window_id"] = job.subject_id
+            return locked_window
         matching = [
             item
             for item in raw_decisions
@@ -528,7 +601,7 @@ def _semantic_lock(
         if len(matching) != 1:
             return {}
         item = matching[0]
-        locked: dict[str, JsonValue] = {"candidate_id": job.subject_id}
+        locked_boundary: dict[str, JsonValue] = {"candidate_id": job.subject_id}
         decision = item.get("decision")
         if isinstance(decision, str):
             try:
@@ -536,34 +609,42 @@ def _semantic_lock(
             except ValueError:
                 pass
             else:
-                locked["decision"] = decision
+                locked_boundary["decision"] = decision
         reason = item.get("reason")
         if _repair_text(reason, MAX_REASON_LENGTH):
-            locked["reason"] = reason
+            locked_boundary["reason"] = cast(str, reason)
         confidence = item.get("confidence")
         if (
             isinstance(confidence, int | float)
             and not isinstance(confidence, bool)
             and 0 <= float(confidence) <= 1
         ):
-            locked["confidence"] = float(confidence)
+            locked_boundary["confidence"] = float(confidence)
         warnings = item.get("warnings")
         if _repair_text_list(warnings, MAX_REASON_LENGTH):
-            locked["warnings"] = cast(list[JsonValue], warnings)
-        return locked
-    locked = {}
-    if payload.get("event_id") == job.subject_id:
-        locked["event_id"] = job.subject_id
+            locked_boundary["warnings"] = cast(list[JsonValue], warnings)
+        return locked_boundary
+    locked: dict[str, JsonValue] = {}
+    subject_key = "subject_id" if job.kind is ProviderJobKind.SEMANTIC_SUMMARY else "event_id"
+    if payload.get(subject_key) == job.subject_id:
+        locked[subject_key] = job.subject_id
+    if job.kind is ProviderJobKind.SEMANTIC_SUMMARY:
+        for key, expected in (
+            ("subject_kind", _semantic_subject_kind(job)),
+            ("membership_hash", job.membership_hash),
+        ):
+            if payload.get(key) == expected and isinstance(expected, str):
+                locked[key] = expected
     title = payload.get("title")
     if (
         "invalid_title" not in finding_codes
         and "blocked_title" not in finding_codes
         and _repair_text(title, MAX_TITLE_LENGTH)
     ):
-        locked["title"] = title
+        locked["title"] = cast(str, title)
     summary = payload.get("summary")
     if "invalid_summary" not in finding_codes and _repair_text(summary, MAX_SUMMARY_LENGTH):
-        locked["summary"] = summary
+        locked["summary"] = cast(str, summary)
     characters = payload.get("characters")
     if (
         "invalid_characters" not in finding_codes
@@ -606,12 +687,15 @@ def _matches_semantic_lock(
     scalar_match = all(
         key in current and canonical_hash(current[key]) == canonical_hash(value)
         for key, value in locked.items()
-        if key != "__claim_slots__"
+        if key not in {"__claim_slots__", "__decision_slots__"}
     )
     if not scalar_match:
         return False
     claim_slots = locked.get("__claim_slots__")
-    return claim_slots is None or _matches_claim_slots(payload, claim_slots)
+    decision_slots = locked.get("__decision_slots__")
+    return (claim_slots is None or _matches_claim_slots(payload, claim_slots)) and (
+        decision_slots is None or _matches_decision_slots(payload, decision_slots)
+    )
 
 
 def _matches_claim_slots(payload: object, constraint: JsonValue) -> bool:
@@ -644,13 +728,94 @@ def _matches_claim_slots(payload: object, constraint: JsonValue) -> bool:
     return True
 
 
+def _matches_decision_slots(payload: object, constraint: JsonValue) -> bool:
+    if not isinstance(payload, Mapping) or not isinstance(constraint, Mapping):
+        return False
+    decisions = payload.get("decisions")
+    locked = constraint.get("locked")
+    if not isinstance(decisions, list) or not isinstance(locked, list):
+        return False
+    for entry in locked:
+        if not isinstance(entry, Mapping) or set(entry) != {"candidate_id", "decision"}:
+            return False
+        candidate_id = entry.get("candidate_id")
+        decision = entry.get("decision")
+        matching = [
+            item
+            for item in decisions
+            if isinstance(item, Mapping) and item.get("candidate_id") == candidate_id
+        ]
+        if len(matching) != 1 or not isinstance(decision, Mapping):
+            return False
+        if canonical_hash(matching[0]) != canonical_hash(decision):
+            return False
+    return True
+
+
+def _boundary_semantic_projection(
+    item: object,
+) -> dict[str, JsonValue] | None:
+    from renpy_story_mapper.narrative_map.semantic_contracts import SemanticBoundaryKind
+
+    if not isinstance(item, Mapping):
+        return None
+    candidate_id = item.get("candidate_id")
+    decision = item.get("decision")
+    reason = item.get("reason")
+    confidence = item.get("confidence")
+    warnings = item.get("warnings")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        return None
+    try:
+        SemanticBoundaryKind(cast(str, decision))
+    except (TypeError, ValueError):
+        return None
+    if (
+        not _repair_text(reason, MAX_REASON_LENGTH)
+        or not isinstance(confidence, int | float)
+        or isinstance(confidence, bool)
+        or not 0 <= float(confidence) <= 1
+        or not _repair_text_list(warnings, MAX_REASON_LENGTH)
+    ):
+        return None
+    return {
+        "candidate_id": candidate_id,
+        "decision": cast(str, decision),
+        "reason": cast(str, reason),
+        "confidence": float(confidence),
+        "warnings": cast(list[JsonValue], warnings),
+    }
+
+
+def _semantic_subject_kind(job: PreparedNarrativeJob) -> str:
+    from renpy_story_mapper.narrative_map.semantic_contracts import (
+        ChoiceComposition,
+        MajorCluster,
+        SemanticBeat,
+    )
+
+    if isinstance(job.subject, SemanticBeat):
+        return "beat"
+    if isinstance(job.subject, MajorCluster):
+        return "major_cluster"
+    if isinstance(job.subject, ChoiceComposition):
+        return "choice"
+    raise ValueError("semantic summary subject contract is invalid")
+
+
 def _claim_semantic_projection(
     job: PreparedNarrativeJob,
     claim: object,
 ) -> dict[str, JsonValue] | None:
-    if not isinstance(job.subject, NarrativeEvent) or not isinstance(claim, Mapping):
+    if not isinstance(claim, Mapping):
         return None
-    allowed_evidence_ids = set(job.subject.provenance.evidence_ids)
+    allowed_evidence_ids = set(
+        job.known_evidence_ids
+        if job.kind is ProviderJobKind.SEMANTIC_SUMMARY
+        else job.subject.provenance.evidence_ids
+        if isinstance(job.subject, NarrativeEvent)
+        else ()
+    )
     claim_class_value = claim.get("claim_class")
     try:
         claim_class = (

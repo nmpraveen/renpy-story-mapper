@@ -28,6 +28,12 @@ from renpy_story_mapper.narrative_map.contracts import (
     canonical_hash,
     stable_m15_id,
 )
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    BoundaryWindow,
+    ChoiceComposition,
+    MajorCluster,
+    SemanticBeat,
+)
 from renpy_story_mapper.organization.sterile_runner import (
     SterileCodexRunner,
     SterileRunnerError,
@@ -39,6 +45,10 @@ BOUNDARY_PROMPT_VERSION = "m15-boundary-prompt-v1"
 BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-decision-v1"
 SUMMARY_PROMPT_VERSION = "m15-event-summary-prompt-v1"
 SUMMARY_RESPONSE_SCHEMA = "m15-event-summary-v1"
+SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v2"
+SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v2"
+SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v2"
+SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v2"
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
@@ -79,6 +89,8 @@ class _ConsentCallLedger:
 class ProviderJobKind(StrEnum):
     BOUNDARY = "boundary"
     EVENT_SUMMARY = "event_summary"
+    SEMANTIC_BOUNDARY_WINDOW = "semantic_boundary_window"
+    SEMANTIC_SUMMARY = "semantic_summary"
 
 
 @dataclass(frozen=True)
@@ -121,7 +133,14 @@ class PreparedNarrativeJob:
 
     kind: ProviderJobKind
     authority: AuthorityBinding
-    subject: BoundaryCandidate | NarrativeEvent
+    subject: (
+        BoundaryCandidate
+        | NarrativeEvent
+        | BoundaryWindow
+        | SemanticBeat
+        | MajorCluster
+        | ChoiceComposition
+    )
     subject_id: str
     input_hash: str
     prompt_version: str
@@ -130,6 +149,10 @@ class PreparedNarrativeJob:
     known_evidence_ids: tuple[str, ...]
     known_characters: tuple[str, ...] = ()
     story_facing: bool = True
+    source_hash: str | None = None
+    correction_id: str | None = None
+    membership_hash: str | None = None
+    privacy_scope: str | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id or self.subject_id != self.subject_id.strip():
@@ -140,33 +163,54 @@ class PreparedNarrativeJob:
             raise ValueError("job evidence IDs must be unique")
         if len(self.known_characters) != len(set(self.known_characters)):
             raise ValueError("job characters must be unique")
-        expected_subject = (
-            self.subject.candidate_id
-            if isinstance(self.subject, BoundaryCandidate)
-            else self.subject.event_id
-        )
+        expected_subject = _subject_id(self.subject)
         if self.subject_id != expected_subject:
             raise ValueError("job subject does not match its frozen contract identity")
+        for value, label in (
+            (self.source_hash, "job source hash"),
+            (self.correction_id, "job correction ID"),
+            (self.membership_hash, "job membership hash"),
+            (self.privacy_scope, "job privacy scope"),
+        ):
+            if value is not None and (not value or value != value.strip()):
+                raise ValueError(f"{label} must be a non-empty trimmed string")
+        if self.kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
+            if not isinstance(self.subject, BoundaryWindow) or self.membership_hash is not None:
+                raise ValueError("semantic boundary jobs require a window and no membership hash")
+        elif self.kind is ProviderJobKind.SEMANTIC_SUMMARY:
+            if not isinstance(self.subject, SemanticBeat | MajorCluster | ChoiceComposition):
+                raise ValueError("semantic summary jobs require a frozen visible subject")
+            if self.membership_hash is None:
+                raise ValueError("semantic summary jobs require frozen membership")
         self.validate_integrity()
 
     @property
     def job_id(self) -> str:
+        exact_scope: dict[str, JsonValue] = {
+            "kind": self.kind.value,
+            "authority": self.authority.to_dict(),
+            "subject_id": self.subject_id,
+            "input_hash": self.input_hash,
+            "prompt_version": self.prompt_version,
+            "response_schema": self.response_schema,
+        }
+        if self.source_hash is not None:
+            exact_scope["source_hash"] = self.source_hash
+        if self.correction_id is not None:
+            exact_scope["correction_id"] = self.correction_id
+        if self.membership_hash is not None:
+            exact_scope["membership_hash"] = self.membership_hash
+        if self.privacy_scope is not None:
+            exact_scope["privacy_scope"] = self.privacy_scope
         return stable_m15_id(
             f"{self.kind.value}_job",
-            {
-                "kind": self.kind.value,
-                "authority": self.authority.to_dict(),
-                "subject_id": self.subject_id,
-                "input_hash": self.input_hash,
-                "prompt_version": self.prompt_version,
-                "response_schema": self.response_schema,
-            },
+            exact_scope,
         )
 
     def durable_metadata(self) -> dict[str, JsonValue]:
         """Return identifiers/counts only; source evidence and prompt content are omitted."""
 
-        return {
+        metadata: dict[str, JsonValue] = {
             "job_id": self.job_id,
             "kind": self.kind.value,
             "subject_id": self.subject_id,
@@ -178,6 +222,15 @@ class PreparedNarrativeJob:
             "known_characters": list(self.known_characters),
             "story_facing": self.story_facing,
         }
+        if self.source_hash is not None:
+            metadata["source_hash"] = self.source_hash
+        if self.correction_id is not None:
+            metadata["correction_id"] = self.correction_id
+        if self.membership_hash is not None:
+            metadata["membership_hash"] = self.membership_hash
+        if self.privacy_scope is not None:
+            metadata["privacy_scope"] = self.privacy_scope
+        return metadata
 
     def validate_integrity(self) -> None:
         if canonical_hash(self.payload) != self.input_hash:
@@ -561,7 +614,34 @@ class SterileNarrativeMapProvider:
 def _resource_names(kind: ProviderJobKind) -> tuple[str, str]:
     if kind is ProviderJobKind.BOUNDARY:
         return "boundary_decision_v1.json", "boundary_decision_v1.schema.json"
-    return "event_summary_v1.json", "event_summary_v1.schema.json"
+    if kind is ProviderJobKind.EVENT_SUMMARY:
+        return "event_summary_v1.json", "event_summary_v1.schema.json"
+    if kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
+        return "semantic_boundary_v2.json", "boundary_window_v2.schema.json"
+    return "semantic_summary_v2.json", "semantic_summary_v2.schema.json"
+
+
+def _subject_id(
+    subject: (
+        BoundaryCandidate
+        | NarrativeEvent
+        | BoundaryWindow
+        | SemanticBeat
+        | MajorCluster
+        | ChoiceComposition
+    ),
+) -> str:
+    if isinstance(subject, BoundaryCandidate):
+        return subject.candidate_id
+    if isinstance(subject, NarrativeEvent):
+        return subject.event_id
+    if isinstance(subject, BoundaryWindow):
+        return subject.window_id
+    if isinstance(subject, SemanticBeat):
+        return subject.beat_id
+    if isinstance(subject, MajorCluster):
+        return subject.cluster_id
+    return subject.choice_id
 
 
 def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) -> bytes:

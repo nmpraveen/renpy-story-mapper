@@ -1,0 +1,17 @@
+{
+  "version": "m15-semantic-boundary-prompt-v2",
+  "purpose": "Classify every owned adjacent narrative gap in this bounded window without changing deterministic membership or topology.",
+  "forbidden": [
+    "create or change graph edges, choices, arms, rejoins, requirements, effects, or locators",
+    "return membership, topology, coordinates, titles, summaries, or unsupported facts",
+    "omit, duplicate, reorder, or replace an owned candidate",
+    "use filesystem, web, tools, MCP, private oracle, or application authority"
+  ],
+  "decisions": [
+    "same_beat",
+    "new_beat_same_cluster",
+    "new_major_cluster",
+    "uncertain"
+  ],
+  "reason_maximum": 500
+}
