@@ -29,6 +29,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 
 MAXIMUM_OWNED_GAPS_PER_WINDOW = 8
 MAXIMUM_CONTEXT_UNITS_PER_WINDOW = 16
+SEMANTIC_SUMMARY_INPUT_SCHEMA = "m15-semantic-summary-input-v3"
 
 
 @dataclass(frozen=True)
@@ -294,6 +295,7 @@ def prepare_semantic_summary_jobs(
     if len(expected_units) != len(subjects):
         raise ValueError("choice summary subject references an unknown parent cluster")
     unit_ids = set(outline.ordered_unit_ids)
+    unit_authority = _summary_unit_authority(outline)
     jobs: list[PreparedNarrativeJob] = []
     for item in inputs:
         if any(unit_id not in unit_ids for unit_id in item.ordered_unit_ids):
@@ -304,11 +306,34 @@ def prepare_semantic_summary_jobs(
         evidence_ids = tuple(record.evidence_id for record in evidence)
         if not set(item.evidence_ids).issubset(evidence_ids):
             raise ValueError("summary evidence must exist in its frozen subject input")
+        subject = subjects[(item.subject_kind, item.subject_id)]
+        ordered_unit_authority = [
+            unit_authority[unit_id] for unit_id in item.ordered_unit_ids
+        ]
+        serialized_unit_authority: list[JsonValue] = list(ordered_unit_authority)
         payload: dict[str, JsonValue] = {
+            "input_schema": SEMANTIC_SUMMARY_INPUT_SCHEMA,
             "subject_kind": item.subject_kind,
             "subject_id": item.subject_id,
             "membership_hash": membership_hash,
+            "subject_authority": _summary_subject_authority(
+                item.subject_kind,
+                subject,
+                clusters_by_id,
+            ),
             "frozen_unit_ids": list(item.ordered_unit_ids),
+            "ordered_unit_authority": serialized_unit_authority,
+            "choice_authority": _summary_choice_authority(
+                item.subject_kind,
+                subject,
+                ordered_unit_authority,
+                outline.choices,
+            ),
+            "ending_authority": {
+                "classification": "not_provided",
+                "whole_story_ending_authorized": False,
+                "authority_ids": [],
+            },
             "allowed_evidence_ids": list(item.evidence_ids),
             "known_characters": list(item.known_characters),
             "evidence": [record.to_prompt_dict() for record in evidence],
@@ -333,6 +358,118 @@ def prepare_semantic_summary_jobs(
             )
         )
     return tuple(jobs)
+
+
+def _summary_unit_authority(
+    outline: SemanticOutline,
+) -> dict[str, dict[str, JsonValue]]:
+    choices_by_id = {item.choice_id: item for item in outline.choices}
+    authority: dict[str, dict[str, JsonValue]] = {}
+    for beat in outline.beats:
+        arm_caption: str | None = None
+        if beat.parent_choice_id is not None:
+            choice = choices_by_id.get(beat.parent_choice_id)
+            if choice is None or choice.parent_cluster_id != beat.parent_cluster_id:
+                raise ValueError("arm-local summary beat lacks matching choice authority")
+            assert beat.parent_arm_id is not None
+            try:
+                arm_index = choice.ordered_arm_ids.index(beat.parent_arm_id)
+            except ValueError:
+                raise ValueError(
+                    "arm-local summary beat references an unknown choice arm"
+                ) from None
+            arm_caption = choice.ordered_arm_captions[arm_index]
+        for unit_id in beat.ordered_unit_ids:
+            if unit_id in authority:
+                raise ValueError("summary unit belongs to more than one frozen beat")
+            authority[unit_id] = {
+                "unit_id": unit_id,
+                "beat_id": beat.beat_id,
+                "parent_cluster_id": beat.parent_cluster_id,
+                "parent_choice_id": beat.parent_choice_id,
+                "parent_arm_id": beat.parent_arm_id,
+                "choice_arm_caption": arm_caption,
+                "navigation": beat.navigation.to_dict(),
+            }
+    if set(authority) != set(outline.ordered_unit_ids):
+        raise ValueError("summary unit authority must cover frozen outline membership exactly")
+    return authority
+
+
+def _summary_subject_authority(
+    subject_kind: str,
+    subject: SemanticBeat | MajorCluster | ChoiceComposition,
+    clusters_by_id: Mapping[str, MajorCluster],
+) -> dict[str, JsonValue]:
+    if subject_kind == "beat":
+        if not isinstance(subject, SemanticBeat):
+            raise ValueError("summary beat subject authority is invalid")
+        return {
+            "subject_kind": subject_kind,
+            "subject_id": subject.beat_id,
+            "parent_cluster_id": subject.parent_cluster_id,
+            "parent_choice_id": subject.parent_choice_id,
+            "parent_arm_id": subject.parent_arm_id,
+            "navigation": subject.navigation.to_dict(),
+        }
+    if subject_kind == "major_cluster":
+        if not isinstance(subject, MajorCluster):
+            raise ValueError("summary cluster subject authority is invalid")
+        return {
+            "subject_kind": subject_kind,
+            "subject_id": subject.cluster_id,
+            "ordinal": subject.ordinal,
+            "ordered_beat_ids": list(subject.ordered_beat_ids),
+            "ordered_choice_ids": list(subject.ordered_choice_ids),
+            "navigation": subject.navigation.to_dict(),
+        }
+    if not isinstance(subject, ChoiceComposition):
+        raise ValueError("summary choice subject authority is invalid")
+    parent = clusters_by_id.get(subject.parent_cluster_id)
+    if parent is None:
+        raise ValueError("summary choice lacks parent-cluster navigation authority")
+    return {
+        "subject_kind": subject_kind,
+        "subject_id": subject.choice_id,
+        "parent_navigation": parent.navigation.to_dict(),
+        "choice": subject.to_dict(),
+    }
+
+
+def _summary_choice_authority(
+    subject_kind: str,
+    subject: SemanticBeat | MajorCluster | ChoiceComposition,
+    ordered_unit_authority: Sequence[dict[str, JsonValue]],
+    choices: Sequence[ChoiceComposition],
+) -> list[JsonValue]:
+    choices_by_id = {item.choice_id: item for item in choices}
+    relevant = {
+        choice_id
+        for item in ordered_unit_authority
+        for choice_id in (item["parent_choice_id"],)
+        if isinstance(choice_id, str)
+    }
+    if subject_kind == "major_cluster":
+        if not isinstance(subject, MajorCluster):
+            raise ValueError("summary cluster choice authority is invalid")
+        relevant.update(subject.ordered_choice_ids)
+    elif subject_kind == "choice":
+        if not isinstance(subject, ChoiceComposition):
+            raise ValueError("summary choice authority is invalid")
+        relevant.add(subject.choice_id)
+
+    pending = list(relevant)
+    while pending:
+        choice_id = pending.pop()
+        choice = choices_by_id.get(choice_id)
+        if choice is None:
+            raise ValueError("summary subject references unknown choice authority")
+        linked = (*choice.child_choice_ids, choice.parent_choice_id)
+        for linked_id in linked:
+            if linked_id is not None and linked_id not in relevant:
+                relevant.add(linked_id)
+                pending.append(linked_id)
+    return [item.to_dict() for item in choices if item.choice_id in relevant]
 
 
 def semantic_outline_payload(outline: SemanticOutline) -> dict[str, JsonValue]:

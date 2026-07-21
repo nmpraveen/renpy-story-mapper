@@ -712,6 +712,24 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
     assert "atom" in repair_guidance
     assert "source" in repair_guidance
     assert current_job.response_schema == "m15-semantic-summary-v3"
+    stale_prompt_job = replace(
+        current_job, prompt_version="m15-semantic-summary-prompt-v2"
+    )
+    assert stale_prompt_job.job_id != current_job.job_id
+    stale_prompt_runner = _FakeSterileRunner(payload)
+    stale_prompt_request = NarrativeMapProviderRequest(
+        "semantic-summary-stale-prompt",
+        _consent((stale_prompt_job,)),
+        _profile(),
+        stale_prompt_job,
+    )
+    with pytest.raises(NarrativeMapProviderError) as prompt_exc_info:
+        SterileNarrativeMapProvider(runner=stale_prompt_runner).submit(
+            stale_prompt_request, lambda: False
+        )
+    assert prompt_exc_info.value.error_code == "prompt_version_mismatch"
+    assert not prompt_exc_info.value.provider_call_reserved
+    assert stale_prompt_runner.requests == []
     stale_job = replace(current_job, response_schema="m15-semantic-summary-v2")
     stale_runner = _FakeSterileRunner(payload)
     stale_request = NarrativeMapProviderRequest(

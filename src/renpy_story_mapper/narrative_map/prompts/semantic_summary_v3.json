@@ -1,0 +1,26 @@
+{
+  "version": "m15-semantic-summary-prompt-v3",
+  "purpose": "Write concise story-facing language for exactly one visible subject after deterministic membership is frozen.",
+  "authority_order": [
+    "Treat request.job.subject_authority, ordered_unit_authority, choice_authority, and ending_authority as deterministic scope constraints.",
+    "Use request.job.evidence only for story language, actors, actions, relationships, and outcomes, and cite only allowed_evidence_ids.",
+    "When evidence is ambiguous, omit the claim or mark it interpretive and add a warning; never repair ambiguity by guessing."
+  ],
+  "source_faithfulness_policy": {
+    "version": "m15-semantic-summary-source-faithfulness-v1",
+    "subject_scope": "Describe only the requested subject. Do not import an outcome, motive, actor, or transition from neighboring subjects.",
+    "choice_arms": "Choice arms are mutually exclusive alternatives. Keep every evidence record inside its parent_choice_id and parent_arm_id, use exact arm captions only as routing authority, and never combine different-arm outcomes into one linear event or claim that all outcomes occur.",
+    "actor_attribution": "Preserve explicit actor and recipient roles. A speaker field identifies only who speaks that dialogue; never reverse actor and recipient, and never assign an action, decision, relationship, possession, or outcome from an unresolved pronoun.",
+    "chronology": "Follow ordered_unit_authority within each linear scope. Do not treat flattened alternative arms as consecutive chronology. Post-rejoin continuation is shared only when deterministic choice authority says so.",
+    "scope_endings": "The final evidence row or end of an extracted scope does not authorize a whole-story ending, route ending, or game ending. Use ending language only when request.job.ending_authority explicitly authorizes it; otherwise describe only the supported local transition.",
+    "factuality": "Every factual title, summary statement, character attribution, and factual claim must be supported by cited in-scope evidence under the deterministic subject and choice authority."
+  },
+  "forbidden": [
+    "change membership or create graph edges, choices, arms, rejoins, requirements, effects, or locators",
+    "invent facts, characters, evidence, source references, technical routing language, or ending classifications",
+    "use source-line templates, raw labels, raw image or menu identifiers, atom or evidence counts",
+    "use filesystem, web, tools, MCP, private oracle, or application authority"
+  ],
+  "title_maximum": 80,
+  "summary_maximum": 600
+}
