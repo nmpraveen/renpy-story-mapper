@@ -299,10 +299,16 @@ class NarrativeConsentManifest:
             raise ValueError("consent output limit exceeds the sterile boundary")
         if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
             raise ValueError("consent timeout must be positive")
-        if self.repair_policy_version is not None and (
-            not self.repair_policy_version
-            or self.repair_policy_version != self.repair_policy_version.strip()
-            or self.version != "m15-narrative-consent-v2"
+        if (
+            self.repair_policy_version is None
+            and self.version != "m15-narrative-consent-v1"
+        ) or (
+            self.repair_policy_version is not None
+            and (
+                not self.repair_policy_version
+                or self.repair_policy_version != self.repair_policy_version.strip()
+                or self.version != "m15-narrative-consent-v2"
+            )
         ):
             raise ValueError("consent repair policy identity is invalid")
         _consent_times(self.issued_utc, self.expires_utc)
@@ -411,10 +417,7 @@ class NarrativeConsentManifest:
             raise ValueError("M15 consent scope does not include the provider job") from None
         if canonical_hash(job.durable_metadata()) != self.job_identity_hashes[index]:
             raise ValueError("M15 consent job identity does not match")
-        if (
-            job.kind is ProviderJobKind.SEMANTIC_SUMMARY
-            and self.repair_policy_version != SEMANTIC_REPAIR_POLICY_VERSION
-        ):
+        if self.repair_policy_version != _repair_policy_version((job,)):
             raise ValueError("M15 consent repair policy identity does not match")
 
     def validate_fresh(self) -> None:
@@ -757,7 +760,12 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
 def _repair_policy_version(
     jobs: Sequence[PreparedNarrativeJob],
 ) -> str | None:
-    if any(job.kind is ProviderJobKind.SEMANTIC_SUMMARY for job in jobs):
+    semantic_summary = tuple(
+        job.kind is ProviderJobKind.SEMANTIC_SUMMARY for job in jobs
+    )
+    if any(semantic_summary) and not all(semantic_summary):
+        raise ValueError("M15 repair-policy consent cannot mix job kinds")
+    if any(semantic_summary):
         return SEMANTIC_REPAIR_POLICY_VERSION
     return None
 

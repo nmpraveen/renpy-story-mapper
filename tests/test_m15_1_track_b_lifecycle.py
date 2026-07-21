@@ -593,6 +593,10 @@ def test_sterile_adapter_uses_versioned_boundary_prompt_and_schema(tmp_path: Pat
 
     assert response.payload == _boundary_payload(window)
     assert runner.requests[0].schema_path.name == "boundary_window_v3.schema.json"
+    assert consent.version == "m15-narrative-consent-v1"
+    assert consent.repair_policy_version is None
+    with pytest.raises(ValueError, match="repair policy"):
+        replace(consent, version="m15-narrative-consent-v2")
     assert preparation.jobs[0].response_schema == "m15-boundary-window-v3"
     stale_job = replace(preparation.jobs[0], response_schema="m15-boundary-window-v2")
     assert stale_job.job_id != preparation.jobs[0].job_id
