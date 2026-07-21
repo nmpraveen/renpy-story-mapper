@@ -1,0 +1,17 @@
+{
+  "schema": "m15-semantic-build-v2",
+  "primary": [
+    "not_started",
+    "boundaries_prepared",
+    "awaiting_boundary_consent",
+    "boundaries_running",
+    "membership_frozen",
+    "summaries_prepared",
+    "awaiting_summary_consent",
+    "summaries_running",
+    "validating",
+    "complete"
+  ],
+  "terminal_noncomplete": ["partial", "failed", "cancelled", "stale"],
+  "stale_rule": "authority_or_version_mismatch_only"
+}
