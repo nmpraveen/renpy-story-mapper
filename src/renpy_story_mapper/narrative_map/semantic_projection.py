@@ -630,6 +630,27 @@ def project_compact_semantic_nodes(
                 (choice.parent_choice_id, choice.parent_arm_id), []
             ).append(choice)
 
+    region_by_id = {item.id: item for item in canonical.regions}
+
+    def is_shallow_setup_detour(choice: ChoiceComposition) -> bool:
+        if choice.canonical_region_id is None:
+            return False
+        region = region_by_id.get(choice.canonical_region_id)
+        if region is None or region.kind != "local_detour" or choice.child_choice_ids:
+            return False
+        for arm_id in choice.ordered_arm_ids:
+            arm_story_kinds = [
+                atom_by_id[atom_id].kind
+                for beat in beats_by_arm.get((choice.choice_id, arm_id), ())
+                for unit_id in beat.ordered_unit_ids
+                for atom_id in unit_by_id[unit_id].provenance.atom_ids
+                if atom_id in atom_by_id
+                and atom_by_id[atom_id].kind in _STORY_CONTENT_ATOM_KINDS
+            ]
+            if arm_story_kinds != [AtomKind.NARRATION]:
+                return False
+        return True
+
     visible_choice_ids: set[str] = set()
     visiting: set[str] = set()
 
@@ -639,6 +660,8 @@ def project_compact_semantic_nodes(
         if choice_id in visiting:
             raise ValueError("compact semantic projection choice ownership contains a cycle")
         choice = choice_by_id[choice_id]
+        if is_shallow_setup_detour(choice):
+            return False
         visiting.add(choice_id)
         arm_results = []
         for arm_id in choice.ordered_arm_ids:

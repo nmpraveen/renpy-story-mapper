@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from m15_test_support import linear_authority
+from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalRegion,
+    DerivedProof,
+    OriginReference,
+)
 from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.narrative_map import (
     ChoiceComposition,
@@ -13,6 +18,7 @@ from renpy_story_mapper.narrative_map import (
     build_fine_narrative_units,
     stable_m15_id,
 )
+from renpy_story_mapper.narrative_map.adapters import bind_m15_authority
 from renpy_story_mapper.narrative_map.contracts import NarrativeEdgeKind
 from renpy_story_mapper.narrative_map.projection import (
     SemanticQuotientTopology,
@@ -52,8 +58,8 @@ def _projection_fixture() -> tuple[
         (
             AtomKind.NARRATION,
             AtomKind.CHOICE,
-            AtomKind.CHOICE,
-            AtomKind.CHOICE,
+            AtomKind.NARRATION,
+            AtomKind.NARRATION,
             AtomKind.NARRATION,
             AtomKind.CHOICE,
             AtomKind.DIALOGUE,
@@ -74,8 +80,8 @@ def _projection_fixture() -> tuple[
         source_kinds=(
             "narration",
             "menu",
-            "menu_choice",
-            "menu_choice",
+            "narration",
+            "narration",
             "narration",
             "menu",
             "dialogue",
@@ -84,6 +90,53 @@ def _projection_fixture() -> tuple[
         ),
     )
     raw_units = build_fine_narrative_units(canonical, model)
+    setup_proof = DerivedProof(
+        "proof-setup",
+        "synthetic_rejoin",
+        (OriginReference("synthetic", "region-setup"),),
+        ("node-1", "node-4"),
+        "Synthetic shallow setup choice rejoins before the story.",
+    )
+    story_proof = DerivedProof(
+        "proof-story",
+        "synthetic_rejoin",
+        (OriginReference("synthetic", "region-story"),),
+        ("node-5", "node-8"),
+        "Synthetic rich story choice rejoins after its arms.",
+    )
+    canonical = replace(
+        canonical,
+        regions=(
+            CanonicalRegion(
+                "region-setup",
+                "local_detour",
+                "node-1",
+                "node-4",
+                ("node-2", "node-3"),
+                (OriginReference("synthetic", "region-setup"),),
+                (setup_proof.id,),
+                {},
+            ),
+            CanonicalRegion(
+                "region-story",
+                "local_detour",
+                "node-5",
+                "node-8",
+                ("node-6", "node-7"),
+                (OriginReference("synthetic", "region-story"),),
+                (story_proof.id,),
+                {},
+            ),
+        ),
+        proofs=(setup_proof, story_proof),
+    )
+    canonical.validate()
+    model = replace(
+        model,
+        binding=replace(model.binding, canonical_hash=canonical.authority_hash),
+    )
+    authority = bind_m15_authority(canonical, model)
+    raw_units = tuple(replace(unit, authority=authority) for unit in raw_units)
     technical_choice_id = "choice-setup"
     story_choice_id = "choice-story"
     owners = (
