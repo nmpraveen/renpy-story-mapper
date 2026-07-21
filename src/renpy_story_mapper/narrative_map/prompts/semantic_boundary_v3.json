@@ -7,19 +7,20 @@
     "omit, duplicate, reorder, or replace an owned candidate",
     "treat an image, music, pause, hint, screen, menu mechanic, or other technical directive as a story boundary by itself",
     "treat a choice split, arm transition, rejoin, speaker change, gesture, or single dialogue turn as a major section by itself",
+    "promote a final day, chapter, or time marker to a new major section when no subsequent story event is present in the supplied scope",
     "use filesystem, web, tools, MCP, private oracle, or application authority"
   ],
   "decisions": {
     "same_beat": "The adjacent evidence continues one immediate action, exchange, thought, or micro-moment. Routine dialogue turns, reactions, poses, pauses, and technical directives normally stay here.",
     "new_beat_same_cluster": "A distinct story-facing development begins inside the same ongoing encounter or objective, such as a new revelation, tactic, emotional turn, or consequential action. Use this selectively; a new line, speaker, image, or branch mechanic is insufficient.",
-    "new_major_cluster": "A new major story section is explicitly supported by a substantial change of time, place, encounter, or narrative objective. Reserve this for reader-level section transitions, not subdivisions of one conversation, setup introductions, audiovisual changes, choices, arms, rejoins, or technical material.",
+    "new_major_cluster": "A new major story section is explicitly supported by a substantial change of time, place, encounter, or narrative objective together with story events in that new section. Reserve this for reader-level section transitions, not subdivisions of one conversation, setup introductions, audiovisual changes, choices, arms, rejoins, technical material, or a trailing day/chapter marker with no following event in scope.",
     "uncertain": "The supplied story evidence is insufficient to distinguish the editorial boundary safely. Prefer this over promoting technical or ambiguous material."
   },
   "classification_order": [
     "First ignore technical presentation changes unless story evidence independently proves a narrative transition.",
     "Then ask whether the same immediate moment continues; if so choose same_beat.",
     "Otherwise ask whether a meaningful development occurs inside the same encounter or objective; if so choose new_beat_same_cluster.",
-    "Choose new_major_cluster only when the evidence positively establishes a reader-level section transition.",
+    "Choose new_major_cluster only when the evidence positively establishes a reader-level section transition and contains story action on the new side; a trailing scope marker alone stays with the preceding section or is uncertain.",
     "Use uncertain when that positive evidence is absent or ambiguous."
   ],
   "reason_maximum": 500

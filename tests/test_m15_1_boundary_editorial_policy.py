@@ -31,6 +31,8 @@ def test_boundary_prompt_uses_selective_editorial_hierarchy_policy() -> None:
         assert technical_cue in policy
     for routing_cue in ("choice", "arm", "rejoin"):
         assert routing_cue in policy
+    assert "trailing day/chapter marker" in policy
+    assert "no following event in scope" in policy
 
 
 def test_prior_boundary_prompt_remains_packaged_for_historical_identity() -> None:
