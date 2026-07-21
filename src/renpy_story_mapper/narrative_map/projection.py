@@ -311,9 +311,7 @@ def _occurrence_paths_for_structural_nodes(
         neighbors[edge.target_id].add(edge.source_id)
     for node_id in unowned:
         for neighbor_id in neighbors[node_id]:
-            paths[node_id].update(
-                path for _subject_id, path in owners_by_node.get(neighbor_id, ()) if path
-            )
+            paths[node_id].update(path for _subject_id, path in owners_by_node.get(neighbor_id, ()))
     changed = True
     while changed:
         changed = False
@@ -333,15 +331,11 @@ def _compatible_owner_pairs(
     call_site_path_by_occurrence: Mapping[tuple[str, ...], tuple[str, ...]],
     edge_call_site_id: str | None,
 ) -> tuple[tuple[str, str], ...]:
-    result: list[tuple[str, str]] = []
+    ranked: list[tuple[int, str, str]] = []
     for source_id, source_path in sources:
         for target_id, target_path in targets:
-            if (
-                not source_path
-                or not target_path
-                or _is_path_prefix(source_path, target_path)
-                or _is_path_prefix(target_path, source_path)
-            ) and (
+            rank = _path_pair_rank(source_path, target_path)
+            if rank is not None and (
                 edge_call_site_id is None
                 or _path_uses_call_site(
                     source_path,
@@ -354,16 +348,36 @@ def _compatible_owner_pairs(
                     call_site_path_by_occurrence,
                 )
             ):
-                pair = (source_id, target_id)
-                if pair not in result:
-                    result.append(pair)
-    if not result and edge_call_site_id is None and (len(sources) == 1 or len(targets) == 1):
+                ranked.append((rank, source_id, target_id))
+    if ranked:
+        best_rank = min(item[0] for item in ranked)
+        return tuple(
+            (source_id, target_id) for rank, source_id, target_id in ranked if rank == best_rank
+        )
+    if edge_call_site_id is None and (len(sources) == 1 or len(targets) == 1):
         return tuple(
             (source_id, target_id)
             for source_id, _source_path in sources
             for target_id, _target_path in targets
         )
-    return tuple(result)
+    return ()
+
+
+def _path_pair_rank(
+    source_path: tuple[str, ...],
+    target_path: tuple[str, ...],
+) -> int | None:
+    if source_path == target_path:
+        return 0
+    if (
+        source_path
+        and target_path
+        and (_is_path_prefix(source_path, target_path) or _is_path_prefix(target_path, source_path))
+    ):
+        return 1
+    if not source_path or not target_path:
+        return 2
+    return None
 
 
 def _is_path_prefix(left: tuple[str, ...], right: tuple[str, ...]) -> bool:

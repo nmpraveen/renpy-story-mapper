@@ -520,7 +520,7 @@ def test_nested_occurrence_instances_are_qualified_by_their_outer_call_path() ->
 
 
 def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
-    base, _model = linear_authority((AtomKind.NARRATION,) * 7)
+    base, _model = linear_authority((AtomKind.NARRATION,) * 8)
     edge_specs = (
         ("alpha-enter", "node-0", "node-2", "call_enter", "site-alpha"),
         ("beta-enter", "node-1", "node-2", "call_enter", "site-beta"),
@@ -528,6 +528,7 @@ def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
         ("shared-return", "node-3", "node-4", "continuation", None),
         ("alpha-return", "node-4", "node-5", "call_return", "site-alpha"),
         ("beta-return", "node-4", "node-6", "call_return", "site-beta"),
+        ("direct-enter", "node-7", "node-2", "jump", None),
     )
     edges = tuple(
         CanonicalEdge(
@@ -560,8 +561,10 @@ def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
     unit_specs = (
         ("alpha-call", "node-0", ("occ-alpha",), ("site-alpha",)),
         ("beta-call", "node-1", ("occ-beta",), ("site-beta",)),
+        ("direct-jump", "node-7", (), ()),
         ("alpha-dialogue", "node-3", ("occ-alpha",), ("site-alpha",)),
         ("beta-dialogue", "node-3", ("occ-beta",), ("site-beta",)),
+        ("direct-dialogue", "node-3", (), ()),
         ("alpha-after", "node-5", (), ()),
         ("beta-after", "node-6", (), ()),
     )
@@ -586,7 +589,7 @@ def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
         unit_id: beat.beat_id for beat in outline.beats for unit_id in beat.ordered_unit_ids
     }
     start = beat_by_unit[units[0].unit_id]
-    forbidden = beat_by_unit[units[3].unit_id]
+    forbidden = beat_by_unit[units[4].unit_id]
     outgoing: dict[str, set[str]] = {}
     for edge in topology.edges:
         outgoing.setdefault(edge.source_subject_id, set()).add(edge.target_subject_id)
@@ -599,8 +602,19 @@ def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
         reached.add(subject_id)
         pending.extend(outgoing.get(subject_id, ()))
 
-    assert beat_by_unit[units[2].unit_id] in reached
+    assert beat_by_unit[units[3].unit_id] in reached
     assert forbidden not in reached
+    direct_pending = [beat_by_unit[units[2].unit_id]]
+    direct_reached: set[str] = set()
+    while direct_pending:
+        subject_id = direct_pending.pop()
+        if subject_id in direct_reached:
+            continue
+        direct_reached.add(subject_id)
+        direct_pending.extend(outgoing.get(subject_id, ()))
+    assert beat_by_unit[units[5].unit_id] in direct_reached
+    assert beat_by_unit[units[3].unit_id] not in direct_reached
+    assert beat_by_unit[units[4].unit_id] not in direct_reached
 
 
 def test_boundary_windows_own_every_candidate_once_with_bounded_same_sequence_halos() -> None:

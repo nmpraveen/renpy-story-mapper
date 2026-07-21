@@ -474,6 +474,7 @@ def build_fine_narrative_units(
         ordered_atoms,
         tuple(scene_model.occurrences),
         order_by_atom,
+        canonical_edges,
     )
     _validate_fine_units(
         expanded,
@@ -600,6 +601,7 @@ def _expand_call_occurrence_units(
     ordered_atoms: tuple[StoryAtom, ...],
     occurrences: tuple[CallSiteOccurrence, ...],
     order_by_atom: dict[str, int],
+    edges: tuple[CanonicalEdge, ...],
 ) -> tuple[FineNarrativeUnit, ...]:
     """Expand shared referenced atoms once per exact M11 call occurrence."""
 
@@ -616,11 +618,20 @@ def _expand_call_occurrence_units(
     )
     occurrences_by_call: dict[str, list[CallSiteOccurrence]] = defaultdict(list)
     referenced_atom_ids: set[str] = set()
+    directly_reachable_atom_ids: set[str] = set()
+    incoming_by_node: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    for edge in edges:
+        incoming_by_node[edge.target_id].append(edge)
     for occurrence in sorted_occurrences:
         if len(occurrence.referenced_atom_ids) != len(set(occurrence.referenced_atom_ids)):
             raise ValueError("one call occurrence repeats referenced atom identity")
         occurrences_by_call[occurrence.call_atom_id].append(occurrence)
         referenced_atom_ids.update(occurrence.referenced_atom_ids)
+        incoming = incoming_by_node[occurrence.callee_entry_node_id]
+        if any(_is_call_entry_edge(edge) for edge in incoming) and any(
+            not _is_call_entry_edge(edge) for edge in incoming
+        ):
+            directly_reachable_atom_ids.update(occurrence.referenced_atom_ids)
 
     result: list[FineNarrativeUnit] = []
     emitted: set[tuple[str, str | None]] = set()
@@ -730,9 +741,22 @@ def _expand_call_occurrence_units(
                 for occurrence in atom_occurrences:
                     append_occurrence(occurrence, (), (), set())
             continue
-        if atom.id not in referenced_atom_ids:
+        if atom.id not in referenced_atom_ids or atom.id in directly_reachable_atom_ids:
             append_unit(atom.id, (), ())
     return tuple(result)
+
+
+def _is_call_entry_edge(edge: CanonicalEdge) -> bool:
+    raw_roles = edge.attributes.get("semantic_roles")
+    role_values = (
+        raw_roles
+        if isinstance(raw_roles, Sequence) and not isinstance(raw_roles, str | bytes)
+        else ()
+    )
+    roles = {str(item).casefold() for item in role_values if isinstance(item, str)}
+    return edge.kind.casefold() in {"call_enter", "call_summary"} or any(
+        "call" in item and "return" not in item for item in roles
+    )
 
 
 def _choice_occurrence_id(
