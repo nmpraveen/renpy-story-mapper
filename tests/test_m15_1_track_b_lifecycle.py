@@ -1720,6 +1720,86 @@ def test_escaped_summary_task_reconciles_once_across_repeated_manifest_rotation(
     assert final_raw["summary_accounting"]["cache_hits"] == 1
 
 
+def test_rebuilt_boundary_stage_preserves_settled_manifest_reconciliation(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates, batched=False)
+    with Project.create(tmp_path / "settled-boundary-manifest.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        prior = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-boundary-prior",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(prior, prior.granted_consent())
+        first = service.start_boundaries(
+            prior,
+            provider=_FakeProvider(
+                [_boundary_payload(windows[0]), {"bad": True}, {"bad": True}]
+            ),
+            consent=prior.granted_consent(),
+        )
+        assert first.provider_calls == 3
+
+        replacement = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-boundary-replacement",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(minutes=59),
+            replay_existing=True,
+        )
+        service.confirm_semantic_consent(replacement, replacement.granted_consent())
+        second = service.start_boundaries(
+            replacement,
+            provider=_FakeProvider([{"bad": True}, {"bad": True}]),
+            consent=replacement.granted_consent(),
+        )
+        assert second.provider_calls == 2
+
+        rebuilt = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-boundary-rebuilt",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(minutes=58),
+            replay_existing=True,
+        )
+        rebuilt_raw = repository.read_semantic_build()
+        assert rebuilt_raw is not None
+        assert prior.consent.manifest_id in rebuilt_raw[
+            "boundary_reconciled_manifest_ids"
+        ]
+        service.confirm_semantic_consent(rebuilt, rebuilt.granted_consent())
+        final = service.start_boundaries(
+            rebuilt,
+            provider=_FakeProvider([_boundary_payload(windows[1])]),
+            consent=rebuilt.granted_consent(),
+        )
+        status = service.semantic_status()
+
+    assert final.provider_calls == 1
+    assert status is not None
+    assert status.record.state is SemanticBuildState.VALIDATING
+
+
 def test_settled_summary_manifest_stays_reconciled_after_later_record_replacement(
     tmp_path: Path,
 ) -> None:

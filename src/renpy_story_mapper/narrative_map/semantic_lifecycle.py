@@ -245,6 +245,12 @@ class SemanticLifecycle:
                 payload["confirmed_manifest_stages"] = _manifest_stage_mapping(
                     previous_build.get("confirmed_manifest_stages")
                 )
+                payload["boundary_reconciled_manifest_ids"] = list(
+                    _strings(
+                        previous_build.get("boundary_reconciled_manifest_ids", []),
+                        "reconciled boundary manifest IDs",
+                    )
+                )
             payload["boundary_accounted_manifest_id"] = consent.manifest_id
             payload["boundary_accounted_reservation_count"] = 0
         self._repository.write_semantic_build(payload)
