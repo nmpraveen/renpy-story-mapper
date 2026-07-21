@@ -85,6 +85,7 @@ class FineNarrativeUnit:
     incident_edge_ids: tuple[str, ...]
     provenance: Provenance
     call_occurrence_path: tuple[str, ...] = ()
+    call_site_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_text(self.sequence_id, "fine-unit sequence ID")
@@ -101,6 +102,7 @@ class FineNarrativeUnit:
             (self.context_ids, "fine-unit context ID"),
             (self.incident_edge_ids, "fine-unit incident edge ID"),
             (self.call_occurrence_path, "fine-unit call occurrence path item"),
+            (self.call_site_path, "fine-unit call-site path item"),
         ):
             _require_unique(values, label)
         _require_text(self.lane_id, "fine-unit lane ID")
@@ -132,6 +134,7 @@ class FineNarrativeUnit:
             "lane_id": self.lane_id,
             "call_occurrence_id": self.call_occurrence_id,
             "call_occurrence_path": list(self.call_occurrence_path),
+            "call_site_path": list(self.call_site_path),
             "loop_id": self.loop_id,
             "parent_choice_id": self.parent_choice_id,
             "parent_arm_id": self.parent_arm_id,
@@ -282,6 +285,8 @@ class ChoiceComposition:
     rejoin_relationship_ids: tuple[str, ...]
     shared_target_id: str | None
     post_rejoin_continuation_id: str | None
+    canonical_region_id: str | None = None
+    call_occurrence_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_text(self.choice_id, "choice-composition ID")
@@ -299,6 +304,10 @@ class ChoiceComposition:
         _require_unique(self.rejoin_relationship_ids, "rejoin relationship ID", allow_empty=False)
         _require_optional_text(self.shared_target_id, "shared rejoin target ID")
         _require_optional_text(self.post_rejoin_continuation_id, "post-rejoin continuation ID")
+        _require_optional_text(self.canonical_region_id, "choice canonical region ID")
+        _require_unique(self.call_occurrence_path, "choice call occurrence path item")
+        if self.call_occurrence_path and self.canonical_region_id is None:
+            raise ValueError("an occurrence-qualified choice requires canonical region authority")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -313,6 +322,8 @@ class ChoiceComposition:
             "rejoin_relationship_ids": list(self.rejoin_relationship_ids),
             "shared_target_id": self.shared_target_id,
             "post_rejoin_continuation_id": self.post_rejoin_continuation_id,
+            "canonical_region_id": self.canonical_region_id,
+            "call_occurrence_path": list(self.call_occurrence_path),
         }
 
 

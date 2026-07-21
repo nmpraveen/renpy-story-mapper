@@ -15,6 +15,7 @@ from renpy_story_mapper.canonical_graph_contract import (
 from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.narrative_map.adapters import ordered_unique
 from renpy_story_mapper.narrative_map.contracts import (
+    AuthorityBinding,
     BoundaryDecision,
     BoundaryDecisionKind,
     CoverageState,
@@ -371,12 +372,20 @@ def build_choice_compositions(
         or outline.authority.canonical_hash != canonical.authority_hash
     ):
         raise ValueError("choice composition is bound to a different exact M10 graph")
-    unit_by_node: dict[str, FineNarrativeUnit] = {}
+    units_by_node: dict[str, list[FineNarrativeUnit]] = defaultdict(list)
     for unit in materialized_units:
         for node_id in unit.node_ids:
-            prior = unit_by_node.setdefault(node_id, unit)
-            if prior.unit_id != unit.unit_id:
-                raise ValueError("one canonical node cannot belong to multiple fine units")
+            prior_units = units_by_node[node_id]
+            if any(
+                prior.call_occurrence_path == unit.call_occurrence_path
+                and prior.unit_id != unit.unit_id
+                for prior in prior_units
+            ):
+                raise ValueError(
+                    "one canonical node cannot belong to multiple units in one occurrence"
+                )
+            if all(prior.unit_id != unit.unit_id for prior in prior_units):
+                prior_units.append(unit)
     cluster_by_unit = {
         unit_id: beat.parent_cluster_id
         for beat in outline.beats
@@ -434,28 +443,40 @@ def build_choice_compositions(
 
     unit_position = {unit_id: index for index, unit_id in enumerate(outline.ordered_unit_ids)}
     for region in temporary_regions:
-        if region.split_node_id not in unit_by_node:
+        if region.split_node_id not in units_by_node:
             raise ValueError("temporary choice split lacks a story-facing fine unit")
-    ordered_regions = tuple(
+    instances = tuple(
+        (region, split_unit)
+        for region in temporary_regions
+        for split_unit in units_by_node[region.split_node_id]
+    )
+    instance_ids: dict[tuple[str, tuple[str, ...]], str] = {}
+    for region, split_unit in instances:
+        key = (region.id, split_unit.call_occurrence_path)
+        if key in instance_ids:
+            raise ValueError("temporary choice has duplicate ownership in one call occurrence")
+        instance_ids[key] = _choice_occurrence_id(
+            outline.authority,
+            region.id,
+            split_unit.call_occurrence_path,
+        )
+    ordered_instances = tuple(
         sorted(
-            temporary_regions,
+            instances,
             key=lambda item: (
-                depth(item.id),
-                unit_position.get(
-                    unit_by_node[item.split_node_id].unit_id,
-                    len(unit_position),
-                ),
-                item.id,
+                depth(item[0].id),
+                unit_position.get(item[1].unit_id, len(unit_position)),
+                item[0].id,
+                item[1].call_occurrence_path,
             ),
         )
     )
     compositions: dict[str, ChoiceComposition] = {}
-    for region in ordered_regions:
+    for region, split_unit in ordered_instances:
         if region.merge_node_id is None:
             raise ValueError("temporary choice composition requires a proven M10 rejoin")
-        split_unit = unit_by_node.get(region.split_node_id)
-        if split_unit is None:
-            raise ValueError("temporary choice split lacks a story-facing fine unit")
+        occurrence_path = split_unit.call_occurrence_path
+        choice_id = instance_ids[(region.id, occurrence_path)]
         parent_region_id = parent_by_region[region.id]
         if parent_region_id is None:
             parent_cluster_id = cluster_by_unit.get(split_unit.unit_id)
@@ -464,11 +485,13 @@ def build_choice_compositions(
             parent_choice_id = None
             parent_arm_id = None
         else:
-            parent_choice = compositions.get(parent_region_id)
+            parent_choice_id = instance_ids.get((parent_region_id, occurrence_path))
+            parent_choice = (
+                compositions.get(parent_choice_id) if parent_choice_id is not None else None
+            )
             if parent_choice is None:
-                raise ValueError("nested choice parent was not composed first")
+                raise ValueError("nested choice occurrence parent was not composed first")
             parent_cluster_id = parent_choice.parent_cluster_id
-            parent_choice_id = parent_region_id
             parent_arm_id = arm_by_region[region.id]
         arms = _canonical_arms(region)
         ordinals = [_required_int(item, "ordinal") for item in arms]
@@ -483,7 +506,7 @@ def build_choice_compositions(
                 "rejoin_relationship",
                 {
                     "authority": outline.authority.to_dict(),
-                    "choice_id": region.id,
+                    "choice_id": choice_id,
                     "arm_id": arm_id,
                     "entry_edge_id": _required_text(arm, "edge_id"),
                     "merge_node_id": region.merge_node_id,
@@ -511,13 +534,17 @@ def build_choice_compositions(
         continuation_unit_id = _post_rejoin_continuation(
             region.merge_node_id,
             tuple(sorted(canonical.edges, key=lambda item: item.id)),
-            unit_by_node,
+            units_by_node,
+            occurrence_path,
         )
         child_ids = tuple(
-            item.id for item in ordered_regions if parent_by_region[item.id] == region.id
+            instance_ids[(child.id, child_unit.call_occurrence_path)]
+            for child, child_unit in ordered_instances
+            if parent_by_region[child.id] == region.id
+            and child_unit.call_occurrence_path == occurrence_path
         )
-        compositions[region.id] = ChoiceComposition(
-            choice_id=region.id,
+        compositions[choice_id] = ChoiceComposition(
+            choice_id=choice_id,
             parent_cluster_id=parent_cluster_id,
             parent_choice_id=parent_choice_id,
             parent_arm_id=parent_arm_id,
@@ -527,8 +554,13 @@ def build_choice_compositions(
             rejoin_relationship_ids=relationships,
             shared_target_id=region.merge_node_id,
             post_rejoin_continuation_id=continuation_unit_id,
+            canonical_region_id=region.id,
+            call_occurrence_path=occurrence_path,
         )
-    result = tuple(compositions[item.id] for item in ordered_regions)
+    result = tuple(
+        compositions[instance_ids[(region.id, split_unit.call_occurrence_path)]]
+        for region, split_unit in ordered_instances
+    )
     _validate_choice_compositions(result, materialized_units)
     return result
 
@@ -692,17 +724,38 @@ def _canonical_caption(node: CanonicalNode) -> str:
 def _post_rejoin_continuation(
     merge_node_id: str,
     edges: Sequence[CanonicalEdge],
-    unit_by_node: Mapping[str, FineNarrativeUnit],
+    units_by_node: Mapping[str, Sequence[FineNarrativeUnit]],
+    occurrence_path: tuple[str, ...],
 ) -> str | None:
     targets = ordered_unique(
         edge.target_id for edge in edges if edge.source_id == merge_node_id and edge.resolved
     )
     owned = ordered_unique(
-        unit_by_node[target].unit_id for target in targets if target in unit_by_node
+        unit.unit_id
+        for target in targets
+        for unit in units_by_node.get(target, ())
+        if unit.call_occurrence_path == occurrence_path
     )
     if len(owned) > 1:
         raise ValueError("a proven rejoin has multiple story continuations")
     return owned[0] if owned else None
+
+
+def _choice_occurrence_id(
+    authority: AuthorityBinding,
+    canonical_region_id: str,
+    occurrence_path: tuple[str, ...],
+) -> str:
+    if not occurrence_path:
+        return canonical_region_id
+    return stable_m15_id(
+        "choice_occurrence",
+        {
+            "authority": authority.to_dict(),
+            "canonical_region_id": canonical_region_id,
+            "call_occurrence_path": list(occurrence_path),
+        },
+    )
 
 
 def _arm_reaches_merge(

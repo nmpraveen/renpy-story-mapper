@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from renpy_story_mapper.canonical_graph_contract import (
     CanonicalEdge,
     CanonicalGraph,
+    CanonicalNode,
     CanonicalNodeKind,
 )
 from renpy_story_mapper.narrative_map.adapters import ordered_unique
@@ -106,9 +107,17 @@ def build_semantic_quotient_topology(
     if set(beat_by_unit) != {item.unit_id for item in materialized_units}:
         raise ValueError("semantic topology requires complete frozen unit membership")
     owners_by_node: dict[str, list[tuple[str, tuple[str, ...]]]] = defaultdict(list)
+    call_site_path_by_occurrence: dict[tuple[str, ...], tuple[str, ...]] = {}
     nodes_by_subject: dict[str, list[str]] = defaultdict(list)
     kind_by_subject: dict[str, str] = {}
     for unit in materialized_units:
+        if unit.call_occurrence_path:
+            prior_call_site_path = call_site_path_by_occurrence.setdefault(
+                unit.call_occurrence_path,
+                unit.call_site_path,
+            )
+            if prior_call_site_path != unit.call_site_path:
+                raise ValueError("one call occurrence path has conflicting call-site authority")
         subject_id = beat_by_unit[unit.unit_id]
         kind_by_subject[subject_id] = "beat"
         for node_id in unit.node_ids:
@@ -124,7 +133,8 @@ def build_semantic_quotient_topology(
     region_by_id = {item.id: item for item in canonical_regions}
     rejoin_subject_by_node: dict[str, str] = {}
     for choice in outline.choices:
-        region = region_by_id.get(choice.choice_id)
+        canonical_region_id = choice.canonical_region_id or choice.choice_id
+        region = region_by_id.get(canonical_region_id)
         if region is None:
             raise ValueError("semantic choice lacks exact M10 region authority")
         _replace_subject_owner(
@@ -132,6 +142,7 @@ def build_semantic_quotient_topology(
             choice.choice_id,
             owners_by_node,
             nodes_by_subject,
+            choice.call_occurrence_path,
         )
         nodes_by_subject[choice.choice_id].append(region.split_node_id)
         kind_by_subject[choice.choice_id] = "choice"
@@ -143,6 +154,7 @@ def build_semantic_quotient_topology(
                 {
                     "canonical_hash": canonical.authority_hash,
                     "canonical_node_id": choice.shared_target_id,
+                    "call_occurrence_path": list(choice.call_occurrence_path),
                 },
             )
             rejoin_subject_by_node[choice.shared_target_id] = rejoin_subject
@@ -151,27 +163,39 @@ def build_semantic_quotient_topology(
                 rejoin_subject,
                 owners_by_node,
                 nodes_by_subject,
+                choice.call_occurrence_path,
             )
             if choice.shared_target_id not in nodes_by_subject[rejoin_subject]:
                 nodes_by_subject[rejoin_subject].append(choice.shared_target_id)
             kind_by_subject[rejoin_subject] = "rejoin"
 
+    structural_paths = _occurrence_paths_for_structural_nodes(
+        canonical_nodes,
+        canonical_edges,
+        owners_by_node,
+    )
     for node in canonical_nodes:
         if node.id in owners_by_node:
             continue
-        subject_id = stable_m15_id(
-            "semantic_structural_anchor",
-            {"canonical_hash": canonical.authority_hash, "canonical_node_id": node.id},
-        )
-        owners_by_node[node.id].append((subject_id, ()))
-        nodes_by_subject[subject_id].append(node.id)
-        kind_by_subject[subject_id] = (
-            "terminal"
-            if node.kind is CanonicalNodeKind.TERMINAL
-            else "unresolved"
-            if node.kind is CanonicalNodeKind.UNRESOLVED
-            else "structural_anchor"
-        )
+        paths = structural_paths.get(node.id) or ((),)
+        for occurrence_path in paths:
+            subject_id = stable_m15_id(
+                "semantic_structural_anchor",
+                {
+                    "canonical_hash": canonical.authority_hash,
+                    "canonical_node_id": node.id,
+                    "call_occurrence_path": list(occurrence_path),
+                },
+            )
+            owners_by_node[node.id].append((subject_id, occurrence_path))
+            nodes_by_subject[subject_id].append(node.id)
+            kind_by_subject[subject_id] = (
+                "terminal"
+                if node.kind is CanonicalNodeKind.TERMINAL
+                else "unresolved"
+                if node.kind is CanonicalNodeKind.UNRESOLVED
+                else "structural_anchor"
+            )
 
     persistent_split_nodes = {
         item.split_node_id
@@ -193,8 +217,15 @@ def build_semantic_quotient_topology(
             persistent_split_nodes,
             persistent_merge_nodes,
         )
+        raw_call_site_id = edge.attributes.get("call_site_id")
+        edge_call_site_id = (
+            raw_call_site_id if isinstance(raw_call_site_id, str) and raw_call_site_id else None
+        )
         owner_pairs = _compatible_owner_pairs(
-            owners_by_node[edge.source_id], owners_by_node[edge.target_id]
+            owners_by_node[edge.source_id],
+            owners_by_node[edge.target_id],
+            call_site_path_by_occurrence,
+            edge_call_site_id,
         )
         if not owner_pairs:
             raise ValueError("canonical edge occurrence ownership is ambiguous")
@@ -249,16 +280,58 @@ def _replace_subject_owner(
     subject_id: str,
     owners_by_node: dict[str, list[tuple[str, tuple[str, ...]]]],
     nodes_by_subject: dict[str, list[str]],
+    occurrence_path: tuple[str, ...],
 ) -> None:
-    for prior, _path in owners_by_node.get(canonical_node_id, ()):
-        if canonical_node_id in nodes_by_subject[prior]:
+    prior_owners = owners_by_node.get(canonical_node_id, ())
+    replaced = [
+        (prior, path)
+        for prior, path in prior_owners
+        if not occurrence_path or path == occurrence_path
+    ]
+    retained = [
+        (prior, path) for prior, path in prior_owners if occurrence_path and path != occurrence_path
+    ]
+    for prior, _path in replaced:
+        if canonical_node_id in nodes_by_subject.get(prior, ()):
             nodes_by_subject[prior].remove(canonical_node_id)
-    owners_by_node[canonical_node_id] = [(subject_id, ())]
+    owners_by_node[canonical_node_id] = [*retained, (subject_id, occurrence_path)]
+
+
+def _occurrence_paths_for_structural_nodes(
+    nodes: Sequence[CanonicalNode],
+    edges: Sequence[CanonicalEdge],
+    owners_by_node: Mapping[str, Sequence[tuple[str, tuple[str, ...]]]],
+) -> dict[str, tuple[tuple[str, ...], ...]]:
+    node_ids = {item.id for item in nodes}
+    unowned = node_ids - set(owners_by_node)
+    paths: dict[str, set[tuple[str, ...]]] = {node_id: set() for node_id in unowned}
+    neighbors: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        neighbors[edge.source_id].add(edge.target_id)
+        neighbors[edge.target_id].add(edge.source_id)
+    for node_id in unowned:
+        for neighbor_id in neighbors[node_id]:
+            paths[node_id].update(
+                path for _subject_id, path in owners_by_node.get(neighbor_id, ()) if path
+            )
+    changed = True
+    while changed:
+        changed = False
+        for node_id in sorted(unowned):
+            prior_count = len(paths[node_id])
+            for neighbor_id in neighbors[node_id] & unowned:
+                paths[node_id].update(paths[neighbor_id])
+            changed = changed or len(paths[node_id]) != prior_count
+    return {
+        node_id: tuple(sorted(node_paths)) for node_id, node_paths in paths.items() if node_paths
+    }
 
 
 def _compatible_owner_pairs(
     sources: Sequence[tuple[str, tuple[str, ...]]],
     targets: Sequence[tuple[str, tuple[str, ...]]],
+    call_site_path_by_occurrence: Mapping[tuple[str, ...], tuple[str, ...]],
+    edge_call_site_id: str | None,
 ) -> tuple[tuple[str, str], ...]:
     result: list[tuple[str, str]] = []
     for source_id, source_path in sources:
@@ -268,11 +341,23 @@ def _compatible_owner_pairs(
                 or not target_path
                 or _is_path_prefix(source_path, target_path)
                 or _is_path_prefix(target_path, source_path)
+            ) and (
+                edge_call_site_id is None
+                or _path_uses_call_site(
+                    source_path,
+                    edge_call_site_id,
+                    call_site_path_by_occurrence,
+                )
+                or _path_uses_call_site(
+                    target_path,
+                    edge_call_site_id,
+                    call_site_path_by_occurrence,
+                )
             ):
                 pair = (source_id, target_id)
                 if pair not in result:
                     result.append(pair)
-    if not result and (len(sources) == 1 or len(targets) == 1):
+    if not result and edge_call_site_id is None and (len(sources) == 1 or len(targets) == 1):
         return tuple(
             (source_id, target_id)
             for source_id, _source_path in sources
@@ -283,6 +368,14 @@ def _compatible_owner_pairs(
 
 def _is_path_prefix(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
     return len(left) <= len(right) and right[: len(left)] == left
+
+
+def _path_uses_call_site(
+    occurrence_path: tuple[str, ...],
+    call_site_id: str,
+    call_site_path_by_occurrence: Mapping[tuple[str, ...], tuple[str, ...]],
+) -> bool:
+    return call_site_id in call_site_path_by_occurrence.get(occurrence_path, ())
 
 
 def build_narrative_map(

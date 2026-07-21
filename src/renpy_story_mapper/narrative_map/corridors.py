@@ -462,6 +462,11 @@ def build_fine_narrative_units(
                     if corridor.call_occurrence_id is not None
                     else ()
                 ),
+                call_site_path=(
+                    (corridor.call_occurrence_id,)
+                    if corridor.call_occurrence_id is not None
+                    else ()
+                ),
             )
         )
     expanded = _expand_call_occurrence_units(
@@ -621,7 +626,11 @@ def _expand_call_occurrence_units(
     emitted: set[tuple[str, str | None]] = set()
     sequence_ordinals: dict[str, int] = defaultdict(int)
 
-    def append_unit(story_atom_id: str, occurrence_path: tuple[str, ...]) -> None:
+    def append_unit(
+        story_atom_id: str,
+        occurrence_path: tuple[str, ...],
+        call_site_path: tuple[str, ...],
+    ) -> None:
         unit = unit_by_story.get(story_atom_id)
         if unit is None:
             return
@@ -656,6 +665,13 @@ def _expand_call_occurrence_units(
             call_occurrence_id = occurrence_instance_id
         ordinal = sequence_ordinals[sequence_id]
         sequence_ordinals[sequence_id] += 1
+        parent_choice_id = unit.parent_choice_id
+        if parent_choice_id is not None and occurrence_path:
+            parent_choice_id = _choice_occurrence_id(
+                unit.authority,
+                parent_choice_id,
+                occurrence_path,
+            )
         result.append(
             replace(
                 unit,
@@ -663,6 +679,8 @@ def _expand_call_occurrence_units(
                 ordinal=ordinal,
                 call_occurrence_id=call_occurrence_id,
                 call_occurrence_path=occurrence_path,
+                call_site_path=call_site_path,
+                parent_choice_id=parent_choice_id,
                 context_ids=ordered_unique(
                     (
                         *unit.context_ids,
@@ -676,20 +694,33 @@ def _expand_call_occurrence_units(
     def append_occurrence(
         occurrence: CallSiteOccurrence,
         parent_path: tuple[str, ...],
+        parent_call_site_path: tuple[str, ...],
         active: set[str],
     ) -> None:
         if occurrence.id in active:
             raise ValueError("call-occurrence expansion contains a cycle")
         active.add(occurrence.id)
         occurrence_path = (*parent_path, occurrence.id)
-        append_unit(occurrence.call_atom_id, occurrence_path)
+        call_unit = unit_by_story.get(occurrence.call_atom_id)
+        call_site_id = (
+            call_unit.call_site_path[-1]
+            if call_unit is not None and call_unit.call_site_path
+            else occurrence.id
+        )
+        call_site_path = (*parent_call_site_path, call_site_id)
+        append_unit(occurrence.call_atom_id, occurrence_path, call_site_path)
         for atom_id in occurrence.referenced_atom_ids:
             nested = occurrences_by_call.get(atom_id)
             if nested:
                 for nested_occurrence in nested:
-                    append_occurrence(nested_occurrence, occurrence_path, active)
+                    append_occurrence(
+                        nested_occurrence,
+                        occurrence_path,
+                        call_site_path,
+                        active,
+                    )
             else:
-                append_unit(atom_id, occurrence_path)
+                append_unit(atom_id, occurrence_path, call_site_path)
         active.remove(occurrence.id)
 
     for atom in ordered_atoms:
@@ -697,11 +728,28 @@ def _expand_call_occurrence_units(
         if atom_occurrences:
             if atom.id not in referenced_atom_ids:
                 for occurrence in atom_occurrences:
-                    append_occurrence(occurrence, (), set())
+                    append_occurrence(occurrence, (), (), set())
             continue
         if atom.id not in referenced_atom_ids:
-            append_unit(atom.id, ())
+            append_unit(atom.id, (), ())
     return tuple(result)
+
+
+def _choice_occurrence_id(
+    authority: AuthorityBinding,
+    canonical_region_id: str,
+    occurrence_path: tuple[str, ...],
+) -> str:
+    if not occurrence_path:
+        return canonical_region_id
+    return stable_m15_id(
+        "choice_occurrence",
+        {
+            "authority": authority.to_dict(),
+            "canonical_region_id": canonical_region_id,
+            "call_occurrence_path": list(occurrence_path),
+        },
+    )
 
 
 def _fine_sequence_ids(corridors: Sequence[NarrativeCorridor]) -> dict[int, str]:

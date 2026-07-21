@@ -519,6 +519,90 @@ def test_nested_occurrence_instances_are_qualified_by_their_outer_call_path() ->
     assert topology.edges
 
 
+def test_shared_call_anchors_cannot_bridge_sibling_occurrence_paths() -> None:
+    base, _model = linear_authority((AtomKind.NARRATION,) * 7)
+    edge_specs = (
+        ("alpha-enter", "node-0", "node-2", "call_enter", "site-alpha"),
+        ("beta-enter", "node-1", "node-2", "call_enter", "site-beta"),
+        ("shared-body", "node-2", "node-3", "continuation", None),
+        ("shared-return", "node-3", "node-4", "continuation", None),
+        ("alpha-return", "node-4", "node-5", "call_return", "site-alpha"),
+        ("beta-return", "node-4", "node-6", "call_return", "site-beta"),
+    )
+    edges = tuple(
+        CanonicalEdge(
+            edge_id,
+            source_id,
+            target_id,
+            kind,
+            ReachabilityStatus.PROVEN_REACHABLE,
+            True,
+            ("evidence-0",),
+            (),
+            (OriginReference("synthetic", edge_id),),
+            {
+                "gate_ids": [],
+                "effect_ids": [],
+                "call_site_id": call_site_id,
+            },
+        )
+        for edge_id, source_id, target_id, kind, call_site_id in edge_specs
+    )
+    canonical = replace(base, edges=edges)
+    canonical.validate()
+    authority = AuthorityBinding(
+        canonical.source_generation,
+        CANONICAL_GRAPH_SCHEMA,
+        canonical.authority_hash,
+        "m11-shared-anchors-v1",
+        "m11-shared-anchors-hash",
+    )
+    unit_specs = (
+        ("alpha-call", "node-0", ("occ-alpha",), ("site-alpha",)),
+        ("beta-call", "node-1", ("occ-beta",), ("site-beta",)),
+        ("alpha-dialogue", "node-3", ("occ-alpha",), ("site-alpha",)),
+        ("beta-dialogue", "node-3", ("occ-beta",), ("site-beta",)),
+        ("alpha-after", "node-5", (), ()),
+        ("beta-after", "node-6", (), ()),
+    )
+    units = tuple(
+        replace(
+            (base_unit := _unit(key, key, 0, index + 1)),
+            authority=authority,
+            node_ids=(node_id,),
+            call_occurrence_id=(occurrence_path[-1] if occurrence_path else None),
+            call_occurrence_path=occurrence_path,
+            call_site_path=call_site_path,
+            entry_node_id=node_id,
+            exit_node_id=node_id,
+            provenance=replace(base_unit.provenance, node_ids=(node_id,)),
+        )
+        for index, (key, node_id, occurrence_path, call_site_path) in enumerate(unit_specs)
+    )
+    outline = assemble_semantic_outline(units, (), ())
+    assert isinstance(outline, SemanticOutline)
+    topology = build_semantic_quotient_topology(canonical, units, outline)
+    beat_by_unit = {
+        unit_id: beat.beat_id for beat in outline.beats for unit_id in beat.ordered_unit_ids
+    }
+    start = beat_by_unit[units[0].unit_id]
+    forbidden = beat_by_unit[units[3].unit_id]
+    outgoing: dict[str, set[str]] = {}
+    for edge in topology.edges:
+        outgoing.setdefault(edge.source_subject_id, set()).add(edge.target_subject_id)
+    pending = [start]
+    reached: set[str] = set()
+    while pending:
+        subject_id = pending.pop()
+        if subject_id in reached:
+            continue
+        reached.add(subject_id)
+        pending.extend(outgoing.get(subject_id, ()))
+
+    assert beat_by_unit[units[2].unit_id] in reached
+    assert forbidden not in reached
+
+
 def test_boundary_windows_own_every_candidate_once_with_bounded_same_sequence_halos() -> None:
     units, _decisions, _choices, _outline = _generalized_outline()
     candidates = build_all_eligible_gap_candidates(units)
@@ -654,6 +738,134 @@ def test_m10_regions_own_exact_arm_order_captions_nesting_and_shared_rejoin() ->
     assert isinstance(reversed_outline, SemanticOutline)
     assert isinstance(expected_outline, SemanticOutline)
     assert semantic_membership_hash(reversed_outline) == semantic_membership_hash(expected_outline)
+
+
+def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
+    canonical = _nested_choice_canonical()
+    authority = AuthorityBinding(
+        canonical.source_generation,
+        CANONICAL_GRAPH_SCHEMA,
+        canonical.authority_hash,
+        "m11-shared-callee-v1",
+        "m11-shared-callee-hash",
+    )
+    specs = (
+        ("opening", "node-0", None, None),
+        ("outer-question", "node-1", None, None),
+        ("outer-stop", "node-2", "choice-outer", "outer-stop"),
+        ("outer-continue", "node-3", "choice-outer", "outer-continue"),
+        ("inner-question", "node-4", "choice-outer", "outer-continue"),
+        ("inner-stop", "node-5", "choice-inner", "inner-stop"),
+        ("inner-continue", "node-6", "choice-inner", "inner-continue"),
+        ("resume", "node-8", None, None),
+    )
+    units_list: list[FineNarrativeUnit] = []
+    for occurrence_index, occurrence_id in enumerate(("call-alpha", "call-beta")):
+        occurrence_path = (occurrence_id,)
+        for index, (key, node_id, parent_choice, parent_arm) in enumerate(specs):
+            qualified_parent = (
+                stable_m15_id(
+                    "choice_occurrence",
+                    {
+                        "authority": authority.to_dict(),
+                        "canonical_region_id": parent_choice,
+                        "call_occurrence_path": list(occurrence_path),
+                    },
+                )
+                if parent_choice is not None
+                else None
+            )
+            base = _unit(
+                f"{key}-{occurrence_id}",
+                f"{key}-{occurrence_id}",
+                0,
+                occurrence_index * len(specs) + index + 1,
+                qualified_parent,
+                parent_arm,
+            )
+            units_list.append(
+                replace(
+                    base,
+                    authority=authority,
+                    node_ids=(node_id,),
+                    context_ids=occurrence_path,
+                    call_occurrence_id=occurrence_id,
+                    call_occurrence_path=occurrence_path,
+                    entry_node_id=node_id,
+                    exit_node_id=node_id,
+                    provenance=replace(base.provenance, node_ids=(node_id,)),
+                )
+            )
+    units = tuple(units_list)
+    provisional = assemble_semantic_outline(units, (), ())
+    assert isinstance(provisional, SemanticOutline)
+
+    choices = build_choice_compositions(canonical, units, provisional)
+
+    assert len(choices) == 4
+    assert {item.canonical_region_id for item in choices} == {
+        "choice-outer",
+        "choice-inner",
+    }
+    assert {item.call_occurrence_path for item in choices} == {
+        ("call-alpha",),
+        ("call-beta",),
+    }
+    assert all(item.choice_id != item.canonical_region_id for item in choices)
+    for outer in (item for item in choices if item.canonical_region_id == "choice-outer"):
+        assert len(outer.child_choice_ids) == 1
+        child = next(item for item in choices if item.choice_id == outer.child_choice_ids[0])
+        assert child.call_occurrence_path == outer.call_occurrence_path
+        assert child.parent_choice_id == outer.choice_id
+
+    outline = assemble_semantic_outline(units, (), (), choices=choices)
+    assert isinstance(outline, SemanticOutline)
+    topology = build_semantic_quotient_topology(canonical, units, outline)
+    beat_by_unit = {
+        unit_id: beat.beat_id for beat in outline.beats for unit_id in beat.ordered_unit_ids
+    }
+    alpha_subjects = {
+        beat_by_unit[item.unit_id] for item in units if item.call_occurrence_path == ("call-alpha",)
+    }
+    beta_subjects = {
+        beat_by_unit[item.unit_id] for item in units if item.call_occurrence_path == ("call-beta",)
+    }
+    alpha_subjects.update(
+        item.choice_id for item in choices if item.call_occurrence_path == ("call-alpha",)
+    )
+    beta_subjects.update(
+        item.choice_id for item in choices if item.call_occurrence_path == ("call-beta",)
+    )
+    for node in canonical.nodes:
+        for occurrence_id, subjects in (
+            ("call-alpha", alpha_subjects),
+            ("call-beta", beta_subjects),
+        ):
+            subjects.add(
+                stable_m15_id(
+                    "semantic_structural_anchor",
+                    {
+                        "canonical_hash": canonical.authority_hash,
+                        "canonical_node_id": node.id,
+                        "call_occurrence_path": [occurrence_id],
+                    },
+                )
+            )
+            subjects.add(
+                stable_m15_id(
+                    "semantic_rejoin",
+                    {
+                        "canonical_hash": canonical.authority_hash,
+                        "canonical_node_id": node.id,
+                        "call_occurrence_path": [occurrence_id],
+                    },
+                )
+            )
+    assert not any(
+        (edge.source_subject_id in alpha_subjects and edge.target_subject_id in beta_subjects)
+        or (edge.source_subject_id in beta_subjects and edge.target_subject_id in alpha_subjects)
+        for edge in topology.edges
+    )
 
 
 def test_choice_arm_edge_must_be_exact_and_reach_declared_rejoin() -> None:
