@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Final, Protocol
 
 from renpy_story_mapper.canonical_graph_contract import (
@@ -64,6 +64,7 @@ M15_SEMANTIC_PRIVACY_SCOPE: Final = "story_evidence_only"
 M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"
 M15_SEMANTIC_MAXIMUM_CONCURRENCY: Final = 1
+M15_SEMANTIC_CONSENT_VALID_FOR: Final = timedelta(hours=1)
 
 
 class M15ProviderFactory(Protocol):
@@ -218,6 +219,7 @@ def prepare_boundaries(
         source_hash=inputs.source_hash,
         correction_id=M15_SEMANTIC_CORRECTION_ID,
         privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
+        valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
         replay_existing=replay_existing,
     )
 
@@ -259,6 +261,7 @@ def prepare_summaries(
         source_hash=inputs.source_hash,
         correction_id=M15_SEMANTIC_CORRECTION_ID,
         privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
+        valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
         replay_existing=replay_existing,
     )
 

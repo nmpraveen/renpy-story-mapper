@@ -312,7 +312,18 @@ class NarrativeBoundaryWorkflow:
                     "cancelled",
                     True,
                 )
-            consent.validate_fresh()
+            try:
+                consent.validate_fresh()
+            except ValueError:
+                return _JobOutcome(
+                    None,
+                    last_identity,
+                    tuple(usages),
+                    attempt - 1,
+                    provider_calls,
+                    "consent_expired",
+                    False,
+                )
             repair_codes = (
                 ()
                 if local_attempt == 1

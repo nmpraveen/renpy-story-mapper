@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-21 (M15.1 correction In progress; provider-schema correction)
+Updated: 2026-07-21 (M15.1 correction In progress; live boundary resume)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -63,6 +63,16 @@ Updated: 2026-07-21 (M15.1 correction In progress; provider-schema correction)
   preview remain mandatory before retry. The user granted standing authorization for future exact
   M15.1 manifests in this task; each exact manifest must still be generated, verified, and recorded
   separately. Summaries remain impossible until boundary membership freezes.
+- Versioned-schema live retry manifest `consent_7857c66fd76b25a58a6b4713` proved the schema fix
+  across 59 validated windows with zero job errors, then its 15-minute consent expired before the
+  60th reservation, leaving 35 pending. The source, archive, and M10-M13 authority rows remained
+  unchanged. Product manifests now use a one-hour window, and mid-run expiry records a durable
+  `consent_expired` failure instead of escaping with a stale `boundaries_running` state. Fresh
+  boundary and summary manifests reconcile exact newly completed jobs, usage, and uncheckpointed
+  ledger reservations before cache replay, with per-manifest reservation checkpoints preventing
+  double counting across repeated rotation. The correction independently passed with no P0-P2;
+  190 M15 tests passed with two expected opt-in browser skips, plus Ruff, strict mypy over 114
+  source files, and whitespace checks. A fresh exact resume manifest remains required.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
   preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
   deferred or excluded.

@@ -183,6 +183,7 @@ class SemanticLifecycle:
         )
         if reusable is not None:
             return reusable
+        previous_build = self._repository.read_semantic_build()
         consent = NarrativeConsentManifest.for_jobs(
             run_id=run_id,
             profile=profile,
@@ -216,6 +217,20 @@ class SemanticLifecycle:
             consent,
             profile,
         )
+        recovered = self._recover_stage_progress(
+            previous_build,
+            jobs,
+            profile,
+            SemanticStage.BOUNDARIES,
+        )
+        if recovered is not None:
+            recovered_accounting, recovered_total, completed, confirmed = recovered
+            payload["accounting"] = _accounting_payload(recovered_total)
+            payload["boundary_accounting"] = _accounting_payload(recovered_accounting)
+            payload["completed_boundary_job_ids"] = list(completed)
+            payload["confirmed_manifest_ids"] = list(confirmed)
+            payload["boundary_accounted_manifest_id"] = consent.manifest_id
+            payload["boundary_accounted_reservation_count"] = 0
         self._repository.write_semantic_build(payload)
         return SemanticStagePreparation(
             SemanticStage.BOUNDARIES,
@@ -468,6 +483,26 @@ class SemanticLifecycle:
         )
         if consent.manifest_id == raw.get("boundary_manifest_id"):
             raise ValueError("summary consent must be distinct from boundary consent")
+        recovered = self._recover_stage_progress(
+            raw,
+            jobs,
+            profile,
+            SemanticStage.SUMMARIES,
+        )
+        recovered_summary = _accounting_from_payload(raw.get("summary_accounting"))
+        recovered_total = _accounting_from_payload(raw.get("accounting"))
+        completed_summaries: tuple[str, ...] = ()
+        confirmed_manifests = _strings(
+            raw.get("confirmed_manifest_ids", []),
+            "confirmed manifest IDs",
+        )
+        if recovered is not None:
+            (
+                recovered_summary,
+                recovered_total,
+                completed_summaries,
+                confirmed_manifests,
+            ) = recovered
         for job in jobs:
             self._repository.stage(job, profile)
         updated = dict(raw)
@@ -485,12 +520,16 @@ class SemanticLifecycle:
                 "summary_manifest": consent.identity_dict(),
                 "summary_job_ids": [job.job_id for job in jobs],
                 "summary_job_identity_hash": _jobs_hash(jobs),
-                "completed_summary_job_ids": [],
+                "completed_summary_job_ids": list(completed_summaries),
                 "outline": semantic_outline_payload(outline),
                 "quotient_topology": final_topology,
                 "failure_codes": [],
                 "cancel_requested": False,
-                "summary_accounting": _accounting_payload(SemanticAccounting()),
+                "accounting": _accounting_payload(recovered_total),
+                "summary_accounting": _accounting_payload(recovered_summary),
+                "confirmed_manifest_ids": list(confirmed_manifests),
+                "summary_accounted_manifest_id": consent.manifest_id,
+                "summary_accounted_reservation_count": 0,
             }
         )
         self._repository.write_semantic_build(updated)
@@ -599,6 +638,24 @@ class SemanticLifecycle:
         cancelled: CancelledCallback | None,
     ) -> NarrativeWorkflowReport:
         raw = self._require_build(preparation.build_id)
+        prefix = "boundary" if preparation.stage is SemanticStage.BOUNDARIES else "summary"
+        stage_accounting_key = (
+            "boundary_accounting"
+            if preparation.stage is SemanticStage.BOUNDARIES
+            else "summary_accounting"
+        )
+        stage_accounting = _accounting_from_payload(raw.get(stage_accounting_key))
+        reserved_before = self._repository.semantic_reserved_call_count(
+            manifest_id=consent.manifest_id,
+            maximum_provider_calls=consent.maximum_provider_calls,
+        )
+        _reservation_accounting_checkpoint(
+            raw,
+            prefix=prefix,
+            manifest_id=consent.manifest_id,
+            durable_reservations=reserved_before,
+            stage_accounting=stage_accounting,
+        )
         was_complete = raw.get("state") == SemanticBuildState.COMPLETE.value
         if not was_complete:
             running = (
@@ -623,16 +680,6 @@ class SemanticLifecycle:
                 False,
             )
         else:
-            stage_accounting_key = (
-                "boundary_accounting"
-                if preparation.stage is SemanticStage.BOUNDARIES
-                else "summary_accounting"
-            )
-            stage_accounting = _accounting_from_payload(raw.get(stage_accounting_key))
-            consumed_provider_calls = self._repository.semantic_reserved_call_count(
-                manifest_id=consent.manifest_id,
-                maximum_provider_calls=consent.maximum_provider_calls,
-            )
             workflow = NarrativeBoundaryWorkflow(
                 self._repository,
                 provider,
@@ -652,14 +699,14 @@ class SemanticLifecycle:
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
-                        consumed_provider_calls=consumed_provider_calls,
+                        consumed_provider_calls=reserved_before,
                     )
                 else:
                     report = workflow.run_semantic_summary_jobs(
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
-                        consumed_provider_calls=consumed_provider_calls,
+                        consumed_provider_calls=reserved_before,
                     )
             finally:
                 self._active_workflow = None
@@ -687,9 +734,16 @@ class SemanticLifecycle:
             manifest_id=consent.manifest_id,
             maximum_provider_calls=consent.maximum_provider_calls,
         )
-        if reserved_after < stage_accounting.reserved_provider_calls:
+        latest_accounted_reservation_count = _reservation_accounting_checkpoint(
+            latest,
+            prefix=prefix,
+            manifest_id=consent.manifest_id,
+            durable_reservations=reserved_after,
+            stage_accounting=stage_accounting,
+        )
+        if reserved_after < latest_accounted_reservation_count:
             raise ValueError("durable semantic call accounting moved backwards")
-        reserved_delta = reserved_after - stage_accounting.reserved_provider_calls
+        reserved_delta = reserved_after - latest_accounted_reservation_count
         updated_accounting = _add_report(accounting, report)
         updated_accounting = replace(
             updated_accounting,
@@ -700,9 +754,13 @@ class SemanticLifecycle:
         updated["accounting"] = _accounting_payload(updated_accounting)
         updated_stage_accounting = replace(
             _add_report(stage_accounting, report),
-            reserved_provider_calls=reserved_after,
+            reserved_provider_calls=(
+                stage_accounting.reserved_provider_calls + reserved_delta
+            ),
         )
         updated[stage_accounting_key] = _accounting_payload(updated_stage_accounting)
+        updated[f"{prefix}_accounted_manifest_id"] = consent.manifest_id
+        updated[f"{prefix}_accounted_reservation_count"] = reserved_after
         target_key = (
             "completed_boundary_job_ids"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -734,6 +792,90 @@ class SemanticLifecycle:
             updated = _updated_state(updated, SemanticBuildState.PARTIAL)
         self._repository.write_semantic_build(updated)
         return report
+
+    def _recover_stage_progress(
+        self,
+        raw: Mapping[str, object] | None,
+        jobs: Sequence[PreparedNarrativeJob],
+        profile: ProviderProfile,
+        stage: SemanticStage,
+    ) -> tuple[
+        SemanticAccounting,
+        SemanticAccounting,
+        tuple[str, ...],
+        tuple[str, ...],
+    ] | None:
+        """Recover exact durable progress when a prior web task escaped before checkpointing."""
+
+        prefix = "boundary" if stage is SemanticStage.BOUNDARIES else "summary"
+        if raw is None or raw.get(f"{prefix}_job_ids") != [job.job_id for job in jobs]:
+            return None
+        if raw.get("profile_hash") != canonical_hash(profile.to_dict()):
+            return None
+        prior_stage = _accounting_from_payload(raw.get(f"{prefix}_accounting"))
+        prior_total = _accounting_from_payload(raw.get("accounting"))
+        prior_completed = set(
+            _strings(raw.get(f"completed_{prefix}_job_ids"), f"completed {prefix} jobs")
+        )
+        records = tuple(self._repository.get(job.kind, job.job_id) for job in jobs)
+        completed = tuple(
+            job.job_id
+            for job, record in zip(jobs, records, strict=True)
+            if record is not None and record.status is NarrativeJobStatus.VALIDATED
+        )
+        provider_calls = 0
+        input_tokens = 0
+        output_tokens = 0
+        elapsed_ms = 0
+        for job, record in zip(jobs, records, strict=True):
+            if (
+                record is None
+                or record.status is not NarrativeJobStatus.VALIDATED
+                or job.job_id in prior_completed
+            ):
+                continue
+            provider_calls += record.provider_calls
+            if record.usage is None:
+                continue
+            input_tokens += _usage_integer(record.usage, "input_tokens")
+            output_tokens += _usage_integer(record.usage, "output_tokens")
+            elapsed_ms += _usage_integer(record.usage, "elapsed_ms")
+        reserved_delta = 0
+        manifest_value = raw.get(f"{prefix}_manifest")
+        if isinstance(manifest_value, Mapping):
+            previous_consent = _restore_manifest(manifest_value, profile)
+            reserved = self._repository.semantic_reserved_call_count(
+                manifest_id=previous_consent.manifest_id,
+                maximum_provider_calls=previous_consent.maximum_provider_calls,
+            )
+            accounted_reservations = _reservation_accounting_checkpoint(
+                raw,
+                prefix=prefix,
+                manifest_id=previous_consent.manifest_id,
+                durable_reservations=reserved,
+                stage_accounting=prior_stage,
+            )
+            reserved_delta = reserved - accounted_reservations
+
+        def add_delta(prior: SemanticAccounting) -> SemanticAccounting:
+            return SemanticAccounting(
+                provider_calls=prior.provider_calls + provider_calls,
+                reserved_provider_calls=prior.reserved_provider_calls + reserved_delta,
+                input_tokens=prior.input_tokens + input_tokens,
+                output_tokens=prior.output_tokens + output_tokens,
+                elapsed_ms=prior.elapsed_ms + elapsed_ms,
+                cache_hits=prior.cache_hits,
+            )
+
+        stage_accounting = add_delta(prior_stage)
+        total_accounting = add_delta(prior_total)
+        if stage_accounting.reserved_provider_calls < stage_accounting.provider_calls:
+            raise ValueError("recovered semantic calls exceed durable reservations")
+        confirmed = _strings(
+            raw.get("confirmed_manifest_ids", []),
+            "confirmed manifest IDs",
+        )
+        return stage_accounting, total_accounting, completed, confirmed
 
     def _publish(
         self,
@@ -1053,11 +1195,15 @@ def _new_build_payload(
         ],
         "boundary_manifest_id": consent.manifest_id,
         "boundary_manifest": consent.identity_dict(),
+        "boundary_accounted_manifest_id": consent.manifest_id,
+        "boundary_accounted_reservation_count": 0,
         "boundary_job_ids": [job.job_id for job in jobs],
         "boundary_job_identity_hash": _jobs_hash(jobs),
         "membership_hash": None,
         "summary_manifest_id": None,
         "summary_manifest": None,
+        "summary_accounted_manifest_id": None,
+        "summary_accounted_reservation_count": 0,
         "summary_job_ids": [],
         "summary_job_identity_hash": None,
         "published_map_hash": None,
@@ -1188,6 +1334,36 @@ def _accounting_payload(value: SemanticAccounting) -> dict[str, int]:
         "elapsed_ms": value.elapsed_ms,
         "cache_hits": value.cache_hits,
     }
+
+
+def _reservation_accounting_checkpoint(
+    payload: Mapping[str, object],
+    *,
+    prefix: str,
+    manifest_id: str,
+    durable_reservations: int,
+    stage_accounting: SemanticAccounting,
+) -> int:
+    accounted_manifest_id = payload.get(f"{prefix}_accounted_manifest_id")
+    accounted_reservations = payload.get(f"{prefix}_accounted_reservation_count")
+    if accounted_manifest_id is None and accounted_reservations is None:
+        return min(stage_accounting.reserved_provider_calls, durable_reservations)
+    if accounted_manifest_id != manifest_id:
+        raise ValueError("semantic reservation accounting manifest is stale")
+    if (
+        not isinstance(accounted_reservations, int)
+        or isinstance(accounted_reservations, bool)
+        or not 0 <= accounted_reservations <= durable_reservations
+    ):
+        raise ValueError("semantic reservation accounting checkpoint is invalid")
+    return accounted_reservations
+
+
+def _usage_integer(value: Mapping[str, object], name: str) -> int:
+    item = value.get(name)
+    if not isinstance(item, int) or isinstance(item, bool) or item < 0:
+        raise ValueError("durable semantic job usage is invalid")
+    return item
 
 
 def _add_report(value: SemanticAccounting, report: NarrativeWorkflowReport) -> SemanticAccounting:

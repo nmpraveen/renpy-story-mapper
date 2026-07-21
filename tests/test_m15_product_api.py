@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -187,6 +188,9 @@ def test_semantic_prepare_review_cancel_is_strict_and_zero_submit(tmp_path: Path
             "resolved_model": "gpt-5.6-sol",
             "settings": {"model_reasoning_effort": "medium", "fast_mode": False},
         }
+        issued = datetime.fromisoformat(prepared["manifest"]["issued_at"])
+        expires = datetime.fromisoformat(prepared["manifest"]["expires_at"])
+        assert expires - issued == timedelta(hours=1)
         serialized = repr(prepared)
         assert "payload" not in serialized
         assert "Opening line" not in serialized

@@ -504,6 +504,42 @@ def test_sterile_provider_revalidates_consent_freshness_at_submit() -> None:
     assert runner.requests == []
 
 
+def test_expired_workflow_consent_fails_durably_without_provider_submit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    consent = _consent((job,))
+    freshness_checks = 0
+
+    def expires_after_workflow_start(_consent: NarrativeConsentManifest) -> None:
+        nonlocal freshness_checks
+        freshness_checks += 1
+        if freshness_checks > 1:
+            raise ValueError("M15 provider consent is not fresh")
+
+    monkeypatch.setattr(
+        NarrativeConsentManifest,
+        "validate_fresh",
+        expires_after_workflow_start,
+    )
+    provider = _FakeProvider([])
+    with Project.create(tmp_path / "expired-consent.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        report = NarrativeBoundaryWorkflow(repository, provider, _profile()).run_boundary_jobs(
+            (job,), consent=consent
+        )
+        record = repository.get(job.kind, job.job_id)
+
+    assert report.failed_job_ids == (job.job_id,)
+    assert report.provider_calls == 0
+    assert record is not None and record.error_code == "consent_expired"
+    assert provider.requests == []
+
+
 def test_provider_request_cannot_exceed_exact_consent_transport_bounds() -> None:
     first, second = _corridor("a", 0), _corridor("b", 1)
     job = prepare_boundary_jobs(
