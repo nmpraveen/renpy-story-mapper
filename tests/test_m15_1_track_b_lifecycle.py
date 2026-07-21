@@ -662,11 +662,29 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
 
     assert runner.requests[0].schema_path.name == "semantic_summary_v3.schema.json"
     prompt = json.loads(runner.requests[0].stdin)
-    assert prompt["version"] == "m15-semantic-summary-prompt-v3"
-    assert "exact strings" in prompt["characters_policy"]
-    assert "known_characters" in prompt["characters_policy"]
-    assert "atom" in prompt["title_policy"]
-    assert "source" in prompt["title_policy"]
+    assert prompt["version"] == "m15-semantic-summary-prompt-v2"
+    assert "repair_guidance" not in prompt["request"]
+    repair_runner = _FakeSterileRunner(payload)
+    repair_request = NarrativeMapProviderRequest(
+        "semantic-summary-repair-route",
+        _consent((current_job,)),
+        _profile(),
+        current_job,
+        ("invalid_title", "invalid_characters"),
+        {},
+    )
+    SterileNarrativeMapProvider(runner=repair_runner).submit(
+        repair_request, lambda: False
+    )
+    repair_prompt = json.loads(repair_runner.requests[0].stdin)
+    assert repair_prompt["version"] == prompt["version"]
+    assert repair_prompt["request"]["repair_guidance_version"] == (
+        "m15-semantic-repair-guidance-v1"
+    )
+    repair_guidance = " ".join(repair_prompt["request"]["repair_guidance"])
+    assert "known_characters" in repair_guidance
+    assert "atom" in repair_guidance
+    assert "source" in repair_guidance
     assert current_job.response_schema == "m15-semantic-summary-v3"
     stale_job = replace(current_job, response_schema="m15-semantic-summary-v2")
     stale_runner = _FakeSterileRunner(payload)

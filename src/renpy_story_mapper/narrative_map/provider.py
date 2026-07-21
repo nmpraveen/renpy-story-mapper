@@ -47,11 +47,23 @@ SUMMARY_PROMPT_VERSION = "m15-event-summary-prompt-v1"
 SUMMARY_RESPONSE_SCHEMA = "m15-event-summary-v2"
 SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v2"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
-SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
+SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v2"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+_SEMANTIC_REPAIR_GUIDANCE_VERSION = "m15-semantic-repair-guidance-v1"
+_SEMANTIC_REPAIR_GUIDANCE = {
+    "invalid_title": (
+        "Replace only the title with a natural story title. Do not use atom, boundary, cache, "
+        "cluster, evidence, job, label, line, menu, node, or source; do not begin with bg, cg, "
+        "scene, show, hide, or image; do not describe a count of atoms, lines, items, or nodes."
+    ),
+    "invalid_characters": (
+        "Replace only characters. Copy exact strings from request.job.known_characters, omit any "
+        "name not in that list, and return [] when none is supported. Never normalize or alias."
+    ),
+}
 
 CancelledCallback = Callable[[], bool]
 
@@ -630,7 +642,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.SEMANTIC_SUMMARY: (
             SEMANTIC_SUMMARY_RESPONSE_SCHEMA,
-            "semantic_summary_v3.json",
+            "semantic_summary_v2.json",
             "semantic_summary_v3.schema.json",
         ),
     }
@@ -693,6 +705,13 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
             "job": request.job.payload,
         },
     }
+    if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY and request.repair_codes:
+        envelope["request"]["repair_guidance_version"] = _SEMANTIC_REPAIR_GUIDANCE_VERSION
+        envelope["request"]["repair_guidance"] = [
+            _SEMANTIC_REPAIR_GUIDANCE[code]
+            for code in request.repair_codes
+            if code in _SEMANTIC_REPAIR_GUIDANCE
+        ]
     return json.dumps(
         envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
