@@ -457,7 +457,6 @@ def _load_semantic_snapshot(
         candidates=candidates,
         windows=windows,
         repository=repository,
-        boundary_manifest_id=boundary_manifest_id,
     )
     membership_hash = _required_text(publication, "membership_hash")
     if semantic_outline_hash(outline) != membership_hash:
@@ -475,7 +474,6 @@ def _load_semantic_snapshot(
         units=units,
         repository=repository,
         membership_hash=membership_hash,
-        summary_manifest_id=summary_manifest_id,
     )
     nodes = _semantic_nodes(canonical, units, outline, topology, summaries, provenance)
     edges = tuple(_semantic_edge_payload(item) for item in topology.edges)
@@ -508,7 +506,6 @@ def _semantic_outline_from_payload(
     candidates: Sequence[NarrativeGapCandidate],
     windows: Sequence[BoundaryWindow],
     repository: NarrativeMapRepository,
-    boundary_manifest_id: str,
 ) -> SemanticOutline:
     raw = _required_mapping(value, "semantic outline")
     _exact_keys(
@@ -583,8 +580,8 @@ def _semantic_outline_from_payload(
             candidate_id=candidate_id,
             window_id=window_id,
         )
-        if live.manifest_id != boundary_manifest_id:
-            raise ValueError("boundary provenance uses a foreign consent manifest")
+        # The publication header names the finalizing manifest; resumed work can retain
+        # a different actual producer, which is authoritative only through this exact job.
         record = repository.get(ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW, live.job_id)
         if (
             record is None
@@ -627,7 +624,6 @@ def _semantic_summaries(
     units: Sequence[FineNarrativeUnit],
     repository: NarrativeMapRepository,
     membership_hash: str,
-    summary_manifest_id: str,
 ) -> tuple[dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]]:
     summaries = _mapping_sequence(summaries_value, "semantic summaries")
     provenance = _mapping_sequence(provenance_value, "summary provenance")
@@ -697,19 +693,20 @@ def _semantic_summaries(
             live.get("subject_kind") != expected_kind
             or live.get("subject_id") != expected_id
             or live.get("stage") != "summaries"
-            or live.get("manifest_id") != summary_manifest_id
         ):
             raise ValueError("summary provenance uses the wrong stage or consent")
         record = repository.get(
             ProviderJobKind.SEMANTIC_SUMMARY,
             _required_text(live, "job_id"),
         )
+        # As above, the durable validated job owns producer consent lineage, not the
+        # finalizing summary manifest named by the publication header.
         if (
             record is None
             or record.status is not NarrativeJobStatus.VALIDATED
             or record.subject_id != expected_id
             or record.input_hash != live.get("input_hash")
-            or record.consent_manifest_id != summary_manifest_id
+            or record.consent_manifest_id != live.get("manifest_id")
             or record.result != summary
             or record.provider_identity is None
             or canonical_hash(record.provider_identity) != live.get("provider_identity_hash")

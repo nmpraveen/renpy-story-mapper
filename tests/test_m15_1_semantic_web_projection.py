@@ -41,6 +41,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "linear.rpy"
 class _FakeSemanticProvider:
     profile: ProviderProfile
     requests: list[NarrativeMapProviderRequest]
+    valid_responses: int | None = None
 
     def submit(
         self,
@@ -48,10 +49,12 @@ class _FakeSemanticProvider:
         _cancelled: Callable[[], bool],
     ) -> NarrativeMapProviderResponse:
         self.requests.append(request)
-        if request.job.kind.value == "semantic_boundary_window":
+        if self.valid_responses is not None and len(self.requests) > self.valid_responses:
+            payload: dict[str, object] = {"invalid": True}
+        elif request.job.kind.value == "semantic_boundary_window":
             window = request.job.subject
             assert isinstance(window, BoundaryWindow)
-            payload: dict[str, object] = {
+            payload = {
                 "window_id": request.job.subject_id,
                 "decisions": [
                     {
@@ -128,6 +131,21 @@ def _project(tmp_path: Path) -> Path:
     return project_path
 
 
+def _multi_window_project(tmp_path: Path) -> Path:
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_text(
+        "label start:\n"
+        + "".join(f'    "Public synthetic turn {index}."\n' for index in range(12))
+        + "    return\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    project_path = tmp_path / "multi-window.rsmproj"
+    create_ingested_project(project_path, source).close()
+    return project_path
+
+
 def _publish(project_path: Path) -> tuple[str, str]:
     profile = _profile()
     with Project.open(project_path) as project:
@@ -173,6 +191,92 @@ def _publish(project_path: Path) -> tuple[str, str]:
         return str(current["publication_hash"]), str(first_cluster["cluster_id"])
 
 
+def _publish_with_resumed_producer_lineage(project_path: Path) -> tuple[str, str, str, str]:
+    profile = _profile()
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        assert len(inputs.windows) > 1
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        first_boundaries = prepare_boundaries(
+            service,
+            inputs,
+            run_id="public-boundaries-first",
+            replay_existing=False,
+        )
+        service.confirm_semantic_consent(
+            first_boundaries,
+            first_boundaries.granted_consent(),
+        )
+        first_boundary_report = service.start_boundaries(
+            first_boundaries,
+            provider=_FakeSemanticProvider(profile, [], valid_responses=1),
+            consent=first_boundaries.granted_consent(),
+        )
+        assert first_boundary_report.validated_job_ids == (first_boundaries.jobs[0].job_id,)
+        resumed_boundaries = prepare_boundaries(
+            service,
+            inputs,
+            run_id="public-boundaries-resumed",
+            replay_existing=True,
+        )
+        assert resumed_boundaries.consent.manifest_id != first_boundaries.consent.manifest_id
+        service.confirm_semantic_consent(
+            resumed_boundaries,
+            resumed_boundaries.granted_consent(),
+        )
+        resumed_boundary_report = service.start_boundaries(
+            resumed_boundaries,
+            provider=_FakeSemanticProvider(profile, []),
+            consent=resumed_boundaries.granted_consent(),
+        )
+        assert resumed_boundary_report.failed_job_ids == ()
+        freeze_boundary_membership(service, inputs, resumed_boundaries)
+
+        first_summaries = prepare_summaries(
+            service,
+            inputs,
+            run_id="public-summaries-first",
+            replay_existing=False,
+        )
+        assert len(first_summaries.jobs) > 1
+        service.confirm_semantic_consent(
+            first_summaries,
+            first_summaries.granted_consent(),
+        )
+        first_summary_report = service.start_summaries(
+            first_summaries,
+            provider=_FakeSemanticProvider(profile, [], valid_responses=1),
+            consent=first_summaries.granted_consent(),
+        )
+        assert first_summary_report.validated_job_ids == (first_summaries.jobs[0].job_id,)
+        resumed_summaries = prepare_summaries(
+            service,
+            inputs,
+            run_id="public-summaries-resumed",
+            replay_existing=True,
+        )
+        assert resumed_summaries.consent.manifest_id != first_summaries.consent.manifest_id
+        service.confirm_semantic_consent(
+            resumed_summaries,
+            resumed_summaries.granted_consent(),
+        )
+        resumed_summary_report = service.start_summaries(
+            resumed_summaries,
+            provider=_FakeSemanticProvider(profile, []),
+            consent=resumed_summaries.granted_consent(),
+        )
+        assert resumed_summary_report.failed_job_ids == ()
+        current = service.read_current_semantic_publication()
+        assert current is not None
+        return (
+            str(current["publication_hash"]),
+            first_boundaries.consent.manifest_id,
+            resumed_boundaries.consent.manifest_id,
+            first_summaries.consent.manifest_id,
+        )
+
+
 def test_current_semantic_publication_drives_page_and_exact_detail(tmp_path: Path) -> None:
     project_path = _project(tmp_path)
     publication_hash, cluster_id = _publish(project_path)
@@ -207,6 +311,116 @@ def test_current_semantic_publication_drives_page_and_exact_detail(tmp_path: Pat
     assert _mapping(quotient["edge"])["edge_id"] == topology_edge_id
     assert topology_detail["evidence"]
     assert topology_detail["provider_calls"] == 0
+
+
+def test_current_publication_loads_all_confirmed_actual_producer_manifests(
+    tmp_path: Path,
+) -> None:
+    project_path = _multi_window_project(tmp_path)
+    publication_hash, first_boundary, final_boundary, first_summary = (
+        _publish_with_resumed_producer_lineage(project_path)
+    )
+
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        publication = repository.read_semantic_current()
+        build = repository.read_semantic_build()
+        page = narrative_map_page(project)
+
+    assert publication is not None and build is not None
+    assert publication["publication_hash"] == publication_hash
+    assert publication["boundary_manifest_id"] == final_boundary
+    assert first_boundary != final_boundary
+    assert {
+        item["manifest_id"]
+        for item in _mappings(_mapping(publication["outline"])["boundary_provenance"])
+    } == {first_boundary, final_boundary}
+    assert first_summary != publication["summary_manifest_id"]
+    assert {
+        item["manifest_id"] for item in _mappings(publication["summary_provenance"])
+    } == {first_summary, publication["summary_manifest_id"]}
+    assert page["status"] == "available", page
+    assert page["publication_hash"] == publication_hash
+
+
+@pytest.mark.parametrize("stage", ("boundary", "summary"))
+def test_current_publication_rejects_unknown_or_mismatched_producer_manifest(
+    tmp_path: Path,
+    stage: str,
+) -> None:
+    project_path = _multi_window_project(tmp_path)
+    _publish_with_resumed_producer_lineage(project_path)
+
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        publication = repository.read_semantic_current()
+        build = repository.read_semantic_build()
+        assert publication is not None and build is not None
+        tampered = deepcopy(dict(publication))
+        if stage == "boundary":
+            outline = dict(_mapping(tampered["outline"]))
+            provenance = [
+                dict(item) for item in _mappings(outline["boundary_provenance"])
+            ]
+        else:
+            provenance = [
+                dict(item) for item in _mappings(tampered["summary_provenance"])
+            ]
+        provenance[0]["manifest_id"] = "consent_unknown_public_synthetic"
+        if stage == "boundary":
+            outline["boundary_provenance"] = provenance
+            tampered["outline"] = outline
+        else:
+            tampered["summary_provenance"] = provenance
+        publication_hash = canonical_hash(
+            {key: value for key, value in tampered.items() if key != "publication_hash"}
+        )
+        tampered["publication_hash"] = publication_hash
+        repository.publish_semantic_current(
+            build=build,
+            publication=tampered,
+        )
+        page = narrative_map_page(project)
+
+    assert page["status"] == "unavailable"
+    assert page["reason"] == "semantic_publication_invalid"
+    assert page["nodes"] == []
+
+
+def test_current_publication_rejects_wrong_stage_job_lineage(tmp_path: Path) -> None:
+    project_path = _multi_window_project(tmp_path)
+    _publish_with_resumed_producer_lineage(project_path)
+
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        publication = repository.read_semantic_current()
+        build = repository.read_semantic_build()
+        assert publication is not None and build is not None
+        tampered = deepcopy(dict(publication))
+        outline = dict(_mapping(tampered["outline"]))
+        boundary_provenance = [
+            dict(item) for item in _mappings(outline["boundary_provenance"])
+        ]
+        summary_provenance = _mappings(tampered["summary_provenance"])
+        for key in (
+            "job_id",
+            "input_hash",
+            "manifest_id",
+            "provider_identity_hash",
+            "cache_identity",
+        ):
+            boundary_provenance[0][key] = summary_provenance[0][key]
+        outline["boundary_provenance"] = boundary_provenance
+        tampered["outline"] = outline
+        tampered["publication_hash"] = canonical_hash(
+            {key: value for key, value in tampered.items() if key != "publication_hash"}
+        )
+        repository.publish_semantic_current(build=build, publication=tampered)
+        page = narrative_map_page(project)
+
+    assert page["status"] == "unavailable"
+    assert page["reason"] == "semantic_publication_invalid"
+    assert page["nodes"] == []
 
 
 def test_invalid_semantic_current_fails_closed_instead_of_using_legacy(tmp_path: Path) -> None:
