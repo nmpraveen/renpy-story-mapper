@@ -272,11 +272,16 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
                 raise AssertionError(f"Two-stage consent did not expose every exact bound fact: {boundary_consent}, {summary_consent}")
             if boundary_consent["title"] == summary_consent["title"] or "boundary_synthetic" not in boundary_consent["text"] or "summary_synthetic" not in summary_consent["text"]:
                 raise AssertionError("Boundary and frozen-summary consent previews were not distinct")
-            consent = {"boundaries": boundary_consent, "summaries": summary_consent, "lifecycle": lifecycle, "cancel_reprepare": reprepare_enabled}
             session.evaluate(
                 "import('./app.js').then(m=>{document.querySelector('#cancelStoryMapConsent').click();document.querySelector('#closeStoryMapBuild').click();"
-                "m.state.page.build_state='complete';m.state.storyMapBuild=null;m.renderMap();return true;})"
+                "const states=['boundaries_running','membership_frozen'];window.__m15ReopenPolls=0;"
+                "m.api.storyMapBuildStatus=async()=>{window.__m15ReopenPolls+=1;return {...m.state.storyMapBuild,state:states.shift()};};"
+                "m.state.storyMapBuild=null;return m.loadStoryMapBuildStatus();})"
             )
+            session.wait("import('./app.js').then(m=>window.__m15ReopenPolls===2&&m.state.storyMapBuild?.state==='membership_frozen')")
+            reopen = session.evaluate("import('./app.js').then(m=>({polls:window.__m15ReopenPolls,state:m.state.storyMapBuild.state}))")
+            consent = {"boundaries": boundary_consent, "summaries": summary_consent, "lifecycle": lifecycle, "reopen": reopen, "cancel_reprepare": reprepare_enabled}
+            session.evaluate("import('./app.js').then(m=>{m.state.page.build_state='complete';m.state.storyMapBuild=null;m.renderMap();return true;})")
             session.evaluate("window.scrollTo(0,0);document.querySelector('#mapLayout').scrollTop=0")
             map_path = output / f"m15-1-story-map-{label}.png"
             map_size = _full_screenshot(session, map_path)

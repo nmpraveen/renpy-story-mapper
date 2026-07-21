@@ -68,6 +68,11 @@ def test_two_stage_controls_are_separate_and_never_implicit() -> None:
     assert "async function pollStoryMapBuild" in app
     assert "await api.storyMapBuildStatus()" in app
     assert "await reloadStoryMapAfterBuild()" in app
+    assert "async function loadStoryMapBuildStatus" in app
+    status_start = app.index("async function loadNarrativeRunStatus")
+    status_end = app.index("async function loadNarrative()")
+    status_loader = app[status_start:status_end]
+    assert "await loadStoryMapBuildStatus()" in status_loader
 
 
 def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() -> None:

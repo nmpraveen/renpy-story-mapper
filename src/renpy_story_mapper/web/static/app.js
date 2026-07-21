@@ -535,6 +535,7 @@ async function loadNarrativeRunStatus() {
     state.narrativeRun = run; renderNarrativeRun();
     if (NARRATIVE_ACTIVE_STATES.has(state.narrativeRun.state)) pollNarrativeRun();
   } catch (_error) { if (token === state.narrativeStatusToken) { state.narrativeRun = null; renderNarrativeRun(); } }
+  await loadStoryMapBuildStatus();
 }
 
 async function loadNarrative() {
@@ -666,6 +667,14 @@ async function pollStoryMapBuild() {
     catch (error) { toast(error.message); return; }
   }
   if (token === state.storyMapPollToken) await reloadStoryMapAfterBuild();
+}
+
+async function loadStoryMapBuildStatus() {
+  ++state.storyMapPollToken;
+  try {
+    state.storyMapBuild = await api.storyMapBuildStatus(); renderStoryMapBuildControls();
+    if (STORY_MAP_ACTIVE_STATES.has(state.storyMapBuild.state)) pollStoryMapBuild();
+  } catch (_error) { state.storyMapBuild = null; renderStoryMapBuildControls(); }
 }
 
 async function runStoryMapBuildAction(action) {
@@ -1194,4 +1203,4 @@ async function start() {
 }
 
 start();
-export { api, graph, state, element, normalizedPage, renderMap, renderStoryMapFlow, storyMapBuildState };
+export { api, graph, state, element, loadStoryMapBuildStatus, normalizedPage, renderMap, renderStoryMapFlow, storyMapBuildState };
