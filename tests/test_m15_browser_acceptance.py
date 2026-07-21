@@ -142,6 +142,7 @@ def test_narrative_search_preserves_matching_selection_and_falls_back_when_absen
         calls.push([query, focus]); return response;
       }} }};
       const normalizedPage = (page) => page;
+      const isSemanticStoryMapPage = (page) => Object.hasOwn(page, "build_state");
       const renderMap = (options) => renders.push(options);
       const renderAnalysisAvailability = () => {{}};
       const CSS = {{ escape: (value) => value }};
@@ -179,6 +180,46 @@ def test_narrative_search_preserves_matching_selection_and_falls_back_when_absen
         {"preserveViewport": True},
         {"preserveViewport": True},
     ]
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="Node.js is required for browser client behavior checks",
+)
+def test_narrative_payload_contract_selects_legacy_canvas_or_semantic_flow() -> None:
+    app = (ROOT / "src" / "renpy_story_mapper" / "web" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    styles = (
+        ROOT / "src" / "renpy_story_mapper" / "web" / "static" / "styles.css"
+    ).read_text(encoding="utf-8")
+    start = app.index("function isSemanticStoryMapPage")
+    end = app.index("\nfunction storyMapStatusLabel", start)
+    behavior = app[start:end]
+    script = f"""
+      {behavior}
+      const legacy = {{ schema: "m15-narrative-map-page-v1", nodes: [], edges: [] }};
+      const semantic = {{ ...legacy, build_state: "complete" }};
+      process.stdout.write(JSON.stringify({{
+        legacy: narrativePresentation(legacy, "narrative"),
+        semantic: narrativePresentation(semantic, "narrative"),
+        inspection: narrativePresentation(semantic, "inspection"),
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == {
+        "legacy": "legacy-canvas",
+        "semantic": "semantic-flow",
+        "inspection": "inspection-canvas",
+    }
+    assert 'html[data-narrative-presentation="semantic-flow"] .graph-surface' in styles
+    assert 'html[data-map-mode="narrative"] .graph-surface' not in styles
 
 
 @pytest.mark.hardware_sensitive

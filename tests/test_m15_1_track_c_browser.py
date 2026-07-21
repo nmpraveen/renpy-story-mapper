@@ -31,7 +31,7 @@ def test_normal_story_surface_is_bounded_semantic_flow() -> None:
     app = _text("app.js")
     assert 'data-story-map-layout="normal-flow-vertical"' in html
     assert 'id="storyMapFlow"' in html and 'role="feed"' in html
-    assert 'html[data-map-mode="narrative"] .graph-surface' in css
+    assert 'html[data-narrative-presentation="semantic-flow"] .graph-surface' in css
     assert 'width: min(100%, 896px)' in css
     assert "@container story-choice (min-width: 600px)" in css
     assert "renderStoryMapFlow(nodes, edges)" in app

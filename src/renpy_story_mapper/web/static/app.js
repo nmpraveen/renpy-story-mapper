@@ -32,6 +32,16 @@ function storyMapBuildState(page = state.page) {
   return page?.semantic_build?.state || page?.build?.state || page?.build_state || "not_started";
 }
 
+function isSemanticStoryMapPage(page = state.page) {
+  if (!page || typeof page !== "object") return false;
+  return Object.hasOwn(page, "build_state") || Boolean(page.semantic_build) || Boolean(page.build);
+}
+
+function narrativePresentation(page = state.page, mode = state.mode) {
+  if (mode !== "narrative") return "inspection-canvas";
+  return isSemanticStoryMapPage(page) ? "semantic-flow" : "legacy-canvas";
+}
+
 function storyMapStatusLabel(buildState) {
   const labels = {
     not_started: "Story Map has not been built.", boundaries_prepared: "Boundary manifest prepared.",
@@ -671,6 +681,9 @@ async function pollStoryMapBuild() {
 
 async function loadStoryMapBuildStatus() {
   ++state.storyMapPollToken;
+  if (!isSemanticStoryMapPage()) {
+    state.storyMapBuild = null; renderStoryMapBuildControls(); return;
+  }
   try {
     state.storyMapBuild = await api.storyMapBuildStatus(); renderStoryMapBuildControls();
     if (STORY_MAP_ACTIVE_STATES.has(state.storyMapBuild.state)) pollStoryMapBuild();
@@ -895,7 +908,10 @@ async function searchM10WholeGraph() {
     if (query && !matches.length) $("#selectionStatus").textContent = "No Narrative Map matches";
     else if (query && matches.length && !matches.some((item) => item.id === state.selectedId)) state.selectedId = matches[0].id;
     renderMap({ preserveViewport: true });
-    if (state.selectedId) $("#storyMapFlow")?.querySelector?.(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+    if (state.selectedId) {
+      const host = isSemanticStoryMapPage(page) ? $("#storyMapFlow") : graph.world;
+      host?.querySelector?.(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+    }
     return;
   }
   if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
@@ -931,7 +947,7 @@ function visiblePage() {
   const matchedIds = query && globalSearch?.query?.toLocaleLowerCase() === query && Array.isArray(resultIds) ? new Set(resultIds) : null;
   const visibleNodes = (state.page?.nodes || []).filter((node) => {
     if (!state.settings.include_unresolved && node.unresolved) return false;
-    if (state.mode === "narrative") return node.kind !== "technical_coverage";
+    if (state.mode === "narrative" && isSemanticStoryMapPage()) return node.kind !== "technical_coverage";
     if (!state.settings.include_technical && node.kind === "technical_coverage") return false;
     return !query || matchedIds?.has(node.id) || `${node.id} ${node.title} ${node.summary} ${node.reachability || ""}`.toLocaleLowerCase().includes(query);
   }).map((node) => ({ ...node, search_match: !query || matchedIds?.has(node.id) }));
@@ -962,10 +978,12 @@ function renderChapters() {
 
 function renderMap({ preserveViewport = false } = {}) {
   if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
+  const semanticStoryMap = state.mode === "narrative" && isSemanticStoryMapPage();
+  document.documentElement.dataset.narrativePresentation = narrativePresentation();
   const visible = visiblePage();
   const nodes = visible.nodes;
   const edges = visible.edges;
-  if (state.mode === "narrative") renderStoryMapFlow(nodes, edges);
+  if (semanticStoryMap) renderStoryMapFlow(nodes, edges);
   else {
     graph.setData(nodes, edges, state.selectedId, state.page?.lanes || [], { preserveViewport });
     renderLanes(nodes); renderChapters(); state.selectedId = graph.selectedId;
@@ -973,32 +991,35 @@ function renderMap({ preserveViewport = false } = {}) {
   const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
   const edgeFirst = state.edgeOffset + 1; const edgeLast = state.edgeOffset + (state.page?.edges.length || 0); const edgeTotal = Number(state.page?.page_edge_total ?? edgeLast);
   const dense = Boolean(state.page?.overflow) || edgeTotal > state.page?.edges.length;
-  $("#pageStatus").textContent = state.mode === "narrative" ? `${nodes.length} story items` : `Nodes ${first}–${last} of ${total} · routes ${edgeTotal ? `${edgeFirst}–${edgeLast} of ${edgeTotal}` : "none"}${dense ? " · bounded" : ""}`;
+  $("#pageStatus").textContent = semanticStoryMap ? `${nodes.length} story items` : `${state.mode === "narrative" ? "Story elements" : "Nodes"} ${first}–${last} of ${total} · routes ${edgeTotal ? `${edgeFirst}–${edgeLast} of ${edgeTotal}` : "none"}${dense ? " · bounded" : ""}`;
   $("#previousPage").disabled = state.cursorHistory.length === 0; $("#nextPage").disabled = nextCursor() === null;
   const nodeIds = new Set(nodes.map((node) => node.id)); const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
-  $("#visibleStatus").textContent = state.mode === "narrative" ? `${nodes.length} story items` : `${nodes.length} nodes · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
+  $("#visibleStatus").textContent = semanticStoryMap ? `${nodes.length} story items` : `${nodes.length} ${state.mode === "narrative" ? "story elements" : "nodes"} · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
   const generation = state.page?.generation_status;
   renderAnalysisAvailability(generation, true);
-  if (state.mode === "narrative") renderStoryMapBuildControls();
+  if (semanticStoryMap) renderStoryMapBuildControls();
   else {
     $("#generationStatus").hidden = !generation;
     if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
   }
   const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
-  if (state.mode === "narrative") summary.append(element("strong", "", "Story Map"), element("span", "", `${nodes.filter((node) => ["major_cluster", "event_cluster"].includes(node.kind)).length} sections`), element("span", "", `${nodes.length} story entries`));
+  if (semanticStoryMap) summary.append(element("strong", "", "Story Map"), element("span", "", `${nodes.filter((node) => ["major_cluster", "event_cluster"].includes(node.kind)).length} sections`), element("span", "", `${nodes.length} story entries`));
+  else if (state.mode === "narrative") summary.append(element("strong", "", "Narrative Map"), element("span", "", `${nodes.filter((node) => node.kind === "event_cluster").length} event clusters`), element("span", "", `${state.page.hidden_technical_count || 0} technical atoms collapsed`));
   else if (["inspection", "canonical"].includes(state.mode)) summary.append(element("strong", "", state.mode === "canonical" ? "Canonical authority" : "Inspection coverage"), element("span", "", `${coverage.control_nodes ?? "—"} canonical records`), element("span", "", `${coverage.suppressed_records ?? 0} presentation suppressions`));
-  if (state.mode !== "narrative") { const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected); }
+  if (!semanticStoryMap) { const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected); }
 }
 
 function updateModeHeader() {
   const narrative = state.mode === "narrative";
+  const semanticStoryMap = narrative && isSemanticStoryMapPage();
   const inspection = state.mode === "inspection"; const canonical = state.mode === "canonical";
   document.documentElement.dataset.mapMode = state.mode;
+  document.documentElement.dataset.narrativePresentation = narrativePresentation();
   $("#inspectionMapButton").disabled = !state.inspectionPage;
   $("#canonicalMapButton").disabled = !state.canonicalPage;
   $("#mapEyebrow").textContent = narrative ? "Story Map" : inspection ? "Advanced deterministic inspection" : "Advanced canonical graph";
   $("#mapTitle").textContent = narrative ? "Chronological story" : inspection ? "Choices, routes, and rejoins" : "Every canonical record";
-  $("#projectBadge").textContent = narrative ? "Story Map" : inspection ? "M10 Inspection · advanced" : "M10 Canonical · advanced";
+  $("#projectBadge").textContent = semanticStoryMap ? "Story Map" : narrative ? "Narrative Map" : inspection ? "M10 Inspection · advanced" : "M10 Canonical · advanced";
   if (!state.narrativeMapPage) $("#fallbackReason").textContent = `${String(state.narrativeReason || "narrative map not yet available").replaceAll("_", " ")}. ${inspection ? "Deterministic inspection fallback" : canonical ? "Canonical fallback" : "No fallback"} is shown.`;
 }
 
@@ -1203,4 +1224,4 @@ async function start() {
 }
 
 start();
-export { api, graph, state, element, loadStoryMapBuildStatus, normalizedPage, renderMap, renderStoryMapFlow, storyMapBuildState };
+export { api, graph, state, element, isSemanticStoryMapPage, loadStoryMapBuildStatus, narrativePresentation, normalizedPage, renderMap, renderStoryMapFlow, storyMapBuildState };

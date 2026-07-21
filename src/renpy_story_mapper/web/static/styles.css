@@ -145,24 +145,24 @@ button:disabled { cursor: default; opacity: .45; }
 #edgeCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .map-world { position: absolute; inset: 0; transform-origin: 0 0; }
 
-/* Narrative mode is an editorial reading surface. The absolute world remains inspection-only. */
+/* Published semantic narrative is an editorial reading surface. Legacy projects retain the bounded M15 canvas. */
 .story-map-normal-flow { display: none; }
-html[data-map-mode="narrative"] .route-map-view { height: 100%; }
-html[data-map-mode="narrative"] .map-layout { grid-template-columns: minmax(0, 1fr); overflow: auto; background: color-mix(in srgb, var(--sheet) 38%, var(--paper)); }
-html[data-map-mode="narrative"] .line-index,
-html[data-map-mode="narrative"] .graph-surface,
-html[data-map-mode="narrative"] .map-status span:last-child,
-html[data-map-mode="narrative"] .map-tools #zoomOut,
-html[data-map-mode="narrative"] .map-tools #zoomIn,
-html[data-map-mode="narrative"] .map-tools #zoomValue,
-html[data-map-mode="narrative"] .map-tools #fitMap,
-html[data-map-mode="narrative"] .map-tools .tool-divider,
-html[data-map-mode="narrative"] .map-tools #previousPage,
-html[data-map-mode="narrative"] .map-tools #nextPage { display: none; }
-html[data-map-mode="narrative"] .map-panel { display: block; min-height: 100%; }
-html[data-map-mode="narrative"] .map-tools { position: sticky; z-index: 5; top: 0; min-height: 2.6rem; background: color-mix(in srgb, var(--sheet) 94%, transparent); backdrop-filter: blur(10px); }
-html[data-map-mode="narrative"] .map-status { position: sticky; bottom: 0; background: color-mix(in srgb, var(--sheet) 94%, transparent); backdrop-filter: blur(10px); }
-html[data-map-mode="narrative"] .story-map-normal-flow { container: story-map / inline-size; display: flow-root; width: min(100%, 896px); margin: 0 auto; padding: clamp(1rem, 3.5vw, 2.75rem) clamp(.75rem, 2.4vw, 1.75rem) 5rem; }
+html[data-narrative-presentation="semantic-flow"] .route-map-view { height: 100%; }
+html[data-narrative-presentation="semantic-flow"] .map-layout { grid-template-columns: minmax(0, 1fr); overflow: auto; background: color-mix(in srgb, var(--sheet) 38%, var(--paper)); }
+html[data-narrative-presentation="semantic-flow"] .line-index,
+html[data-narrative-presentation="semantic-flow"] .graph-surface,
+html[data-narrative-presentation="semantic-flow"] .map-status span:last-child,
+html[data-narrative-presentation="semantic-flow"] .map-tools #zoomOut,
+html[data-narrative-presentation="semantic-flow"] .map-tools #zoomIn,
+html[data-narrative-presentation="semantic-flow"] .map-tools #zoomValue,
+html[data-narrative-presentation="semantic-flow"] .map-tools #fitMap,
+html[data-narrative-presentation="semantic-flow"] .map-tools .tool-divider,
+html[data-narrative-presentation="semantic-flow"] .map-tools #previousPage,
+html[data-narrative-presentation="semantic-flow"] .map-tools #nextPage { display: none; }
+html[data-narrative-presentation="semantic-flow"] .map-panel { display: block; min-height: 100%; }
+html[data-narrative-presentation="semantic-flow"] .map-tools { position: sticky; z-index: 5; top: 0; min-height: 2.6rem; background: color-mix(in srgb, var(--sheet) 94%, transparent); backdrop-filter: blur(10px); }
+html[data-narrative-presentation="semantic-flow"] .map-status { position: sticky; bottom: 0; background: color-mix(in srgb, var(--sheet) 94%, transparent); backdrop-filter: blur(10px); }
+html[data-narrative-presentation="semantic-flow"] .story-map-normal-flow { container: story-map / inline-size; display: flow-root; width: min(100%, 896px); margin: 0 auto; padding: clamp(1rem, 3.5vw, 2.75rem) clamp(.75rem, 2.4vw, 1.75rem) 5rem; }
 
 .story-map-empty { margin: clamp(2rem, 8vh, 6rem) auto; border-block: 1px solid var(--rule); padding: 2rem 0; text-align: center; }
 .story-map-empty h2 { margin: 0 0 .45rem; font: 400 clamp(1.8rem, 4vw, 3rem)/1.05 "Iowan Old Style", Baskerville, "Palatino Linotype", serif; }
