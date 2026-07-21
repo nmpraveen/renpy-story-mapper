@@ -18,11 +18,19 @@ from renpy_story_mapper.canonical_graph_contract import (
     OriginReference,
     ReachabilityStatus,
 )
-from renpy_story_mapper.m11_scene_model import AtomKind
+from renpy_story_mapper.m11_scene_model import (
+    AtomKind,
+    CallSiteOccurrence,
+    OccurrenceKind,
+)
+from renpy_story_mapper.m11_scene_model import (
+    Provenance as M11Provenance,
+)
 from renpy_story_mapper.narrative_map import (
     AuthorityBinding,
     ChoiceComposition,
     FineNarrativeUnit,
+    LiveSemanticProvenance,
     Provenance,
     SemanticBoundaryDecision,
     SemanticBoundaryKind,
@@ -269,6 +277,118 @@ def test_missing_duplicate_and_foreign_semantic_decisions_fail_closed() -> None:
         assemble_semantic_outline(units, candidates, (*decisions[:-1], foreign))
 
 
+def test_boundary_provenance_binds_by_exact_candidate_and_window_identity() -> None:
+    units, decisions, choices, _outline = _generalized_outline()
+    candidates = build_all_eligible_gap_candidates(units)
+    provenance = tuple(
+        LiveSemanticProvenance(
+            "boundaries",
+            f"job-{index}",
+            f"input-{index}",
+            "manifest-generalized",
+            "provider-identity",
+            f"cache-{index}",
+            candidate_id=candidate.candidate_id,
+            window_id=f"window-{index // 2}",
+        )
+        for index, candidate in enumerate(candidates)
+    )
+
+    outline = assemble_semantic_outline(
+        units,
+        candidates,
+        decisions,
+        choices=choices,
+        boundary_provenance=tuple(reversed(provenance)),
+    )
+
+    assert isinstance(outline, SemanticOutline)
+    assert [item.candidate_id for item in outline.boundary_provenance] == [
+        item.candidate_id for item in candidates
+    ]
+    serialized = semantic_outline_to_dict(outline)
+    serialized_provenance = serialized["boundary_provenance"]
+    assert isinstance(serialized_provenance, list)
+    assert [item["candidate_id"] for item in serialized_provenance] == [
+        item.candidate_id for item in candidates
+    ]
+    duplicated = (provenance[0], provenance[0], *provenance[2:])
+    with pytest.raises(ValueError, match="duplicates one candidate"):
+        assemble_semantic_outline(
+            units,
+            candidates,
+            decisions,
+            choices=choices,
+            boundary_provenance=duplicated,
+        )
+
+
+def test_canonical_edge_tuple_order_cannot_change_fine_units_or_candidates() -> None:
+    canonical, model = linear_authority((AtomKind.NARRATION, AtomKind.DIALOGUE, AtomKind.NARRATION))
+    reversed_authority = replace(canonical, edges=tuple(reversed(canonical.edges)))
+    reversed_authority.validate()
+
+    assert reversed_authority.authority_hash == canonical.authority_hash
+    expected_units = build_fine_narrative_units(canonical, model)
+    actual_units = build_fine_narrative_units(reversed_authority, model)
+    assert actual_units == expected_units
+    assert build_all_eligible_gap_candidates(actual_units) == (
+        build_all_eligible_gap_candidates(expected_units)
+    )
+
+
+def test_m11_call_occurrences_duplicate_shared_callee_units_without_cross_locking() -> None:
+    canonical, model = linear_authority((AtomKind.CALL, AtomKind.NARRATION, AtomKind.DIALOGUE))
+    occurrence_provenance = M11Provenance(
+        node_ids=tuple(item.id for item in canonical.nodes),
+        edge_ids=tuple(item.id for item in canonical.edges),
+        evidence_ids=tuple(item.id for item in canonical.evidence),
+    )
+    occurrences = tuple(
+        CallSiteOccurrence(
+            id=f"occurrence-{suffix}",
+            call_atom_id="atom-0",
+            callee_entry_node_id="node-1",
+            kind=OccurrenceKind.NARRATIVE,
+            scene_id=model.scenes[0].id,
+            lane_id=model.scenes[0].lane_id,
+            referenced_atom_ids=("atom-1", "atom-2"),
+            guard_fact_ids=(),
+            collapsed=False,
+            repeatable=False,
+            provenance=occurrence_provenance,
+        )
+        for suffix in ("a", "b")
+    )
+    occurrence_model = replace(model, occurrences=occurrences)
+    occurrence_model.validate()
+
+    units = build_fine_narrative_units(canonical, occurrence_model)
+    candidates = build_all_eligible_gap_candidates(units)
+
+    assert [item.story_atom_id for item in units] == [
+        "atom-0",
+        "atom-1",
+        "atom-2",
+        "atom-0",
+        "atom-1",
+        "atom-2",
+    ]
+    assert [item.call_occurrence_id for item in units] == [
+        "occurrence-a",
+        "occurrence-a",
+        "occurrence-a",
+        "occurrence-b",
+        "occurrence-b",
+        "occurrence-b",
+    ]
+    assert len(candidates) == 2
+    assert [item.call_occurrence_id for item in candidates] == [
+        "occurrence-a",
+        "occurrence-b",
+    ]
+
+
 def test_boundary_windows_own_every_candidate_once_with_bounded_same_sequence_halos() -> None:
     units, _decisions, _choices, _outline = _generalized_outline()
     candidates = build_all_eligible_gap_candidates(units)
@@ -388,6 +508,71 @@ def test_m10_regions_own_exact_arm_order_captions_nesting_and_shared_rejoin() ->
     assert len(set(choices[0].rejoin_relationship_ids)) == 2
     assert set(choices[0].rejoin_relationship_ids).isdisjoint(choices[1].rejoin_relationship_ids)
     assert {item.post_rejoin_continuation_id for item in choices} == {units[-1].unit_id}
+
+    reversed_authority = replace(canonical, regions=tuple(reversed(canonical.regions)))
+    reversed_authority.validate()
+    assert reversed_authority.authority_hash == canonical.authority_hash
+    reversed_choices = build_choice_compositions(reversed_authority, units, provisional)
+    assert reversed_choices == choices
+    reversed_outline = assemble_semantic_outline(
+        units,
+        (),
+        (),
+        choices=reversed_choices,
+    )
+    expected_outline = assemble_semantic_outline(units, (), (), choices=choices)
+    assert isinstance(reversed_outline, SemanticOutline)
+    assert isinstance(expected_outline, SemanticOutline)
+    assert semantic_membership_hash(reversed_outline) == semantic_membership_hash(expected_outline)
+
+
+def test_choice_arm_edge_must_be_exact_and_reach_declared_rejoin() -> None:
+    canonical = _nested_choice_canonical()
+    outer = canonical.regions[0]
+    attributes = dict(outer.attributes)
+    arms = attributes["arms"]
+    assert isinstance(arms, list)
+    first_arm = _mapping(arms[0])
+    attributes["arms"] = [{**first_arm, "edge_id": "edge-open"}, *arms[1:]]
+    invalid_outer = replace(outer, attributes=attributes)
+    invalid_authority = replace(canonical, regions=(invalid_outer, *canonical.regions[1:]))
+    invalid_authority.validate()
+    authority = AuthorityBinding(
+        invalid_authority.source_generation,
+        CANONICAL_GRAPH_SCHEMA,
+        invalid_authority.authority_hash,
+        "m11-synthetic-v1",
+        "m11-synthetic-hash",
+    )
+    specs = (
+        ("opening", "node-0"),
+        ("outer-question", "node-1"),
+        ("outer-stop", "node-2"),
+        ("outer-continue", "node-3"),
+        ("inner-question", "node-4"),
+        ("inner-stop", "node-5"),
+        ("inner-continue", "node-6"),
+        ("resume", "node-8"),
+    )
+    units = tuple(
+        replace(
+            _unit(key, key, 0, index + 1),
+            authority=authority,
+            node_ids=(node_id,),
+            entry_node_id=node_id,
+            exit_node_id=node_id,
+            provenance=replace(
+                _unit(key, key, 0, index + 1).provenance,
+                node_ids=(node_id,),
+            ),
+        )
+        for index, (key, node_id) in enumerate(specs)
+    )
+    provisional = assemble_semantic_outline(units, (), ())
+    assert isinstance(provisional, SemanticOutline)
+
+    with pytest.raises(ValueError, match="entry edge is not exact M10 authority"):
+        build_choice_compositions(invalid_authority, units, provisional)
 
 
 def _nested_choice_canonical() -> CanonicalGraph:

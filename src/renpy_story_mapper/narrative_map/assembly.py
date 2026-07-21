@@ -100,7 +100,9 @@ def assemble_semantic_outline(
         decision_by_candidate[decision.candidate_id] = decision
     if set(decision_by_candidate) != expected_ids:
         raise ValueError("semantic boundary decisions are missing or incomplete")
-    _validate_boundary_provenance(expected_candidates, materialized_provenance)
+    materialized_provenance = _normalize_boundary_provenance(
+        expected_candidates, materialized_provenance
+    )
     _validate_choice_compositions(materialized_choices, materialized_units)
 
     candidate_by_pair = {
@@ -141,8 +143,7 @@ def assemble_semantic_outline(
     if any(len(cluster_ids) != 1 for cluster_ids in continuation_clusters.values()):
         raise ValueError("a shared continuation cannot belong to multiple parent clusters")
     continuation_cluster = {
-        unit_id: next(iter(cluster_ids))
-        for unit_id, cluster_ids in continuation_clusters.items()
+        unit_id: next(iter(cluster_ids)) for unit_id, cluster_ids in continuation_clusters.items()
     }
     beats: list[SemanticBeat] = []
     cluster_for_beat: list[str] = []
@@ -300,7 +301,8 @@ def semantic_outline_to_dict(outline: SemanticOutline) -> dict[str, object]:
         "choices": [item.to_dict() for item in outline.choices],
         "boundary_provenance": [
             {
-                "candidate_id": candidate_id,
+                "candidate_id": item.candidate_id,
+                "window_id": item.window_id,
                 "stage": item.stage,
                 "job_id": item.job_id,
                 "input_hash": item.input_hash,
@@ -308,11 +310,7 @@ def semantic_outline_to_dict(outline: SemanticOutline) -> dict[str, object]:
                 "provider_identity_hash": item.provider_identity_hash,
                 "cache_identity": item.cache_identity,
             }
-            for candidate_id, item in zip(
-                outline.ordered_candidate_ids,
-                outline.boundary_provenance,
-                strict=True,
-            )
+            for item in outline.boundary_provenance
         ],
     }
 
@@ -381,7 +379,7 @@ def build_choice_compositions(
     edges = {item.id: item for item in canonical.edges}
     temporary_regions = tuple(
         item
-        for item in canonical.regions
+        for item in sorted(canonical.regions, key=lambda candidate: candidate.id)
         if item.kind in {"local_detour", "optional_detour", "reconvergent_route_segment"}
         and (
             nodes[item.split_node_id].kind.value == "choice"
@@ -427,8 +425,25 @@ def build_choice_compositions(
         depths[region_id] = result
         return result
 
+    unit_position = {unit_id: index for index, unit_id in enumerate(outline.ordered_unit_ids)}
+    for region in temporary_regions:
+        if region.split_node_id not in unit_by_node:
+            raise ValueError("temporary choice split lacks a story-facing fine unit")
+    ordered_regions = tuple(
+        sorted(
+            temporary_regions,
+            key=lambda item: (
+                depth(item.id),
+                unit_position.get(
+                    unit_by_node[item.split_node_id].unit_id,
+                    len(unit_position),
+                ),
+                item.id,
+            ),
+        )
+    )
     compositions: dict[str, ChoiceComposition] = {}
-    for region in sorted(temporary_regions, key=lambda item: (depth(item.id), item.id)):
+    for region in ordered_regions:
         if region.merge_node_id is None:
             raise ValueError("temporary choice composition requires a proven M10 rejoin")
         split_unit = unit_by_node.get(region.split_node_id)
@@ -470,15 +485,29 @@ def build_choice_compositions(
             for arm_id, arm in zip(arm_ids, arms, strict=True)
         )
         for arm in arms:
-            if _required_text(arm, "edge_id") not in edges:
-                raise ValueError("temporary choice arm lacks its exact M10 entry edge")
+            edge_id = _required_text(arm, "edge_id")
+            edge = edges.get(edge_id)
+            entry_node_id = _required_text(arm, "entry_node_id")
+            if (
+                edge is None
+                or edge.source_id != region.split_node_id
+                or edge.target_id != entry_node_id
+            ):
+                raise ValueError("temporary choice arm entry edge is not exact M10 authority")
+            if not _arm_reaches_merge(
+                entry_node_id,
+                region.merge_node_id,
+                _string_items(arm.get("member_node_ids")),
+                tuple(sorted(canonical.edges, key=lambda item: item.id)),
+            ):
+                raise ValueError("temporary choice arm does not reach its declared M10 rejoin")
         continuation_unit_id = _post_rejoin_continuation(
             region.merge_node_id,
-            tuple(canonical.edges),
+            tuple(sorted(canonical.edges, key=lambda item: item.id)),
             unit_by_node,
         )
         child_ids = tuple(
-            item.id for item in temporary_regions if parent_by_region[item.id] == region.id
+            item.id for item in ordered_regions if parent_by_region[item.id] == region.id
         )
         compositions[region.id] = ChoiceComposition(
             choice_id=region.id,
@@ -492,22 +521,32 @@ def build_choice_compositions(
             shared_target_id=region.merge_node_id,
             post_rejoin_continuation_id=continuation_unit_id,
         )
-    result = tuple(compositions[item.id] for item in temporary_regions)
+    result = tuple(compositions[item.id] for item in ordered_regions)
     _validate_choice_compositions(result, materialized_units)
     return result
 
 
-def _validate_boundary_provenance(
+def _normalize_boundary_provenance(
     candidates: Sequence[NarrativeGapCandidate],
     provenance: Sequence[LiveSemanticProvenance],
-) -> None:
+) -> tuple[LiveSemanticProvenance, ...]:
     if not provenance:
-        return
+        return ()
     if len(provenance) != len(candidates):
         raise ValueError("live boundary provenance must cover every eligible gap exactly once")
+    by_candidate: dict[str, LiveSemanticProvenance] = {}
     for item in provenance:
         if item.stage != "boundaries":
             raise ValueError("live boundary provenance has the wrong stage")
+        if item.candidate_id is None or item.window_id is None:
+            raise ValueError("live boundary provenance lacks exact candidate/window identity")
+        if item.candidate_id in by_candidate:
+            raise ValueError("live boundary provenance duplicates one candidate")
+        by_candidate[item.candidate_id] = item
+    expected_ids = {item.candidate_id for item in candidates}
+    if set(by_candidate) != expected_ids:
+        raise ValueError("live boundary provenance is foreign, stale, or incomplete")
+    return tuple(by_candidate[item.candidate_id] for item in candidates)
 
 
 def _validate_choice_compositions(
@@ -636,6 +675,33 @@ def _post_rejoin_continuation(
     if len(owned) > 1:
         raise ValueError("a proven rejoin has multiple story continuations")
     return owned[0] if owned else None
+
+
+def _arm_reaches_merge(
+    entry_node_id: str,
+    merge_node_id: str,
+    member_node_ids: Sequence[str],
+    edges: Sequence[CanonicalEdge],
+) -> bool:
+    allowed = {entry_node_id, merge_node_id, *member_node_ids}
+    pending = [entry_node_id]
+    visited: set[str] = set()
+    while pending:
+        node_id = pending.pop()
+        if node_id == merge_node_id:
+            return True
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+        pending.extend(
+            edge.target_id
+            for edge in edges
+            if edge.resolved
+            and edge.source_id == node_id
+            and edge.target_id in allowed
+            and edge.target_id not in visited
+        )
+    return False
 
 
 def _assemble_serialized_outline_fixture(value: Mapping[str, object]) -> dict[str, object]:

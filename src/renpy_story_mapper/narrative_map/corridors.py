@@ -6,7 +6,7 @@ import heapq
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 from typing import cast
 
@@ -16,7 +16,12 @@ from renpy_story_mapper.canonical_graph_contract import (
     CanonicalNode,
     CanonicalRegion,
 )
-from renpy_story_mapper.m11_scene_model import AtomKind, SceneModel, StoryAtom
+from renpy_story_mapper.m11_scene_model import (
+    AtomKind,
+    CallSiteOccurrence,
+    SceneModel,
+    StoryAtom,
+)
 from renpy_story_mapper.narrative_map.adapters import (
     atom_locators,
     bind_m15_authority,
@@ -78,14 +83,15 @@ def build_narrative_corridors(
 
     authority = bind_m15_authority(canonical, scene_model)
     atoms = {item.id: item for item in scene_model.atoms}
-    edges = tuple(canonical.edges)
+    edges = tuple(sorted(canonical.edges, key=lambda item: item.id))
+    regions = tuple(sorted(canonical.regions, key=lambda item: item.id))
     if set(atoms) != {item.id for item in scene_model.atoms}:
         raise ValueError("M11 atom IDs must be unique")
 
     canonical_by_node = {item.id: item for item in canonical.nodes}
-    occurrence_by_node = _call_occurrences(canonical.edges)
+    occurrence_by_node = _call_occurrences(edges)
     temporary_by_node, choice_by_node, rejoin_by_node = _temporary_ownership(
-        canonical.regions,
+        regions,
         canonical_by_node,
     )
     ordered_atoms = _control_order(tuple(atoms.values()), edges)
@@ -301,7 +307,9 @@ def build_fine_narrative_units(
     atom_by_id = {item.id: item for item in scene_model.atoms}
     if len(atom_by_id) != len(scene_model.atoms):
         raise ValueError("M11 atom IDs must be unique")
-    ordered_atoms = _control_order(tuple(scene_model.atoms), tuple(canonical.edges))
+    canonical_edges = tuple(sorted(canonical.edges, key=lambda item: item.id))
+    canonical_regions = tuple(sorted(canonical.regions, key=lambda item: item.id))
+    ordered_atoms = _control_order(tuple(scene_model.atoms), canonical_edges)
     order_by_atom = {item.id: index for index, item in enumerate(ordered_atoms)}
     corridor_by_atom: dict[str, int] = {}
     for corridor_index, corridor in enumerate(corridors):
@@ -343,16 +351,16 @@ def build_fine_narrative_units(
             corridor_index,
             corridors,
             story_atoms_by_corridor,
-            canonical.edges,
+            canonical_edges,
             atom_by_id,
         )
         if adjacent_owner is not None:
             context_by_story[adjacent_owner].extend(technical_ids)
 
     evidence_by_id = {item.id: item for item in canonical.evidence}
-    edge_by_id = {item.id: item for item in canonical.edges}
+    edge_by_id = {item.id: item for item in canonical_edges}
     regions_by_node: dict[str, list[str]] = defaultdict(list)
-    for region in canonical.regions:
+    for region in canonical_regions:
         for node_id in {
             region.split_node_id,
             *region.member_node_ids,
@@ -383,7 +391,7 @@ def build_fine_narrative_units(
         member_node_set = set(member_nodes)
         incident_edge_ids = tuple(
             edge.id
-            for edge in canonical.edges
+            for edge in canonical_edges
             if edge.source_id in member_node_set or edge.target_id in member_node_set
         )
         entry_node_id, exit_node_id = _entry_exit_nodes(
@@ -451,12 +459,22 @@ def build_fine_narrative_units(
                 ),
             )
         )
-    _validate_fine_units(
+    expanded = _expand_call_occurrence_units(
         tuple(result),
-        tuple(item.id for item in ordered_atoms if item.story_facing),
+        ordered_atoms,
+        tuple(scene_model.occurrences),
+        order_by_atom,
+    )
+    _validate_fine_units(
+        expanded,
+        tuple(item.story_atom_id for item in expanded),
         authority,
     )
-    return tuple(result)
+    if {item.story_atom_id for item in expanded} != {
+        item.id for item in ordered_atoms if item.story_facing
+    }:
+        raise ValueError("call-occurrence expansion lost story-facing atom coverage")
+    return expanded
 
 
 def build_all_eligible_gap_candidates(
@@ -473,6 +491,16 @@ def build_all_eligible_gap_candidates(
         raise ValueError("fine-unit input contains duplicate identities")
     if any(item.authority != authority for item in materialized):
         raise ValueError("fine units from different authority bindings cannot share candidates")
+    closed_sequences: set[str] = set()
+    active_sequence: str | None = None
+    for unit in materialized:
+        if unit.sequence_id == active_sequence:
+            continue
+        if unit.sequence_id in closed_sequences:
+            raise ValueError("fine-unit sequence is discontiguous in encounter order")
+        if active_sequence is not None:
+            closed_sequences.add(active_sequence)
+        active_sequence = unit.sequence_id
     streams: dict[str, list[FineNarrativeUnit]] = defaultdict(list)
     for unit in materialized:
         streams[unit.sequence_id].append(unit)
@@ -554,6 +582,101 @@ def ordered_unique_locators(values: Iterable[SourceLocator]) -> tuple[SourceLoca
     for value in values:
         if value not in result:
             result.append(value)
+    return tuple(result)
+
+
+def _expand_call_occurrence_units(
+    units: tuple[FineNarrativeUnit, ...],
+    ordered_atoms: tuple[StoryAtom, ...],
+    occurrences: tuple[CallSiteOccurrence, ...],
+    order_by_atom: dict[str, int],
+) -> tuple[FineNarrativeUnit, ...]:
+    """Expand shared referenced atoms once per exact M11 call occurrence."""
+
+    if not occurrences:
+        return units
+    unit_by_story = {item.story_atom_id: item for item in units}
+    if len(unit_by_story) != len(units):
+        raise ValueError("base fine units must own unique story atoms before occurrence expansion")
+    sorted_occurrences = tuple(
+        sorted(
+            occurrences,
+            key=lambda item: (order_by_atom.get(item.call_atom_id, len(order_by_atom)), item.id),
+        )
+    )
+    occurrences_by_call: dict[str, list[CallSiteOccurrence]] = defaultdict(list)
+    referenced_atom_ids: set[str] = set()
+    for occurrence in sorted_occurrences:
+        if len(occurrence.referenced_atom_ids) != len(set(occurrence.referenced_atom_ids)):
+            raise ValueError("one call occurrence repeats referenced atom identity")
+        occurrences_by_call[occurrence.call_atom_id].append(occurrence)
+        referenced_atom_ids.update(occurrence.referenced_atom_ids)
+
+    result: list[FineNarrativeUnit] = []
+    emitted: set[tuple[str, str | None]] = set()
+    sequence_ordinals: dict[str, int] = defaultdict(int)
+
+    def append_unit(story_atom_id: str, occurrence_id: str | None) -> None:
+        unit = unit_by_story.get(story_atom_id)
+        if unit is None:
+            return
+        key = (story_atom_id, occurrence_id)
+        if key in emitted:
+            raise ValueError("one story atom is duplicated within a call occurrence")
+        emitted.add(key)
+        if occurrence_id is None:
+            sequence_id = unit.sequence_id
+            call_occurrence_id = unit.call_occurrence_id
+        else:
+            sequence_id = stable_m15_id(
+                "fine_sequence_occurrence",
+                {
+                    "authority": unit.authority.to_dict(),
+                    "base_sequence_id": unit.sequence_id,
+                    "call_occurrence_id": occurrence_id,
+                },
+            )
+            call_occurrence_id = occurrence_id
+        ordinal = sequence_ordinals[sequence_id]
+        sequence_ordinals[sequence_id] += 1
+        result.append(
+            replace(
+                unit,
+                sequence_id=sequence_id,
+                ordinal=ordinal,
+                call_occurrence_id=call_occurrence_id,
+                context_ids=ordered_unique(
+                    (
+                        *unit.context_ids,
+                        *((occurrence_id,) if occurrence_id is not None else ()),
+                    )
+                ),
+            )
+        )
+
+    def append_occurrence(occurrence: CallSiteOccurrence, active: set[str]) -> None:
+        if occurrence.id in active:
+            raise ValueError("call-occurrence expansion contains a cycle")
+        active.add(occurrence.id)
+        append_unit(occurrence.call_atom_id, occurrence.id)
+        for atom_id in occurrence.referenced_atom_ids:
+            nested = occurrences_by_call.get(atom_id)
+            if nested:
+                for nested_occurrence in nested:
+                    append_occurrence(nested_occurrence, active)
+            else:
+                append_unit(atom_id, occurrence.id)
+        active.remove(occurrence.id)
+
+    for atom in ordered_atoms:
+        atom_occurrences = occurrences_by_call.get(atom.id)
+        if atom_occurrences:
+            if atom.id not in referenced_atom_ids:
+                for occurrence in atom_occurrences:
+                    append_occurrence(occurrence, set())
+            continue
+        if atom.id not in referenced_atom_ids:
+            append_unit(atom.id, None)
     return tuple(result)
 
 
@@ -650,11 +773,18 @@ def _validate_fine_units(
             raise ValueError("technical-only authority cannot produce story-facing units")
         return
     story_ids = [item.story_atom_id for item in units]
-    if story_ids != list(expected_story_atom_ids) or len(story_ids) != len(set(story_ids)):
-        raise ValueError("fine narrative units must cover every story atom exactly once in order")
+    if story_ids != list(expected_story_atom_ids):
+        raise ValueError("fine narrative units do not match occurrence-qualified story order")
+    unit_ids = [item.unit_id for item in units]
+    if len(unit_ids) != len(set(unit_ids)):
+        raise ValueError("fine narrative units contain duplicate occurrence-qualified identities")
     if any(item.authority != authority for item in units):
         raise ValueError("fine narrative units changed authority binding")
-    context_ids = [atom_id for item in units for atom_id in item.technical_context_atom_ids]
+    context_ids = [
+        (atom_id, item.call_occurrence_id)
+        for item in units
+        for atom_id in item.technical_context_atom_ids
+    ]
     if len(context_ids) != len(set(context_ids)):
         raise ValueError("technical context cannot belong to multiple fine narrative units")
     for unit in units:

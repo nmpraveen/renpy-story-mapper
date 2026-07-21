@@ -391,6 +391,8 @@ class LiveSemanticProvenance:
     manifest_id: str
     provider_identity_hash: str
     cache_identity: str
+    candidate_id: str | None = None
+    window_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.stage not in {"boundaries", "summaries"}:
@@ -403,6 +405,10 @@ class LiveSemanticProvenance:
             (self.cache_identity, "semantic cache identity"),
         ):
             _require_text(value, label)
+        _require_optional_text(self.candidate_id, "semantic candidate ID")
+        _require_optional_text(self.window_id, "semantic window ID")
+        if self.stage == "boundaries" and (self.candidate_id is None or self.window_id is None):
+            raise ValueError("boundary provenance requires exact candidate and window identities")
 
 
 @dataclass(frozen=True)

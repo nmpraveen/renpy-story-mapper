@@ -118,7 +118,10 @@ def build_semantic_quotient_topology(
             if node_id not in nodes_by_subject[subject_id]:
                 nodes_by_subject[subject_id].append(node_id)
 
-    region_by_id = {item.id: item for item in canonical.regions}
+    canonical_regions = tuple(sorted(canonical.regions, key=lambda item: item.id))
+    canonical_nodes = tuple(sorted(canonical.nodes, key=lambda item: item.id))
+    canonical_edges = tuple(sorted(canonical.edges, key=lambda item: item.id))
+    region_by_id = {item.id: item for item in canonical_regions}
     rejoin_subject_by_node: dict[str, str] = {}
     for choice in outline.choices:
         region = region_by_id.get(choice.choice_id)
@@ -153,7 +156,7 @@ def build_semantic_quotient_topology(
                 nodes_by_subject[rejoin_subject].append(choice.shared_target_id)
             kind_by_subject[rejoin_subject] = "rejoin"
 
-    for node in canonical.nodes:
+    for node in canonical_nodes:
         if node.id in owner_by_node:
             continue
         subject_id = stable_m15_id(
@@ -172,17 +175,17 @@ def build_semantic_quotient_topology(
 
     persistent_split_nodes = {
         item.split_node_id
-        for item in canonical.regions
+        for item in canonical_regions
         if item.kind in {"persistent_route", "terminal_split"}
     }
     persistent_merge_nodes = {
         item.merge_node_id
-        for item in canonical.regions
+        for item in canonical_regions
         if item.kind in {"persistent_route", "terminal_split"} and item.merge_node_id is not None
     }
     grouped: dict[tuple[str, str, NarrativeEdgeKind], list[CanonicalEdge]] = defaultdict(list)
-    node_kinds = {item.id: item.kind for item in canonical.nodes}
-    for edge in canonical.edges:
+    node_kinds = {item.id: item.kind for item in canonical_nodes}
+    for edge in canonical_edges:
         source = owner_by_node[edge.source_id]
         target = owner_by_node[edge.target_id]
         if source == target:
