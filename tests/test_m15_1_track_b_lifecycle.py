@@ -783,6 +783,14 @@ def test_v2_validators_reject_duplicates_delegated_by_provider_schemas() -> None
     evidence_payload["claims"][0]["evidence_ids"] *= 2
     evidence_result = validate_semantic_summary_response(evidence_payload, summary_job)
     assert "invalid_claim" in {finding.code for finding in evidence_result.findings}
+    combined_payload = json.loads(json.dumps(base_payload))
+    combined_payload["title"] = "A Boundary Line"
+    combined_payload["characters"] = ["Unknown"]
+    combined_result = validate_semantic_summary_response(combined_payload, summary_job)
+    assert {finding.code for finding in combined_result.findings} == {
+        "invalid_title",
+        "invalid_characters",
+    }
 
 
 def test_boundary_consent_cannot_start_summaries_and_changed_identity_is_stale(

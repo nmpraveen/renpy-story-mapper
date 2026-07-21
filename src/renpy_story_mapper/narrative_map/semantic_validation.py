@@ -154,23 +154,31 @@ def validate_semantic_summary_response(
         return SemanticSummaryValidation(None, (ValidationFinding("wrong_subject", job.job_id),))
     title = payload.get("title")
     summary_text = payload.get("summary")
-    if not _text(title, MAX_TITLE_LENGTH) or _TECHNICAL_TITLE.search(cast(str, title)):
-        return SemanticSummaryValidation(None, (ValidationFinding("invalid_title", job.job_id),))
-    if (
-        not _text(summary_text, MAX_SUMMARY_LENGTH)
-        or cast(str, summary_text).casefold() == cast(str, title).casefold()
-    ):
-        return SemanticSummaryValidation(None, (ValidationFinding("invalid_summary", job.job_id),))
+    top_level_findings: list[ValidationFinding] = []
+    title_valid = bool(
+        _text(title, MAX_TITLE_LENGTH) and not _TECHNICAL_TITLE.search(cast(str, title))
+    )
+    if not title_valid:
+        top_level_findings.append(ValidationFinding("invalid_title", job.job_id))
+    summary_valid = bool(
+        _text(summary_text, MAX_SUMMARY_LENGTH)
+        and (
+            not isinstance(title, str)
+            or cast(str, summary_text).casefold() != title.casefold()
+        )
+    )
+    if not summary_valid:
+        top_level_findings.append(ValidationFinding("invalid_summary", job.job_id))
     characters = payload.get("characters")
     if not _text_list(characters, MAX_REASON_LENGTH) or any(
         item not in job.known_characters for item in cast(list[str], characters)
     ):
-        return SemanticSummaryValidation(
-            None, (ValidationFinding("invalid_characters", job.job_id),)
-        )
+        top_level_findings.append(ValidationFinding("invalid_characters", job.job_id))
     warnings = payload.get("warnings")
     if not _text_list(warnings, MAX_REASON_LENGTH):
-        return SemanticSummaryValidation(None, (ValidationFinding("invalid_warnings", job.job_id),))
+        top_level_findings.append(ValidationFinding("invalid_warnings", job.job_id))
+    if top_level_findings:
+        return SemanticSummaryValidation(None, tuple(top_level_findings))
     claims_value = payload.get("claims")
     if not isinstance(claims_value, list) or not claims_value:
         return SemanticSummaryValidation(None, (ValidationFinding("invalid_claims", job.job_id),))
