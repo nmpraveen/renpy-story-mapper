@@ -23,6 +23,7 @@ from renpy_story_mapper.narrative_map.persistence import (
     NarrativeJobStatus,
     NarrativeMapRepository,
     SemanticCallLimitError,
+    SemanticJobAttemptReservedError,
 )
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeConsentManifest,
@@ -202,6 +203,7 @@ class NarrativeBoundaryWorkflow:
                     - consumed_provider_calls
                     - provider_calls
                 ),
+                initial_attempt=record.attempt_count + 1,
                 cancelled=cancelled,
             )
             provider_calls += outcome.provider_calls
@@ -225,20 +227,21 @@ class NarrativeBoundaryWorkflow:
                 was_cancelled = True
                 break
             if outcome.result is None or outcome.provider_identity is None:
-                self._repository.record_failure(
-                    job,
-                    self._profile,
-                    attempt_count=outcome.attempt_count,
-                    provider_calls=outcome.provider_calls,
-                    error_code=outcome.error_code or "invalid_output",
-                    provider_identity=(
-                        None
-                        if outcome.provider_identity is None
-                        else outcome.provider_identity.to_dict()
-                    ),
-                    usage=_optional_combined_usage(outcome.usages),
-                    consent_manifest_id=consent.manifest_id,
-                )
+                if outcome.error_code != "job_attempt_reserved":
+                    self._repository.record_failure(
+                        job,
+                        self._profile,
+                        attempt_count=outcome.attempt_count,
+                        provider_calls=outcome.provider_calls,
+                        error_code=outcome.error_code or "invalid_output",
+                        provider_identity=(
+                            None
+                            if outcome.provider_identity is None
+                            else outcome.provider_identity.to_dict()
+                        ),
+                        usage=_optional_combined_usage(outcome.usages),
+                        consent_manifest_id=consent.manifest_id,
+                    )
                 failed.append(job.job_id)
                 continue
             self._repository.record_validated(
@@ -269,6 +272,7 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         maximum_provider_calls: int,
+        initial_attempt: int,
         cancelled: CancelledCallback,
     ) -> _JobOutcome:
         findings: tuple[ValidationFinding, ...] = ()
@@ -276,7 +280,8 @@ class NarrativeBoundaryWorkflow:
         provider_calls = 0
         last_identity: BoundaryProviderIdentity | None = None
         locked_semantics: dict[str, JsonValue] = {}
-        for attempt in (1, 2):
+        for local_attempt in (1, 2):
+            attempt = initial_attempt + local_attempt - 1
             if provider_calls >= maximum_provider_calls:
                 return _JobOutcome(
                     None,
@@ -300,7 +305,7 @@ class NarrativeBoundaryWorkflow:
             consent.validate_fresh()
             repair_codes = (
                 ()
-                if attempt == 1
+                if local_attempt == 1
                 else tuple(dict.fromkeys(finding.code for finding in findings))
             )
             request_identity: dict[str, JsonValue] = {
@@ -328,6 +333,16 @@ class NarrativeBoundaryWorkflow:
                         attempt - 1,
                         provider_calls,
                         "consent_call_limit",
+                        False,
+                    )
+                except SemanticJobAttemptReservedError:
+                    return _JobOutcome(
+                        None,
+                        last_identity,
+                        tuple(usages),
+                        attempt - 1,
+                        provider_calls,
+                        "job_attempt_reserved",
                         False,
                     )
                 request_identity["consent_call_ordinal"] = call_ordinal
@@ -382,7 +397,7 @@ class NarrativeBoundaryWorkflow:
                     False,
                 )
             last_identity = identity
-            if attempt == 2 and not _matches_semantic_lock(
+            if local_attempt == 2 and not _matches_semantic_lock(
                 job, response.payload, locked_semantics
             ):
                 return _JobOutcome(
@@ -405,13 +420,13 @@ class NarrativeBoundaryWorkflow:
                     None,
                     False,
                 )
-            if attempt == 1:
+            if local_attempt == 1:
                 locked_semantics = _semantic_lock(job, response.payload, findings)
         return _JobOutcome(
             None,
             last_identity,
             tuple(usages),
-            2,
+            initial_attempt + 1,
             provider_calls,
             "invalid_output",
             False,

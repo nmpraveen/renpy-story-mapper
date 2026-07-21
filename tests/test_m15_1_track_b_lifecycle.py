@@ -838,6 +838,74 @@ def test_concurrent_reopen_cannot_cross_the_atomic_durable_consent_ceiling(
         assert status.accounting.reserved_provider_calls == 1
 
 
+def test_concurrent_reopen_cannot_submit_the_same_logical_job_attempt_twice(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "atomic-job-attempt.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="two-calls-but-one-logical-attempt",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=2,
+        )
+    consent = preparation.granted_consent()
+    entered = Event()
+    release = Event()
+    first_provider = _BlockingProvider(_boundary_payload(window), entered, release)
+    divergent = _boundary_payload(window)
+    cast(list[dict[str, object]], divergent["decisions"])[0][
+        "decision"
+    ] = "new_major_cluster"
+    second_provider = _FakeProvider([divergent])
+
+    def run(provider: _FakeProvider) -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            return NarrativeMapService(NarrativeMapRepository(project)).start_boundaries(
+                preparation,
+                provider=provider,
+                consent=consent,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(run, first_provider)
+        assert entered.wait(timeout=5)
+        second_future = executor.submit(run, second_provider)
+        try:
+            second_report = second_future.result(timeout=5)
+        finally:
+            release.set()
+        first_report = first_future.result(timeout=5)
+
+    assert first_report.provider_calls == 1
+    assert second_report.provider_calls == 0
+    assert len(first_provider.requests) == 1
+    assert second_provider.requests == []
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        assert repository.semantic_reserved_call_count(
+            manifest_id=consent.manifest_id,
+            maximum_provider_calls=2,
+        ) == 1
+        assert service.semantic_boundary_output(preparation).decisions[0].decision.value == (
+            "new_beat_same_cluster"
+        )
+        status = service.semantic_status()
+        assert status is not None
+        assert status.accounting.provider_calls == 1
+        assert status.accounting.reserved_provider_calls == 1
+
+
 def test_boundary_repair_is_bounded_and_cannot_reinterpret_a_valid_decision(
     tmp_path: Path,
 ) -> None:

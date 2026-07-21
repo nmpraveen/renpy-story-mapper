@@ -43,6 +43,10 @@ class SemanticCallLimitError(RuntimeError):
     """The exact durable consent ledger has no remaining call reservation."""
 
 
+class SemanticJobAttemptReservedError(RuntimeError):
+    """The exact semantic job attempt was already claimed durably."""
+
+
 @dataclass(frozen=True)
 class NarrativeJobRecord:
     job_id: str
@@ -312,6 +316,13 @@ class NarrativeMapRepository:
                     decoded,
                     manifest_id=manifest_id,
                     maximum_provider_calls=maximum_provider_calls,
+                )
+            if any(
+                item["job_id"] == job_id and item["attempt"] == attempt
+                for item in reservations
+            ):
+                raise SemanticJobAttemptReservedError(
+                    "the exact semantic job attempt is already durably reserved"
                 )
             if len(reservations) >= maximum_provider_calls:
                 raise SemanticCallLimitError(
@@ -643,6 +654,7 @@ def _semantic_call_reservations(
     ):
         raise storage.ProjectCorruptError("M15.1 semantic call ledger identity is invalid")
     reservations: list[dict[str, object]] = []
+    job_attempts: set[tuple[str, int]] = set()
     for expected_ordinal, item in enumerate(cast(list[object], raw["reservations"]), 1):
         if (
             not isinstance(item, Mapping)
@@ -657,5 +669,11 @@ def _semantic_call_reservations(
             raise storage.ProjectCorruptError(
                 "M15.1 semantic call ledger reservation is invalid"
             )
+        job_attempt = (cast(str, item["job_id"]), cast(int, item["attempt"]))
+        if job_attempt in job_attempts:
+            raise storage.ProjectCorruptError(
+                "M15.1 semantic call ledger repeats a logical job attempt"
+            )
+        job_attempts.add(job_attempt)
         reservations.append(dict(item))
     return reservations
