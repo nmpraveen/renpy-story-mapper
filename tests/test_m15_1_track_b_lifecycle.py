@@ -821,6 +821,13 @@ def test_concurrent_reopen_cannot_cross_the_atomic_durable_consent_ceiling(
         second_future = executor.submit(run, second_provider)
         try:
             second_report = second_future.result(timeout=5)
+            with Project.open(path) as project:
+                interim = NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).semantic_status()
+                assert interim is not None
+                assert interim.record.state is SemanticBuildState.BOUNDARIES_RUNNING
+                assert interim.record.failure_codes == ()
         finally:
             release.set()
         first_report = first_future.result(timeout=5)
@@ -882,12 +889,21 @@ def test_concurrent_reopen_cannot_submit_the_same_logical_job_attempt_twice(
         second_future = executor.submit(run, second_provider)
         try:
             second_report = second_future.result(timeout=5)
+            with Project.open(path) as project:
+                interim = NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).semantic_status()
+                assert interim is not None
+                assert interim.record.state is SemanticBuildState.BOUNDARIES_RUNNING
+                assert interim.record.failure_codes == ()
         finally:
             release.set()
         first_report = first_future.result(timeout=5)
 
     assert first_report.provider_calls == 1
     assert second_report.provider_calls == 0
+    assert second_report.failed_job_ids == ()
+    assert second_report.deferred_job_ids == (preparation.jobs[0].job_id,)
     assert len(first_provider.requests) == 1
     assert second_provider.requests == []
     with Project.open(path) as project:

@@ -62,6 +62,7 @@ class NarrativeWorkflowReport:
     output_tokens: int
     elapsed_ms: int
     cancelled: bool
+    deferred_job_ids: tuple[str, ...] = ()
 
 
 class NarrativeBoundaryWorkflow:
@@ -161,6 +162,7 @@ class NarrativeBoundaryWorkflow:
             raise ValueError("each M15 semantic job may be scheduled only once")
         validated: list[str] = []
         failed: list[str] = []
+        deferred: list[str] = []
         cache_hits = 0
         provider_calls = 0
         usages: list[ProviderUsage] = []
@@ -227,7 +229,10 @@ class NarrativeBoundaryWorkflow:
                 was_cancelled = True
                 break
             if outcome.result is None or outcome.provider_identity is None:
-                if outcome.error_code != "job_attempt_reserved":
+                if outcome.error_code == "job_attempt_reserved":
+                    deferred.append(job.job_id)
+                    break
+                else:
                     self._repository.record_failure(
                         job,
                         self._profile,
@@ -264,6 +269,7 @@ class NarrativeBoundaryWorkflow:
             output_tokens=sum(item.output_tokens for item in usages),
             elapsed_ms=sum(item.elapsed_ms for item in usages),
             cancelled=was_cancelled,
+            deferred_job_ids=tuple(deferred),
         )
 
     def _submit_with_repair(
@@ -280,9 +286,13 @@ class NarrativeBoundaryWorkflow:
         provider_calls = 0
         last_identity: BoundaryProviderIdentity | None = None
         locked_semantics: dict[str, JsonValue] = {}
+        semantic_job = job.kind in {
+            ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW,
+            ProviderJobKind.SEMANTIC_SUMMARY,
+        }
         for local_attempt in (1, 2):
             attempt = initial_attempt + local_attempt - 1
-            if provider_calls >= maximum_provider_calls:
+            if not semantic_job and provider_calls >= maximum_provider_calls:
                 return _JobOutcome(
                     None,
                     last_identity,
@@ -314,10 +324,7 @@ class NarrativeBoundaryWorkflow:
                 "consent_manifest_id": consent.manifest_id,
                 "profile": self._profile.to_dict(),
             }
-            if job.kind in {
-                ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW,
-                ProviderJobKind.SEMANTIC_SUMMARY,
-            }:
+            if semantic_job:
                 try:
                     call_ordinal = self._repository.reserve_semantic_provider_call(
                         manifest_id=consent.manifest_id,

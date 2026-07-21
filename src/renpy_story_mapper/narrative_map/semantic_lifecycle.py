@@ -632,16 +632,21 @@ class SemanticLifecycle:
             return report
         if report.cancelled:
             updated = _updated_state(updated, SemanticBuildState.CANCELLED)
+        elif len(completed) == len(preparation.jobs):
+            updated = _updated_state(updated, SemanticBuildState.VALIDATING)
+            if preparation.stage is SemanticStage.SUMMARIES:
+                self._publish(preparation, updated)
+                return report
+        elif report.deferred_job_ids:
+            updated["state"] = (
+                SemanticBuildState.BOUNDARIES_RUNNING.value
+                if preparation.stage is SemanticStage.BOUNDARIES
+                else SemanticBuildState.SUMMARIES_RUNNING.value
+            )
         elif not completed:
             updated = _updated_state(updated, SemanticBuildState.FAILED)
-        elif len(completed) != len(preparation.jobs):
-            updated = _updated_state(updated, SemanticBuildState.PARTIAL)
-        elif preparation.stage is SemanticStage.BOUNDARIES:
-            updated = _updated_state(updated, SemanticBuildState.VALIDATING)
         else:
-            updated = _updated_state(updated, SemanticBuildState.VALIDATING)
-            self._publish(preparation, updated)
-            return report
+            updated = _updated_state(updated, SemanticBuildState.PARTIAL)
         self._repository.write_semantic_build(updated)
         return report
 
