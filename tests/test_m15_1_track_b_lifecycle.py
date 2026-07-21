@@ -357,6 +357,14 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
         )
         assert boundary_report.provider_calls == 1
         assert len(boundary_provider.requests[0].job.subject.owned_candidate_ids) == 2
+        boundary_output = service.semantic_boundary_output(boundaries)
+        assert tuple(
+            (item.candidate_id, item.window_id) for item in boundary_output.provenance
+        ) == tuple(
+            (candidate_id, window.window_id)
+            for window in windows
+            for candidate_id in window.owned_candidate_ids
+        )
 
         outline = _outline(units, candidates, service, boundaries)
         summaries = service.prepare_summaries(

@@ -28,7 +28,6 @@ from renpy_story_mapper.narrative_map.provider import (
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     LiveSemanticProvenance,
     SemanticBoundaryDecision,
-    SemanticBoundaryKind,
     SemanticBuildRecord,
     SemanticBuildState,
     SemanticOutline,
@@ -262,23 +261,11 @@ class SemanticLifecycle:
                 or record.provider_identity is None
             ):
                 raise ValueError("boundary output is incomplete")
-            raw = record.result.get("decisions")
-            if not isinstance(raw, list):
+            validation = validate_semantic_boundary_response(record.result, job)
+            if not validation.valid:
                 raise ValueError("validated boundary output is corrupt")
-            for item in raw:
-                if not isinstance(item, Mapping):
-                    raise ValueError("validated boundary decision is corrupt")
-                decision_value = item.get("decision")
-                warnings = item.get("warnings")
-                decisions.append(
-                    SemanticBoundaryDecision(
-                        cast(str, item["candidate_id"]),
-                        SemanticBoundaryKind(cast(str, decision_value)),
-                        cast(str, item["reason"]),
-                        float(cast(float, item["confidence"])),
-                        tuple(cast(list[str], warnings)),
-                    )
-                )
+            for decision in validation.decisions:
+                decisions.append(decision)
                 provenance.append(
                     LiveSemanticProvenance(
                         "boundaries",
@@ -287,6 +274,8 @@ class SemanticLifecycle:
                         record.consent_manifest_id or preparation.consent.manifest_id,
                         canonical_hash(record.provider_identity),
                         self._repository.cache_key(job, preparation.consent.profile),
+                        candidate_id=decision.candidate_id,
+                        window_id=job.subject_id,
                     )
                 )
         return BoundaryStageOutput(tuple(decisions), tuple(provenance))
@@ -834,13 +823,17 @@ class SemanticLifecycle:
         if record is None or record.result is None:
             raise ValueError("boundary membership cannot freeze before validated windows")
         decisions = record.result.get("decisions")
-        if not isinstance(decisions, list):
+        if record.result.get("window_id") != record.subject_id or not isinstance(decisions, list):
             raise ValueError("validated boundary window is corrupt")
-        return tuple(
-            cast(str, item["candidate_id"])
-            for item in decisions
-            if isinstance(item, Mapping) and isinstance(item.get("candidate_id"), str)
-        )
+        candidate_ids: list[str] = []
+        for item in decisions:
+            candidate_id = item.get("candidate_id") if isinstance(item, Mapping) else None
+            if not isinstance(candidate_id, str) or not candidate_id:
+                raise ValueError("validated boundary window candidate identity is corrupt")
+            candidate_ids.append(candidate_id)
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("validated boundary window candidate identities are duplicated")
+        return tuple(candidate_ids)
 
     def _expected_boundary_provenance(
         self,
@@ -866,15 +859,19 @@ class SemanticLifecycle:
                 "correction_id": cast(str, raw["correction_id"]),
                 "privacy_scope": cast(str, raw["privacy_scope"]),
             }
-            provenance = LiveSemanticProvenance(
-                "boundaries",
-                job_id,
-                record.input_hash,
-                record.consent_manifest_id or cast(str, raw["boundary_manifest_id"]),
-                canonical_hash(record.provider_identity),
-                f"m15_cache_{canonical_hash(cache_identity)}",
-            )
-            expected.extend(provenance for _ in self._window_candidate_ids(job_id))
+            for candidate_id in self._window_candidate_ids(job_id):
+                expected.append(
+                    LiveSemanticProvenance(
+                        "boundaries",
+                        job_id,
+                        record.input_hash,
+                        record.consent_manifest_id or cast(str, raw["boundary_manifest_id"]),
+                        canonical_hash(record.provider_identity),
+                        f"m15_cache_{canonical_hash(cache_identity)}",
+                        candidate_id=candidate_id,
+                        window_id=record.subject_id,
+                    )
+                )
         return tuple(expected)
 
     def _exact_replay(
