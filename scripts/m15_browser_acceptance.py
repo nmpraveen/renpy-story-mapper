@@ -394,7 +394,14 @@ def _capture(
             DRIVER._screenshot(session, detail_shot)
             session.command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape"})
             session.command("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Escape", "code": "Escape"})
-            session.wait("document.documentElement.dataset.activeLevel==='route_map'")
+            session.wait(
+                "import('./app.js').then(m=>document.documentElement.dataset.activeLevel==='route_map'"
+                "&&document.activeElement?.classList.contains('station')"
+                "&&document.activeElement?.dataset.elementId===m.state.selectedId)"
+            )
+            return_focus = session.evaluate(
+                "import('./app.js').then(m=>({active:document.activeElement?.dataset.elementId,selected:m.state.selectedId,station:document.activeElement?.classList.contains('station')}))"
+            )
 
             request_evidence = _assert_normal_requests(session)
             DRIVER._browser_diagnostics(session)
@@ -416,6 +423,7 @@ def _capture(
                     "empty_query_preserved": empty_selected,
                 },
                 "keyboard_selection": keyboard_selected,
+                "detail_return_focus": return_focus,
                 "detail": detail,
                 "requests": request_evidence,
                 "screenshots": {
