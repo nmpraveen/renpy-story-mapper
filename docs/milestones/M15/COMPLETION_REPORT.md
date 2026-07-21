@@ -1,12 +1,12 @@
 # M15 MsDay1 Narrative Map correction completion report
 
-Status: Verification
+Status: PR ready
 
 Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
 
-Integrated corrected product head: `972a578`; evidence/Release head: `1c043bf`
+Integrated corrected product head: `972a578`; evidence/Release head: `1c043bf`; corrected PR product head: `b4f3d9c`
 
-Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open non-draft and left unmerged for user approval; final updated-head checks pending
+Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open, non-draft, mergeable, genuinely ready, and left unmerged for user approval
 
 ## Outcome
 
@@ -32,7 +32,7 @@ archive remain outside Git and unchanged. Full MsDenvers remains explicitly unva
 | 15-16 | Pass | Exact source and accepted project SHA-256/size/mtime unchanged; no game/Ren'Py/creator execution; no private story text committed |
 | 17 | Pass | Evidence head `1c043bf`: 1,270 passed / 8 hardware deselected; Ruff, strict mypy over 109 source files, dependencies, JavaScript, whitespace, isolated build/install/import/assets/notices all passed |
 | 18 | Pass | Corrected Track A/B/C exact-head reviews and final integrated review at `a5e507e` pass with no P0-P2 |
-| 19 | In progress | Corrected screenshots, regenerated text export, completion report, and native infographic exist; ready unmerged PR pending |
+| 19 | Pass | Corrected screenshots, regenerated text export, completion report, and native infographic exist; PR #26 is open, non-draft, mergeable, ready, and unmerged; corrected product head passed GitHub Release run `29790137975` |
 | 20 | Pass | Versioned full-authority correction; strict rule/occurrence qualification; atomic persistence/reopen; conservative rejection matrix; normal API/browser application; job/cache invalidation; fresh exact/browser evidence |
 
 ## Validation
@@ -52,6 +52,8 @@ archive remain outside Git and unchanged. Full MsDenvers remains explicitly unva
 | Combined Windows Release before final search correction | Pass | 1,236 tests, 8 deselected in 368.27 seconds; Ruff, strict mypy over 108 files, pip, four JavaScript checks, whitespace, sdist/wheel, isolated install/import/assets, real browser |
 | Final corrected Windows Release | Pass | Evidence head `1c043bf`; 1,270 passed, 8 hardware-sensitive deselected in 409.67 seconds; Ruff, strict mypy over 109 files, pip, four JavaScript checks, whitespace, isolated sdist/wheel build/install/import/assets/notices |
 | Final integrated review | Pass | `/root/m15_final_corrected_review` at `a5e507e`; no P0-P2; 188 public tests / 1 expected skip plus Ruff, strict mypy, pip, four JS checks, diff, evidence, privacy, and exclusion audit |
+| Hosted-runner polling correction | Pass | Initial run `29787902253` passed 1,265 tests and all non-pytest gates but exposed three fixed 5/20-second M13 polling windows; test-only head `b4f3d9c` uses one bounded 120-second terminal wait across all six equivalent loops; independent diagnosis and 22 focused tests found no production regression or P0-P2 |
+| Corrected product-head GitHub Release | Pass | Exact head `b4f3d9c`; run `29790137975`; deterministic Python 3.12 Release job passed in 17m48s |
 | Exact corrected provider-free Day 1 | Pass | `scripts/m15_provider_free_acceptance.py` plus `output/playwright/m15-private-final/EXACT_REPORT.json`; setup ends 26, Prologue 27, Day 1 52; 70 corridors/events, 84 nodes, 85 edges, five clusters, exact choice/rejoin pairs, nine synthetic cases, zero provider/game execution, source/original project unchanged |
 | Exact corrected private Chrome | Pass | `output/playwright/m15-private-final/`; correction `applied/valid`; 84 nodes, 85/85 finite edges, zero overlaps, technical coverage hidden by default; 100%/200%; Terrance 60 and Janet 52 evidence records; zero provider/M12/remote requests; source/original project unchanged |
 | Exact corrected screenshots | Pass | `m15-private-story-map-100.png` SHA-256 `dba9d29b...941477b`; `m15-private-story-map-200.png` SHA-256 `9490ab0a...3266ba`; private artifacts remain outside Git |
@@ -85,7 +87,7 @@ archive remain outside Git and unchanged. Full MsDenvers remains explicitly unva
 - Final exact evidence-head Release: Pass at `1c043bf`
 - Final independent cross-track review: Pass at `a5e507e`
 - Blocking track findings resolved: Yes
-- PR genuinely ready: Pending exact updated-head checks; PR #26 is open non-draft and unmerged
+- PR genuinely ready: Yes; PR #26 is open, non-draft, mergeable, and unmerged
 
 ## Remaining limitations
 
@@ -97,5 +99,6 @@ archive remain outside Git and unchanged. Full MsDenvers remains explicitly unva
 - Repository/client prose cannot select or verify the Phase Coordinator's own runtime model or fast
   mode; track dispatches explicitly used Sol/High, and fast mode was unavailable/unverified.
 
-Complete the native Codex goal only after the final exact-head Release and cross-track review pass,
-the evidence rows are reconciled, and one ready but unmerged M15 PR is open.
+The native Codex goal may complete after this lifecycle-only reconciliation commit passes its
+exact-head PR check; the final Release, cross-track review, evidence rows, and ready unmerged PR
+requirements are satisfied.

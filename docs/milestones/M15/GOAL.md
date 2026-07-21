@@ -1,6 +1,6 @@
 # M15 - MsDay1 Narrative Map correction
 
-Status: Verification
+Status: PR ready
 
 Resumption: On 2026-07-20 the user authorized all future M15 correction and independent-rereview
 cycles and removed any coordinator-imposed worker cap. Tasks may use as many workers as the Codex
@@ -136,7 +136,7 @@ evidence remain deterministic.
 | 15-16 | Before/after payload, source, archive, size, timestamp, and execution-safety evidence | Pass; source and original comparison project unchanged; working copy unchanged during evaluation; zero game/creator execution |
 | 17 | Exact commands, exit codes, counts, elapsed times, build/install/import artifacts | Pass; evidence head `1c043bf`: 1,270 passed / 8 hardware deselected, Ruff, strict mypy (109 files), dependency/JS/whitespace, isolated build/install/import/assets |
 | 18 | Track and final exact-head review reports with finding disposition | Pass; corrected Track A/Track C reviews and final integrated review at `a5e507e` all PASS with no P0-P2 |
-| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | In progress; artifacts complete and [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) open non-draft/unmerged; final PR-head checks pending |
+| 19 | `COMPLETION_REPORT.md`, text export, screenshots, `INFOGRAPHIC.png`, PR URL/state | Pass; artifacts complete and [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) open, non-draft, mergeable, and unmerged; corrected product head `b4f3d9c` passed GitHub Release run `29790137975` |
 | 20 | Correction schema/identity, atomic persistence/reopen, rejection matrix, API/browser application, cache invalidation, regenerated exact/browser evidence | Pass; strict version/occurrence qualification, atomic reopen, fail-closed matrix, normal API/browser application, identity invalidation, fresh evidence |
 
 ## Exclusions

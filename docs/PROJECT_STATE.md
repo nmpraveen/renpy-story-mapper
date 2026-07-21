@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates pending)
+Updated: 2026-07-20 (M15 PR ready; PR #26 open and unmerged)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -12,12 +12,13 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
   `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
   `output/`, and `tmp/` content is preserved.
 - Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: Verification. The user authorized all future M15 correction and independent-rereview
+- Status: PR ready. The user authorized all future M15 correction and independent-rereview
   cycles and removed any coordinator-imposed worker cap. The exact-bound leading-coverage
   correction, M10-only progression fix, normal API application, conservative fallback, identity
   invalidation, and hidden-technical continuity are integrated and independently reviewed. Fresh
-  exact/browser evidence passes; final Release, cross-track review, and PR preparation remain.
-  Provider calls remain separately gated and none occurred.
+  exact/browser evidence, final Release, cross-track review, and exact product-head PR checks pass.
+  PR #26 is open, non-draft, mergeable, and intentionally unmerged. Provider calls remain
+  separately gated and none occurred.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20, including the
   independently rereviewed verification amendment. Shared schemas and failing-first fixtures were
   originally frozen at exact head
@@ -70,6 +71,15 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
   188 public tests with one expected browser-wrapper skip plus Ruff, strict mypy, dependency,
   JavaScript, and diff gates; and confirmed privacy-safe exact/browser/Release evidence and all
   exclusions without opening private source/project/screenshots.
+- Initial PR-head Release run `29787902253` exposed three pre-existing M13 test polling windows on
+  the slower hosted Windows runner; 1,265 tests and every non-pytest gate passed, while three
+  background jobs remained validly `running` beyond fixed 5/20-second waits. Test-only correction
+  `b4f3d9cf93ff34b8f81b05809947f476535bf501` replaced all six equivalent ad hoc loops with one
+  bounded 120-second terminal-state wait. Independent diagnosis found no M15/M13 production-path
+  regression and no P0-P2; 22 focused checks, Ruff, and diff checks passed locally.
+- Exact corrected product head `b4f3d9cf93ff34b8f81b05809947f476535bf501` passed GitHub
+  Release run `29790137975` (`Deterministic checks (Python 3.12)`) in 17m48s. PR #26 remains
+  mergeable, open, non-draft, and unmerged.
 - Private fixture: exact input SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
@@ -79,8 +89,9 @@ Updated: 2026-07-20 (M15 Verification; corrected evidence complete, final gates 
   scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
   from the three-atom minimum narrative run and 35 from unresolved safety.
 - Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) is open,
-  non-draft, and unmerged on `codex/m15-msday1-narrative-map`. Final local Release and independent
-  review are `PASS`; exact updated PR-head checks remain before the `PR ready` lifecycle transition.
+  non-draft, mergeable, and unmerged on `codex/m15-msday1-narrative-map`. Final local Release,
+  independent review, and exact corrected product-head GitHub Release run `29790137975` are
+  `PASS`; the lifecycle is `PR ready`.
 - Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
   a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
 
