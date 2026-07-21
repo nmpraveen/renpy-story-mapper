@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 
 from renpy_story_mapper.canonical_graph_contract import (
     CanonicalEdge,
@@ -19,8 +20,233 @@ from renpy_story_mapper.narrative_map.contracts import (
     NarrativeMapEdge,
     NarrativeMapNode,
     NarrativeNodeKind,
+    stable_m15_id,
 )
 from renpy_story_mapper.narrative_map.presentation import build_narrative_presentation
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    FineNarrativeUnit,
+    SemanticOutline,
+)
+
+
+@dataclass(frozen=True)
+class SemanticTopologyNode:
+    subject_id: str
+    subject_kind: str
+    canonical_node_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "subject_id": self.subject_id,
+            "subject_kind": self.subject_kind,
+            "canonical_node_ids": list(self.canonical_node_ids),
+        }
+
+
+@dataclass(frozen=True)
+class SemanticTopologyEdge:
+    edge_id: str
+    source_subject_id: str
+    target_subject_id: str
+    kind: NarrativeEdgeKind
+    authority_edge_ids: tuple[str, ...]
+    requirement_ids: tuple[str, ...]
+    effect_ids: tuple[str, ...]
+    evidence_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "edge_id": self.edge_id,
+            "source_subject_id": self.source_subject_id,
+            "target_subject_id": self.target_subject_id,
+            "kind": self.kind.value,
+            "authority_edge_ids": list(self.authority_edge_ids),
+            "requirement_ids": list(self.requirement_ids),
+            "effect_ids": list(self.effect_ids),
+            "evidence_ids": list(self.evidence_ids),
+        }
+
+
+@dataclass(frozen=True)
+class SemanticQuotientTopology:
+    canonical_hash: str
+    nodes: tuple[SemanticTopologyNode, ...]
+    edges: tuple[SemanticTopologyEdge, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema": "m15-semantic-quotient-topology-v2",
+            "canonical_hash": self.canonical_hash,
+            "nodes": [item.to_dict() for item in self.nodes],
+            "edges": [item.to_dict() for item in self.edges],
+        }
+
+
+def build_semantic_quotient_topology(
+    canonical: CanonicalGraph,
+    units: Sequence[FineNarrativeUnit],
+    outline: SemanticOutline,
+) -> SemanticQuotientTopology:
+    """Quotient exact M10 edges onto frozen semantic membership without inferred topology."""
+
+    canonical.validate()
+    materialized_units = tuple(units)
+    if not materialized_units:
+        raise ValueError("semantic topology requires fine narrative units")
+    authority = materialized_units[0].authority
+    if (
+        authority != outline.authority
+        or authority.source_generation != canonical.source_generation
+        or authority.canonical_hash != canonical.authority_hash
+    ):
+        raise ValueError("semantic topology inputs do not share exact M10 authority")
+    beat_by_unit = {
+        unit_id: beat.beat_id for beat in outline.beats for unit_id in beat.ordered_unit_ids
+    }
+    if set(beat_by_unit) != {item.unit_id for item in materialized_units}:
+        raise ValueError("semantic topology requires complete frozen unit membership")
+    owner_by_node: dict[str, str] = {}
+    nodes_by_subject: dict[str, list[str]] = defaultdict(list)
+    kind_by_subject: dict[str, str] = {}
+    for unit in materialized_units:
+        subject_id = beat_by_unit[unit.unit_id]
+        kind_by_subject[subject_id] = "beat"
+        for node_id in unit.node_ids:
+            prior = owner_by_node.setdefault(node_id, subject_id)
+            if prior != subject_id:
+                raise ValueError("canonical node ownership crosses semantic beats")
+            if node_id not in nodes_by_subject[subject_id]:
+                nodes_by_subject[subject_id].append(node_id)
+
+    region_by_id = {item.id: item for item in canonical.regions}
+    rejoin_subject_by_node: dict[str, str] = {}
+    for choice in outline.choices:
+        region = region_by_id.get(choice.choice_id)
+        if region is None:
+            raise ValueError("semantic choice lacks exact M10 region authority")
+        _replace_subject_owner(
+            region.split_node_id,
+            choice.choice_id,
+            owner_by_node,
+            nodes_by_subject,
+        )
+        nodes_by_subject[choice.choice_id].append(region.split_node_id)
+        kind_by_subject[choice.choice_id] = "choice"
+        if choice.shared_target_id is not None:
+            if choice.shared_target_id != region.merge_node_id:
+                raise ValueError("semantic rejoin target differs from exact M10 authority")
+            rejoin_subject = stable_m15_id(
+                "semantic_rejoin",
+                {
+                    "canonical_hash": canonical.authority_hash,
+                    "canonical_node_id": choice.shared_target_id,
+                },
+            )
+            rejoin_subject_by_node[choice.shared_target_id] = rejoin_subject
+            _replace_subject_owner(
+                choice.shared_target_id,
+                rejoin_subject,
+                owner_by_node,
+                nodes_by_subject,
+            )
+            if choice.shared_target_id not in nodes_by_subject[rejoin_subject]:
+                nodes_by_subject[rejoin_subject].append(choice.shared_target_id)
+            kind_by_subject[rejoin_subject] = "rejoin"
+
+    for node in canonical.nodes:
+        if node.id in owner_by_node:
+            continue
+        subject_id = stable_m15_id(
+            "semantic_structural_anchor",
+            {"canonical_hash": canonical.authority_hash, "canonical_node_id": node.id},
+        )
+        owner_by_node[node.id] = subject_id
+        nodes_by_subject[subject_id].append(node.id)
+        kind_by_subject[subject_id] = (
+            "terminal"
+            if node.kind is CanonicalNodeKind.TERMINAL
+            else "unresolved"
+            if node.kind is CanonicalNodeKind.UNRESOLVED
+            else "structural_anchor"
+        )
+
+    persistent_split_nodes = {
+        item.split_node_id
+        for item in canonical.regions
+        if item.kind in {"persistent_route", "terminal_split"}
+    }
+    persistent_merge_nodes = {
+        item.merge_node_id
+        for item in canonical.regions
+        if item.kind in {"persistent_route", "terminal_split"} and item.merge_node_id is not None
+    }
+    grouped: dict[tuple[str, str, NarrativeEdgeKind], list[CanonicalEdge]] = defaultdict(list)
+    node_kinds = {item.id: item.kind for item in canonical.nodes}
+    for edge in canonical.edges:
+        source = owner_by_node[edge.source_id]
+        target = owner_by_node[edge.target_id]
+        if source == target:
+            continue
+        kind = _edge_kind(
+            edge,
+            node_kinds,
+            rejoin_subject_by_node,
+            persistent_split_nodes,
+            persistent_merge_nodes,
+        )
+        grouped[(source, target, kind)].append(edge)
+    topology_edges: list[SemanticTopologyEdge] = []
+    for (source, target, kind), edges in grouped.items():
+        authority_edge_ids = tuple(item.id for item in edges)
+        edge_id = stable_m15_id(
+            "semantic_topology_edge",
+            {
+                "canonical_hash": canonical.authority_hash,
+                "source": source,
+                "target": target,
+                "kind": kind.value,
+                "authority_edge_ids": list(authority_edge_ids),
+            },
+        )
+        topology_edges.append(
+            SemanticTopologyEdge(
+                edge_id=edge_id,
+                source_subject_id=source,
+                target_subject_id=target,
+                kind=kind,
+                authority_edge_ids=authority_edge_ids,
+                requirement_ids=ordered_unique(
+                    item
+                    for edge in edges
+                    for item in _attribute_ids(edge.attributes, "gate_ids", "requirement_ids")
+                ),
+                effect_ids=ordered_unique(
+                    item for edge in edges for item in _attribute_ids(edge.attributes, "effect_ids")
+                ),
+                evidence_ids=ordered_unique(item for edge in edges for item in edge.evidence_ids),
+            )
+        )
+    topology_nodes = tuple(
+        SemanticTopologyNode(subject_id, kind_by_subject[subject_id], tuple(node_ids))
+        for subject_id, node_ids in nodes_by_subject.items()
+    )
+    return SemanticQuotientTopology(
+        canonical_hash=canonical.authority_hash,
+        nodes=topology_nodes,
+        edges=tuple(topology_edges),
+    )
+
+
+def _replace_subject_owner(
+    canonical_node_id: str,
+    subject_id: str,
+    owner_by_node: dict[str, str],
+    nodes_by_subject: dict[str, list[str]],
+) -> None:
+    prior = owner_by_node.get(canonical_node_id)
+    if prior is not None and canonical_node_id in nodes_by_subject[prior]:
+        nodes_by_subject[prior].remove(canonical_node_id)
+    owner_by_node[canonical_node_id] = subject_id
 
 
 def build_narrative_map(
@@ -193,9 +419,7 @@ def _hidden_technical_continuity(
     """Collapse authoritative paths through hidden technical nodes for normal presentation."""
 
     technical_ids = {
-        item.node_id
-        for item in nodes
-        if item.kind is NarrativeNodeKind.TECHNICAL_COVERAGE
+        item.node_id for item in nodes if item.kind is NarrativeNodeKind.TECHNICAL_COVERAGE
     }
     if not technical_ids:
         return ()
@@ -223,9 +447,7 @@ def _hidden_technical_continuity(
             ):
                 continue
             authority_ids = ordered_unique(
-                authority_id
-                for item in extended
-                for authority_id in item.authority_edge_ids
+                authority_id for item in extended for authority_id in item.authority_edge_ids
             )
             continuity = NarrativeMapEdge(
                 source_node_id=source_id,
@@ -233,9 +455,7 @@ def _hidden_technical_continuity(
                 kind=NarrativeEdgeKind.CONTINUATION,
                 authority_edge_ids=authority_ids,
                 requirement_ids=ordered_unique(
-                    requirement_id
-                    for item in extended
-                    for requirement_id in item.requirement_ids
+                    requirement_id for item in extended for requirement_id in item.requirement_ids
                 ),
                 effect_ids=ordered_unique(
                     effect_id for item in extended for effect_id in item.effect_ids

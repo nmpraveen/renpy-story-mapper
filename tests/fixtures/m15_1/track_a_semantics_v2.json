@@ -1,0 +1,42 @@
+{
+  "schema": "m15-track-a-generalized-fixture-v2",
+  "description": "Synthetic coarse chronology with a local choice, a nested choice, one shared physical rejoin, and one post-rejoin continuation.",
+  "spine": [
+    ["setup", "coarse", 0],
+    ["conversation", "coarse", 1],
+    ["local_turn", "coarse", 2],
+    ["major_change", "coarse", 3],
+    ["uncertain_turn", "coarse", 4],
+    ["outer_question", "outer_question", 0],
+    ["outer_stop_story", "outer_stop", 0, "choice_outer", "outer_stop"],
+    ["outer_continue_story", "outer_continue", 0, "choice_outer", "outer_continue"],
+    ["inner_question", "inner_question", 0, "choice_outer", "outer_continue"],
+    ["inner_stop_story", "inner_stop", 0, "choice_inner", "inner_stop"],
+    ["inner_continue_story", "inner_continue", 0, "choice_inner", "inner_continue"],
+    ["resume_once", "resume", 0]
+  ],
+  "coarse_decisions": [
+    "same_beat",
+    "new_beat_same_cluster",
+    "new_major_cluster",
+    "uncertain"
+  ],
+  "choices": [
+    {
+      "choice_id": "choice_outer",
+      "ordered_arm_ids": ["outer_stop", "outer_continue"],
+      "ordered_arm_captions": ["Stop here", "Keep going"],
+      "child_choice_ids": ["choice_inner"]
+    },
+    {
+      "choice_id": "choice_inner",
+      "parent_choice_id": "choice_outer",
+      "parent_arm_id": "outer_continue",
+      "ordered_arm_ids": ["inner_stop", "inner_continue"],
+      "ordered_arm_captions": ["Turn back", "Continue inside"],
+      "child_choice_ids": []
+    }
+  ],
+  "shared_target_id": "target_shared",
+  "post_rejoin_continuation_key": "resume_once"
+}

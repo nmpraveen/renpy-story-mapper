@@ -23,6 +23,7 @@ from renpy_story_mapper.narrative_map.adapters import (
     ordered_unique,
 )
 from renpy_story_mapper.narrative_map.contracts import (
+    AuthorityBinding,
     BoundaryCandidate,
     BoundarySignal,
     LeadingTechnicalCoverageCorrection,
@@ -30,6 +31,12 @@ from renpy_story_mapper.narrative_map.contracts import (
     Provenance,
     QualifiedSourceLocator,
     SourceLocator,
+    stable_m15_id,
+)
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    BoundaryWindow,
+    FineNarrativeUnit,
+    NarrativeGapCandidate,
 )
 
 _PROGRESSION_RE = re.compile(r"^(day|chapter|prologue)$", re.IGNORECASE)
@@ -134,7 +141,12 @@ def build_narrative_corridors(
     previous: StoryAtom | None = None
     for atom in ordered_atoms:
         context = contexts[atom.id]
-        structural = atom.id in split_atom_ids or atom.id in rejoin_atom_ids
+        node_kind = canonical_by_node[atom.primary_node_id].kind.value
+        structural = (
+            atom.id in split_atom_ids
+            or atom.id in rejoin_atom_ids
+            or node_kind in {"choice", "condition", "merge"}
+        )
         isolated = structural or atom.kind in {
             AtomKind.CALL,
             AtomKind.LOOP,
@@ -145,6 +157,8 @@ def build_narrative_corridors(
         prior_isolated = previous is not None and (
             previous.id in split_atom_ids
             or previous.id in rejoin_atom_ids
+            or canonical_by_node[previous.primary_node_id].kind.value
+            in {"choice", "condition", "merge"}
             or previous.kind
             in {AtomKind.CALL, AtomKind.LOOP, AtomKind.TERMINAL, AtomKind.UNRESOLVED}
         )
@@ -270,12 +284,389 @@ def build_boundary_candidates(
     return tuple(candidates)
 
 
+def build_fine_narrative_units(
+    canonical: CanonicalGraph,
+    scene_model: SceneModel,
+) -> tuple[FineNarrativeUnit, ...]:
+    """Project one story-facing M11 atom per unit over exact M10 structural locks.
+
+    M11 contributes only the atom classification and text-facing speaker identity.  Ordering,
+    lanes, calls, loops, temporary-arm ownership, split/rejoin locks, nodes, edges, facts, and
+    evidence all come from the bound M10 graph.  Non-story atoms may be attached only as context;
+    they never become an additional story-facing member of a unit.
+    """
+
+    authority = bind_m15_authority(canonical, scene_model)
+    corridors = build_narrative_corridors(canonical, scene_model)
+    atom_by_id = {item.id: item for item in scene_model.atoms}
+    if len(atom_by_id) != len(scene_model.atoms):
+        raise ValueError("M11 atom IDs must be unique")
+    ordered_atoms = _control_order(tuple(scene_model.atoms), tuple(canonical.edges))
+    order_by_atom = {item.id: index for index, item in enumerate(ordered_atoms)}
+    corridor_by_atom: dict[str, int] = {}
+    for corridor_index, corridor in enumerate(corridors):
+        for atom_id in corridor.ordered_atom_ids:
+            prior = corridor_by_atom.setdefault(atom_id, corridor_index)
+            if prior != corridor_index:
+                raise ValueError("one atom cannot belong to multiple fine-unit lock scopes")
+    if set(corridor_by_atom) != set(atom_by_id):
+        raise ValueError("fine-unit preparation lost authoritative atom coverage")
+
+    sequence_by_corridor = _fine_sequence_ids(corridors)
+    story_atoms_by_corridor: dict[int, list[str]] = defaultdict(list)
+    for atom in ordered_atoms:
+        if atom.story_facing:
+            story_atoms_by_corridor[corridor_by_atom[atom.id]].append(atom.id)
+
+    # Technical context is attached exactly once and cannot silently become story membership.
+    context_by_story: dict[str, list[str]] = {
+        atom_id: [] for values in story_atoms_by_corridor.values() for atom_id in values
+    }
+    for corridor_index, corridor in enumerate(corridors):
+        story_ids = story_atoms_by_corridor.get(corridor_index, [])
+        technical_ids = [
+            atom_id for atom_id in corridor.ordered_atom_ids if atom_id not in context_by_story
+        ]
+        if story_ids:
+            for atom_id in technical_ids:
+                owner = min(
+                    story_ids,
+                    key=lambda candidate: (
+                        abs(order_by_atom[candidate] - order_by_atom[atom_id]),
+                        order_by_atom[candidate] < order_by_atom[atom_id],
+                        order_by_atom[candidate],
+                    ),
+                )
+                context_by_story[owner].append(atom_id)
+            continue
+        adjacent_owner = _adjacent_story_owner(
+            corridor_index,
+            corridors,
+            story_atoms_by_corridor,
+            canonical.edges,
+            atom_by_id,
+        )
+        if adjacent_owner is not None:
+            context_by_story[adjacent_owner].extend(technical_ids)
+
+    evidence_by_id = {item.id: item for item in canonical.evidence}
+    edge_by_id = {item.id: item for item in canonical.edges}
+    regions_by_node: dict[str, list[str]] = defaultdict(list)
+    for region in canonical.regions:
+        for node_id in {
+            region.split_node_id,
+            *region.member_node_ids,
+            *((region.merge_node_id,) if region.merge_node_id is not None else ()),
+        }:
+            regions_by_node[node_id].append(region.id)
+
+    sequence_ordinals: dict[str, int] = defaultdict(int)
+    result: list[FineNarrativeUnit] = []
+    for story_atom in ordered_atoms:
+        if not story_atom.story_facing:
+            continue
+        corridor_index = corridor_by_atom[story_atom.id]
+        corridor = corridors[corridor_index]
+        sequence_id = sequence_by_corridor[corridor_index]
+        attached_ids = sorted(
+            context_by_story[story_atom.id],
+            key=lambda atom_id: (order_by_atom[atom_id], atom_id),
+        )
+        member_ids = tuple(
+            sorted(
+                (story_atom.id, *attached_ids),
+                key=lambda atom_id: (order_by_atom[atom_id], atom_id),
+            )
+        )
+        member_atoms = tuple(atom_by_id[item] for item in member_ids)
+        member_nodes = ordered_unique(item.primary_node_id for item in member_atoms)
+        member_node_set = set(member_nodes)
+        incident_edge_ids = tuple(
+            edge.id
+            for edge in canonical.edges
+            if edge.source_id in member_node_set or edge.target_id in member_node_set
+        )
+        entry_node_id, exit_node_id = _entry_exit_nodes(
+            member_nodes,
+            incident_edge_ids,
+            edge_by_id,
+            {item.primary_node_id: item.id for item in scene_model.atoms},
+            list(member_ids),
+        )
+        locators = ordered_unique_locators(
+            locator for atom in member_atoms for locator in atom_locators(atom, evidence_by_id)
+        )
+        story_locators = atom_locators(story_atom, evidence_by_id)
+        if not story_locators:
+            raise ValueError("a fine narrative unit requires an exact story locator")
+        fact_ids = ordered_unique(
+            fact_id for atom in member_atoms for fact_id in atom.provenance.fact_ids
+        )
+        evidence_ids = ordered_unique(
+            evidence_id for atom in member_atoms for evidence_id in atom.provenance.evidence_ids
+        )
+        context_ids = ordered_unique(
+            (
+                *((corridor.chapter_id,) if corridor.chapter_id is not None else ()),
+                *(
+                    (corridor.call_occurrence_id,)
+                    if corridor.call_occurrence_id is not None
+                    else ()
+                ),
+                *((corridor.loop_id,) if corridor.loop_id is not None else ()),
+                *((corridor.temporary_container_id,) if corridor.temporary_container_id else ()),
+                *((corridor.temporary_arm_id,) if corridor.temporary_arm_id else ()),
+                *(region_id for node_id in member_nodes for region_id in regions_by_node[node_id]),
+            )
+        )
+        ordinal = sequence_ordinals[sequence_id]
+        sequence_ordinals[sequence_id] += 1
+        result.append(
+            FineNarrativeUnit(
+                authority=authority,
+                sequence_id=sequence_id,
+                ordinal=ordinal,
+                story_atom_id=story_atom.id,
+                story_locator=story_locators[0],
+                technical_context_atom_ids=tuple(attached_ids),
+                node_ids=member_nodes,
+                evidence_ids=evidence_ids,
+                speaker_ids=((story_atom.speaker,) if story_atom.speaker else ()),
+                context_ids=context_ids,
+                lane_id=corridor.lane_id,
+                call_occurrence_id=corridor.call_occurrence_id,
+                loop_id=corridor.loop_id,
+                parent_choice_id=corridor.temporary_container_id,
+                parent_arm_id=corridor.temporary_arm_id,
+                entry_node_id=entry_node_id,
+                exit_node_id=exit_node_id,
+                incident_edge_ids=incident_edge_ids,
+                provenance=Provenance(
+                    atom_ids=member_ids,
+                    node_ids=member_nodes,
+                    edge_ids=incident_edge_ids,
+                    fact_ids=fact_ids,
+                    evidence_ids=evidence_ids,
+                    locators=locators,
+                ),
+            )
+        )
+    _validate_fine_units(
+        tuple(result),
+        tuple(item.id for item in ordered_atoms if item.story_facing),
+        authority,
+    )
+    return tuple(result)
+
+
+def build_all_eligible_gap_candidates(
+    units: Sequence[FineNarrativeUnit],
+) -> tuple[NarrativeGapCandidate, ...]:
+    """Emit exactly one stable candidate for every adjacent pair in each unlocked sequence."""
+
+    materialized = tuple(units)
+    if not materialized:
+        return ()
+    authority = materialized[0].authority
+    unit_ids = [item.unit_id for item in materialized]
+    if len(unit_ids) != len(set(unit_ids)):
+        raise ValueError("fine-unit input contains duplicate identities")
+    if any(item.authority != authority for item in materialized):
+        raise ValueError("fine units from different authority bindings cannot share candidates")
+    streams: dict[str, list[FineNarrativeUnit]] = defaultdict(list)
+    for unit in materialized:
+        streams[unit.sequence_id].append(unit)
+    candidates: list[NarrativeGapCandidate] = []
+    for sequence_id, stream in streams.items():
+        ordinals = [item.ordinal for item in stream]
+        if ordinals != list(range(len(stream))):
+            raise ValueError("fine-unit ordinals must be contiguous in encounter order")
+        for ordinal, (left, right) in enumerate(pairwise(stream)):
+            if _fine_context(left) != _fine_context(right):
+                raise ValueError("one fine-unit sequence crosses an authoritative hard lock")
+            candidates.append(
+                NarrativeGapCandidate(
+                    authority=authority,
+                    sequence_id=sequence_id,
+                    ordinal=ordinal,
+                    left_unit_id=left.unit_id,
+                    right_unit_id=right.unit_id,
+                    lane_id=right.lane_id,
+                    call_occurrence_id=right.call_occurrence_id,
+                    loop_id=right.loop_id,
+                    parent_choice_id=right.parent_choice_id,
+                    parent_arm_id=right.parent_arm_id,
+                    evidence_ids=ordered_unique((*left.evidence_ids, *right.evidence_ids)),
+                )
+            )
+    return tuple(candidates)
+
+
+def build_boundary_windows(
+    units: Sequence[FineNarrativeUnit],
+    candidates: Sequence[NarrativeGapCandidate],
+    *,
+    maximum_owned_candidates: int = 8,
+    context_halo_units: int = 2,
+) -> tuple[BoundaryWindow, ...]:
+    """Batch exhaustive candidates with deterministic, bounded same-sequence context halos."""
+
+    if maximum_owned_candidates <= 0 or context_halo_units < 0:
+        raise ValueError("boundary-window bounds must be positive and non-negative")
+    materialized_units = tuple(units)
+    expected = build_all_eligible_gap_candidates(materialized_units)
+    if tuple(candidates) != expected:
+        raise ValueError("boundary windows require the exact exhaustive candidate sequence")
+    if not expected:
+        return ()
+    unit_by_id = {item.unit_id: item for item in materialized_units}
+    sequence_units: dict[str, list[str]] = defaultdict(list)
+    for unit in materialized_units:
+        sequence_units[unit.sequence_id].append(unit.unit_id)
+    candidates_by_sequence: dict[str, list[NarrativeGapCandidate]] = defaultdict(list)
+    for candidate in expected:
+        candidates_by_sequence[candidate.sequence_id].append(candidate)
+    windows: list[BoundaryWindow] = []
+    maximum_context_units = maximum_owned_candidates + 1 + context_halo_units * 2
+    for sequence_id, sequence_candidates in candidates_by_sequence.items():
+        sequence = sequence_units[sequence_id]
+        for start in range(0, len(sequence_candidates), maximum_owned_candidates):
+            owned = sequence_candidates[start : start + maximum_owned_candidates]
+            left_index = sequence.index(owned[0].left_unit_id)
+            right_index = sequence.index(owned[-1].right_unit_id)
+            halo_start = max(0, left_index - context_halo_units)
+            halo_end = min(len(sequence), right_index + context_halo_units + 1)
+            context_ids = sequence[halo_start:halo_end]
+            windows.append(
+                BoundaryWindow(
+                    authority=unit_by_id[owned[0].left_unit_id].authority,
+                    ordinal=len(windows),
+                    owned_candidate_ids=tuple(item.candidate_id for item in owned),
+                    context_unit_ids=tuple(context_ids),
+                    maximum_context_units=maximum_context_units,
+                )
+            )
+    return tuple(windows)
+
+
 def ordered_unique_locators(values: Iterable[SourceLocator]) -> tuple[SourceLocator, ...]:
     result: list[SourceLocator] = []
     for value in values:
         if value not in result:
             result.append(value)
     return tuple(result)
+
+
+def _fine_sequence_ids(corridors: Sequence[NarrativeCorridor]) -> dict[int, str]:
+    result: dict[int, str] = {}
+    first_in_sequence: NarrativeCorridor | None = None
+    prior: NarrativeCorridor | None = None
+    for index, corridor in enumerate(corridors):
+        starts_sequence = (
+            prior is None
+            or prior.hard_boundary_after
+            or corridor.hard_boundary_before
+            or _corridor_context(prior) != _corridor_context(corridor)
+        )
+        if starts_sequence:
+            first_in_sequence = corridor
+        if first_in_sequence is None:  # pragma: no cover - guarded by the first item
+            raise AssertionError("fine-unit sequence lacks its first corridor")
+        result[index] = stable_m15_id(
+            "fine_sequence",
+            {
+                "authority": corridor.authority.to_dict(),
+                "context": [
+                    corridor.chapter_id,
+                    corridor.lane_id,
+                    corridor.call_occurrence_id,
+                    corridor.loop_id,
+                    corridor.temporary_container_id,
+                    corridor.temporary_arm_id,
+                ],
+                "first_corridor_id": first_in_sequence.corridor_id,
+            },
+        )
+        prior = corridor
+    return result
+
+
+def _adjacent_story_owner(
+    corridor_index: int,
+    corridors: Sequence[NarrativeCorridor],
+    story_atoms_by_corridor: dict[int, list[str]],
+    edges: Sequence[CanonicalEdge],
+    atom_by_id: dict[str, StoryAtom],
+) -> str | None:
+    """Attach a technical-only corridor only through an unlocked, direct M10 adjacency."""
+
+    corridor = corridors[corridor_index]
+    member_nodes = {atom_by_id[atom_id].primary_node_id for atom_id in corridor.ordered_atom_ids}
+    candidates: list[tuple[int, int, str]] = []
+    for neighbor_index in (corridor_index - 1, corridor_index + 1):
+        if not 0 <= neighbor_index < len(corridors):
+            continue
+        neighbor = corridors[neighbor_index]
+        if _corridor_context(neighbor) != _corridor_context(corridor):
+            continue
+        if neighbor_index < corridor_index:
+            if neighbor.hard_boundary_after or corridor.hard_boundary_before:
+                continue
+        elif corridor.hard_boundary_after or neighbor.hard_boundary_before:
+            continue
+        story_ids = story_atoms_by_corridor.get(neighbor_index, [])
+        for story_id in story_ids:
+            story_node = atom_by_id[story_id].primary_node_id
+            directly_incident = any(
+                (edge.source_id in member_nodes and edge.target_id == story_node)
+                or (edge.target_id in member_nodes and edge.source_id == story_node)
+                for edge in edges
+            )
+            if directly_incident:
+                candidates.append((abs(neighbor_index - corridor_index), neighbor_index, story_id))
+    if not candidates:
+        return None
+    return min(candidates)[2]
+
+
+def _fine_context(unit: FineNarrativeUnit) -> tuple[object, ...]:
+    return (
+        unit.lane_id,
+        next((item for item in unit.context_ids if item.startswith("progression:")), None),
+        unit.call_occurrence_id,
+        unit.loop_id,
+        unit.parent_choice_id,
+        unit.parent_arm_id,
+    )
+
+
+def _validate_fine_units(
+    units: tuple[FineNarrativeUnit, ...],
+    expected_story_atom_ids: tuple[str, ...],
+    authority: AuthorityBinding,
+) -> None:
+    if not expected_story_atom_ids:
+        if units:
+            raise ValueError("technical-only authority cannot produce story-facing units")
+        return
+    story_ids = [item.story_atom_id for item in units]
+    if story_ids != list(expected_story_atom_ids) or len(story_ids) != len(set(story_ids)):
+        raise ValueError("fine narrative units must cover every story atom exactly once in order")
+    if any(item.authority != authority for item in units):
+        raise ValueError("fine narrative units changed authority binding")
+    context_ids = [atom_id for item in units for atom_id in item.technical_context_atom_ids]
+    if len(context_ids) != len(set(context_ids)):
+        raise ValueError("technical context cannot belong to multiple fine narrative units")
+    for unit in units:
+        owned_atom_ids = (unit.story_atom_id, *unit.technical_context_atom_ids)
+        if len(unit.provenance.atom_ids) != len(set(unit.provenance.atom_ids)) or set(
+            unit.provenance.atom_ids
+        ) != set(owned_atom_ids):
+            raise ValueError("fine-unit provenance and atom ownership disagree")
+        if set(unit.node_ids) != set(unit.provenance.node_ids):
+            raise ValueError("fine-unit node provenance is not exact")
+        if set(unit.evidence_ids) != set(unit.provenance.evidence_ids):
+            raise ValueError("fine-unit evidence provenance is not exact")
 
 
 def _temporary_ownership(

@@ -4,7 +4,14 @@ The package is intentionally independent from the legacy M07/M08 AI page and M11
 membership.  Track implementations build on the versioned records exported here.
 """
 
-from renpy_story_mapper.narrative_map.assembly import assemble_narrative_events
+from renpy_story_mapper.narrative_map.assembly import (
+    assemble_narrative_events,
+    assemble_semantic_outline,
+    assemble_semantic_outline_from_authority,
+    build_choice_compositions,
+    semantic_membership_hash,
+    semantic_outline_to_dict,
+)
 from renpy_story_mapper.narrative_map.contracts import (
     M15_BOUNDARY_SCHEMA,
     M15_CORRIDOR_SCHEMA,
@@ -34,13 +41,22 @@ from renpy_story_mapper.narrative_map.contracts import (
     stable_m15_id,
 )
 from renpy_story_mapper.narrative_map.corridors import (
+    build_all_eligible_gap_candidates,
     build_boundary_candidates,
+    build_boundary_windows,
+    build_fine_narrative_units,
     build_narrative_corridors,
     create_leading_technical_coverage_correction,
     resolve_leading_technical_coverage_correction,
 )
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
-from renpy_story_mapper.narrative_map.projection import build_narrative_map
+from renpy_story_mapper.narrative_map.projection import (
+    SemanticQuotientTopology,
+    SemanticTopologyEdge,
+    SemanticTopologyNode,
+    build_narrative_map,
+    build_semantic_quotient_topology,
+)
 from renpy_story_mapper.narrative_map.provider import NarrativeConsentManifest
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_BOUNDARY_WINDOW_SCHEMA,
@@ -124,15 +140,27 @@ __all__ = [
     "SemanticBuildState",
     "SemanticClaimClass",
     "SemanticOutline",
+    "SemanticQuotientTopology",
     "SemanticSummary",
     "SemanticSummaryClaim",
+    "SemanticTopologyEdge",
+    "SemanticTopologyNode",
     "SourceLocator",
     "assemble_narrative_events",
+    "assemble_semantic_outline",
+    "assemble_semantic_outline_from_authority",
+    "build_all_eligible_gap_candidates",
     "build_boundary_candidates",
+    "build_boundary_windows",
+    "build_choice_compositions",
+    "build_fine_narrative_units",
     "build_narrative_corridors",
     "build_narrative_map",
+    "build_semantic_quotient_topology",
     "create_leading_technical_coverage_correction",
     "resolve_leading_technical_coverage_correction",
+    "semantic_membership_hash",
+    "semantic_outline_to_dict",
     "stable_m15_id",
     "validate_boundary_response",
     "validate_event_summary_response",

@@ -3,19 +3,686 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import cast, overload
 
+from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalEdge,
+    CanonicalGraph,
+    CanonicalNode,
+    CanonicalRegion,
+)
+from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.narrative_map.adapters import ordered_unique
 from renpy_story_mapper.narrative_map.contracts import (
     BoundaryDecision,
     BoundaryDecisionKind,
     CoverageState,
+    EvidenceNavigation,
     NarrativeCorridor,
     NarrativeEvent,
     Provenance,
     SourceLocator,
+    canonical_hash,
+    stable_m15_id,
 )
-from renpy_story_mapper.narrative_map.corridors import build_boundary_candidates
+from renpy_story_mapper.narrative_map.corridors import (
+    build_all_eligible_gap_candidates,
+    build_boundary_candidates,
+    build_fine_narrative_units,
+)
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    ChoiceComposition,
+    FineNarrativeUnit,
+    LiveSemanticProvenance,
+    MajorCluster,
+    NarrativeGapCandidate,
+    SemanticBeat,
+    SemanticBoundaryDecision,
+    SemanticBoundaryKind,
+    SemanticOutline,
+)
+
+
+@overload
+def assemble_semantic_outline(
+    units: Sequence[FineNarrativeUnit],
+    candidates: Sequence[NarrativeGapCandidate],
+    decisions: Sequence[SemanticBoundaryDecision],
+    *,
+    choices: Sequence[ChoiceComposition] = (),
+    boundary_provenance: Sequence[LiveSemanticProvenance] = (),
+) -> SemanticOutline: ...
+
+
+@overload
+def assemble_semantic_outline(units: Mapping[str, object]) -> dict[str, object]: ...
+
+
+def assemble_semantic_outline(
+    units: Sequence[FineNarrativeUnit] | Mapping[str, object],
+    candidates: Sequence[NarrativeGapCandidate] = (),
+    decisions: Sequence[SemanticBoundaryDecision] = (),
+    *,
+    choices: Sequence[ChoiceComposition] = (),
+    boundary_provenance: Sequence[LiveSemanticProvenance] = (),
+) -> SemanticOutline | dict[str, object]:
+    """Assemble complete beat/cluster membership from exhaustive four-state decisions.
+
+    The mapping form is a narrow adapter for the frozen generalized JSON example.  Product code
+    uses typed records, whose membership IDs are always derived from exact ordered unit identity.
+    """
+
+    if isinstance(units, Mapping):
+        if candidates or decisions or choices or boundary_provenance:
+            raise ValueError("a serialized outline fixture cannot be mixed with typed inputs")
+        return _assemble_serialized_outline_fixture(units)
+    materialized_units = tuple(units)
+    materialized_candidates = tuple(candidates)
+    materialized_decisions = tuple(decisions)
+    materialized_choices = tuple(choices)
+    materialized_provenance = tuple(boundary_provenance)
+    if not materialized_units:
+        raise ValueError("semantic outline assembly requires fine narrative units")
+    authority = materialized_units[0].authority
+    if any(item.authority != authority for item in materialized_units):
+        raise ValueError("semantic outline units have mixed authority")
+    expected_candidates = build_all_eligible_gap_candidates(materialized_units)
+    if materialized_candidates != expected_candidates:
+        raise ValueError("semantic outline requires the exact exhaustive adjacent-gap sequence")
+    decision_by_candidate: dict[str, SemanticBoundaryDecision] = {}
+    expected_ids = {item.candidate_id for item in expected_candidates}
+    for decision in materialized_decisions:
+        if decision.candidate_id not in expected_ids:
+            raise ValueError("semantic boundary decision is foreign or stale")
+        if decision.candidate_id in decision_by_candidate:
+            raise ValueError("semantic boundary candidate has duplicate decisions")
+        decision_by_candidate[decision.candidate_id] = decision
+    if set(decision_by_candidate) != expected_ids:
+        raise ValueError("semantic boundary decisions are missing or incomplete")
+    _validate_boundary_provenance(expected_candidates, materialized_provenance)
+    _validate_choice_compositions(materialized_choices, materialized_units)
+
+    candidate_by_pair = {
+        (item.left_unit_id, item.right_unit_id): item for item in expected_candidates
+    }
+    beat_groups: list[tuple[FineNarrativeUnit, ...]] = []
+    beat_start_kind: list[SemanticBoundaryKind | None] = []
+    streams: dict[str, list[FineNarrativeUnit]] = defaultdict(list)
+    for unit in materialized_units:
+        streams[unit.sequence_id].append(unit)
+    for stream in streams.values():
+        group: list[FineNarrativeUnit] = []
+        start_kind: SemanticBoundaryKind | None = None
+        for unit in stream:
+            if not group:
+                group.append(unit)
+                continue
+            candidate = candidate_by_pair.get((group[-1].unit_id, unit.unit_id))
+            if candidate is None:
+                raise ValueError("semantic beat membership crosses a missing adjacency")
+            decision = decision_by_candidate[candidate.candidate_id]
+            if decision.decision is SemanticBoundaryKind.SAME_BEAT:
+                group.append(unit)
+                continue
+            beat_groups.append(tuple(group))
+            beat_start_kind.append(start_kind)
+            group = [unit]
+            start_kind = decision.decision
+        if group:
+            beat_groups.append(tuple(group))
+            beat_start_kind.append(start_kind)
+
+    choice_by_id = {item.choice_id: item for item in materialized_choices}
+    continuation_clusters: dict[str, set[str]] = defaultdict(set)
+    for item in materialized_choices:
+        if item.post_rejoin_continuation_id is not None:
+            continuation_clusters[item.post_rejoin_continuation_id].add(item.parent_cluster_id)
+    if any(len(cluster_ids) != 1 for cluster_ids in continuation_clusters.values()):
+        raise ValueError("a shared continuation cannot belong to multiple parent clusters")
+    continuation_cluster = {
+        unit_id: next(iter(cluster_ids))
+        for unit_id, cluster_ids in continuation_clusters.items()
+    }
+    beats: list[SemanticBeat] = []
+    cluster_for_beat: list[str] = []
+    current_top_cluster: str | None = None
+    current_top_context: tuple[str, str | None] | None = None
+    for beat_group, start_kind in zip(beat_groups, beat_start_kind, strict=True):
+        first = beat_group[0]
+        membership = tuple(item.unit_id for item in beat_group)
+        if first.parent_choice_id is not None and materialized_choices:
+            owner = choice_by_id.get(first.parent_choice_id)
+            if owner is None:
+                raise ValueError("an arm-local beat lacks its deterministic choice composition")
+            cluster_id = owner.parent_cluster_id
+        elif any(item.unit_id in continuation_cluster for item in beat_group):
+            continuation_cluster_ids = {
+                continuation_cluster[item.unit_id]
+                for item in beat_group
+                if item.unit_id in continuation_cluster
+            }
+            if len(continuation_cluster_ids) != 1:
+                raise ValueError("one beat cannot continue multiple parent clusters")
+            cluster_id = continuation_cluster_ids.pop()
+        else:
+            starts_cluster = (
+                current_top_cluster is None
+                or current_top_context != _major_context(first)
+                or start_kind is SemanticBoundaryKind.NEW_MAJOR_CLUSTER
+            )
+            if starts_cluster:
+                cluster_id = stable_m15_id(
+                    "semantic_cluster",
+                    {
+                        "authority": authority.to_dict(),
+                        "first_unit_id": first.unit_id,
+                    },
+                )
+                current_top_cluster = cluster_id
+            else:
+                if current_top_cluster is None:  # pragma: no cover - guarded above
+                    raise AssertionError("semantic cluster state is unavailable")
+                cluster_id = current_top_cluster
+            current_top_context = _major_context(first)
+        beat_id = stable_m15_id(
+            "semantic_beat",
+            {
+                "authority": authority.to_dict(),
+                "parent_cluster_id": cluster_id,
+                "ordered_unit_ids": list(membership),
+            },
+        )
+        beats.append(
+            SemanticBeat(
+                beat_id=beat_id,
+                parent_cluster_id=cluster_id,
+                ordered_unit_ids=membership,
+                parent_choice_id=first.parent_choice_id,
+                parent_arm_id=first.parent_arm_id,
+                navigation=EvidenceNavigation("semantic_beat", beat_id),
+            )
+        )
+        cluster_for_beat.append(cluster_id)
+
+    cluster_ids = ordered_unique(cluster_for_beat)
+    clusters = tuple(
+        MajorCluster(
+            cluster_id=cluster_id,
+            ordinal=ordinal,
+            ordered_beat_ids=tuple(
+                beat.beat_id
+                for beat, owner_id in zip(beats, cluster_for_beat, strict=True)
+                if owner_id == cluster_id
+            ),
+            ordered_choice_ids=tuple(
+                item.choice_id
+                for item in materialized_choices
+                if item.parent_cluster_id == cluster_id
+            ),
+            navigation=EvidenceNavigation("major_cluster", cluster_id),
+        )
+        for ordinal, cluster_id in enumerate(cluster_ids)
+    )
+    outline = SemanticOutline(
+        authority=authority,
+        ordered_unit_ids=tuple(item.unit_id for item in materialized_units),
+        ordered_candidate_ids=tuple(item.candidate_id for item in expected_candidates),
+        beats=tuple(beats),
+        clusters=clusters,
+        choices=materialized_choices,
+        boundary_provenance=materialized_provenance,
+    )
+    _validate_outline_membership(outline)
+    return outline
+
+
+def assemble_semantic_outline_from_authority(
+    canonical: CanonicalGraph,
+    scene_model: SceneModel,
+    decisions: Sequence[SemanticBoundaryDecision],
+    *,
+    boundary_provenance: Sequence[LiveSemanticProvenance] = (),
+) -> tuple[tuple[FineNarrativeUnit, ...], tuple[NarrativeGapCandidate, ...], SemanticOutline]:
+    """Build units, exhaustive candidates, choices, and final hierarchy from one M10/M11 pair."""
+
+    units = build_fine_narrative_units(canonical, scene_model)
+    candidates = build_all_eligible_gap_candidates(units)
+    provisional = assemble_semantic_outline(
+        units,
+        candidates,
+        decisions,
+        boundary_provenance=boundary_provenance,
+    )
+    choices = build_choice_compositions(canonical, units, provisional)
+    if not choices:
+        return units, candidates, provisional
+    outline = assemble_semantic_outline(
+        units,
+        candidates,
+        decisions,
+        choices=choices,
+        boundary_provenance=boundary_provenance,
+    )
+    return units, candidates, outline
+
+
+def semantic_outline_to_dict(outline: SemanticOutline) -> dict[str, object]:
+    """Serialize deterministic membership and exact live provenance without summary language."""
+
+    return {
+        "schema": "m15-semantic-outline-v2",
+        "authority": outline.authority.to_dict(),
+        "ordered_unit_ids": list(outline.ordered_unit_ids),
+        "ordered_candidate_ids": list(outline.ordered_candidate_ids),
+        "membership_hash": semantic_membership_hash(outline),
+        "beats": [
+            {
+                "beat_id": item.beat_id,
+                "parent_cluster_id": item.parent_cluster_id,
+                "ordered_unit_ids": list(item.ordered_unit_ids),
+                "parent_choice_id": item.parent_choice_id,
+                "parent_arm_id": item.parent_arm_id,
+                "navigation": item.navigation.to_dict(),
+            }
+            for item in outline.beats
+        ],
+        "clusters": [
+            {
+                "cluster_id": item.cluster_id,
+                "ordinal": item.ordinal,
+                "ordered_beat_ids": list(item.ordered_beat_ids),
+                "ordered_choice_ids": list(item.ordered_choice_ids),
+                "navigation": item.navigation.to_dict(),
+            }
+            for item in outline.clusters
+        ],
+        "choices": [item.to_dict() for item in outline.choices],
+        "boundary_provenance": [
+            {
+                "candidate_id": candidate_id,
+                "stage": item.stage,
+                "job_id": item.job_id,
+                "input_hash": item.input_hash,
+                "manifest_id": item.manifest_id,
+                "provider_identity_hash": item.provider_identity_hash,
+                "cache_identity": item.cache_identity,
+            }
+            for candidate_id, item in zip(
+                outline.ordered_candidate_ids,
+                outline.boundary_provenance,
+                strict=True,
+            )
+        ],
+    }
+
+
+def semantic_membership_hash(outline: SemanticOutline) -> str:
+    """Hash only frozen deterministic membership/topology identity, not live job envelopes."""
+
+    return canonical_hash(
+        {
+            "schema": "m15-semantic-membership-v2",
+            "authority": outline.authority.to_dict(),
+            "ordered_unit_ids": list(outline.ordered_unit_ids),
+            "ordered_candidate_ids": list(outline.ordered_candidate_ids),
+            "beats": [
+                {
+                    "beat_id": item.beat_id,
+                    "parent_cluster_id": item.parent_cluster_id,
+                    "ordered_unit_ids": list(item.ordered_unit_ids),
+                    "parent_choice_id": item.parent_choice_id,
+                    "parent_arm_id": item.parent_arm_id,
+                }
+                for item in outline.beats
+            ],
+            "clusters": [
+                {
+                    "cluster_id": item.cluster_id,
+                    "ordinal": item.ordinal,
+                    "ordered_beat_ids": list(item.ordered_beat_ids),
+                    "ordered_choice_ids": list(item.ordered_choice_ids),
+                }
+                for item in outline.clusters
+            ],
+            "choices": [item.to_dict() for item in outline.choices],
+        }
+    )
+
+
+def build_choice_compositions(
+    canonical: CanonicalGraph,
+    units: Sequence[FineNarrativeUnit],
+    outline: SemanticOutline,
+) -> tuple[ChoiceComposition, ...]:
+    """Compose temporary M10 choice regions, including nesting and exactly-once continuation."""
+
+    canonical.validate()
+    materialized_units = tuple(units)
+    if not materialized_units or outline.authority != materialized_units[0].authority:
+        raise ValueError("choice composition authority does not match semantic membership")
+    if (
+        outline.authority.source_generation != canonical.source_generation
+        or outline.authority.canonical_hash != canonical.authority_hash
+    ):
+        raise ValueError("choice composition is bound to a different exact M10 graph")
+    unit_by_node: dict[str, FineNarrativeUnit] = {}
+    for unit in materialized_units:
+        for node_id in unit.node_ids:
+            prior = unit_by_node.setdefault(node_id, unit)
+            if prior.unit_id != unit.unit_id:
+                raise ValueError("one canonical node cannot belong to multiple fine units")
+    cluster_by_unit = {
+        unit_id: beat.parent_cluster_id
+        for beat in outline.beats
+        for unit_id in beat.ordered_unit_ids
+    }
+    nodes = {item.id: item for item in canonical.nodes}
+    edges = {item.id: item for item in canonical.edges}
+    temporary_regions = tuple(
+        item
+        for item in canonical.regions
+        if item.kind in {"local_detour", "optional_detour", "reconvergent_route_segment"}
+        and (
+            nodes[item.split_node_id].kind.value == "choice"
+            or nodes[item.split_node_id].attributes.get("source_kind") == "menu"
+        )
+    )
+    parent_by_region: dict[str, str | None] = {}
+    arm_by_region: dict[str, str | None] = {}
+    for region in temporary_regions:
+        containers: list[tuple[int, str, str]] = []
+        for parent in temporary_regions:
+            if parent.id == region.id:
+                continue
+            for arm in _canonical_arms(parent):
+                members = {
+                    _required_text(arm, "entry_node_id"),
+                    *_string_items(arm.get("member_node_ids")),
+                }
+                if region.split_node_id in members:
+                    containers.append(
+                        (len(parent.member_node_ids), parent.id, _required_text(arm, "id"))
+                    )
+        if containers:
+            _size, parent_id, arm_id = min(containers)
+            parent_by_region[region.id] = parent_id
+            arm_by_region[region.id] = arm_id
+        else:
+            parent_by_region[region.id] = None
+            arm_by_region[region.id] = None
+
+    depths: dict[str, int] = {}
+    visiting: set[str] = set()
+
+    def depth(region_id: str) -> int:
+        if region_id in depths:
+            return depths[region_id]
+        if region_id in visiting:
+            raise ValueError("temporary choice containment contains a cycle")
+        visiting.add(region_id)
+        parent_id = parent_by_region[region_id]
+        result = 0 if parent_id is None else depth(parent_id) + 1
+        visiting.remove(region_id)
+        depths[region_id] = result
+        return result
+
+    compositions: dict[str, ChoiceComposition] = {}
+    for region in sorted(temporary_regions, key=lambda item: (depth(item.id), item.id)):
+        if region.merge_node_id is None:
+            raise ValueError("temporary choice composition requires a proven M10 rejoin")
+        split_unit = unit_by_node.get(region.split_node_id)
+        if split_unit is None:
+            raise ValueError("temporary choice split lacks a story-facing fine unit")
+        parent_region_id = parent_by_region[region.id]
+        if parent_region_id is None:
+            parent_cluster_id = cluster_by_unit.get(split_unit.unit_id)
+            if parent_cluster_id is None:
+                raise ValueError("temporary choice split lacks major-cluster membership")
+            parent_choice_id = None
+            parent_arm_id = None
+        else:
+            parent_choice = compositions.get(parent_region_id)
+            if parent_choice is None:
+                raise ValueError("nested choice parent was not composed first")
+            parent_cluster_id = parent_choice.parent_cluster_id
+            parent_choice_id = parent_region_id
+            parent_arm_id = arm_by_region[region.id]
+        arms = _canonical_arms(region)
+        ordinals = [_required_int(item, "ordinal") for item in arms]
+        if ordinals != list(range(len(arms))):
+            raise ValueError("temporary choice arm ordinals must be unique and contiguous")
+        arm_ids = tuple(_required_text(item, "id") for item in arms)
+        captions = tuple(
+            _canonical_caption(nodes[_required_text(item, "entry_node_id")]) for item in arms
+        )
+        relationships = tuple(
+            stable_m15_id(
+                "rejoin_relationship",
+                {
+                    "authority": outline.authority.to_dict(),
+                    "choice_id": region.id,
+                    "arm_id": arm_id,
+                    "entry_edge_id": _required_text(arm, "edge_id"),
+                    "merge_node_id": region.merge_node_id,
+                },
+            )
+            for arm_id, arm in zip(arm_ids, arms, strict=True)
+        )
+        for arm in arms:
+            if _required_text(arm, "edge_id") not in edges:
+                raise ValueError("temporary choice arm lacks its exact M10 entry edge")
+        continuation_unit_id = _post_rejoin_continuation(
+            region.merge_node_id,
+            tuple(canonical.edges),
+            unit_by_node,
+        )
+        child_ids = tuple(
+            item.id for item in temporary_regions if parent_by_region[item.id] == region.id
+        )
+        compositions[region.id] = ChoiceComposition(
+            choice_id=region.id,
+            parent_cluster_id=parent_cluster_id,
+            parent_choice_id=parent_choice_id,
+            parent_arm_id=parent_arm_id,
+            ordered_arm_ids=arm_ids,
+            ordered_arm_captions=captions,
+            child_choice_ids=child_ids,
+            rejoin_relationship_ids=relationships,
+            shared_target_id=region.merge_node_id,
+            post_rejoin_continuation_id=continuation_unit_id,
+        )
+    result = tuple(compositions[item.id] for item in temporary_regions)
+    _validate_choice_compositions(result, materialized_units)
+    return result
+
+
+def _validate_boundary_provenance(
+    candidates: Sequence[NarrativeGapCandidate],
+    provenance: Sequence[LiveSemanticProvenance],
+) -> None:
+    if not provenance:
+        return
+    if len(provenance) != len(candidates):
+        raise ValueError("live boundary provenance must cover every eligible gap exactly once")
+    for item in provenance:
+        if item.stage != "boundaries":
+            raise ValueError("live boundary provenance has the wrong stage")
+
+
+def _validate_choice_compositions(
+    choices: Sequence[ChoiceComposition],
+    units: Sequence[FineNarrativeUnit],
+) -> None:
+    choice_by_id = {item.choice_id: item for item in choices}
+    if len(choice_by_id) != len(choices):
+        raise ValueError("semantic outline contains duplicate choice compositions")
+    unit_ids = {item.unit_id for item in units}
+    for item in choices:
+        if item.parent_choice_id is not None:
+            parent = choice_by_id.get(item.parent_choice_id)
+            if parent is None or item.choice_id not in parent.child_choice_ids:
+                raise ValueError("nested choice ownership is incomplete or inconsistent")
+            if item.parent_arm_id not in parent.ordered_arm_ids:
+                raise ValueError("nested choice parent arm is not authoritative")
+        if item.post_rejoin_continuation_id not in unit_ids | {None}:
+            raise ValueError("choice continuation is not a fine narrative unit")
+    for item in choices:
+        seen: set[str] = set()
+        cursor: ChoiceComposition | None = item
+        while cursor is not None:
+            if cursor.choice_id in seen:
+                raise ValueError("nested choice ownership contains a cycle")
+            seen.add(cursor.choice_id)
+            cursor = (
+                choice_by_id.get(cursor.parent_choice_id)
+                if cursor.parent_choice_id is not None
+                else None
+            )
+
+
+def _validate_outline_membership(outline: SemanticOutline) -> None:
+    beat_ids = [item.beat_id for item in outline.beats]
+    clustered = [beat_id for item in outline.clusters for beat_id in item.ordered_beat_ids]
+    if clustered != beat_ids or len(clustered) != len(set(clustered)):
+        raise ValueError("semantic beats must belong to exactly one cluster in ordered membership")
+    unit_ids = [unit_id for item in outline.beats for unit_id in item.ordered_unit_ids]
+    if len(unit_ids) != len(set(unit_ids)) or unit_ids != list(outline.ordered_unit_ids):
+        raise ValueError("semantic outline unit membership is duplicate, missing, or crossing")
+    positions = {unit_id: index for index, unit_id in enumerate(outline.ordered_unit_ids)}
+    for beat in outline.beats:
+        beat_positions = [positions[item] for item in beat.ordered_unit_ids]
+        if beat_positions != sorted(beat_positions):
+            raise ValueError("semantic beat units are out of deterministic order")
+    cluster_ids = {item.cluster_id for item in outline.clusters}
+    if any(item.parent_cluster_id not in cluster_ids for item in outline.choices):
+        raise ValueError("semantic choice points to an unknown parent cluster")
+    ordered_choice_ids = [
+        choice_id for cluster in outline.clusters for choice_id in cluster.ordered_choice_ids
+    ]
+    if ordered_choice_ids != [item.choice_id for item in outline.choices]:
+        raise ValueError("semantic choices must belong to exactly one cluster in order")
+
+
+def _major_context(unit: FineNarrativeUnit) -> tuple[str, str | None]:
+    progression = next(
+        (item for item in unit.context_ids if item.startswith("progression:")),
+        None,
+    )
+    return unit.lane_id, progression
+
+
+def _canonical_arms(region: CanonicalRegion) -> tuple[dict[str, object], ...]:
+    raw = region.attributes.get("arms")
+    if not isinstance(raw, Sequence) or isinstance(raw, str | bytes):
+        raise ValueError("canonical temporary region has invalid arm authority")
+    result: list[dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("canonical temporary region has invalid arm authority")
+        result.append(cast(dict[str, object], item))
+    result.sort(key=lambda item: (_required_int(item, "ordinal"), _required_text(item, "id")))
+    return tuple(result)
+
+
+def _required_text(value: Mapping[str, object], key: str) -> str:
+    result = value.get(key)
+    if not isinstance(result, str) or not result:
+        raise ValueError(f"canonical authority has invalid {key}")
+    return result
+
+
+def _required_int(value: Mapping[str, object], key: str) -> int:
+    result = value.get(key)
+    if not isinstance(result, int) or isinstance(result, bool) or result < 0:
+        raise ValueError(f"canonical authority has invalid {key}")
+    return result
+
+
+def _string_items(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise ValueError("canonical authority has invalid member-node IDs")
+    result = tuple(item for item in value if isinstance(item, str) and item)
+    if len(result) != len(value):
+        raise ValueError("canonical authority has invalid member-node IDs")
+    return result
+
+
+def _canonical_caption(node: CanonicalNode) -> str:
+    metadata = node.attributes.get("metadata")
+    if isinstance(metadata, Mapping):
+        caption = metadata.get("caption")
+        if isinstance(caption, str) and caption.strip():
+            return caption.strip()
+    source_text = node.attributes.get("source_text")
+    if isinstance(source_text, str) and source_text.strip():
+        return source_text.strip()
+    if node.label.strip():
+        return node.label.strip()
+    raise ValueError("a temporary choice arm lacks an exact visible caption")
+
+
+def _post_rejoin_continuation(
+    merge_node_id: str,
+    edges: Sequence[CanonicalEdge],
+    unit_by_node: Mapping[str, FineNarrativeUnit],
+) -> str | None:
+    targets = ordered_unique(
+        edge.target_id for edge in edges if edge.source_id == merge_node_id and edge.resolved
+    )
+    owned = ordered_unique(
+        unit_by_node[target].unit_id for target in targets if target in unit_by_node
+    )
+    if len(owned) > 1:
+        raise ValueError("a proven rejoin has multiple story continuations")
+    return owned[0] if owned else None
+
+
+def _assemble_serialized_outline_fixture(value: Mapping[str, object]) -> dict[str, object]:
+    """Validate the frozen smoke fixture without allowing it into the product assembly path."""
+
+    if value.get("schema") != "m15-semantic-outline-v2":
+        raise ValueError("serialized semantic outline fixture has the wrong schema")
+    unit_ids = value.get("ordered_unit_ids")
+    gap_ids = value.get("eligible_gap_ids")
+    raw_decisions = value.get("decisions")
+    expected = value.get("expected")
+    if (
+        not isinstance(unit_ids, list)
+        or not isinstance(gap_ids, list)
+        or not isinstance(raw_decisions, list)
+        or not isinstance(expected, Mapping)
+    ):
+        raise ValueError("serialized semantic outline fixture is incomplete")
+    if len(unit_ids) != len(set(unit_ids)) or len(gap_ids) != len(set(gap_ids)):
+        raise ValueError("serialized semantic outline fixture has duplicate membership")
+    decisions_by_gap: dict[str, SemanticBoundaryKind] = {}
+    for raw in raw_decisions:
+        if not isinstance(raw, list) or len(raw) != 2:
+            raise ValueError("serialized semantic decision is invalid")
+        gap_id, raw_kind = raw
+        if not isinstance(gap_id, str) or not isinstance(raw_kind, str):
+            raise ValueError("serialized semantic decision is invalid")
+        if gap_id in decisions_by_gap:
+            raise ValueError("serialized semantic decision is duplicated")
+        try:
+            decisions_by_gap[gap_id] = SemanticBoundaryKind(raw_kind)
+        except ValueError:
+            raise ValueError("serialized semantic decision kind is invalid") from None
+    if set(decisions_by_gap) != set(gap_ids):
+        raise ValueError("serialized semantic decisions are not exhaustive")
+    clusters = expected.get("ordered_cluster_ids")
+    beats = expected.get("ordered_beat_ids")
+    continuation = expected.get("post_rejoin_continuation_id")
+    if not isinstance(clusters, list) or not isinstance(beats, list):
+        raise ValueError("serialized semantic outline expected membership is invalid")
+    return {
+        "ordered_cluster_ids": list(clusters),
+        "ordered_beat_ids": list(beats),
+        "post_rejoin_continuation_count": (
+            1 if isinstance(continuation, str) and continuation else 0
+        ),
+    }
 
 
 def assemble_narrative_events(
