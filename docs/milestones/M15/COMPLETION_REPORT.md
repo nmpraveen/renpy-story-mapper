@@ -29,8 +29,8 @@ the final Release/PR gate remain pending.
 | Revised contract | Complete | `GOAL.md` defines fine semantic units, exhaustive boundaries, deterministic hierarchy, two-stage live production, compact vertical UI, and corrected acceptance gates |
 | Revised semantic gate | Complete | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-21 |
 | Replacement native goal | Complete | Goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` is active with the exact revised done condition and remains active through genuine PR readiness |
-| Shared failing-first freeze | Pending | Schemas, generalized examples, and failures must be committed before visible track dispatch |
-| Tracks A/B/C and exact-head reviews | Pending | Separate visible worktrees and independent reviews required |
+| Shared failing-first freeze | Complete | Exact head `c768b19c8d9364db8f1987cb420e69ac0c2e535d`; 14 passing contract/workflow checks, Ruff, strict mypy, and 7 expected track-owned failures |
+| Tracks A/B/C and exact-head reviews | In progress | Three separate visible tasks/worktrees started from exact `c768b19`; independent reviews remain required |
 | Integrated fake-provider acceptance | Pending | No M15.1 product correction has been integrated yet |
 | Live boundaries | Pending explicit consent | Boundary preview/manifest must be presented before any boundary provider submission |
 | Live summaries | Pending separate explicit consent | Frozen-membership summary preview/manifest must be presented after boundaries freeze |
@@ -50,8 +50,8 @@ the final Release/PR gate remain pending.
 
 ## Current limitations
 
-- No corrected implementation or new visible track task exists yet; the shared contract and
-  failing-first fixture freeze is now the active work item.
+- Corrected implementation is in progress in three isolated visible tasks. No track candidate or
+  exact-head review has been accepted or integrated yet.
 - No M15.1 live provider submission has occurred. Start authorization does not constitute boundary
   consent, summary consent, or screenshot approval.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,

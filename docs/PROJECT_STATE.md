@@ -20,14 +20,22 @@ Updated: 2026-07-21 (M15.1 correction In progress; shared freeze active)
   GitHub checks are historical rejected-baseline evidence only.
 - Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). Broad implementation begins
   only after the replacement native goal is recorded and the shared versioned schemas,
-  generalized examples, and genuinely failing-first tests freeze in one exact base commit.
+  generalized examples, and genuinely failing-first tests freeze in one exact base commit. That
+  shared freeze is `c768b19c8d9364db8f1987cb420e69ac0c2e535d`: 14 contract/workflow checks,
+  Ruff, and strict mypy pass; the expected implementation baseline is seven Track A/B/C failures.
 - Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` with the verbatim
   revised done condition. Before creation the goal service reported no active goal; it reactivated
   the current coordinator task ID, so there remains exactly one active milestone goal.
 - Required task topology: after the shared freeze, create separate visible Track A, Track B, and
   Track C Codex tasks/worktrees, each with an independent exact-head reviewer, then a separate final
   source-first/private-reference reviewer task. The coordinator owns ordered integration and all
-  private evaluation.
+  private evaluation. All three implementation tasks are active from exact `c768b19`:
+  - Track A task `019f84a1-897e-7a91-a622-fc00f5a10d72`, worktree
+    `C:/Users/prave/.codex/worktrees/dc1a/Renpy`, branch `codex/m15-1-track-a`;
+  - Track B task `019f84a1-897f-7953-a1f6-fa043410bcee`, worktree
+    `C:/Users/prave/.codex/worktrees/b547/Renpy`, branch `codex/m15-1-track-b-lifecycle`;
+  - Track C task `019f84a1-897b-7a40-ba52-1f26d6dca090`, worktree
+    `C:/Users/prave/.codex/worktrees/bb69/Renpy`, branch `codex/m15-1-track-c`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
