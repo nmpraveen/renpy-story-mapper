@@ -277,7 +277,7 @@ def _capture(
             normal = session.evaluate(
                 "import('./app.js').then(m=>({mode:m.state.mode,badge:document.querySelector('#projectBadge').textContent,"
                 "routePanel:!!document.querySelector('#routePanel'),solveRoute:!!document.querySelector('#solveRoute'),"
-                "organization:!!document.querySelector('#organizationPanel'),mapNodes:m.state.page.nodes.length,"
+                "organization:!!document.querySelector('#organizationPanel'),buildStoryMap:!document.querySelector('#buildStoryMap').hidden,mapNodes:m.state.page.nodes.length,"
                 "mapEdges:m.state.page.edges.length,selected:m.state.selectedId,level:document.documentElement.dataset.activeLevel,"
                 "correctionStatus:m.state.page.correction_status,correctionId:m.state.page.technical_correction_id}))"
             )
@@ -285,6 +285,8 @@ def _capture(
                 raise AssertionError(f"Narrative Map was not the default browser journey: {normal}")
             if normal["routePanel"] or normal["solveRoute"] or normal["organization"]:
                 raise AssertionError(f"A retired visible surface remains: {normal}")
+            if normal["buildStoryMap"]:
+                raise AssertionError(f"Legacy Narrative Map exposed unsupported semantic production: {normal}")
             if normal["correctionStatus"] != {"state": "applied", "diagnostic": "valid"} or not normal["correctionId"]:
                 raise AssertionError(f"The sanitized working-copy correction was not applied: {normal}")
 

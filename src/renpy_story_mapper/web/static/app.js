@@ -682,7 +682,7 @@ async function pollStoryMapBuild() {
 async function loadStoryMapBuildStatus() {
   ++state.storyMapPollToken;
   if (!isSemanticStoryMapPage()) {
-    state.storyMapBuild = null; renderStoryMapBuildControls(); return;
+    state.storyMapBuild = null; $("#buildStoryMap").hidden = true; return;
   }
   try {
     state.storyMapBuild = await api.storyMapBuildStatus(); renderStoryMapBuildControls();
@@ -980,6 +980,7 @@ function renderMap({ preserveViewport = false } = {}) {
   if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
   const semanticStoryMap = state.mode === "narrative" && isSemanticStoryMapPage();
   document.documentElement.dataset.narrativePresentation = narrativePresentation();
+  $("#buildStoryMap").hidden = !semanticStoryMap;
   const visible = visiblePage();
   const nodes = visible.nodes;
   const edges = visible.edges;
