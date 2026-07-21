@@ -1,6 +1,6 @@
 # M15.1 semantic Story Map correction report
 
-Status: Verification
+Status: In progress
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -20,8 +20,11 @@ The corrected implementation and supported product path are integrated locally a
 reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
 unsupported response-schema keyword. Versioned successor schemas preserve old identities and local
 validation while removing that provider-incompatible keyword. Boundary and summary production are
-now complete; final private evaluation, user visual approval, and the final Release/PR gate remain
-pending.
+complete, but the uncontaminated source-first final review failed at exact head `ac898b0` before
+oracle/mockup access. It found blocking reader-lineage, projection-density/chronology, and factual-
+summary defects. Those findings revoke the current verification claim; generalized correction and
+a fresh blind Stage 1 are required before private comparison, browser acceptance, user visual
+approval, or the final Release/PR gate.
 
 ## Evidence status
 
@@ -39,7 +42,7 @@ pending.
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
 | Live boundaries | Complete | Final checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. |
 | Live summaries | Complete | At reviewed head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations are exactly 529/529; source/archive/authority rows are unchanged. Recovery, six concurrency races, record/build CAS, and combined repair disclosure were independently reviewed with no P0-P2; 203 M15 tests passed with two expected browser skips, Ruff, and strict mypy over 114 files. Private evidence is under `output/m15-1-live-acceptance-20260721-125206/`. |
-| Final reviewer and private comparison | Pending | Source-first result must freeze before comparison with private oracle/mockups |
+| Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
 | Final Release and exact PR head | Pending | Run once after visual approval; PR must remain open and unmerged |
 
@@ -55,7 +58,7 @@ pending.
 
 ## Current limitations
 
-- Corrected implementation is integrated locally but has not been pushed; the existing PR remains
+- Corrected implementation is integrated locally but the blind source-first candidate failed; the existing PR remains
   intentionally behind until live semantic, review, screenshot, Release, and final-head gates pass.
 - Live semantic production is complete; its private artifacts remain ignored and unstaged.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,

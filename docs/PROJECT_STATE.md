@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-21 (M15.1 correction Verification; live semantics complete)
+Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes requested)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,11 +13,18 @@ Updated: 2026-07-21 (M15.1 correction Verification; live semantics complete)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: Verification. Revised semantic-review `PASS` and native-goal activation occurred on
+- Status: In progress. Revised semantic-review `PASS` and native-goal activation occurred on
   2026-07-21. The prior `PR ready` result is
   revoked and recorded as Changes Requested because its generic wide graph did not meet the human
   narrative outcome. Its product heads, screenshots, visible-order export, reviews, Release, and
   GitHub checks are historical rejected-baseline evidence only.
+- The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
+  `FAIL / CHANGES REQUIRED` before any oracle or mockup access. Its blockers are: published
+  producer-manifest lineage is rejected by the reader; the projection is too large and promotes
+  technical/generic material; choice widgets sort after their consequences; and several visible
+  summaries are factually wrong. Oracle comparison and browser acceptance remain paused. The live
+  provider records are preserved as historical production evidence while generalized failing-first
+  corrections and a fresh blind Stage 1 candidate are prepared.
 - Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). Broad implementation begins
   only after the replacement native goal is recorded and the shared versioned schemas,
   generalized examples, and genuinely failing-first tests freeze in one exact base commit. That
