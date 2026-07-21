@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
+from typing import cast
 
+from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
+from renpy_story_mapper.m11_scene_model import AtomKind, SceneModel
 from renpy_story_mapper.narrative_map.assembly import semantic_membership_hash
-from renpy_story_mapper.narrative_map.contracts import JsonValue, SourceLocator, canonical_hash
+from renpy_story_mapper.narrative_map.contracts import (
+    JsonValue,
+    SourceLocator,
+    canonical_hash,
+    stable_m15_id,
+)
+from renpy_story_mapper.narrative_map.projection import (
+    SemanticQuotientTopology,
+    SemanticTopologyEdge,
+)
 from renpy_story_mapper.narrative_map.provider import (
     SEMANTIC_BOUNDARY_PROMPT_VERSION,
     SEMANTIC_BOUNDARY_RESPONSE_SCHEMA,
@@ -29,6 +41,18 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 
 MAXIMUM_OWNED_GAPS_PER_WINDOW = 8
 MAXIMUM_CONTEXT_UNITS_PER_WINDOW = 16
+
+_STORY_CONTENT_ATOM_KINDS = frozenset(
+    {
+        AtomKind.DIALOGUE,
+        AtomKind.NARRATION,
+        AtomKind.VISUAL_CHANGE,
+        AtomKind.CALL,
+        AtomKind.LOOP,
+        AtomKind.TERMINAL,
+        AtomKind.UNRESOLVED,
+    }
+)
 SEMANTIC_SUMMARY_INPUT_SCHEMA = "m15-semantic-summary-input-v3"
 
 
@@ -541,6 +565,504 @@ def semantic_summary_payload(summary: SemanticSummary) -> dict[str, JsonValue]:
         ],
         "warnings": list(summary.warnings),
     }
+
+
+def project_compact_semantic_nodes(
+    canonical: CanonicalGraph,
+    model: SceneModel,
+    units: Sequence[FineNarrativeUnit],
+    outline: SemanticOutline,
+    topology: SemanticQuotientTopology,
+    summaries: Mapping[str, Mapping[str, object]],
+    provenance: Mapping[str, Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    """Project the frozen hierarchy as compact story-facing rows in source chronology.
+
+    Beat membership remains durable and available in Detail/Evidence, but it is not promoted as
+    one equal-weight row per boundary decision. A temporary choice is visible only when every
+    authoritative arm owns story content (directly or through a visible nested choice). Each
+    visible arm is represented exactly once with its authoritative caption, and shared M10 merge
+    targets produce one visual rejoin marker.
+    """
+
+    canonical.validate()
+    materialized_units = tuple(units)
+    if not materialized_units:
+        raise ValueError("compact semantic projection requires fine narrative units")
+    if (
+        outline.authority.source_generation != canonical.source_generation
+        or outline.authority.canonical_hash != canonical.authority_hash
+        or any(unit.authority != outline.authority for unit in materialized_units)
+    ):
+        raise ValueError("compact semantic projection inputs do not share exact authority")
+    unit_by_id = {item.unit_id: item for item in materialized_units}
+    if tuple(unit_by_id) != outline.ordered_unit_ids:
+        raise ValueError("compact semantic projection requires exact ordered unit membership")
+    atom_by_id = {item.id: item for item in model.atoms}
+    if any(unit.story_atom_id not in atom_by_id for unit in materialized_units):
+        raise ValueError("compact semantic projection unit lacks its M11 story atom")
+    position = {unit_id: index for index, unit_id in enumerate(outline.ordered_unit_ids)}
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    beat_by_unit_id = {
+        unit_id: beat for beat in outline.beats for unit_id in beat.ordered_unit_ids
+    }
+    choice_by_id = {item.choice_id: item for item in outline.choices}
+    if len(beat_by_id) != len(outline.beats) or len(choice_by_id) != len(outline.choices):
+        raise ValueError("compact semantic projection has duplicate frozen subjects")
+
+    def beat_position(beat: SemanticBeat) -> int:
+        return min(position[item] for item in beat.ordered_unit_ids)
+
+    def beat_has_story_content(beat: SemanticBeat) -> bool:
+        return any(
+            atom_by_id[unit_by_id[unit_id].story_atom_id].kind in _STORY_CONTENT_ATOM_KINDS
+            for unit_id in beat.ordered_unit_ids
+        )
+
+    beats_by_arm: dict[tuple[str, str], list[SemanticBeat]] = {}
+    for beat in outline.beats:
+        if beat.parent_choice_id is not None and beat.parent_arm_id is not None:
+            beats_by_arm.setdefault((beat.parent_choice_id, beat.parent_arm_id), []).append(beat)
+    children_by_arm: dict[tuple[str, str], list[ChoiceComposition]] = {}
+    for choice in outline.choices:
+        if choice.parent_choice_id is not None and choice.parent_arm_id is not None:
+            children_by_arm.setdefault(
+                (choice.parent_choice_id, choice.parent_arm_id), []
+            ).append(choice)
+
+    visible_choice_ids: set[str] = set()
+    visiting: set[str] = set()
+
+    def choice_is_story_facing(choice_id: str) -> bool:
+        if choice_id in visible_choice_ids:
+            return True
+        if choice_id in visiting:
+            raise ValueError("compact semantic projection choice ownership contains a cycle")
+        choice = choice_by_id[choice_id]
+        visiting.add(choice_id)
+        arm_results = []
+        for arm_id in choice.ordered_arm_ids:
+            has_direct_story = any(
+                beat_has_story_content(beat)
+                for beat in beats_by_arm.get((choice_id, arm_id), ())
+            )
+            has_nested_story = any(
+                choice_is_story_facing(child.choice_id)
+                for child in children_by_arm.get((choice_id, arm_id), ())
+            )
+            arm_results.append(has_direct_story or has_nested_story)
+        visiting.remove(choice_id)
+        if arm_results and all(arm_results):
+            visible_choice_ids.add(choice_id)
+            return True
+        return False
+
+    for choice in reversed(outline.choices):
+        choice_is_story_facing(choice.choice_id)
+
+    topology_by_subject = {item.subject_id: item for item in topology.nodes}
+
+    def choice_position_from_authority(choice: ChoiceComposition) -> int:
+        topology_choice = topology_by_subject.get(choice.choice_id)
+        split_nodes = set(topology_choice.canonical_node_ids) if topology_choice else set()
+        split_positions = [
+            position[unit.unit_id]
+            for unit in materialized_units
+            if split_nodes.intersection(unit.node_ids)
+        ]
+        return min(split_positions) if split_positions else min(
+            beat_position(beat)
+            for beat in outline.beats
+            if beat.parent_cluster_id == choice.parent_cluster_id
+        )
+
+    visible_cluster_ids = {
+        cluster.cluster_id
+        for cluster in outline.clusters
+        if any(
+            beat.parent_choice_id is None and beat_has_story_content(beat)
+            for beat_id in cluster.ordered_beat_ids
+            if (beat := beat_by_id[beat_id])
+        )
+        or any(choice_id in visible_choice_ids for choice_id in cluster.ordered_choice_ids)
+    }
+    visible_top_choices = tuple(
+        choice
+        for choice in outline.choices
+        if choice.parent_choice_id is None and choice.choice_id in visible_choice_ids
+    )
+    if visible_top_choices:
+        first_story_choice_position = min(
+            choice_position_from_authority(choice) for choice in visible_top_choices
+        )
+        leading_filtered_choices = tuple(
+            choice
+            for choice in outline.choices
+            if choice.parent_choice_id is None
+            and choice.choice_id not in visible_choice_ids
+            and choice_position_from_authority(choice) < first_story_choice_position
+        )
+        if leading_filtered_choices:
+            cluster_ordinal = {item.cluster_id: item.ordinal for item in outline.clusters}
+            leading_cutoff = max(
+                cluster_ordinal[choice.parent_cluster_id]
+                for choice in leading_filtered_choices
+            )
+            visible_cluster_ids = {
+                cluster_id
+                for cluster_id in visible_cluster_ids
+                if cluster_ordinal[cluster_id] > leading_cutoff
+                or any(
+                    choice_id in visible_choice_ids
+                    for choice_id in next(
+                        item
+                        for item in outline.clusters
+                        if item.cluster_id == cluster_id
+                    ).ordered_choice_ids
+                )
+            }
+    if not visible_cluster_ids:
+        raise ValueError("compact semantic projection has no story-facing section")
+
+    ranked_nodes: list[tuple[tuple[int, int, int], dict[str, object]]] = []
+    for cluster in outline.clusters:
+        if cluster.cluster_id not in visible_cluster_ids:
+            continue
+        cluster_beats = tuple(beat_by_id[item] for item in cluster.ordered_beat_ids)
+        first_position = min(beat_position(beat) for beat in cluster_beats)
+        ranked_nodes.append(
+            (
+                (first_position, 0, cluster.ordinal),
+                _story_summary_node(
+                    cluster.cluster_id,
+                    "major_cluster",
+                    summaries[cluster.cluster_id],
+                    provenance[cluster.cluster_id],
+                    parent_node_id=None,
+                ),
+            )
+        )
+
+    def choice_split_beats(choice_id: str) -> tuple[SemanticBeat, ...]:
+        topology_choice = topology_by_subject.get(choice_id)
+        split_nodes = set(topology_choice.canonical_node_ids) if topology_choice else set()
+        return tuple(
+            beat_by_unit_id[unit.unit_id]
+            for unit in materialized_units
+            if split_nodes.intersection(unit.node_ids)
+        )
+
+    for choice in outline.choices:
+        if choice.choice_id not in visible_choice_ids:
+            continue
+        choice_position = choice_position_from_authority(choice)
+        parent_choice_id = (
+            choice.parent_choice_id
+            if choice.parent_choice_id in visible_choice_ids
+            else None
+        )
+        choice_node = _story_summary_node(
+            choice.choice_id,
+            "choice",
+            summaries[choice.choice_id],
+            provenance[choice.choice_id],
+            parent_node_id=parent_choice_id or choice.parent_cluster_id,
+        )
+        choice_node.update(
+            {
+                "choice_id": choice.choice_id,
+                "parent_cluster_id": choice.parent_cluster_id,
+                "parent_arm_id": choice.parent_arm_id if parent_choice_id is not None else None,
+                "ordered_arm_ids": list(choice.ordered_arm_ids),
+                "ordered_arm_captions": list(choice.ordered_arm_captions),
+                "rejoin_relationship_ids": list(choice.rejoin_relationship_ids),
+            }
+        )
+        ranked_nodes.append(((choice_position, 1, 0), choice_node))
+        for arm_ordinal, (arm_id, caption) in enumerate(
+            zip(choice.ordered_arm_ids, choice.ordered_arm_captions, strict=True)
+        ):
+            arm_beats = sorted(
+                beats_by_arm.get((choice.choice_id, arm_id), ()),
+                key=beat_position,
+            )
+            story_beats = [beat for beat in arm_beats if beat_has_story_content(beat)]
+            nested_split_beats = [
+                beat
+                for child in children_by_arm.get((choice.choice_id, arm_id), ())
+                if child.choice_id in visible_choice_ids
+                for beat in choice_split_beats(child.choice_id)
+            ]
+            representative = (story_beats or arm_beats or nested_split_beats)[0]
+            arm_node = _story_summary_node(
+                representative.beat_id,
+                "choice_arm",
+                summaries[representative.beat_id],
+                provenance[representative.beat_id],
+                parent_node_id=choice.choice_id,
+            )
+            first_unit = unit_by_id[representative.ordered_unit_ids[0]]
+            arm_node.update(
+                {
+                    "title": caption,
+                    "parent_cluster_id": choice.parent_cluster_id,
+                    "choice_id": choice.choice_id,
+                    "arm_id": arm_id,
+                    "parent_arm_id": arm_id,
+                    "lane_id": first_unit.lane_id,
+                    "collapsed_beat_ids": [
+                        beat.beat_id for beat in (arm_beats or nested_split_beats)
+                    ],
+                }
+            )
+            ranked_nodes.append(
+                ((beat_position(representative), 2, arm_ordinal), arm_node)
+            )
+
+    choice_by_rejoin: dict[str, ChoiceComposition] = {}
+    for choice in outline.choices:
+        if choice.choice_id not in visible_choice_ids or choice.shared_target_id is None:
+            continue
+        rejoin_id = stable_m15_id(
+            "semantic_rejoin",
+            {
+                "canonical_hash": canonical.authority_hash,
+                "canonical_node_id": choice.shared_target_id,
+                "call_occurrence_path": list(choice.call_occurrence_path),
+            },
+        )
+        choice_by_rejoin.setdefault(rejoin_id, choice)
+
+    last_cluster_id = next(
+        cluster.cluster_id
+        for cluster in reversed(outline.clusters)
+        if cluster.cluster_id in visible_cluster_ids
+    )
+    for topology_node in topology.nodes:
+        rejoin_choice = choice_by_rejoin.get(topology_node.subject_id)
+        if topology_node.subject_kind == "rejoin" and rejoin_choice is not None:
+            continuation_position = (
+                position[rejoin_choice.post_rejoin_continuation_id]
+                if rejoin_choice.post_rejoin_continuation_id in position
+                else len(position)
+            )
+            ranked_nodes.append(
+                (
+                    (continuation_position, 0, 0),
+                    _structural_story_node(
+                        topology_node.subject_id,
+                        "rejoin",
+                        "Paths come back together",
+                        "The choice arms reach the same authoritative continuation.",
+                        parent_node_id=rejoin_choice.choice_id,
+                        target_kind=topology_node.subject_kind,
+                        rejoin_choice=rejoin_choice,
+                    ),
+                )
+            )
+        elif topology_node.subject_kind in {"terminal", "unresolved"}:
+            kind = "ending" if topology_node.subject_kind == "terminal" else "unresolved"
+            title = (
+                "End of the extracted story"
+                if kind == "ending"
+                else "Unresolved story path"
+            )
+            summary_text = (
+                "The current deterministic story scope ends here."
+                if kind == "ending"
+                else "Static authority cannot prove what happens beyond this point."
+            )
+            ranked_nodes.append(
+                (
+                    (len(position), 2, len(ranked_nodes)),
+                    _structural_story_node(
+                        topology_node.subject_id,
+                        kind,
+                        title,
+                        summary_text,
+                        parent_node_id=last_cluster_id,
+                        target_kind=topology_node.subject_kind,
+                    ),
+                )
+            )
+
+    ranked_nodes.sort(key=lambda item: item[0])
+    result: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for order, (_rank, node) in enumerate(ranked_nodes, start=1):
+        node_id = str(node["id"])
+        if node_id in seen_ids:
+            raise ValueError("compact semantic projection duplicates one visible subject")
+        seen_ids.add(node_id)
+        node["order"] = order
+        node["ordinal"] = order - 1
+        result.append(node)
+    return tuple(result)
+
+
+def project_compact_semantic_edges(
+    topology: SemanticQuotientTopology,
+    visible_subject_ids: Sequence[str],
+) -> tuple[SemanticTopologyEdge, ...]:
+    """Contract hidden beat/technical chains while retaining exact M10 edge evidence."""
+
+    visible = frozenset(visible_subject_ids)
+    outgoing: dict[str, list[SemanticTopologyEdge]] = {}
+    for edge in topology.edges:
+        outgoing.setdefault(edge.source_subject_id, []).append(edge)
+    projected: list[SemanticTopologyEdge] = []
+    projected_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    for source_id in visible:
+        stack: list[tuple[str, tuple[SemanticTopologyEdge, ...], frozenset[str]]] = [
+            (source_id, (), frozenset({source_id}))
+        ]
+        while stack:
+            current_id, path, visited = stack.pop()
+            for edge in outgoing.get(current_id, ()):
+                target_id = edge.target_subject_id
+                next_path = (*path, edge)
+                if target_id in visible:
+                    authority_edge_ids = _ordered_strings(
+                        item for path_edge in next_path for item in path_edge.authority_edge_ids
+                    )
+                    key = (source_id, target_id, authority_edge_ids)
+                    if key in projected_keys:
+                        continue
+                    projected_keys.add(key)
+                    if len(next_path) == 1:
+                        projected.append(edge)
+                        continue
+                    kind = next(
+                        (
+                            path_edge.kind
+                            for path_edge in reversed(next_path)
+                            if path_edge.kind.value != "continuation"
+                        ),
+                        next_path[0].kind,
+                    )
+                    projected.append(
+                        SemanticTopologyEdge(
+                            edge_id=stable_m15_id(
+                                "semantic_compact_edge",
+                                {
+                                    "canonical_hash": topology.canonical_hash,
+                                    "source": source_id,
+                                    "target": target_id,
+                                    "kind": kind.value,
+                                    "authority_edge_ids": list(authority_edge_ids),
+                                },
+                            ),
+                            source_subject_id=source_id,
+                            target_subject_id=target_id,
+                            kind=kind,
+                            authority_edge_ids=authority_edge_ids,
+                            requirement_ids=_ordered_strings(
+                                item
+                                for path_edge in next_path
+                                for item in path_edge.requirement_ids
+                            ),
+                            effect_ids=_ordered_strings(
+                                item
+                                for path_edge in next_path
+                                for item in path_edge.effect_ids
+                            ),
+                            evidence_ids=_ordered_strings(
+                                item
+                                for path_edge in next_path
+                                for item in path_edge.evidence_ids
+                            ),
+                        )
+                    )
+                    continue
+                if target_id not in visited:
+                    stack.append((target_id, next_path, visited | {target_id}))
+    projected.sort(
+        key=lambda item: (
+            item.source_subject_id,
+            item.target_subject_id,
+            item.kind.value,
+            item.edge_id,
+        )
+    )
+    return tuple(projected)
+
+
+def _story_summary_node(
+    subject_id: str,
+    kind: str,
+    summary: Mapping[str, object],
+    provenance: Mapping[str, object],
+    *,
+    parent_node_id: str | None,
+) -> dict[str, object]:
+    return {
+        "id": subject_id,
+        "kind": kind,
+        "title": str(summary["title"]),
+        "summary": str(summary["summary"]),
+        "lane_id": "story-spine",
+        "lane_kind": "spine",
+        "lane_label": "Story spine",
+        "parent_node_id": parent_node_id,
+        "choice_id": None,
+        "arm_id": None,
+        "rejoin_node_id": None,
+        "technical_count": 0,
+        "unresolved": False,
+        "characters": list(cast(Sequence[object], summary["characters"])),
+        "claims": [
+            dict(item) for item in cast(Sequence[Mapping[str, object]], summary["claims"])
+        ],
+        "warnings": list(cast(Sequence[object], summary["warnings"])),
+        "summary_provenance": dict(provenance),
+        "navigation": {
+            "mode": "detail_evidence",
+            "target_kind": str(summary["subject_kind"]),
+            "target_id": subject_id,
+        },
+    }
+
+
+def _structural_story_node(
+    subject_id: str,
+    kind: str,
+    title: str,
+    summary: str,
+    *,
+    parent_node_id: str | None,
+    target_kind: str,
+    rejoin_choice: ChoiceComposition | None = None,
+) -> dict[str, object]:
+    return {
+        "id": subject_id,
+        "kind": kind,
+        "title": title,
+        "summary": summary,
+        "lane_id": "story-spine",
+        "lane_kind": "spine",
+        "lane_label": "Story spine",
+        "parent_node_id": parent_node_id,
+        "choice_id": rejoin_choice.choice_id if rejoin_choice is not None else None,
+        "arm_id": None,
+        "rejoin_node_id": (
+            rejoin_choice.shared_target_id if rejoin_choice is not None else None
+        ),
+        "technical_count": 0,
+        "unresolved": kind == "unresolved",
+        "navigation": {
+            "mode": "detail_evidence",
+            "target_kind": target_kind,
+            "target_id": subject_id,
+        },
+    }
+
+
+def _ordered_strings(values: Iterable[str]) -> tuple[str, ...]:
+    result: list[str] = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return tuple(result)
 
 
 def _ordered_evidence(

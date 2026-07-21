@@ -63,7 +63,11 @@ from renpy_story_mapper.narrative_map.projection import (
     SemanticTopologyEdge,
 )
 from renpy_story_mapper.narrative_map.provider import ProviderJobKind
-from renpy_story_mapper.narrative_map.semantic_projection import semantic_outline_hash
+from renpy_story_mapper.narrative_map.semantic_projection import (
+    project_compact_semantic_edges,
+    project_compact_semantic_nodes,
+    semantic_outline_hash,
+)
 from renpy_story_mapper.project import Project
 
 NARRATIVE_MAP_PAGE_SCHEMA: Final = "m15-narrative-map-page-v1"
@@ -475,9 +479,20 @@ def _load_semantic_snapshot(
         repository=repository,
         membership_hash=membership_hash,
     )
-    nodes = _semantic_nodes(canonical, units, outline, topology, summaries, provenance)
-    edges = tuple(_semantic_edge_payload(item) for item in topology.edges)
+    nodes = project_compact_semantic_nodes(
+        canonical,
+        model,
+        units,
+        outline,
+        topology,
+        summaries,
+        provenance,
+    )
     node_ids = {str(item["id"]) for item in nodes}
+    edges = tuple(
+        _semantic_edge_payload(item)
+        for item in project_compact_semantic_edges(topology, tuple(node_ids))
+    )
     if any(
         str(edge["source_id"]) not in node_ids or str(edge["target_id"]) not in node_ids
         for edge in edges
@@ -950,7 +965,13 @@ def _semantic_page_payload(snapshot: NarrativeMapSnapshot) -> dict[str, object]:
         "edges": [dict(item) for item in semantic.edges],
         "lanes": [{"id": "story-spine", "kind": "spine", "label": "Story spine"}],
         "initial_node_ids": [
-            item.cluster_id for item in semantic.outline.clusters[:1]
+            str(
+                next(
+                    item
+                    for item in semantic.nodes
+                    if item.get("kind") == "major_cluster"
+                )["id"]
+            )
         ],
         "hidden_technical_count": sum(
             item.get("kind") == "technical_coverage" for item in semantic.nodes
@@ -986,6 +1007,26 @@ def _semantic_detail(
         (item for item in semantic.topology.edges if item.edge_id == element_id),
         None,
     )
+    projected_authority_edge_ids = (
+        _string_sequence(edge.get("authority_edge_ids"), "projected authority edge IDs")
+        if edge is not None
+        else ()
+    )
+    projected_requirement_ids = (
+        _string_sequence(edge.get("requirement_ids"), "projected requirement IDs")
+        if edge is not None
+        else ()
+    )
+    projected_effect_ids = (
+        _string_sequence(edge.get("effect_ids"), "projected effect IDs")
+        if edge is not None
+        else ()
+    )
+    projected_evidence_ids = (
+        _string_sequence(edge.get("evidence_ids"), "projected evidence IDs")
+        if edge is not None
+        else ()
+    )
     canonical_node_ids = list(
         _ordered_unique(
             (
@@ -1001,7 +1042,7 @@ def _semantic_detail(
                 *(
                     topology_edge.authority_edge_ids
                     if topology_edge is not None
-                    else ()
+                    else projected_authority_edge_ids
                 ),
             )
         )
@@ -1010,8 +1051,16 @@ def _semantic_detail(
         _ordered_unique(
             (
                 *(item for unit in selected_units for item in unit.provenance.fact_ids),
-                *(topology_edge.requirement_ids if topology_edge is not None else ()),
-                *(topology_edge.effect_ids if topology_edge is not None else ()),
+                *(
+                    topology_edge.requirement_ids
+                    if topology_edge is not None
+                    else projected_requirement_ids
+                ),
+                *(
+                    topology_edge.effect_ids
+                    if topology_edge is not None
+                    else projected_effect_ids
+                ),
             )
         )
     )
@@ -1019,7 +1068,11 @@ def _semantic_detail(
         _ordered_unique(
             (
                 *(item for unit in selected_units for item in unit.provenance.evidence_ids),
-                *(topology_edge.evidence_ids if topology_edge is not None else ()),
+                *(
+                    topology_edge.evidence_ids
+                    if topology_edge is not None
+                    else projected_evidence_ids
+                ),
             )
         )
     )

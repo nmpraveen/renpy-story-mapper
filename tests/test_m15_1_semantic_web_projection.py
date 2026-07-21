@@ -290,10 +290,8 @@ def test_current_semantic_publication_drives_page_and_exact_detail(tmp_path: Pat
         assert any(item["kind"] == "major_cluster" for item in nodes)
         cluster_node = next(item for item in nodes if item["id"] == cluster_id)
         assert _mapping(cluster_node["summary_provenance"])["subject_id"] == cluster_id
-        assert all(item["authority_edge_ids"] for item in edges)
-        topology_edge_id = str(edges[0]["id"])
+        assert edges == ()  # all exact edges are internal to this one compact section
         detail = narrative_map_detail(project, cluster_id)
-        topology_detail = narrative_map_detail(project, topology_edge_id)
 
     assert _mapping(detail["element"])["id"] == cluster_id
     assert detail["claims"]
@@ -306,11 +304,6 @@ def test_current_semantic_publication_drives_page_and_exact_detail(tmp_path: Pat
     assert detail["quotient_topology"] == {"node": None, "edge": None}
     assert detail["provider_calls"] == 0
     assert detail["m12_requests"] == 0
-    assert _mapping(topology_detail["element"])["id"] == topology_edge_id
-    quotient = _mapping(topology_detail["quotient_topology"])
-    assert _mapping(quotient["edge"])["edge_id"] == topology_edge_id
-    assert topology_detail["evidence"]
-    assert topology_detail["provider_calls"] == 0
 
 
 def test_current_publication_loads_all_confirmed_actual_producer_manifests(
