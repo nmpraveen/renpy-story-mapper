@@ -2387,6 +2387,48 @@ def test_stale_manifest_build_compare_and_write_cannot_overwrite_replacement(
     assert after_peer["state"] == SemanticBuildState.VALIDATING.value
 
 
+def test_stale_failure_compare_and_write_cannot_overwrite_validated_peer(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    with Project.create(tmp_path / "job-record-compare-write.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        preparation = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="job-record-compare-write",
+            source_hash="source-hash",
+            correction_id="m15.1",
+        )
+        pending = repository.get(preparation.jobs[0].kind, preparation.jobs[0].job_id)
+        assert pending is not None
+        service.start_boundaries(
+            preparation,
+            provider=_FakeProvider([_boundary_payload(window)]),
+            consent=preparation.granted_consent(),
+        )
+
+        assert not repository.record_failure_if_unchanged(
+            preparation.jobs[0],
+            _profile(),
+            expected_record=pending,
+            attempt_count=0,
+            provider_calls=0,
+            error_code="cancelled",
+            consent_manifest_id=preparation.consent.manifest_id,
+        )
+        record = repository.get(preparation.jobs[0].kind, preparation.jobs[0].job_id)
+
+    assert record is not None
+    assert record.status.value == "validated"
+
+
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(
     tmp_path: Path,
 ) -> None:

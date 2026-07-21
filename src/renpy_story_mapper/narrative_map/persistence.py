@@ -155,6 +155,44 @@ class NarrativeMapRepository:
         self._write(job.kind, job.job_id, payload)
         return self._decode(payload, job.kind, job.job_id)
 
+    def record_failure_if_unchanged(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        *,
+        expected_record: NarrativeJobRecord,
+        attempt_count: int,
+        provider_calls: int,
+        error_code: str,
+        provider_identity: Mapping[str, object] | None = None,
+        usage: ProviderUsage | None = None,
+        consent_manifest_id: str | None = None,
+    ) -> bool:
+        if not _ERROR_CODE.fullmatch(error_code):
+            raise ValueError("M15 failure codes must be sanitized identifiers")
+        payload = self._envelope(
+            job,
+            profile,
+            status=NarrativeJobStatus.FAILED,
+            attempt_count=attempt_count,
+            provider_calls=provider_calls,
+            result=None,
+            provider_identity=(
+                None
+                if provider_identity is None
+                else _detached_mapping(provider_identity, "failed provider identity")
+            ),
+            usage=None if usage is None else _usage_payload(usage, provider_calls),
+            error_code=error_code,
+            consent_manifest_id=consent_manifest_id,
+        )
+        return self._write_payloads_if_job_record(
+            ((_collection(job.kind), job.job_id, payload),),
+            kind=job.kind,
+            job_id=job.job_id,
+            expected_record=expected_record,
+        )
+
     def record_validated(
         self,
         job: PreparedNarrativeJob,
@@ -202,6 +240,56 @@ class NarrativeMapRepository:
             )
         )
         return self._decode(payload, job.kind, job.job_id)
+
+    def record_validated_if_unchanged(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        *,
+        expected_record: NarrativeJobRecord,
+        attempt_count: int,
+        provider_calls: int,
+        result: Mapping[str, object],
+        provider_identity: Mapping[str, object],
+        usage: ProviderUsage,
+        consent_manifest_id: str,
+    ) -> bool:
+        if not consent_manifest_id or consent_manifest_id != consent_manifest_id.strip():
+            raise ValueError("validated M15 results require an exact consent manifest identity")
+        normalized_result = _detached_mapping(result, "validated M15 result")
+        normalized_identity = _detached_mapping(provider_identity, "provider identity")
+        payload = self._envelope(
+            job,
+            profile,
+            status=NarrativeJobStatus.VALIDATED,
+            attempt_count=attempt_count,
+            provider_calls=provider_calls,
+            result=normalized_result,
+            provider_identity=normalized_identity,
+            usage=_usage_payload(usage, provider_calls),
+            error_code=None,
+            consent_manifest_id=consent_manifest_id,
+        )
+        cache_key = self.cache_key(job, profile)
+        cache_payload: dict[str, object] = {
+            "schema": CACHE_SCHEMA,
+            "cache_key": cache_key,
+            "identity": self.cache_identity(job, profile),
+            "result": normalized_result,
+            "result_hash": canonical_hash(normalized_result),
+            "provider_identity": normalized_identity,
+            "consent_manifest_id": consent_manifest_id,
+        }
+        _validate_durable(cache_payload)
+        return self._write_payloads_if_job_record(
+            (
+                (_collection(job.kind), job.job_id, payload),
+                (CACHE_COLLECTION, cache_key, cache_payload),
+            ),
+            kind=job.kind,
+            job_id=job.job_id,
+            expected_record=expected_record,
+        )
 
     def load_cache(
         self, job: PreparedNarrativeJob, profile: ProviderProfile
@@ -885,6 +973,71 @@ class NarrativeMapRepository:
                 connection.execute(
                     "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
                     (collection, key),
+                )
+        return True
+
+    def _write_payloads_if_job_record(
+        self,
+        records: tuple[tuple[str, str, Mapping[str, object]], ...],
+        *,
+        kind: ProviderJobKind,
+        job_id: str,
+        expected_record: NarrativeJobRecord,
+    ) -> bool:
+        connection = self._project._require_open()
+        now = storage.utc_now()
+        collection = _collection(kind)
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key=?",
+                (collection, job_id),
+            ).fetchone()
+            if row is None:
+                return False
+            current_encoded = bytes(row["payload_json"])
+            if storage.payload_digest(current_encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError("M15 payload checksum does not match stored data")
+            current = storage.decode_json(current_encoded)
+            if not isinstance(current, Mapping):
+                raise storage.ProjectCorruptError("M15 job payload is not an object")
+            if self._decode(current, kind, job_id) != expected_record:
+                return False
+            for target_collection, key, value in records:
+                payload = storage.canonical_json(value)
+                existing = connection.execute(
+                    "SELECT payload_json FROM payloads WHERE collection=? AND record_key=?",
+                    (target_collection, key),
+                ).fetchone()
+                if (
+                    target_collection == CACHE_COLLECTION
+                    and existing is not None
+                    and bytes(existing["payload_json"]) != payload
+                ):
+                    raise storage.ProjectStorageError(
+                        "an exact M15 cache identity cannot be overwritten"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO payloads(
+                        collection,record_key,payload_json,payload_hash,updated_utc
+                    ) VALUES (?,?,?,?,?)
+                    ON CONFLICT(collection,record_key) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        payload_hash=excluded.payload_hash,
+                        updated_utc=excluded.updated_utc
+                    """,
+                    (
+                        target_collection,
+                        key,
+                        payload,
+                        storage.payload_digest(payload),
+                        now,
+                    ),
+                )
+                connection.execute(
+                    "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                    (target_collection, key),
                 )
         return True
 

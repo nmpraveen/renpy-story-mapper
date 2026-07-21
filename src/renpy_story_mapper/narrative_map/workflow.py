@@ -219,9 +219,10 @@ class NarrativeBoundaryWorkflow:
                 for attempt in range(initial_attempt, outcome.attempt_count + 1)
             )
             if outcome.cancelled:
-                self._repository.record_failure(
+                recorded = self._repository.record_failure_if_unchanged(
                     job,
                     self._profile,
+                    expected_record=record,
                     attempt_count=outcome.attempt_count,
                     provider_calls=outcome.provider_calls,
                     error_code="cancelled",
@@ -233,6 +234,9 @@ class NarrativeBoundaryWorkflow:
                     usage=_optional_combined_usage(outcome.usages),
                     consent_manifest_id=consent.manifest_id,
                 )
+                if not recorded:
+                    deferred.append(job.job_id)
+                    break
                 failed.append(job.job_id)
                 was_cancelled = True
                 break
@@ -241,9 +245,10 @@ class NarrativeBoundaryWorkflow:
                     deferred.append(job.job_id)
                     break
                 else:
-                    self._repository.record_failure(
+                    recorded = self._repository.record_failure_if_unchanged(
                         job,
                         self._profile,
+                        expected_record=record,
                         attempt_count=outcome.attempt_count,
                         provider_calls=outcome.provider_calls,
                         error_code=outcome.error_code or "invalid_output",
@@ -255,11 +260,15 @@ class NarrativeBoundaryWorkflow:
                         usage=_optional_combined_usage(outcome.usages),
                         consent_manifest_id=consent.manifest_id,
                     )
+                    if not recorded:
+                        deferred.append(job.job_id)
+                        break
                 failed.append(job.job_id)
                 continue
-            self._repository.record_validated(
+            recorded = self._repository.record_validated_if_unchanged(
                 job,
                 self._profile,
+                expected_record=record,
                 attempt_count=outcome.attempt_count,
                 provider_calls=outcome.provider_calls,
                 result=outcome.result,
@@ -267,6 +276,9 @@ class NarrativeBoundaryWorkflow:
                 usage=_combined_usage(outcome.usages),
                 consent_manifest_id=consent.manifest_id,
             )
+            if not recorded:
+                deferred.append(job.job_id)
+                break
             validated.append(job.job_id)
         return NarrativeWorkflowReport(
             validated_job_ids=tuple(validated),
