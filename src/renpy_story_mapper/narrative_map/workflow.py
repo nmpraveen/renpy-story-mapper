@@ -379,6 +379,13 @@ class NarrativeBoundaryWorkflow:
             try:
                 response = self._provider.submit(request, cancelled)
             except NarrativeMapProviderError as exc:
+                if semantic_job:
+                    self._repository.settle_semantic_provider_call(
+                        manifest_id=consent.manifest_id,
+                        maximum_provider_calls=consent.maximum_provider_calls,
+                        job_id=job.job_id,
+                        attempt=attempt,
+                    )
                 provider_calls += int(exc.provider_call_reserved)
                 return _JobOutcome(
                     None,
@@ -390,6 +397,13 @@ class NarrativeBoundaryWorkflow:
                     exc.error_code == "cancelled",
                 )
             except Exception:
+                if semantic_job:
+                    self._repository.settle_semantic_provider_call(
+                        manifest_id=consent.manifest_id,
+                        maximum_provider_calls=consent.maximum_provider_calls,
+                        job_id=job.job_id,
+                        attempt=attempt,
+                    )
                 provider_calls += 1
                 return _JobOutcome(
                     None,
@@ -399,6 +413,13 @@ class NarrativeBoundaryWorkflow:
                     provider_calls,
                     "internal_error",
                     False,
+                )
+            if semantic_job:
+                self._repository.settle_semantic_provider_call(
+                    manifest_id=consent.manifest_id,
+                    maximum_provider_calls=consent.maximum_provider_calls,
+                    job_id=job.job_id,
+                    attempt=attempt,
                 )
             provider_calls += 1
             usages.append(response.usage)

@@ -398,7 +398,14 @@ class NarrativeMapRepository:
                     "the exact semantic consent has no remaining durable call grant"
                 )
             ordinal = len(reservations) + 1
-            reservations.append({"ordinal": ordinal, "job_id": job_id, "attempt": attempt})
+            reservations.append(
+                {
+                    "ordinal": ordinal,
+                    "job_id": job_id,
+                    "attempt": attempt,
+                    "settled": False,
+                }
+            )
             payload: dict[str, object] = {
                 "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
                 "manifest_id": manifest_id,
@@ -430,6 +437,72 @@ class NarrativeMapRepository:
                 (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
             )
         return ordinal
+
+    def settle_semantic_provider_call(
+        self,
+        *,
+        manifest_id: str,
+        maximum_provider_calls: int,
+        job_id: str,
+        attempt: int,
+    ) -> None:
+        """Atomically mark one reserved semantic provider attempt as terminal."""
+
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key=?",
+                (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
+            ).fetchone()
+            if row is None:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic call settlement has no reservation ledger"
+                )
+            encoded = bytes(row["payload_json"])
+            if storage.payload_digest(encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic call ledger checksum does not match"
+                )
+            decoded = storage.decode_json(encoded)
+            reservations = _semantic_call_reservations(
+                decoded,
+                manifest_id=manifest_id,
+                maximum_provider_calls=maximum_provider_calls,
+            )
+            matching = [
+                item
+                for item in reservations
+                if item["job_id"] == job_id and item["attempt"] == attempt
+            ]
+            if len(matching) != 1 or "settled" not in matching[0]:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic call settlement does not match a current reservation"
+                )
+            if matching[0]["settled"] is True:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic call reservation is already settled"
+                )
+            matching[0]["settled"] = True
+            payload: dict[str, object] = {
+                "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
+                "manifest_id": manifest_id,
+                "maximum_provider_calls": maximum_provider_calls,
+                "reservations": reservations,
+            }
+            _validate_durable(payload)
+            encoded = storage.canonical_json(payload)
+            connection.execute(
+                "UPDATE payloads SET payload_json=?,payload_hash=?,updated_utc=? "
+                "WHERE collection=? AND record_key=?",
+                (
+                    encoded,
+                    storage.payload_digest(encoded),
+                    storage.utc_now(),
+                    SEMANTIC_CALL_LEDGER_COLLECTION,
+                    manifest_id,
+                ),
+            )
 
     def semantic_reserved_call_count(
         self,
@@ -473,6 +546,30 @@ class NarrativeMapRepository:
                 maximum_provider_calls=maximum_provider_calls,
             )
         )
+
+    def semantic_manifest_settlement_count(self, manifest_id: str) -> int | None:
+        """Return durable terminal calls, or ``None`` for a legacy ledger."""
+
+        raw = self._payload(SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id)
+        if raw is None:
+            return 0
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("M15.1 semantic call ledger is not an object")
+        maximum_provider_calls = raw.get("maximum_provider_calls")
+        if (
+            not isinstance(maximum_provider_calls, int)
+            or isinstance(maximum_provider_calls, bool)
+            or maximum_provider_calls < 1
+        ):
+            raise storage.ProjectCorruptError("M15.1 semantic call ledger limit is invalid")
+        reservations = _semantic_call_reservations(
+            raw,
+            manifest_id=manifest_id,
+            maximum_provider_calls=maximum_provider_calls,
+        )
+        if any("settled" not in item for item in reservations):
+            return None
+        return sum(item["settled"] is True for item in reservations)
 
     @staticmethod
     def cache_identity(
@@ -750,13 +847,17 @@ def _semantic_call_reservations(
     for expected_ordinal, item in enumerate(cast(list[object], raw["reservations"]), 1):
         if (
             not isinstance(item, Mapping)
-            or set(item) != {"ordinal", "job_id", "attempt"}
+            or set(item) not in (
+                {"ordinal", "job_id", "attempt"},
+                {"ordinal", "job_id", "attempt", "settled"},
+            )
             or item.get("ordinal") != expected_ordinal
             or not isinstance(item.get("job_id"), str)
             or not item.get("job_id")
             or not isinstance(item.get("attempt"), int)
             or isinstance(item.get("attempt"), bool)
             or cast(int, item.get("attempt")) < 1
+            or ("settled" in item and not isinstance(item.get("settled"), bool))
         ):
             raise storage.ProjectCorruptError(
                 "M15.1 semantic call ledger reservation is invalid"

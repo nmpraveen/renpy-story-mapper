@@ -903,7 +903,9 @@ class SemanticLifecycle:
                 for record in (self._repository.get(job.kind, job.job_id),)
                 if record is not None and record.consent_manifest_id == manifest_id
             )
-            if reserved > terminal_calls:
+            settled = self._repository.semantic_manifest_settlement_count(manifest_id)
+            completed_calls = terminal_calls if settled is None else settled
+            if reserved > completed_calls:
                 raise ValueError(
                     f"a prior confirmed {prefix} manifest still has an in-flight call"
                 )

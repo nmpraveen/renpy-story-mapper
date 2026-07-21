@@ -2090,6 +2090,72 @@ def test_reusable_prepare_recovers_calls_finished_under_rotated_manifest(
     assert raw["accounting"]["reserved_provider_calls"] == 5
 
 
+def test_rotated_manifest_accepts_prior_calls_settled_independently_of_job_records(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "settled-manifest-rotation.rsmproj"
+    with Project.create(path) as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        prior = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-prior",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=2,
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(prior, prior.granted_consent())
+        for attempt in (1, 2):
+            repository.reserve_semantic_provider_call(
+                manifest_id=prior.consent.manifest_id,
+                maximum_provider_calls=2,
+                job_id=prior.jobs[0].job_id,
+                attempt=attempt,
+            )
+            repository.settle_semantic_provider_call(
+                manifest_id=prior.consent.manifest_id,
+                maximum_provider_calls=2,
+                job_id=prior.jobs[0].job_id,
+                attempt=attempt,
+            )
+
+        rotated = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-rotated",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+            valid_for=timedelta(minutes=59),
+            replay_existing=True,
+        )
+        provider = _FakeProvider([_boundary_payload(window)])
+        report = service.start_boundaries(
+            rotated,
+            provider=provider,
+            consent=rotated.granted_consent(),
+        )
+
+        assert repository.semantic_manifest_reservation_count(
+            prior.consent.manifest_id
+        ) == 2
+        assert repository.semantic_manifest_settlement_count(prior.consent.manifest_id) == 2
+
+    assert report.provider_calls == 1
+    assert len(provider.requests) == 1
+
+
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(
     tmp_path: Path,
 ) -> None:
