@@ -61,7 +61,8 @@ _SEMANTIC_REPAIR_GUIDANCE = {
     ),
     "invalid_characters": (
         "Replace only characters. Copy exact strings from request.job.known_characters, omit any "
-        "name not in that list, and return [] when none is supported. Never normalize or alias."
+        "name not in that list, include each supported name at most once, and return [] when none "
+        "is supported. Never normalize or alias."
     ),
 }
 

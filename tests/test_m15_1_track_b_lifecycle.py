@@ -683,6 +683,7 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
     )
     repair_guidance = " ".join(repair_prompt["request"]["repair_guidance"])
     assert "known_characters" in repair_guidance
+    assert "at most once" in repair_guidance
     assert "atom" in repair_guidance
     assert "source" in repair_guidance
     assert current_job.response_schema == "m15-semantic-summary-v3"
