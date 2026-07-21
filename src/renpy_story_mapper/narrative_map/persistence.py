@@ -243,6 +243,23 @@ class NarrativeMapRepository:
         _validate_durable(normalized)
         self._write_payloads(((SEMANTIC_BUILD_COLLECTION, "active", normalized),))
 
+    def write_semantic_build_if_manifest(
+        self,
+        payload: Mapping[str, object],
+        *,
+        stage: str,
+        manifest_id: str,
+    ) -> bool:
+        """Persist a build only while the exact stage manifest remains active."""
+
+        normalized = _detached_mapping(payload, "semantic build")
+        _validate_durable(normalized)
+        return self._write_payloads_if_manifest(
+            ((SEMANTIC_BUILD_COLLECTION, "active", normalized),),
+            stage=stage,
+            manifest_id=manifest_id,
+        )
+
     def read_semantic_build(self) -> Mapping[str, object] | None:
         raw = self._payload(SEMANTIC_BUILD_COLLECTION, "active")
         if raw is None:
@@ -562,6 +579,29 @@ class NarrativeMapRepository:
             )
         )
 
+    def publish_semantic_current_if_manifest(
+        self,
+        *,
+        build: Mapping[str, object],
+        publication: Mapping[str, object],
+        stage: str,
+        manifest_id: str,
+    ) -> bool:
+        """Atomically publish only while the exact stage manifest remains active."""
+
+        normalized_build = _detached_mapping(build, "semantic build")
+        normalized_publication = _detached_mapping(publication, "semantic publication")
+        _validate_durable(normalized_build)
+        _validate_durable(normalized_publication)
+        return self._write_payloads_if_manifest(
+            (
+                (SEMANTIC_BUILD_COLLECTION, "active", normalized_build),
+                (SEMANTIC_CURRENT_COLLECTION, "current", normalized_publication),
+            ),
+            stage=stage,
+            manifest_id=manifest_id,
+        )
+
     def semantic_manifest_settlement_count(self, manifest_id: str) -> int | None:
         """Return durable terminal calls, or ``None`` for a legacy ledger."""
 
@@ -788,6 +828,55 @@ class NarrativeMapRepository:
                     "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
                     (collection, key),
                 )
+
+    def _write_payloads_if_manifest(
+        self,
+        records: tuple[tuple[str, str, Mapping[str, object]], ...],
+        *,
+        stage: str,
+        manifest_id: str,
+    ) -> bool:
+        if stage not in {"boundary", "summary"} or not manifest_id:
+            raise ValueError("semantic manifest write precondition is invalid")
+        connection = self._project._require_open()
+        now = storage.utc_now()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='active'",
+                (SEMANTIC_BUILD_COLLECTION,),
+            ).fetchone()
+            if row is None:
+                raise storage.ProjectCorruptError("M15.1 semantic build is missing")
+            active_encoded = bytes(row["payload_json"])
+            if storage.payload_digest(active_encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic build checksum does not match stored data"
+                )
+            active = storage.decode_json(active_encoded)
+            if not isinstance(active, Mapping):
+                raise storage.ProjectCorruptError("M15.1 semantic build is not an object")
+            if active.get(f"{stage}_manifest_id") != manifest_id:
+                return False
+            for collection, key, value in records:
+                payload = storage.canonical_json(value)
+                connection.execute(
+                    """
+                    INSERT INTO payloads(
+                        collection,record_key,payload_json,payload_hash,updated_utc
+                    ) VALUES (?,?,?,?,?)
+                    ON CONFLICT(collection,record_key) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        payload_hash=excluded.payload_hash,
+                        updated_utc=excluded.updated_utc
+                    """,
+                    (collection, key, payload, storage.payload_digest(payload), now),
+                )
+                connection.execute(
+                    "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                    (collection, key),
+                )
+        return True
 
     @staticmethod
     def _decode(

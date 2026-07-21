@@ -2323,6 +2323,53 @@ def test_runner_losing_seal_before_first_reservation_cannot_write_stale_state(
     assert status.record.state is SemanticBuildState.VALIDATING
 
 
+def test_stale_manifest_build_compare_and_write_cannot_overwrite_replacement(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    with Project.create(tmp_path / "manifest-compare-write.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        old = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="compare-write-old",
+            source_hash="source-hash",
+            correction_id="m15.1",
+        )
+        stale = repository.read_semantic_build()
+        assert stale is not None
+        replacement = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="compare-write-replacement",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            replay_existing=True,
+        )
+        stale_update = dict(stale)
+        stale_update["state"] = SemanticBuildState.CANCELLED.value
+
+        assert not repository.write_semantic_build_if_manifest(
+            stale_update,
+            stage="boundary",
+            manifest_id=old.consent.manifest_id,
+        )
+        current = repository.read_semantic_build()
+
+    assert current is not None
+    assert current["boundary_manifest_id"] == replacement.consent.manifest_id
+    assert current["state"] == SemanticBuildState.AWAITING_BOUNDARY_CONSENT.value
+
+
 def test_runner_finalization_does_not_recharge_concurrently_recovered_record(
     tmp_path: Path,
 ) -> None:

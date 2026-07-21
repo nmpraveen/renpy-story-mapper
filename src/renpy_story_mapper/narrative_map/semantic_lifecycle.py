@@ -718,7 +718,12 @@ class SemanticLifecycle:
             )
             raw = _updated_state(raw, running)
             raw["cancel_requested"] = False
-            self._repository.write_semantic_build(raw)
+            if not self._repository.write_semantic_build_if_manifest(
+                raw,
+                stage=prefix,
+                manifest_id=consent.manifest_id,
+            ):
+                raise ValueError("semantic preparation became stale before execution")
         if not consent.consent_granted:
             if not self._exact_replay(preparation.jobs, consent.profile):
                 raise ValueError("ungranted consent permits only an exact zero-submit replay")
@@ -840,7 +845,11 @@ class SemanticLifecycle:
             )
         )
         if latest_was_complete or boundary_phase_advanced:
-            self._repository.write_semantic_build(updated)
+            self._repository.write_semantic_build_if_manifest(
+                updated,
+                stage=prefix,
+                manifest_id=consent.manifest_id,
+            )
             settle_finalized_reservations()
             return report
         target_key = (
@@ -869,7 +878,11 @@ class SemanticLifecycle:
             updated = _updated_state(updated, SemanticBuildState.FAILED)
         else:
             updated = _updated_state(updated, SemanticBuildState.PARTIAL)
-        self._repository.write_semantic_build(updated)
+        self._repository.write_semantic_build_if_manifest(
+            updated,
+            stage=prefix,
+            manifest_id=consent.manifest_id,
+        )
         settle_finalized_reservations()
         return report
 
@@ -1048,7 +1061,7 @@ class SemanticLifecycle:
         self,
         preparation: SemanticStagePreparation,
         build: dict[str, object],
-    ) -> None:
+    ) -> bool:
         if preparation.outline is None or preparation.membership_hash is None:
             raise ValueError("semantic publication requires the frozen outline")
         summaries: list[dict[str, object]] = []
@@ -1097,9 +1110,11 @@ class SemanticLifecycle:
         completed = _updated_state(build, SemanticBuildState.COMPLETE)
         completed["published_map_hash"] = publication_hash
         completed["failure_codes"] = []
-        self._repository.publish_semantic_current(
+        return self._repository.publish_semantic_current_if_manifest(
             build=completed,
             publication=publication,
+            stage="summary",
+            manifest_id=preparation.consent.manifest_id,
         )
 
     def _require_stage(
