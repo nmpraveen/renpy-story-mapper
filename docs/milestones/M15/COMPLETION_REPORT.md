@@ -16,9 +16,12 @@ a correction inside the same milestone, branch, and PR; it is not complete and n
 visible-order export, review, provider-free map, Release run, or passing PR head satisfies the new
 contract.
 
-The corrected contract and its single early semantic review are ready. Product implementation,
-two separately consented live semantic stages, final private evaluation, user visual approval, and
-the final Release/PR gate remain pending.
+The corrected implementation and supported product path are integrated locally and independently
+reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
+unsupported response-schema keyword. Versioned successor schemas preserve old identities and local
+validation while removing that provider-incompatible keyword. Correction gates, a fresh boundary
+run, the separate summary stage, final private evaluation, user visual approval, and the final
+Release/PR gate remain pending.
 
 ## Evidence status
 
@@ -30,9 +33,10 @@ the final Release/PR gate remain pending.
 | Revised semantic gate | Complete | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-21 |
 | Replacement native goal | Complete | Goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` is active with the exact revised done condition and remains active through genuine PR readiness |
 | Shared failing-first freeze | Complete | Exact head `c768b19c8d9364db8f1987cb420e69ac0c2e535d`; 14 passing contract/workflow checks, Ruff, strict mypy, and 7 expected track-owned failures |
-| Tracks A/B/C and exact-head reviews | In progress | Three separate visible tasks/worktrees started from exact `c768b19`; independent reviews remain required |
-| Integrated fake-provider acceptance | Pending | No M15.1 product correction has been integrated yet |
-| Live boundaries | Pending explicit consent | Boundary preview/manifest must be presented before any boundary provider submission |
+| Tracks A/B/C and exact-head reviews | Complete | Track A reviewed head `09062370`; Track B final supported product-path head `ca048973`; Track C final compatibility head `61a3eef`; all required exact-head reviews passed with no unresolved P0-P2 |
+| Integrated fake-provider acceptance | Complete | Local integration head `4f6f740`; 174 M15 passed/2 expected opt-in skips, 169 compatibility passed, both enabled Chrome suites 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, whitespace, and private-reference diff scan passed |
+| Provider-schema correction | Complete and independently reviewed | Four versioned successors preserve historical resources and remove only unsupported `uniqueItems`; all four current/stale routes and all eight delegated uniqueness sites have direct regression coverage. Independent re-review passed with no P0-P2. 184 M15 passed/2 expected opt-in skips, 169 compatibility passed, enabled Chrome 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, JSON parsing, whitespace, and four public Codex CLI 0.144.0 schema canaries passed. The optional exhaustive repository run exceeded 300 seconds without emitting a failure and is not counted as passed. |
+| Live boundaries | Correcting failed first run | Approved preview `consent_8a1657a8917261da9d8082a4` matched effective in-process manifest `consent_647d928f95ccc14b1ca02bb4`; 94 calls, zero validated, 93 `output_schema_rejected`, one `provider_unavailable`, zero workflow tokens; source/seed/authority unchanged. Versioned schema correction requires full gates and a fresh zero-submit preview before retry; private artifacts are under `output/m15-1-live-acceptance-20260721-121205/` |
 | Live summaries | Pending separate explicit consent | Frozen-membership summary preview/manifest must be presented after boundaries freeze |
 | Final reviewer and private comparison | Pending | Source-first result must freeze before comparison with private oracle/mockups |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
@@ -50,10 +54,10 @@ the final Release/PR gate remain pending.
 
 ## Current limitations
 
-- Corrected implementation is in progress in three isolated visible tasks. No track candidate or
-  exact-head review has been accepted or integrated yet.
-- No M15.1 live provider submission has occurred. Start authorization does not constitute boundary
-  consent, summary consent, or screenshot approval.
+- Corrected implementation is integrated locally but has not been pushed; the existing PR remains
+  intentionally behind until live semantic, review, screenshot, Release, and final-head gates pass.
+- The first M15.1 live boundary run consumed its consent without freezing membership. Its manifest
+  cannot be reused; the corrected candidate requires a fresh exact preview before any retry.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
   installer/public distribution, and PR merge remain outside this correction.
 - The visible task surface can set model and reasoning but exposes no fast-mode selector; that

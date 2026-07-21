@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from threading import Event
@@ -20,6 +21,8 @@ from renpy_story_mapper.narrative_map.contracts import (
 )
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
 from renpy_story_mapper.narrative_map.provider import (
+    NarrativeConsentManifest,
+    NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     ProviderProfile,
@@ -38,7 +41,12 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 from renpy_story_mapper.narrative_map.semantic_projection import (
     FrozenSummaryInput,
     SemanticEvidenceRecord,
+    prepare_semantic_boundary_jobs,
     prepare_semantic_summary_jobs,
+)
+from renpy_story_mapper.narrative_map.semantic_validation import (
+    validate_semantic_boundary_response,
+    validate_semantic_summary_response,
 )
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
@@ -57,6 +65,15 @@ def _profile() -> ProviderProfile:
         "2",
         "fake-semantic-model",
         ProviderSettings((("reasoning_effort", "high"),)),
+    )
+
+
+def _consent(jobs: tuple[object, ...]) -> NarrativeConsentManifest:
+    return NarrativeConsentManifest.for_jobs(
+        run_id="synthetic-semantic-run",
+        profile=_profile(),
+        jobs=jobs,
+        consent_granted=True,
     )
 
 
@@ -491,7 +508,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
         assert service.read_current_semantic_publication() == first_publication
 
 
-def test_sterile_adapter_uses_the_v2_boundary_prompt_and_schema(tmp_path: Path) -> None:
+def test_sterile_adapter_uses_versioned_boundary_prompt_and_schema(tmp_path: Path) -> None:
     units = _units()
     candidates = _candidates(units)
     window = _windows(units, candidates)[0]
@@ -518,11 +535,149 @@ def test_sterile_adapter_uses_the_v2_boundary_prompt_and_schema(tmp_path: Path) 
         response = SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
 
     assert response.payload == _boundary_payload(window)
-    assert runner.requests[0].schema_path.name == "boundary_window_v2.schema.json"
+    assert runner.requests[0].schema_path.name == "boundary_window_v3.schema.json"
+    assert preparation.jobs[0].response_schema == "m15-boundary-window-v3"
+    stale_job = replace(preparation.jobs[0], response_schema="m15-boundary-window-v2")
+    assert stale_job.job_id != preparation.jobs[0].job_id
+    stale_runner = _FakeSterileRunner(_boundary_payload(window))
+    stale_request = NarrativeMapProviderRequest(
+        "semantic-boundary-stale",
+        _consent((stale_job,)),
+        _profile(),
+        stale_job,
+    )
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
+        SterileNarrativeMapProvider(runner=stale_runner).submit(
+            stale_request, lambda: False
+        )
+    assert not exc_info.value.provider_call_reserved
+    assert stale_runner.requests == []
     prompt = json.loads(runner.requests[0].stdin)
     assert prompt["version"] == "m15-semantic-boundary-prompt-v2"
     assert prompt["request"]["job"]["window_id"] == window.window_id
     assert "private oracle" not in json.dumps(prompt["request"]["job"]).casefold()
+
+
+def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> None:
+    units = _units()
+    beat = SemanticBeat(
+        "beat-story",
+        "cluster-day",
+        tuple(item.unit_id for item in units),
+        None,
+        None,
+        EvidenceNavigation("beat", "beat-story"),
+    )
+    cluster = MajorCluster(
+        "cluster-day",
+        0,
+        (beat.beat_id,),
+        (),
+        EvidenceNavigation("major_cluster", "cluster-day"),
+    )
+    outline = SemanticOutline(
+        _authority(),
+        tuple(item.unit_id for item in units),
+        (),
+        (beat,),
+        (cluster,),
+        (),
+        (),
+    )
+    current_job = prepare_semantic_summary_jobs(
+        outline,
+        _summary_inputs(outline, units),
+        _evidence(units),
+        source_hash="source-hash",
+        correction_id="m15.1",
+        privacy_scope="story_evidence_only",
+    )[0]
+    payload = _summary_payload(current_job, 0)
+    runner = _FakeSterileRunner(payload)
+    request = NarrativeMapProviderRequest(
+        "semantic-summary-route",
+        _consent((current_job,)),
+        _profile(),
+        current_job,
+    )
+
+    SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+
+    assert runner.requests[0].schema_path.name == "semantic_summary_v3.schema.json"
+    assert current_job.response_schema == "m15-semantic-summary-v3"
+    stale_job = replace(current_job, response_schema="m15-semantic-summary-v2")
+    stale_runner = _FakeSterileRunner(payload)
+    stale_request = NarrativeMapProviderRequest(
+        "semantic-summary-stale",
+        _consent((stale_job,)),
+        _profile(),
+        stale_job,
+    )
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
+        SterileNarrativeMapProvider(runner=stale_runner).submit(
+            stale_request, lambda: False
+        )
+    assert not exc_info.value.provider_call_reserved
+    assert stale_runner.requests == []
+
+
+def test_v2_validators_reject_duplicates_delegated_by_provider_schemas() -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    boundary_job = prepare_semantic_boundary_jobs(
+        units,
+        candidates,
+        (window,),
+        _evidence(units),
+        source_hash="source-hash",
+        correction_id="m15.1",
+        privacy_scope="story_evidence_only",
+    )[0]
+    boundary_payload = _boundary_payload(window)
+    boundary_payload["decisions"][0]["warnings"] = ["duplicate", "duplicate"]
+    boundary = validate_semantic_boundary_response(boundary_payload, boundary_job)
+    assert "invalid_warnings" in {finding.code for finding in boundary.findings}
+
+    beat = SemanticBeat(
+        "beat-story",
+        "cluster-day",
+        tuple(item.unit_id for item in units),
+        None,
+        None,
+        EvidenceNavigation("beat", "beat-story"),
+    )
+    cluster = MajorCluster(
+        "cluster-day",
+        0,
+        (beat.beat_id,),
+        (),
+        EvidenceNavigation("major_cluster", "cluster-day"),
+    )
+    outline = SemanticOutline(
+        _authority(), tuple(item.unit_id for item in units), (), (beat,), (cluster,), (), ()
+    )
+    summary_job = prepare_semantic_summary_jobs(
+        outline,
+        _summary_inputs(outline, units),
+        _evidence(units),
+        source_hash="source-hash",
+        correction_id="m15.1",
+        privacy_scope="story_evidence_only",
+    )[0]
+    base_payload = _summary_payload(summary_job, 0)
+    for field, value, expected_code in (
+        ("characters", ["Ava", "Ava"], "invalid_characters"),
+        ("warnings", ["duplicate", "duplicate"], "invalid_warnings"),
+    ):
+        payload = json.loads(json.dumps(base_payload))
+        payload[field] = value
+        result = validate_semantic_summary_response(payload, summary_job)
+        assert expected_code in {finding.code for finding in result.findings}
+    evidence_payload = json.loads(json.dumps(base_payload))
+    evidence_payload["claims"][0]["evidence_ids"] *= 2
+    evidence_result = validate_semantic_summary_response(evidence_payload, summary_job)
+    assert "invalid_claim" in {finding.code for finding in evidence_result.findings}
 
 
 def test_boundary_consent_cannot_start_summaries_and_changed_identity_is_stale(

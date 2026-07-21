@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-21 (M15.1 correction In progress; shared freeze active)
+Updated: 2026-07-21 (M15.1 correction In progress; provider-schema correction)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -29,26 +29,40 @@ Updated: 2026-07-21 (M15.1 correction In progress; shared freeze active)
 - Required task topology: after the shared freeze, create separate visible Track A, Track B, and
   Track C Codex tasks/worktrees, each with an independent exact-head reviewer, then a separate final
   source-first/private-reference reviewer task. The coordinator owns ordered integration and all
-  private evaluation. All three implementation tasks are active from exact `c768b19`:
+  private evaluation. All three implementation tasks completed from exact `c768b19` and their
+  reviewed corrections are integrated locally through `4f6f740`:
   - Track A task `019f84a1-897e-7a91-a622-fc00f5a10d72`, worktree
     `C:/Users/prave/.codex/worktrees/dc1a/Renpy`, branch `codex/m15-1-track-a`;
   - Track B task `019f84a1-897f-7953-a1f6-fa043410bcee`, worktree
-    `C:/Users/prave/.codex/worktrees/b547/Renpy`, branch `codex/m15-1-track-b-lifecycle`;
+    `C:/Users/prave/.codex/worktrees/b547/Renpy`, final correction branch
+    `codex/m15-1-product-path-backend`;
   - Track C task `019f84a1-897b-7a40-ba52-1f26d6dca090`, worktree
     `C:/Users/prave/.codex/worktrees/bb69/Renpy`, branch `codex/m15-1-track-c`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
+- Integrated verification: 174 M15 tests passed with two expected opt-in browser skips; 169
+  web/M10/M11 compatibility tests and both enabled Chrome suites (10 tests) passed. Ruff, strict
+  mypy over 114 source files, JavaScript syntax, whitespace, and the private-reference diff scan
+  passed. Track A reviewed head `09062370`, Track B final product-path head `ca048973`, and Track C
+  final compatibility head `61a3eef` had no unresolved P0-P2.
 - Private preflight: source SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
   `2026-07-20T14:57:21.9287268Z`; archive SHA-256
   `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`, 2,140,282 bytes,
   `2026-07-03T01:11:16Z`. Both matched the ignored private manifest. Final before/after proof remains
   required; private source, oracle, handoff, mockups, and output artifacts stay outside Git.
-- Provider state: no M15.1 provider submission has occurred. The coordinator must present an exact
-  boundary manifest and receive explicit boundary consent, then after membership freezes present a
-  different exact summary manifest and receive separate explicit summary consent. Start approval
-  authorizes neither live stage. Actual final-head screenshots also require explicit user approval.
+- Provider state: approved boundary manifest `consent_8a1657a8917261da9d8082a4` was superseded
+  in-process by matching effective manifest `consent_647d928f95ccc14b1ca02bb4` and consumed by
+  94 bounded provider submissions. Zero jobs validated: 93 failed `output_schema_rejected` because
+  Codex CLI 0.144.0 rejects the schemas' `uniqueItems` keyword, and one failed
+  `provider_unavailable`; no workflow tokens were recorded. Source, seed, and M10-M13 authority
+  rows remained unchanged. Four versioned successor response schemas now remove only that
+  unsupported keyword while preserving strict local uniqueness validation and changing job/cache/
+  consent identity. Focused correction tests pass; full gates and a fresh zero-submit boundary
+  preview remain mandatory before retry. The user granted standing authorization for future exact
+  M15.1 manifests in this task; each exact manifest must still be generated, verified, and recorded
+  separately. Summaries remain impossible until boundary membership freezes.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
   preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
   deferred or excluded.

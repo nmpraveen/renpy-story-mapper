@@ -344,11 +344,138 @@ def test_sterile_provider_uses_m15_prompt_and_schema_without_process_authority()
     assert response.payload == payload
     assert len(runner.requests) == 1
     sterile_request = runner.requests[0]
-    assert sterile_request.schema_path.name == "boundary_decision_v1.schema.json"
+    assert sterile_request.schema_path.name == "boundary_decision_v2.schema.json"
+    assert job.response_schema == "m15-boundary-decision-v2"
+    assert replace(job, response_schema="m15-boundary-decision-v1").job_id != job.job_id
     prompt = json.loads(sterile_request.stdin)
     assert prompt["version"] == "m15-boundary-prompt-v1"
     assert prompt["request"]["job"]["candidate_id"] == candidate.candidate_id
     assert "use filesystem, web, tools, MCP, or application authority" in prompt["forbidden"]
+
+
+def test_stale_response_schema_fails_before_runner_or_call_reservation() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    current_job = prepare_boundary_jobs(
+        (first, second), (_candidate(first, second),), _evidence(first, second)
+    )[0]
+    stale_job = replace(current_job, response_schema="m15-boundary-decision-v1")
+    request = NarrativeMapProviderRequest(
+        request_id="request-stale-schema",
+        consent=_consent((stale_job,)),
+        profile=_profile(),
+        job=stale_job,
+    )
+    runner = _FakeSterileRunner({"decisions": []})
+
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
+        SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+
+    assert exc_info.value.error_code == "provider_request_invalid"
+    assert not exc_info.value.provider_call_reserved
+    assert runner.requests == []
+
+
+def test_event_summary_routes_exact_schema_and_rejects_stale_identity() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    event = _event(first, second)
+    current_job = prepare_event_summary_jobs(
+        (event,),
+        _evidence(first, second),
+        known_characters={event.event_id: ("Narrator",)},
+    )[0]
+    payload = {
+        "event_id": event.event_id,
+        "title": "A Public Event",
+        "summary": "The synthetic event continues.",
+        "characters": ["Narrator"],
+        "claims": [],
+        "warnings": [],
+    }
+    runner = _FakeSterileRunner(payload)
+    request = NarrativeMapProviderRequest(
+        "event-summary-route",
+        _consent((current_job,)),
+        _profile(),
+        current_job,
+    )
+
+    SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
+
+    assert runner.requests[0].schema_path.name == "event_summary_v2.schema.json"
+    assert current_job.response_schema == "m15-event-summary-v2"
+    stale_job = replace(current_job, response_schema="m15-event-summary-v1")
+    stale_runner = _FakeSterileRunner(payload)
+    stale_request = NarrativeMapProviderRequest(
+        "event-summary-stale",
+        _consent((stale_job,)),
+        _profile(),
+        stale_job,
+    )
+    with pytest.raises(NarrativeMapProviderError) as exc_info:
+        SterileNarrativeMapProvider(runner=stale_runner).submit(
+            stale_request, lambda: False
+        )
+    assert not exc_info.value.provider_call_reserved
+    assert stale_runner.requests == []
+
+
+def test_v1_validators_reject_duplicates_delegated_by_provider_schemas() -> None:
+    first, second = _corridor("a", 0), _corridor("b", 1)
+    candidate = _candidate(first, second)
+    boundary = validate_boundary_response(
+        {
+            "decisions": [
+                {
+                    "candidate_id": candidate.candidate_id,
+                    "decision": "uncertain",
+                    "reason": "Synthetic uncertainty.",
+                    "confidence": 0.5,
+                    "warnings": ["duplicate", "duplicate"],
+                }
+            ]
+        },
+        (candidate,),
+        provider_identity=None,
+    )
+    assert "invalid_warnings" in {finding.code for finding in boundary.findings}
+
+    event = _event(first, second)
+    base_payload = {
+        "event_id": event.event_id,
+        "title": "A Synthetic Event",
+        "summary": "The synthetic event continues.",
+        "characters": ["Narrator"],
+        "claims": [
+            {
+                "claim_class": "factual",
+                "text": "The synthetic action occurs.",
+                "evidence_ids": [event.provenance.evidence_ids[0]],
+            }
+        ],
+        "warnings": [],
+    }
+    mutations = (
+        ("characters", ["Narrator", "Narrator"], "invalid_characters"),
+        ("warnings", ["duplicate", "duplicate"], "invalid_warnings"),
+    )
+    for field, value, expected_code in mutations:
+        payload = {**base_payload, field: value}
+        result = validate_event_summary_response(
+            payload,
+            event,
+            known_characters=("Narrator",),
+            provider_identity=None,
+        )
+        assert expected_code in {finding.code for finding in result.findings}
+    evidence_payload = json.loads(json.dumps(base_payload))
+    evidence_payload["claims"][0]["evidence_ids"] *= 2
+    evidence_result = validate_event_summary_response(
+        evidence_payload,
+        event,
+        known_characters=("Narrator",),
+        provider_identity=None,
+    )
+    assert "invalid_evidence" in {finding.code for finding in evidence_result.findings}
 
 
 def test_sterile_provider_revalidates_consent_freshness_at_submit() -> None:

@@ -189,8 +189,8 @@ def test_source_locators_are_relative_and_detail_evidence_is_the_only_mode() -> 
 
 def test_provider_response_schemas_exclude_membership_and_edges() -> None:
     schema_root = ROOT / "src" / "renpy_story_mapper" / "narrative_map" / "schemas"
-    boundary = json.loads((schema_root / "boundary_decision_v1.schema.json").read_text())
-    summary = json.loads((schema_root / "event_summary_v1.schema.json").read_text())
+    boundary = json.loads((schema_root / "boundary_decision_v2.schema.json").read_text())
+    summary = json.loads((schema_root / "event_summary_v2.schema.json").read_text())
 
     assert boundary["additionalProperties"] is False
     assert summary["additionalProperties"] is False

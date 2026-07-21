@@ -11,9 +11,12 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     ChoiceComposition,
     FineNarrativeUnit,
     NarrativeGapCandidate,
+    SemanticBoundaryDecision,
     SemanticBoundaryKind,
     SemanticBuildRecord,
     SemanticBuildState,
+    SemanticSummary,
+    SemanticSummaryClaim,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,8 +98,8 @@ def test_boundary_vocabulary_and_build_states_are_frozen() -> None:
 
 def test_provider_schemas_exclude_membership_topology_and_coordinates() -> None:
     root = ROOT / "src/renpy_story_mapper/narrative_map/schemas"
-    boundary = json.loads((root / "boundary_window_v2.schema.json").read_text())
-    summary = json.loads((root / "semantic_summary_v2.schema.json").read_text())
+    boundary = json.loads((root / "boundary_window_v3.schema.json").read_text())
+    summary = json.loads((root / "semantic_summary_v3.schema.json").read_text())
     property_names: set[str] = set()
 
     def collect_properties(value: object) -> None:
@@ -121,3 +124,87 @@ def test_provider_schemas_exclude_membership_topology_and_coordinates() -> None:
         "locators",
     ):
         assert forbidden not in property_names
+
+
+def test_provider_schemas_delegate_uniqueness_to_strict_local_validation() -> None:
+    root = ROOT / "src/renpy_story_mapper/narrative_map/schemas"
+    active_resources = (
+        "boundary_decision_v2.schema.json",
+        "event_summary_v2.schema.json",
+        "boundary_window_v3.schema.json",
+        "semantic_summary_v3.schema.json",
+    )
+    schemas = [json.loads((root / name).read_text()) for name in active_resources]
+
+    def assert_supported(value: object) -> None:
+        if isinstance(value, dict):
+            assert "uniqueItems" not in value
+            for child in value.values():
+                assert_supported(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_supported(child)
+
+    assert_supported(schemas)
+    assert [schema["$id"] for schema in schemas] == [
+        "m15-boundary-decision-v2",
+        "m15-event-summary-v2",
+        "m15-boundary-window-v3",
+        "m15-semantic-summary-v3",
+    ]
+    with pytest.raises(ValueError, match="warning values must be unique"):
+        SemanticBoundaryDecision(
+            "candidate", SemanticBoundaryKind.SAME_BEAT, "Same action.", 0.9,
+            ("duplicate", "duplicate"),
+        )
+    with pytest.raises(ValueError, match="evidence ID values must be unique"):
+        SemanticSummaryClaim("factual", "Fact.", ("evidence", "evidence"))
+    with pytest.raises(ValueError, match="character values must be unique"):
+        SemanticSummary(
+            "beat", "subject", "membership", "Title", "Summary", ("Ava", "Ava"),
+            (SemanticSummaryClaim("factual", "Fact.", ("evidence",)),), ()
+        )
+
+
+@pytest.mark.parametrize(
+    ("historical_name", "active_name", "active_id"),
+    (
+        (
+            "boundary_decision_v1.schema.json",
+            "boundary_decision_v2.schema.json",
+            "m15-boundary-decision-v2",
+        ),
+        ("event_summary_v1.schema.json", "event_summary_v2.schema.json", "m15-event-summary-v2"),
+        (
+            "boundary_window_v2.schema.json",
+            "boundary_window_v3.schema.json",
+            "m15-boundary-window-v3",
+        ),
+        (
+            "semantic_summary_v2.schema.json",
+            "semantic_summary_v3.schema.json",
+            "m15-semantic-summary-v3",
+        ),
+    ),
+)
+def test_provider_schema_successors_only_change_identity_and_delegate_uniqueness(
+    historical_name: str,
+    active_name: str,
+    active_id: str,
+) -> None:
+    root = ROOT / "src/renpy_story_mapper/narrative_map/schemas"
+    historical = json.loads((root / historical_name).read_text())
+    active = json.loads((root / active_name).read_text())
+
+    def remove_unique_items(value: object) -> None:
+        if isinstance(value, dict):
+            value.pop("uniqueItems", None)
+            for child in value.values():
+                remove_unique_items(child)
+        elif isinstance(value, list):
+            for child in value:
+                remove_unique_items(child)
+
+    historical["$id"] = active_id
+    remove_unique_items(historical)
+    assert active == historical
