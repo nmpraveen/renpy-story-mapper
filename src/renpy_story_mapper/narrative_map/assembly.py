@@ -32,6 +32,7 @@ from renpy_story_mapper.narrative_map.corridors import (
     build_fine_narrative_units,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
+    BoundaryWindow,
     ChoiceComposition,
     FineNarrativeUnit,
     LiveSemanticProvenance,
@@ -51,6 +52,7 @@ def assemble_semantic_outline(
     decisions: Sequence[SemanticBoundaryDecision],
     *,
     choices: Sequence[ChoiceComposition] = (),
+    boundary_windows: Sequence[BoundaryWindow] = (),
     boundary_provenance: Sequence[LiveSemanticProvenance] = (),
 ) -> SemanticOutline: ...
 
@@ -65,6 +67,7 @@ def assemble_semantic_outline(
     decisions: Sequence[SemanticBoundaryDecision] = (),
     *,
     choices: Sequence[ChoiceComposition] = (),
+    boundary_windows: Sequence[BoundaryWindow] = (),
     boundary_provenance: Sequence[LiveSemanticProvenance] = (),
 ) -> SemanticOutline | dict[str, object]:
     """Assemble complete beat/cluster membership from exhaustive four-state decisions.
@@ -74,13 +77,14 @@ def assemble_semantic_outline(
     """
 
     if isinstance(units, Mapping):
-        if candidates or decisions or choices or boundary_provenance:
+        if candidates or decisions or choices or boundary_windows or boundary_provenance:
             raise ValueError("a serialized outline fixture cannot be mixed with typed inputs")
         return _assemble_serialized_outline_fixture(units)
     materialized_units = tuple(units)
     materialized_candidates = tuple(candidates)
     materialized_decisions = tuple(decisions)
     materialized_choices = tuple(choices)
+    materialized_windows = tuple(boundary_windows)
     materialized_provenance = tuple(boundary_provenance)
     if not materialized_units:
         raise ValueError("semantic outline assembly requires fine narrative units")
@@ -101,7 +105,7 @@ def assemble_semantic_outline(
     if set(decision_by_candidate) != expected_ids:
         raise ValueError("semantic boundary decisions are missing or incomplete")
     materialized_provenance = _normalize_boundary_provenance(
-        expected_candidates, materialized_provenance
+        expected_candidates, materialized_windows, materialized_provenance
     )
     _validate_choice_compositions(materialized_choices, materialized_units)
 
@@ -243,6 +247,7 @@ def assemble_semantic_outline_from_authority(
     scene_model: SceneModel,
     decisions: Sequence[SemanticBoundaryDecision],
     *,
+    boundary_windows: Sequence[BoundaryWindow] = (),
     boundary_provenance: Sequence[LiveSemanticProvenance] = (),
 ) -> tuple[tuple[FineNarrativeUnit, ...], tuple[NarrativeGapCandidate, ...], SemanticOutline]:
     """Build units, exhaustive candidates, choices, and final hierarchy from one M10/M11 pair."""
@@ -253,6 +258,7 @@ def assemble_semantic_outline_from_authority(
         units,
         candidates,
         decisions,
+        boundary_windows=boundary_windows,
         boundary_provenance=boundary_provenance,
     )
     choices = build_choice_compositions(canonical, units, provisional)
@@ -263,6 +269,7 @@ def assemble_semantic_outline_from_authority(
         candidates,
         decisions,
         choices=choices,
+        boundary_windows=boundary_windows,
         boundary_provenance=boundary_provenance,
     )
     return units, candidates, outline
@@ -528,12 +535,31 @@ def build_choice_compositions(
 
 def _normalize_boundary_provenance(
     candidates: Sequence[NarrativeGapCandidate],
+    windows: Sequence[BoundaryWindow],
     provenance: Sequence[LiveSemanticProvenance],
 ) -> tuple[LiveSemanticProvenance, ...]:
     if not provenance:
         return ()
+    if not windows:
+        raise ValueError("live boundary provenance requires its exact boundary windows")
     if len(provenance) != len(candidates):
         raise ValueError("live boundary provenance must cover every eligible gap exactly once")
+    expected_candidate_ids = tuple(item.candidate_id for item in candidates)
+    if any(item.authority != candidates[0].authority for item in windows):
+        raise ValueError("boundary provenance windows use foreign authority")
+    window_ids = [item.window_id for item in windows]
+    if len(window_ids) != len(set(window_ids)):
+        raise ValueError("boundary provenance contains duplicate window identity")
+    owned_candidate_ids = tuple(
+        candidate_id for window in windows for candidate_id in window.owned_candidate_ids
+    )
+    if owned_candidate_ids != expected_candidate_ids:
+        raise ValueError("boundary provenance windows do not own every candidate exactly once")
+    window_by_candidate = {
+        candidate_id: window.window_id
+        for window in windows
+        for candidate_id in window.owned_candidate_ids
+    }
     by_candidate: dict[str, LiveSemanticProvenance] = {}
     for item in provenance:
         if item.stage != "boundaries":
@@ -542,8 +568,10 @@ def _normalize_boundary_provenance(
             raise ValueError("live boundary provenance lacks exact candidate/window identity")
         if item.candidate_id in by_candidate:
             raise ValueError("live boundary provenance duplicates one candidate")
+        if window_by_candidate.get(item.candidate_id) != item.window_id:
+            raise ValueError("live boundary provenance has foreign candidate/window ownership")
         by_candidate[item.candidate_id] = item
-    expected_ids = {item.candidate_id for item in candidates}
+    expected_ids = set(expected_candidate_ids)
     if set(by_candidate) != expected_ids:
         raise ValueError("live boundary provenance is foreign, stale, or incomplete")
     return tuple(by_candidate[item.candidate_id] for item in candidates)

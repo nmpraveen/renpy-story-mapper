@@ -280,6 +280,17 @@ def test_missing_duplicate_and_foreign_semantic_decisions_fail_closed() -> None:
 def test_boundary_provenance_binds_by_exact_candidate_and_window_identity() -> None:
     units, decisions, choices, _outline = _generalized_outline()
     candidates = build_all_eligible_gap_candidates(units)
+    windows = build_boundary_windows(
+        units,
+        candidates,
+        maximum_owned_candidates=2,
+        context_halo_units=1,
+    )
+    window_by_candidate = {
+        candidate_id: window.window_id
+        for window in windows
+        for candidate_id in window.owned_candidate_ids
+    }
     provenance = tuple(
         LiveSemanticProvenance(
             "boundaries",
@@ -289,7 +300,7 @@ def test_boundary_provenance_binds_by_exact_candidate_and_window_identity() -> N
             "provider-identity",
             f"cache-{index}",
             candidate_id=candidate.candidate_id,
-            window_id=f"window-{index // 2}",
+            window_id=window_by_candidate[candidate.candidate_id],
         )
         for index, candidate in enumerate(candidates)
     )
@@ -299,6 +310,7 @@ def test_boundary_provenance_binds_by_exact_candidate_and_window_identity() -> N
         candidates,
         decisions,
         choices=choices,
+        boundary_windows=windows,
         boundary_provenance=tuple(reversed(provenance)),
     )
 
@@ -313,13 +325,32 @@ def test_boundary_provenance_binds_by_exact_candidate_and_window_identity() -> N
         item.candidate_id for item in candidates
     ]
     duplicated = (provenance[0], provenance[0], *provenance[2:])
+    with pytest.raises(ValueError, match="requires its exact boundary windows"):
+        assemble_semantic_outline(
+            units,
+            candidates,
+            decisions,
+            choices=choices,
+            boundary_provenance=provenance,
+        )
     with pytest.raises(ValueError, match="duplicates one candidate"):
         assemble_semantic_outline(
             units,
             candidates,
             decisions,
             choices=choices,
+            boundary_windows=windows,
             boundary_provenance=duplicated,
+        )
+    foreign_window = replace(provenance[0], window_id="foreign-window")
+    with pytest.raises(ValueError, match="foreign candidate/window ownership"):
+        assemble_semantic_outline(
+            units,
+            candidates,
+            decisions,
+            choices=choices,
+            boundary_windows=windows,
+            boundary_provenance=(foreign_window, *provenance[1:]),
         )
 
 
@@ -387,6 +418,105 @@ def test_m11_call_occurrences_duplicate_shared_callee_units_without_cross_lockin
         "occurrence-a",
         "occurrence-b",
     ]
+    decisions = tuple(
+        SemanticBoundaryDecision(
+            item.candidate_id,
+            SemanticBoundaryKind.NEW_BEAT_SAME_CLUSTER,
+            "Keep occurrence-local turns distinct.",
+            1.0,
+        )
+        for item in candidates
+    )
+    outline = assemble_semantic_outline(units, candidates, decisions)
+    assert isinstance(outline, SemanticOutline)
+    topology = build_semantic_quotient_topology(canonical, units, outline)
+    assert sum("edge-0" in item.authority_edge_ids for item in topology.edges) == 2
+    assert sum("edge-1" in item.authority_edge_ids for item in topology.edges) == 2
+
+
+def test_nested_occurrence_instances_are_qualified_by_their_outer_call_path() -> None:
+    canonical, model = linear_authority(
+        (
+            AtomKind.CALL,
+            AtomKind.CALL,
+            AtomKind.NARRATION,
+            AtomKind.CALL,
+            AtomKind.NARRATION,
+            AtomKind.DIALOGUE,
+        )
+    )
+    occurrence_provenance = M11Provenance(
+        node_ids=tuple(item.id for item in canonical.nodes),
+        edge_ids=tuple(item.id for item in canonical.edges),
+        evidence_ids=tuple(item.id for item in canonical.evidence),
+    )
+    occurrences = (
+        CallSiteOccurrence(
+            "outer-a",
+            "atom-0",
+            "node-2",
+            OccurrenceKind.NARRATIVE,
+            model.scenes[0].id,
+            model.scenes[0].lane_id,
+            ("atom-2", "atom-3"),
+            (),
+            False,
+            False,
+            occurrence_provenance,
+        ),
+        CallSiteOccurrence(
+            "outer-b",
+            "atom-1",
+            "node-2",
+            OccurrenceKind.NARRATIVE,
+            model.scenes[0].id,
+            model.scenes[0].lane_id,
+            ("atom-2", "atom-3"),
+            (),
+            False,
+            False,
+            occurrence_provenance,
+        ),
+        CallSiteOccurrence(
+            "nested-static",
+            "atom-3",
+            "node-4",
+            OccurrenceKind.NARRATIVE,
+            model.scenes[0].id,
+            model.scenes[0].lane_id,
+            ("atom-4", "atom-5"),
+            (),
+            False,
+            False,
+            occurrence_provenance,
+        ),
+    )
+    occurrence_model = replace(model, occurrences=occurrences)
+    occurrence_model.validate()
+
+    units = build_fine_narrative_units(canonical, occurrence_model)
+    nested_units = [item for item in units if item.story_atom_id == "atom-3"]
+
+    assert len(nested_units) == 2
+    assert len({item.call_occurrence_id for item in nested_units}) == 2
+    assert {item.call_occurrence_path for item in nested_units} == {
+        ("outer-a", "nested-static"),
+        ("outer-b", "nested-static"),
+    }
+    candidates = build_all_eligible_gap_candidates(units)
+    decisions = tuple(
+        SemanticBoundaryDecision(
+            item.candidate_id,
+            SemanticBoundaryKind.NEW_BEAT_SAME_CLUSTER,
+            "Keep nested occurrence-local turns distinct.",
+            1.0,
+        )
+        for item in candidates
+    )
+    outline = assemble_semantic_outline(units, candidates, decisions)
+    assert isinstance(outline, SemanticOutline)
+    topology = build_semantic_quotient_topology(canonical, units, outline)
+    assert topology.edges
 
 
 def test_boundary_windows_own_every_candidate_once_with_bounded_same_sequence_halos() -> None:

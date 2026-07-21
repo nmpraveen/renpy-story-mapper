@@ -84,6 +84,7 @@ class FineNarrativeUnit:
     exit_node_id: str
     incident_edge_ids: tuple[str, ...]
     provenance: Provenance
+    call_occurrence_path: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_text(self.sequence_id, "fine-unit sequence ID")
@@ -99,6 +100,7 @@ class FineNarrativeUnit:
             (self.speaker_ids, "fine-unit speaker ID"),
             (self.context_ids, "fine-unit context ID"),
             (self.incident_edge_ids, "fine-unit incident edge ID"),
+            (self.call_occurrence_path, "fine-unit call occurrence path item"),
         ):
             _require_unique(values, label)
         _require_text(self.lane_id, "fine-unit lane ID")
@@ -129,6 +131,7 @@ class FineNarrativeUnit:
             "context_ids": list(self.context_ids),
             "lane_id": self.lane_id,
             "call_occurrence_id": self.call_occurrence_id,
+            "call_occurrence_path": list(self.call_occurrence_path),
             "loop_id": self.loop_id,
             "parent_choice_id": self.parent_choice_id,
             "parent_arm_id": self.parent_arm_id,

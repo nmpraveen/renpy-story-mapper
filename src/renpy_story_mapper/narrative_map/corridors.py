@@ -457,6 +457,11 @@ def build_fine_narrative_units(
                     evidence_ids=evidence_ids,
                     locators=locators,
                 ),
+                call_occurrence_path=(
+                    (corridor.call_occurrence_id,)
+                    if corridor.call_occurrence_id is not None
+                    else ()
+                ),
             )
         )
     expanded = _expand_call_occurrence_units(
@@ -616,15 +621,27 @@ def _expand_call_occurrence_units(
     emitted: set[tuple[str, str | None]] = set()
     sequence_ordinals: dict[str, int] = defaultdict(int)
 
-    def append_unit(story_atom_id: str, occurrence_id: str | None) -> None:
+    def append_unit(story_atom_id: str, occurrence_path: tuple[str, ...]) -> None:
         unit = unit_by_story.get(story_atom_id)
         if unit is None:
             return
-        key = (story_atom_id, occurrence_id)
+        if not occurrence_path:
+            occurrence_instance_id = None
+        elif len(occurrence_path) == 1:
+            occurrence_instance_id = occurrence_path[0]
+        else:
+            occurrence_instance_id = stable_m15_id(
+                "call_occurrence_instance",
+                {
+                    "authority": unit.authority.to_dict(),
+                    "occurrence_path": list(occurrence_path),
+                },
+            )
+        key = (story_atom_id, occurrence_instance_id)
         if key in emitted:
             raise ValueError("one story atom is duplicated within a call occurrence")
         emitted.add(key)
-        if occurrence_id is None:
+        if occurrence_instance_id is None:
             sequence_id = unit.sequence_id
             call_occurrence_id = unit.call_occurrence_id
         else:
@@ -633,10 +650,10 @@ def _expand_call_occurrence_units(
                 {
                     "authority": unit.authority.to_dict(),
                     "base_sequence_id": unit.sequence_id,
-                    "call_occurrence_id": occurrence_id,
+                    "call_occurrence_id": occurrence_instance_id,
                 },
             )
-            call_occurrence_id = occurrence_id
+            call_occurrence_id = occurrence_instance_id
         ordinal = sequence_ordinals[sequence_id]
         sequence_ordinals[sequence_id] += 1
         result.append(
@@ -645,27 +662,34 @@ def _expand_call_occurrence_units(
                 sequence_id=sequence_id,
                 ordinal=ordinal,
                 call_occurrence_id=call_occurrence_id,
+                call_occurrence_path=occurrence_path,
                 context_ids=ordered_unique(
                     (
                         *unit.context_ids,
-                        *((occurrence_id,) if occurrence_id is not None else ()),
+                        *occurrence_path,
+                        *((occurrence_instance_id,) if occurrence_instance_id is not None else ()),
                     )
                 ),
             )
         )
 
-    def append_occurrence(occurrence: CallSiteOccurrence, active: set[str]) -> None:
+    def append_occurrence(
+        occurrence: CallSiteOccurrence,
+        parent_path: tuple[str, ...],
+        active: set[str],
+    ) -> None:
         if occurrence.id in active:
             raise ValueError("call-occurrence expansion contains a cycle")
         active.add(occurrence.id)
-        append_unit(occurrence.call_atom_id, occurrence.id)
+        occurrence_path = (*parent_path, occurrence.id)
+        append_unit(occurrence.call_atom_id, occurrence_path)
         for atom_id in occurrence.referenced_atom_ids:
             nested = occurrences_by_call.get(atom_id)
             if nested:
                 for nested_occurrence in nested:
-                    append_occurrence(nested_occurrence, active)
+                    append_occurrence(nested_occurrence, occurrence_path, active)
             else:
-                append_unit(atom_id, occurrence.id)
+                append_unit(atom_id, occurrence_path)
         active.remove(occurrence.id)
 
     for atom in ordered_atoms:
@@ -673,10 +697,10 @@ def _expand_call_occurrence_units(
         if atom_occurrences:
             if atom.id not in referenced_atom_ids:
                 for occurrence in atom_occurrences:
-                    append_occurrence(occurrence, set())
+                    append_occurrence(occurrence, (), set())
             continue
         if atom.id not in referenced_atom_ids:
-            append_unit(atom.id, None)
+            append_unit(atom.id, ())
     return tuple(result)
 
 

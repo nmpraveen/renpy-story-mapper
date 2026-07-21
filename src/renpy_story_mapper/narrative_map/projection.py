@@ -105,16 +105,16 @@ def build_semantic_quotient_topology(
     }
     if set(beat_by_unit) != {item.unit_id for item in materialized_units}:
         raise ValueError("semantic topology requires complete frozen unit membership")
-    owner_by_node: dict[str, str] = {}
+    owners_by_node: dict[str, list[tuple[str, tuple[str, ...]]]] = defaultdict(list)
     nodes_by_subject: dict[str, list[str]] = defaultdict(list)
     kind_by_subject: dict[str, str] = {}
     for unit in materialized_units:
         subject_id = beat_by_unit[unit.unit_id]
         kind_by_subject[subject_id] = "beat"
         for node_id in unit.node_ids:
-            prior = owner_by_node.setdefault(node_id, subject_id)
-            if prior != subject_id:
-                raise ValueError("canonical node ownership crosses semantic beats")
+            owner = (subject_id, unit.call_occurrence_path)
+            if owner not in owners_by_node[node_id]:
+                owners_by_node[node_id].append(owner)
             if node_id not in nodes_by_subject[subject_id]:
                 nodes_by_subject[subject_id].append(node_id)
 
@@ -130,7 +130,7 @@ def build_semantic_quotient_topology(
         _replace_subject_owner(
             region.split_node_id,
             choice.choice_id,
-            owner_by_node,
+            owners_by_node,
             nodes_by_subject,
         )
         nodes_by_subject[choice.choice_id].append(region.split_node_id)
@@ -149,7 +149,7 @@ def build_semantic_quotient_topology(
             _replace_subject_owner(
                 choice.shared_target_id,
                 rejoin_subject,
-                owner_by_node,
+                owners_by_node,
                 nodes_by_subject,
             )
             if choice.shared_target_id not in nodes_by_subject[rejoin_subject]:
@@ -157,13 +157,13 @@ def build_semantic_quotient_topology(
             kind_by_subject[rejoin_subject] = "rejoin"
 
     for node in canonical_nodes:
-        if node.id in owner_by_node:
+        if node.id in owners_by_node:
             continue
         subject_id = stable_m15_id(
             "semantic_structural_anchor",
             {"canonical_hash": canonical.authority_hash, "canonical_node_id": node.id},
         )
-        owner_by_node[node.id] = subject_id
+        owners_by_node[node.id].append((subject_id, ()))
         nodes_by_subject[subject_id].append(node.id)
         kind_by_subject[subject_id] = (
             "terminal"
@@ -186,10 +186,6 @@ def build_semantic_quotient_topology(
     grouped: dict[tuple[str, str, NarrativeEdgeKind], list[CanonicalEdge]] = defaultdict(list)
     node_kinds = {item.id: item.kind for item in canonical_nodes}
     for edge in canonical_edges:
-        source = owner_by_node[edge.source_id]
-        target = owner_by_node[edge.target_id]
-        if source == target:
-            continue
         kind = _edge_kind(
             edge,
             node_kinds,
@@ -197,7 +193,14 @@ def build_semantic_quotient_topology(
             persistent_split_nodes,
             persistent_merge_nodes,
         )
-        grouped[(source, target, kind)].append(edge)
+        owner_pairs = _compatible_owner_pairs(
+            owners_by_node[edge.source_id], owners_by_node[edge.target_id]
+        )
+        if not owner_pairs:
+            raise ValueError("canonical edge occurrence ownership is ambiguous")
+        for source, target in owner_pairs:
+            if source != target:
+                grouped[(source, target, kind)].append(edge)
     topology_edges: list[SemanticTopologyEdge] = []
     for (source, target, kind), edges in grouped.items():
         authority_edge_ids = tuple(item.id for item in edges)
@@ -232,6 +235,7 @@ def build_semantic_quotient_topology(
     topology_nodes = tuple(
         SemanticTopologyNode(subject_id, kind_by_subject[subject_id], tuple(node_ids))
         for subject_id, node_ids in nodes_by_subject.items()
+        if node_ids
     )
     return SemanticQuotientTopology(
         canonical_hash=canonical.authority_hash,
@@ -243,13 +247,42 @@ def build_semantic_quotient_topology(
 def _replace_subject_owner(
     canonical_node_id: str,
     subject_id: str,
-    owner_by_node: dict[str, str],
+    owners_by_node: dict[str, list[tuple[str, tuple[str, ...]]]],
     nodes_by_subject: dict[str, list[str]],
 ) -> None:
-    prior = owner_by_node.get(canonical_node_id)
-    if prior is not None and canonical_node_id in nodes_by_subject[prior]:
-        nodes_by_subject[prior].remove(canonical_node_id)
-    owner_by_node[canonical_node_id] = subject_id
+    for prior, _path in owners_by_node.get(canonical_node_id, ()):
+        if canonical_node_id in nodes_by_subject[prior]:
+            nodes_by_subject[prior].remove(canonical_node_id)
+    owners_by_node[canonical_node_id] = [(subject_id, ())]
+
+
+def _compatible_owner_pairs(
+    sources: Sequence[tuple[str, tuple[str, ...]]],
+    targets: Sequence[tuple[str, tuple[str, ...]]],
+) -> tuple[tuple[str, str], ...]:
+    result: list[tuple[str, str]] = []
+    for source_id, source_path in sources:
+        for target_id, target_path in targets:
+            if (
+                not source_path
+                or not target_path
+                or _is_path_prefix(source_path, target_path)
+                or _is_path_prefix(target_path, source_path)
+            ):
+                pair = (source_id, target_id)
+                if pair not in result:
+                    result.append(pair)
+    if not result and (len(sources) == 1 or len(targets) == 1):
+        return tuple(
+            (source_id, target_id)
+            for source_id, _source_path in sources
+            for target_id, _target_path in targets
+        )
+    return tuple(result)
+
+
+def _is_path_prefix(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
+    return len(left) <= len(right) and right[: len(left)] == left
 
 
 def build_narrative_map(
