@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, cast
@@ -246,6 +246,75 @@ class NarrativeMapRepository:
         if not isinstance(raw, Mapping):
             raise storage.ProjectCorruptError("M15.1 semantic build payload is not an object")
         return _detached_mapping(raw, "semantic build")
+
+    def reconcile_semantic_manifests(
+        self,
+        *,
+        stage: str,
+        manifest_ids: Sequence[str],
+    ) -> Mapping[str, object]:
+        """Atomically remember prior manifests whose reservations are all terminal."""
+
+        if stage not in {"boundary", "summary"}:
+            raise ValueError("semantic reconciliation stage is invalid")
+        if not manifest_ids or any(not item for item in manifest_ids):
+            raise ValueError("semantic reconciliation manifest IDs are invalid")
+        connection = self._project._require_open()
+        now = storage.utc_now()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='active'",
+                (SEMANTIC_BUILD_COLLECTION,),
+            ).fetchone()
+            if row is None:
+                raise storage.ProjectCorruptError("M15.1 semantic build is missing")
+            encoded = bytes(row["payload_json"])
+            if storage.payload_digest(encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError(
+                    "M15.1 semantic build checksum does not match stored data"
+                )
+            decoded = storage.decode_json(encoded)
+            if not isinstance(decoded, Mapping):
+                raise storage.ProjectCorruptError("M15.1 semantic build is not an object")
+            payload = dict(decoded)
+            snapshots = payload.get("confirmed_manifests")
+            stages = payload.get("confirmed_manifest_stages")
+            if not isinstance(snapshots, Mapping) or not isinstance(stages, Mapping):
+                raise storage.ProjectCorruptError(
+                    "M15.1 confirmed manifest metadata is invalid"
+                )
+            if any(item not in snapshots or stages.get(item) != stage for item in manifest_ids):
+                raise storage.ProjectCorruptError(
+                    "M15.1 reconciled manifest does not belong to its stage"
+                )
+            key = f"{stage}_reconciled_manifest_ids"
+            existing = payload.get(key, [])
+            if not isinstance(existing, list) or any(
+                not isinstance(item, str) or not item for item in existing
+            ):
+                raise storage.ProjectCorruptError(
+                    "M15.1 reconciled manifest checkpoint is invalid"
+                )
+            payload[key] = list(dict.fromkeys((*existing, *manifest_ids)))
+            normalized = _detached_mapping(payload, "semantic build")
+            _validate_durable(normalized)
+            updated = storage.canonical_json(normalized)
+            connection.execute(
+                "UPDATE payloads SET payload_json=?,payload_hash=?,updated_utc=? "
+                "WHERE collection=? AND record_key='active'",
+                (
+                    updated,
+                    storage.payload_digest(updated),
+                    now,
+                    SEMANTIC_BUILD_COLLECTION,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection=? AND record_key='active'",
+                (SEMANTIC_BUILD_COLLECTION,),
+            )
+        return normalized
 
     def publish_semantic_current(
         self,

@@ -47,7 +47,7 @@ SUMMARY_PROMPT_VERSION = "m15-event-summary-prompt-v1"
 SUMMARY_RESPONSE_SCHEMA = "m15-event-summary-v2"
 SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v2"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
-SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v2"
+SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
@@ -630,7 +630,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.SEMANTIC_SUMMARY: (
             SEMANTIC_SUMMARY_RESPONSE_SCHEMA,
-            "semantic_summary_v2.json",
+            "semantic_summary_v3.json",
             "semantic_summary_v3.schema.json",
         ),
     }

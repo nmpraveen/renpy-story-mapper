@@ -668,13 +668,25 @@ class SemanticLifecycle:
     ) -> NarrativeWorkflowReport:
         raw = self._require_build(preparation.build_id)
         prefix = "boundary" if preparation.stage is SemanticStage.BOUNDARIES else "summary"
-        self._reject_overlapping_confirmed_run(
+        prior_reconciled = _strings(
+            raw.get(f"{prefix}_reconciled_manifest_ids", []),
+            f"reconciled {prefix} manifest IDs",
+        )
+        reconciled_manifest_ids = self._reject_overlapping_confirmed_run(
             raw,
             prefix=prefix,
             jobs=preparation.jobs,
             profile=consent.profile,
             current_manifest_id=consent.manifest_id,
         )
+        newly_reconciled = tuple(
+            item for item in reconciled_manifest_ids if item not in prior_reconciled
+        )
+        if newly_reconciled:
+            raw = self._repository.reconcile_semantic_manifests(
+                stage=prefix,
+                manifest_ids=newly_reconciled,
+            )
         stage_accounting_key = (
             "boundary_accounting"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -850,11 +862,27 @@ class SemanticLifecycle:
         jobs: Sequence[PreparedNarrativeJob],
         profile: ProviderProfile,
         current_manifest_id: str,
-    ) -> None:
+    ) -> tuple[str, ...]:
         snapshots = _manifest_snapshot_mapping(raw.get("confirmed_manifests"))
         stages = _manifest_stage_mapping(raw.get("confirmed_manifest_stages"))
+        reconciled = list(
+            _strings(
+                raw.get(f"{prefix}_reconciled_manifest_ids", []),
+                f"reconciled {prefix} manifest IDs",
+            )
+        )
+        reconciled_set = set(reconciled)
+        if any(
+            manifest_id not in snapshots or stages.get(manifest_id) != prefix
+            for manifest_id in reconciled
+        ):
+            raise ValueError("semantic reconciled manifest checkpoint is stale")
         for manifest_id, identity in snapshots.items():
-            if manifest_id == current_manifest_id or stages.get(manifest_id) != prefix:
+            if (
+                manifest_id == current_manifest_id
+                or stages.get(manifest_id) != prefix
+                or manifest_id in reconciled_set
+            ):
                 continue
             prior = _restore_manifest(identity, profile)
             latest_possible_completion = datetime.fromisoformat(
@@ -873,6 +901,9 @@ class SemanticLifecycle:
                 raise ValueError(
                     f"a prior confirmed {prefix} manifest still has an in-flight call"
                 )
+            reconciled.append(manifest_id)
+            reconciled_set.add(manifest_id)
+        return tuple(reconciled)
 
     def _recover_stage_progress(
         self,
@@ -1355,6 +1386,8 @@ def _new_build_payload(
         "summary_accounted_manifest_id": None,
         "summary_accounted_reservation_count": 0,
         "summary_accounted_record_hashes": {},
+        "boundary_reconciled_manifest_ids": [],
+        "summary_reconciled_manifest_ids": [],
         "summary_job_ids": [],
         "summary_job_identity_hash": None,
         "published_map_hash": None,

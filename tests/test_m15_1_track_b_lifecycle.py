@@ -661,6 +661,12 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
     SterileNarrativeMapProvider(runner=runner).submit(request, lambda: False)
 
     assert runner.requests[0].schema_path.name == "semantic_summary_v3.schema.json"
+    prompt = json.loads(runner.requests[0].stdin)
+    assert prompt["version"] == "m15-semantic-summary-prompt-v3"
+    assert "exact strings" in prompt["characters_policy"]
+    assert "known_characters" in prompt["characters_policy"]
+    assert "atom" in prompt["title_policy"]
+    assert "source" in prompt["title_policy"]
     assert current_job.response_schema == "m15-semantic-summary-v3"
     stale_job = replace(current_job, response_schema="m15-semantic-summary-v2")
     stale_runner = _FakeSterileRunner(payload)
@@ -1694,6 +1700,93 @@ def test_escaped_summary_task_reconciles_once_across_repeated_manifest_rotation(
     assert final_raw["summary_accounting"]["provider_calls"] == 2
     assert final_raw["summary_accounting"]["reserved_provider_calls"] == 3
     assert final_raw["summary_accounting"]["cache_hits"] == 1
+
+
+def test_settled_summary_manifest_stays_reconciled_after_later_record_replacement(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates)
+    with Project.create(tmp_path / "settled-summary-manifest.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        boundaries = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="settled-summary-boundaries",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(boundaries, boundaries.granted_consent())
+        service.start_boundaries(
+            boundaries,
+            provider=_FakeProvider([_boundary_payload(windows[0])]),
+            consent=boundaries.granted_consent(),
+        )
+        outline = _outline(units, candidates, service, boundaries)
+        topology = _topology(outline)
+        service.freeze_semantic_membership(boundaries, outline, topology)
+        prior = service.prepare_summaries(
+            outline,
+            _summary_inputs(outline, units),
+            _evidence(units),
+            quotient_topology=topology,
+            profile=_profile(),
+            run_id="settled-summary-prior",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(prior, prior.granted_consent())
+        first = service.start_summaries(
+            prior,
+            provider=_FakeProvider(
+                [_summary_payload(prior.jobs[0], 0), {"bad": True}, {"bad": True}]
+            ),
+            consent=prior.granted_consent(),
+        )
+        assert first.provider_calls == 3
+
+        replacement = service.prepare_summaries(
+            outline,
+            _summary_inputs(outline, units),
+            _evidence(units),
+            quotient_topology=topology,
+            profile=_profile(),
+            run_id="settled-summary-replacement",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(minutes=59),
+            replay_existing=True,
+        )
+        service.confirm_semantic_consent(replacement, replacement.granted_consent())
+        second = service.start_summaries(
+            replacement,
+            provider=_FakeProvider([{"bad": True}, {"bad": True}]),
+            consent=replacement.granted_consent(),
+        )
+        assert second.provider_calls == 2
+        after_replacement = repository.read_semantic_build()
+        assert after_replacement is not None
+        assert prior.consent.manifest_id in after_replacement[
+            "summary_reconciled_manifest_ids"
+        ]
+
+        final = service.start_summaries(
+            replacement,
+            provider=_FakeProvider([_summary_payload(replacement.jobs[1], 1)]),
+            consent=replacement.granted_consent(),
+        )
+        status = service.semantic_status()
+
+    assert final.provider_calls == 1
+    assert status is not None
+    assert status.record.state is SemanticBuildState.COMPLETE
 
 
 def test_concurrent_reopen_cannot_cross_the_atomic_durable_consent_ceiling(
