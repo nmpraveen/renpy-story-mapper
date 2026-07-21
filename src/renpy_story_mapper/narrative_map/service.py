@@ -82,6 +82,7 @@ class NarrativeMapService:
         maximum_input_bytes: int = 1_000_000,
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
     ) -> SemanticStagePreparation:
         return self._semantic.prepare_boundaries(
             units,
@@ -98,6 +99,7 @@ class NarrativeMapService:
             maximum_input_bytes=maximum_input_bytes,
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
         )
 
     def start_boundaries(
@@ -137,6 +139,7 @@ class NarrativeMapService:
         maximum_input_bytes: int = 1_000_000,
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
     ) -> SemanticStagePreparation:
         return self._semantic.prepare_summaries(
             outline,
@@ -152,6 +155,7 @@ class NarrativeMapService:
             maximum_input_bytes=maximum_input_bytes,
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
         )
 
     def start_summaries(

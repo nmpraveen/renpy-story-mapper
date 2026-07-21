@@ -85,6 +85,7 @@ class SemanticStagePreparation:
 @dataclass(frozen=True)
 class SemanticAccounting:
     provider_calls: int = 0
+    reserved_provider_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     elapsed_ms: int = 0
@@ -134,6 +135,7 @@ class SemanticLifecycle:
         maximum_input_bytes: int = 1_000_000,
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
     ) -> SemanticStagePreparation:
         from renpy_story_mapper.narrative_map.semantic_contracts import (
             BoundaryWindow,
@@ -166,6 +168,17 @@ class SemanticLifecycle:
             privacy_scope,
             membership_hash=None,
             outline=None,
+            run_id=run_id,
+            valid_for=valid_for,
+            maximum_provider_calls=(
+                maximum_provider_calls
+                if maximum_provider_calls is not None
+                else 2 * len(jobs)
+            ),
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
         )
         if reusable is not None:
             return reusable
@@ -271,7 +284,7 @@ class SemanticLifecycle:
                         "boundaries",
                         job.job_id,
                         job.input_hash,
-                        preparation.consent.manifest_id,
+                        record.consent_manifest_id or preparation.consent.manifest_id,
                         canonical_hash(record.provider_identity),
                         self._repository.cache_key(job, preparation.consent.profile),
                     )
@@ -294,6 +307,7 @@ class SemanticLifecycle:
         maximum_input_bytes: int = 1_000_000,
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
     ) -> SemanticStagePreparation:
         raw = self._require_build()
         if (
@@ -344,6 +358,17 @@ class SemanticLifecycle:
             privacy_scope,
             membership_hash=membership_hash,
             outline=outline,
+            run_id=run_id,
+            valid_for=valid_for,
+            maximum_provider_calls=(
+                maximum_provider_calls
+                if maximum_provider_calls is not None
+                else 2 * len(jobs)
+            ),
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
         )
         if reusable is not None:
             return reusable
@@ -519,6 +544,10 @@ class SemanticLifecycle:
                 else "summary_accounting"
             )
             stage_accounting = _accounting_from_payload(raw.get(stage_accounting_key))
+            consumed_provider_calls = self._repository.semantic_reserved_call_count(
+                manifest_id=consent.manifest_id,
+                maximum_provider_calls=consent.maximum_provider_calls,
+            )
             workflow = NarrativeBoundaryWorkflow(
                 self._repository,
                 provider,
@@ -538,14 +567,14 @@ class SemanticLifecycle:
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
-                        consumed_provider_calls=stage_accounting.provider_calls,
+                        consumed_provider_calls=consumed_provider_calls,
                     )
                 else:
                     report = workflow.run_semantic_summary_jobs(
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
-                        consumed_provider_calls=stage_accounting.provider_calls,
+                        consumed_provider_calls=consumed_provider_calls,
                     )
             finally:
                 self._active_workflow = None
@@ -563,16 +592,32 @@ class SemanticLifecycle:
         )
         updated = dict(latest)
         accounting = _accounting_from_payload(latest.get("accounting"))
-        updated["accounting"] = _accounting_payload(_add_report(accounting, report))
         stage_accounting_key = (
             "boundary_accounting"
             if preparation.stage is SemanticStage.BOUNDARIES
             else "summary_accounting"
         )
         stage_accounting = _accounting_from_payload(latest.get(stage_accounting_key))
-        updated[stage_accounting_key] = _accounting_payload(
-            _add_report(stage_accounting, report)
+        reserved_after = self._repository.semantic_reserved_call_count(
+            manifest_id=consent.manifest_id,
+            maximum_provider_calls=consent.maximum_provider_calls,
         )
+        if reserved_after < stage_accounting.reserved_provider_calls:
+            raise ValueError("durable semantic call accounting moved backwards")
+        reserved_delta = reserved_after - stage_accounting.reserved_provider_calls
+        updated_accounting = _add_report(accounting, report)
+        updated_accounting = replace(
+            updated_accounting,
+            reserved_provider_calls=(
+                updated_accounting.reserved_provider_calls + reserved_delta
+            ),
+        )
+        updated["accounting"] = _accounting_payload(updated_accounting)
+        updated_stage_accounting = replace(
+            _add_report(stage_accounting, report),
+            reserved_provider_calls=reserved_after,
+        )
+        updated[stage_accounting_key] = _accounting_payload(updated_stage_accounting)
         target_key = (
             "completed_boundary_job_ids"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -622,7 +667,9 @@ class SemanticLifecycle:
                     "stage": "summaries",
                     "job_id": job.job_id,
                     "input_hash": job.input_hash,
-                    "manifest_id": preparation.consent.manifest_id,
+                    "manifest_id": (
+                        record.consent_manifest_id or preparation.consent.manifest_id
+                    ),
                     "provider_identity_hash": canonical_hash(record.provider_identity),
                     "cache_identity": self._repository.cache_key(job, preparation.consent.profile),
                 }
@@ -706,6 +753,13 @@ class SemanticLifecycle:
         *,
         membership_hash: str | None,
         outline: SemanticOutline | None,
+        run_id: str,
+        valid_for: timedelta,
+        maximum_provider_calls: int,
+        maximum_input_bytes: int,
+        maximum_output_bytes: int,
+        timeout_seconds: float,
+        replay_existing: bool,
     ) -> SemanticStagePreparation | None:
         raw = self._repository.read_semantic_build()
         if raw is None or raw.get("schema") != SEMANTIC_BUILD_ENVELOPE:
@@ -729,10 +783,33 @@ class SemanticLifecycle:
         consent = _restore_manifest(manifest_value, profile)
         if consent.manifest_id != raw.get(f"{prefix}_manifest_id"):
             return None
+        requested_identity_matches = (
+            consent.run_id == run_id
+            and _manifest_duration(consent) == valid_for
+            and consent.maximum_provider_calls == maximum_provider_calls
+            and consent.maximum_input_bytes == maximum_input_bytes
+            and consent.maximum_output_bytes == maximum_output_bytes
+            and consent.timeout_seconds == timeout_seconds
+        )
+        if not requested_identity_matches:
+            if not replay_existing or not self._exact_replay(jobs, profile):
+                return None
+            return SemanticStagePreparation(
+                stage,
+                cast(str, raw["build_id"]),
+                authority,
+                source_hash,
+                correction_id,
+                privacy_scope,
+                membership_hash,
+                jobs,
+                consent,
+                outline,
+            )
         try:
             consent.validate_fresh()
         except ValueError:
-            if not self._exact_replay(jobs, profile):
+            if not replay_existing or not self._exact_replay(jobs, profile):
                 return None
         return SemanticStagePreparation(
             stage,
@@ -766,7 +843,6 @@ class SemanticLifecycle:
         boundary_ids: Sequence[str],
         profile: ProviderProfile,
     ) -> tuple[LiveSemanticProvenance, ...]:
-        manifest_id = cast(str, raw["boundary_manifest_id"])
         authority = _authority(raw.get("authority"))
         expected: list[LiveSemanticProvenance] = []
         for job_id in boundary_ids:
@@ -789,7 +865,7 @@ class SemanticLifecycle:
                 "boundaries",
                 job_id,
                 record.input_hash,
-                manifest_id,
+                record.consent_manifest_id or cast(str, raw["boundary_manifest_id"]),
                 canonical_hash(record.provider_identity),
                 f"m15_cache_{canonical_hash(cache_identity)}",
             )
@@ -815,6 +891,7 @@ class SemanticLifecycle:
                 or record.status is not NarrativeJobStatus.VALIDATED
                 or record.result is None
                 or record.provider_identity is None
+                or record.consent_manifest_id is None
             ):
                 return False
             expected_identity = {
@@ -955,6 +1032,14 @@ def _restore_manifest(
     )
 
 
+def _manifest_duration(consent: NarrativeConsentManifest) -> timedelta:
+    from datetime import datetime
+
+    issued = datetime.fromisoformat(consent.issued_utc)
+    expires = datetime.fromisoformat(consent.expires_utc)
+    return expires - issued
+
+
 def _jobs_hash(jobs: Sequence[PreparedNarrativeJob]) -> str:
     return canonical_hash([job.durable_metadata() for job in jobs])
 
@@ -962,7 +1047,14 @@ def _jobs_hash(jobs: Sequence[PreparedNarrativeJob]) -> str:
 def _accounting_from_payload(value: object) -> SemanticAccounting:
     if not isinstance(value, Mapping):
         raise ValueError("semantic accounting is unavailable")
-    names = ("provider_calls", "input_tokens", "output_tokens", "elapsed_ms", "cache_hits")
+    names = (
+        "provider_calls",
+        "reserved_provider_calls",
+        "input_tokens",
+        "output_tokens",
+        "elapsed_ms",
+        "cache_hits",
+    )
     if any(
         not isinstance(value.get(name), int)
         or isinstance(value.get(name), bool)
@@ -970,12 +1062,20 @@ def _accounting_from_payload(value: object) -> SemanticAccounting:
         for name in names
     ):
         raise ValueError("semantic accounting is invalid")
-    return SemanticAccounting(*(cast(int, value[name]) for name in names))
+    return SemanticAccounting(
+        provider_calls=cast(int, value["provider_calls"]),
+        reserved_provider_calls=cast(int, value["reserved_provider_calls"]),
+        input_tokens=cast(int, value["input_tokens"]),
+        output_tokens=cast(int, value["output_tokens"]),
+        elapsed_ms=cast(int, value["elapsed_ms"]),
+        cache_hits=cast(int, value["cache_hits"]),
+    )
 
 
 def _accounting_payload(value: SemanticAccounting) -> dict[str, int]:
     return {
         "provider_calls": value.provider_calls,
+        "reserved_provider_calls": value.reserved_provider_calls,
         "input_tokens": value.input_tokens,
         "output_tokens": value.output_tokens,
         "elapsed_ms": value.elapsed_ms,
@@ -985,11 +1085,12 @@ def _accounting_payload(value: SemanticAccounting) -> dict[str, int]:
 
 def _add_report(value: SemanticAccounting, report: NarrativeWorkflowReport) -> SemanticAccounting:
     return SemanticAccounting(
-        value.provider_calls + report.provider_calls,
-        value.input_tokens + report.input_tokens,
-        value.output_tokens + report.output_tokens,
-        value.elapsed_ms + report.elapsed_ms,
-        value.cache_hits + report.cache_hits,
+        provider_calls=value.provider_calls + report.provider_calls,
+        reserved_provider_calls=value.reserved_provider_calls,
+        input_tokens=value.input_tokens + report.input_tokens,
+        output_tokens=value.output_tokens + report.output_tokens,
+        elapsed_ms=value.elapsed_ms + report.elapsed_ms,
+        cache_hits=value.cache_hits + report.cache_hits,
     )
 
 

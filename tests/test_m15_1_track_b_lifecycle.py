@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from itertools import pairwise
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import pytest
@@ -25,6 +27,7 @@ from renpy_story_mapper.narrative_map.provider import (
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     BoundaryWindow,
+    ChoiceComposition,
     FineNarrativeUnit,
     MajorCluster,
     NarrativeGapCandidate,
@@ -35,8 +38,10 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 from renpy_story_mapper.narrative_map.semantic_projection import (
     FrozenSummaryInput,
     SemanticEvidenceRecord,
+    prepare_semantic_summary_jobs,
 )
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
 from renpy_story_mapper.project import Project
 
@@ -229,6 +234,22 @@ class _FakeSterileRunner:
         pass
 
 
+class _BlockingProvider(_FakeProvider):
+    def __init__(self, payload: dict[str, object], entered: Event, release: Event) -> None:
+        super().__init__([payload])
+        self.entered = entered
+        self.release = release
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        self.entered.set()
+        assert self.release.wait(timeout=5)
+        return super().submit(request, cancelled)
+
+
 def _outline(
     units: tuple[FineNarrativeUnit, ...],
     candidates: tuple[NarrativeGapCandidate, ...],
@@ -324,6 +345,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
             run_id="boundary-run",
             source_hash="source-hash",
             correction_id="m15.1",
+            replay_existing=True,
         )
         assert boundaries.consent.consent_granted is False
         assert boundaries.consent.maximum_provider_calls == 2
@@ -345,6 +367,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
             run_id="summary-run",
             source_hash="source-hash",
             correction_id="m15.1",
+            replay_existing=True,
         )
         assert summaries.consent.manifest_id != boundaries.consent.manifest_id
         summary_provider = _FakeProvider(
@@ -374,6 +397,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
             run_id="ignored-because-exact-reopen",
             source_hash="source-hash",
             correction_id="m15.1",
+            replay_existing=True,
         )
         boundary_provider = _FakeProvider([])
         boundary_report = service.start_boundaries(
@@ -392,6 +416,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
             run_id="also-ignored-because-exact-reopen",
             source_hash="source-hash",
             correction_id="m15.1",
+            replay_existing=True,
         )
         summary_provider = _FakeProvider([])
         summary_report = service.start_summaries(
@@ -504,6 +529,198 @@ def test_boundary_consent_cannot_start_summaries_and_changed_identity_is_stale(
         assert status.record.failure_codes == ("identity_changed",)
 
 
+def test_changed_preview_run_or_limits_never_reuse_prior_consent(tmp_path: Path) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates)
+    with Project.create(tmp_path / "changed-preview.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        first = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="preview-a",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=2,
+        )
+        narrowed = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="preview-a",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+        )
+        renamed = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="preview-b",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+        )
+
+    assert first.consent.maximum_provider_calls == 2
+    assert narrowed.consent.maximum_provider_calls == 1
+    assert len(
+        {
+            first.consent.manifest_id,
+            narrowed.consent.manifest_id,
+            renamed.consent.manifest_id,
+        }
+    ) == 3
+
+
+def test_cluster_summary_requires_its_complete_exact_frozen_beat_membership() -> None:
+    units = _units()
+    beat = SemanticBeat(
+        "beat-story",
+        "cluster-day",
+        tuple(item.unit_id for item in units),
+        None,
+        None,
+        EvidenceNavigation("beat", "beat-story"),
+    )
+    cluster = MajorCluster(
+        "cluster-day",
+        0,
+        (beat.beat_id,),
+        (),
+        EvidenceNavigation("major_cluster", "cluster-day"),
+    )
+    outline = SemanticOutline(
+        _authority(),
+        beat.ordered_unit_ids,
+        (),
+        (beat,),
+        (cluster,),
+        (),
+        (),
+    )
+    inputs = (
+        FrozenSummaryInput(
+            "beat",
+            beat.beat_id,
+            beat.ordered_unit_ids,
+            tuple(item.evidence_ids[0] for item in units),
+            ("Ava",),
+        ),
+        FrozenSummaryInput(
+            "major_cluster",
+            cluster.cluster_id,
+            (units[-1].unit_id,),
+            (units[-1].evidence_ids[0],),
+            ("Ava",),
+        ),
+    )
+    with pytest.raises(ValueError, match="exact frozen subject membership"):
+        prepare_semantic_summary_jobs(
+            outline,
+            inputs,
+            _evidence(units),
+            source_hash="source-hash",
+            correction_id="m15.1",
+            privacy_scope="story_evidence_only",
+        )
+
+
+def test_choice_summary_requires_only_its_exact_owned_beat_membership() -> None:
+    units = _units()
+    choice_beat = SemanticBeat(
+        "beat-choice",
+        "cluster-day",
+        (units[1].unit_id, units[2].unit_id),
+        "choice-route",
+        "arm-a",
+        EvidenceNavigation("beat", "beat-choice"),
+    )
+    context_beat = SemanticBeat(
+        "beat-context",
+        "cluster-day",
+        (units[0].unit_id,),
+        None,
+        None,
+        EvidenceNavigation("beat", "beat-context"),
+    )
+    cluster = MajorCluster(
+        "cluster-day",
+        0,
+        (context_beat.beat_id, choice_beat.beat_id),
+        ("choice-route",),
+        EvidenceNavigation("major_cluster", "cluster-day"),
+    )
+    choice = ChoiceComposition(
+        "choice-route",
+        cluster.cluster_id,
+        None,
+        None,
+        ("arm-a", "arm-b"),
+        ("Take A", "Take B"),
+        (),
+        ("rejoin-route",),
+        "node-rejoin",
+        "node-after",
+    )
+    outline = SemanticOutline(
+        _authority(),
+        tuple(item.unit_id for item in units),
+        (),
+        (context_beat, choice_beat),
+        (cluster,),
+        (choice,),
+        (),
+    )
+    all_evidence = tuple(item.evidence_ids[0] for item in units)
+    inputs = (
+        FrozenSummaryInput(
+            "beat",
+            context_beat.beat_id,
+            context_beat.ordered_unit_ids,
+            (all_evidence[0],),
+            ("Ava",),
+        ),
+        FrozenSummaryInput(
+            "beat",
+            choice_beat.beat_id,
+            choice_beat.ordered_unit_ids,
+            all_evidence[1:],
+            ("Ava",),
+        ),
+        FrozenSummaryInput(
+            "major_cluster",
+            cluster.cluster_id,
+            tuple(item.unit_id for item in units),
+            all_evidence,
+            ("Ava",),
+        ),
+        FrozenSummaryInput(
+            "choice",
+            choice.choice_id,
+            tuple(item.unit_id for item in units),
+            all_evidence,
+            ("Ava",),
+        ),
+    )
+    with pytest.raises(ValueError, match="exact frozen subject membership"):
+        prepare_semantic_summary_jobs(
+            outline,
+            inputs,
+            _evidence(units),
+            source_hash="source-hash",
+            correction_id="m15.1",
+            privacy_scope="story_evidence_only",
+        )
+
+
 def test_partial_boundary_failure_retries_cached_success_with_one_submit(tmp_path: Path) -> None:
     units = _units()
     candidates = _candidates(units)
@@ -545,7 +762,7 @@ def test_partial_boundary_failure_retries_cached_success_with_one_submit(tmp_pat
             windows,
             _evidence(units),
             profile=_profile(),
-            run_id="must-reuse-the-still-fresh-manifest",
+            run_id="partial-boundaries",
             source_hash="source-hash",
             correction_id="m15.1",
         )
@@ -562,6 +779,63 @@ def test_partial_boundary_failure_retries_cached_success_with_one_submit(tmp_pat
         status = service.semantic_status()
         assert status is not None and status.record.state is SemanticBuildState.VALIDATING
         assert status.accounting.provider_calls == 4
+
+
+def test_concurrent_reopen_cannot_cross_the_atomic_durable_consent_ceiling(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "atomic-calls.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="one-call-only",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+        )
+    consent = preparation.granted_consent()
+    entered = Event()
+    release = Event()
+    first_provider = _BlockingProvider(_boundary_payload(window), entered, release)
+    second_provider = _FakeProvider([_boundary_payload(window)])
+
+    def run(provider: _FakeProvider) -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            return NarrativeMapService(NarrativeMapRepository(project)).start_boundaries(
+                preparation,
+                provider=provider,
+                consent=consent,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(run, first_provider)
+        assert entered.wait(timeout=5)
+        second_future = executor.submit(run, second_provider)
+        try:
+            second_report = second_future.result(timeout=5)
+        finally:
+            release.set()
+        first_report = first_future.result(timeout=5)
+
+    assert first_report.provider_calls + second_report.provider_calls == 1
+    assert len(first_provider.requests) + len(second_provider.requests) == 1
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        assert repository.semantic_reserved_call_count(
+            manifest_id=consent.manifest_id,
+            maximum_provider_calls=1,
+        ) == 1
+        status = NarrativeMapService(repository).semantic_status()
+        assert status is not None
+        assert status.accounting.reserved_provider_calls == 1
 
 
 def test_boundary_repair_is_bounded_and_cannot_reinterpret_a_valid_decision(

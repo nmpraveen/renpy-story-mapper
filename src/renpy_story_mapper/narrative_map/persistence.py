@@ -26,8 +26,10 @@ SEMANTIC_SUMMARY_JOBS_COLLECTION: Final = "m15_semantic_summary_jobs"
 CACHE_COLLECTION: Final = "m15_narrative_cache"
 SEMANTIC_BUILD_COLLECTION: Final = "m15_semantic_builds"
 SEMANTIC_CURRENT_COLLECTION: Final = "m15_semantic_current"
+SEMANTIC_CALL_LEDGER_COLLECTION: Final = "m15_semantic_call_ledgers"
 PERSISTENCE_SCHEMA: Final = "m15-narrative-job-envelope-v1"
 CACHE_SCHEMA: Final = "m15-narrative-cache-v1"
+SEMANTIC_CALL_LEDGER_SCHEMA: Final = "m15-semantic-call-ledger-v2"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 
 
@@ -35,6 +37,10 @@ class NarrativeJobStatus(StrEnum):
     PENDING = "pending"
     VALIDATED = "validated"
     FAILED = "failed"
+
+
+class SemanticCallLimitError(RuntimeError):
+    """The exact durable consent ledger has no remaining call reservation."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,7 @@ class NarrativeJobRecord:
     provider_identity: Mapping[str, object] | None
     usage: Mapping[str, object] | None
     error_code: str | None
+    consent_manifest_id: str | None
 
 
 class NarrativeMapRepository:
@@ -117,6 +124,7 @@ class NarrativeMapRepository:
         error_code: str,
         provider_identity: Mapping[str, object] | None = None,
         usage: ProviderUsage | None = None,
+        consent_manifest_id: str | None = None,
     ) -> NarrativeJobRecord:
         if not _ERROR_CODE.fullmatch(error_code):
             raise ValueError("M15 failure codes must be sanitized identifiers")
@@ -134,6 +142,7 @@ class NarrativeMapRepository:
             ),
             usage=None if usage is None else _usage_payload(usage, provider_calls),
             error_code=error_code,
+            consent_manifest_id=consent_manifest_id,
         )
         self._write(job.kind, job.job_id, payload)
         return self._decode(payload, job.kind, job.job_id)
@@ -148,7 +157,10 @@ class NarrativeMapRepository:
         result: Mapping[str, object],
         provider_identity: Mapping[str, object],
         usage: ProviderUsage,
+        consent_manifest_id: str,
     ) -> NarrativeJobRecord:
+        if not consent_manifest_id or consent_manifest_id != consent_manifest_id.strip():
+            raise ValueError("validated M15 results require an exact consent manifest identity")
         normalized_result = _detached_mapping(result, "validated M15 result")
         normalized_identity = _detached_mapping(provider_identity, "provider identity")
         usage_payload = _usage_payload(usage, provider_calls)
@@ -162,6 +174,7 @@ class NarrativeMapRepository:
             provider_identity=normalized_identity,
             usage=usage_payload,
             error_code=None,
+            consent_manifest_id=consent_manifest_id,
         )
         cache_key = self.cache_key(job, profile)
         cache_payload: dict[str, object] = {
@@ -171,6 +184,7 @@ class NarrativeMapRepository:
             "result": normalized_result,
             "result_hash": canonical_hash(normalized_result),
             "provider_identity": normalized_identity,
+            "consent_manifest_id": consent_manifest_id,
         }
         _validate_durable(cache_payload)
         self._write_payloads(
@@ -183,7 +197,7 @@ class NarrativeMapRepository:
 
     def load_cache(
         self, job: PreparedNarrativeJob, profile: ProviderProfile
-    ) -> tuple[Mapping[str, object], Mapping[str, object]] | None:
+    ) -> tuple[Mapping[str, object], Mapping[str, object], str | None] | None:
         cache_key = self.cache_key(job, profile)
         raw = self._payload(CACHE_COLLECTION, cache_key)
         if raw is None:
@@ -199,13 +213,19 @@ class NarrativeMapRepository:
             return None
         result = raw.get("result")
         provider_identity = raw.get("provider_identity")
+        consent_manifest_id = raw.get("consent_manifest_id")
         if not isinstance(result, Mapping) or not isinstance(provider_identity, Mapping):
             raise storage.ProjectCorruptError("M15 cache result is invalid")
         if raw.get("result_hash") != canonical_hash(result):
             raise storage.ProjectCorruptError("M15 cache result checksum is invalid")
+        if consent_manifest_id is not None and (
+            not isinstance(consent_manifest_id, str) or not consent_manifest_id
+        ):
+            raise storage.ProjectCorruptError("M15 cache consent manifest identity is invalid")
         return (
             _detached_mapping(result, "cached M15 result"),
             _detached_mapping(provider_identity, "cached provider identity"),
+            consent_manifest_id,
         )
 
     def write_semantic_build(self, payload: Mapping[str, object]) -> None:
@@ -250,6 +270,107 @@ class NarrativeMapRepository:
             raise storage.ProjectCorruptError("M15.1 current semantic publication is not an object")
         return _detached_mapping(raw, "semantic publication")
 
+    def reserve_semantic_provider_call(
+        self,
+        *,
+        manifest_id: str,
+        maximum_provider_calls: int,
+        job_id: str,
+        attempt: int,
+    ) -> int:
+        """Atomically consume one durable consent grant before any provider submission."""
+
+        if any(not value or value != value.strip() for value in (manifest_id, job_id)):
+            raise ValueError("semantic call reservation identities must be non-empty and trimmed")
+        if (
+            not isinstance(maximum_provider_calls, int)
+            or isinstance(maximum_provider_calls, bool)
+            or maximum_provider_calls < 1
+            or not isinstance(attempt, int)
+            or isinstance(attempt, bool)
+            or attempt < 1
+        ):
+            raise ValueError("semantic call reservation bounds are invalid")
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key=?",
+                (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
+            ).fetchone()
+            reservations: list[dict[str, object]]
+            if row is None:
+                reservations = []
+            else:
+                encoded = bytes(row["payload_json"])
+                if storage.payload_digest(encoded) != row["payload_hash"]:
+                    raise storage.ProjectCorruptError(
+                        "M15.1 semantic call ledger checksum does not match"
+                    )
+                decoded = storage.decode_json(encoded)
+                reservations = _semantic_call_reservations(
+                    decoded,
+                    manifest_id=manifest_id,
+                    maximum_provider_calls=maximum_provider_calls,
+                )
+            if len(reservations) >= maximum_provider_calls:
+                raise SemanticCallLimitError(
+                    "the exact semantic consent has no remaining durable call grant"
+                )
+            ordinal = len(reservations) + 1
+            reservations.append({"ordinal": ordinal, "job_id": job_id, "attempt": attempt})
+            payload: dict[str, object] = {
+                "schema": SEMANTIC_CALL_LEDGER_SCHEMA,
+                "manifest_id": manifest_id,
+                "maximum_provider_calls": maximum_provider_calls,
+                "reservations": reservations,
+            }
+            _validate_durable(payload)
+            encoded = storage.canonical_json(payload)
+            connection.execute(
+                """
+                INSERT INTO payloads(
+                    collection,record_key,payload_json,payload_hash,updated_utc
+                ) VALUES (?,?,?,?,?)
+                ON CONFLICT(collection,record_key) DO UPDATE SET
+                    payload_json=excluded.payload_json,
+                    payload_hash=excluded.payload_hash,
+                    updated_utc=excluded.updated_utc
+                """,
+                (
+                    SEMANTIC_CALL_LEDGER_COLLECTION,
+                    manifest_id,
+                    encoded,
+                    storage.payload_digest(encoded),
+                    storage.utc_now(),
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                (SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id),
+            )
+        return ordinal
+
+    def semantic_reserved_call_count(
+        self,
+        *,
+        manifest_id: str,
+        maximum_provider_calls: int,
+    ) -> int:
+        raw = self._payload(SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id)
+        if raw is None:
+            return 0
+        count = len(
+            _semantic_call_reservations(
+                raw,
+                manifest_id=manifest_id,
+                maximum_provider_calls=maximum_provider_calls,
+            )
+        )
+        if count > maximum_provider_calls:
+            raise storage.ProjectCorruptError("M15.1 semantic call ledger exceeds consent")
+        return count
+
     @staticmethod
     def cache_identity(
         job: PreparedNarrativeJob, profile: ProviderProfile
@@ -289,9 +410,14 @@ class NarrativeMapRepository:
         provider_identity: Mapping[str, object] | None,
         usage: Mapping[str, object] | None,
         error_code: str | None,
+        consent_manifest_id: str | None = None,
     ) -> dict[str, object]:
         if attempt_count < 0 or not 0 <= provider_calls <= attempt_count:
             raise ValueError("M15 attempt and provider-call counts are inconsistent")
+        if consent_manifest_id is not None and (
+            not consent_manifest_id or consent_manifest_id != consent_manifest_id.strip()
+        ):
+            raise ValueError("M15 consent manifest identity must be non-empty and trimmed")
         payload: dict[str, object] = {
             "schema": PERSISTENCE_SCHEMA,
             **job.durable_metadata(),
@@ -305,6 +431,7 @@ class NarrativeMapRepository:
             "provider_identity": provider_identity,
             "usage": usage,
             "error_code": error_code,
+            "consent_manifest_id": consent_manifest_id,
         }
         _validate_durable(payload)
         return payload
@@ -426,6 +553,11 @@ class NarrativeMapRepository:
             not isinstance(error_code, str) or not _ERROR_CODE.fullmatch(error_code)
         ):
             raise storage.ProjectCorruptError("M15 failure code is invalid")
+        consent_manifest_id = raw.get("consent_manifest_id")
+        if consent_manifest_id is not None and (
+            not isinstance(consent_manifest_id, str) or not consent_manifest_id
+        ):
+            raise storage.ProjectCorruptError("M15 consent manifest identity is invalid")
         return NarrativeJobRecord(
             job_id=job_id,
             kind=kind,
@@ -442,6 +574,7 @@ class NarrativeMapRepository:
             provider_identity=cast(Mapping[str, object] | None, provider_identity),
             usage=cast(Mapping[str, object] | None, usage),
             error_code=error_code,
+            consent_manifest_id=consent_manifest_id,
         )
 
 
@@ -493,3 +626,36 @@ def _usage_payload(usage: ProviderUsage, provider_calls: int) -> dict[str, JsonV
         "cost_micros": usage.cost_micros,
         "provider_calls": provider_calls,
     }
+
+
+def _semantic_call_reservations(
+    raw: object,
+    *,
+    manifest_id: str,
+    maximum_provider_calls: int,
+) -> list[dict[str, object]]:
+    if (
+        not isinstance(raw, Mapping)
+        or raw.get("schema") != SEMANTIC_CALL_LEDGER_SCHEMA
+        or raw.get("manifest_id") != manifest_id
+        or raw.get("maximum_provider_calls") != maximum_provider_calls
+        or not isinstance(raw.get("reservations"), list)
+    ):
+        raise storage.ProjectCorruptError("M15.1 semantic call ledger identity is invalid")
+    reservations: list[dict[str, object]] = []
+    for expected_ordinal, item in enumerate(cast(list[object], raw["reservations"]), 1):
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"ordinal", "job_id", "attempt"}
+            or item.get("ordinal") != expected_ordinal
+            or not isinstance(item.get("job_id"), str)
+            or not item.get("job_id")
+            or not isinstance(item.get("attempt"), int)
+            or isinstance(item.get("attempt"), bool)
+            or cast(int, item.get("attempt")) < 1
+        ):
+            raise storage.ProjectCorruptError(
+                "M15.1 semantic call ledger reservation is invalid"
+            )
+        reservations.append(dict(item))
+    return reservations

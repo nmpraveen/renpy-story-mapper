@@ -229,14 +229,76 @@ def prepare_semantic_summary_jobs(
     supplied = tuple((item.subject_kind, item.subject_id) for item in inputs)
     if supplied != expected or len(supplied) != len(set(supplied)):
         raise ValueError("summary inputs must cover every frozen visible subject exactly once")
+    beats_by_id = {item.beat_id: item for item in outline.beats}
+    clusters_by_id = {item.cluster_id: item for item in outline.clusters}
+    choices_by_id = {item.choice_id: item for item in outline.choices}
+
+    def cluster_units(cluster: MajorCluster) -> tuple[str, ...]:
+        if any(beat_id not in beats_by_id for beat_id in cluster.ordered_beat_ids):
+            raise ValueError("major cluster references an unknown frozen beat")
+        ordered = tuple(
+            unit_id
+            for beat_id in cluster.ordered_beat_ids
+            for unit_id in beats_by_id[beat_id].ordered_unit_ids
+        )
+        if len(ordered) != len(set(ordered)):
+            raise ValueError("major cluster frozen beat membership overlaps")
+        return ordered
+
+    def choice_units(choice: ChoiceComposition) -> tuple[str, ...]:
+        owned_choice_ids: set[str] = set()
+        visiting: set[str] = set()
+
+        def collect(choice_id: str) -> None:
+            if choice_id in visiting:
+                raise ValueError("choice summary membership contains a cycle")
+            if choice_id in owned_choice_ids:
+                return
+            nested = choices_by_id.get(choice_id)
+            if nested is None:
+                raise ValueError("choice summary subject references an unknown child choice")
+            visiting.add(choice_id)
+            for child_id in nested.child_choice_ids:
+                child = choices_by_id.get(child_id)
+                if child is None or child.parent_choice_id != choice_id:
+                    raise ValueError("choice summary child ownership is inconsistent")
+                collect(child_id)
+            visiting.remove(choice_id)
+            owned_choice_ids.add(choice_id)
+
+        collect(choice.choice_id)
+        selected = {
+            unit_id
+            for beat in outline.beats
+            if beat.parent_choice_id in owned_choice_ids
+            for unit_id in beat.ordered_unit_ids
+        }
+        ordered = tuple(unit_id for unit_id in outline.ordered_unit_ids if unit_id in selected)
+        if not ordered or len(ordered) != len(selected):
+            raise ValueError("choice summary has invalid frozen beat membership")
+        return ordered
+
+    expected_units: dict[tuple[str, str], tuple[str, ...]] = {
+        **{("beat", item.beat_id): item.ordered_unit_ids for item in outline.beats},
+        **{
+            ("major_cluster", item.cluster_id): cluster_units(item)
+            for item in outline.clusters
+        },
+        **{
+            ("choice", item.choice_id): choice_units(item)
+            for item in outline.choices
+            if item.parent_cluster_id in clusters_by_id
+        },
+    }
+    if len(expected_units) != len(subjects):
+        raise ValueError("choice summary subject references an unknown parent cluster")
     unit_ids = set(outline.ordered_unit_ids)
     jobs: list[PreparedNarrativeJob] = []
     for item in inputs:
         if any(unit_id not in unit_ids for unit_id in item.ordered_unit_ids):
             raise ValueError("summary input contains a unit outside frozen membership")
-        subject = subjects[(item.subject_kind, item.subject_id)]
-        if isinstance(subject, SemanticBeat) and item.ordered_unit_ids != subject.ordered_unit_ids:
-            raise ValueError("beat summary input must preserve exact frozen membership")
+        if item.ordered_unit_ids != expected_units[(item.subject_kind, item.subject_id)]:
+            raise ValueError("summary input must preserve exact frozen subject membership")
         evidence = _ordered_evidence(item.ordered_unit_ids, evidence_by_unit)
         evidence_ids = tuple(record.evidence_id for record in evidence)
         if not set(item.evidence_ids).issubset(evidence_ids):
@@ -254,7 +316,7 @@ def prepare_semantic_summary_jobs(
             PreparedNarrativeJob(
                 kind=ProviderJobKind.SEMANTIC_SUMMARY,
                 authority=outline.authority,
-                subject=subject,
+                subject=subjects[(item.subject_kind, item.subject_id)],
                 subject_id=item.subject_id,
                 input_hash=canonical_hash(payload),
                 prompt_version=SEMANTIC_SUMMARY_PROMPT_VERSION,

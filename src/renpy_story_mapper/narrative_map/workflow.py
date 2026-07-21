@@ -22,6 +22,7 @@ from renpy_story_mapper.narrative_map.contracts import (
 from renpy_story_mapper.narrative_map.persistence import (
     NarrativeJobStatus,
     NarrativeMapRepository,
+    SemanticCallLimitError,
 )
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeConsentManifest,
@@ -178,7 +179,7 @@ class NarrativeBoundaryWorkflow:
                 continue
             cache = self._repository.load_cache(job, self._profile)
             if cache is not None:
-                cached_result, cached_identity = cache
+                cached_result, cached_identity, cached_manifest_id = cache
                 if self._validate_stored(job, cached_result, cached_identity):
                     self._repository.record_validated(
                         job,
@@ -188,6 +189,7 @@ class NarrativeBoundaryWorkflow:
                         result=cached_result,
                         provider_identity=cached_identity,
                         usage=ProviderUsage(0, 0, 0, cost_micros=0),
+                        consent_manifest_id=cached_manifest_id or consent.manifest_id,
                     )
                     validated.append(job.job_id)
                     cache_hits += 1
@@ -200,7 +202,6 @@ class NarrativeBoundaryWorkflow:
                     - consumed_provider_calls
                     - provider_calls
                 ),
-                request_ordinal_offset=consumed_provider_calls + provider_calls,
                 cancelled=cancelled,
             )
             provider_calls += outcome.provider_calls
@@ -218,6 +219,7 @@ class NarrativeBoundaryWorkflow:
                         else outcome.provider_identity.to_dict()
                     ),
                     usage=_optional_combined_usage(outcome.usages),
+                    consent_manifest_id=consent.manifest_id,
                 )
                 failed.append(job.job_id)
                 was_cancelled = True
@@ -235,6 +237,7 @@ class NarrativeBoundaryWorkflow:
                         else outcome.provider_identity.to_dict()
                     ),
                     usage=_optional_combined_usage(outcome.usages),
+                    consent_manifest_id=consent.manifest_id,
                 )
                 failed.append(job.job_id)
                 continue
@@ -246,6 +249,7 @@ class NarrativeBoundaryWorkflow:
                 result=outcome.result,
                 provider_identity=outcome.provider_identity.to_dict(),
                 usage=_combined_usage(outcome.usages),
+                consent_manifest_id=consent.manifest_id,
             )
             validated.append(job.job_id)
         return NarrativeWorkflowReport(
@@ -265,7 +269,6 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         maximum_provider_calls: int,
-        request_ordinal_offset: int,
         cancelled: CancelledCallback,
     ) -> _JobOutcome:
         findings: tuple[ValidationFinding, ...] = ()
@@ -310,9 +313,24 @@ class NarrativeBoundaryWorkflow:
                 ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW,
                 ProviderJobKind.SEMANTIC_SUMMARY,
             }:
-                request_identity["consent_call_ordinal"] = (
-                    request_ordinal_offset + provider_calls + 1
-                )
+                try:
+                    call_ordinal = self._repository.reserve_semantic_provider_call(
+                        manifest_id=consent.manifest_id,
+                        maximum_provider_calls=consent.maximum_provider_calls,
+                        job_id=job.job_id,
+                        attempt=attempt,
+                    )
+                except SemanticCallLimitError:
+                    return _JobOutcome(
+                        None,
+                        last_identity,
+                        tuple(usages),
+                        attempt - 1,
+                        provider_calls,
+                        "consent_call_limit",
+                        False,
+                    )
+                request_identity["consent_call_ordinal"] = call_ordinal
             request_id = stable_m15_id("provider_request", request_identity)
             request = NarrativeMapProviderRequest(
                 request_id=request_id,
