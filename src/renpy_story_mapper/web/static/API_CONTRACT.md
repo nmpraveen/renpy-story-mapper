@@ -6,10 +6,12 @@ derives authoritative connectivity.
 
 ## M15 Narrative Map
 
-The Narrative Map is the normal browser journey. Python constructs its chronological event
-clusters, nested temporary choice arms, proven rejoin connectors, unresolved records, and exact
-navigation from the current M10/M11 authority plus persisted M15 decisions and summaries.
-JavaScript renders that presentation and never infers graph membership or connectivity.
+The Story Map is the normal browser journey. Python constructs its chronological major clusters,
+beats, nested temporary choice arms, proven rejoin connectors, unresolved records, and exact
+navigation from the current M10/M11 authority plus persisted M15.1 decisions and summaries.
+JavaScript renders the supplied ownership as a normal-flow semantic column no wider than 896 CSS
+pixels. It never infers graph membership or connectivity; the absolute canvas world is reserved for
+advanced deterministic inspection.
 
 - `POST /api/v1/m15/narrative-map` accepts only `{query?, focus?}`. It returns at most 120 nodes
   and 360 edges, opaque lane metadata, stable navigation records, bounded whole-map search, and
@@ -22,6 +24,13 @@ or oversized Narrative Map returns a labelled unavailable response that points t
 M10 inspection. Projects created before M15 therefore remain safe to open. The normal browser
 open, navigation, search, selection, and evidence journey does not request M12 destinations or a
 solve and does not construct or start an M07/M08/M13 provider.
+
+Story wording is produced only through two separate explicit consent stages. Boundary prepare and
+start use `/api/v1/m15/semantic/prepare_boundaries` and `start_boundaries`; summary prepare and
+start use `prepare_summaries` and `start_summaries`. Status, cancel, resume, and retry are separate
+local semantic endpoints. Prepare is a zero-submit manifest preview. Each start requires the exact
+manifest ID shown for that stage and `confirm_cloud: true`; boundary consent never starts summaries.
+Opening, reading, searching, expanding, and visiting Detail/Evidence never calls these endpoints.
 
 M12 persistence, stored result reads, and M13 citations whose navigation mode is `m12_result`
 remain supported. M07/M08 storage and API contracts also remain compatible, but their former

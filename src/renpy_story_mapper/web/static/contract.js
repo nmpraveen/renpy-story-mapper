@@ -41,6 +41,14 @@ export const ENDPOINTS = Object.freeze({
   narrativeCancel: "/api/v1/m13/cancel",
   narrativeMap: "/api/v1/m15/narrative-map",
   narrativeDetail: "/api/v1/m15/detail",
+  storyMapPrepareBoundaries: "/api/v1/m15/semantic/prepare_boundaries",
+  storyMapStartBoundaries: "/api/v1/m15/semantic/start_boundaries",
+  storyMapPrepareSummaries: "/api/v1/m15/semantic/prepare_summaries",
+  storyMapStartSummaries: "/api/v1/m15/semantic/start_summaries",
+  storyMapBuildStatus: "/api/v1/m15/semantic/status",
+  storyMapBuildCancel: "/api/v1/m15/semantic/cancel",
+  storyMapBuildResume: "/api/v1/m15/semantic/resume",
+  storyMapBuildRetry: "/api/v1/m15/semantic/retry",
 });
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -67,6 +75,21 @@ function uniqueStrings(value, label, maximum = 64) {
 }
 
 function sameArray(left, right) { return left.length === right.length && left.every((item, index) => item === right[index]); }
+
+const SEMANTIC_BUILD_STATES = new Set([
+  "not_started", "boundaries_prepared", "awaiting_boundary_consent", "boundaries_running",
+  "membership_frozen", "summaries_prepared", "awaiting_summary_consent", "summaries_running",
+  "validating", "complete", "partial", "failed", "cancelled", "stale",
+]);
+
+export function assertStoryMapProduction(value) {
+  if (!object(value)) throw new TypeError("Invalid Story Map production response");
+  if (Object.hasOwn(value, "state") && !SEMANTIC_BUILD_STATES.has(value.state)) throw new TypeError("Invalid Story Map production state");
+  const manifestId = value.manifest_id ?? value.preparation_id ?? value.manifest?.manifest_id;
+  if (manifestId !== undefined && (typeof manifestId !== "string" || !manifestId)) throw new TypeError("Invalid Story Map manifest identity");
+  if (Object.hasOwn(value, "requires_confirmation") && typeof value.requires_confirmation !== "boolean") throw new TypeError("Invalid Story Map confirmation flag");
+  return value;
+}
 
 export function assertNarrativeMap(value) {
   if (!object(value) || value.schema !== "m15-narrative-map-page-v1" || !["available", "unavailable"].includes(value.status) || value.level !== "narrative_map" || !sameArray(value.presentation_levels, ["narrative_map", "detail_evidence"]) || value.provider_calls !== 0 || value.m12_requests !== 0 || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || !Array.isArray(value.lanes)) throw new TypeError("Invalid Narrative Map response");

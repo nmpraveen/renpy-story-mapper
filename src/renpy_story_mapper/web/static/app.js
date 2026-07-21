@@ -14,6 +14,7 @@ const state = {
   narrativeEnabled: false, narrativeSnapshot: null, narrativeJobs: [], narrativeByOwner: new Map(),
   narrativeRun: null, narrativePreparation: null, narrativeLastRequest: null, narrativePollToken: 0, narrativeStatusToken: 0,
   narrativeCitationSelection: null,
+  storyMapBuild: null, storyMapManifest: null, storyMapStage: null,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -22,6 +23,163 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = String(text);
   return node;
+}
+
+const STORY_MAP_PUBLISHED_STATES = new Set(["complete", "partial"]);
+const STORY_MAP_ACTIVE_STATES = new Set(["boundaries_running", "summaries_running", "validating"]);
+
+function storyMapBuildState(page = state.page) {
+  return page?.semantic_build?.state || page?.build?.state || page?.build_state || "not_started";
+}
+
+function storyMapStatusLabel(buildState) {
+  const labels = {
+    not_started: "Story Map has not been built.", boundaries_prepared: "Boundary manifest prepared.",
+    awaiting_boundary_consent: "Boundary manifest awaits confirmation.", boundaries_running: "Finding story boundaries.",
+    membership_frozen: "Story membership is frozen. Summaries are ready to prepare.", summaries_prepared: "Summary manifest prepared.",
+    awaiting_summary_consent: "Summary manifest awaits confirmation.", summaries_running: "Writing evidence-linked summaries.",
+    validating: "Validating the Story Map.", complete: "Story Map complete.", partial: "Story Map partial; completed items remain available.",
+    failed: "Story Map build failed.", cancelled: "Story Map build cancelled.", stale: "Story Map is stale and must be prepared again.",
+  };
+  return labels[buildState] || "Story Map status unavailable.";
+}
+
+function storyItemButton(item, className, indexLabel, { arm = false } = {}) {
+  const button = element("button", className); button.type = "button";
+  button.dataset.elementId = item.id; button.dataset.kind = item.kind || "story_item";
+  if (item.search_match === false) button.classList.add("story-search-hidden");
+  button.setAttribute("aria-label", `Open ${item.title || "story item"} in Detail and Evidence`);
+  const index = element("span", arm ? "story-arm-index" : "story-row-index", indexLabel);
+  const copy = element("span", "story-row-copy"); copy.append(element("span", "story-row-title", item.title));
+  if (item.summary) copy.append(element("span", "story-row-summary", item.summary));
+  button.append(index, copy, element("span", "story-detail-glyph", "▤"));
+  button.addEventListener("click", () => openDetail(item.id));
+  button.addEventListener("focus", () => selectItem(item));
+  return button;
+}
+
+function storyPathButton(edge) {
+  const button = element("button", "story-path-evidence", "↗"); button.type = "button";
+  button.dataset.elementId = edge.id; button.dataset.kind = edge.kind || edge.role || "path";
+  button.setAttribute("aria-label", "Open this path in Detail and Evidence");
+  button.title = "Path Detail / Evidence";
+  button.addEventListener("click", () => openDetail(edge.id));
+  button.addEventListener("focus", () => selectItem(edge));
+  return button;
+}
+
+function storyRejoinButton(item) {
+  const button = element("button", "story-rejoin", item.title); button.type = "button";
+  button.dataset.elementId = item.id; button.dataset.kind = item.kind || "rejoin";
+  button.setAttribute("aria-label", `Open ${item.title} in Detail and Evidence`);
+  button.addEventListener("click", () => openDetail(item.id)); button.addEventListener("focus", () => selectItem(item));
+  return button;
+}
+
+function storyChildrenByParent(nodes) {
+  const result = new Map();
+  for (const node of nodes) {
+    const parentId = node.parent_node_id || node.parent_id || node.parent_cluster_id || null;
+    if (!parentId) continue;
+    if (!result.has(parentId)) result.set(parentId, []);
+    result.get(parentId).push(node);
+  }
+  for (const children of result.values()) children.sort((left, right) => Number(left.order || left.ordinal || 0) - Number(right.order || right.ordinal || 0));
+  return result;
+}
+
+function renderStoryChoice(choice, childrenByParent, edges, positionLabel) {
+  const choiceHost = element("section", "story-choice"); choiceHost.dataset.choiceId = choice.choice_id || choice.id;
+  choiceHost.append(storyItemButton(choice, "story-choice-question", positionLabel));
+  const direct = childrenByParent.get(choice.id) || [];
+  const arms = new Map();
+  for (const child of direct.filter((item) => item.kind === "choice_arm" || item.arm_id)) {
+    const armId = child.arm_id || child.id;
+    if (!arms.has(armId)) arms.set(armId, []);
+    arms.get(armId).push(child);
+  }
+  const armGrid = element("div", "story-choice-arms");
+  let armOrdinal = 0;
+  for (const armItems of arms.values()) {
+    const arm = element("article", "story-arm");
+    const first = armItems[0];
+    arm.dataset.armId = first.arm_id || first.id;
+    arm.append(storyItemButton(first, "story-arm-card", String.fromCharCode(65 + armOrdinal), { arm: true }));
+    const body = element("div", "story-arm-body");
+    for (const [index, item] of armItems.slice(1).entries()) body.append(renderStoryNode(item, childrenByParent, edges, `${positionLabel}.${armOrdinal + 1}.${index + 1}`));
+    for (const nested of direct.filter((item) => item.kind === "choice" && item.parent_arm_id === first.arm_id)) body.append(renderStoryChoice(nested, childrenByParent, edges, `${positionLabel}.${armOrdinal + 1}`));
+    if (body.children.length) arm.append(body);
+    armGrid.append(arm); armOrdinal += 1;
+  }
+  if (armGrid.children.length) choiceHost.append(armGrid);
+  for (const rejoin of direct.filter((item) => item.kind === "rejoin")) {
+    const wrap = element("div", "story-rejoin-wrap"); wrap.append(storyRejoinButton(rejoin)); choiceHost.append(wrap);
+  }
+  return choiceHost;
+}
+
+function renderStoryNode(item, childrenByParent, edges, positionLabel) {
+  if (item.kind === "choice") return renderStoryChoice(item, childrenByParent, edges, positionLabel);
+  if (item.kind === "rejoin") { const wrap = element("div", "story-rejoin-wrap"); wrap.append(storyRejoinButton(item)); return wrap; }
+  if (["terminal", "ending"].includes(item.kind)) {
+    const button = element("button", "story-ending", item.title); button.type = "button"; button.dataset.elementId = item.id; button.dataset.kind = item.kind;
+    button.setAttribute("aria-label", `Open ${item.title} in Detail and Evidence`); button.addEventListener("click", () => openDetail(item.id)); button.addEventListener("focus", () => selectItem(item)); return button;
+  }
+  const host = element("div", "story-node"); host.append(storyItemButton(item, "story-row", positionLabel));
+  const children = (childrenByParent.get(item.id) || []).filter((child) => child.kind !== "choice_arm");
+  for (const [index, child] of children.entries()) host.append(renderStoryNode(child, childrenByParent, edges, `${positionLabel}.${index + 1}`));
+  return host;
+}
+
+function renderStorySection(section, sectionNumber, childrenByParent, edges) {
+  const details = element("details", "story-section"); details.open = sectionNumber === 1; details.dataset.elementId = section.id;
+  const summary = element("summary", "story-section-toggle");
+  const heading = element("span", "story-section-heading"); heading.append(element("span", "story-section-title", section.title));
+  if (section.summary) heading.append(element("span", "story-section-summary", section.summary));
+  const actions = element("span", "story-section-actions");
+  const detail = element("button", "story-detail-glyph", "▤"); detail.type = "button"; detail.dataset.elementId = section.id; detail.dataset.kind = section.kind;
+  detail.setAttribute("aria-label", `Open ${section.title} in Detail and Evidence`);
+  detail.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); openDetail(section.id); }); detail.addEventListener("focus", () => selectItem(section));
+  actions.append(element("span", "story-section-chevron", "›"), detail);
+  summary.append(element("span", "story-section-number", sectionNumber), heading, actions);
+  details.append(summary);
+  const body = element("div", "story-section-body");
+  const children = (childrenByParent.get(section.id) || []).filter((child) => child.kind !== "choice_arm");
+  for (const [index, child] of children.entries()) body.append(renderStoryNode(child, childrenByParent, edges, `${sectionNumber}.${index + 1}`));
+  details.append(body); return details;
+}
+
+function renderStoryMapFlow(nodes, edges) {
+  const host = $("#storyMapFlow"); host.replaceChildren();
+  const buildState = storyMapBuildState();
+  if (!STORY_MAP_PUBLISHED_STATES.has(buildState)) {
+    const empty = element("section", "story-map-empty"); empty.append(element("h2", "", "A readable Story Map is not ready"), element("p", "", storyMapStatusLabel(buildState)));
+    const build = element("button", "accent-button", "Build Story Map"); build.type = "button"; build.addEventListener("click", () => $("#storyMapBuildDialog").showModal()); empty.append(build); host.append(empty); return;
+  }
+  host.append(element("div", "story-day-divider", state.page?.outline_label || state.page?.story_label || "Story outline"));
+  const childrenByParent = storyChildrenByParent(nodes);
+  const nodeIds = new Set(nodes.map((item) => item.id));
+  const roots = nodes.filter((item) => {
+    const parentId = item.parent_node_id || item.parent_id || item.parent_cluster_id || null;
+    return !parentId || !nodeIds.has(parentId);
+  });
+  const sections = roots.filter((item) => ["major_cluster", "event_cluster"].includes(item.kind));
+  const renderedRoots = new Set(sections.map((item) => item.id));
+  for (const [index, section] of sections.entries()) host.append(renderStorySection(section, index + 1, childrenByParent, edges));
+  for (const [index, item] of roots.filter((root) => !renderedRoots.has(root.id)).entries()) {
+    const shell = { ...item, kind: "major_cluster" };
+    host.append(renderStorySection(shell, sections.length + index + 1, childrenByParent, edges));
+  }
+  if (edges.length) {
+    const paths = element("details", "story-path-index");
+    paths.append(element("summary", "", `Exact path evidence · ${edges.length}`));
+    const controls = element("div", "story-path-controls"); controls.setAttribute("aria-label", "Path Detail and Evidence");
+    for (const edge of edges) controls.append(storyPathButton(edge));
+    paths.append(controls); host.append(paths);
+  }
+  if (!host.querySelector("[data-element-id]")) {
+    const empty = element("section", "story-map-empty"); empty.append(element("h2", "", "No publishable story items"), element("p", "", "The build is marked partial because no validated story wording is available.")); host.append(empty);
+  }
 }
 
 function renderNarrativeCoverage() {
@@ -382,6 +540,62 @@ async function loadNarrative() {
   renderNarrativeDrawer();
 }
 
+function renderStoryMapBuildControls() {
+  const buildState = state.storyMapBuild?.state || storyMapBuildState();
+  $("#storyMapBuildStatus").textContent = storyMapStatusLabel(buildState);
+  $("#prepareBoundaries").disabled = !["not_started", "failed", "cancelled", "stale", "partial"].includes(buildState);
+  $("#prepareSummaries").disabled = !["membership_frozen", "summaries_prepared", "awaiting_summary_consent"].includes(buildState);
+  $("#cancelStoryMapBuild").hidden = !STORY_MAP_ACTIVE_STATES.has(buildState);
+  $("#resumeStoryMapBuild").hidden = buildState !== "cancelled";
+  $("#retryStoryMapBuild").hidden = !["partial", "failed"].includes(buildState);
+  $("#generationStatus").hidden = false;
+  $("#generationStatus").textContent = storyMapStatusLabel(buildState).replace(/\.$/, "");
+  $("#buildStoryMap").textContent = buildState === "complete" ? "Rebuild Story Map" : "Build Story Map";
+}
+
+function storyMapManifestId(prepared) {
+  return prepared?.manifest_id || prepared?.preparation_id || prepared?.manifest?.manifest_id || null;
+}
+
+function showStoryMapManifest(stage, prepared) {
+  const manifestId = storyMapManifestId(prepared);
+  if (!manifestId) throw new TypeError("Prepared Story Map stage has no exact manifest identity");
+  state.storyMapManifest = prepared; state.storyMapStage = stage;
+  $("#storyMapConsentEyebrow").textContent = stage === "boundaries" ? "Boundary manifest" : "Frozen-summary manifest";
+  $("#storyMapConsentTitle").textContent = stage === "boundaries" ? "Confirm story boundaries" : "Confirm titles and summaries";
+  const facts = $("#storyMapConsentFacts"); facts.replaceChildren();
+  const safeFacts = [
+    ["Manifest", manifestId], ["Stage", stage], ["Expires", prepared.expires_at || prepared.expiry || "Bound by server policy"],
+    ["Jobs", prepared.job_count ?? prepared.jobs?.length ?? "Bound by manifest"], ["Input hash", prepared.input_hash || prepared.selection_hash || "Bound by manifest"],
+    ["Authority", prepared.authority_hash || "Bound by manifest"], ["Provider", prepared.provider?.model || prepared.provider_model || "Bound by manifest"],
+  ];
+  for (const [label, value] of safeFacts) { facts.append(element("dt", "", label), element("dd", "", value)); }
+  $("#storyMapConsentDialog").showModal();
+}
+
+async function prepareStoryMapStage(stage) {
+  try {
+    const prepared = stage === "boundaries" ? await api.prepareStoryBoundaries() : await api.prepareStorySummaries();
+    state.storyMapBuild = prepared; renderStoryMapBuildControls(); showStoryMapManifest(stage, prepared);
+  } catch (error) { toast(error.message); }
+}
+
+async function confirmStoryMapStage() {
+  const stage = state.storyMapStage; const manifestId = storyMapManifestId(state.storyMapManifest);
+  if (!stage || !manifestId) { toast("Prepare this stage again before confirming"); return; }
+  try {
+    const started = stage === "boundaries" ? await api.startStoryBoundaries(manifestId) : await api.startStorySummaries(manifestId);
+    state.storyMapBuild = started; state.storyMapManifest = null; state.storyMapStage = null;
+    $("#storyMapConsentDialog").close(); renderStoryMapBuildControls();
+  } catch (error) { toast(error.message); }
+}
+
+async function runStoryMapBuildAction(action) {
+  try {
+    state.storyMapBuild = await api[action](); renderStoryMapBuildControls();
+  } catch (error) { toast(error.message); }
+}
+
 const graph = new RouteGraph({
   viewport: $("#mapViewport"), world: $("#mapWorld"), canvas: $("#edgeCanvas"),
   onSelect: (item) => selectItem(item), onOpen: (item) => openDetail(item.id),
@@ -591,7 +805,7 @@ async function searchM10WholeGraph() {
     if (query && !matches.length) $("#selectionStatus").textContent = "No Narrative Map matches";
     else if (query && matches.length && !matches.some((item) => item.id === state.selectedId)) state.selectedId = matches[0].id;
     renderMap({ preserveViewport: true });
-    if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+    if (state.selectedId) $("#storyMapFlow")?.querySelector?.(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
     return;
   }
   if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
@@ -627,8 +841,8 @@ function visiblePage() {
   const matchedIds = query && globalSearch?.query?.toLocaleLowerCase() === query && Array.isArray(resultIds) ? new Set(resultIds) : null;
   const visibleNodes = (state.page?.nodes || []).filter((node) => {
     if (!state.settings.include_unresolved && node.unresolved) return false;
+    if (state.mode === "narrative") return node.kind !== "technical_coverage";
     if (!state.settings.include_technical && node.kind === "technical_coverage") return false;
-    if (state.mode === "narrative") return true;
     return !query || matchedIds?.has(node.id) || `${node.id} ${node.title} ${node.summary} ${node.reachability || ""}`.toLocaleLowerCase().includes(query);
   }).map((node) => ({ ...node, search_match: !query || matchedIds?.has(node.id) }));
   const ids = new Set(visibleNodes.map((node) => node.id));
@@ -661,33 +875,40 @@ function renderMap({ preserveViewport = false } = {}) {
   const visible = visiblePage();
   const nodes = visible.nodes;
   const edges = visible.edges;
-  graph.setData(nodes, edges, state.selectedId, state.page?.lanes || [], { preserveViewport });
-  renderLanes(nodes); renderChapters(); state.selectedId = graph.selectedId;
+  if (state.mode === "narrative") renderStoryMapFlow(nodes, edges);
+  else {
+    graph.setData(nodes, edges, state.selectedId, state.page?.lanes || [], { preserveViewport });
+    renderLanes(nodes); renderChapters(); state.selectedId = graph.selectedId;
+  }
   const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
   const edgeFirst = state.edgeOffset + 1; const edgeLast = state.edgeOffset + (state.page?.edges.length || 0); const edgeTotal = Number(state.page?.page_edge_total ?? edgeLast);
   const dense = Boolean(state.page?.overflow) || edgeTotal > state.page?.edges.length;
-  $("#pageStatus").textContent = `${state.mode === "narrative" ? "Story elements" : "Nodes"} ${first}–${last} of ${total} · routes ${edgeTotal ? `${edgeFirst}–${edgeLast} of ${edgeTotal}` : "none"}${dense ? " · bounded" : ""}`;
+  $("#pageStatus").textContent = state.mode === "narrative" ? `${nodes.length} story items` : `Nodes ${first}–${last} of ${total} · routes ${edgeTotal ? `${edgeFirst}–${edgeLast} of ${edgeTotal}` : "none"}${dense ? " · bounded" : ""}`;
   $("#previousPage").disabled = state.cursorHistory.length === 0; $("#nextPage").disabled = nextCursor() === null;
   const nodeIds = new Set(nodes.map((node) => node.id)); const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
-  $("#visibleStatus").textContent = `${nodes.length} ${state.mode === "narrative" ? "story elements" : "nodes"} · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
+  $("#visibleStatus").textContent = state.mode === "narrative" ? `${nodes.length} story items` : `${nodes.length} nodes · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
   const generation = state.page?.generation_status;
   renderAnalysisAvailability(generation, true);
-  $("#generationStatus").hidden = !generation;
-  if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
+  if (state.mode === "narrative") renderStoryMapBuildControls();
+  else {
+    $("#generationStatus").hidden = !generation;
+    if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
+  }
   const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
-  if (state.mode === "narrative") summary.append(element("strong", "", "Narrative Map"), element("span", "", `${nodes.filter((node) => node.kind === "event_cluster").length} event clusters`), element("span", "", `${state.page.hidden_technical_count || 0} technical atoms collapsed`));
+  if (state.mode === "narrative") summary.append(element("strong", "", "Story Map"), element("span", "", `${nodes.filter((node) => ["major_cluster", "event_cluster"].includes(node.kind)).length} sections`), element("span", "", `${nodes.length} story entries`));
   else if (["inspection", "canonical"].includes(state.mode)) summary.append(element("strong", "", state.mode === "canonical" ? "Canonical authority" : "Inspection coverage"), element("span", "", `${coverage.control_nodes ?? "—"} canonical records`), element("span", "", `${coverage.suppressed_records ?? 0} presentation suppressions`));
-  const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
+  if (state.mode !== "narrative") { const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected); }
 }
 
 function updateModeHeader() {
   const narrative = state.mode === "narrative";
   const inspection = state.mode === "inspection"; const canonical = state.mode === "canonical";
+  document.documentElement.dataset.mapMode = state.mode;
   $("#inspectionMapButton").disabled = !state.inspectionPage;
   $("#canonicalMapButton").disabled = !state.canonicalPage;
   $("#mapEyebrow").textContent = narrative ? "Story Map" : inspection ? "Advanced deterministic inspection" : "Advanced canonical graph";
   $("#mapTitle").textContent = narrative ? "Chronological story" : inspection ? "Choices, routes, and rejoins" : "Every canonical record";
-  $("#projectBadge").textContent = narrative ? "Narrative Map" : inspection ? "M10 Inspection · advanced" : "M10 Canonical · advanced";
+  $("#projectBadge").textContent = narrative ? "Story Map" : inspection ? "M10 Inspection · advanced" : "M10 Canonical · advanced";
   if (!state.narrativeMapPage) $("#fallbackReason").textContent = `${String(state.narrativeReason || "narrative map not yet available").replaceAll("_", " ")}. ${inspection ? "Deterministic inspection fallback" : canonical ? "Canonical fallback" : "No fallback"} is shown.`;
 }
 
@@ -855,6 +1076,15 @@ function bind() {
     searchM10WholeGraph.timer = setTimeout(() => searchM10WholeGraph().catch((error) => toast(error.message)), 180);
   });
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
+  $("#buildStoryMap").addEventListener("click", () => { renderStoryMapBuildControls(); $("#storyMapBuildDialog").showModal(); });
+  $("#closeStoryMapBuild").addEventListener("click", () => $("#storyMapBuildDialog").close());
+  $("#prepareBoundaries").addEventListener("click", () => prepareStoryMapStage("boundaries"));
+  $("#prepareSummaries").addEventListener("click", () => prepareStoryMapStage("summaries"));
+  $("#confirmStoryMapStage").addEventListener("click", confirmStoryMapStage);
+  $("#cancelStoryMapConsent").addEventListener("click", () => { state.storyMapManifest = null; state.storyMapStage = null; $("#storyMapConsentDialog").close(); });
+  $("#cancelStoryMapBuild").addEventListener("click", () => runStoryMapBuildAction("cancelStoryMapBuild"));
+  $("#resumeStoryMapBuild").addEventListener("click", () => runStoryMapBuildAction("resumeStoryMapBuild"));
+  $("#retryStoryMapBuild").addEventListener("click", () => runStoryMapBuildAction("retryStoryMapBuild"));
   $("#narrativeJobsButton").addEventListener("click", () => {
     const drawer = $("#narrativeDrawer"); drawer.hidden = !drawer.hidden;
     $("#narrativeJobsButton").setAttribute("aria-expanded", String(!drawer.hidden));
@@ -869,7 +1099,7 @@ function bind() {
   $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical"));
   $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
-  $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); const host = state.mode === "narrative" ? $("#storyMapFlow") : graph.world; host.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
   $("#diagnosticsButton").addEventListener("click", showDiagnostics); $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
   $("#settingsButton").addEventListener("click", () => { const choices = ["system", "light", "dark"]; state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length]; document.documentElement.dataset.theme = state.settings.theme; graph.draw(); api.saveSettings(state.settings).catch(() => {}); });
@@ -883,4 +1113,4 @@ async function start() {
 }
 
 start();
-export { api, graph, state, element, normalizedPage };
+export { api, graph, state, element, normalizedPage, renderMap, renderStoryMapFlow, storyMapBuildState };

@@ -6,6 +6,7 @@ import {
   assertNarrativeArtifact, assertNarrativeCitations, assertNarrativePreparation,
   assertNarrativeRunStatus, assertNarrativeSnapshot,
   assertNarrativeMap, assertNarrativeMapDetail,
+  assertStoryMapProduction,
   exactOrganizationBudgets,
 } from "./contract.js";
 
@@ -208,6 +209,28 @@ export class LocalApi {
     if (typeof elementId !== "string" || !elementId) throw new TypeError("Narrative Map element ID is required");
     return assertNarrativeMapDetail(await this.request(ENDPOINTS.narrativeDetail, { method: "POST", body: { element_id: elementId } }));
   }
+  async prepareStoryBoundaries(options = {}) {
+    const action = "prepare_boundaries";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapPrepareBoundaries, { method: "POST", body: { action, ...options } }));
+  }
+  async startStoryBoundaries(manifestId) {
+    if (typeof manifestId !== "string" || !manifestId) throw new TypeError("Boundary manifest identity is required");
+    const action = "start_boundaries";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapStartBoundaries, { method: "POST", body: { action, manifest_id: manifestId, confirm_cloud: true } }));
+  }
+  async prepareStorySummaries(options = {}) {
+    const action = "prepare_summaries";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapPrepareSummaries, { method: "POST", body: { action, ...options } }));
+  }
+  async startStorySummaries(manifestId) {
+    if (typeof manifestId !== "string" || !manifestId) throw new TypeError("Summary manifest identity is required");
+    const action = "start_summaries";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapStartSummaries, { method: "POST", body: { action, manifest_id: manifestId, confirm_cloud: true } }));
+  }
+  async storyMapBuildStatus() { return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapBuildStatus, { method: "POST", body: {} })); }
+  async cancelStoryMapBuild() { return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapBuildCancel, { method: "POST", body: {} })); }
+  async resumeStoryMapBuild() { return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapBuildResume, { method: "POST", body: {} })); }
+  async retryStoryMapBuild() { return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapBuildRetry, { method: "POST", body: {} })); }
   async narrativeSnapshot(offset = 0, limit = 200) {
     return assertNarrativeSnapshot(await this.request(ENDPOINTS.narrativeSnapshot, { method: "POST", body: { offset, limit } }));
   }
