@@ -617,7 +617,9 @@ def test_sterile_adapter_uses_versioned_boundary_prompt_and_schema(tmp_path: Pat
     assert not exc_info.value.provider_call_reserved
     assert stale_runner.requests == []
     prompt = json.loads(runner.requests[0].stdin)
-    assert prompt["version"] == "m15-semantic-boundary-prompt-v2"
+    assert prompt["version"] == "m15-semantic-boundary-prompt-v3"
+    assert "new_major_cluster" in prompt["decisions"]
+    assert "reader-level section transitions" in prompt["decisions"]["new_major_cluster"]
     assert prompt["request"]["job"]["window_id"] == window.window_id
     assert "private oracle" not in json.dumps(prompt["request"]["job"]).casefold()
 
@@ -669,7 +671,7 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
 
     assert runner.requests[0].schema_path.name == "semantic_summary_v3.schema.json"
     prompt = json.loads(runner.requests[0].stdin)
-    assert prompt["version"] == "m15-semantic-summary-prompt-v2"
+    assert prompt["version"] == "m15-semantic-summary-prompt-v3"
     assert "repair_guidance" not in prompt["request"]
     repair_runner = _FakeSterileRunner(payload)
     repair_request = NarrativeMapProviderRequest(
@@ -724,6 +726,206 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
         )
     assert not exc_info.value.provider_call_reserved
     assert stale_runner.requests == []
+
+
+def test_semantic_summary_input_preserves_subject_choice_and_scope_authority() -> None:
+    base_units = _units(4)
+    units = (
+        base_units[0],
+        replace(base_units[1], parent_choice_id="choice-route", parent_arm_id="arm-rest"),
+        replace(base_units[2], parent_choice_id="choice-route", parent_arm_id="arm-object"),
+        base_units[3],
+    )
+    context_beat = SemanticBeat(
+        "beat-context",
+        "cluster-day",
+        (units[0].unit_id,),
+        None,
+        None,
+        EvidenceNavigation("beat", "detail-context"),
+    )
+    rest_beat = SemanticBeat(
+        "beat-rest",
+        "cluster-day",
+        (units[1].unit_id,),
+        "choice-route",
+        "arm-rest",
+        EvidenceNavigation("beat", "detail-rest"),
+    )
+    object_beat = SemanticBeat(
+        "beat-object",
+        "cluster-day",
+        (units[2].unit_id,),
+        "choice-route",
+        "arm-object",
+        EvidenceNavigation("beat", "detail-object"),
+    )
+    continuation_beat = SemanticBeat(
+        "beat-continuation",
+        "cluster-day",
+        (units[3].unit_id,),
+        None,
+        None,
+        EvidenceNavigation("beat", "detail-continuation"),
+    )
+    choice = ChoiceComposition(
+        "choice-route",
+        "cluster-day",
+        None,
+        None,
+        ("arm-rest", "arm-object"),
+        ("Accept the offer", "Refuse the offer"),
+        (),
+        ("rejoin-route",),
+        "node-rejoin",
+        "node-after",
+    )
+    cluster = MajorCluster(
+        "cluster-day",
+        0,
+        tuple(
+            item.beat_id
+            for item in (context_beat, rest_beat, object_beat, continuation_beat)
+        ),
+        (choice.choice_id,),
+        EvidenceNavigation("major_cluster", "detail-day"),
+    )
+    outline = SemanticOutline(
+        _authority(),
+        tuple(item.unit_id for item in units),
+        (),
+        (context_beat, rest_beat, object_beat, continuation_beat),
+        (cluster,),
+        (choice,),
+        (),
+    )
+    evidence = _evidence(units)
+    evidence[units[1].unit_id] = (
+        replace(
+            evidence[units[1].unit_id][0],
+            speaker="Guardian",
+            text="I can give the ward time to recover.",
+        ),
+    )
+    evidence[units[2].unit_id] = (
+        replace(
+            evidence[units[2].unit_id][0],
+            speaker="Ward",
+            text="I refuse the guardian's offer.",
+        ),
+    )
+    evidence_ids = tuple(item.evidence_ids[0] for item in units)
+    inputs = (
+        FrozenSummaryInput(
+            "beat", context_beat.beat_id, context_beat.ordered_unit_ids, evidence_ids[:1]
+        ),
+        FrozenSummaryInput(
+            "beat", rest_beat.beat_id, rest_beat.ordered_unit_ids, evidence_ids[1:2]
+        ),
+        FrozenSummaryInput(
+            "beat", object_beat.beat_id, object_beat.ordered_unit_ids, evidence_ids[2:3]
+        ),
+        FrozenSummaryInput(
+            "beat",
+            continuation_beat.beat_id,
+            continuation_beat.ordered_unit_ids,
+            evidence_ids[3:],
+        ),
+        FrozenSummaryInput(
+            "major_cluster",
+            cluster.cluster_id,
+            tuple(item.unit_id for item in units),
+            evidence_ids,
+            ("Guardian", "Ward"),
+        ),
+        FrozenSummaryInput(
+            "choice",
+            choice.choice_id,
+            (units[1].unit_id, units[2].unit_id),
+            evidence_ids[1:3],
+            ("Guardian", "Ward"),
+        ),
+    )
+
+    jobs = prepare_semantic_summary_jobs(
+        outline,
+        inputs,
+        evidence,
+        source_hash="source-hash",
+        correction_id="m15.1",
+        privacy_scope="story_evidence_only",
+    )
+    cluster_job = next(job for job in jobs if job.subject_id == cluster.cluster_id)
+    choice_job = next(job for job in jobs if job.subject_id == choice.choice_id)
+
+    assert cluster_job.prompt_version == "m15-semantic-summary-prompt-v3"
+    assert cluster_job.payload["input_schema"] == "m15-semantic-summary-input-v3"
+    assert cluster_job.payload["subject_authority"] == {
+        "subject_kind": "major_cluster",
+        "subject_id": cluster.cluster_id,
+        "ordinal": 0,
+        "ordered_beat_ids": list(cluster.ordered_beat_ids),
+        "ordered_choice_ids": [choice.choice_id],
+        "navigation": cluster.navigation.to_dict(),
+    }
+    ordered_authority = cluster_job.payload["ordered_unit_authority"]
+    assert isinstance(ordered_authority, list)
+    assert [item["parent_arm_id"] for item in ordered_authority] == [
+        None,
+        "arm-rest",
+        "arm-object",
+        None,
+    ]
+    assert [item["choice_arm_caption"] for item in ordered_authority] == [
+        None,
+        "Accept the offer",
+        "Refuse the offer",
+        None,
+    ]
+    assert choice_job.payload["choice_authority"] == [choice.to_dict()]
+    assert choice_job.payload["subject_authority"] == {
+        "subject_kind": "choice",
+        "subject_id": choice.choice_id,
+        "parent_navigation": cluster.navigation.to_dict(),
+        "choice": choice.to_dict(),
+    }
+    assert choice_job.payload["ending_authority"] == {
+        "classification": "not_provided",
+        "whole_story_ending_authorized": False,
+        "authority_ids": [],
+    }
+    assert choice_job.payload["evidence"][0]["speaker"] == "Guardian"
+    assert choice_job.payload["evidence"][1]["speaker"] == "Ward"
+
+
+def test_semantic_summary_v3_prompt_requires_branch_and_actor_faithfulness() -> None:
+    prompt = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "src"
+            / "renpy_story_mapper"
+            / "narrative_map"
+            / "prompts"
+            / "semantic_summary_v3.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert prompt["version"] == "m15-semantic-summary-prompt-v3"
+    policy = prompt["source_faithfulness_policy"]
+    assert policy["version"] == "m15-semantic-summary-source-faithfulness-v1"
+    assert "mutually exclusive" in policy["choice_arms"]
+    assert "pronoun" in policy["actor_attribution"].casefold()
+    assert "actor" in policy["actor_attribution"].casefold()
+    assert "recipient" in policy["actor_attribution"].casefold()
+    assert "whole-story ending" in policy["scope_endings"]
+    assert (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "narrative_map"
+        / "prompts"
+        / "semantic_summary_v2.json"
+    ).is_file()
 
 
 def test_v2_validators_reject_duplicates_delegated_by_provider_schemas() -> None:

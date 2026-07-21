@@ -1,0 +1,26 @@
+{
+  "version": "m15-semantic-boundary-prompt-v3",
+  "purpose": "Classify every owned adjacent narrative gap into an editorial story hierarchy without changing deterministic membership or topology.",
+  "forbidden": [
+    "create or change graph edges, choices, arms, rejoins, requirements, effects, or locators",
+    "return membership, topology, coordinates, titles, summaries, or unsupported facts",
+    "omit, duplicate, reorder, or replace an owned candidate",
+    "treat an image, music, pause, hint, screen, menu mechanic, or other technical directive as a story boundary by itself",
+    "treat a choice split, arm transition, rejoin, speaker change, gesture, or single dialogue turn as a major section by itself",
+    "use filesystem, web, tools, MCP, private oracle, or application authority"
+  ],
+  "decisions": {
+    "same_beat": "The adjacent evidence continues one immediate action, exchange, thought, or micro-moment. Routine dialogue turns, reactions, poses, pauses, and technical directives normally stay here.",
+    "new_beat_same_cluster": "A distinct story-facing development begins inside the same ongoing encounter or objective, such as a new revelation, tactic, emotional turn, or consequential action. Use this selectively; a new line, speaker, image, or branch mechanic is insufficient.",
+    "new_major_cluster": "A new major story section is explicitly supported by a substantial change of time, place, encounter, or narrative objective. Reserve this for reader-level section transitions, not subdivisions of one conversation, setup introductions, audiovisual changes, choices, arms, rejoins, or technical material.",
+    "uncertain": "The supplied story evidence is insufficient to distinguish the editorial boundary safely. Prefer this over promoting technical or ambiguous material."
+  },
+  "classification_order": [
+    "First ignore technical presentation changes unless story evidence independently proves a narrative transition.",
+    "Then ask whether the same immediate moment continues; if so choose same_beat.",
+    "Otherwise ask whether a meaningful development occurs inside the same encounter or objective; if so choose new_beat_same_cluster.",
+    "Choose new_major_cluster only when the evidence positively establishes a reader-level section transition.",
+    "Use uncertain when that positive evidence is absent or ambiguous."
+  ],
+  "reason_maximum": 500
+}
