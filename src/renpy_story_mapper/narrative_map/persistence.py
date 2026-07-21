@@ -382,6 +382,29 @@ class NarrativeMapRepository:
             raise storage.ProjectCorruptError("M15.1 semantic call ledger exceeds consent")
         return count
 
+    def semantic_manifest_reservation_count(self, manifest_id: str) -> int:
+        """Read one durable manifest ledger using its own persisted consent ceiling."""
+
+        raw = self._payload(SEMANTIC_CALL_LEDGER_COLLECTION, manifest_id)
+        if raw is None:
+            return 0
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("M15.1 semantic call ledger is not an object")
+        maximum_provider_calls = raw.get("maximum_provider_calls")
+        if (
+            not isinstance(maximum_provider_calls, int)
+            or isinstance(maximum_provider_calls, bool)
+            or maximum_provider_calls < 1
+        ):
+            raise storage.ProjectCorruptError("M15.1 semantic call ledger limit is invalid")
+        return len(
+            _semantic_call_reservations(
+                raw,
+                manifest_id=manifest_id,
+                maximum_provider_calls=maximum_provider_calls,
+            )
+        )
+
     @staticmethod
     def cache_identity(
         job: PreparedNarrativeJob, profile: ProviderProfile

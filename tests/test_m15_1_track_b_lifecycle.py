@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
 from threading import Event
@@ -265,6 +265,50 @@ class _BlockingProvider(_FakeProvider):
     ) -> NarrativeMapProviderResponse:
         self.entered.set()
         assert self.release.wait(timeout=5)
+        return super().submit(request, cancelled)
+
+
+class _BlockingSequenceProvider(_FakeProvider):
+    def __init__(
+        self,
+        payloads: list[dict[str, object]],
+        entered: Event,
+        release: Event,
+    ) -> None:
+        super().__init__(payloads)
+        self.entered = entered
+        self.release = release
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        if not self.requests:
+            self.entered.set()
+            assert self.release.wait(timeout=5)
+        return super().submit(request, cancelled)
+
+
+class _BlockAfterFirstProvider(_FakeProvider):
+    def __init__(
+        self,
+        payloads: list[dict[str, object]],
+        entered: Event,
+        release: Event,
+    ) -> None:
+        super().__init__(payloads)
+        self.entered = entered
+        self.release = release
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        if len(self.requests) == 1:
+            self.entered.set()
+            assert self.release.wait(timeout=5)
         return super().submit(request, cancelled)
 
 
@@ -1176,6 +1220,29 @@ def test_escaped_boundary_task_reconciles_once_across_repeated_manifest_rotation
             maximum_provider_calls=preparation.consent.maximum_provider_calls,
         ) == 2
 
+        for _ in range(2):
+            same_manifest = service.prepare_boundaries(
+                units,
+                candidates,
+                windows,
+                _evidence(units),
+                profile=_profile(),
+                run_id="escaped-boundaries",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(hours=1),
+                replay_existing=True,
+            )
+            assert same_manifest.consent.manifest_id == preparation.consent.manifest_id
+        same_status = service.semantic_status()
+        same_raw = repository.read_semantic_build()
+        assert same_status is not None
+        assert same_status.accounting.provider_calls == 1
+        assert same_status.accounting.reserved_provider_calls == 2
+        assert same_raw is not None
+        assert same_raw["boundary_accounted_manifest_id"] == preparation.consent.manifest_id
+        assert same_raw["boundary_accounted_reservation_count"] == 2
+
         first_rotation = service.prepare_boundaries(
             units,
             candidates,
@@ -1341,6 +1408,177 @@ def test_missing_legacy_markers_do_not_double_count_during_manifest_rotation(
     assert recovered["boundary_accounting"]["reserved_provider_calls"] == 3
     assert recovered["boundary_accounted_manifest_id"] == rotated.consent.manifest_id
     assert recovered["boundary_accounted_reservation_count"] == 0
+
+
+def test_reusable_recovery_does_not_skip_reservation_after_ledger_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    with Project.create(tmp_path / "late-reusable-reservation.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        preparation = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="late-reusable-reservation",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        original_count = repository.semantic_reserved_call_count
+        inserted = False
+
+        def snapshot_then_reserve(
+            *,
+            manifest_id: str,
+            maximum_provider_calls: int,
+        ) -> int:
+            nonlocal inserted
+            snapshot = original_count(
+                manifest_id=manifest_id,
+                maximum_provider_calls=maximum_provider_calls,
+            )
+            if not inserted:
+                inserted = True
+                repository.reserve_semantic_provider_call(
+                    manifest_id=manifest_id,
+                    maximum_provider_calls=maximum_provider_calls,
+                    job_id=preparation.jobs[0].job_id,
+                    attempt=1,
+                )
+            return snapshot
+
+        monkeypatch.setattr(
+            repository,
+            "semantic_reserved_call_count",
+            snapshot_then_reserve,
+        )
+        service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="late-reusable-reservation",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+            replay_existing=True,
+        )
+        first = repository.read_semantic_build()
+        monkeypatch.setattr(
+            repository,
+            "semantic_reserved_call_count",
+            original_count,
+        )
+        for _ in range(2):
+            service.prepare_boundaries(
+                units,
+                candidates,
+                (window,),
+                _evidence(units),
+                profile=_profile(),
+                run_id="late-reusable-reservation",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(hours=1),
+                replay_existing=True,
+            )
+        final = repository.read_semantic_build()
+
+    assert first is not None
+    assert first["boundary_accounting"]["reserved_provider_calls"] == 0
+    assert first["boundary_accounted_reservation_count"] == 0
+    assert final is not None
+    assert final["boundary_accounting"]["provider_calls"] == 0
+    assert final["boundary_accounting"]["reserved_provider_calls"] == 1
+    assert final["accounting"]["reserved_provider_calls"] == 1
+    assert final["boundary_accounted_reservation_count"] == 1
+
+
+def test_replacement_start_waits_through_expired_manifest_timeout_grace(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    with Project.create(tmp_path / "expired-manifest-grace.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        prior = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="expired-grace-prior",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        service.confirm_semantic_consent(prior, prior.granted_consent())
+        repository.reserve_semantic_provider_call(
+            manifest_id=prior.consent.manifest_id,
+            maximum_provider_calls=prior.consent.maximum_provider_calls,
+            job_id=prior.jobs[0].job_id,
+            attempt=1,
+        )
+        replacement = service.prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="expired-grace-replacement",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(minutes=59),
+            replay_existing=True,
+        )
+        raw = repository.read_semantic_build()
+        assert raw is not None
+        snapshots = raw["confirmed_manifests"]
+        prior_snapshot = snapshots[prior.consent.manifest_id]
+        within_grace_expiry = datetime.now(UTC) - timedelta(seconds=1)
+        prior_snapshot["issued_utc"] = (
+            within_grace_expiry - timedelta(hours=1)
+        ).isoformat()
+        prior_snapshot["expires_utc"] = within_grace_expiry.isoformat()
+        repository.write_semantic_build(raw)
+
+        blocked_provider = _FakeProvider([_boundary_payload(window)])
+        with pytest.raises(ValueError, match="prior confirmed boundary manifest"):
+            service.start_boundaries(
+                replacement,
+                provider=blocked_provider,
+                consent=replacement.granted_consent(),
+            )
+        assert blocked_provider.requests == []
+
+        raw = repository.read_semantic_build()
+        assert raw is not None
+        snapshots = raw["confirmed_manifests"]
+        after_grace_expiry = datetime.now(UTC) - timedelta(seconds=301)
+        snapshots[prior.consent.manifest_id]["issued_utc"] = (
+            after_grace_expiry - timedelta(hours=1)
+        ).isoformat()
+        snapshots[prior.consent.manifest_id]["expires_utc"] = after_grace_expiry.isoformat()
+        repository.write_semantic_build(raw)
+        allowed_provider = _FakeProvider([_boundary_payload(window)])
+        report = service.start_boundaries(
+            replacement,
+            provider=allowed_provider,
+            consent=replacement.granted_consent(),
+        )
+
+    assert report.provider_calls == 1
+    assert len(allowed_provider.requests) == 1
 
 
 def test_escaped_summary_task_reconciles_once_across_repeated_manifest_rotation(
@@ -1520,6 +1758,354 @@ def test_concurrent_reopen_cannot_cross_the_atomic_durable_consent_ceiling(
         status = NarrativeMapService(repository).semantic_status()
         assert status is not None
         assert status.accounting.reserved_provider_calls == 1
+
+
+def test_reusable_prepare_recovers_calls_finished_under_rotated_manifest(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates, batched=False)
+    path = tmp_path / "rotated-while-running.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        original = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="rotated-original",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+        first = service.start_boundaries(
+            original,
+            provider=_FakeProvider(
+                [_boundary_payload(windows[0]), {"bad": True}, {"still_bad": True}]
+            ),
+            consent=original.granted_consent(),
+        )
+        assert first.provider_calls == 3
+
+        active = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="rotated-active",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+            replay_existing=True,
+        )
+
+    entered = Event()
+    release = Event()
+    provider = _BlockingProvider(_boundary_payload(windows[1]), entered, release)
+
+    def finish_active_manifest() -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            service = NarrativeMapService(NarrativeMapRepository(project))
+            service.confirm_semantic_consent(active, active.granted_consent())
+            return service.start_boundaries(
+                active,
+                provider=provider,
+                consent=active.granted_consent(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(finish_active_manifest)
+        assert entered.wait(timeout=5)
+        with Project.open(path) as project:
+            replacement_service = NarrativeMapService(NarrativeMapRepository(project))
+            rotated = replacement_service.prepare_boundaries(
+                units,
+                candidates,
+                windows,
+                _evidence(units),
+                profile=_profile(),
+                run_id="rotated-replacement",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(minutes=59),
+                replay_existing=True,
+            )
+            replacement_provider = _FakeProvider([_boundary_payload(windows[1])])
+            with pytest.raises(ValueError, match="prior confirmed boundary manifest"):
+                replacement_service.start_boundaries(
+                    rotated,
+                    provider=replacement_provider,
+                    consent=rotated.granted_consent(),
+                )
+            assert replacement_provider.requests == []
+        release.set()
+        finished = future.result(timeout=5)
+        assert finished.provider_calls == 1
+
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        recovered = NarrativeMapService(repository).prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="rotated-replacement",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(minutes=59),
+            replay_existing=True,
+        )
+        replacement_provider = _FakeProvider([_boundary_payload(windows[1])])
+        replacement_report = NarrativeMapService(repository).start_boundaries(
+            recovered,
+            provider=replacement_provider,
+            consent=recovered.granted_consent(),
+        )
+        raw = repository.read_semantic_build()
+
+    assert recovered.consent.manifest_id == rotated.consent.manifest_id
+    assert replacement_report.provider_calls == 1
+    assert len(replacement_provider.requests) == 1
+    assert raw is not None
+    assert len(raw["completed_boundary_job_ids"]) == 2
+    assert raw["boundary_accounting"]["provider_calls"] == 5
+    assert raw["boundary_accounting"]["reserved_provider_calls"] == 5
+    assert raw["accounting"]["provider_calls"] == 5
+    assert raw["accounting"]["reserved_provider_calls"] == 5
+
+
+def test_runner_finalization_does_not_recharge_concurrently_recovered_record(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates, batched=False)
+    path = tmp_path / "same-manifest-concurrent-recovery.rsmproj"
+    with Project.create(path) as project:
+        active = NarrativeMapService(
+            NarrativeMapRepository(project)
+        ).prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="same-manifest-concurrent-recovery",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+
+    entered = Event()
+    release = Event()
+    provider = _BlockAfterFirstProvider(
+        [_boundary_payload(windows[0]), _boundary_payload(windows[1])],
+        entered,
+        release,
+    )
+
+    def finish() -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            return NarrativeMapService(NarrativeMapRepository(project)).start_boundaries(
+                active,
+                provider=provider,
+                consent=active.granted_consent(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(finish)
+        assert entered.wait(timeout=5)
+        with Project.open(path) as project:
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            same = service.prepare_boundaries(
+                units,
+                candidates,
+                windows,
+                _evidence(units),
+                profile=_profile(),
+                run_id="same-manifest-concurrent-recovery",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(hours=1),
+                replay_existing=True,
+            )
+            interim = repository.read_semantic_build()
+        assert same.consent.manifest_id == active.consent.manifest_id
+        assert interim is not None
+        assert interim["boundary_accounting"]["provider_calls"] == 1
+        assert interim["boundary_accounting"]["reserved_provider_calls"] == 2
+        release.set()
+        report = future.result(timeout=5)
+
+    with Project.open(path) as project:
+        raw = NarrativeMapRepository(project).read_semantic_build()
+
+    assert report.provider_calls == 2
+    assert len(provider.requests) == 2
+    assert raw is not None
+    assert raw["boundary_accounting"]["provider_calls"] == 2
+    assert raw["boundary_accounting"]["reserved_provider_calls"] == 2
+    assert raw["boundary_accounting"]["input_tokens"] == 200
+    assert raw["boundary_accounting"]["output_tokens"] == 40
+    assert raw["boundary_accounting"]["elapsed_ms"] == 10
+
+
+def test_late_boundary_finalizer_preserves_prepared_summary_phase(tmp_path: Path) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "late-boundary-after-summary-prepare.rsmproj"
+    profile = _profile()
+    with Project.create(path) as project:
+        active = NarrativeMapService(
+            NarrativeMapRepository(project)
+        ).prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=profile,
+            run_id="late-boundary-active",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+
+    entered = Event()
+    release = Event()
+    provider = _BlockingProvider(_boundary_payload(window), entered, release)
+
+    def finish() -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            return NarrativeMapService(NarrativeMapRepository(project)).start_boundaries(
+                active,
+                provider=provider,
+                consent=active.granted_consent(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(finish)
+        assert entered.wait(timeout=5)
+        with Project.open(path) as project:
+            repository = NarrativeMapRepository(project)
+            advanced = repository.read_semantic_build()
+            assert advanced is not None
+            advanced["state"] = SemanticBuildState.AWAITING_SUMMARY_CONSENT.value
+            advanced["membership_hash"] = "frozen-membership-hash"
+            advanced["summary_manifest_id"] = "consent_summary_phase"
+            advanced["summary_job_ids"] = ["semantic_summary_job"]
+            repository.write_semantic_build(advanced)
+            before_release = repository.read_semantic_build()
+        release.set()
+        report = future.result(timeout=5)
+
+    with Project.open(path) as project:
+        final = NarrativeMapRepository(project).read_semantic_build()
+
+    assert report.provider_calls == 1
+    assert before_release is not None
+    assert final is not None
+    assert final["state"] == SemanticBuildState.AWAITING_SUMMARY_CONSENT.value
+    assert final["state"] == before_release["state"]
+    assert final["membership_hash"] == before_release["membership_hash"]
+    assert final["summary_manifest_id"] == before_release["summary_manifest_id"]
+    assert final["summary_job_ids"] == before_release["summary_job_ids"]
+
+
+def test_reusable_prepare_recovers_terminal_failure_under_rotated_manifest(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    window = _windows(units, candidates)[0]
+    path = tmp_path / "rotated-failure-while-running.rsmproj"
+    with Project.create(path) as project:
+        active = NarrativeMapService(
+            NarrativeMapRepository(project)
+        ).prepare_boundaries(
+            units,
+            candidates,
+            (window,),
+            _evidence(units),
+            profile=_profile(),
+            run_id="rotated-failure-active",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            valid_for=timedelta(hours=1),
+        )
+
+    entered = Event()
+    release = Event()
+    provider = _BlockingSequenceProvider(
+        [{"bad": True}, {"still_bad": True}],
+        entered,
+        release,
+    )
+
+    def finish_active_manifest() -> NarrativeWorkflowReport:
+        with Project.open(path) as project:
+            service = NarrativeMapService(NarrativeMapRepository(project))
+            service.confirm_semantic_consent(active, active.granted_consent())
+            return service.start_boundaries(
+                active,
+                provider=provider,
+                consent=active.granted_consent(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(finish_active_manifest)
+        assert entered.wait(timeout=5)
+        with Project.open(path) as project:
+            rotated = NarrativeMapService(
+                NarrativeMapRepository(project)
+            ).prepare_boundaries(
+                units,
+                candidates,
+                (window,),
+                _evidence(units),
+                profile=_profile(),
+                run_id="rotated-failure-replacement",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(minutes=59),
+                replay_existing=True,
+            )
+        release.set()
+        finished = future.result(timeout=5)
+        assert finished.provider_calls == 1
+
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        for _ in range(2):
+            recovered = service.prepare_boundaries(
+                units,
+                candidates,
+                (window,),
+                _evidence(units),
+                profile=_profile(),
+                run_id="rotated-failure-replacement",
+                source_hash="source-hash",
+                correction_id="m15.1",
+                valid_for=timedelta(minutes=59),
+                replay_existing=True,
+            )
+        raw = repository.read_semantic_build()
+
+    assert recovered.consent.manifest_id == rotated.consent.manifest_id
+    assert raw is not None
+    assert raw["completed_boundary_job_ids"] == []
+    assert raw["boundary_accounting"]["provider_calls"] == 1
+    assert raw["boundary_accounting"]["reserved_provider_calls"] == 1
+    assert raw["boundary_accounting"]["input_tokens"] == 0
+    assert raw["boundary_accounting"]["output_tokens"] == 0
+    assert raw["boundary_accounting"]["elapsed_ms"] == 0
+    assert raw["accounting"] == raw["boundary_accounting"]
 
 
 def test_concurrent_reopen_cannot_submit_the_same_logical_job_attempt_twice(

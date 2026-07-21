@@ -70,9 +70,12 @@ Updated: 2026-07-21 (M15.1 correction In progress; live boundary resume)
   `consent_expired` failure instead of escaping with a stale `boundaries_running` state. Fresh
   boundary and summary manifests reconcile exact newly completed jobs, usage, and uncheckpointed
   ledger reservations before cache replay, with per-manifest reservation checkpoints preventing
-  double counting across repeated rotation. The correction independently passed with no P0-P2;
-  190 M15 tests passed with two expected opt-in browser skips, plus Ruff, strict mypy over 114
-  source files, and whitespace checks. A fresh exact resume manifest remains required.
+  double counting across repeated rotation. Cross-process hardening additionally fingerprints
+  terminal records, preserves advanced lifecycle phases, and blocks overlapping same-stage
+  manifests through consent expiry plus provider timeout. The correction independently passed
+  with no P0-P2; 196 M15 tests passed with two expected opt-in browser skips, plus Ruff, strict
+  mypy over 114 source files, and whitespace checks. Live boundary records are 94/94 validated;
+  one recovery-only product preparation must checkpoint the final 94/94 accounting.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
   preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
   deferred or excluded.

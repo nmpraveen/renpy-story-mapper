@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import cast
 
@@ -15,6 +15,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     stable_m15_id,
 )
 from renpy_story_mapper.narrative_map.persistence import (
+    NarrativeJobRecord,
     NarrativeJobStatus,
     NarrativeMapRepository,
 )
@@ -224,11 +225,26 @@ class SemanticLifecycle:
             SemanticStage.BOUNDARIES,
         )
         if recovered is not None:
-            recovered_accounting, recovered_total, completed, confirmed = recovered
+            (
+                recovered_accounting,
+                recovered_total,
+                completed,
+                confirmed,
+                _reserved_snapshot,
+                recovered_record_hashes,
+            ) = recovered
             payload["accounting"] = _accounting_payload(recovered_total)
             payload["boundary_accounting"] = _accounting_payload(recovered_accounting)
             payload["completed_boundary_job_ids"] = list(completed)
             payload["confirmed_manifest_ids"] = list(confirmed)
+            payload["boundary_accounted_record_hashes"] = recovered_record_hashes
+            if previous_build is not None:
+                payload["confirmed_manifests"] = _manifest_snapshot_mapping(
+                    previous_build.get("confirmed_manifests")
+                )
+                payload["confirmed_manifest_stages"] = _manifest_stage_mapping(
+                    previous_build.get("confirmed_manifest_stages")
+                )
             payload["boundary_accounted_manifest_id"] = consent.manifest_id
             payload["boundary_accounted_reservation_count"] = 0
         self._repository.write_semantic_build(payload)
@@ -277,6 +293,12 @@ class SemanticLifecycle:
             confirmed.append(consent.manifest_id)
         updated = dict(raw)
         updated["confirmed_manifest_ids"] = confirmed
+        confirmed_manifests = _manifest_snapshot_mapping(raw.get("confirmed_manifests"))
+        confirmed_manifests[consent.manifest_id] = consent.identity_dict()
+        updated["confirmed_manifests"] = confirmed_manifests
+        confirmed_stages = _manifest_stage_mapping(raw.get("confirmed_manifest_stages"))
+        confirmed_stages[consent.manifest_id] = prefix
+        updated["confirmed_manifest_stages"] = confirmed_stages
         self._repository.write_semantic_build(updated)
         return _status_from_payload(updated)
 
@@ -502,7 +524,13 @@ class SemanticLifecycle:
                 recovered_total,
                 completed_summaries,
                 confirmed_manifests,
+                _reserved_snapshot,
+                recovered_record_hashes,
             ) = recovered
+        else:
+            recovered_record_hashes = _record_hash_mapping(
+                raw.get("summary_accounted_record_hashes")
+            )
         for job in jobs:
             self._repository.stage(job, profile)
         updated = dict(raw)
@@ -530,6 +558,7 @@ class SemanticLifecycle:
                 "confirmed_manifest_ids": list(confirmed_manifests),
                 "summary_accounted_manifest_id": consent.manifest_id,
                 "summary_accounted_reservation_count": 0,
+                "summary_accounted_record_hashes": recovered_record_hashes,
             }
         )
         self._repository.write_semantic_build(updated)
@@ -639,6 +668,13 @@ class SemanticLifecycle:
     ) -> NarrativeWorkflowReport:
         raw = self._require_build(preparation.build_id)
         prefix = "boundary" if preparation.stage is SemanticStage.BOUNDARIES else "summary"
+        self._reject_overlapping_confirmed_run(
+            raw,
+            prefix=prefix,
+            jobs=preparation.jobs,
+            profile=consent.profile,
+            current_manifest_id=consent.manifest_id,
+        )
         stage_accounting_key = (
             "boundary_accounting"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -691,7 +727,11 @@ class SemanticLifecycle:
             def is_cancelled() -> bool:
                 latest = self._repository.read_semantic_build()
                 persisted = bool(latest and latest.get("cancel_requested") is True)
-                return persisted or bool(cancelled and cancelled())
+                manifest_changed = bool(
+                    latest
+                    and latest.get(f"{prefix}_manifest_id") != consent.manifest_id
+                )
+                return persisted or manifest_changed or bool(cancelled and cancelled())
 
             try:
                 if preparation.stage is SemanticStage.BOUNDARIES:
@@ -710,57 +750,70 @@ class SemanticLifecycle:
                     )
             finally:
                 self._active_workflow = None
-        latest = self._require_build(preparation.build_id)
+        latest = self._require_build()
+        recovered = self._recover_stage_progress(
+            latest,
+            preparation.jobs,
+            consent.profile,
+            preparation.stage,
+        )
+        if recovered is None:
+            raise ValueError("semantic preparation became stale during execution")
+        (
+            stage_accounting,
+            accounting,
+            recovered_completed,
+            confirmed,
+            reserved_snapshot,
+            record_hashes,
+        ) = recovered
         records = tuple(self._repository.get(job.kind, job.job_id) for job in preparation.jobs)
         completed = tuple(
             job.job_id
             for job, record in zip(preparation.jobs, records, strict=True)
             if record is not None and record.status is NarrativeJobStatus.VALIDATED
         )
+        if completed != recovered_completed:
+            raise ValueError("semantic terminal records changed during finalization")
         failures = tuple(
             record.error_code
             for record in records
             if record is not None and record.error_code is not None
         )
         updated = dict(latest)
-        accounting = _accounting_from_payload(latest.get("accounting"))
         stage_accounting_key = (
             "boundary_accounting"
             if preparation.stage is SemanticStage.BOUNDARIES
             else "summary_accounting"
         )
-        stage_accounting = _accounting_from_payload(latest.get(stage_accounting_key))
-        reserved_after = self._repository.semantic_reserved_call_count(
-            manifest_id=consent.manifest_id,
-            maximum_provider_calls=consent.maximum_provider_calls,
-        )
-        latest_accounted_reservation_count = _reservation_accounting_checkpoint(
-            latest,
-            prefix=prefix,
-            manifest_id=consent.manifest_id,
-            durable_reservations=reserved_after,
-            stage_accounting=stage_accounting,
-        )
-        if reserved_after < latest_accounted_reservation_count:
-            raise ValueError("durable semantic call accounting moved backwards")
-        reserved_delta = reserved_after - latest_accounted_reservation_count
-        updated_accounting = _add_report(accounting, report)
         updated_accounting = replace(
-            updated_accounting,
-            reserved_provider_calls=(
-                updated_accounting.reserved_provider_calls + reserved_delta
-            ),
+            accounting,
+            cache_hits=accounting.cache_hits + report.cache_hits,
         )
         updated["accounting"] = _accounting_payload(updated_accounting)
         updated_stage_accounting = replace(
-            _add_report(stage_accounting, report),
-            reserved_provider_calls=(
-                stage_accounting.reserved_provider_calls + reserved_delta
-            ),
+            stage_accounting,
+            cache_hits=stage_accounting.cache_hits + report.cache_hits,
         )
         updated[stage_accounting_key] = _accounting_payload(updated_stage_accounting)
-        updated[f"{prefix}_accounted_manifest_id"] = consent.manifest_id
-        updated[f"{prefix}_accounted_reservation_count"] = reserved_after
+        current_manifest_id = latest.get(f"{prefix}_manifest_id")
+        if not isinstance(current_manifest_id, str) or not current_manifest_id:
+            raise ValueError("semantic finalization manifest is invalid")
+        updated[f"{prefix}_accounted_manifest_id"] = current_manifest_id
+        updated[f"{prefix}_accounted_reservation_count"] = reserved_snapshot
+        updated[f"{prefix}_accounted_record_hashes"] = record_hashes
+        updated["confirmed_manifest_ids"] = list(confirmed)
+        latest_was_complete = latest.get("state") == SemanticBuildState.COMPLETE.value
+        boundary_phase_advanced = (
+            preparation.stage is SemanticStage.BOUNDARIES
+            and (
+                isinstance(latest.get("membership_hash"), str)
+                or isinstance(latest.get("summary_manifest_id"), str)
+            )
+        )
+        if latest_was_complete or boundary_phase_advanced:
+            self._repository.write_semantic_build(updated)
+            return report
         target_key = (
             "completed_boundary_job_ids"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -769,10 +822,6 @@ class SemanticLifecycle:
         updated[target_key] = list(completed)
         updated["failure_codes"] = list(dict.fromkeys(failures))
         updated["cancel_requested"] = False
-        if was_complete and not report.failed_job_ids and not report.cancelled:
-            if preparation.stage is SemanticStage.SUMMARIES:
-                self._publish(preparation, updated)
-            return report
         if report.cancelled:
             updated = _updated_state(updated, SemanticBuildState.CANCELLED)
         elif len(completed) == len(preparation.jobs):
@@ -793,6 +842,38 @@ class SemanticLifecycle:
         self._repository.write_semantic_build(updated)
         return report
 
+    def _reject_overlapping_confirmed_run(
+        self,
+        raw: Mapping[str, object],
+        *,
+        prefix: str,
+        jobs: Sequence[PreparedNarrativeJob],
+        profile: ProviderProfile,
+        current_manifest_id: str,
+    ) -> None:
+        snapshots = _manifest_snapshot_mapping(raw.get("confirmed_manifests"))
+        stages = _manifest_stage_mapping(raw.get("confirmed_manifest_stages"))
+        for manifest_id, identity in snapshots.items():
+            if manifest_id == current_manifest_id or stages.get(manifest_id) != prefix:
+                continue
+            prior = _restore_manifest(identity, profile)
+            latest_possible_completion = datetime.fromisoformat(
+                prior.expires_utc
+            ) + timedelta(seconds=prior.timeout_seconds)
+            if datetime.now(UTC) > latest_possible_completion:
+                continue
+            reserved = self._repository.semantic_manifest_reservation_count(manifest_id)
+            terminal_calls = sum(
+                record.provider_calls
+                for job in jobs
+                for record in (self._repository.get(job.kind, job.job_id),)
+                if record is not None and record.consent_manifest_id == manifest_id
+            )
+            if reserved > terminal_calls:
+                raise ValueError(
+                    f"a prior confirmed {prefix} manifest still has an in-flight call"
+                )
+
     def _recover_stage_progress(
         self,
         raw: Mapping[str, object] | None,
@@ -804,6 +885,8 @@ class SemanticLifecycle:
         SemanticAccounting,
         tuple[str, ...],
         tuple[str, ...],
+        int,
+        dict[str, str],
     ] | None:
         """Recover exact durable progress when a prior web task escaped before checkpointing."""
 
@@ -823,24 +906,47 @@ class SemanticLifecycle:
             for job, record in zip(jobs, records, strict=True)
             if record is not None and record.status is NarrativeJobStatus.VALIDATED
         )
+        record_hashes = _record_hash_mapping(
+            raw.get(f"{prefix}_accounted_record_hashes")
+        )
+        if not record_hashes and f"{prefix}_accounted_record_hashes" not in raw:
+            remaining_prior_calls = prior_stage.provider_calls
+            for job, record in zip(jobs, records, strict=True):
+                if record is None or job.job_id not in prior_completed:
+                    continue
+                record_hashes[job.job_id] = _record_accounting_fingerprint(record)
+                remaining_prior_calls -= record.provider_calls
+            for job, record in zip(jobs, records, strict=True):
+                if (
+                    record is None
+                    or record.status is NarrativeJobStatus.PENDING
+                    or job.job_id in record_hashes
+                    or record.provider_calls > remaining_prior_calls
+                ):
+                    continue
+                record_hashes[job.job_id] = _record_accounting_fingerprint(record)
+                remaining_prior_calls -= record.provider_calls
+            if remaining_prior_calls != 0:
+                raise ValueError("legacy semantic record accounting cannot be reconciled")
         provider_calls = 0
         input_tokens = 0
         output_tokens = 0
         elapsed_ms = 0
         for job, record in zip(jobs, records, strict=True):
-            if (
-                record is None
-                or record.status is not NarrativeJobStatus.VALIDATED
-                or job.job_id in prior_completed
-            ):
+            if record is None or record.status is NarrativeJobStatus.PENDING:
+                continue
+            fingerprint = _record_accounting_fingerprint(record)
+            if record_hashes.get(job.job_id) == fingerprint:
                 continue
             provider_calls += record.provider_calls
+            record_hashes[job.job_id] = fingerprint
             if record.usage is None:
                 continue
             input_tokens += _usage_integer(record.usage, "input_tokens")
             output_tokens += _usage_integer(record.usage, "output_tokens")
             elapsed_ms += _usage_integer(record.usage, "elapsed_ms")
         reserved_delta = 0
+        reserved_snapshot = 0
         manifest_value = raw.get(f"{prefix}_manifest")
         if isinstance(manifest_value, Mapping):
             previous_consent = _restore_manifest(manifest_value, profile)
@@ -856,6 +962,14 @@ class SemanticLifecycle:
                 stage_accounting=prior_stage,
             )
             reserved_delta = reserved - accounted_reservations
+            reserved_snapshot = reserved
+        reservation_headroom = (
+            prior_stage.reserved_provider_calls - prior_stage.provider_calls
+        )
+        reserved_delta = max(
+            reserved_delta,
+            max(0, provider_calls - reservation_headroom),
+        )
 
         def add_delta(prior: SemanticAccounting) -> SemanticAccounting:
             return SemanticAccounting(
@@ -875,7 +989,14 @@ class SemanticLifecycle:
             raw.get("confirmed_manifest_ids", []),
             "confirmed manifest IDs",
         )
-        return stage_accounting, total_accounting, completed, confirmed
+        return (
+            stage_accounting,
+            total_accounting,
+            completed,
+            confirmed,
+            reserved_snapshot,
+            record_hashes,
+        )
 
     def _publish(
         self,
@@ -1020,6 +1141,32 @@ class SemanticLifecycle:
         consent = _restore_manifest(manifest_value, profile)
         if consent.manifest_id != raw.get(f"{prefix}_manifest_id"):
             return None
+
+        def checkpoint_reusable(current: Mapping[str, object]) -> Mapping[str, object]:
+            recovered = self._recover_stage_progress(current, jobs, profile, stage)
+            if recovered is None:
+                return current
+            (
+                recovered_stage,
+                recovered_total,
+                completed,
+                confirmed,
+                reserved_snapshot,
+                record_hashes,
+            ) = recovered
+            updated = dict(current)
+            updated["accounting"] = _accounting_payload(recovered_total)
+            updated[f"{prefix}_accounting"] = _accounting_payload(recovered_stage)
+            updated[f"completed_{prefix}_job_ids"] = list(completed)
+            updated["confirmed_manifest_ids"] = list(confirmed)
+            updated[f"{prefix}_accounted_manifest_id"] = consent.manifest_id
+            updated[f"{prefix}_accounted_reservation_count"] = reserved_snapshot
+            updated[f"{prefix}_accounted_record_hashes"] = record_hashes
+            if updated != current:
+                self._repository.write_semantic_build(updated)
+                return updated
+            return current
+
         requested_identity_matches = (
             consent.run_id == run_id
             and _manifest_duration(consent) == valid_for
@@ -1031,6 +1178,7 @@ class SemanticLifecycle:
         if not requested_identity_matches:
             if not replay_existing or not self._exact_replay(jobs, profile):
                 return None
+            raw = checkpoint_reusable(raw)
             return SemanticStagePreparation(
                 stage,
                 cast(str, raw["build_id"]),
@@ -1049,6 +1197,7 @@ class SemanticLifecycle:
         except ValueError:
             if not replay_existing or not self._exact_replay(jobs, profile):
                 return None
+        raw = checkpoint_reusable(raw)
         return SemanticStagePreparation(
             stage,
             cast(str, raw["build_id"]),
@@ -1197,6 +1346,7 @@ def _new_build_payload(
         "boundary_manifest": consent.identity_dict(),
         "boundary_accounted_manifest_id": consent.manifest_id,
         "boundary_accounted_reservation_count": 0,
+        "boundary_accounted_record_hashes": {},
         "boundary_job_ids": [job.job_id for job in jobs],
         "boundary_job_identity_hash": _jobs_hash(jobs),
         "membership_hash": None,
@@ -1204,6 +1354,7 @@ def _new_build_payload(
         "summary_manifest": None,
         "summary_accounted_manifest_id": None,
         "summary_accounted_reservation_count": 0,
+        "summary_accounted_record_hashes": {},
         "summary_job_ids": [],
         "summary_job_identity_hash": None,
         "published_map_hash": None,
@@ -1214,6 +1365,8 @@ def _new_build_payload(
         "boundary_accounting": _accounting_payload(SemanticAccounting()),
         "summary_accounting": _accounting_payload(SemanticAccounting()),
         "confirmed_manifest_ids": [],
+        "confirmed_manifests": {},
+        "confirmed_manifest_stages": {},
         "outline": None,
         "quotient_topology": None,
         "cancel_requested": False,
@@ -1336,6 +1489,63 @@ def _accounting_payload(value: SemanticAccounting) -> dict[str, int]:
     }
 
 
+def _record_hash_mapping(value: object) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping) or any(
+        not isinstance(job_id, str)
+        or not job_id
+        or not isinstance(fingerprint, str)
+        or not fingerprint
+        for job_id, fingerprint in value.items()
+    ):
+        raise ValueError("semantic accounted record hashes are invalid")
+    return {cast(str, job_id): cast(str, fingerprint) for job_id, fingerprint in value.items()}
+
+
+def _manifest_snapshot_mapping(value: object) -> dict[str, Mapping[str, object]]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping) or any(
+        not isinstance(manifest_id, str)
+        or not manifest_id
+        or not isinstance(identity, Mapping)
+        for manifest_id, identity in value.items()
+    ):
+        raise ValueError("confirmed semantic manifest snapshots are invalid")
+    return {
+        cast(str, manifest_id): dict(cast(Mapping[str, object], identity))
+        for manifest_id, identity in value.items()
+    }
+
+
+def _manifest_stage_mapping(value: object) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping) or any(
+        not isinstance(manifest_id, str)
+        or not manifest_id
+        or stage not in {"boundary", "summary"}
+        for manifest_id, stage in value.items()
+    ):
+        raise ValueError("confirmed semantic manifest stages are invalid")
+    return {cast(str, manifest_id): cast(str, stage) for manifest_id, stage in value.items()}
+
+
+def _record_accounting_fingerprint(record: NarrativeJobRecord) -> str:
+    return canonical_hash(
+        {
+            "job_id": record.job_id,
+            "status": record.status.value,
+            "attempt_count": record.attempt_count,
+            "provider_calls": record.provider_calls,
+            "usage": None if record.usage is None else dict(record.usage),
+            "error_code": record.error_code,
+            "consent_manifest_id": record.consent_manifest_id,
+        }
+    )
+
+
 def _reservation_accounting_checkpoint(
     payload: Mapping[str, object],
     *,
@@ -1364,17 +1574,6 @@ def _usage_integer(value: Mapping[str, object], name: str) -> int:
     if not isinstance(item, int) or isinstance(item, bool) or item < 0:
         raise ValueError("durable semantic job usage is invalid")
     return item
-
-
-def _add_report(value: SemanticAccounting, report: NarrativeWorkflowReport) -> SemanticAccounting:
-    return SemanticAccounting(
-        provider_calls=value.provider_calls + report.provider_calls,
-        reserved_provider_calls=value.reserved_provider_calls,
-        input_tokens=value.input_tokens + report.input_tokens,
-        output_tokens=value.output_tokens + report.output_tokens,
-        elapsed_ms=value.elapsed_ms + report.elapsed_ms,
-        cache_hits=value.cache_hits + report.cache_hits,
-    )
 
 
 def _summary_payload(summary: SemanticSummary) -> dict[str, object]:
