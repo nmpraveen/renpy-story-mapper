@@ -52,12 +52,14 @@ SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
-_SEMANTIC_REPAIR_GUIDANCE_VERSION = "m15-semantic-repair-guidance-v1"
+_SEMANTIC_REPAIR_GUIDANCE_VERSION = "m15-semantic-repair-guidance-v2"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
-        "Replace only the title with a natural story title. Do not use atom, boundary, cache, "
-        "cluster, evidence, job, label, line, menu, node, or source; do not begin with bg, cg, "
-        "scene, show, hide, or image; do not describe a count of atoms, lines, items, or nodes."
+        "The prior title failed strict validation. Replace only the title with a natural story "
+        "title, then scan every word case-insensitively before returning it. BOUNDARY and LINE "
+        "are forbidden, as are atom, cache, cluster, evidence, job, label, menu, node, and source. "
+        "Do not begin with bg, cg, scene, show, hide, or image; do not describe a count of atoms, "
+        "lines, items, or nodes."
     ),
     "invalid_characters": (
         "Replace only characters. Copy exact strings from request.job.known_characters, omit any "
@@ -708,6 +710,10 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
     }
     if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY and request.repair_codes:
         envelope["request"]["repair_guidance_version"] = _SEMANTIC_REPAIR_GUIDANCE_VERSION
+        envelope["request"]["locked_semantics_policy"] = (
+            "Copy every scalar and claim slot in request.locked_semantics exactly. Change only "
+            "fields named by request.repair_codes."
+        )
         envelope["request"]["repair_guidance"] = [
             _SEMANTIC_REPAIR_GUIDANCE[code]
             for code in request.repair_codes

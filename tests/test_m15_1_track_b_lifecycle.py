@@ -679,9 +679,11 @@ def test_semantic_summary_routes_exact_schema_and_rejects_stale_identity() -> No
     repair_prompt = json.loads(repair_runner.requests[0].stdin)
     assert repair_prompt["version"] == prompt["version"]
     assert repair_prompt["request"]["repair_guidance_version"] == (
-        "m15-semantic-repair-guidance-v1"
+        "m15-semantic-repair-guidance-v2"
     )
     repair_guidance = " ".join(repair_prompt["request"]["repair_guidance"])
+    assert "exactly" in repair_prompt["request"]["locked_semantics_policy"]
+    assert "BOUNDARY and LINE" in repair_guidance
     assert "known_characters" in repair_guidance
     assert "at most once" in repair_guidance
     assert "atom" in repair_guidance
