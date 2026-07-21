@@ -304,6 +304,15 @@ def _summary_inputs(
     )
 
 
+def _topology(outline: SemanticOutline) -> dict[str, object]:
+    return {
+        "schema": "m15-semantic-quotient-topology-v2",
+        "canonical_hash": outline.authority.canonical_hash,
+        "nodes": [],
+        "edges": [],
+    }
+
+
 def _summary_payload(job: object, index: int) -> dict[str, object]:
     from renpy_story_mapper.narrative_map.provider import PreparedNarrativeJob
 
@@ -367,10 +376,23 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
         )
 
         outline = _outline(units, candidates, service, boundaries)
+        quotient_topology = {
+            "schema": "m15-semantic-quotient-topology-v2",
+            "canonical_hash": outline.authority.canonical_hash,
+            "nodes": [],
+            "edges": [],
+        }
+        frozen = service.freeze_semantic_membership(
+            boundaries,
+            outline,
+            quotient_topology,
+        )
+        assert frozen.record.state is SemanticBuildState.MEMBERSHIP_FROZEN
         summaries = service.prepare_summaries(
             outline,
             _summary_inputs(outline, units),
             _evidence(units),
+            quotient_topology=quotient_topology,
             profile=_profile(),
             run_id="summary-run",
             source_hash="source-hash",
@@ -393,6 +415,16 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
         first_publication = service.read_current_semantic_publication()
         assert first_publication is not None
         assert first_publication["publication_hash"] == first_hash
+        assert first_publication["quotient_topology"] == quotient_topology
+        assert all(
+            item["subject_kind"] in {"beat", "major_cluster", "choice"}
+            and item["subject_id"]
+            for item in first_publication["summary_provenance"]
+        )
+        assert all(
+            item["candidate_id"] and item["window_id"]
+            for item in first_publication["outline"]["boundary_provenance"]
+        )
 
     with Project.open(path) as reopened:
         service = NarrativeMapService(NarrativeMapRepository(reopened))
@@ -420,6 +452,7 @@ def test_two_stage_build_publishes_atomically_and_reopens_with_zero_submit(
             replay_outline,
             _summary_inputs(replay_outline, units),
             _evidence(units),
+            quotient_topology=quotient_topology,
             profile=_profile(),
             run_id="also-ignored-because-exact-reopen",
             source_hash="source-hash",
@@ -516,10 +549,13 @@ def test_boundary_consent_cannot_start_summaries_and_changed_identity_is_stale(
             consent=boundaries.granted_consent(),
         )
         outline = _outline(units, candidates, service, boundaries)
+        topology = _topology(outline)
+        service.freeze_semantic_membership(boundaries, outline, topology)
         summaries = service.prepare_summaries(
             outline,
             _summary_inputs(outline, units),
             _evidence(units),
+            quotient_topology=topology,
             profile=_profile(),
             run_id="summaries",
             source_hash="source-hash",
@@ -535,6 +571,43 @@ def test_boundary_consent_cannot_start_summaries_and_changed_identity_is_stale(
         assert status is not None
         assert status.record.state is SemanticBuildState.STALE
         assert status.record.failure_codes == ("identity_changed",)
+
+
+def test_summary_preparation_requires_prior_durable_membership_freeze(
+    tmp_path: Path,
+) -> None:
+    units = _units()
+    candidates = _candidates(units)
+    windows = _windows(units, candidates)
+    with Project.create(tmp_path / "freeze-gate.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        boundaries = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="boundaries",
+            source_hash="source-hash",
+            correction_id="m15.1",
+        )
+        service.start_boundaries(
+            boundaries,
+            provider=_FakeProvider([_boundary_payload(windows[0])]),
+            consent=boundaries.granted_consent(),
+        )
+        outline = _outline(units, candidates, service, boundaries)
+        with pytest.raises(ValueError, match="durable membership freeze"):
+            service.prepare_summaries(
+                outline,
+                _summary_inputs(outline, units),
+                _evidence(units),
+                quotient_topology=_topology(outline),
+                profile=_profile(),
+                run_id="summaries",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
 
 
 def test_changed_preview_run_or_limits_never_reuse_prior_consent(tmp_path: Path) -> None:

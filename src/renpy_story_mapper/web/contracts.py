@@ -143,9 +143,20 @@ M13_API_ROUTES: Final[dict[str, str]] = {
 M15_API_ROUTES: Final[dict[str, str]] = {
     "map": "/api/v1/m15/narrative-map",
     "detail": "/api/v1/m15/detail",
+    "prepare_boundaries": "/api/v1/m15/semantic/prepare_boundaries",
+    "start_boundaries": "/api/v1/m15/semantic/start_boundaries",
+    "prepare_summaries": "/api/v1/m15/semantic/prepare_summaries",
+    "start_summaries": "/api/v1/m15/semantic/start_summaries",
+    "status": "/api/v1/m15/semantic/status",
+    "cancel": "/api/v1/m15/semantic/cancel",
+    "resume": "/api/v1/m15/semantic/resume",
+    "retry": "/api/v1/m15/semantic/retry",
 }
 M15_MAP_REQUEST_FIELDS: Final = ("query", "focus")
 M15_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
+M15_SEMANTIC_PREPARE_REQUEST_FIELDS: Final = ("action",)
+M15_SEMANTIC_START_REQUEST_FIELDS: Final = ("action", "manifest_id", "confirm_cloud")
+M15_SEMANTIC_EMPTY_REQUEST_FIELDS: Final = ()
 M13_SNAPSHOT_REQUEST_FIELDS: Final = ("offset", "limit")
 M13_ARTIFACT_REQUEST_FIELDS: Final = ("artifact_id",)
 M13_CITATIONS_REQUEST_FIELDS: Final = ("claim_id",)

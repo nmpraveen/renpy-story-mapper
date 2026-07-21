@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
 
+from renpy_story_mapper.project import create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
 from renpy_story_mapper.web.security import SessionSecurity
 from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
@@ -39,6 +40,67 @@ def _driver() -> Any:
 
 
 DRIVER = _driver()
+
+
+def _exercise_product_prepare_cancel(
+    browser: Path,
+    origin: str,
+) -> dict[str, object]:
+    """Exercise the real Python API from Chrome without granting provider consent."""
+
+    with tempfile.TemporaryDirectory(prefix="rsm-m15-1-product-browser-", ignore_cleanup_errors=True) as temporary:
+        process, session = DRIVER._session(browser, 100, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": 1200,
+                    "height": 800,
+                    "deviceScaleFactor": 1,
+                    "mobile": False,
+                },
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState==='complete'&&!!document.querySelector('#buildStoryMap')")
+            session.evaluate(
+                "import('./app.js').then(async m=>{"
+                "const page=m.normalizedPage(await m.api.narrativeMap(),'narrative');"
+                "m.state.mode='narrative';m.state.page=page;m.state.narrativeMapPage=page;"
+                "document.querySelector('#welcomeView').hidden=true;"
+                "document.querySelector('#workspaceView').hidden=false;"
+                "document.querySelector('#routeMapView').hidden=false;"
+                "m.renderMap();await m.loadStoryMapBuildStatus();return true;})"
+            )
+            session.wait("!document.querySelector('#buildStoryMap').hidden")
+            session.evaluate("document.querySelector('#buildStoryMap').click()")
+            session.evaluate("document.querySelector('#prepareBoundaries').click()")
+            session.wait(
+                "document.querySelector('#storyMapConsentDialog').open&&"
+                "!document.querySelector('#confirmStoryMapStage').disabled"
+            )
+            preview = session.evaluate(
+                "(()=>({"
+                "state:document.querySelector('#storyMapBuildStatus').textContent,"
+                "facts:document.querySelector('#storyMapConsentFacts').textContent,"
+                "confirmEnabled:!document.querySelector('#confirmStoryMapStage').disabled"
+                "}))()"
+            )
+            session.evaluate("document.querySelector('#cancelStoryMapConsent').click()")
+            session.wait("!document.querySelector('#cancelStoryMapBuild').hidden")
+            session.evaluate("document.querySelector('#cancelStoryMapBuild').click()")
+            session.wait("import('./app.js').then(m=>m.state.storyMapBuild?.state==='cancelled')")
+            cancelled = session.evaluate(
+                "import('./app.js').then(m=>({state:m.state.storyMapBuild.state,"
+                "manifest:m.state.storyMapBuild.manifest_id||null}))"
+            )
+            return {"preview": preview, "cancelled": cancelled}
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
 
 class _NoDialogs:
@@ -236,7 +298,13 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
                 "schema_hash": "schema_synthetic", "membership_hash": "membership_synthetic",
                 "input_hash": "input_synthetic", "privacy_scope": "synthetic_only",
                 "provider": {"requested_model": "gpt-5.6-sol", "resolved_model": "gpt-5.6-sol", "settings": {"model_reasoning_effort": "medium", "fast_mode": False}},
-                "limits": {"max_provider_calls": 2, "max_total_tokens": 4096, "timeout_seconds": 120, "max_concurrency": 1},
+                "limits": {
+                    "max_provider_calls": 2,
+                    "max_input_bytes": 4096,
+                    "max_output_bytes": 4096,
+                    "timeout_seconds": 120,
+                    "max_concurrency": 1,
+                },
             }
             session.evaluate(
                 "import('./app.js').then(m=>{"
@@ -344,11 +412,30 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
         raise AssertionError("Browser rendering must not construct a provider")
 
     with tempfile.TemporaryDirectory(prefix="rsm-m15-1-server-") as temporary:
-        api = ProjectApi(_NoDialogs(), state_store=UserStateStore(Path(temporary) / "state.json"), m07_provider_factory=forbidden_provider, m13_provider_factory=forbidden_provider)
+        temporary_path = Path(temporary)
+        source = temporary_path / "game"
+        source.mkdir()
+        (source / "story.rpy").write_bytes(
+            (ROOT / "tests" / "fixtures" / "linear.rpy").read_bytes()
+        )
+        project_path = temporary_path / "browser-product.rsmproj"
+        create_ingested_project(project_path, source).close()
+        api = ProjectApi(
+            _NoDialogs(),
+            state_store=UserStateStore(temporary_path / "state.json"),
+            m07_provider_factory=forbidden_provider,
+            m13_provider_factory=forbidden_provider,
+            m15_provider_factory=forbidden_provider,
+        )
+        api._retain_project_path(project_path, source)
         server = LocalWebServer("127.0.0.1", 0, api, static_root=STATIC, security=SessionSecurity("m15-1-session", "m15-1-csrf"))
         thread = start_in_thread(server)
         try:
             origin = f"http://127.0.0.1:{server.port}/"
+            product_lifecycle = _exercise_product_prepare_cancel(
+                selected_browser,
+                origin,
+            )
             captures = {label: _capture(selected_browser, origin, output, label) for label in VIEWPORTS}
         finally:
             server.close_service()
@@ -359,6 +446,7 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
     report = {
         "status": "passed", "fixture": str(OUTLINE.relative_to(ROOT)).replace("\\", "/"),
         "provider_constructions": 0, "m12_solve_or_destination_requests": 0, "remote_requests": 0,
+        "product_lifecycle": product_lifecycle,
         "captures": captures,
     }
     report_path = output / "m15-1-track-c-browser-acceptance.json"

@@ -17,6 +17,7 @@ from renpy_story_mapper.narrative_map.coverage_corrections import (
 )
 from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
+from renpy_story_mapper.web.contracts import M15_API_ROUTES
 from renpy_story_mapper.web.narrative_map_api import NarrativeMapSnapshot, _load_snapshot
 from renpy_story_mapper.web.state import UserStateStore
 
@@ -89,10 +90,7 @@ def test_m15_bootstrap_and_map_are_read_only_bounded_and_provider_free(
     monkeypatch.setattr(api, "_m12_solve", prohibited)
     try:
         bootstrap = api.dispatch("GET", "/api/v1/bootstrap", {})
-        assert bootstrap["routes"]["m15"] == {
-            "map": "/api/v1/m15/narrative-map",
-            "detail": "/api/v1/m15/detail",
-        }
+        assert bootstrap["routes"]["m15"] == M15_API_ROUTES
         page = api.dispatch(
             "POST",
             "/api/v1/m15/narrative-map",

@@ -97,6 +97,8 @@ def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() 
         "m15-1-detail-{label}.png",
         "Expanded Story Map is not a full-page capture",
         "Two-stage consent did not expose every exact bound fact",
+        "_exercise_product_prepare_cancel",
+        "m15_provider_factory=forbidden_provider",
     ):
         assert marker in source
 
@@ -113,3 +115,5 @@ def test_m15_1_real_browser_track_c(tmp_path: Path) -> None:
     assert report["provider_constructions"] == 0
     assert report["remote_requests"] == 0
     assert report["m12_solve_or_destination_requests"] == 0
+    assert report["product_lifecycle"]["preview"]["confirmEnabled"] is True
+    assert report["product_lifecycle"]["cancelled"]["state"] == "cancelled"

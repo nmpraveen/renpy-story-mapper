@@ -74,6 +74,7 @@ class SemanticStagePreparation:
     jobs: tuple[PreparedNarrativeJob, ...]
     consent: NarrativeConsentManifest
     outline: SemanticOutline | None = None
+    quotient_topology: Mapping[str, object] | None = None
 
     def granted_consent(self) -> NarrativeConsentManifest:
         """Grant exactly the reviewed immutable manifest without changing its identity."""
@@ -167,6 +168,7 @@ class SemanticLifecycle:
             privacy_scope,
             membership_hash=None,
             outline=None,
+            quotient_topology=None,
             run_id=run_id,
             valid_for=valid_for,
             maximum_provider_calls=(
@@ -238,6 +240,31 @@ class SemanticLifecycle:
         self._require_stage(preparation, SemanticStage.BOUNDARIES, consent)
         return self._run_stage(preparation, provider, consent, cancelled)
 
+    def confirm_consent(
+        self,
+        preparation: SemanticStagePreparation,
+        consent: NarrativeConsentManifest,
+    ) -> SemanticStatusView:
+        """Persist an explicit safe acknowledgement of one exact fresh web manifest."""
+
+        consent.validate_for(preparation.jobs, preparation.consent.profile)
+        if consent.manifest_id != preparation.consent.manifest_id:
+            raise ValueError("semantic consent acknowledgement is stale")
+        raw = self._require_build(preparation.build_id)
+        prefix = "boundary" if preparation.stage is SemanticStage.BOUNDARIES else "summary"
+        if (
+            raw.get(f"{prefix}_manifest_id") != consent.manifest_id
+            or raw.get(f"{prefix}_job_identity_hash") != _jobs_hash(preparation.jobs)
+        ):
+            raise ValueError("semantic consent acknowledgement is stale")
+        confirmed = _string_list(raw.get("confirmed_manifest_ids", []))
+        if consent.manifest_id not in confirmed:
+            confirmed.append(consent.manifest_id)
+        updated = dict(raw)
+        updated["confirmed_manifest_ids"] = confirmed
+        self._repository.write_semantic_build(updated)
+        return _status_from_payload(updated)
+
     def boundary_output(
         self,
         preparation: SemanticStagePreparation,
@@ -280,12 +307,59 @@ class SemanticLifecycle:
                 )
         return BoundaryStageOutput(tuple(decisions), tuple(provenance))
 
+    def freeze_membership(
+        self,
+        preparation: SemanticStagePreparation,
+        outline: SemanticOutline,
+        quotient_topology: Mapping[str, object],
+    ) -> SemanticStatusView:
+        """Durably freeze deterministic hierarchy/topology after all windows validate."""
+
+        if preparation.stage is not SemanticStage.BOUNDARIES:
+            raise ValueError("membership freeze requires the boundary preparation")
+        raw = self._require_build(preparation.build_id)
+        boundary_ids = _strings(raw.get("boundary_job_ids"), "boundary job IDs")
+        completed = _strings(raw.get("completed_boundary_job_ids"), "completed boundary jobs")
+        if completed != boundary_ids:
+            raise ValueError("membership cannot freeze before every boundary window validates")
+        expected_candidates = tuple(
+            candidate_id
+            for job_id in boundary_ids
+            for candidate_id in self._window_candidate_ids(job_id)
+        )
+        if outline.authority != preparation.authority:
+            raise ValueError("frozen outline authority differs from its boundary preparation")
+        if outline.ordered_candidate_ids != expected_candidates:
+            raise ValueError("frozen outline does not cover the exact boundary candidate order")
+        expected_provenance = self._expected_boundary_provenance(
+            raw,
+            boundary_ids,
+            preparation.consent.profile,
+        )
+        if outline.boundary_provenance != expected_provenance:
+            raise ValueError("frozen outline lacks one-to-one live boundary provenance")
+        topology = dict(quotient_topology)
+        if (
+            topology.get("schema") != "m15-semantic-quotient-topology-v2"
+            or topology.get("canonical_hash") != preparation.authority.canonical_hash
+        ):
+            raise ValueError("semantic topology is not bound to the exact M10 authority")
+        membership_hash = semantic_outline_hash(outline)
+        updated = _updated_state(raw, SemanticBuildState.MEMBERSHIP_FROZEN)
+        updated["membership_hash"] = membership_hash
+        updated["outline"] = semantic_outline_payload(outline)
+        updated["quotient_topology"] = topology
+        updated["failure_codes"] = []
+        self._repository.write_semantic_build(updated)
+        return _status_from_payload(updated)
+
     def prepare_summaries(
         self,
         outline: SemanticOutline,
         inputs: Sequence[FrozenSummaryInput],
         evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
         *,
+        quotient_topology: Mapping[str, object] | None = None,
         profile: ProviderProfile,
         run_id: str,
         source_hash: str,
@@ -326,6 +400,10 @@ class SemanticLifecycle:
         )
         if outline.boundary_provenance != expected_provenance:
             raise ValueError("frozen outline lacks one-to-one live boundary provenance")
+        state = SemanticBuildState(cast(str, raw["state"]))
+        has_existing_summary_stage = isinstance(raw.get("summary_manifest_id"), str)
+        if state is not SemanticBuildState.MEMBERSHIP_FROZEN and not has_existing_summary_stage:
+            raise ValueError("summaries require a durable membership freeze")
         jobs = prepare_semantic_summary_jobs(
             outline,
             inputs,
@@ -337,6 +415,21 @@ class SemanticLifecycle:
         if not jobs:
             raise ValueError("the frozen outline has no visible summary subjects")
         membership_hash = semantic_outline_hash(outline)
+        stored_outline = raw.get("outline")
+        if stored_outline != semantic_outline_payload(outline):
+            self._mark_stale(raw, "frozen_membership_changed")
+            raise ValueError("summary preparation differs from frozen semantic membership")
+        stored_topology = raw.get("quotient_topology")
+        supplied_topology = dict(quotient_topology) if quotient_topology is not None else None
+        if (
+            raw.get("membership_hash") != membership_hash
+            or not isinstance(stored_topology, Mapping)
+            or supplied_topology is None
+            or stored_topology != supplied_topology
+        ):
+            self._mark_stale(raw, "frozen_topology_changed")
+            raise ValueError("summary preparation differs from frozen quotient topology")
+        final_topology = supplied_topology
         reusable = self._reusable_preparation(
             SemanticStage.SUMMARIES,
             jobs,
@@ -347,6 +440,7 @@ class SemanticLifecycle:
             privacy_scope,
             membership_hash=membership_hash,
             outline=outline,
+            quotient_topology=final_topology,
             run_id=run_id,
             valid_for=valid_for,
             maximum_provider_calls=(
@@ -393,6 +487,7 @@ class SemanticLifecycle:
                 "summary_job_identity_hash": _jobs_hash(jobs),
                 "completed_summary_job_ids": [],
                 "outline": semantic_outline_payload(outline),
+                "quotient_topology": final_topology,
                 "failure_codes": [],
                 "cancel_requested": False,
                 "summary_accounting": _accounting_payload(SemanticAccounting()),
@@ -410,6 +505,7 @@ class SemanticLifecycle:
             jobs,
             consent,
             outline,
+            final_topology,
         )
 
     def start_summaries(
@@ -658,6 +754,8 @@ class SemanticLifecycle:
             summaries.append(_summary_payload(validation.summary))
             summary_provenance.append(
                 {
+                    "subject_kind": validation.summary.subject_kind,
+                    "subject_id": job.subject_id,
                     "stage": "summaries",
                     "job_id": job.job_id,
                     "input_hash": job.input_hash,
@@ -683,6 +781,8 @@ class SemanticLifecycle:
             "summaries": summaries,
             "summary_provenance": summary_provenance,
         }
+        if preparation.quotient_topology is not None:
+            publication["quotient_topology"] = dict(preparation.quotient_topology)
         publication_hash = canonical_hash(publication)
         publication["publication_hash"] = publication_hash
         completed = _updated_state(build, SemanticBuildState.COMPLETE)
@@ -747,6 +847,7 @@ class SemanticLifecycle:
         *,
         membership_hash: str | None,
         outline: SemanticOutline | None,
+        quotient_topology: Mapping[str, object] | None,
         run_id: str,
         valid_for: timedelta,
         maximum_provider_calls: int,
@@ -799,6 +900,7 @@ class SemanticLifecycle:
                 jobs,
                 consent,
                 outline,
+                quotient_topology,
             )
         try:
             consent.validate_fresh()
@@ -816,6 +918,7 @@ class SemanticLifecycle:
             jobs,
             consent,
             outline,
+            quotient_topology,
         )
 
     def _window_candidate_ids(self, job_id: str) -> tuple[str, ...]:
@@ -964,7 +1067,9 @@ def _new_build_payload(
         "accounting": _accounting_payload(SemanticAccounting()),
         "boundary_accounting": _accounting_payload(SemanticAccounting()),
         "summary_accounting": _accounting_payload(SemanticAccounting()),
+        "confirmed_manifest_ids": [],
         "outline": None,
+        "quotient_topology": None,
         "cancel_requested": False,
     }
 

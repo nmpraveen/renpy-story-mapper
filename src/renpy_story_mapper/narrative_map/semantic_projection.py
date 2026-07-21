@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 
+from renpy_story_mapper.narrative_map.assembly import semantic_membership_hash
 from renpy_story_mapper.narrative_map.contracts import JsonValue, SourceLocator, canonical_hash
 from renpy_story_mapper.narrative_map.provider import (
     SEMANTIC_BOUNDARY_PROMPT_VERSION,
@@ -364,6 +365,8 @@ def semantic_outline_payload(outline: SemanticOutline) -> dict[str, JsonValue]:
         "choices": [item.to_dict() for item in outline.choices],
         "boundary_provenance": [
             {
+                "candidate_id": item.candidate_id,
+                "window_id": item.window_id,
                 "stage": item.stage,
                 "job_id": item.job_id,
                 "input_hash": item.input_hash,
@@ -377,7 +380,9 @@ def semantic_outline_payload(outline: SemanticOutline) -> dict[str, JsonValue]:
 
 
 def semantic_outline_hash(outline: SemanticOutline) -> str:
-    return canonical_hash(semantic_outline_payload(outline))
+    """Hash frozen membership only; live provider provenance is not membership."""
+
+    return semantic_membership_hash(outline)
 
 
 def semantic_summary_payload(summary: SemanticSummary) -> dict[str, JsonValue]:

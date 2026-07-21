@@ -117,11 +117,26 @@ class NarrativeMapService:
             cancelled=cancelled,
         )
 
+    def confirm_semantic_consent(
+        self,
+        preparation: SemanticStagePreparation,
+        consent: NarrativeConsentManifest,
+    ) -> SemanticStatusView:
+        return self._semantic.confirm_consent(preparation, consent)
+
     def semantic_boundary_output(
         self,
         preparation: SemanticStagePreparation,
     ) -> BoundaryStageOutput:
         return self._semantic.boundary_output(preparation)
+
+    def freeze_semantic_membership(
+        self,
+        preparation: SemanticStagePreparation,
+        outline: SemanticOutline,
+        quotient_topology: Mapping[str, object],
+    ) -> SemanticStatusView:
+        return self._semantic.freeze_membership(preparation, outline, quotient_topology)
 
     def prepare_summaries(
         self,
@@ -129,6 +144,7 @@ class NarrativeMapService:
         inputs: Sequence[FrozenSummaryInput],
         evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
         *,
+        quotient_topology: Mapping[str, object] | None = None,
         profile: ProviderProfile,
         run_id: str,
         source_hash: str,
@@ -145,6 +161,7 @@ class NarrativeMapService:
             outline,
             inputs,
             evidence_by_unit,
+            quotient_topology=quotient_topology,
             profile=profile,
             run_id=run_id,
             source_hash=source_hash,

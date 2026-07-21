@@ -285,8 +285,10 @@ def _capture(
                 raise AssertionError(f"Narrative Map was not the default browser journey: {normal}")
             if normal["routePanel"] or normal["solveRoute"] or normal["organization"]:
                 raise AssertionError(f"A retired visible surface remains: {normal}")
-            if normal["buildStoryMap"]:
-                raise AssertionError(f"Legacy Narrative Map exposed unsupported semantic production: {normal}")
+            if not normal["buildStoryMap"]:
+                raise AssertionError(
+                    f"Legacy Narrative Map did not expose supported semantic production: {normal}"
+                )
             if normal["correctionStatus"] != {"state": "applied", "diagnostic": "valid"} or not normal["correctionId"]:
                 raise AssertionError(f"The sanitized working-copy correction was not applied: {normal}")
 

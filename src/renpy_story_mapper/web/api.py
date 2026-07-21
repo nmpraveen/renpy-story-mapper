@@ -75,6 +75,16 @@ from renpy_story_mapper.narrative.workflow import (
     grant_narrative_consent,
     prepare_narrative_scene_run,
 )
+from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
+from renpy_story_mapper.narrative_map.provider import (
+    NarrativeConsentManifest,
+    NarrativeMapProvider,
+)
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    SemanticStage,
+    SemanticStagePreparation,
+)
+from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.organization.contracts import (
     M05_CLOUD_MODEL,
     M05_REASONING_PROFILE,
@@ -127,6 +137,9 @@ from renpy_story_mapper.web.contracts import (
     M15_API_ROUTES,
     M15_DETAIL_REQUEST_FIELDS,
     M15_MAP_REQUEST_FIELDS,
+    M15_SEMANTIC_EMPTY_REQUEST_FIELDS,
+    M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
+    M15_SEMANTIC_START_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -144,6 +157,22 @@ from renpy_story_mapper.web.contracts import (
     string_tuple,
 )
 from renpy_story_mapper.web.inspection_api import inspection_detail, inspection_page
+from renpy_story_mapper.web.m15_semantic_api import (
+    M15_SEMANTIC_CORRECTION_ID,
+    M15ProviderFactory,
+    default_m15_provider_factory,
+    freeze_boundary_membership,
+    load_m15_semantic_authority,
+    load_m15_semantic_inputs,
+    m15_provider_profile,
+    no_submit_provider,
+    preparation_is_exact_replay,
+    preparation_response,
+    prepare_boundaries,
+    prepare_summaries,
+    recover_confirmed_semantic_run,
+    semantic_status_response,
+)
 from renpy_story_mapper.web.narrative_map_api import (
     narrative_map_detail,
     narrative_map_page,
@@ -332,6 +361,7 @@ class ProjectApi:
         state_store: UserStateStore | None = None,
         m07_provider_factory: ProviderFactory | None = None,
         m13_provider_factory: M13ProviderFactory | None = None,
+        m15_provider_factory: M15ProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -364,6 +394,11 @@ class ProjectApi:
         self._m13_preview: dict[str, JsonValue] | None = None
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
+        self._m15_provider_factory = m15_provider_factory or default_m15_provider_factory
+        self._m15_prepared: SemanticStagePreparation | None = None
+        self._m15_consent: NarrativeConsentManifest | None = None
+        self._m15_active_provider: NarrativeMapProvider | None = None
+        self._m15_active_stage: SemanticStage | None = None
 
     def close(self) -> None:
         self.cancel()
@@ -378,9 +413,13 @@ class ProjectApi:
             if self._cancel_event is not None:
                 self._cancel_event.set()
             provider = self._m13_active_provider
+            m15_provider = self._m15_active_provider
         if provider is not None:
             with suppress(Exception):
                 provider.cancel()
+        if m15_provider is not None:
+            with suppress(Exception):
+                m15_provider.cancel()
 
     def dispatch(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if method == "GET" and path == "/api/v1/bootstrap":
@@ -593,6 +632,54 @@ class ProjectApi:
                     "view": "simplified",
                 }
             return json_value(detail)
+        if method == "POST" and path == M15_API_ROUTES["prepare_boundaries"]:
+            exact_fields(
+                body,
+                allowed=M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
+                required=M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
+            )
+            if require_string(body, "action", maximum=32) != "prepare_boundaries":
+                raise ValueError("semantic action does not match its route")
+            return json_value(self._m15_prepare(SemanticStage.BOUNDARIES))
+        if method == "POST" and path == M15_API_ROUTES["start_boundaries"]:
+            exact_fields(
+                body,
+                allowed=M15_SEMANTIC_START_REQUEST_FIELDS,
+                required=M15_SEMANTIC_START_REQUEST_FIELDS,
+            )
+            if require_string(body, "action", maximum=32) != "start_boundaries":
+                raise ValueError("semantic action does not match its route")
+            return json_value(self._m15_start(SemanticStage.BOUNDARIES, body))
+        if method == "POST" and path == M15_API_ROUTES["prepare_summaries"]:
+            exact_fields(
+                body,
+                allowed=M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
+                required=M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
+            )
+            if require_string(body, "action", maximum=32) != "prepare_summaries":
+                raise ValueError("semantic action does not match its route")
+            return json_value(self._m15_prepare(SemanticStage.SUMMARIES))
+        if method == "POST" and path == M15_API_ROUTES["start_summaries"]:
+            exact_fields(
+                body,
+                allowed=M15_SEMANTIC_START_REQUEST_FIELDS,
+                required=M15_SEMANTIC_START_REQUEST_FIELDS,
+            )
+            if require_string(body, "action", maximum=32) != "start_summaries":
+                raise ValueError("semantic action does not match its route")
+            return json_value(self._m15_start(SemanticStage.SUMMARIES, body))
+        if method == "POST" and path == M15_API_ROUTES["status"]:
+            exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
+            return json_value(self._m15_status())
+        if method == "POST" and path == M15_API_ROUTES["cancel"]:
+            exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
+            return json_value(self._m15_cancel())
+        if method == "POST" and path == M15_API_ROUTES["resume"]:
+            exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
+            return json_value(self._m15_resume_or_retry(retry=False))
+        if method == "POST" and path == M15_API_ROUTES["retry"]:
+            exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
+            return json_value(self._m15_resume_or_retry(retry=True))
         if method == "POST" and path == M15_API_ROUTES["map"]:
             exact_fields(body, allowed=M15_MAP_REQUEST_FIELDS)
             try:
@@ -1089,6 +1176,313 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/shutdown":
             return {"state": "shutting_down"}
         raise ApiProblem(404, "not_found", "The requested API endpoint does not exist.")
+
+    def _m15_prepare(self, stage: SemanticStage) -> dict[str, object]:
+        with self._lock:
+            if self._future is not None and not self._future.done():
+                raise ApiProblem(409, "operation_busy", "Another project operation is in progress.")
+        with Project.open(self._project()) as project:
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            inputs = load_m15_semantic_inputs(project)
+            run_id = f"m15-web-{stage.value}-{uuid.uuid4().hex}"
+            preparation = (
+                prepare_boundaries(
+                    service,
+                    inputs,
+                    run_id=run_id,
+                    replay_existing=True,
+                )
+                if stage is SemanticStage.BOUNDARIES
+                else prepare_summaries(
+                    service,
+                    inputs,
+                    run_id=run_id,
+                    replay_existing=True,
+                )
+            )
+            replay_only = preparation_is_exact_replay(repository, preparation)
+        with self._lock:
+            self._m15_prepared = preparation
+            self._m15_consent = None
+        return preparation_response(preparation, replay_only=replay_only)
+
+    def _m15_start(
+        self,
+        stage: SemanticStage,
+        body: dict[str, JsonValue],
+    ) -> dict[str, object]:
+        manifest_id = require_string(body, "manifest_id", maximum=160)
+        if not boolean(body, "confirm_cloud"):
+            raise ApiProblem(
+                409,
+                "m15_consent_required",
+                "The exact M15 semantic manifest was not confirmed.",
+            )
+        with self._lock:
+            preparation = self._m15_prepared
+        if (
+            preparation is None
+            or preparation.stage is not stage
+            or not secrets.compare_digest(preparation.consent.manifest_id, manifest_id)
+        ):
+            raise ApiProblem(
+                409,
+                "m15_preparation_stale",
+                "The M15 semantic preparation is missing or stale.",
+            )
+        with Project.open(self._project()) as project:
+            try:
+                current = load_m15_semantic_authority(project)
+            except ValueError as exc:
+                with self._lock:
+                    self._m15_prepared = None
+                    self._m15_consent = None
+                raise ApiProblem(
+                    409,
+                    "m15_preparation_stale",
+                    "The M15 semantic preparation is stale for the current project.",
+                ) from exc
+            if (
+                preparation.authority != current.authority
+                or preparation.source_hash != current.source_hash
+                or preparation.correction_id != M15_SEMANTIC_CORRECTION_ID
+            ):
+                with self._lock:
+                    self._m15_prepared = None
+                    self._m15_consent = None
+                raise ApiProblem(
+                    409,
+                    "m15_preparation_stale",
+                    "The M15 semantic preparation is stale for the current project.",
+                )
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            replay_only = preparation_is_exact_replay(repository, preparation)
+            if not replay_only:
+                service.confirm_semantic_consent(
+                    preparation,
+                    preparation.granted_consent(),
+                )
+        consent = preparation.consent if replay_only else preparation.granted_consent()
+        if not replay_only:
+            consent.validate_for(preparation.jobs, m15_provider_profile())
+        with self._lock:
+            self._m15_consent = consent
+            self._m15_active_stage = stage
+        try:
+            started = self._start(
+                f"m15_semantic_{stage.value}",
+                lambda cancelled: self._m15_execute(
+                    preparation,
+                    consent,
+                    cancelled,
+                    replay_only=replay_only,
+                    operation="start",
+                ),
+            )
+        except Exception:
+            with self._lock:
+                self._m15_active_stage = None
+            raise
+        response = self._m15_status()
+        response["task"] = started.get("analysis") if isinstance(started, dict) else None
+        return response
+
+    def _m15_execute(
+        self,
+        preparation: SemanticStagePreparation,
+        consent: NarrativeConsentManifest,
+        cancelled: threading.Event,
+        *,
+        replay_only: bool,
+        operation: str,
+    ) -> None:
+        provider = no_submit_provider() if replay_only else self._m15_provider_factory()
+        with self._lock:
+            self._m15_active_provider = provider
+        try:
+            with Project.open(self._project()) as project:
+                service = NarrativeMapService(NarrativeMapRepository(project))
+                report = None
+                if operation == "resume":
+                    report = service.resume_semantic_build(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=cancelled.is_set,
+                    )
+                elif operation == "retry":
+                    report = service.retry_semantic_build(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=cancelled.is_set,
+                    )
+                elif preparation.stage is SemanticStage.BOUNDARIES:
+                    report = service.start_boundaries(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=cancelled.is_set,
+                    )
+                else:
+                    report = service.start_summaries(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=cancelled.is_set,
+                    )
+                if (
+                    preparation.stage is SemanticStage.BOUNDARIES
+                    and report is not None
+                    and not report.cancelled
+                    and not report.failed_job_ids
+                    and not report.deferred_job_ids
+                    and len(report.validated_job_ids) == len(preparation.jobs)
+                ):
+                    inputs = load_m15_semantic_inputs(project)
+                    freeze_boundary_membership(service, inputs, preparation)
+        finally:
+            with self._lock:
+                if self._m15_active_provider is provider:
+                    self._m15_active_provider = None
+                self._m15_active_stage = None
+
+    def _m15_status(self) -> dict[str, object]:
+        with self._lock:
+            task = (
+                self._task
+                if self._task is not None and self._task.kind.startswith("m15_semantic_")
+                else None
+            )
+            active_stage = (
+                self._m15_active_stage
+                if task is not None and task.state == "running"
+                else None
+            )
+        with Project.open(self._project()) as project:
+            current = load_m15_semantic_authority(project)
+            status = NarrativeMapService(NarrativeMapRepository(project)).semantic_status(
+                authority=current.authority,
+                source_hash=current.source_hash,
+                correction_id=M15_SEMANTIC_CORRECTION_ID,
+            )
+        response = semantic_status_response(status, active_stage=active_stage)
+        response["task"] = task
+        return response
+
+    def _m15_cancel(self) -> dict[str, object]:
+        with self._lock:
+            task = self._task
+            active = (
+                task is not None
+                and task.kind.startswith("m15_semantic_")
+                and task.state == "running"
+            )
+            if active and self._cancel_event is not None:
+                self._cancel_event.set()
+            provider = self._m15_active_provider if active else None
+        if provider is not None:
+            with suppress(Exception):
+                provider.cancel()
+        with Project.open(self._project()) as project:
+            NarrativeMapService(NarrativeMapRepository(project)).cancel_semantic_build()
+        return self._m15_status()
+
+    def _m15_resume_or_retry(self, *, retry: bool) -> dict[str, object]:
+        with self._lock:
+            if self._future is not None and not self._future.done():
+                raise ApiProblem(409, "operation_busy", "Another project operation is in progress.")
+            preparation = self._m15_prepared
+            consent = self._m15_consent
+        with Project.open(self._project()) as project:
+            try:
+                current = load_m15_semantic_authority(project)
+            except ValueError as exc:
+                with self._lock:
+                    self._m15_prepared = None
+                    self._m15_consent = None
+                raise ApiProblem(
+                    409,
+                    "m15_fresh_preparation_required",
+                    "Prepare and confirm this exact semantic stage before continuing.",
+                ) from exc
+            status = NarrativeMapService(
+                NarrativeMapRepository(project)
+            ).semantic_status(
+                authority=current.authority,
+                source_hash=current.source_hash,
+                correction_id=M15_SEMANTIC_CORRECTION_ID,
+            )
+        if status is None:
+            raise ApiProblem(409, "m15_build_missing", "No semantic build is available.")
+        if (
+            status.record.state.value == "stale"
+            or (
+                preparation is not None
+                and (
+                    preparation.authority != current.authority
+                    or preparation.source_hash != current.source_hash
+                    or preparation.correction_id != M15_SEMANTIC_CORRECTION_ID
+                )
+            )
+        ):
+            with self._lock:
+                self._m15_prepared = None
+                self._m15_consent = None
+            raise ApiProblem(
+                409,
+                "m15_fresh_preparation_required",
+                "Prepare and confirm this exact semantic stage before continuing.",
+            )
+        allowed = {"failed", "partial"} if retry else {"cancelled"}
+        if status.record.state.value not in allowed:
+            raise ApiProblem(
+                409,
+                "m15_action_unavailable",
+                "The semantic build is not in a state that permits this action.",
+            )
+        replay_only = False
+        if preparation is None or consent is None:
+            try:
+                with Project.open(self._project()) as project:
+                    recovered = recover_confirmed_semantic_run(project)
+            except ValueError as exc:
+                raise ApiProblem(
+                    409,
+                    "m15_fresh_preparation_required",
+                    "Prepare and confirm this exact semantic stage before continuing.",
+                ) from exc
+            preparation = recovered.preparation
+            consent = recovered.consent
+            replay_only = recovered.replay_only
+            with self._lock:
+                self._m15_prepared = preparation
+                self._m15_consent = consent
+        if not replay_only:
+            consent.validate_for(preparation.jobs, m15_provider_profile())
+        operation = "retry" if retry else "resume"
+        with self._lock:
+            self._m15_active_stage = preparation.stage
+        try:
+            started = self._start(
+                f"m15_semantic_{preparation.stage.value}",
+                lambda cancelled: self._m15_execute(
+                    preparation,
+                    consent,
+                    cancelled,
+                    replay_only=replay_only,
+                    operation=operation,
+                ),
+            )
+        except Exception:
+            with self._lock:
+                self._m15_active_stage = None
+            raise
+        response = self._m15_status()
+        response["task"] = started.get("analysis") if isinstance(started, dict) else None
+        return response
 
     def _select(self, kind: str, path: Path | None) -> JsonValue:
         if path is None:

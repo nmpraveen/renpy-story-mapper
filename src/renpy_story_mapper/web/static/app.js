@@ -27,6 +27,9 @@ function element(tag, className, text) {
 
 const STORY_MAP_PUBLISHED_STATES = new Set(["complete", "partial"]);
 const STORY_MAP_ACTIVE_STATES = new Set(["boundaries_running", "summaries_running", "validating"]);
+const STORY_MAP_CANCELABLE_STATES = new Set([
+  "awaiting_boundary_consent", "awaiting_summary_consent", ...STORY_MAP_ACTIVE_STATES,
+]);
 
 function storyMapBuildState(page = state.page) {
   return page?.semantic_build?.state || page?.build?.state || page?.build_state || "not_started";
@@ -574,7 +577,7 @@ function renderStoryMapBuildControls() {
   $("#storyMapBuildStatus").textContent = storyMapStatusLabel(buildState);
   $("#prepareBoundaries").disabled = !["not_started", "boundaries_prepared", "awaiting_boundary_consent", "failed", "cancelled", "stale", "partial"].includes(buildState);
   $("#prepareSummaries").disabled = !["membership_frozen", "summaries_prepared", "awaiting_summary_consent"].includes(buildState);
-  $("#cancelStoryMapBuild").hidden = !STORY_MAP_ACTIVE_STATES.has(buildState);
+  $("#cancelStoryMapBuild").hidden = !STORY_MAP_CANCELABLE_STATES.has(buildState);
   $("#resumeStoryMapBuild").hidden = buildState !== "cancelled";
   $("#retryStoryMapBuild").hidden = !["partial", "failed"].includes(buildState);
   $("#generationStatus").hidden = false;
@@ -611,26 +614,27 @@ function showStoryMapManifest(stage, prepared) {
   const value = (...paths) => storyMapManifestValue(prepared, paths);
   const requestedModel = value("provider.requested_model", "manifest.provider.requested_model", "provider_profile.requested_model", "manifest.provider_profile.requested_model");
   const resolvedModel = value("provider.resolved_model", "manifest.provider.resolved_model", "provider_profile.resolved_model", "manifest.provider_profile.resolved_model", "provider.model", "manifest.provider.model");
-  const reasoning = value("provider.settings.model_reasoning_effort", "manifest.provider.settings.model_reasoning_effort", "provider_profile.reasoning_effort", "manifest.provider_profile.reasoning_effort");
+  const reasoning = value("provider.settings.model_reasoning_effort", "manifest.provider.settings.model_reasoning_effort", "provider.settings.reasoning_effort", "manifest.provider.settings.reasoning_effort", "provider_profile.reasoning_effort", "manifest.provider_profile.reasoning_effort");
   const fastMode = value("provider.settings.fast_mode", "manifest.provider.settings.fast_mode", "provider_profile.fast_mode", "manifest.provider_profile.fast_mode");
   const calls = value("limits.max_provider_calls", "manifest.limits.max_provider_calls", "resource_ceilings.max_provider_calls", "manifest.resource_ceilings.max_provider_calls");
-  const tokens = value("limits.max_total_tokens", "manifest.limits.max_total_tokens", "resource_ceilings.max_total_tokens", "manifest.resource_ceilings.max_total_tokens");
+  const inputBytes = value("limits.maximum_input_bytes", "limits.max_input_bytes", "manifest.limits.maximum_input_bytes", "manifest.limits.max_input_bytes", "resource_ceilings.maximum_input_bytes", "manifest.resource_ceilings.maximum_input_bytes");
+  const outputBytes = value("limits.maximum_output_bytes", "limits.max_output_bytes", "manifest.limits.maximum_output_bytes", "manifest.limits.max_output_bytes", "resource_ceilings.maximum_output_bytes", "manifest.resource_ceilings.maximum_output_bytes");
   const seconds = value("limits.timeout_seconds", "manifest.limits.timeout_seconds", "resource_ceilings.timeout_seconds", "manifest.resource_ceilings.timeout_seconds");
   const concurrency = value("limits.max_concurrency", "manifest.limits.max_concurrency", "resource_ceilings.max_concurrency", "manifest.resource_ceilings.max_concurrency");
   const promptHash = value("prompt_hash", "manifest.prompt_hash", "bindings.prompt_hash", "manifest.bindings.prompt_hash");
   const schemaHash = value("schema_hash", "manifest.schema_hash", "bindings.schema_hash", "manifest.bindings.schema_hash");
   const jobs = value("job_count", "manifest.job_count") ?? prepared.jobs?.length ?? prepared.manifest?.jobs?.length ?? null;
   const safeFacts = [
-    ["Manifest", manifestId], ["Stage", stage], ["Expires", value("expires_at", "expiry", "manifest.expires_at", "manifest.expiry")],
+    ["Manifest", manifestId], ["Stage", stage], ["Expires", value("expires_utc", "expires_at", "expiry", "manifest.expires_utc", "manifest.expires_at", "manifest.expiry")],
     ["Source", value("source_hash", "source_identity_hash", "manifest.source_hash", "manifest.source_identity_hash", "bindings.source_hash", "manifest.bindings.source_hash")],
     ["Authority", value("authority_hash", "manifest.authority_hash", "bindings.authority_hash", "manifest.bindings.authority_hash")],
-    ["Correction", value("correction_hash", "manifest.correction_hash", "bindings.correction_hash", "manifest.bindings.correction_hash")],
+    ["Correction", value("correction_id", "manifest.correction_id", "correction_hash", "manifest.correction_hash", "bindings.correction_hash", "manifest.bindings.correction_hash")],
     ["Prompt / schema", promptHash !== null && schemaHash !== null ? `${promptHash} / ${schemaHash}` : null],
-    ["Membership", value("membership_hash", "manifest.membership_hash", "bindings.membership_hash", "manifest.bindings.membership_hash", "scope_hash", "manifest.scope_hash")],
+    ["Membership", stage === "boundaries" ? "Frozen only after boundary validation" : value("membership_hash", "manifest.membership_hash", "bindings.membership_hash", "manifest.bindings.membership_hash", "scope_hash", "manifest.scope_hash")],
     ["Provider profile", [requestedModel, resolvedModel, reasoning, fastMode].every((item) => item !== null) ? `${requestedModel} → ${resolvedModel} · ${reasoning} reasoning · fast mode ${storyMapManifestDisplay(fastMode)}` : null],
-    ["Jobs", jobs], ["Input hash", value("input_hash", "selection_hash", "manifest.input_hash", "manifest.selection_hash")],
+    ["Jobs", jobs], ["Input hash", value("job_identity_hash", "manifest.job_identity_hash", "input_hash", "selection_hash", "manifest.input_hash", "manifest.selection_hash")],
     ["Privacy scope", value("privacy_scope", "manifest.privacy_scope", "bindings.privacy_scope", "manifest.bindings.privacy_scope")],
-    ["Resource ceilings", [calls, tokens, seconds, concurrency].every((item) => item !== null) ? `${calls} calls · ${tokens} tokens · ${seconds}s · ${concurrency} concurrent` : null],
+    ["Resource ceilings", [calls, inputBytes, outputBytes, seconds, concurrency].every((item) => item !== null) ? `${calls} calls · ${inputBytes} input bytes · ${outputBytes} output bytes · ${seconds}s · ${concurrency} concurrent` : null],
   ];
   for (const [label, fact] of safeFacts) facts.append(element("dt", "", label), element("dd", fact === null ? "manifest-fact-missing" : "", storyMapManifestDisplay(fact)));
   const complete = safeFacts.every(([, fact]) => fact !== null);
@@ -681,9 +685,7 @@ async function pollStoryMapBuild() {
 
 async function loadStoryMapBuildStatus() {
   ++state.storyMapPollToken;
-  if (!isSemanticStoryMapPage()) {
-    state.storyMapBuild = null; $("#buildStoryMap").hidden = true; return;
-  }
+  if (state.mode !== "narrative" || !state.page) return;
   try {
     state.storyMapBuild = await api.storyMapBuildStatus(); renderStoryMapBuildControls();
     if (STORY_MAP_ACTIVE_STATES.has(state.storyMapBuild.state)) pollStoryMapBuild();
@@ -980,7 +982,7 @@ function renderMap({ preserveViewport = false } = {}) {
   if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
   const semanticStoryMap = state.mode === "narrative" && isSemanticStoryMapPage();
   document.documentElement.dataset.narrativePresentation = narrativePresentation();
-  $("#buildStoryMap").hidden = !semanticStoryMap;
+  $("#buildStoryMap").hidden = state.mode !== "narrative";
   const visible = visiblePage();
   const nodes = visible.nodes;
   const edges = visible.edges;
