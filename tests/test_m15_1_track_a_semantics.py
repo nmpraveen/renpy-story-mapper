@@ -788,7 +788,7 @@ def test_shared_callee_choices_and_topology_remain_occurrence_local() -> None:
                     base,
                     authority=authority,
                     node_ids=(node_id,),
-                    context_ids=occurrence_path,
+                    context_ids=(*occurrence_path, f"progression:{occurrence_id}"),
                     call_occurrence_id=occurrence_id,
                     call_occurrence_path=occurrence_path,
                     entry_node_id=node_id,

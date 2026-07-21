@@ -464,6 +464,17 @@ def build_choice_compositions(
         sorted(
             instances,
             key=lambda item: (
+                unit_position.get(item[1].unit_id, len(unit_position)),
+                depth(item[0].id),
+                item[0].id,
+                item[1].call_occurrence_path,
+            ),
+        )
+    )
+    composition_instances = tuple(
+        sorted(
+            instances,
+            key=lambda item: (
                 depth(item[0].id),
                 unit_position.get(item[1].unit_id, len(unit_position)),
                 item[0].id,
@@ -472,7 +483,7 @@ def build_choice_compositions(
         )
     )
     compositions: dict[str, ChoiceComposition] = {}
-    for region, split_unit in ordered_instances:
+    for region, split_unit in composition_instances:
         if region.merge_node_id is None:
             raise ValueError("temporary choice composition requires a proven M10 rejoin")
         occurrence_path = split_unit.call_occurrence_path
