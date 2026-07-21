@@ -15,6 +15,7 @@ from renpy_story_mapper.canonical_graph_contract import (
     CanonicalGraph,
     CanonicalNode,
     CanonicalRegion,
+    ReachabilityStatus,
 )
 from renpy_story_mapper.m11_scene_model import (
     AtomKind,
@@ -629,7 +630,13 @@ def _expand_call_occurrence_units(
         referenced_atom_ids.update(occurrence.referenced_atom_ids)
         incoming = incoming_by_node[occurrence.callee_entry_node_id]
         if any(_is_call_entry_edge(edge) for edge in incoming) and any(
-            not _is_call_entry_edge(edge) for edge in incoming
+            not _is_call_entry_edge(edge)
+            and edge.reachability
+            not in {
+                ReachabilityStatus.PROVEN_UNREACHABLE,
+                ReachabilityStatus.UNREACHABLE_IN_RESOLVED_STATIC_GRAPH,
+            }
+            for edge in incoming
         ):
             directly_reachable_atom_ids.update(occurrence.referenced_atom_ids)
 
