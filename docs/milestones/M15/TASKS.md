@@ -1,29 +1,34 @@
-# M15 task ledger
+# M15.1 task ledger
 
-Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
+Original baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
+
+Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
 Integration branch: `codex/m15-msday1-narrative-map`
 
-Phase Coordinator: current user-visible Codex task. This task's model, reasoning, and fast-mode
-settings are not exposed to the coordinator and therefore remain unavailable/unverified; no claim
-is made that repository prose changed them.
+Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open and unmerged.
 
-| Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
-|---|---|---|---|---|---|
-| Contract and baseline | Phase Coordinator | M15 contract, lifecycle pointer, baseline/fixture hashes and current M11 metrics | User approval | Complete | Baseline `a447a4e`; tracked tree clean; source SHA-256/M11 metrics and 100%/200% screenshots under `output/playwright/m15-baseline/`; native goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` active |
-| Semantic review | Phase Coordinator | Requirements, architecture, frozen files/tests/evidence, single early gate | Approved scope and repository discovery | Complete | `SEMANTIC_REVIEW.md`: `PASS` on 2026-07-20 |
-| Shared contracts and failing-first fixtures | Phase Coordinator | Versioned schemas/interfaces, synthetic/golden tests, retirement guards | Semantic review `PASS` | Complete | Frozen exact head `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests 7 passed; Ruff and strict mypy passed; intentional implementation gate 10 failed/1 passed before track work |
-| Track A - deterministic corridors and event assembly | Task `019f8042-8627-7780-a515-355056881714`; worktree `C:/Users/prave/.codex/worktrees/8630/Renpy` | New Narrative Map domain, M10/M11 adapters, membership, quotient topology, provenance tests, amended leading-coverage correction | Amended shared contract | Complete | Final clean head `bc4106a951bcb1663b3ae2bdae0a56f22f0bd072`; M10-only progression, exact-bound occurrence-qualified correction, atomic persistence/reopen, strict fail-closed matrix, exact working-copy utility; 53 focused, 80 adjacent, nine synthetic, exact private acceptance |
-| Track A independent review | Two read-only reviewers inside Track A task | Exact-head deterministic/topology/provenance/correction review | Final Track A correction candidate | Complete | `/root/m15_amended_track_a_exact_head_review` and `/root/m15_correction_adversarial_review` both PASS at `bc4106a`, no P0-P2; unknown-rule, later-occurrence, tampering, stale authority, and Windows reopen probes reject correctly |
-| Track B - AI boundary and event-summary workflow | Task `019f8042-8632-7512-a2e3-42ac6932e558`; worktree `C:/Users/prave/.codex/worktrees/c6d6/Renpy` | Versioned prompts/schemas, ordered projection, persistence/resume/validation/repair/fake-provider tests | Frozen shared contracts; may compile alongside A | Complete | Clean exact head `47fa6f48f3bf01e8ed91608407296d34210cf92c`; 46 focused/frozen and 157 adjacent M13 tests passed; Ruff, strict mypy, dependency/frozen-resource/diff checks passed; zero live/provider/private access |
-| Track B independent review | `/root/m15_track_b_review` inside Track B task | Read-only exact-head provider/privacy/resume/validation review | Current Track B correction candidate | Complete | Final exact-head rereview at `47fa6f48`: `PASS`, no P0-P2; 196 expanded tests and focused claim-lock probes passed; reviewer made no edits |
-| Track C - Story Map browser and legacy retirement | Task `019f80a7-5e33-7e81-8a4c-1aa7749d51bc`; worktree `C:/Users/prave/.codex/worktrees/fb82/Renpy` | Narrative Map API/presentation/browser, layout, M12/M07/M08 visible retirement, compatibility, correction application and package/browser tests | Integrated reviewed Track A then Track B contracts | Complete | Correction integration head `d8a77ca4ad3f92897a2b6f4ec9a9685a84e79522`; exact authority load/revalidation, bounded conservative diagnostics, correction identity non-aliasing, M10-derived hidden-technical continuity; 179 integrated tests and Chrome 100%/200% passed |
-| Track C independent review | Read-only exact-head reviewer inside Track C task | UI/API/compatibility/browser/correction review | Final Track C candidate | Complete | PASS at `d8a77ca`, no P0-P2; reviewer reproduced 239 passes plus one hardware-wrapper skip, both Chrome zooms, 49/49 finite sanitized connectors, zero overlaps/forbidden calls, and static/package gates |
-| Integration and verification | Phase Coordinator | Ordered integration, actual diff inspection, cross-track checks, private provider-free/browser/Windows acceptance | Reviewed A/B/C handoffs | Complete | Reviewed corrections integrated through `972a578`; evidence head `1c043bf`; fresh exact corrected evidence 70/70/84/85 with setup through 26 collapsed; exact Chrome 100%/200% passed; final Release 1,270 passed / 8 hardware deselected plus all static/package gates |
-| Final cross-track review | `/root/m15_final_corrected_review` | Exact integrated head, no edits | Frozen candidate and completed required checks | Complete | PASS at exact head `a5e507e`, no P0-P2; 188 reproduced tests / 1 expected skip, Ruff, strict mypy, pip, four JS checks, diff/evidence/exclusion audit; no private access or edits |
-| Optional live Day 1 acceptance | Phase Coordinator only after fresh explicit consent | Exact manifest, bounded provider run, comparison, zero-call replay | Provider-free integration accepted; separate user consent | Pending | Optional; not authorized by milestone-start approval |
-| PR readiness | Phase Coordinator | Completion report, infographic, evidence audit, branch push, one unmerged PR | Verification and reviews pass | Complete | Corrected artifacts, final Release, and final review complete; [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) is open, non-draft, mergeable, and unmerged; corrected product head `b4f3d9c` passed GitHub Release run `29790137975` |
+| Task | Owner | Dependencies | Status | Evidence / next gate |
+|---|---|---|---|---|
+| Correction preflight | Coordinator | User instruction | Complete | Exact local/remote head and PR #26 verified; source/archive fingerprints match; private paths remain ignored; unrelated untracked files preserved |
+| Lifecycle correction and revised semantic gate | Coordinator | Complete plan and authority reading | Complete | Prior PR-ready result revoked; revised `GOAL.md`; `SEMANTIC_REVIEW.md` ends `PASS` on 2026-07-21 |
+| Replacement native goal | Coordinator | Revised safe done condition and semantic `PASS` | Complete | Goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` is active with the verbatim M15.1 done condition; the goal service reused the current coordinator task ID |
+| Shared schemas, examples, and failing-first freeze | Coordinator | Active goal | In progress | Freeze versioned fine-unit/gap/window/decision/hierarchy/summary/build/provenance contracts and generalized failing-first tests in one exact base commit |
+| Track A - deterministic semantics | Separate visible Codex task/worktree | Shared frozen head | Pending | Provider-independent fine units, candidates, deterministic hierarchy/topology, persistence helpers, fixtures, clean commit and independent exact-head review |
+| Track B - two-stage semantic lifecycle | Separate visible Codex task/worktree | Shared frozen head | Pending | Boundary/summary projection, exact consents, durable jobs/cache/accounting, validation/publication/replay, clean commit and independent exact-head review |
+| Track C - compact Story Map product | Separate visible Codex task/worktree | Shared frozen head | Pending | Production controls, normal-flow vertical HTML, local connectors, responsive evidence/browser coverage, clean commit and independent exact-head review |
+| Ordered integration and fake-provider acceptance | Coordinator | Reviewed Tracks A/B/C | Pending | Inspect and integrate reviewed commits; focused semantic/API/browser/compatibility/privacy gates; freeze exact candidate |
+| Live boundary stage | Coordinator | Integrated fake-provider candidate and exact user consent | Pending | Present exact zero-submit boundary manifest; run only after explicit boundary consent; validate one-to-one decisions and freeze membership |
+| Live summary stage | Coordinator | Frozen membership and separate exact user consent | Pending | Present exact zero-submit summary manifest; run only after explicit summary consent; validate one-to-one summaries and atomically publish |
+| Final source-first then oracle review | Separate visible Codex reviewer task | Frozen live candidate | Pending | Reviewer freezes blind source/evidence/screenshots result, then compares same hashes to private references; no unresolved P0-P2 |
+| Real-browser and user visual acceptance | Coordinator | Reviewed final-head candidate | Pending | Required 100%/200% captures, layout/evidence assertions, and explicit user approval of actual screenshots |
+| Final Release and PR readiness | Coordinator | User visual approval | Pending | One final Windows Release/package gate, lifecycle/evidence reconciliation, private-content scan, push exact passing head, PR #26 checks; leave unmerged |
 
-Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`. Every worker handoff
-must include base, exact head, branch/worktree, changed files, checks/results, assumptions, known
-defects, conflicts, and remaining acceptance.
+Historical note: the original M15 tracks and reviews completed against the coarse provider-free
+design, but the user rejected that semantic outcome. Their heads and artifacts remain history only
+and do not satisfy any M15.1 row above.
+
+All new visible tasks must use `gpt-5.6-sol` with High reasoning under current repository policy.
+The task surface has no fast-mode selector, so record fast mode unavailable/unverified. Every
+handoff must include exact base/head, branch/worktree, changed files, commands/results, assumptions,
+limitations, likely conflicts, reviewer findings, and remaining acceptance work.

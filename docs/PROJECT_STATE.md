@@ -1,99 +1,49 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-20 (M15 PR ready; PR #26 open and unmerged)
+Updated: 2026-07-21 (M15.1 correction In progress; shared freeze active)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M15 - MsDay1 Narrative Map correction.
+- Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`; tracked `main` matched
-  `origin/main` before activation. Existing untracked `.playwright-cli/`, `docs/handoffs/`,
-  `output/`, and `tmp/` content is preserved.
-- Integration branch: `codex/m15-msday1-narrative-map`.
-- Status: PR ready. The user authorized all future M15 correction and independent-rereview
-  cycles and removed any coordinator-imposed worker cap. The exact-bound leading-coverage
-  correction, M10-only progression fix, normal API application, conservative fallback, identity
-  invalidation, and hidden-technical continuity are integrated and independently reviewed. Fresh
-  exact/browser evidence, final Release, cross-track review, and exact product-head PR checks pass.
-  PR #26 is open, non-draft, mergeable, and intentionally unmerged. Provider calls remain
-  separately gated and none occurred.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-20, including the
-  independently rereviewed verification amendment. Shared schemas and failing-first fixtures were
-  originally frozen at exact head
-  `1ec0664ed6834b79cd1581a3edec7e16225bfc6f`; contract tests, Ruff, and strict mypy pass, and the
-  pre-implementation gate produced the expected 10 failures/1 pass.
-- Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c`, created from the
-  exact `GOAL.md` done condition after confirming no prior active native goal.
-- Track A: corrected clean head `bc4106a951bcb1663b3ae2bdae0a56f22f0bd072` implements M10-only
-  progression and the exact-bound durable leading-coverage correction. Two independent exact-head
-  reviewers returned `PASS` with no P0-P2 after reproducing unknown-rule, repeated-occurrence, and
-  Windows-path reopen adversarial cases; 53 focused and 80 adjacent M10/M11 tests passed.
-- Track B: independently accepted at clean exact head
-  `47fa6f48f3bf01e8ed91608407296d34210cf92c`; provider consent/accounting, claim repair,
-  persistence/cache/resume, focused/adjacent checks, and zero-live-provider/private evidence passed.
-- Ordered A+B integration: complete through coordinator head
-  `9c0f5d878b32ce4f91b4257f357ca42871d0b49e`. The expected shared-export conflict preserved both
-  APIs; combined 66 focused M15, 69 adjacent M10/M11, and 157 adjacent M13 tests plus Ruff, strict
-  mypy, dependency integrity, and diff checks passed.
-- Track C: the original browser delivery and corrections remain accepted. Correction integration
-  head `d8a77ca4ad3f92897a2b6f4ec9a9685a84e79522` additionally loads exact authority server-side,
-  fails closed with bounded diagnostics, preserves correction-bearing job/cache identity, and
-  derives visible continuity only from M10 edge provenance. Its exact-head review returned `PASS`
-  with no P0-P2; 239 reviewer tests and Chrome at 100%/200% passed.
-- Phase Coordinator: current user-visible Codex task. Launch model/reasoning/fast-mode settings are
-  not exposed to the task and remain unavailable/unverified. Separate track tasks will explicitly
-  select `gpt-5.6-sol` and High reasoning; their creation surface exposes no fast-mode selector, so
-  that setting will be recorded unavailable/unverified rather than claimed disabled.
-- Historical product/evidence heads `38c2ccb` and `02a7e8c` failed final review and remain superseded.
-  The reviewed corrections are integrated through coordinator head `972a578`; corrected evidence,
-  the exact-prefix browser-harness qualification, and lifecycle reconciliation are committed at
-  evidence head `1c043bf`.
-- Fresh provider-free exact evidence under `output/playwright/m15-private-final/` passes with the
-  explicit correction: 70 corridors, 70 events, 84 nodes, 85 edges, five ordered clusters, setup
-  through line 26 collapsed, Prologue at 27, Day 1 at 52, four exact choice/rejoin pairs, and zero
-  provider/game execution. Source and original comparison project hashes/sizes/timestamps remain
-  unchanged.
-- Fresh exact Chrome evidence passes at 100%/200% with correction status `applied/valid`, five
-  story clusters, 85/85 finite connectors, zero overlaps, technical coverage hidden by default,
-  Terrance/Janet Detail/Evidence traversal, and zero provider/M12/remote requests. The regenerated
-  `docs/milestones/M15/VISIBLE_ORDER.txt` starts Prologue at line 27. Native `INFOGRAPHIC.png`
-  remains valid and contains no private story text.
-- Final Windows Release at evidence head `1c043bf` passed: 1,270 tests with eight
-  hardware-sensitive deselections; Ruff; strict mypy over 109 source files; dependency,
-  JavaScript, and whitespace checks; isolated sdist/wheel build, install, import, browser assets,
-  and notices. The initial invocation selected an incomplete local `.venv`; the authoritative pass
-  used the validator's explicit Python 3.12 option and no product-test failure occurred.
-- Final independent integrated review at exact head
-  `a5e507ea81753b68d63eaf0e77c717b926f57dfc` returned `PASS` with no P0-P2. The
-  reviewer inspected the 70-file baseline diff and patch-equivalent track integrations; reproduced
-  188 public tests with one expected browser-wrapper skip plus Ruff, strict mypy, dependency,
-  JavaScript, and diff gates; and confirmed privacy-safe exact/browser/Release evidence and all
-  exclusions without opening private source/project/screenshots.
-- Initial PR-head Release run `29787902253` exposed three pre-existing M13 test polling windows on
-  the slower hosted Windows runner; 1,265 tests and every non-pytest gate passed, while three
-  background jobs remained validly `running` beyond fixed 5/20-second waits. Test-only correction
-  `b4f3d9cf93ff34b8f81b05809947f476535bf501` replaced all six equivalent ad hoc loops with one
-  bounded 120-second terminal-state wait. Independent diagnosis found no M15/M13 production-path
-  regression and no P0-P2; 22 focused checks, Ruff, and diff checks passed locally.
-- Exact corrected product head `b4f3d9cf93ff34b8f81b05809947f476535bf501` passed GitHub
-  Release run `29790137975` (`Deterministic checks (Python 3.12)`) in 17m48s. PR #26 remains
-  mergeable, open, non-draft, and unmerged.
-- Private fixture: exact input SHA-256
+- Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
+- M15.1 correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`, verified equal locally,
+  on the integration branch remote, and on open PR #26 at correction preflight.
+- Integration branch: `codex/m15-msday1-narrative-map`; existing
+  [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
+- Status: In progress. Revised semantic-review `PASS` and native-goal activation occurred on
+  2026-07-21. The prior `PR ready` result is
+  revoked and recorded as Changes Requested because its generic wide graph did not meet the human
+  narrative outcome. Its product heads, screenshots, visible-order export, reviews, Release, and
+  GitHub checks are historical rejected-baseline evidence only.
+- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). Broad implementation begins
+  only after the replacement native goal is recorded and the shared versioned schemas,
+  generalized examples, and genuinely failing-first tests freeze in one exact base commit.
+- Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` with the verbatim
+  revised done condition. Before creation the goal service reported no active goal; it reactivated
+  the current coordinator task ID, so there remains exactly one active milestone goal.
+- Required task topology: after the shared freeze, create separate visible Track A, Track B, and
+  Track C Codex tasks/worktrees, each with an independent exact-head reviewer, then a separate final
+  source-first/private-reference reviewer task. The coordinator owns ordered integration and all
+  private evaluation.
+- Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
+  has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
+  profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
+- Private preflight: source SHA-256
   `14aa44ed95dec5402dfb02a1c4e01e63b3f3e329cf04fec37b04edebb5d588a6`, 42,818 bytes,
-  `2026-07-20T14:57:21.9287268Z`; private source remains outside Git. The fixture manifest records
-  original archive SHA-256 `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`,
-  2,140,282 bytes, and timestamp nanoseconds `1783041076000000000`.
-- Baseline evidence: exact current analysis has 773 M01 nodes, 788 edges, 773 M11 atoms, 165 M11
-  scenes, nine temporary structures, one chapter, and 174 presentation nodes; 115 boundaries came
-  from the three-atom minimum narrative run and 35 from unresolved safety.
-- Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) is open,
-  non-draft, mergeable, and unmerged on `codex/m15-msday1-narrative-map`. Final local Release,
-  independent review, and exact corrected product-head GitHub Release run `29790137975` are
-  `PASS`; the lifecycle is `PR ready`.
-- Provider state: no M15 provider call has occurred or is authorized. Any live Day 1 run requires
-  a fresh exact manifest and separate explicit consent; full MsDenvers and M14 remain deferred.
+  `2026-07-20T14:57:21.9287268Z`; archive SHA-256
+  `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`, 2,140,282 bytes,
+  `2026-07-03T01:11:16Z`. Both matched the ignored private manifest. Final before/after proof remains
+  required; private source, oracle, handoff, mockups, and output artifacts stay outside Git.
+- Provider state: no M15.1 provider submission has occurred. The coordinator must present an exact
+  boundary manifest and receive explicit boundary consent, then after membership freezes present a
+  different exact summary manifest and receive separate explicit summary consent. Start approval
+  authorizes neither live stage. Actual final-head screenshots also require explicit user approval.
+- Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
+  preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
+  deferred or excluded.
 
 ## M13 historical lifecycle
 
