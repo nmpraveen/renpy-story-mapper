@@ -372,6 +372,7 @@ class SemanticLifecycle:
                 "outline": semantic_outline_payload(outline),
                 "failure_codes": [],
                 "cancel_requested": False,
+                "summary_accounting": _accounting_payload(SemanticAccounting()),
             }
         )
         self._repository.write_semantic_build(updated)
@@ -503,6 +504,12 @@ class SemanticLifecycle:
                 False,
             )
         else:
+            stage_accounting_key = (
+                "boundary_accounting"
+                if preparation.stage is SemanticStage.BOUNDARIES
+                else "summary_accounting"
+            )
+            stage_accounting = _accounting_from_payload(raw.get(stage_accounting_key))
             workflow = NarrativeBoundaryWorkflow(
                 self._repository,
                 provider,
@@ -522,12 +529,14 @@ class SemanticLifecycle:
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
+                        consumed_provider_calls=stage_accounting.provider_calls,
                     )
                 else:
                     report = workflow.run_semantic_summary_jobs(
                         preparation.jobs,
                         consent=consent,
                         cancelled=is_cancelled,
+                        consumed_provider_calls=stage_accounting.provider_calls,
                     )
             finally:
                 self._active_workflow = None
@@ -546,6 +555,15 @@ class SemanticLifecycle:
         updated = dict(latest)
         accounting = _accounting_from_payload(latest.get("accounting"))
         updated["accounting"] = _accounting_payload(_add_report(accounting, report))
+        stage_accounting_key = (
+            "boundary_accounting"
+            if preparation.stage is SemanticStage.BOUNDARIES
+            else "summary_accounting"
+        )
+        stage_accounting = _accounting_from_payload(latest.get(stage_accounting_key))
+        updated[stage_accounting_key] = _accounting_payload(
+            _add_report(stage_accounting, report)
+        )
         target_key = (
             "completed_boundary_job_ids"
             if preparation.stage is SemanticStage.BOUNDARIES
@@ -807,6 +825,8 @@ def _new_build_payload(
         "completed_summary_job_ids": [],
         "failure_codes": [],
         "accounting": _accounting_payload(SemanticAccounting()),
+        "boundary_accounting": _accounting_payload(SemanticAccounting()),
+        "summary_accounting": _accounting_payload(SemanticAccounting()),
         "outline": None,
         "cancel_requested": False,
     }

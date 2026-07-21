@@ -508,7 +508,8 @@ def test_partial_boundary_failure_retries_cached_success_with_one_submit(tmp_pat
     units = _units()
     candidates = _candidates(units)
     windows = _windows(units, candidates, batched=False)
-    with Project.create(tmp_path / "partial.rsmproj") as project:
+    path = tmp_path / "partial.rsmproj"
+    with Project.create(path) as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         preparation = service.prepare_boundaries(
             units,
@@ -536,6 +537,19 @@ def test_partial_boundary_failure_retries_cached_success_with_one_submit(tmp_pat
         assert status is not None and status.record.state is SemanticBuildState.PARTIAL
         assert service.read_current_semantic_publication() is None
 
+    with Project.open(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = service.prepare_boundaries(
+            units,
+            candidates,
+            windows,
+            _evidence(units),
+            profile=_profile(),
+            run_id="must-reuse-the-still-fresh-manifest",
+            source_hash="source-hash",
+            correction_id="m15.1",
+        )
+        consent = preparation.granted_consent()
         retry_provider = _FakeProvider([_boundary_payload(windows[1])])
         retry = service.retry_semantic_build(
             preparation,

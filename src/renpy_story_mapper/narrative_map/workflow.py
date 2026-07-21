@@ -111,10 +111,16 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         cancelled: CancelledCallback | None = None,
+        consumed_provider_calls: int = 0,
     ) -> NarrativeWorkflowReport:
         if any(job.kind is not ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW for job in jobs):
             raise ValueError("semantic boundary workflow received a different job kind")
-        return self._run(jobs, consent, cancelled or _not_cancelled)
+        return self._run(
+            jobs,
+            consent,
+            cancelled or _not_cancelled,
+            consumed_provider_calls=consumed_provider_calls,
+        )
 
     def run_semantic_summary_jobs(
         self,
@@ -122,18 +128,32 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         cancelled: CancelledCallback | None = None,
+        consumed_provider_calls: int = 0,
     ) -> NarrativeWorkflowReport:
         if any(job.kind is not ProviderJobKind.SEMANTIC_SUMMARY for job in jobs):
             raise ValueError("semantic summary workflow received a different job kind")
-        return self._run(jobs, consent, cancelled or _not_cancelled)
+        return self._run(
+            jobs,
+            consent,
+            cancelled or _not_cancelled,
+            consumed_provider_calls=consumed_provider_calls,
+        )
 
     def _run(
         self,
         jobs: Sequence[PreparedNarrativeJob],
         consent: NarrativeConsentManifest,
         cancelled: CancelledCallback,
+        *,
+        consumed_provider_calls: int = 0,
     ) -> NarrativeWorkflowReport:
         consent.validate_for(jobs, self._profile)
+        if (
+            not isinstance(consumed_provider_calls, int)
+            or isinstance(consumed_provider_calls, bool)
+            or not 0 <= consumed_provider_calls <= consent.maximum_provider_calls
+        ):
+            raise ValueError("consumed provider calls exceed the exact consent limit")
         job_ids = tuple(job.job_id for job in jobs)
         if len(job_ids) != len(set(job_ids)):
             raise ValueError("each M15 semantic job may be scheduled only once")
@@ -175,7 +195,11 @@ class NarrativeBoundaryWorkflow:
             outcome = self._submit_with_repair(
                 job,
                 consent=consent,
-                maximum_provider_calls=consent.maximum_provider_calls - provider_calls,
+                maximum_provider_calls=(
+                    consent.maximum_provider_calls
+                    - consumed_provider_calls
+                    - provider_calls
+                ),
                 cancelled=cancelled,
             )
             provider_calls += outcome.provider_calls
