@@ -65,6 +65,9 @@ def test_two_stage_controls_are_separate_and_never_implicit() -> None:
     assert "startStoryBoundaries" not in normal_entry
     assert "prepareStorySummaries" not in normal_entry
     assert "startStorySummaries" not in normal_entry
+    assert "async function pollStoryMapBuild" in app
+    assert "await api.storyMapBuildStatus()" in app
+    assert "await reloadStoryMapAfterBuild()" in app
 
 
 def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() -> None:
@@ -85,7 +88,10 @@ def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() 
         "m12_solve_or_destination_requests",
         "m15-1-story-map-{label}.png",
         "m15-1-story-map-expanded-{label}.png",
+        "m15-1-story-map-section-{label}.png",
         "m15-1-detail-{label}.png",
+        "Expanded Story Map is not a full-page capture",
+        "Two-stage consent did not expose every exact bound fact",
     ):
         assert marker in source
 

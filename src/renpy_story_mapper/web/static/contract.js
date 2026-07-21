@@ -83,8 +83,7 @@ const SEMANTIC_BUILD_STATES = new Set([
 ]);
 
 export function assertStoryMapProduction(value) {
-  if (!object(value)) throw new TypeError("Invalid Story Map production response");
-  if (Object.hasOwn(value, "state") && !SEMANTIC_BUILD_STATES.has(value.state)) throw new TypeError("Invalid Story Map production state");
+  if (!object(value) || !Object.hasOwn(value, "state") || !SEMANTIC_BUILD_STATES.has(value.state)) throw new TypeError("Invalid Story Map production response");
   const manifestId = value.manifest_id ?? value.preparation_id ?? value.manifest?.manifest_id;
   if (manifestId !== undefined && (typeof manifestId !== "string" || !manifestId)) throw new TypeError("Invalid Story Map manifest identity");
   if (Object.hasOwn(value, "requires_confirmation") && typeof value.requires_confirmation !== "boolean") throw new TypeError("Invalid Story Map confirmation flag");

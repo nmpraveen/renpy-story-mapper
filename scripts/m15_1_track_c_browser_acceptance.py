@@ -8,6 +8,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -112,9 +113,29 @@ def _node(
     }
 
 
-def _full_screenshot(session: Any, path: Path) -> None:
-    data = session.command("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": True})["data"]
+def _png_size(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise AssertionError(f"Browser artifact is not a PNG: {path}")
+    return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+
+
+def _clip_screenshot(session: Any, path: Path, clip: dict[str, float]) -> tuple[int, int]:
+    data = session.command(
+        "Page.captureScreenshot",
+        {"format": "png", "fromSurface": True, "captureBeyondViewport": True, "clip": {**clip, "scale": 1}},
+    )["data"]
     path.write_bytes(base64.b64decode(data))
+    return _png_size(path)
+
+
+def _full_screenshot(session: Any, path: Path) -> tuple[int, int]:
+    size = session.command("Page.getLayoutMetrics", {})["cssContentSize"]
+    return _clip_screenshot(
+        session,
+        path,
+        {"x": 0, "y": 0, "width": math.ceil(size["width"]), "height": math.ceil(size["height"])},
+    )
 
 
 def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, object]:
@@ -208,23 +229,79 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
             )
             if detail["failures"]:
                 raise AssertionError(f"Detail/Evidence identity mismatches: {detail}")
+            manifest = {
+                "expires_at": "2030-01-01T00:00:00Z", "job_count": 2,
+                "source_hash": "source_synthetic", "authority_hash": "authority_synthetic",
+                "correction_hash": "correction_synthetic", "prompt_hash": "prompt_synthetic",
+                "schema_hash": "schema_synthetic", "membership_hash": "membership_synthetic",
+                "input_hash": "input_synthetic", "privacy_scope": "synthetic_only",
+                "provider": {"requested_model": "gpt-5.6-sol", "resolved_model": "gpt-5.6-sol", "settings": {"model_reasoning_effort": "medium", "fast_mode": False}},
+                "limits": {"max_provider_calls": 2, "max_total_tokens": 4096, "timeout_seconds": 120, "max_concurrency": 1},
+            }
+            session.evaluate(
+                "import('./app.js').then(m=>{"
+                f"const manifest={json.dumps(manifest)};"
+                "m.api.prepareStoryBoundaries=async()=>({...manifest,state:'awaiting_boundary_consent',manifest_id:'boundary_synthetic'});"
+                "m.api.startStoryBoundaries=async manifest_id=>({...manifest,state:'boundaries_running',manifest_id});"
+                "m.api.storyMapBuildStatus=async()=>{window.__m15StoryPolls=(window.__m15StoryPolls||0)+1;return {...manifest,state:'membership_frozen'};};"
+                "m.api.prepareStorySummaries=async()=>({...manifest,state:'awaiting_summary_consent',manifest_id:'summary_synthetic'});"
+                "m.state.page.build_state='not_started';m.state.storyMapBuild=null;m.renderMap();"
+                "document.querySelector('#buildStoryMap').click();document.querySelector('#prepareBoundaries').click();return true;})"
+            )
+            session.wait("document.querySelector('#storyMapConsentDialog').open")
+            boundary_consent = session.evaluate(
+                "(()=>({title:document.querySelector('#storyMapConsentTitle').textContent,text:document.querySelector('#storyMapConsentFacts').textContent,disabled:document.querySelector('#confirmStoryMapStage').disabled}))()"
+            )
+            reprepare_enabled = session.evaluate("document.querySelector('#cancelStoryMapConsent').click();!document.querySelector('#prepareBoundaries').disabled")
+            if not reprepare_enabled:
+                raise AssertionError("Cancelling a zero-submit boundary preview prevented re-review")
+            session.evaluate("document.querySelector('#prepareBoundaries').click()")
+            session.wait("document.querySelector('#storyMapConsentDialog').open")
+            session.evaluate("document.querySelector('#confirmStoryMapStage').click()")
+            session.wait("import('./app.js').then(m=>window.__m15StoryPolls===1&&m.state.storyMapBuild?.state==='membership_frozen')")
+            lifecycle = session.evaluate("import('./app.js').then(m=>({polls:window.__m15StoryPolls,state:m.state.storyMapBuild.state,summaryEnabled:!document.querySelector('#prepareSummaries').disabled}))")
+            if lifecycle != {"polls": 1, "state": "membership_frozen", "summaryEnabled": True}:
+                raise AssertionError(f"Confirmed boundary build did not poll into the summary stage: {lifecycle}")
+            session.evaluate("document.querySelector('#prepareSummaries').click()")
+            session.wait("document.querySelector('#storyMapConsentDialog').open")
+            summary_consent = session.evaluate(
+                "(()=>({title:document.querySelector('#storyMapConsentTitle').textContent,text:document.querySelector('#storyMapConsentFacts').textContent,disabled:document.querySelector('#confirmStoryMapStage').disabled}))()"
+            )
+            required_consent_text = ("Source", "Authority", "Correction", "Prompt / schema", "Membership", "Provider profile", "Privacy scope", "Resource ceilings")
+            if boundary_consent["disabled"] or summary_consent["disabled"] or any(token not in boundary_consent["text"] or token not in summary_consent["text"] for token in required_consent_text):
+                raise AssertionError(f"Two-stage consent did not expose every exact bound fact: {boundary_consent}, {summary_consent}")
+            if boundary_consent["title"] == summary_consent["title"] or "boundary_synthetic" not in boundary_consent["text"] or "summary_synthetic" not in summary_consent["text"]:
+                raise AssertionError("Boundary and frozen-summary consent previews were not distinct")
+            consent = {"boundaries": boundary_consent, "summaries": summary_consent, "lifecycle": lifecycle, "cancel_reprepare": reprepare_enabled}
+            session.evaluate(
+                "import('./app.js').then(m=>{document.querySelector('#cancelStoryMapConsent').click();document.querySelector('#closeStoryMapBuild').click();"
+                "m.state.page.build_state='complete';m.state.storyMapBuild=null;m.renderMap();return true;})"
+            )
             session.evaluate("window.scrollTo(0,0);document.querySelector('#mapLayout').scrollTop=0")
             map_path = output / f"m15-1-story-map-{label}.png"
-            _full_screenshot(session, map_path)
+            map_size = _full_screenshot(session, map_path)
             session.evaluate(
                 "(()=>{document.querySelectorAll('#storyMapFlow details.story-section').forEach(item=>item.open=true);"
                 "document.documentElement.style.height='auto';document.documentElement.style.overflow='visible';"
                 "document.body.style.height='auto';document.body.style.overflow='visible';"
                 "document.querySelector('.app-shell').style.height='auto';document.querySelector('main').style.height='auto';"
                 "document.querySelector('#workspaceView').style.height='auto';document.querySelector('#routeMapView').style.height='auto';"
+                "document.querySelector('.map-tools').style.position='static';document.querySelector('.map-status').style.position='static';"
                 "const layout=document.querySelector('#mapLayout');layout.style.overflow='visible';layout.style.height='auto';return true;})()"
             )
             expanded_path = output / f"m15-1-story-map-expanded-{label}.png"
-            _full_screenshot(session, expanded_path)
+            expanded_size = _full_screenshot(session, expanded_path)
+            if expanded_size[1] <= height * scale:
+                raise AssertionError(f"Expanded Story Map is not a full-page capture: {expanded_size}, viewport={height * scale}")
+            section_rect = session.evaluate(
+                "(()=>{const r=document.querySelectorAll('#storyMapFlow details.story-section')[1].getBoundingClientRect();return {x:r.left+scrollX,y:r.top+scrollY,width:r.width,height:r.height};})()"
+            )
+            section_path = output / f"m15-1-story-map-section-{label}.png"
+            section_size = _clip_screenshot(session, section_path, section_rect)
             session.evaluate("document.querySelector('#storyMapFlow button[data-element-id]').click()")
             session.wait("document.documentElement.dataset.activeLevel==='detail_evidence'")
             detail_path = output / f"m15-1-detail-{label}.png"
-            _full_screenshot(session, detail_path)
+            detail_size = _full_screenshot(session, detail_path)
             requests = [event["params"]["request"]["url"] for event in session.events if event.get("method") == "Network.requestWillBeSent"]
             remote = [url for url in requests if urlsplit(url).hostname not in {"127.0.0.1", "localhost"}]
             forbidden = [url for url in requests if "/m12/" in url or "/semantic/start_" in url]
@@ -233,12 +310,13 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
             return {
                 "viewport": {"width": width, "height": height, "device_scale_factor": scale},
                 "geometry": geometry, "detail_navigation": detail, "disclosure": disclosure,
-                "keyboard_detail": keyboard_detail, "search": search,
+                "keyboard_detail": keyboard_detail, "search": search, "consent": consent,
                 "requests": {"total": len(requests), "remote": len(remote), "provider_or_m12": len(forbidden)},
                 "screenshots": {
-                    "map": {"file": map_path.name, "sha256": hashlib.sha256(map_path.read_bytes()).hexdigest()},
-                    "expanded": {"file": expanded_path.name, "sha256": hashlib.sha256(expanded_path.read_bytes()).hexdigest()},
-                    "detail": {"file": detail_path.name, "sha256": hashlib.sha256(detail_path.read_bytes()).hexdigest()},
+                    "map": {"file": map_path.name, "size": map_size, "sha256": hashlib.sha256(map_path.read_bytes()).hexdigest()},
+                    "expanded": {"file": expanded_path.name, "size": expanded_size, "sha256": hashlib.sha256(expanded_path.read_bytes()).hexdigest()},
+                    "section": {"file": section_path.name, "size": section_size, "sha256": hashlib.sha256(section_path.read_bytes()).hexdigest()},
+                    "detail": {"file": detail_path.name, "size": detail_size, "sha256": hashlib.sha256(detail_path.read_bytes()).hexdigest()},
                 },
             }
         finally:

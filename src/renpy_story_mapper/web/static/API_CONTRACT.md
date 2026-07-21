@@ -30,7 +30,12 @@ start use `/api/v1/m15/semantic/prepare_boundaries` and `start_boundaries`; summ
 start use `prepare_summaries` and `start_summaries`. Status, cancel, resume, and retry are separate
 local semantic endpoints. Prepare is a zero-submit manifest preview. Each start requires the exact
 manifest ID shown for that stage and `confirm_cloud: true`; boundary consent never starts summaries.
-Opening, reading, searching, expanding, and visiting Detail/Evidence never calls these endpoints.
+The confirmation UI fails closed unless that preview visibly supplies its expiry, source,
+authority, correction, prompt/schema, membership, input, privacy, requested/resolved provider
+profile including reasoning and fast mode, job count, and finite call/token/time/concurrency
+ceilings. After a confirmed start the client polls semantic status, preserves cancel/resume/retry,
+and reloads the published map. Opening, reading, searching, expanding, and visiting
+Detail/Evidence never calls these endpoints.
 
 M12 persistence, stored result reads, and M13 citations whose navigation mode is `m12_result`
 remain supported. M07/M08 storage and API contracts also remain compatible, but their former

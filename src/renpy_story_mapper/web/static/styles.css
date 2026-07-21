@@ -182,6 +182,7 @@ html[data-map-mode="narrative"] .story-map-normal-flow { container: story-map / 
 .story-section[open] > summary .story-section-chevron { transform: rotate(90deg); }
 .story-section-body { display: grid; gap: .5rem; border-top: 1px solid var(--rule); padding: .85rem; }
 .story-section:not([open]) > .story-section-body { display: none; }
+.story-node, .story-ending-wrap { display: grid; justify-items: stretch; gap: .18rem; }
 .story-row, .story-choice-question, .story-arm-card, .story-rejoin, .story-ending, .story-path-evidence { min-height: 2.75rem; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); text-align: left; }
 .story-row, .story-choice-question { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .52rem .65rem; border-radius: .45rem; }
 .story-row:hover, .story-choice-question:hover, .story-arm-card:hover, .story-rejoin:hover, .story-ending:hover { border-color: var(--accent); }
@@ -202,13 +203,12 @@ html[data-map-mode="narrative"] .story-map-normal-flow { container: story-map / 
 .story-rejoin-wrap { display: grid; justify-items: center; gap: .25rem; }
 .story-rejoin-wrap::before { width: 1px; height: .8rem; background: var(--accent); content: ""; }
 .story-rejoin { min-width: min(15rem, 80%); border-color: var(--accent); border-radius: 999px; padding: .28rem .8rem; color: var(--accent); text-align: center; font-size: .76rem; font-weight: 700; }
-.story-ending { width: fit-content; margin: .25rem auto 0; border-radius: 999px; padding: .48rem 1rem; color: var(--muted); font: italic .85rem/1.2 "Iowan Old Style", Baskerville, "Palatino Linotype", serif; }
+.story-ending { width: fit-content; margin: .05rem auto .25rem; border-radius: 999px; padding: .48rem 1rem; color: var(--muted); font: italic .85rem/1.2 "Iowan Old Style", Baskerville, "Palatino Linotype", serif; }
+.story-local-paths { position: relative; display: flex; min-height: 1.8rem; align-items: center; justify-content: center; gap: .18rem; }
+.story-local-paths::before, .story-local-paths::after { width: min(4rem, 18%); height: 1px; background: color-mix(in srgb, var(--accent) 62%, var(--rule)); content: ""; }
 .story-path-evidence { position: relative; width: 1.8rem; min-width: 1.8rem; height: 1.8rem; min-height: 1.8rem; justify-self: center; border: 0; background: transparent; padding: 0; color: transparent; font-size: 0; }
 .story-path-evidence::before { position: absolute; top: 50%; left: 50%; width: .58rem; height: .58rem; border: 1px solid var(--accent); border-radius: 50%; background: var(--sheet); content: ""; transform: translate(-50%, -50%); }
-.story-path-index { margin: 1rem auto 0; border-top: 1px solid var(--rule); padding-top: .5rem; color: var(--muted); font-size: .72rem; text-align: center; }
-.story-path-index > summary { width: fit-content; margin: 0 auto; cursor: pointer; }
-.story-path-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: .15rem; padding-top: .45rem; }
-.story-path-index:not([open]) > .story-path-controls { display: none; }
+.story-path-evidence:hover::before, .story-path-evidence:focus-visible::before { background: var(--accent); }
 .story-search-hidden { display: none !important; }
 .story-map-build-card { width: min(38rem, calc(100vw - 2rem)); }
 .story-map-build-status { border-left: 3px solid var(--accent); padding: .7rem .85rem; color: var(--muted); }
@@ -350,6 +350,7 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .consent-facts { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(0, 1.3fr); border-block: 1px solid var(--rule); padding: .75rem 0; }
 .consent-facts dt, .consent-facts dd { overflow-wrap: anywhere; margin: 0; padding: .3rem; font-size: 12px; }
 .consent-facts dt { color: var(--muted); }
+.consent-facts .manifest-fact-missing { color: var(--danger); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.2rem; }
 .diagnostic-row { display: grid; grid-template-columns: 11rem 1fr; gap: .5rem; border-top: 1px solid var(--rule); padding: .6rem 0; font-size: 13px; }
 .toast { position: fixed; z-index: 100; bottom: 1.25rem; left: 50%; transform: translateX(-50%); border: 1px solid var(--paper); background: var(--ink); color: var(--paper); padding: .65rem .9rem; }
