@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from renpy_story_mapper.narrative_map.adapters import ordered_unique
-from renpy_story_mapper.narrative_map.contracts import AuthorityBinding, stable_m15_id
+from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
+from renpy_story_mapper.narrative_map.contracts import AuthorityBinding
 from renpy_story_mapper.narrative_map.corridors import build_all_eligible_gap_candidates
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     ChoiceComposition,
@@ -23,6 +24,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     ProposedMajorCluster,
     SemanticBoundaryDecision,
     SemanticBoundaryKind,
+    SemanticOutline,
     WholeScopeHierarchyProposal,
 )
 
@@ -285,6 +287,7 @@ def validate_whole_scope_hierarchy(
         _validation_seal=_VALIDATION_SEAL,
     )
     _validate_hard_locks(validated)
+    _assemble_exact_outline(validated)
     return validated
 
 
@@ -347,46 +350,70 @@ def compile_hierarchy_to_gap_decisions(
 def derive_stable_hierarchy_ids(
     hierarchy: ValidatedWholeScopeHierarchy,
 ) -> DerivedHierarchyIds:
-    """Derive authority-and-membership IDs only after the validation seal exists.
+    """Return the stable identities published by the sole existing assembler.
 
-    Proposal keys are lookup handles only and are intentionally absent from the stable hash.  The
-    adjacent decisions returned by :func:`compile_hierarchy_to_gap_decisions` remain the only
-    input to the existing assembler; this function does not introduce a second assembly route.
+    Proposal keys are lookup handles only.  Identity derivation is deliberately not duplicated
+    here: the validated adjacent decisions are assembled and the resulting exact beat/cluster IDs
+    are returned in proposal order.
     """
 
     _require_validated(hierarchy, "stable hierarchy IDs")
+    outline = _assemble_exact_outline(hierarchy)
     beat_ids = tuple(
-        (
-            group.proposal_key,
-            stable_m15_id(
-                "semantic_beat",
-                {
-                    "authority": hierarchy.authority.to_dict(),
-                    "scope_id": hierarchy.scope_id,
-                    "ordered_unit_ids": list(group.ordered_unit_ids),
-                },
-            ),
-        )
-        for group in hierarchy.beat_groups
+        (proposal.proposal_key, assembled.beat_id)
+        for proposal, assembled in zip(hierarchy.beat_groups, outline.beats, strict=True)
     )
-    beat_id_by_key = dict(beat_ids)
     cluster_ids = tuple(
-        (
-            cluster.proposal_key,
-            stable_m15_id(
-                "semantic_cluster",
-                {
-                    "authority": hierarchy.authority.to_dict(),
-                    "scope_id": hierarchy.scope_id,
-                    "ordered_beat_ids": [
-                        beat_id_by_key[beat_key] for beat_key in cluster.ordered_beat_keys
-                    ],
-                },
-            ),
+        (proposal.proposal_key, assembled.cluster_id)
+        for proposal, assembled in zip(
+            hierarchy.major_clusters, outline.clusters, strict=True
         )
-        for cluster in hierarchy.major_clusters
     )
     return DerivedHierarchyIds(beat_ids, cluster_ids)
+
+
+def _assemble_exact_outline(hierarchy: ValidatedWholeScopeHierarchy) -> SemanticOutline:
+    """Prove the compiled proposal round-trips through the sole assembly implementation."""
+
+    try:
+        outline = assemble_semantic_outline(
+            hierarchy.units,
+            hierarchy.candidates,
+            compile_hierarchy_to_gap_decisions(hierarchy),
+            choices=hierarchy.choices,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "whole-scope hierarchy is not representable by the existing assembler"
+        ) from exc
+    if not isinstance(outline, SemanticOutline):  # pragma: no cover - typed overload guarantee
+        raise AssertionError("typed semantic outline assembly returned a serialized fixture")
+
+    proposed_beats = tuple(item.ordered_unit_ids for item in hierarchy.beat_groups)
+    assembled_beats = tuple(item.ordered_unit_ids for item in outline.beats)
+    if assembled_beats != proposed_beats:
+        raise ValueError(
+            "whole-scope hierarchy beat membership is not representable by the existing assembler"
+        )
+
+    proposal_beat_by_key = {
+        item.proposal_key: item.ordered_unit_ids for item in hierarchy.beat_groups
+    }
+    proposed_clusters = tuple(
+        tuple(proposal_beat_by_key[beat_key] for beat_key in cluster.ordered_beat_keys)
+        for cluster in hierarchy.major_clusters
+    )
+    assembled_beat_by_id = {item.beat_id: item.ordered_unit_ids for item in outline.beats}
+    assembled_clusters = tuple(
+        tuple(assembled_beat_by_id[beat_id] for beat_id in cluster.ordered_beat_ids)
+        for cluster in outline.clusters
+    )
+    if assembled_clusters != proposed_clusters:
+        raise ValueError(
+            "whole-scope hierarchy cluster membership is not representable by the existing "
+            "assembler"
+        )
+    return outline
 
 
 def _validate_temporary_keys(

@@ -17,11 +17,13 @@ from renpy_story_mapper.narrative_map import (
     SemanticBoundaryKind,
     SourceLocator,
     WholeScopeHierarchyProposal,
+    assemble_semantic_outline,
     build_all_eligible_gap_candidates,
     compile_hierarchy_to_gap_decisions,
     derive_stable_hierarchy_ids,
     validate_whole_scope_hierarchy,
 )
+from renpy_story_mapper.narrative_map.semantic_contracts import SemanticOutline
 
 
 def _authority() -> AuthorityBinding:
@@ -108,6 +110,50 @@ def _linear_authority() -> tuple[tuple[FineNarrativeUnit, ...], tuple[NarrativeG
     return units, build_all_eligible_gap_candidates(units)
 
 
+def _assert_exact_assembler_round_trip(
+    proposal: WholeScopeHierarchyProposal,
+    units: tuple[FineNarrativeUnit, ...],
+    candidates: tuple[NarrativeGapCandidate, ...],
+    *,
+    choices: tuple[ChoiceComposition, ...] = (),
+) -> None:
+    validated = validate_whole_scope_hierarchy(
+        proposal,
+        units,
+        candidates,
+        choices,
+    )
+    decisions = compile_hierarchy_to_gap_decisions(validated)
+    outline = assemble_semantic_outline(units, candidates, decisions, choices=choices)
+    assert isinstance(outline, SemanticOutline)
+    derived = derive_stable_hierarchy_ids(validated)
+
+    assert tuple(item.ordered_unit_ids for item in outline.beats) == tuple(
+        item.ordered_unit_ids for item in proposal.beat_groups
+    )
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    assert tuple(
+        tuple(beat_by_id[beat_id].ordered_unit_ids for beat_id in cluster.ordered_beat_ids)
+        for cluster in outline.clusters
+    ) == tuple(
+        tuple(
+            next(
+                beat.ordered_unit_ids
+                for beat in proposal.beat_groups
+                if beat.proposal_key == beat_key
+            )
+            for beat_key in cluster.ordered_beat_keys
+        )
+        for cluster in proposal.major_clusters
+    )
+    assert tuple(stable_id for _, stable_id in derived.beat_ids) == tuple(
+        item.beat_id for item in outline.beats
+    )
+    assert tuple(stable_id for _, stable_id in derived.cluster_ids) == tuple(
+        item.cluster_id for item in outline.clusters
+    )
+
+
 def test_valid_hierarchy_compiles_exhaustively_and_derives_authority_ids() -> None:
     units, candidates = _linear_authority()
     validated = validate_whole_scope_hierarchy(
@@ -133,6 +179,85 @@ def test_valid_hierarchy_compiles_exhaustively_and_derives_authority_ids() -> No
     assert all(value.startswith("semantic_cluster_") for _, value in derived.cluster_ids)
 
 
+def test_linear_hierarchy_round_trips_exact_membership_and_published_ids() -> None:
+    units, candidates = _linear_authority()
+
+    _assert_exact_assembler_round_trip(_proposal(units), units, candidates)
+
+
+def test_zero_candidate_multi_sequence_cluster_split_is_rejected_as_unrepresentable() -> None:
+    units = (
+        _unit("first", "sequence-first", 0),
+        _unit("second", "sequence-second", 0),
+    )
+    proposal = WholeScopeHierarchyProposal(
+        "scope-synthetic",
+        (_beat("proposal-first", units[:1]), _beat("proposal-second", units[1:])),
+        (
+            ProposedMajorCluster(
+                "cluster-first", ("proposal-first",), 0.9, "First synthetic section."
+            ),
+            ProposedMajorCluster(
+                "cluster-second", ("proposal-second",), 0.9, "Second synthetic section."
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="not representable by the existing assembler"):
+        validate_whole_scope_hierarchy(proposal, units, ())
+
+
+def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler() -> None:
+    units = (
+        _unit("question", "question", 0),
+        _unit(
+            "arm-a",
+            "arm-a",
+            0,
+            parent_choice_id="choice-one",
+            parent_arm_id="arm-a",
+        ),
+        _unit(
+            "arm-b",
+            "arm-b",
+            0,
+            parent_choice_id="choice-one",
+            parent_arm_id="arm-b",
+        ),
+        _unit("rejoin", "rejoin", 0),
+    )
+    provisional = assemble_semantic_outline(units, (), ())
+    assert isinstance(provisional, SemanticOutline)
+    assert len(provisional.clusters) == 1
+    choice = ChoiceComposition(
+        "choice-one",
+        provisional.clusters[0].cluster_id,
+        None,
+        None,
+        ("arm-a", "arm-b"),
+        ("Take A", "Take B"),
+        (),
+        ("rejoin-a", "rejoin-b"),
+        "node-rejoin",
+        units[-1].unit_id,
+    )
+    beat_keys = ("proposal-question", "proposal-arm-a", "proposal-arm-b", "proposal-rejoin")
+    proposal = WholeScopeHierarchyProposal(
+        "scope-synthetic",
+        tuple(_beat(key, units[index : index + 1]) for index, key in enumerate(beat_keys)),
+        (
+            ProposedMajorCluster(
+                "cluster-choice",
+                beat_keys,
+                0.9,
+                "Question, alternatives, and shared continuation.",
+            ),
+        ),
+    )
+
+    _assert_exact_assembler_round_trip(proposal, units, (), choices=(choice,))
+
+
 def test_stable_ids_ignore_temporary_proposal_keys() -> None:
     units, candidates = _linear_authority()
     first = validate_whole_scope_hierarchy(_proposal(units), units, candidates)
@@ -154,7 +279,7 @@ def test_stable_ids_ignore_temporary_proposal_keys() -> None:
     ]
 
 
-def test_stable_ids_change_when_validated_membership_changes() -> None:
+def test_published_beat_ids_change_when_validated_membership_changes() -> None:
     units, candidates = _linear_authority()
     base = validate_whole_scope_hierarchy(_proposal(units), units, candidates)
     changed_proposal = WholeScopeHierarchyProposal(
@@ -171,7 +296,6 @@ def test_stable_ids_change_when_validated_membership_changes() -> None:
     base_ids = derive_stable_hierarchy_ids(base)
     changed_ids = derive_stable_hierarchy_ids(changed)
     assert base_ids.beat_ids != changed_ids.beat_ids
-    assert base_ids.cluster_ids != changed_ids.cluster_ids
 
 
 @pytest.mark.parametrize("malformation", ["missing", "duplicate", "foreign", "reordered"])
