@@ -49,12 +49,16 @@ from renpy_story_mapper.narrative_map.semantic_hierarchy import (
     compile_hierarchy_to_gap_decisions,
     validate_whole_scope_hierarchy,
 )
-from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeSemanticStatus
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    WholeScopeSemanticLifecycle,
+    WholeScopeSemanticStatus,
+)
 from renpy_story_mapper.narrative_map.semantic_projection import semantic_outline_hash
 from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_whole_scope_hierarchy_response,
 )
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.validation import ValidationFinding
 from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
 from renpy_story_mapper.project import Project
@@ -405,6 +409,44 @@ def _prepare_hierarchy(
         correction_id="m15.1",
         replay_existing=replay,
     )
+
+
+def _accept_synthetic_hierarchy_authority(
+    _job: PreparedNarrativeJob,
+    _result: object,
+) -> tuple[ValidationFinding, ...]:
+    return ()
+
+
+@pytest.mark.parametrize("boundary", ("service", "lifecycle"))
+def test_stage_h_missing_authority_validator_fails_before_reservation(
+    tmp_path: Path,
+    boundary: str,
+) -> None:
+    with Project.create(tmp_path / f"missing-hierarchy-validator-{boundary}.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([_hierarchy_output()])
+        with pytest.raises(ValueError, match="authority validator"):
+            if boundary == "service":
+                service.start_whole_scope_hierarchy(
+                    preparation,
+                    provider=provider,
+                    consent=consent,
+                )
+            else:
+                WholeScopeSemanticLifecycle(repository).start(
+                    preparation,
+                    provider=provider,
+                    consent=consent,
+                )
+        attempts = repository.whole_scope_reserved_attempts(preparation.job.job_id)
+
+    assert provider.requests == []
+    assert attempts == ()
 
 
 def _run_valid_hierarchy(service: NarrativeMapService):

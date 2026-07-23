@@ -13,6 +13,7 @@ import pytest
 from renpy_story_mapper.narrative.contracts import ProviderIdentity
 from renpy_story_mapper.narrative.provider import ProviderUsage
 from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
+from renpy_story_mapper.narrative_map.contracts import BoundaryProviderIdentity, canonical_hash
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderError,
@@ -27,6 +28,8 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticBoundaryKind,
     WholeScopeSemanticStage,
 )
+from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeStagePreparation
+from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.project import Project, refresh_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.contracts import (
@@ -37,7 +40,9 @@ from renpy_story_mapper.web.contracts import (
 from renpy_story_mapper.web.launcher import build_project_api
 from renpy_story_mapper.web.m15_semantic_api import (
     M15WholeScopeProductController,
+    _whole_scope_hierarchy_input,
     load_m15_semantic_inputs,
+    m15_provider_profile,
 )
 from renpy_story_mapper.web.state import UserStateStore
 from test_m15_track_c import _Dialogs, _project
@@ -311,6 +316,169 @@ def _unrepresentable_whole_scope_hierarchy_payload(
         }
     ]
     return payload
+
+
+def _persist_legacy_unfrozen_invalid_hierarchy(
+    project_path: Path,
+) -> tuple[WholeScopeStagePreparation, str, str, str]:
+    invalid = _unrepresentable_whole_scope_hierarchy_payload(project_path)
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        profile = m15_provider_profile()
+        scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+        preparation = service.prepare_whole_scope_hierarchy(
+            inputs.units[0].authority,
+            scope_id,
+            tuple(item.unit_id for item in inputs.units),
+            payload,
+            known_evidence_ids=tuple(
+                dict.fromkeys(
+                    item.evidence_id
+                    for unit in inputs.units
+                    for item in inputs.evidence_by_unit[unit.unit_id]
+                )
+            ),
+            known_characters=tuple(
+                dict.fromkeys(
+                    speaker for unit in inputs.units for speaker in unit.speaker_ids
+                )
+            ),
+            profile=profile,
+            run_id="legacy-live-invalid-stage-h",
+            source_hash=inputs.source_hash,
+            correction_id="m15.1-product-path-v1",
+            valid_for=timedelta(hours=1),
+            timeout_seconds=300.0,
+        )
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        for attempt in (1, 2):
+            repository.reserve_whole_scope_provider_submission(
+                stage="hierarchy",
+                manifest_id=consent.manifest_id,
+                maximum_manifest_calls=2,
+                transport_batch_id=preparation.job.job_id,
+                attempt=attempt,
+                combined_limit=4,
+            )
+        repository.settle_whole_scope_provider_submissions(
+            transport_batch_id=preparation.job.job_id,
+            attempts=(1, 2),
+        )
+        invalid["scope_id"] = scope_id
+        provider_identity = BoundaryProviderIdentity(
+            provider=profile.provider,
+            adapter_version=f"{profile.adapter}:{profile.adapter_version}",
+            requested_model=profile.requested_model,
+            resolved_model=profile.requested_model,
+            settings_hash=canonical_hash(profile.settings.to_dict()),
+            prompt_version=preparation.job.prompt_version,
+            response_schema=preparation.job.response_schema,
+            input_hash=preparation.job.input_hash,
+        )
+        repository.record_validated(
+            preparation.job,
+            profile,
+            attempt_count=2,
+            provider_calls=2,
+            result=invalid,
+            provider_identity=provider_identity.to_dict(),
+            usage=ProviderUsage(100, 20, 297_000),
+            consent_manifest_id=consent.manifest_id,
+        )
+        raw = repository.read_whole_scope_build()
+        assert raw is not None
+        legacy_build = dict(raw)
+        legacy_build["hierarchy_state"] = "validated"
+        legacy_build["hierarchy_result"] = invalid
+        legacy_build["failure_codes"] = []
+        repository.write_whole_scope_build(legacy_build)
+    return (
+        preparation,
+        consent.manifest_id,
+        preparation.build_id,
+        consent.job_identity_hash,
+    )
+
+
+def test_reopen_quarantines_legacy_unfrozen_invalid_hierarchy_and_rolls_identity(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    old_preparation, old_manifest_id, old_build_id, old_job_identity = (
+        _persist_legacy_unfrozen_invalid_hierarchy(project_path)
+    )
+    constructions = 0
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        raise AssertionError("legacy migration and preview must remain zero-submit")
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        quarantined = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {}
+        )
+        resumed = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["resume"], {}
+        )
+        retried = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["retry"], {}
+        )
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            old_record = repository.get(
+                ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+                old_preparation.job.job_id,
+            )
+            quarantined_build = repository.read_whole_scope_build()
+            old_cache = repository.load_cache(
+                old_preparation.job, m15_provider_profile()
+            )
+        preview = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        controller = api._m15_whole_scope_controller
+        assert isinstance(controller, M15WholeScopeProductController)
+        corrected = controller._preparations[WholeScopeSemanticStage.HIERARCHY]
+    finally:
+        api.close()
+
+    assert quarantined["state"] == "failed"
+    assert quarantined["progress"]["failure_codes"] == [
+        "hierarchy_not_representable"
+    ]
+    assert resumed["state"] == retried["state"] == "stale"
+    assert resumed["accounting"]["provider_calls"] == 0
+    assert retried["accounting"]["provider_calls"] == 0
+    assert old_record is not None and old_record.status.value == "failed"
+    assert old_record.result is None
+    assert old_record.attempt_count == old_record.provider_calls == 2
+    assert old_cache is None
+    assert quarantined_build is not None
+    assert quarantined_build["hierarchy_state"] == "failed"
+    assert quarantined_build["hierarchy_result"] is None
+    assert quarantined_build["confirmed_hierarchy_manifest_id"] is None
+    assert quarantined_build["hierarchy_hash"] is None
+    assert quarantined_build["authoritative_hierarchy"] is None
+    assert preview["manifest"]["limits"]["timeout_seconds"] == 900.0
+    assert preview["manifest_id"] != old_manifest_id
+    assert corrected.build_id != old_build_id
+    assert corrected.job.job_id != old_preparation.job.job_id
+    assert corrected.consent.job_identity_hash != old_job_identity
+    assert constructions == 0
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        assert repository.whole_scope_reserved_attempts(
+            old_preparation.job.job_id
+        ) == (1, 2)
+        assert repository.whole_scope_reserved_attempts(corrected.job.job_id) == ()
 
 
 def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
