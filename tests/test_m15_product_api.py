@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 from renpy_story_mapper.narrative.contracts import ProviderIdentity
 from renpy_story_mapper.narrative.provider import ProviderUsage
 from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
+from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderError,
     NarrativeMapProviderRequest,
@@ -199,12 +201,31 @@ class _WholeScopeProductFakeProvider(_ProductFakeProvider):
         )
 
 
-def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecycle(
-    tmp_path: Path,
-) -> None:
-    source, project_path = _project(tmp_path)
-    requests: list[NarrativeMapProviderRequest] = []
-    constructions = 0
+class _CancellableWholeScopeProductProvider(_WholeScopeProductFakeProvider):
+    def __init__(
+        self,
+        requests: list[NarrativeMapProviderRequest],
+        hierarchy_payload: dict[str, object],
+        entered: threading.Event,
+    ) -> None:
+        super().__init__(requests, hierarchy_payload)
+        self.entered = entered
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        self.requests.append(request)
+        self.entered.set()
+        deadline = time.monotonic() + 5
+        while not cancelled() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert cancelled()
+        raise NarrativeMapProviderError("cancelled", "The fake request was cancelled.")
+
+
+def _whole_scope_hierarchy_payload(project_path: Path) -> dict[str, object]:
     with Project.open(project_path) as project:
         inputs = load_m15_semantic_inputs(project)
     decisions = tuple(
@@ -218,9 +239,10 @@ def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecyc
     )
     outline = assemble_semantic_outline(inputs.units, inputs.candidates, decisions)
     beat_keys = {
-        item.beat_id: f"whole-scope-beat-{index + 1}" for index, item in enumerate(outline.beats)
+        item.beat_id: f"whole-scope-beat-{index + 1}"
+        for index, item in enumerate(outline.beats)
     }
-    hierarchy_payload: dict[str, object] = {
+    return {
         "scope_id": "replaced-by-provider",
         "beat_groups": [
             {
@@ -245,6 +267,15 @@ def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecyc
         "uncertain_unit_ids": [],
         "warnings": [],
     }
+
+
+def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecycle(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    constructions = 0
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
 
     def factory() -> _WholeScopeProductFakeProvider:
         nonlocal constructions
@@ -336,6 +367,184 @@ def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecyc
     assert replay_editorial_status["state"] == "complete"
     assert replay_editorial_status["publication_hash"] == editorial_status["publication_hash"]
     assert replay_constructions == 0
+
+
+def test_whole_scope_stage_h_authority_drift_is_stale_before_any_provider_effect(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    constructions = 0
+    requests: list[NarrativeMapProviderRequest] = []
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(
+            requests, _whole_scope_hierarchy_payload(project_path)
+        )
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        with Project.open(project_path) as project:
+            build = NarrativeMapRepository(project).read_whole_scope_build()
+            assert build is not None
+            transport_batch_id = str(build["hierarchy_transport_batch_id"])
+        _change_current_m10_m11_authority(source, project_path)
+        stale = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": prepared["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        with Project.open(project_path) as project:
+            reservations = NarrativeMapRepository(project).whole_scope_reserved_attempts(
+                transport_batch_id
+            )
+    finally:
+        api.close()
+
+    assert stale["state"] == "stale"
+    assert stale["failure_codes"] == ["m15_preparation_stale"]
+    assert stale["requires_fresh_preparation"] is True
+    assert stale["accounting"] == {
+        "provider_calls": 0,
+        "reserved_provider_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_ms": 0,
+        "cache_hits": 0,
+    }
+    assert constructions == 0
+    assert requests == []
+    assert reservations == ()
+
+
+def test_whole_scope_stage_e_subject_drift_is_stale_before_any_new_provider_effect(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    constructions = 0
+    requests: list[NarrativeMapProviderRequest] = []
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
+
+    def factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(requests, hierarchy_payload)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        hierarchy = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            build = repository.read_whole_scope_build()
+            assert build is not None
+            transport_batch_id = str(build["editorial_transport_batch_id"])
+            drifted = deepcopy(dict(build))
+            subjects = drifted["frozen_editorial_subjects"]
+            assert isinstance(subjects, list) and isinstance(subjects[0], dict)
+            subjects[0]["membership_hash"] = "drifted-frozen-membership"
+            repository.write_whole_scope_build(drifted)
+        stale = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        with Project.open(project_path) as project:
+            reservations = NarrativeMapRepository(project).whole_scope_reserved_attempts(
+                transport_batch_id
+            )
+    finally:
+        api.close()
+
+    assert stale["state"] == "stale"
+    assert stale["failure_codes"] == ["m15_preparation_stale"]
+    assert stale["requires_fresh_preparation"] is True
+    assert stale["accounting"]["provider_calls"] == 0
+    assert stale["accounting"]["reserved_provider_calls"] == 0
+    assert constructions == 1
+    assert len(requests) == 1
+    assert reservations == ()
+
+
+def test_whole_scope_lazy_provider_preserves_concurrent_cancellation(tmp_path: Path) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    entered = threading.Event()
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
+
+    def factory() -> _CancellableWholeScopeProductProvider:
+        return _CancellableWholeScopeProductProvider(requests, hierarchy_payload, entered)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    result: dict[str, object] = {}
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+
+        def start() -> None:
+            result.update(
+                api.dispatch(
+                    "POST",
+                    M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+                    {
+                        "action": "start_hierarchy",
+                        "manifest_id": prepared["manifest_id"],
+                        "confirm_cloud": True,
+                    },
+                )
+            )
+
+        worker = threading.Thread(target=start)
+        worker.start()
+        assert entered.wait(timeout=5)
+        cancelled = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["cancel"], {}
+        )
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+    finally:
+        api.close()
+
+    assert cancelled["state"] == "cancelled"
+    assert result["state"] == "cancelled"
+    assert len(requests) == 1
 
 
 def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(

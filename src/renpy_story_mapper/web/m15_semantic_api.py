@@ -54,17 +54,25 @@ from renpy_story_mapper.narrative_map.contracts import (
 )
 from renpy_story_mapper.narrative_map.persistence import NarrativeJobStatus
 from renpy_story_mapper.narrative_map.provider import (
+    WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION,
+    WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,
+    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+    WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
     NarrativeConsentManifest,
     NarrativeMapProvider,
+    NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
+    ProviderJobKind,
     ProviderProfile,
     SterileNarrativeMapProvider,
     WholeScopeEditorialSubject,
+    WholeScopeProviderSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
     M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+    MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
@@ -72,7 +80,10 @@ from renpy_story_mapper.narrative_map.semantic_hierarchy import (
     HierarchyHardLockKind,
     validate_whole_scope_hierarchy_from_authority,
 )
-from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeStagePreparation
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    WholeScopeLogicalJob,
+    WholeScopeStagePreparation,
+)
 from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_whole_scope_hierarchy_response,
 )
@@ -105,6 +116,40 @@ class _NoSubmitProvider:
 
     def cancel(self) -> None:
         return None
+
+
+class _LazyM15Provider:
+    """Delay provider construction until the durable lifecycle is ready to submit."""
+
+    def __init__(self, factory: M15ProviderFactory) -> None:
+        self._factory = factory
+        self._provider: NarrativeMapProvider | None = None
+        self._lock = Lock()
+        self._cancelled = False
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        with self._lock:
+            if self._cancelled or cancelled():
+                raise NarrativeMapProviderError(
+                    "cancelled",
+                    "The semantic request was cancelled before provider construction.",
+                    provider_call_reserved=False,
+                )
+            if self._provider is None:
+                self._provider = self._factory()
+            provider = self._provider
+        return provider.submit(request, cancelled)
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            provider = self._provider
+        if provider is not None:
+            provider.cancel()
 
 
 @dataclass(frozen=True)
@@ -183,15 +228,18 @@ class M15WholeScopeProductController:
         self._provider_factory = provider_factory
         self._preparations: dict[WholeScopeSemanticStage, WholeScopeStagePreparation] = {}
         self._lock = Lock()
+        self._execution_lock = Lock()
         self._cancel_event = Event()
         self._active_provider: NarrativeMapProvider | None = None
 
     def __call__(self, action: str, body: dict[str, JsonValue]) -> Mapping[str, object]:
         if action == "prepare_hierarchy":
-            preparation = self._prepare_hierarchy()
+            with self._execution_lock:
+                preparation = self._prepare_hierarchy()
             return whole_scope_preparation_response(preparation)
         if action == "prepare_editorial":
-            preparation = self._prepare_editorial()
+            with self._execution_lock:
+                preparation = self._prepare_editorial()
             return whole_scope_preparation_response(preparation)
         if action in {"start_hierarchy", "start_editorial"}:
             stage = (
@@ -202,17 +250,18 @@ class M15WholeScopeProductController:
             manifest_id = body.get("manifest_id")
             if not isinstance(manifest_id, str) or body.get("confirm_cloud") is not True:
                 raise ValueError("whole-scope start requires exact manifest confirmation")
-            with self._lock:
-                current_preparation = self._preparations.get(stage)
-            if current_preparation is None:
-                current_preparation = (
-                    self._prepare_hierarchy()
-                    if stage is WholeScopeSemanticStage.HIERARCHY
-                    else self._prepare_editorial()
-                )
-            if current_preparation.consent.manifest_id != manifest_id:
-                raise ValueError("whole-scope preparation is stale")
-            return self._execute(current_preparation, operation="start")
+            with self._execution_lock:
+                with self._lock:
+                    current_preparation = self._preparations.get(stage)
+                if current_preparation is None:
+                    current_preparation = (
+                        self._prepare_hierarchy()
+                        if stage is WholeScopeSemanticStage.HIERARCHY
+                        else self._prepare_editorial()
+                    )
+                if current_preparation.consent.manifest_id != manifest_id:
+                    return self._stale_preparation(stage, current_preparation)
+                return self._execute(current_preparation, operation="start")
         if action == "status":
             return self._status()
         if action == "cancel":
@@ -227,8 +276,9 @@ class M15WholeScopeProductController:
                 status = service.cancel_whole_scope_semantic_build()
             return whole_scope_status_response(status)
         if action in {"resume", "retry"}:
-            preparation = self._current_preparation()
-            return self._execute(preparation, operation=action)
+            with self._execution_lock:
+                preparation = self._current_preparation()
+                return self._execute(preparation, operation=action)
         raise ValueError("unsupported whole-scope semantic action")
 
     def _prepare_hierarchy(self) -> WholeScopeStagePreparation:
@@ -307,9 +357,11 @@ class M15WholeScopeProductController:
     ) -> Mapping[str, object]:
         self._cancel_event.clear()
         with Project.open(self._project_path()) as project:
-            inputs = load_m15_semantic_inputs(project)
             repository = NarrativeMapRepository(project)
             service = NarrativeMapService(repository)
+            inputs = self._current_inputs(preparation, project, repository, service)
+            if inputs is None:
+                return self._stale_preparation(preparation.stage, preparation)
             status = service.whole_scope_semantic_status()
             prefix_state = (
                 None
@@ -327,7 +379,11 @@ class M15WholeScopeProductController:
             consent = preparation.consent if replay_only else preparation.granted_consent()
             if not replay_only and prefix_state == "awaiting_consent":
                 service.confirm_whole_scope_consent(preparation, consent)
-            provider = None if replay_only else self._provider_factory()
+            refreshed_inputs = self._current_inputs(preparation, project, repository, service)
+            if refreshed_inputs is None:
+                return self._stale_preparation(preparation.stage, preparation)
+            inputs = refreshed_inputs
+            provider = None if replay_only else _LazyM15Provider(self._provider_factory)
             with self._lock:
                 self._active_provider = provider
             try:
@@ -391,6 +447,36 @@ class M15WholeScopeProductController:
                     )
             return whole_scope_status_response(service.whole_scope_semantic_status())
 
+    def _current_inputs(
+        self,
+        preparation: WholeScopeStagePreparation,
+        project: Project,
+        repository: NarrativeMapRepository,
+        service: NarrativeMapService,
+    ) -> M15SemanticInputs | None:
+        try:
+            inputs = load_m15_semantic_inputs(project)
+            if not _whole_scope_preparation_matches_current(
+                preparation,
+                inputs,
+                repository,
+                service,
+            ):
+                return None
+        except (KeyError, TypeError, ValueError):
+            return None
+        return inputs
+
+    def _stale_preparation(
+        self,
+        stage: WholeScopeSemanticStage,
+        preparation: WholeScopeStagePreparation,
+    ) -> Mapping[str, object]:
+        with self._lock:
+            if self._preparations.get(stage) is preparation:
+                self._preparations.pop(stage, None)
+        return whole_scope_stale_preparation_response(stage)
+
     def _status(self) -> Mapping[str, object]:
         with Project.open(self._project_path()) as project:
             status = NarrativeMapService(
@@ -418,6 +504,215 @@ class M15WholeScopeProductController:
             if stage is WholeScopeSemanticStage.EDITORIAL
             else self._prepare_hierarchy()
         )
+
+
+def _whole_scope_preparation_matches_current(
+    preparation: WholeScopeStagePreparation,
+    inputs: M15SemanticInputs,
+    repository: NarrativeMapRepository,
+    service: NarrativeMapService,
+) -> bool:
+    authority = inputs.units[0].authority
+    profile = m15_provider_profile()
+    job = preparation.job
+    raw = repository.read_whole_scope_build()
+    if raw is None:
+        return False
+    common_matches = (
+        preparation.authority == authority
+        and preparation.source_hash == inputs.source_hash
+        and preparation.correction_id == M15_SEMANTIC_CORRECTION_ID
+        and preparation.privacy_scope == M15_SEMANTIC_PRIVACY_SCOPE
+        and job.authority == authority
+        and job.source_hash == inputs.source_hash
+        and job.correction_id == M15_SEMANTIC_CORRECTION_ID
+        and job.privacy_scope == M15_SEMANTIC_PRIVACY_SCOPE
+        and job.story_facing is True
+        and job.combined_submission_limit == MAXIMUM_DAY1_PROVIDER_SUBMISSIONS
+        and raw.get("build_id") == preparation.build_id
+        and raw.get("scope_id") == preparation.scope_id
+        and raw.get("authority") == authority.to_dict()
+        and raw.get("source_hash") == inputs.source_hash
+        and raw.get("correction_id") == M15_SEMANTIC_CORRECTION_ID
+        and raw.get("privacy_scope") == M15_SEMANTIC_PRIVACY_SCOPE
+    )
+    if not common_matches:
+        return False
+
+    logical_jobs: tuple[WholeScopeLogicalJob, ...]
+    if preparation.stage is WholeScopeSemanticStage.HIERARCHY:
+        scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+        ordered_unit_ids = tuple(item.unit_id for item in inputs.units)
+        evidence_ids = tuple(
+            dict.fromkeys(
+                item.evidence_id
+                for unit_id in ordered_unit_ids
+                for item in inputs.evidence_by_unit[unit_id]
+            )
+        )
+        characters = tuple(
+            dict.fromkeys(speaker for item in inputs.units for speaker in item.speaker_ids)
+        )
+        logical_id = stable_m15_id(
+            "whole_scope_hierarchy_logical_job",
+            {
+                "authority": authority.to_dict(),
+                "scope_id": scope_id,
+                "source_hash": inputs.source_hash,
+                "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                "input_hash": canonical_hash(payload),
+            },
+        )
+        logical_jobs = (
+            WholeScopeLogicalJob(
+                WholeScopeSemanticStage.HIERARCHY,
+                logical_id,
+                "scope",
+                scope_id,
+                None,
+            ),
+        )
+        subject = WholeScopeProviderSubject(
+            WholeScopeSemanticStage.HIERARCHY,
+            scope_id,
+            ordered_unit_ids,
+        )
+        job_matches = (
+            preparation.scope_id == scope_id
+            and preparation.hierarchy_hash is None
+            and job.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+            and job.subject == subject
+            and job.subject_id == scope_id
+            and job.prompt_version == WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION
+            and job.response_schema == WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA
+            and job.payload == payload
+            and job.input_hash == canonical_hash(payload)
+            and job.known_evidence_ids == evidence_ids
+            and job.known_characters == characters
+            and job.membership_hash is None
+        )
+    else:
+        status = service.whole_scope_semantic_status()
+        if (
+            status is None
+            or status.authority != authority
+            or status.source_hash != inputs.source_hash
+            or status.correction_id != M15_SEMANTIC_CORRECTION_ID
+            or status.scope_id != preparation.scope_id
+            or status.hierarchy_state != "frozen"
+            or not status.hierarchy_hash
+        ):
+            return False
+        subjects = service.frozen_whole_scope_editorial_subjects()
+        evidence = _whole_scope_editorial_evidence(inputs, subjects)
+        payload = {
+            "schema": M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
+            "scope_id": status.scope_id,
+            "authority": status.authority.to_dict(),
+            "hierarchy_hash": status.hierarchy_hash,
+            "subjects": [item.to_dict() for item in subjects],
+            "evidence": evidence,
+        }
+        logical_jobs = tuple(
+            WholeScopeLogicalJob(
+                WholeScopeSemanticStage.EDITORIAL,
+                stable_m15_id(
+                    "whole_scope_editorial_logical_job",
+                    {
+                        "authority": authority.to_dict(),
+                        "scope_id": status.scope_id,
+                        "hierarchy_hash": status.hierarchy_hash,
+                        "subject": item.to_dict(),
+                        "source_hash": inputs.source_hash,
+                        "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                    },
+                ),
+                item.subject_kind,
+                item.subject_id,
+                item.membership_hash,
+            )
+            for item in subjects
+        )
+        subject = WholeScopeProviderSubject(
+            WholeScopeSemanticStage.EDITORIAL,
+            status.scope_id,
+            hierarchy_hash=status.hierarchy_hash,
+            editorial_subjects=subjects,
+        )
+        evidence_ids = tuple(
+            dict.fromkeys(
+                evidence_id for item in subjects for evidence_id in item.evidence_ids
+            )
+        )
+        characters = tuple(
+            dict.fromkeys(
+                character for item in subjects for character in item.known_characters
+            )
+        )
+        job_matches = (
+            preparation.hierarchy_hash == status.hierarchy_hash
+            and job.kind is ProviderJobKind.WHOLE_SCOPE_EDITORIAL
+            and job.subject == subject
+            and job.subject_id == status.scope_id
+            and job.prompt_version == WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION
+            and job.response_schema == WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA
+            and job.payload == payload
+            and job.input_hash == canonical_hash(payload)
+            and job.known_evidence_ids == evidence_ids
+            and job.known_characters == characters
+            and job.membership_hash == status.hierarchy_hash
+            and raw.get("hierarchy_hash") == status.hierarchy_hash
+            and raw.get("frozen_editorial_subjects")
+            == [item.to_dict() for item in subjects]
+            and raw.get("frozen_editorial_evidence_hash") == canonical_hash(evidence)
+        )
+    if not job_matches or preparation.logical_jobs != logical_jobs:
+        return False
+    prefix = preparation.stage.value
+    hierarchy_transport_batch_id = (
+        job.job_id
+        if preparation.stage is WholeScopeSemanticStage.HIERARCHY
+        else raw.get("hierarchy_transport_batch_id")
+    )
+    if not isinstance(hierarchy_transport_batch_id, str):
+        return False
+    expected_build_id = stable_m15_id(
+        "whole_scope_build",
+        {
+            "authority": authority.to_dict(),
+            "scope_id": preparation.scope_id,
+            "source_hash": inputs.source_hash,
+            "correction_id": M15_SEMANTIC_CORRECTION_ID,
+            "privacy_scope": M15_SEMANTIC_PRIVACY_SCOPE,
+            "profile": profile.to_dict(),
+            "hierarchy_transport_batch_id": hierarchy_transport_batch_id,
+        },
+    )
+    expected_logical_jobs = [
+        {
+            "stage": item.stage.value,
+            "logical_job_id": item.logical_job_id,
+            "subject_kind": item.subject_kind,
+            "subject_id": item.subject_id,
+            "membership_hash": item.membership_hash,
+        }
+        for item in logical_jobs
+    ]
+    try:
+        job.validate_integrity()
+        preparation.granted_consent().validate_for((job,), profile)
+    except ValueError:
+        return False
+    return (
+        preparation.build_id == expected_build_id
+        and raw.get("build_id") == expected_build_id
+        and job.logical_job_ids == tuple(item.logical_job_id for item in logical_jobs)
+        and raw.get(f"{prefix}_transport_batch_id") == job.job_id
+        and raw.get(f"{prefix}_logical_jobs") == expected_logical_jobs
+        and raw.get(f"{prefix}_manifest_id") == preparation.consent.manifest_id
+        and raw.get(f"{prefix}_manifest") == preparation.consent.identity_dict()
+        and raw.get(f"{prefix}_profile") == profile.to_dict()
+    )
 
 
 def whole_scope_preparation_response(
@@ -475,6 +770,31 @@ def whole_scope_preparation_response(
         "manifest": manifest,
         **manifest,
         "progress": {"logical_jobs": len(preparation.logical_jobs), "completed": 0},
+        "accounting": _whole_scope_empty_accounting(),
+        "publication_hash": None,
+    }
+
+
+def whole_scope_stale_preparation_response(
+    stage: WholeScopeSemanticStage,
+) -> dict[str, object]:
+    """Return a sanitized zero-submit result that requires a fresh exact preview."""
+
+    return {
+        "schema": M15_SEMANTIC_RESPONSE_SCHEMA,
+        "state": "stale",
+        "stage": stage.value,
+        "build_id": None,
+        "manifest_id": None,
+        "requires_confirmation": False,
+        "requires_fresh_preparation": True,
+        "next_action": f"prepare_{stage.value}",
+        "progress": {
+            "logical_jobs": 0,
+            "completed": 0,
+            "failure_codes": ["m15_preparation_stale"],
+        },
+        "failure_codes": ["m15_preparation_stale"],
         "accounting": _whole_scope_empty_accounting(),
         "publication_hash": None,
     }
