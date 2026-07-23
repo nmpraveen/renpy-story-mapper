@@ -17,13 +17,13 @@ from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
 from renpy_story_mapper.narrative_map.contracts import BoundaryProviderIdentity, canonical_hash
 from renpy_story_mapper.narrative_map.persistence import NarrativeMapRepository
 from renpy_story_mapper.narrative_map.provider import (
+    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
     NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
-    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
     WholeScopeProviderSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
@@ -174,12 +174,8 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
                 "sequence_id": unit.sequence_id,
                 "ordinal": unit.ordinal,
                 "story_atom_id": unit.story_atom_id,
-                "story_locator": unit.story_locator.to_dict(),
-                "technical_context_atom_ids": list(unit.technical_context_atom_ids),
-                "node_ids": list(unit.node_ids),
                 "evidence_ids": list(unit.evidence_ids),
                 "speaker_ids": list(unit.speaker_ids),
-                "context_ids": list(unit.context_ids),
                 "lane_id": unit.lane_id,
                 "call_occurrence_id": unit.call_occurrence_id,
                 "call_occurrence_path": list(unit.call_occurrence_path),
@@ -189,7 +185,6 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
                 "parent_arm_id": unit.parent_arm_id,
                 "entry_node_id": unit.entry_node_id,
                 "exit_node_id": unit.exit_node_id,
-                "incident_edge_ids": list(unit.incident_edge_ids),
             }
             for unit in inputs.units
         ]

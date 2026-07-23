@@ -49,6 +49,8 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    HierarchyHardLock,
+    HierarchyHardLockKind,
     ValidatedWholeScopeHierarchy,
     compile_hierarchy_to_gap_decisions,
 )
@@ -1515,7 +1517,14 @@ class WholeScopeSemanticLifecycle:
         )
         characters = _whole_scope_strings(known_characters, "Stage H character")
         payload = _whole_scope_mapping(input_payload, "Stage H input")
-        _validate_stage_h_input(payload, authority, scope_id, ordered, evidence)
+        _validate_stage_h_input(
+            payload,
+            authority,
+            scope_id,
+            ordered,
+            evidence,
+            characters,
+        )
         _validate_whole_scope_limits(maximum_provider_calls)
         logical_id = stable_m15_id(
             "whole_scope_hierarchy_logical_job",
@@ -2600,6 +2609,7 @@ def _validate_stage_h_input(
     scope_id: str,
     ordered_unit_ids: tuple[str, ...],
     known_evidence_ids: tuple[str, ...],
+    known_characters: tuple[str, ...],
 ) -> None:
     expected_fields = {
         "schema",
@@ -2607,29 +2617,47 @@ def _validate_stage_h_input(
         "authority",
         "ordered_unit_ids",
         "units",
+        "evidence",
         "hard_locks",
     }
     units = payload.get("units")
+    evidence = payload.get("evidence")
     hard_locks = payload.get("hard_locks")
-    if set(payload) != expected_fields or not isinstance(units, list) or not isinstance(
-        hard_locks, list
+    if (
+        set(payload) != expected_fields
+        or not isinstance(units, list)
+        or not isinstance(evidence, list)
+        or not isinstance(hard_locks, list)
     ):
         raise ValueError("Stage H input shape is not exact")
     unit_fields = {
         "unit_id",
         "sequence_id",
         "ordinal",
+        "story_atom_id",
         "parent_choice_id",
         "parent_arm_id",
         "evidence_ids",
+        "speaker_ids",
+        "lane_id",
+        "call_occurrence_id",
+        "call_occurrence_path",
+        "call_site_path",
+        "loop_id",
+        "entry_node_id",
+        "exit_node_id",
     }
     supplied_units: list[str] = []
     allowed_evidence = set(known_evidence_ids)
+    unit_evidence: dict[str, tuple[str, ...]] = {}
+    unit_speakers: dict[str, tuple[str, ...]] = {}
+    supplied_characters: list[str] = []
     for item in units:
         item_evidence = item.get("evidence_ids") if isinstance(item, Mapping) else None
+        item_speakers = item.get("speaker_ids") if isinstance(item, Mapping) else None
         if (
             not isinstance(item, Mapping)
-            or not {"unit_id", "evidence_ids"} <= set(item) <= unit_fields
+            or set(item) != unit_fields
             or not isinstance(item.get("unit_id"), str)
             or not isinstance(item_evidence, list)
             or not item_evidence
@@ -2638,31 +2666,127 @@ def _validate_stage_h_input(
                 for evidence_id in item_evidence
             )
             or len(item_evidence) != len(set(cast(list[str], item_evidence)))
-            or (
-                "sequence_id" in item
-                and (not isinstance(item["sequence_id"], str) or not item["sequence_id"])
+            or not isinstance(item_speakers, list)
+            or any(not isinstance(value, str) or not value for value in item_speakers)
+            or len(item_speakers) != len(set(cast(list[str], item_speakers)))
+            or any(
+                not isinstance(item.get(key), str) or not item.get(key)
+                for key in (
+                    "sequence_id",
+                    "story_atom_id",
+                    "lane_id",
+                    "entry_node_id",
+                    "exit_node_id",
+                )
             )
             or (
-                "ordinal" in item
-                and (
-                    not isinstance(item["ordinal"], int)
-                    or isinstance(item["ordinal"], bool)
-                    or item["ordinal"] < 0
+                not isinstance(item["ordinal"], int)
+                or isinstance(item["ordinal"], bool)
+                or item["ordinal"] < 0
+            )
+            or any(
+                item[key] is not None
+                and (not isinstance(item[key], str) or not item[key])
+                for key in (
+                    "call_occurrence_id",
+                    "loop_id",
+                    "parent_choice_id",
+                    "parent_arm_id",
                 )
             )
             or any(
-                key in item
-                and item[key] is not None
-                and (not isinstance(item[key], str) or not item[key])
-                for key in ("parent_choice_id", "parent_arm_id")
+                not isinstance(item[key], list)
+                or any(
+                    not isinstance(value, str) or not value
+                    for value in cast(list[object], item[key])
+                )
+                or len(cast(list[object], item[key]))
+                != len(set(cast(list[object], item[key])))
+                for key in ("call_occurrence_path", "call_site_path")
             )
         ):
             raise ValueError("Stage H input shape is not exact")
-        supplied_units.append(cast(str, item.get("unit_id")))
-    lock_variants = (
-        {"lock_id", "kind", "choice_id", "arm_ids"},
-        {"lock_id", "kind", "unit_ids"},
-    )
+        unit_id = cast(str, item["unit_id"])
+        supplied_units.append(unit_id)
+        unit_evidence[unit_id] = tuple(cast(list[str], item_evidence))
+        speakers = tuple(cast(list[str], item_speakers))
+        unit_speakers[unit_id] = speakers
+        supplied_characters.extend(
+            speaker for speaker in speakers if speaker not in supplied_characters
+        )
+
+    if len(supplied_units) != len(set(supplied_units)):
+        raise ValueError("Stage H input identity is not exact")
+
+    evidence_fields = {
+        "unit_id",
+        "atom_id",
+        "evidence_id",
+        "ordinal",
+        "kind",
+        "text",
+        "speaker",
+        "locator",
+    }
+    evidence_by_unit: dict[str, list[str]] = {item: [] for item in supplied_units}
+    supplied_evidence: list[str] = []
+    evidence_ordinals: list[int] = []
+    for item in evidence:
+        locator = item.get("locator") if isinstance(item, Mapping) else None
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != evidence_fields
+            or any(
+                not isinstance(item.get(key), str) or not item.get(key)
+                for key in ("unit_id", "atom_id", "evidence_id", "kind", "text")
+            )
+            or not isinstance(item.get("ordinal"), int)
+            or isinstance(item.get("ordinal"), bool)
+            or cast(int, item["ordinal"]) < 0
+            or (
+                item.get("speaker") is not None
+                and (
+                    not isinstance(item.get("speaker"), str) or not item.get("speaker")
+                )
+            )
+            or not isinstance(locator, Mapping)
+            or set(locator) != {"relative_path", "start_line", "end_line", "line_basis"}
+            or not isinstance(locator.get("relative_path"), str)
+            or not locator.get("relative_path")
+            or not isinstance(locator.get("line_basis"), str)
+            or not locator.get("line_basis")
+            or not isinstance(locator.get("start_line"), int)
+            or isinstance(locator.get("start_line"), bool)
+            or not isinstance(locator.get("end_line"), int)
+            or isinstance(locator.get("end_line"), bool)
+            or cast(int, locator["start_line"]) < 1
+            or cast(int, locator["end_line"]) < cast(int, locator["start_line"])
+        ):
+            raise ValueError("Stage H input shape is not exact")
+        unit_id = cast(str, item["unit_id"])
+        evidence_id = cast(str, item["evidence_id"])
+        if (
+            unit_id not in evidence_by_unit
+            or evidence_id not in allowed_evidence
+            or evidence_id not in unit_evidence[unit_id]
+            or (
+                item.get("speaker") is not None
+                and item.get("speaker") not in unit_speakers[unit_id]
+            )
+        ):
+            raise ValueError("Stage H evidence identity is not exact")
+        evidence_by_unit[unit_id].append(evidence_id)
+        supplied_evidence.append(evidence_id)
+        evidence_ordinals.append(cast(int, item["ordinal"]))
+    if (
+        len(supplied_evidence) != len(set(supplied_evidence))
+        or tuple(supplied_evidence) != known_evidence_ids
+        or evidence_ordinals != list(range(len(evidence_ordinals)))
+        or any(tuple(evidence_by_unit[item]) != unit_evidence[item] for item in supplied_units)
+        or tuple(supplied_characters) != known_characters
+    ):
+        raise ValueError("Stage H evidence identity is not exact")
+
     allowed_choices = {
         cast(str, item["parent_choice_id"])
         for item in cast(list[Mapping[str, object]], units)
@@ -2673,40 +2797,43 @@ def _validate_stage_h_input(
         for item in cast(list[Mapping[str, object]], units)
         if isinstance(item.get("parent_arm_id"), str)
     }
+    seen_lock_ids: set[str] = set()
     for item in hard_locks:
+        if not isinstance(item, Mapping) or set(item) != {
+            "lock_id",
+            "kind",
+            "unit_ids",
+            "left_unit_id",
+            "right_unit_id",
+            "choice_id",
+            "arm_ids",
+        }:
+            raise ValueError("Stage H input shape is not exact")
+        try:
+            lock = HierarchyHardLock.from_mapping(item)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Stage H input shape is not exact") from exc
+        referenced_units = {
+            *lock.unit_ids,
+            *(
+                value
+                for value in (lock.left_unit_id, lock.right_unit_id)
+                if value is not None
+            ),
+        }
         if (
-            not isinstance(item, Mapping)
-            or set(item) not in lock_variants
-            or not isinstance(item.get("lock_id"), str)
-            or not item.get("lock_id")
-            or not isinstance(item.get("kind"), str)
-        ):
-            raise ValueError("Stage H input shape is not exact")
-        if any(
-            key in item
-            and (
-                not isinstance(item[key], list)
-                or any(not isinstance(value, str) for value in cast(list[object], item[key]))
-            )
-            for key in ("arm_ids", "unit_ids")
-        ):
-            raise ValueError("Stage H input shape is not exact")
-        if set(item) == lock_variants[0] and (
-            item.get("kind") != "choice_ownership"
-            or item.get("choice_id") not in allowed_choices
-            or not cast(list[object], item.get("arm_ids"))
-            or any(arm_id not in allowed_arms for arm_id in cast(list[object], item["arm_ids"]))
-        ):
-            raise ValueError("Stage H input shape is not exact")
-        if set(item) == lock_variants[1] and (
-            item.get("kind") != "scope_marker"
-            or not cast(list[object], item.get("unit_ids"))
-            or any(
-                unit_id not in ordered_unit_ids
-                for unit_id in cast(list[object], item["unit_ids"])
+            lock.lock_id in seen_lock_ids
+            or not referenced_units <= set(ordered_unit_ids)
+            or (
+                lock.kind is HierarchyHardLockKind.CHOICE_OWNERSHIP
+                and (
+                    lock.choice_id not in allowed_choices
+                    or any(item not in allowed_arms for item in lock.arm_ids)
+                )
             )
         ):
-            raise ValueError("Stage H input shape is not exact")
+            raise ValueError("Stage H input identity is not exact")
+        seen_lock_ids.add(lock.lock_id)
     if (
         payload.get("schema") != M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
         or payload.get("scope_id") != scope_id

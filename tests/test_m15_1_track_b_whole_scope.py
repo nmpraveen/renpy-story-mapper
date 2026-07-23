@@ -79,15 +79,45 @@ def _profile(model: str = "fake-semantic-model") -> ProviderProfile:
 
 
 def _hierarchy_input() -> dict[str, object]:
-    unit_ids = _validated_hierarchy().ordered_unit_ids
+    units = _validated_hierarchy().units
+    unit_ids = tuple(item.unit_id for item in units)
     return {
         "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
         "scope_id": "scope-day-1",
         "authority": _authority().to_dict(),
         "ordered_unit_ids": list(unit_ids),
         "units": [
-            {"unit_id": unit_ids[0], "evidence_ids": ["evidence-a"]},
-            {"unit_id": unit_ids[1], "evidence_ids": ["evidence-b"]},
+            {
+                "unit_id": unit.unit_id,
+                "sequence_id": unit.sequence_id,
+                "ordinal": unit.ordinal,
+                "story_atom_id": unit.story_atom_id,
+                "evidence_ids": list(unit.evidence_ids),
+                "speaker_ids": list(unit.speaker_ids),
+                "lane_id": unit.lane_id,
+                "call_occurrence_id": unit.call_occurrence_id,
+                "call_occurrence_path": list(unit.call_occurrence_path),
+                "call_site_path": list(unit.call_site_path),
+                "loop_id": unit.loop_id,
+                "parent_choice_id": unit.parent_choice_id,
+                "parent_arm_id": unit.parent_arm_id,
+                "entry_node_id": unit.entry_node_id,
+                "exit_node_id": unit.exit_node_id,
+            }
+            for unit in units
+        ],
+        "evidence": [
+            {
+                "unit_id": unit.unit_id,
+                "atom_id": unit.story_atom_id,
+                "evidence_id": unit.evidence_ids[0],
+                "ordinal": unit.ordinal,
+                "kind": "dialogue",
+                "text": "Ava arrives." if unit.ordinal == 0 else "Ava settles in.",
+                "speaker": "Ava",
+                "locator": unit.story_locator.to_dict(),
+            }
+            for unit in units
         ],
         "hard_locks": [],
     }
@@ -532,7 +562,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v1.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v1"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v2"
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
@@ -986,6 +1016,7 @@ def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Pa
             _validated_hierarchy().ordered_unit_ids,
             _hierarchy_input(),
             known_evidence_ids=("evidence-a", "evidence-b"),
+            known_characters=("Ava",),
             profile=_profile(),
             run_id="first-manifest",
             source_hash="source-hash",
@@ -1026,6 +1057,20 @@ def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Pa
         lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
             {"credential_hint": "synthetic"}
         ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].pop(
+            "story_atom_id"
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"speaker_ids": []}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].pop(
+            "lane_id"
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["evidence"]).pop(),
+        lambda payload: cast(
+            dict[str, object],
+            cast(list[dict[str, object]], payload["evidence"])[0]["locator"],
+        ).pop("line_basis"),
         lambda payload: cast(list[dict[str, object]], payload["hard_locks"]).append(
             {"lock_id": "lock-a", "tool": {"name": "synthetic"}}
         ),
@@ -1042,9 +1087,10 @@ def test_stage_h_input_projection_fails_closed_before_preparation(
             service.prepare_whole_scope_hierarchy(
                 _authority(),
                 "scope-day-1",
-                ("unit-a", "unit-b"),
+                _validated_hierarchy().ordered_unit_ids,
                 payload,
                 known_evidence_ids=("evidence-a", "evidence-b"),
+                known_characters=("Ava",),
                 profile=_profile(),
                 run_id="sterile-shape",
                 source_hash="source-hash",

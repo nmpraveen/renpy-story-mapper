@@ -53,7 +53,7 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v1"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v2"
 WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
@@ -816,7 +816,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v1.json",
+            "whole_scope_hierarchy_v2.json",
             "whole_scope_hierarchy_v1.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
