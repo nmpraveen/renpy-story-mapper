@@ -15,9 +15,10 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
 - Status: In progress. The 2026-07-21 adjacent-only `PASS` is revoked. The observable done
   condition is unchanged; whole-scope Stage H hierarchy proposal plus Stage E editorial batching
-  passed the repeated semantic gate on 2026-07-23. Revised Tracks A/B/C and provider-free
-  integration are complete and independently reviewed with no unresolved P0-P2 at integration
-  head `4be510d`. The next gate is exact zero-submit Stage H preparation and explicit consent. The prior
+  passed the repeated semantic gate on 2026-07-23. Revised Tracks A/B/C, the exhausted-live-run
+  corrections, and provider-free integration are complete and independently reviewed with no
+  unresolved P0-P2 at integration head `5d782ce`. The next gate is a fresh isolated exact
+  zero-submit Stage H preparation and separate explicit consent. The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
@@ -49,7 +50,7 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   secret/private-derived content; the sole private-reference match was a generic prompt prohibition.
   `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` remain untouched. A separate clean
   worktree at `C:/Users/prave/.codex/worktrees/m15-1-revise-20260723/Renpy` holds the existing
-  integration branch at provider-free reviewed head `4be510d`.
+  integration branch at corrected provider-free head `5d782ce`.
 - Required task topology after the revised shared freeze: separate visible Track A (hierarchy
   validation/compiler), Track B (batched provider lifecycle/persistence), and Track C (compact
   projection/UI) tasks/worktrees, each with an independent exact-head reviewer, then fresh blind
@@ -67,15 +68,17 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   passed exact-head review at `1b5175bd`; Track B task
   `019f8f26-dec1-7032-9da5-127c20a6040f` passed at `8cf32e9`; Track C task
   `019f8f26-dec1-7032-9da5-125cdf9a41da` passed fresh review at `34aef7c`. Independent integrated
-  architecture task `019f8f33-a13d-7d22-b0f3-d9ca407e60df` returned PASS with no P0-P2 at
-  correction head `6a37903`; its tree `eff0088c` is identical to integration head `4be510d` after
-  ordered cherry-picks. Coordinator verification records 304 M15 tests passed with three expected
-  opt-in/private-fixture skips, 75 cross-milestone web/API tests, 18 asset tests, strict mypy over
-  115 source files, Ruff, JavaScript/JSON, diff/privacy/frozen-resource checks, and nine synthetic
-  acceptance cases with zero provider calls and zero game execution. Live Stage H/E, private
-  semantic review, real Chrome, Release, screenshots/user approval, push/checks, and PR readiness
-  remain pending.
-- Stage H live acceptance correction: the supported product path opened an isolated copy of the
+  architecture task `019f8f33-a13d-7d22-b0f3-d9ca407e60df` passed the original correction tree at
+  `6a37903` and the final exhausted-run/lost-CAS correction at exact head `7e20a27`, both with no
+  P0-P2. The final reviewed additive chain is integrated as `83de774`, `5cd91ec`, `e6f8816`,
+  `a4d0b63`, `d4b9d40`, and `5d782ce`; integrated `src/`/`tests/` are identical to the reviewed
+  tree. Coordinator verification records 321 M15 tests passed with three expected opt-in/private-
+  fixture skips, 75 cross-milestone web/API tests, 19 browser asset-contract tests, workflow
+  contract, strict mypy over 116 source files, Ruff, dependency/JavaScript/JSON, diff/privacy/
+  frozen-resource checks, and nine synthetic acceptance cases with zero provider calls and zero
+  game execution. Fresh Stage H/E, private semantic review, real Chrome, Release, screenshots/user
+  approval, push/checks, and PR readiness remain pending.
+- Stage H exhausted-run correction: the supported product path opened an isolated copy of the
   exact private Day 1 project and prepared sterile manifest `consent_da4aecc72b5dfb3fb4523c27`
   for build `whole_scope_build_83b5644d73e7b0ba4e026b5f`; the user approved that exact manifest.
   Attempt 1 transmitted and timed out at 300 seconds. Exact retry attempt 2 returned after about
@@ -85,10 +88,16 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   `validated` with no hierarchy hash or failure code, so this is a live-path P1 rather than Stage H
   acceptance. Source/archive hashes and timestamps remain unchanged; Stage E was not prepared or
   called. The manifest is exhausted and no third call is allowed. Bounded correction task
-  `019f8f26-dec1-7032-9da5-127c20a6040f` must move full authority validation inside the repair
-  lifecycle, fail exhausted invalid output durably, and increase the finite disclosed timeout; the
-  same independent architecture task must pass the exact correction before a fresh Stage H
-  manifest is prepared. The outside-Git failure artifact SHA-256 is
+  `019f8f26-dec1-7032-9da5-127c20a6040f` moved exact authority validation inside durable Stage H
+  acceptance, atomically quarantines legacy invalid results, uses whole-scope product identity v2
+  with a finite 900-second timeout, and fails closed after bounded lost-CAS reconciliation. The
+  same independent architecture reviewer passed exact final head `7e20a27` with no P0-P2; the
+  additive chain is integrated through `5d782ce`. Coordinator verification records 321 M15 tests
+  passed with three expected skips, 75 cross-web/API, 19 browser asset-contract tests, workflow
+  contract, strict mypy over 116 source files, Ruff, dependency/JS/JSON, frozen-resource/privacy/
+  diff checks, and nine zero-provider/zero-game synthetic cases. The exhausted copy remains audit
+  evidence; a fresh exact acceptance copy must be prepared without submission before a new Stage H
+  manifest is presented. The outside-Git failure artifact SHA-256 is
   `ADFE0EFF8E2311AA11AAC14624589AA7B3F1BE2803A938E1ABD7C02FC1A2532C`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
