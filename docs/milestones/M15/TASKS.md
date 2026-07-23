@@ -8,7 +8,7 @@ Integration branch: `codex/m15-msday1-narrative-map`
 
 Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open and unmerged.
 
-Lifecycle: `Revise` pending the repeated 2026-07-23 semantic gate.
+Lifecycle: `In progress` after the repeated 2026-07-23 semantic `PASS`.
 
 | Task | Owner | Dependencies | Status | Evidence / next gate |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Lifecycle: `Revise` pending the repeated 2026-07-23 semantic gate.
 | Interrupted v4 safety recovery | Coordinator | Paused worktree | Complete | Base `1c66cc3`; 13 tracked plus two v4 files committed only from an explicit whitelist to local unpushed `codex/m15-1-interrupted-safety-20260723` at `9aa6b7c`; 455 insertions/143 deletions; prompt/schema SHA-256 matched; private scan found only a generic forbidden-reference phrase; protected untracked roots untouched. Supplied dirty hash did not match the current Git hash, so both values are retained as an audit discrepancy. |
 | Clean architectural worktree | Coordinator | Safety snapshot | Complete | Existing integration branch checked out clean at `1c66cc3` in `C:/Users/prave/.codex/worktrees/m15-1-revise-20260723/Renpy`; no replacement integration branch created |
 | Active native goal | Coordinator | User removed stale goal and explicitly requested a new one | Complete | Goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` recreated on 2026-07-23 with the whole-scope Stage H/Stage E objective and remains active |
-| Whole-scope architecture contract reconciliation | Coordinator | Authority read and clean worktree | In progress | Lifecycle is `Revise`; adjacent-only rules replaced; repeated semantic gate must return `PASS` before product work |
+| Whole-scope architecture contract reconciliation | Coordinator | Authority read and clean worktree | Complete | `Revise` transition committed at `b5d08f5`; adjacent-only rules replaced; repeated semantic review returned `PASS` on 2026-07-23 before product work |
 | Revised shared schemas/examples/failing-first freeze | Coordinator | Repeated semantic `PASS` | Pending | One clean exact commit for Stage H/Stage E contracts, generalized fixtures, and genuinely failing-first tests |
 | Revised Track A - hierarchy compiler and deterministic validation | New visible task plus separate exact-head reviewer | Revised shared freeze | Pending | Bounded worker/reviewer branch allowed; no provider/API/UI/private oracle |
 | Revised Track B - batched provider lifecycle and persistence | New visible task plus separate exact-head reviewer | Revised shared freeze | Pending | Stage H/Stage E prompts, logical/transport provenance, exact consents, recovery/replay, historical compatibility; no live call |

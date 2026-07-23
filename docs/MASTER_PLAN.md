@@ -4,9 +4,10 @@ Last revised: 2026-07-23
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
 correction inside M15. Its prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
-moved to `Revise` because the adjacent-gap-only primary AI task did not produce a coherent human
-outline. The active native goal, existing integration branch, and open PR #26 continue while the
-whole-scope hierarchy/editorial contract receives a repeated semantic review. M14 remains deferred. M13
+moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
+human outline. The reconciled whole-scope hierarchy/editorial contract then received a repeated
+semantic `PASS`; the active native goal, existing integration branch, and open PR #26 continue.
+M14 remains deferred. M13
 implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
 is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
@@ -1178,10 +1179,10 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Revise. The 2026-07-21 semantic `PASS` is revoked because it froze adjacent-gap-only AI
-classification as the primary semantic method. The active native goal remains running while this
-contract is reconciled and the single semantic gate is repeated. The earlier M15 PR-ready claim,
-wide generic graph, and supporting evidence remain a rejected historical baseline.
+Status: In progress after a 2026-07-23 `Revise` transition and repeated semantic `PASS`. The
+2026-07-21 adjacent-gap-only `PASS` remains revoked. The active native goal, existing integration
+branch, and PR #26 continue; the earlier M15 PR-ready claim, wide generic graph, and supporting
+evidence remain a rejected historical baseline.
 
 Objective: produce a compact chronological Story Map whose visible language explains narrative
 meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
@@ -1318,9 +1319,9 @@ and unresolved items.
 
 ## 11. Current next action
 
-M15.1 is the single active correction inside M15. Keep its current native goal active, complete the
-2026-07-23 `Revise` reconciliation, and obtain a repeated semantic `PASS` before product work.
-Then freeze revised whole-scope hierarchy/editorial schemas, generalized examples, and failing-first
+M15.1 is the single active correction inside M15. Its current native goal remains active and the
+2026-07-23 `Revise` reconciliation has a repeated semantic `PASS`. Freeze revised whole-scope
+hierarchy/editorial schemas, generalized examples, and failing-first
 tests; dispatch separate visible reviewed Track A/B/C worktrees from that exact head; integrate in
 order; and complete fake-provider/reopen/zero-submit verification. Present the exact Stage H
 manifest for explicit consent, review frozen membership blind, then separately present Stage E for

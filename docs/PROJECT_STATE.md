@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-23 (M15.1 lifecycle Revise; whole-scope semantic gate pending)
+Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,10 +13,10 @@ Updated: 2026-07-23 (M15.1 lifecycle Revise; whole-scope semantic gate pending)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: Revise. The 2026-07-21 semantic `PASS` is revoked because it made adjacent-gap votes the
-  provider's primary semantic task. The observable done condition is unchanged. The contract is
-  being reconciled to whole-scope Stage H hierarchy proposal plus Stage E editorial batching, and
-  broad product work remains stopped until the repeated semantic review returns `PASS`. The prior
+- Status: In progress. The 2026-07-21 adjacent-only `PASS` is revoked. The observable done
+  condition is unchanged; whole-scope Stage H hierarchy proposal plus Stage E editorial batching
+  passed the repeated semantic gate on 2026-07-23. Broad implementation resumes with the revised
+  shared schema/example/failing-first freeze. The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
@@ -26,10 +26,10 @@ Updated: 2026-07-23 (M15.1 lifecycle Revise; whole-scope semantic gate pending)
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The prior adjacent-only `PASS` and
-  shared freeze `c768b19c8d9364db8f1987cb420e69ac0c2e535d` are historical. The coordinator must
-  repeat the gate against the reconciled Stage H/Stage E contract and record `PASS`, then freeze new
-  versioned schemas, generalized examples, and genuinely failing-first tests in one exact commit.
+- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-23 after transition commit
+  `b5d08f5`. The prior adjacent-only shared freeze `c768b19c8d9364db8f1987cb420e69ac0c2e535d`
+  is historical. The next gate is one exact clean commit freezing new versioned Stage H/Stage E
+  schemas, generalized examples, and genuinely failing-first tests.
 - Native Codex goal: the user removed the stale goal and explicitly requested a new one on
   2026-07-23. Active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` now binds the unchanged
   observable outcome to whole-scope Stage H/Stage E production, exact deterministic validation,

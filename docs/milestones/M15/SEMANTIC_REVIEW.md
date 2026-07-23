@@ -7,7 +7,7 @@ Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
 AI semantic task.
 
-Decision: REVISE
+Decision: PASS
 
 ## Review result
 
@@ -22,9 +22,10 @@ authority-bound fine-unit IDs. Python validates and compiles that proposal into 
 decisions before the existing assembler runs. Stage E then produces a whole-scope editorial batch
 for frozen existing subjects. Provider output remains non-authoritative.
 
-This commit records the lifecycle transition and reconciled contract. Broad implementation remains
-stopped until the coordinator repeats this gate against the complete revised contract and records
-`PASS`.
+The lifecycle transition was recorded at `b5d08f567132f8bd2743a39187e57dffe18b3a00`. The
+coordinator then reread the reconciled authority set and repeated the gate against the complete
+revised contract. The observable done condition, deliverables, numbered criteria, exclusions,
+evidence, task ownership, consent boundaries, and handoff rules are mutually consistent.
 
 ## Requirements mapping
 
@@ -93,7 +94,7 @@ stopped until the coordinator repeats this gate against the complete revised con
 - Freeze a final source-first review before any private comparison, then obtain real-browser and user
   visual approval before the single final Windows Release/package gate.
 
-## Resolved conflicts and remaining gate
+## Resolved conflicts
 
 - The user explicitly changed only M15.1's internal semantic method; the observable done condition
   and acceptance floor are unchanged.
@@ -111,9 +112,12 @@ stopped until the coordinator repeats this gate against the complete revised con
 
 ## Gate decision
 
-The prior adjacent-gap-only semantic `PASS` is invalid. The revised authority split and contract are
-now explicit, but this transition commit intentionally leaves the milestone in `Revise` while the
-single semantic review is repeated against the reconciled documents. No broad product work may
-begin from this decision.
+The observable done condition is unchanged. The revised Stage H/Stage E authority split is bounded,
+testable, privacy-safe, compatible with historical records, and subordinate to M10/M11 facts. The
+contract states exact validation, failure, consent, provider-budget, task/reviewer, evidence,
+browser, and release boundaries without requiring invented scope. No unresolved semantic choice
+blocks the shared schema/example/failing-first freeze. Broad product implementation may begin only
+after that shared freeze is committed and the required separate visible tasks are created from its
+exact clean head.
 
-REVISE
+PASS
