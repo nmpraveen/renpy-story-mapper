@@ -1773,11 +1773,22 @@ class WholeScopeSemanticLifecycle:
             raise ValueError("whole-scope consent does not match the exact reviewed manifest")
         consent.validate_for((preparation.job,), preparation.consent.profile)
         raw = self._require_preparation(preparation)
-        updated = dict(raw)
         prefix = preparation.stage.value
+        if (
+            raw.get(f"{prefix}_state") != "awaiting_consent"
+            or raw.get(f"{prefix}_manifest") != preparation.consent.identity_dict()
+        ):
+            return self.status_required()
+        updated = dict(raw)
         updated[f"confirmed_{prefix}_manifest_id"] = consent.manifest_id
         updated[f"{prefix}_state"] = "awaiting_start"
-        self._repository.write_whole_scope_build(updated)
+        self._repository.write_whole_scope_build_if_stage(
+            updated,
+            expected_build=raw,
+            stage=prefix,
+            manifest_id=consent.manifest_id,
+            expected_state="awaiting_consent",
+        )
         return self.status_required()
 
     def start(
@@ -1891,18 +1902,22 @@ class WholeScopeSemanticLifecycle:
             logical_records = self._logical_records(preparation, record)
             if preparation.stage is WholeScopeSemanticStage.EDITORIAL:
                 final["editorial_state"] = "complete"
-                self._publish(
+                published = self._publish(
                     final,
                     preparation,
                     logical_records,
                     expected_running=running,
                 )
-                return report
+                return (
+                    report
+                    if published
+                    else self._deferred_completion_report(report, preparation)
+                )
         else:
             final[f"{prefix}_state"] = "failed"
             error_code = record.error_code if record is not None else None
             final["failure_codes"] = [error_code or "stage_failed"]
-        self._repository.write_whole_scope_build_if_stage(
+        committed = self._repository.write_whole_scope_build_if_stage(
             final,
             expected_build=running,
             stage=prefix,
@@ -1914,7 +1929,11 @@ class WholeScopeSemanticLifecycle:
                 else ()
             ),
         )
-        return report
+        return (
+            report
+            if committed
+            else self._deferred_completion_report(report, preparation)
+        )
 
     def freeze_hierarchy(
         self,
@@ -2134,6 +2153,32 @@ class WholeScopeSemanticLifecycle:
                 }
             )
         return tuple(payloads)
+
+    def _deferred_completion_report(
+        self,
+        report: NarrativeWorkflowReport,
+        preparation: WholeScopeStagePreparation,
+    ) -> NarrativeWorkflowReport:
+        current = self._repository.read_whole_scope_build()
+        durable_cancelled = bool(
+            current is not None
+            and current.get(f"{preparation.stage.value}_state") == "cancelled"
+        )
+        job_id = preparation.job.job_id
+        return NarrativeWorkflowReport(
+            validated_job_ids=tuple(
+                value for value in report.validated_job_ids if value != job_id
+            ),
+            failed_job_ids=tuple(value for value in report.failed_job_ids if value != job_id),
+            cache_hits=report.cache_hits,
+            provider_calls=report.provider_calls,
+            input_tokens=report.input_tokens,
+            output_tokens=report.output_tokens,
+            elapsed_ms=report.elapsed_ms,
+            cancelled=report.cancelled or durable_cancelled,
+            deferred_job_ids=tuple(dict.fromkeys((*report.deferred_job_ids, job_id))),
+            terminal_reservations=report.terminal_reservations,
+        )
 
     def _publish(
         self,

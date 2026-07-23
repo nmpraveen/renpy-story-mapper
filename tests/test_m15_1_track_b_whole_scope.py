@@ -870,18 +870,23 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
     provider = _BlockingFakeProvider(payload)
     errors: list[BaseException] = []
     cancel_statuses: list[WholeScopeSemanticStatus | None] = []
+    stage_reports: list[NarrativeWorkflowReport] = []
 
     def run_stage() -> None:
         try:
             with Project.open(path) as project:
                 service = NarrativeMapService(NarrativeMapRepository(project))
                 if stage == "hierarchy":
-                    service.start_whole_scope_hierarchy(
-                        preparation, provider=provider, consent=consent
+                    stage_reports.append(
+                        service.start_whole_scope_hierarchy(
+                            preparation, provider=provider, consent=consent
+                        )
                     )
                 else:
-                    service.start_whole_scope_editorial(
-                        preparation, provider=provider, consent=consent
+                    stage_reports.append(
+                        service.start_whole_scope_editorial(
+                            preparation, provider=provider, consent=consent
+                        )
                     )
         except BaseException as exc:
             errors.append(exc)
@@ -935,7 +940,7 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
 
     assert not stage_thread.is_alive()
     assert cancel_thread is None or not cancel_thread.is_alive()
-    assert errors == [] and len(cancel_statuses) == 1
+    assert errors == [] and len(cancel_statuses) == len(stage_reports) == 1
     with Project.open(path) as project:
         repository = NarrativeMapRepository(project)
         status = NarrativeMapService(repository).whole_scope_semantic_status()
@@ -943,9 +948,22 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
         logical_records = repository.read_whole_scope_logical_records()
 
     assert status is not None
+    stage_report = stage_reports[0]
     assert cancel_statuses[0] is not None
     if completion_first:
         assert cancel_statuses[0] == status
+        assert stage_report.validated_job_ids == (preparation.job.job_id,)
+        assert stage_report.deferred_job_ids == ()
+        assert stage_report.cancelled is False
+    else:
+        assert stage_report.validated_job_ids == ()
+        assert stage_report.deferred_job_ids == (preparation.job.job_id,)
+        assert stage_report.cancelled is True
+    assert stage_report.provider_calls == 1
+    assert stage_report.input_tokens == 100
+    assert stage_report.output_tokens == 20
+    assert stage_report.elapsed_ms == 5
+    assert stage_report.terminal_reservations == ((preparation.job.job_id, 1),)
     if completion_first:
         if stage == "hierarchy":
             assert status.hierarchy_state == "validated"
@@ -963,6 +981,109 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
         assert cancel_statuses[0].editorial_state == "cancelled"
         assert status.editorial_state == "cancelled"
         assert publication is None and len(logical_records) == 1
+
+
+@pytest.mark.parametrize("stage", ("hierarchy", "editorial"))
+@pytest.mark.parametrize("stale_confirmation_last", (False, True))
+def test_consent_confirmation_cannot_overwrite_newer_preparation(
+    tmp_path: Path, stage: str, stale_confirmation_last: bool
+) -> None:
+    path = tmp_path / f"confirm-{stage}-{stale_confirmation_last}.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        if stage == "hierarchy":
+            preparation = _prepare_hierarchy(service, run_id="old-h-confirmation")
+            hierarchy_hash = None
+        else:
+            _, hierarchy_hash = _run_valid_hierarchy(service)
+            assert hierarchy_hash is not None
+            preparation = service.prepare_whole_scope_editorial(
+                _authority(),
+                "scope-day-1",
+                hierarchy_hash,
+                _subjects(),
+                _editorial_input(hierarchy_hash),
+                profile=_profile(),
+                run_id="old-e-confirmation",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        consent = preparation.granted_consent()
+
+    statuses: list[WholeScopeSemanticStatus] = []
+    errors: list[BaseException] = []
+    confirm_release = Event()
+    confirm_thread: Thread | None = None
+    if stale_confirmation_last:
+        confirm_entered = Event()
+
+        def confirm_late() -> None:
+            try:
+                with Project.open(path) as project:
+                    repository = _PausingTransitionRepository(
+                        project,
+                        lambda value: isinstance(value, dict)
+                        and value.get(f"{stage}_state") == "awaiting_start",
+                        confirm_entered,
+                        confirm_release,
+                    )
+                    statuses.append(
+                        NarrativeMapService(repository).confirm_whole_scope_consent(
+                            preparation, consent
+                        )
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        confirm_thread = Thread(target=confirm_late)
+        confirm_thread.start()
+        assert confirm_entered.wait(5)
+    else:
+        with Project.open(path) as project:
+            statuses.append(
+                NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).confirm_whole_scope_consent(preparation, consent)
+            )
+
+    with Project.open(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        if stage == "hierarchy":
+            changed = _prepare_hierarchy(service, run_id="new-h-preparation")
+        else:
+            assert hierarchy_hash is not None
+            changed = service.prepare_whole_scope_editorial(
+                _authority(),
+                "scope-day-1",
+                hierarchy_hash,
+                _subjects(),
+                _editorial_input(hierarchy_hash),
+                profile=_profile(),
+                run_id="new-e-preparation",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+    if confirm_thread is not None:
+        confirm_release.set()
+        confirm_thread.join(5)
+        assert not confirm_thread.is_alive()
+
+    assert errors == [] and len(statuses) == 1
+    with Project.open(path) as project:
+        final = NarrativeMapRepository(project).read_whole_scope_build()
+    assert final is not None
+    assert final[f"{stage}_manifest_id"] == changed.consent.manifest_id
+    assert final[f"{stage}_state"] == "awaiting_consent"
+    assert final[f"confirmed_{stage}_manifest_id"] is None
+    if stale_confirmation_last:
+        if stage == "hierarchy":
+            assert statuses[0].hierarchy_state == "awaiting_consent"
+        else:
+            assert statuses[0].editorial_state == "awaiting_consent"
+    elif stage == "hierarchy":
+        assert statuses[0].hierarchy_state == "awaiting_start"
+    else:
+        assert statuses[0].editorial_state == "awaiting_start"
 
 
 @pytest.mark.parametrize("stale_replay_last", (False, True))
