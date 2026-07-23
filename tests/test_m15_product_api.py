@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -22,6 +23,7 @@ from renpy_story_mapper.narrative_map.provider import (
     PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
+    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
     WholeScopeProviderSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
@@ -146,6 +148,115 @@ def test_shipped_launcher_wires_durable_stage_h_without_constructing_provider(
     assert prepared["manifest_id"]
     assert status["state"] == "awaiting_hierarchy_consent"
     assert provider_constructions == 0
+
+
+def test_stage_h_projects_complete_story_authority_without_durable_text(
+    tmp_path: Path,
+) -> None:
+    _source, project_path = _project(tmp_path)
+
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        scope_id, payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+
+        projected_units = payload["units"]
+        projected_evidence = payload["evidence"]
+        projected_locks = payload["hard_locks"]
+        assert isinstance(projected_units, list)
+        assert isinstance(projected_evidence, list)
+        assert isinstance(projected_locks, list)
+
+        assert projected_units == [
+            {
+                "unit_id": unit.unit_id,
+                "sequence_id": unit.sequence_id,
+                "ordinal": unit.ordinal,
+                "story_atom_id": unit.story_atom_id,
+                "story_locator": unit.story_locator.to_dict(),
+                "technical_context_atom_ids": list(unit.technical_context_atom_ids),
+                "node_ids": list(unit.node_ids),
+                "evidence_ids": list(unit.evidence_ids),
+                "speaker_ids": list(unit.speaker_ids),
+                "context_ids": list(unit.context_ids),
+                "lane_id": unit.lane_id,
+                "call_occurrence_id": unit.call_occurrence_id,
+                "call_occurrence_path": list(unit.call_occurrence_path),
+                "call_site_path": list(unit.call_site_path),
+                "loop_id": unit.loop_id,
+                "parent_choice_id": unit.parent_choice_id,
+                "parent_arm_id": unit.parent_arm_id,
+                "entry_node_id": unit.entry_node_id,
+                "exit_node_id": unit.exit_node_id,
+                "incident_edge_ids": list(unit.incident_edge_ids),
+            }
+            for unit in inputs.units
+        ]
+        assert projected_evidence == [
+            record.to_prompt_dict()
+            for unit in inputs.units
+            for record in inputs.evidence_by_unit[unit.unit_id]
+        ]
+        evidence_by_unit = {
+            unit.unit_id: [
+                item
+                for item in projected_evidence
+                if isinstance(item, dict) and item.get("unit_id") == unit.unit_id
+            ]
+            for unit in inputs.units
+        }
+        assert all(
+            tuple(item["evidence_id"] for item in evidence_by_unit[unit.unit_id])
+            == unit.evidence_ids
+            for unit in inputs.units
+        )
+        assert projected_locks == [
+            {
+                "lock_id": lock.lock_id,
+                "kind": lock.kind.value,
+                "unit_ids": list(lock.unit_ids),
+                "left_unit_id": lock.left_unit_id,
+                "right_unit_id": lock.right_unit_id,
+                "choice_id": lock.choice_id,
+                "arm_ids": list(lock.arm_ids),
+            }
+            for lock in hard_locks
+        ]
+        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v2")
+
+        evidence_ids = tuple(
+            item["evidence_id"]
+            for item in projected_evidence
+            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+        )
+        characters = tuple(
+            dict.fromkeys(speaker for unit in inputs.units for speaker in unit.speaker_ids)
+        )
+        preparation = service.prepare_whole_scope_hierarchy(
+            inputs.units[0].authority,
+            scope_id,
+            tuple(item.unit_id for item in inputs.units),
+            payload,
+            known_evidence_ids=evidence_ids,
+            known_characters=characters,
+            profile=m15_provider_profile(),
+            run_id="stage-h-transient-payload-regression",
+            source_hash=inputs.source_hash,
+            correction_id=M15_WHOLE_SCOPE_CORRECTION_ID,
+            timeout_seconds=900.0,
+        )
+        durable = json.dumps(
+            {
+                "build": repository.read_whole_scope_build(),
+                "logical_records": repository.read_whole_scope_logical_records(),
+            },
+            sort_keys=True,
+        )
+
+    assert preparation.job.payload["evidence"] == projected_evidence
+    assert '"evidence"' not in durable
+    assert '"text"' not in durable
 
 
 class _WholeScopeProductFakeProvider(_ProductFakeProvider):
