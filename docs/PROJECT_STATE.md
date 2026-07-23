@@ -75,6 +75,15 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   acceptance cases with zero provider calls and zero game execution. Live Stage H/E, private
   semantic review, real Chrome, Release, screenshots/user approval, push/checks, and PR readiness
   remain pending.
+- Stage H zero-submit preparation: the supported product path opened an isolated copy of the exact
+  private Day 1 project and prepared sterile manifest `consent_da4aecc72b5dfb3fb4523c27` for build
+  `whole_scope_build_83b5644d73e7b0ba4e026b5f`. It binds one hierarchy job to source
+  `e66a736f...`, authority `ff90b999...`, input `93c4d290...`, prompt `6dc49699...`, schema
+  `ca333eea...`, `gpt-5.6-sol` Medium with fast mode off, maximum two calls including one targeted
+  repair, and expiry `2026-07-23T18:11:54.030401+00:00`. Provider constructions, calls,
+  reservations, and tokens are zero. The sterile preparation artifact is outside Git with SHA-256
+  `CBF4441BEF6B25FCA9F39A48679FFF368D03CF9B8DDD76F70F49A27F79354A22`. Exact user consent is
+  required before any Stage H transmission.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
