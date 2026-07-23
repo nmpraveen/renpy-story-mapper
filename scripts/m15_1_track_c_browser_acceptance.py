@@ -13,11 +13,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 from urllib.parse import urlsplit
 
 from renpy_story_mapper.project import create_ingested_project
 from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.contracts import JsonValue
 from renpy_story_mapper.web.security import SessionSecurity
 from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
 from renpy_story_mapper.web.state import UserStateStore
@@ -42,11 +43,140 @@ def _driver() -> Any:
 DRIVER = _driver()
 
 
-def _exercise_product_prepare_cancel(
+class _FrozenWholeScopeLifecycle:
+    """Provider-free Stage H/E lifecycle used only by the generalized browser harness."""
+
+    HIERARCHY_MANIFEST_ID: Final = "hierarchy_manifest_synthetic"
+    HIERARCHY_CONSENT_ID: Final = "hierarchy_consent_synthetic"
+    EDITORIAL_MANIFEST_ID: Final = "editorial_manifest_synthetic"
+    EDITORIAL_CONSENT_ID: Final = "editorial_consent_synthetic"
+
+    def __init__(self) -> None:
+        self.state = "not_started"
+        self.stage: str | None = None
+        self.calls: list[str] = []
+
+    def _manifest(self, stage: str) -> dict[str, object]:
+        hierarchy = stage == "hierarchy"
+        manifest_id = (
+            self.HIERARCHY_MANIFEST_ID if hierarchy else self.EDITORIAL_MANIFEST_ID
+        )
+        consent_id = (
+            self.HIERARCHY_CONSENT_ID if hierarchy else self.EDITORIAL_CONSENT_ID
+        )
+        return {
+            "manifest_id": manifest_id,
+            "consent_id": consent_id,
+            "expires_at": "2030-01-01T00:00:00Z",
+            "job_count": 1,
+            "source_hash": "source_synthetic",
+            "authority_hash": "authority_synthetic",
+            "correction_hash": "correction_synthetic",
+            "prompt_hash": f"prompt_{stage}_synthetic",
+            "schema_hash": f"schema_{stage}_synthetic",
+            "membership_hash": (
+                "membership_pending" if hierarchy else "membership_frozen_synthetic"
+            ),
+            "input_hash": f"input_{stage}_synthetic",
+            "privacy_scope": "synthetic_only",
+            "provider": {
+                "requested_model": "gpt-5.6-sol",
+                "resolved_model": "gpt-5.6-sol",
+                "settings": {
+                    "model_reasoning_effort": "medium",
+                    "fast_mode": False,
+                },
+            },
+            "limits": {
+                "max_provider_calls": 1,
+                "max_input_bytes": 4096,
+                "max_output_bytes": 4096,
+                "timeout_seconds": 120,
+                "max_concurrency": 1,
+            },
+        }
+
+    def _response(self, stage: str, *, requires_confirmation: bool = False) -> dict[str, object]:
+        manifest = self._manifest(stage)
+        return {
+            **manifest,
+            "manifest": dict(manifest),
+            "state": self.state,
+            "requires_confirmation": requires_confirmation,
+        }
+
+    def __call__(
+        self,
+        action: str,
+        body: dict[str, JsonValue],
+    ) -> dict[str, object]:
+        self.calls.append(action)
+        if action == "prepare_hierarchy":
+            self.stage = "hierarchy"
+            self.state = "awaiting_hierarchy_consent"
+            return self._response("hierarchy", requires_confirmation=True)
+        if action == "start_hierarchy":
+            if self.state != "awaiting_hierarchy_consent":
+                raise ValueError("hierarchy start requires its prepared consent state")
+            if body.get("manifest_id") != self.HIERARCHY_MANIFEST_ID:
+                raise ValueError("the hierarchy start must use its exact frozen manifest")
+            self.stage = "hierarchy"
+            self.state = "hierarchy_running"
+            return self._response("hierarchy")
+        if action == "prepare_editorial":
+            if self.state != "hierarchy_frozen":
+                raise ValueError("editorial preparation requires frozen hierarchy membership")
+            self.stage = "editorial"
+            self.state = "awaiting_editorial_consent"
+            return self._response("editorial", requires_confirmation=True)
+        if action == "start_editorial":
+            if self.state != "awaiting_editorial_consent":
+                raise ValueError("editorial start requires its prepared consent state")
+            if body.get("manifest_id") != self.EDITORIAL_MANIFEST_ID:
+                raise ValueError("the editorial start must use its exact frozen manifest")
+            self.stage = "editorial"
+            self.state = "editorial_running"
+            return self._response("editorial")
+        if action == "status":
+            if self.state == "hierarchy_running":
+                self.state = "hierarchy_frozen"
+            elif self.state == "editorial_running":
+                self.state = "complete"
+            if self.stage is None:
+                return {"state": self.state}
+            return self._response(self.stage)
+        if action == "cancel":
+            self.state = "cancelled"
+            if self.stage is None:
+                return {"state": self.state}
+            return self._response(self.stage)
+        if action in {"resume", "retry"}:
+            if self.stage is None:
+                return {"state": self.state}
+            return self._response(self.stage)
+        raise ValueError(f"unsupported whole-scope browser action: {action}")
+
+
+def _product_api(
+    state_path: Path,
+    forbidden_provider: Any,
+    whole_scope_controller: _FrozenWholeScopeLifecycle,
+) -> ProjectApi:
+    return ProjectApi(
+        _NoDialogs(),
+        state_store=UserStateStore(state_path),
+        m07_provider_factory=forbidden_provider,
+        m13_provider_factory=forbidden_provider,
+        m15_provider_factory=forbidden_provider,
+        m15_whole_scope_controller=whole_scope_controller,
+    )
+
+
+def _exercise_product_whole_scope_lifecycle(
     browser: Path,
     origin: str,
 ) -> dict[str, object]:
-    """Exercise the real Python API from Chrome without granting provider consent."""
+    """Exercise the real Stage H/E controller routes from Chrome without a provider."""
 
     with tempfile.TemporaryDirectory(prefix="rsm-m15-1-product-browser-", ignore_cleanup_errors=True) as temporary:
         process, session = DRIVER._session(browser, 100, Path(temporary))
@@ -79,11 +209,13 @@ def _exercise_product_prepare_cancel(
                 "!document.querySelector('#confirmStoryMapStage').disabled"
             )
             preview = session.evaluate(
-                "(()=>({"
+                "import('./app.js').then(m=>({"
                 "state:document.querySelector('#storyMapBuildStatus').textContent,"
                 "facts:document.querySelector('#storyMapConsentFacts').textContent,"
-                "confirmEnabled:!document.querySelector('#confirmStoryMapStage').disabled"
-                "}))()"
+                "confirmEnabled:!document.querySelector('#confirmStoryMapStage').disabled,"
+                "manifest:m.state.storyMapBuild.manifest_id,"
+                "consent:m.state.storyMapBuild.consent_id"
+                "}))"
             )
             session.evaluate("document.querySelector('#cancelStoryMapConsent').click()")
             session.wait("!document.querySelector('#cancelStoryMapBuild').hidden")
@@ -93,7 +225,40 @@ def _exercise_product_prepare_cancel(
                 "import('./app.js').then(m=>({state:m.state.storyMapBuild.state,"
                 "manifest:m.state.storyMapBuild.manifest_id||null}))"
             )
-            return {"preview": preview, "cancelled": cancelled}
+            session.evaluate("document.querySelector('#prepareBoundaries').click()")
+            session.wait("document.querySelector('#storyMapConsentDialog').open")
+            session.evaluate("document.querySelector('#confirmStoryMapStage').click()")
+            session.wait("import('./app.js').then(m=>m.state.storyMapBuild?.state==='hierarchy_frozen')")
+            hierarchy_frozen = session.evaluate(
+                "import('./app.js').then(m=>({state:m.state.storyMapBuild.state,"
+                "manifest:m.state.storyMapBuild.manifest_id,consent:m.state.storyMapBuild.consent_id}))"
+            )
+            session.evaluate("document.querySelector('#prepareSummaries').click()")
+            session.wait(
+                "document.querySelector('#storyMapConsentDialog').open&&"
+                "!document.querySelector('#confirmStoryMapStage').disabled"
+            )
+            editorial_preview = session.evaluate(
+                "import('./app.js').then(m=>({"
+                "state:document.querySelector('#storyMapBuildStatus').textContent,"
+                "facts:document.querySelector('#storyMapConsentFacts').textContent,"
+                "confirmEnabled:!document.querySelector('#confirmStoryMapStage').disabled,"
+                "manifest:m.state.storyMapBuild.manifest_id,"
+                "consent:m.state.storyMapBuild.consent_id}))"
+            )
+            session.evaluate("document.querySelector('#confirmStoryMapStage').click()")
+            session.wait("import('./app.js').then(m=>m.state.storyMapBuild?.state==='complete')")
+            complete = session.evaluate(
+                "import('./app.js').then(m=>({state:m.state.storyMapBuild.state,"
+                "manifest:m.state.storyMapBuild.manifest_id,consent:m.state.storyMapBuild.consent_id}))"
+            )
+            return {
+                "hierarchy_preview": preview,
+                "hierarchy_frozen": hierarchy_frozen,
+                "editorial_preview": editorial_preview,
+                "complete": complete,
+                "cancelled": cancelled,
+            }
         finally:
             session.close()
             process.terminate()
@@ -238,7 +403,12 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
                 "armLayouts:arms.map(a=>({columns:getComputedStyle(a).gridTemplateColumns.split(' ').filter(Boolean).length,choiceWidth:a.closest('.story-choice').getBoundingClientRect().width})),boxes,ids:buttons.map(b=>b.dataset.elementId),"
                 "nested:!!flow.querySelector('[data-arm-id=outer_continue] .story-choice'),text:flow.textContent};})()"
             )
-            expected_ids = {item["id"] for item in _payload()["nodes"]} | {item["id"] for item in _payload()["edges"]}  # type: ignore[index]
+            frozen_payload = _payload()
+            payload_nodes = cast(list[dict[str, object]], frozen_payload["nodes"])
+            payload_edges = cast(list[dict[str, object]], frozen_payload["edges"])
+            expected_ids = {str(item["id"]) for item in payload_nodes} | {
+                str(item["id"]) for item in payload_edges
+            }
             observed_ids = set(geometry["ids"])
             if observed_ids != expected_ids or len(geometry["ids"]) != len(expected_ids):
                 raise AssertionError(f"Detail/Evidence mapping is not exhaustive and unique: {expected_ids ^ observed_ids}")
@@ -309,46 +479,53 @@ def _capture(browser: Path, origin: str, output: Path, label: str) -> dict[str, 
             session.evaluate(
                 "import('./app.js').then(m=>{"
                 f"const manifest={json.dumps(manifest)};"
-                "m.api.prepareStoryBoundaries=async()=>({...manifest,state:'awaiting_boundary_consent',manifest_id:'boundary_synthetic'});"
-                "m.api.startStoryBoundaries=async manifest_id=>({...manifest,state:'boundaries_running',manifest_id});"
-                "m.api.storyMapBuildStatus=async()=>{window.__m15StoryPolls=(window.__m15StoryPolls||0)+1;return {...manifest,state:'membership_frozen'};};"
-                "m.api.prepareStorySummaries=async()=>({...manifest,state:'awaiting_summary_consent',manifest_id:'summary_synthetic'});"
+                "const hierarchy={...manifest,prompt_hash:'prompt_hierarchy_synthetic',schema_hash:'schema_hierarchy_synthetic',input_hash:'input_hierarchy_synthetic',manifest_id:'hierarchy_manifest_synthetic',consent_id:'hierarchy_consent_synthetic'};"
+                "const editorial={...manifest,prompt_hash:'prompt_editorial_synthetic',schema_hash:'schema_editorial_synthetic',input_hash:'input_editorial_synthetic',manifest_id:'editorial_manifest_synthetic',consent_id:'editorial_consent_synthetic'};"
+                "window.__m15StoryStage='not_started';window.__m15StoryPolls=0;"
+                "m.api.prepareStoryHierarchy=async()=>({...hierarchy,state:'awaiting_hierarchy_consent',requires_confirmation:true});"
+                "m.api.startStoryHierarchy=async manifest_id=>{if(manifest_id!==hierarchy.manifest_id)throw new Error('Hierarchy manifest drift');window.__m15StoryStage='hierarchy_running';return {...hierarchy,state:'hierarchy_running'};};"
+                "m.api.prepareStoryEditorial=async()=>({...editorial,state:'awaiting_editorial_consent',requires_confirmation:true});"
+                "m.api.startStoryEditorial=async manifest_id=>{if(manifest_id!==editorial.manifest_id)throw new Error('Editorial manifest drift');window.__m15StoryStage='editorial_running';return {...editorial,state:'editorial_running'};};"
+                "m.api.storyMapBuildStatus=async()=>{window.__m15StoryPolls+=1;if(window.__m15StoryStage==='hierarchy_running')window.__m15StoryStage='hierarchy_frozen';else if(window.__m15StoryStage==='editorial_running')window.__m15StoryStage='complete';const active=window.__m15StoryStage.startsWith('editorial')||window.__m15StoryStage==='complete'?editorial:hierarchy;return {...active,state:window.__m15StoryStage};};"
                 "m.state.page.build_state='not_started';m.state.storyMapBuild=null;m.renderMap();"
                 "document.querySelector('#buildStoryMap').click();document.querySelector('#prepareBoundaries').click();return true;})"
             )
             session.wait("document.querySelector('#storyMapConsentDialog').open")
-            boundary_consent = session.evaluate(
+            hierarchy_consent = session.evaluate(
                 "(()=>({title:document.querySelector('#storyMapConsentTitle').textContent,text:document.querySelector('#storyMapConsentFacts').textContent,disabled:document.querySelector('#confirmStoryMapStage').disabled}))()"
             )
             reprepare_enabled = session.evaluate("document.querySelector('#cancelStoryMapConsent').click();!document.querySelector('#prepareBoundaries').disabled")
             if not reprepare_enabled:
-                raise AssertionError("Cancelling a zero-submit boundary preview prevented re-review")
+                raise AssertionError("Cancelling a zero-submit hierarchy preview prevented re-review")
             session.evaluate("document.querySelector('#prepareBoundaries').click()")
             session.wait("document.querySelector('#storyMapConsentDialog').open")
             session.evaluate("document.querySelector('#confirmStoryMapStage').click()")
-            session.wait("import('./app.js').then(m=>window.__m15StoryPolls===1&&m.state.storyMapBuild?.state==='membership_frozen')")
-            lifecycle = session.evaluate("import('./app.js').then(m=>({polls:window.__m15StoryPolls,state:m.state.storyMapBuild.state,summaryEnabled:!document.querySelector('#prepareSummaries').disabled}))")
-            if lifecycle != {"polls": 1, "state": "membership_frozen", "summaryEnabled": True}:
-                raise AssertionError(f"Confirmed boundary build did not poll into the summary stage: {lifecycle}")
+            session.wait("import('./app.js').then(m=>window.__m15StoryPolls===1&&m.state.storyMapBuild?.state==='hierarchy_frozen')")
+            hierarchy_lifecycle = session.evaluate("import('./app.js').then(m=>({polls:window.__m15StoryPolls,state:m.state.storyMapBuild.state,editorialEnabled:!document.querySelector('#prepareSummaries').disabled}))")
+            if hierarchy_lifecycle != {"polls": 1, "state": "hierarchy_frozen", "editorialEnabled": True}:
+                raise AssertionError(f"Confirmed hierarchy build did not poll into the editorial stage: {hierarchy_lifecycle}")
             session.evaluate("document.querySelector('#prepareSummaries').click()")
             session.wait("document.querySelector('#storyMapConsentDialog').open")
-            summary_consent = session.evaluate(
+            editorial_consent = session.evaluate(
                 "(()=>({title:document.querySelector('#storyMapConsentTitle').textContent,text:document.querySelector('#storyMapConsentFacts').textContent,disabled:document.querySelector('#confirmStoryMapStage').disabled}))()"
             )
             required_consent_text = ("Source", "Authority", "Correction", "Prompt / schema", "Membership", "Provider profile", "Privacy scope", "Resource ceilings")
-            if boundary_consent["disabled"] or summary_consent["disabled"] or any(token not in boundary_consent["text"] or token not in summary_consent["text"] for token in required_consent_text):
-                raise AssertionError(f"Two-stage consent did not expose every exact bound fact: {boundary_consent}, {summary_consent}")
-            if boundary_consent["title"] == summary_consent["title"] or "boundary_synthetic" not in boundary_consent["text"] or "summary_synthetic" not in summary_consent["text"]:
-                raise AssertionError("Boundary and frozen-summary consent previews were not distinct")
+            if hierarchy_consent["disabled"] or editorial_consent["disabled"] or any(token not in hierarchy_consent["text"] or token not in editorial_consent["text"] for token in required_consent_text):
+                raise AssertionError(f"Two-stage consent did not expose every exact bound fact: {hierarchy_consent}, {editorial_consent}")
+            if hierarchy_consent["title"] == editorial_consent["title"] or "hierarchy_manifest_synthetic" not in hierarchy_consent["text"] or "editorial_manifest_synthetic" not in editorial_consent["text"]:
+                raise AssertionError("Hierarchy and editorial consent previews were not distinct")
+            session.evaluate("document.querySelector('#confirmStoryMapStage').click()")
+            session.wait("import('./app.js').then(m=>window.__m15StoryPolls===2&&m.state.storyMapBuild?.state==='complete')")
+            editorial_lifecycle = session.evaluate("import('./app.js').then(m=>({polls:window.__m15StoryPolls,state:m.state.storyMapBuild.state}))")
             session.evaluate(
-                "import('./app.js').then(m=>{document.querySelector('#cancelStoryMapConsent').click();document.querySelector('#closeStoryMapBuild').click();"
-                "const states=['boundaries_running','membership_frozen'];window.__m15ReopenPolls=0;"
+                "import('./app.js').then(m=>{document.querySelector('#closeStoryMapBuild').click();"
+                "const states=['hierarchy_running','hierarchy_frozen'];window.__m15ReopenPolls=0;"
                 "m.api.storyMapBuildStatus=async()=>{window.__m15ReopenPolls+=1;return {...m.state.storyMapBuild,state:states.shift()};};"
                 "m.state.storyMapBuild=null;return m.loadStoryMapBuildStatus();})"
             )
-            session.wait("import('./app.js').then(m=>window.__m15ReopenPolls===2&&m.state.storyMapBuild?.state==='membership_frozen')")
+            session.wait("import('./app.js').then(m=>window.__m15ReopenPolls===2&&m.state.storyMapBuild?.state==='hierarchy_frozen')")
             reopen = session.evaluate("import('./app.js').then(m=>({polls:window.__m15ReopenPolls,state:m.state.storyMapBuild.state}))")
-            consent = {"boundaries": boundary_consent, "summaries": summary_consent, "lifecycle": lifecycle, "reopen": reopen, "cancel_reprepare": reprepare_enabled}
+            consent = {"hierarchy": hierarchy_consent, "editorial": editorial_consent, "hierarchy_lifecycle": hierarchy_lifecycle, "editorial_lifecycle": editorial_lifecycle, "reopen": reopen, "cancel_reprepare": reprepare_enabled}
             session.evaluate("import('./app.js').then(m=>{m.state.page.build_state='complete';m.state.storyMapBuild=null;m.renderMap();return true;})")
             session.evaluate("window.scrollTo(0,0);document.querySelector('#mapLayout').scrollTop=0")
             map_path = output / f"m15-1-story-map-{label}.png"
@@ -413,6 +590,7 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
 
     with tempfile.TemporaryDirectory(prefix="rsm-m15-1-server-") as temporary:
         temporary_path = Path(temporary)
+        whole_scope_controller = _FrozenWholeScopeLifecycle()
         source = temporary_path / "game"
         source.mkdir()
         (source / "story.rpy").write_bytes(
@@ -420,19 +598,17 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
         )
         project_path = temporary_path / "browser-product.rsmproj"
         create_ingested_project(project_path, source).close()
-        api = ProjectApi(
-            _NoDialogs(),
-            state_store=UserStateStore(temporary_path / "state.json"),
-            m07_provider_factory=forbidden_provider,
-            m13_provider_factory=forbidden_provider,
-            m15_provider_factory=forbidden_provider,
+        api = _product_api(
+            temporary_path / "state.json",
+            forbidden_provider,
+            whole_scope_controller,
         )
         api._retain_project_path(project_path, source)
         server = LocalWebServer("127.0.0.1", 0, api, static_root=STATIC, security=SessionSecurity("m15-1-session", "m15-1-csrf"))
         thread = start_in_thread(server)
         try:
             origin = f"http://127.0.0.1:{server.port}/"
-            product_lifecycle = _exercise_product_prepare_cancel(
+            product_lifecycle = _exercise_product_whole_scope_lifecycle(
                 selected_browser,
                 origin,
             )
@@ -447,6 +623,11 @@ def run(output_dir: Path, *, browser: Path | None = None) -> dict[str, object]:
         "status": "passed", "fixture": str(OUTLINE.relative_to(ROOT)).replace("\\", "/"),
         "provider_constructions": 0, "m12_solve_or_destination_requests": 0, "remote_requests": 0,
         "product_lifecycle": product_lifecycle,
+        "whole_scope_controller_calls": whole_scope_controller.calls,
+        "whole_scope_consent_ids": {
+            "hierarchy": whole_scope_controller.HIERARCHY_CONSENT_ID,
+            "editorial": whole_scope_controller.EDITORIAL_CONSENT_ID,
+        },
         "captures": captures,
     }
     report_path = output / "m15-1-track-c-browser-acceptance.json"

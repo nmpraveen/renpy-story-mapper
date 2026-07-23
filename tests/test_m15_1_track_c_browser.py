@@ -4,8 +4,11 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+from renpy_story_mapper.web.contracts import M15_WHOLE_SCOPE_SEMANTIC_ROUTES
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
@@ -16,7 +19,7 @@ def _text(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
-def _module() -> object:
+def _module() -> Any:
     spec = importlib.util.spec_from_file_location("m15_1_track_c_browser_acceptance", HARNESS)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -122,10 +125,90 @@ def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() 
         "m15-1-detail-{label}.png",
         "Expanded Story Map is not a full-page capture",
         "Two-stage consent did not expose every exact bound fact",
-        "_exercise_product_prepare_cancel",
+        "_exercise_product_whole_scope_lifecycle",
         "m15_provider_factory=forbidden_provider",
+        "m15_whole_scope_controller=whole_scope_controller",
+        "m.api.prepareStoryHierarchy=async",
+        "m.api.startStoryHierarchy=async",
+        "m.api.prepareStoryEditorial=async",
+        "m.api.startStoryEditorial=async",
     ):
         assert marker in source
+    for retired_assignment in (
+        "m.api.prepareStoryBoundaries=async",
+        "m.api.startStoryBoundaries=async",
+        "m.api.prepareStorySummaries=async",
+        "m.api.startStorySummaries=async",
+    ):
+        assert retired_assignment not in source
+
+
+def test_browser_harness_wires_provider_free_whole_scope_controller(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    controller_type = module._FrozenWholeScopeLifecycle
+    product_api = module._product_api
+    provider_constructions = 0
+
+    def forbidden_provider(*_args: object, **_kwargs: object) -> object:
+        nonlocal provider_constructions
+        provider_constructions += 1
+        raise AssertionError("The generalized browser lifecycle must remain provider-free")
+
+    controller = controller_type()
+    api = product_api(tmp_path / "state.json", forbidden_provider, controller)
+    try:
+        hierarchy = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        hierarchy_status = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {}
+        )
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        editorial_status = api.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {}
+        )
+    finally:
+        api.close()
+
+    assert hierarchy["manifest_id"] != editorial["manifest_id"]
+    assert hierarchy["consent_id"] != editorial["consent_id"]
+    assert hierarchy_status["state"] == "hierarchy_frozen"
+    assert editorial_status["state"] == "complete"
+    assert controller.calls == [
+        "prepare_hierarchy",
+        "start_hierarchy",
+        "status",
+        "prepare_editorial",
+        "start_editorial",
+        "status",
+    ]
+    assert provider_constructions == 0
 
 
 @pytest.mark.hardware_sensitive
@@ -140,5 +223,7 @@ def test_m15_1_real_browser_track_c(tmp_path: Path) -> None:
     assert report["provider_constructions"] == 0
     assert report["remote_requests"] == 0
     assert report["m12_solve_or_destination_requests"] == 0
-    assert report["product_lifecycle"]["preview"]["confirmEnabled"] is True
+    assert report["product_lifecycle"]["hierarchy_preview"]["confirmEnabled"] is True
+    assert report["product_lifecycle"]["editorial_preview"]["confirmEnabled"] is True
+    assert report["product_lifecycle"]["complete"]["state"] == "complete"
     assert report["product_lifecycle"]["cancelled"]["state"] == "cancelled"
