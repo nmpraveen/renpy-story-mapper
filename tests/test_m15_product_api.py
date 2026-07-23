@@ -413,6 +413,18 @@ def test_stage_h_exhausted_authority_failure_is_sanitized_and_not_retryable(
     assert retried["accounting"]["provider_calls"] == 0
     assert constructions == 1
     assert len(requests) == 2
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        records = repository.list(ProviderJobKind.WHOLE_SCOPE_HIERARCHY)
+        durable_build = repository.read_whole_scope_build()
+        logical_records = repository.read_whole_scope_logical_records()
+    assert len(records) == 1
+    assert records[0].status.value == "failed"
+    assert records[0].result is None
+    assert durable_build is not None
+    assert durable_build["hierarchy_result"] is None
+    assert durable_build["authoritative_hierarchy"] is None
+    assert logical_records == ()
 
 
 def test_stage_h_timeout_recovery_uses_second_attempt_and_cumulative_accounting(

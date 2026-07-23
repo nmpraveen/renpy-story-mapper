@@ -53,6 +53,9 @@ from renpy_story_mapper.narrative_map.validation import (
 )
 
 CancelledCallback = Callable[[], bool]
+WholeScopeHierarchyAuthorityValidator = Callable[
+    [PreparedNarrativeJob, Mapping[str, object]], tuple[ValidationFinding, ...]
+]
 
 
 @dataclass(frozen=True)
@@ -152,10 +155,16 @@ class NarrativeBoundaryWorkflow:
         *,
         consent: NarrativeConsentManifest,
         cancelled: CancelledCallback | None = None,
+        authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         if job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
             raise ValueError("Stage H workflow received a different job kind")
-        return self._run((job,), consent, cancelled or _not_cancelled)
+        return self._run(
+            (job,),
+            consent,
+            cancelled or _not_cancelled,
+            hierarchy_authority_validator=authority_validator,
+        )
 
     def run_whole_scope_editorial_job(
         self,
@@ -175,6 +184,7 @@ class NarrativeBoundaryWorkflow:
         cancelled: CancelledCallback,
         *,
         consumed_provider_calls: int = 0,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         consent.validate_for(jobs, self._profile)
         if (
@@ -202,7 +212,12 @@ class NarrativeBoundaryWorkflow:
             if (
                 record.status is NarrativeJobStatus.VALIDATED
                 and record.result is not None
-                and self._validate_stored(job, record.result, record.provider_identity)
+                and self._validate_stored(
+                    job,
+                    record.result,
+                    record.provider_identity,
+                    hierarchy_authority_validator,
+                )
             ):
                 validated.append(job.job_id)
                 cache_hits += 1
@@ -210,7 +225,12 @@ class NarrativeBoundaryWorkflow:
             cache = self._repository.load_cache(job, self._profile)
             if cache is not None:
                 cached_result, cached_identity, cached_manifest_id = cache
-                if self._validate_stored(job, cached_result, cached_identity):
+                if self._validate_stored(
+                    job,
+                    cached_result,
+                    cached_identity,
+                    hierarchy_authority_validator,
+                ):
                     self._repository.record_validated(
                         job,
                         self._profile,
@@ -244,6 +264,7 @@ class NarrativeBoundaryWorkflow:
                 ),
                 initial_attempt=initial_attempt,
                 cancelled=cancelled,
+                hierarchy_authority_validator=hierarchy_authority_validator,
             )
             provider_calls += outcome.provider_calls
             usages.extend(outcome.usages)
@@ -348,6 +369,7 @@ class NarrativeBoundaryWorkflow:
         maximum_provider_calls: int,
         initial_attempt: int,
         cancelled: CancelledCallback,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None,
     ) -> _JobOutcome:
         findings: tuple[ValidationFinding, ...] = ()
         usages: list[ProviderUsage] = []
@@ -538,7 +560,12 @@ class NarrativeBoundaryWorkflow:
                     "semantic_reinterpretation",
                     False,
                 )
-            result, findings = self._validate_response(job, response.payload, identity)
+            result, findings = self._validate_response(
+                job,
+                response.payload,
+                identity,
+                hierarchy_authority_validator,
+            )
             if result is not None:
                 return _JobOutcome(
                     result,
@@ -551,13 +578,18 @@ class NarrativeBoundaryWorkflow:
                 )
             if local_attempt == 1:
                 locked_semantics = _semantic_lock(job, response.payload, findings)
+        terminal_error = (
+            findings[0].code
+            if job.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY and findings
+            else "invalid_output"
+        )
         return _JobOutcome(
             None,
             last_identity,
             tuple(usages),
             initial_attempt + local_attempt_count - 1,
             provider_calls,
-            "invalid_output",
+            terminal_error,
             False,
         )
 
@@ -601,6 +633,7 @@ class NarrativeBoundaryWorkflow:
         job: PreparedNarrativeJob,
         payload: object,
         identity: BoundaryProviderIdentity,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> tuple[Mapping[str, object] | None, tuple[ValidationFinding, ...]]:
         if job.kind is ProviderJobKind.BOUNDARY:
             if not isinstance(job.subject, BoundaryCandidate):
@@ -658,6 +691,15 @@ class NarrativeBoundaryWorkflow:
                 return None, hierarchy.findings
             normalized = hierarchy.proposal.to_dict()
             normalized.pop("schema", None)
+            if hierarchy_authority_validator is not None:
+                try:
+                    findings = hierarchy_authority_validator(job, normalized)
+                except ValueError:
+                    findings = (
+                        ValidationFinding("hierarchy_authority_invalid", job.job_id),
+                    )
+                if findings:
+                    return None, findings
             return normalized, ()
         if job.kind is ProviderJobKind.WHOLE_SCOPE_EDITORIAL:
             editorial = validate_whole_scope_editorial_response(payload, job)
@@ -684,6 +726,7 @@ class NarrativeBoundaryWorkflow:
         job: PreparedNarrativeJob,
         result: Mapping[str, object],
         identity_payload: Mapping[str, object] | None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> bool:
         if identity_payload is None:
             return False
@@ -703,7 +746,12 @@ class NarrativeBoundaryWorkflow:
         )
         if identity != expected:
             return False
-        normalized, findings = self._validate_response(job, result, identity)
+        normalized, findings = self._validate_response(
+            job,
+            result,
+            identity,
+            hierarchy_authority_validator,
+        )
         return normalized is not None and not findings
 
 
@@ -798,7 +846,7 @@ def _semantic_lock(
         return {}
     finding_codes = {finding.code for finding in findings}
     if job.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
-        return _whole_scope_hierarchy_lock(job, payload)
+        return _whole_scope_hierarchy_lock(job, payload, finding_codes)
     if job.kind is ProviderJobKind.WHOLE_SCOPE_EDITORIAL:
         return _whole_scope_editorial_lock(job, payload)
     if job.kind in {ProviderJobKind.BOUNDARY, ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW}:
@@ -1089,12 +1137,20 @@ def _claim_semantic_projection(
 
 
 def _whole_scope_hierarchy_lock(
-    job: PreparedNarrativeJob, payload: Mapping[str, object]
+    job: PreparedNarrativeJob,
+    payload: Mapping[str, object],
+    finding_codes: set[str],
 ) -> dict[str, JsonValue]:
     validation = validate_whole_scope_hierarchy_response(payload, job)
     locked: dict[str, JsonValue] = {}
     if payload.get("scope_id") == job.subject_id:
         locked["scope_id"] = job.subject_id
+    if finding_codes.intersection(
+        {"hierarchy_authority_invalid", "hierarchy_not_representable"}
+    ):
+        locked["__whole_scope_beat_groups__"] = []
+        locked["__whole_scope_clusters__"] = []
+        return locked
     locked["__whole_scope_beat_groups__"] = [
         {"proposal_key": item.proposal_key, "item": item.to_dict()}
         for item in validation.valid_beat_groups

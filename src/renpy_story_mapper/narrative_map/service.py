@@ -50,6 +50,7 @@ from renpy_story_mapper.narrative_map.semantic_projection import (
 from renpy_story_mapper.narrative_map.workflow import (
     NarrativeBoundaryWorkflow,
     NarrativeWorkflowReport,
+    WholeScopeHierarchyAuthorityValidator,
 )
 
 
@@ -122,6 +123,7 @@ class NarrativeMapService:
         provider: NarrativeMapProvider | None = None,
         consent: NarrativeConsentManifest | None = None,
         cancelled: Callable[[], bool] | None = None,
+        authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         if preparation.stage is not WholeScopeSemanticStage.HIERARCHY:
             raise ValueError("Stage H start requires a Stage H preparation")
@@ -130,6 +132,7 @@ class NarrativeMapService:
             provider=provider,
             consent=consent,
             cancelled=cancelled,
+            hierarchy_authority_validator=authority_validator,
         )
 
     def freeze_whole_scope_hierarchy(
@@ -228,12 +231,14 @@ class NarrativeMapService:
         provider: NarrativeMapProvider | None = None,
         consent: NarrativeConsentManifest | None = None,
         cancelled: Callable[[], bool] | None = None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         return self._whole_scope.resume(
             preparation,
             provider=provider,
             consent=consent,
             cancelled=cancelled,
+            hierarchy_authority_validator=hierarchy_authority_validator,
         )
 
     def retry_whole_scope_semantic_build(
@@ -243,12 +248,14 @@ class NarrativeMapService:
         provider: NarrativeMapProvider | None = None,
         consent: NarrativeConsentManifest | None = None,
         cancelled: Callable[[], bool] | None = None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         return self._whole_scope.retry(
             preparation,
             provider=provider,
             consent=consent,
             cancelled=cancelled,
+            hierarchy_authority_validator=hierarchy_authority_validator,
         )
 
     def read_current_whole_scope_publication(self) -> Mapping[str, object] | None:

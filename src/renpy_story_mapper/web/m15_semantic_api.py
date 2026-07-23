@@ -81,6 +81,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
     HierarchyHardLock,
     HierarchyHardLockKind,
+    ValidatedWholeScopeHierarchy,
     validate_whole_scope_hierarchy_from_authority,
 )
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
@@ -95,6 +96,7 @@ from renpy_story_mapper.narrative_map.semantic_projection import (
 from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_whole_scope_hierarchy_response,
 )
+from renpy_story_mapper.narrative_map.validation import ValidationFinding
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.web.contracts import JsonValue
 
@@ -105,6 +107,7 @@ M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"
 M15_SEMANTIC_MAXIMUM_CONCURRENCY: Final = 1
 M15_SEMANTIC_CONSENT_VALID_FOR: Final = timedelta(hours=1)
+M15_SEMANTIC_STAGE_H_TIMEOUT_SECONDS: Final = 900.0
 
 
 class M15ProviderFactory(Protocol):
@@ -327,6 +330,7 @@ class M15WholeScopeProductController:
                 correction_id=M15_SEMANTIC_CORRECTION_ID,
                 privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
                 valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
+                timeout_seconds=M15_SEMANTIC_STAGE_H_TIMEOUT_SECONDS,
                 replay_existing=True,
                 recover_confirmed=recover_confirmed,
             )
@@ -425,6 +429,44 @@ class M15WholeScopeProductController:
                     preparation.stage, preparation, service=service
                 )
             inputs = refreshed_inputs
+            validated_hierarchies: dict[str, ValidatedWholeScopeHierarchy] = {}
+            hierarchy_authority_validator: (
+                Callable[
+                    [PreparedNarrativeJob, Mapping[str, object]],
+                    tuple[ValidationFinding, ...],
+                ]
+                | None
+            ) = None
+            if preparation.stage is WholeScopeSemanticStage.HIERARCHY:
+                _scope_id, _payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+
+                def validate_current_hierarchy(
+                    job: PreparedNarrativeJob,
+                    result: Mapping[str, object],
+                ) -> tuple[ValidationFinding, ...]:
+                    parsed = validate_whole_scope_hierarchy_response(result, job)
+                    if parsed.proposal is None or not parsed.valid:
+                        return parsed.findings
+                    try:
+                        validated = validate_whole_scope_hierarchy_from_authority(
+                            inputs.canonical,
+                            inputs.scene_model,
+                            parsed.proposal,
+                            hard_locks,
+                            scope_id=preparation.scope_id,
+                            authority=preparation.authority,
+                        )
+                    except ValueError as exc:
+                        code = (
+                            "hierarchy_not_representable"
+                            if "representable" in str(exc)
+                            else "hierarchy_authority_invalid"
+                        )
+                        return (ValidationFinding(code, job.job_id),)
+                    validated_hierarchies[canonical_hash(result)] = validated
+                    return ()
+
+                hierarchy_authority_validator = validate_current_hierarchy
             provider = None if replay_only else _LazyM15Provider(self._provider_factory)
             with self._lock:
                 self._active_provider = provider
@@ -435,6 +477,7 @@ class M15WholeScopeProductController:
                         provider=provider,
                         consent=consent,
                         cancelled=self._cancel_event.is_set,
+                        hierarchy_authority_validator=hierarchy_authority_validator,
                     )
                 elif operation == "retry":
                     report = service.retry_whole_scope_semantic_build(
@@ -442,6 +485,7 @@ class M15WholeScopeProductController:
                         provider=provider,
                         consent=consent,
                         cancelled=self._cancel_event.is_set,
+                        hierarchy_authority_validator=hierarchy_authority_validator,
                     )
                 elif preparation.stage is WholeScopeSemanticStage.HIERARCHY:
                     report = service.start_whole_scope_hierarchy(
@@ -449,6 +493,7 @@ class M15WholeScopeProductController:
                         provider=provider,
                         consent=consent,
                         cancelled=self._cancel_event.is_set,
+                        authority_validator=hierarchy_authority_validator,
                     )
                 else:
                     report = service.start_whole_scope_editorial(
@@ -470,18 +515,11 @@ class M15WholeScopeProductController:
                     record = repository.get(preparation.job.kind, preparation.job.job_id)
                     if record is None or record.result is None:
                         raise ValueError("validated Stage H result is unavailable")
-                    parsed = validate_whole_scope_hierarchy_response(record.result, preparation.job)
-                    if parsed.proposal is None or not parsed.valid:
-                        raise ValueError("validated Stage H result cannot be reconstructed")
-                    _scope_id, _payload, hard_locks = _whole_scope_hierarchy_input(inputs)
-                    validated = validate_whole_scope_hierarchy_from_authority(
-                        inputs.canonical,
-                        inputs.scene_model,
-                        parsed.proposal,
-                        hard_locks,
-                        scope_id=preparation.scope_id,
-                        authority=preparation.authority,
-                    )
+                    validated = validated_hierarchies.get(canonical_hash(record.result))
+                    if validated is None:
+                        return self._stale_preparation(
+                            preparation.stage, preparation, service=service
+                        )
                     service.freeze_whole_scope_hierarchy(
                         preparation,
                         validated,

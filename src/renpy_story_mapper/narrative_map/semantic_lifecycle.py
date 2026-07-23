@@ -67,6 +67,7 @@ from renpy_story_mapper.narrative_map.semantic_validation import (
 from renpy_story_mapper.narrative_map.workflow import (
     NarrativeBoundaryWorkflow,
     NarrativeWorkflowReport,
+    WholeScopeHierarchyAuthorityValidator,
 )
 
 SEMANTIC_BUILD_ENVELOPE = "m15-semantic-build-envelope-v2"
@@ -1597,6 +1598,7 @@ class WholeScopeSemanticLifecycle:
                 or existing.get("confirmed_hierarchy_manifest_id") != consent.manifest_id
                 or "m15_preparation_stale"
                 in cast(list[object], existing.get("failure_codes", []))
+                or 2 in self._repository.whole_scope_reserved_attempts(job.job_id)
             ):
                 raise ValueError("confirmed Stage H preparation is not recoverable")
         elif not exact_existing:
@@ -1774,6 +1776,7 @@ class WholeScopeSemanticLifecycle:
                 or raw.get("confirmed_editorial_manifest_id") != consent.manifest_id
                 or "m15_preparation_stale"
                 in cast(list[object], raw.get("failure_codes", []))
+                or 2 in self._repository.whole_scope_reserved_attempts(job.job_id)
             ):
                 raise ValueError("confirmed Stage E preparation is not recoverable")
         elif exact_existing:
@@ -1847,6 +1850,7 @@ class WholeScopeSemanticLifecycle:
         provider: NarrativeMapProvider | None,
         consent: NarrativeConsentManifest | None,
         cancelled: CancelledCallback | None = None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         raw = self._require_preparation(preparation)
         prefix = preparation.stage.value
@@ -1915,6 +1919,7 @@ class WholeScopeSemanticLifecycle:
                     preparation.job,
                     consent=consent,
                     cancelled=cancelled,
+                    authority_validator=hierarchy_authority_validator,
                 )
             else:
                 report = workflow.run_whole_scope_editorial_job(
@@ -2186,12 +2191,14 @@ class WholeScopeSemanticLifecycle:
         provider: NarrativeMapProvider | None,
         consent: NarrativeConsentManifest | None,
         cancelled: CancelledCallback | None = None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         return self.start(
             preparation,
             provider=provider,
             consent=consent,
             cancelled=cancelled,
+            hierarchy_authority_validator=hierarchy_authority_validator,
         )
 
     def retry(
@@ -2201,12 +2208,14 @@ class WholeScopeSemanticLifecycle:
         provider: NarrativeMapProvider | None,
         consent: NarrativeConsentManifest | None,
         cancelled: CancelledCallback | None = None,
+        hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
         return self.resume(
             preparation,
             provider=provider,
             consent=consent,
             cancelled=cancelled,
+            hierarchy_authority_validator=hierarchy_authority_validator,
         )
 
     def _require_build(
