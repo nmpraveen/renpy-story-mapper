@@ -1505,6 +1505,7 @@ class WholeScopeSemanticLifecycle:
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
         replay_existing: bool = False,
+        recover_confirmed: bool = False,
     ) -> WholeScopeStagePreparation:
         ordered = _whole_scope_strings(ordered_unit_ids, "Stage H unit ID", allow_empty=False)
         evidence = _whole_scope_strings(
@@ -1578,12 +1579,27 @@ class WholeScopeSemanticLifecycle:
             },
         )
         existing = self._repository.read_whole_scope_build()
-        if not (
+        exact_existing = bool(
             replay_existing
             and existing is not None
             and existing.get("build_id") == build_id
             and existing.get("hierarchy_transport_batch_id") == job.job_id
-        ):
+        )
+        if recover_confirmed:
+            if not exact_existing or existing is None:
+                raise ValueError("confirmed Stage H preparation is unavailable")
+            manifest = existing.get("hierarchy_manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("persisted Stage H manifest is unavailable")
+            consent = _restore_manifest(manifest, profile)
+            if (
+                existing.get("hierarchy_state") not in {"cancelled", "failed"}
+                or existing.get("confirmed_hierarchy_manifest_id") != consent.manifest_id
+                or "m15_preparation_stale"
+                in cast(list[object], existing.get("failure_codes", []))
+            ):
+                raise ValueError("confirmed Stage H preparation is not recoverable")
+        elif not exact_existing:
             build: dict[str, object] = {
                 "schema": WHOLE_SCOPE_BUILD_ENVELOPE,
                 "build_id": build_id,
@@ -1620,6 +1636,7 @@ class WholeScopeSemanticLifecycle:
             }
             self._repository.write_whole_scope_build(build)
         else:
+            assert existing is not None
             manifest = existing.get("hierarchy_manifest")
             if not isinstance(manifest, Mapping):
                 raise ValueError("persisted Stage H manifest is unavailable")
@@ -1657,6 +1674,7 @@ class WholeScopeSemanticLifecycle:
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
         replay_existing: bool = False,
+        recover_confirmed: bool = False,
     ) -> WholeScopeStagePreparation:
         frozen_subjects = tuple(subjects)
         if not frozen_subjects:
@@ -1741,7 +1759,24 @@ class WholeScopeSemanticLifecycle:
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
         )
-        if replay_existing and raw.get("editorial_transport_batch_id") == job.job_id:
+        exact_existing = bool(
+            replay_existing and raw.get("editorial_transport_batch_id") == job.job_id
+        )
+        if recover_confirmed:
+            if not exact_existing:
+                raise ValueError("confirmed Stage E preparation is unavailable")
+            manifest = raw.get("editorial_manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("persisted Stage E manifest is unavailable")
+            consent = _restore_manifest(manifest, profile)
+            if (
+                raw.get("editorial_state") not in {"cancelled", "failed"}
+                or raw.get("confirmed_editorial_manifest_id") != consent.manifest_id
+                or "m15_preparation_stale"
+                in cast(list[object], raw.get("failure_codes", []))
+            ):
+                raise ValueError("confirmed Stage E preparation is not recoverable")
+        elif exact_existing:
             manifest = raw.get("editorial_manifest")
             if not isinstance(manifest, Mapping):
                 raise ValueError("persisted Stage E manifest is unavailable")
@@ -2026,7 +2061,7 @@ class WholeScopeSemanticLifecycle:
         exact_hash = semantic_outline_hash(outline)
         if hierarchy_hash is not None and hierarchy_hash != exact_hash:
             raise ValueError("frozen hierarchy hash does not match its exact payload")
-        frozen_subjects, frozen_evidence = _derive_frozen_editorial_authority(
+        frozen_subjects, frozen_evidence = derive_frozen_editorial_authority(
             outline,
             validated_hierarchy.units,
             evidence,
@@ -2044,6 +2079,45 @@ class WholeScopeSemanticLifecycle:
             stage="hierarchy",
             manifest_id=preparation.consent.manifest_id,
             expected_state="validated",
+        )
+        return self.status_required()
+
+    def fence_stale_preparation(
+        self,
+        stage: WholeScopeSemanticStage,
+        preparation: WholeScopeStagePreparation | None = None,
+    ) -> WholeScopeSemanticStatus | None:
+        """Atomically make an unreviewable stage ineligible for recovery."""
+
+        raw = self._repository.read_whole_scope_build()
+        if raw is None:
+            return None
+        prefix = stage.value
+        state = raw.get(f"{prefix}_state")
+        manifest_id = raw.get(f"{prefix}_manifest_id")
+        if (
+            state not in {"awaiting_consent", "awaiting_start", "cancelled", "failed"}
+            or not isinstance(manifest_id, str)
+            or not manifest_id
+        ):
+            return self.status_required()
+        if preparation is not None and (
+            preparation.stage is not stage
+            or raw.get("build_id") != preparation.build_id
+            or raw.get(f"{prefix}_transport_batch_id") != preparation.job.job_id
+            or manifest_id != preparation.consent.manifest_id
+        ):
+            return self.status_required()
+        updated = dict(raw)
+        updated[f"{prefix}_state"] = "failed"
+        updated[f"confirmed_{prefix}_manifest_id"] = None
+        updated["failure_codes"] = ["m15_preparation_stale"]
+        self._repository.write_whole_scope_build_if_stage(
+            updated,
+            expected_build=raw,
+            stage=prefix,
+            manifest_id=manifest_id,
+            expected_state=state,
         )
         return self.status_required()
 
@@ -2574,7 +2648,7 @@ def _validate_stage_e_input(
         raise ValueError("Stage E input identity is not exact")
 
 
-def _derive_frozen_editorial_authority(
+def derive_frozen_editorial_authority(
     outline: SemanticOutline,
     units: Sequence[object],
     evidence: Sequence[Mapping[str, object]],

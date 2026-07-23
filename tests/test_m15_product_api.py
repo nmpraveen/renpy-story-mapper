@@ -499,6 +499,242 @@ def test_whole_scope_stage_e_subject_drift_is_stale_before_any_new_provider_effe
     assert reservations == ()
 
 
+@pytest.mark.parametrize("action", ["resume", "retry"])
+def test_whole_scope_stale_hierarchy_cannot_be_reprepared_by_recovery(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    source, project_path = _project(tmp_path)
+    constructions = 0
+    requests: list[NarrativeMapProviderRequest] = []
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(
+            requests, _whole_scope_hierarchy_payload(project_path)
+        )
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        with Project.open(project_path) as project:
+            build = NarrativeMapRepository(project).read_whole_scope_build()
+            assert build is not None
+            transport_batch_id = str(build["hierarchy_transport_batch_id"])
+        _change_current_m10_m11_authority(source, project_path)
+        stale_start = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": prepared["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        recovered = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES[action],
+            {},
+        )
+        status = api.dispatch("POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {})
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            durable = repository.read_whole_scope_build()
+            reservations = repository.whole_scope_reserved_attempts(transport_batch_id)
+    finally:
+        api.close()
+
+    assert stale_start["state"] == "stale"
+    assert recovered["state"] == "stale"
+    assert recovered["build_id"] is None
+    assert recovered["manifest_id"] is None
+    assert recovered["requires_fresh_preparation"] is True
+    assert recovered["accounting"] == {
+        "provider_calls": 0,
+        "reserved_provider_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_ms": 0,
+        "cache_hits": 0,
+    }
+    assert status["state"] == "failed"
+    assert constructions == 0
+    assert requests == []
+    assert reservations == ()
+    assert durable is not None
+    assert durable["hierarchy_state"] == "failed"
+    assert durable["confirmed_hierarchy_manifest_id"] is None
+    assert durable["failure_codes"] == ["m15_preparation_stale"]
+
+
+@pytest.mark.parametrize("action", ["resume", "retry"])
+def test_whole_scope_stale_editorial_membership_cannot_be_reprepared_by_recovery(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    source, project_path = _project(tmp_path)
+    constructions = 0
+    requests: list[NarrativeMapProviderRequest] = []
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
+
+    def factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(requests, hierarchy_payload)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        hierarchy = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            build = repository.read_whole_scope_build()
+            assert build is not None
+            transport_batch_id = str(build["editorial_transport_batch_id"])
+            drifted = deepcopy(dict(build))
+            subjects = drifted["frozen_editorial_subjects"]
+            assert isinstance(subjects, list) and isinstance(subjects[0], dict)
+            subjects[0]["membership_hash"] = "synthetic-membership-mismatch"
+            repository.write_whole_scope_build(drifted)
+        stale_start = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        recovered = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES[action],
+            {},
+        )
+        status = api.dispatch("POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {})
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            durable = repository.read_whole_scope_build()
+            reservations = repository.whole_scope_reserved_attempts(transport_batch_id)
+    finally:
+        api.close()
+
+    assert stale_start["state"] == "stale"
+    assert recovered["state"] == "stale"
+    assert recovered["build_id"] is None
+    assert recovered["manifest_id"] is None
+    assert recovered["requires_fresh_preparation"] is True
+    assert recovered["accounting"] == {
+        "provider_calls": 0,
+        "reserved_provider_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_ms": 0,
+        "cache_hits": 0,
+    }
+    assert status["state"] == "failed"
+    assert constructions == 1
+    assert len(requests) == 1
+    assert reservations == ()
+    assert durable is not None
+    assert durable["editorial_state"] == "failed"
+    assert durable["confirmed_editorial_manifest_id"] is None
+    assert durable["failure_codes"] == ["m15_preparation_stale"]
+
+
+def test_whole_scope_stage_e_rejects_only_authoritative_hierarchy_payload_drift(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    constructions = 0
+    requests: list[NarrativeMapProviderRequest] = []
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
+
+    def factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(requests, hierarchy_payload)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        hierarchy = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            build = repository.read_whole_scope_build()
+            assert build is not None
+            transport_batch_id = str(build["editorial_transport_batch_id"])
+            drifted = deepcopy(dict(build))
+            hierarchy_authority = drifted["authoritative_hierarchy"]
+            assert isinstance(hierarchy_authority, dict)
+            hierarchy_authority["schema"] = "synthetic-hierarchy-mismatch"
+            repository.write_whole_scope_build(drifted)
+        stale = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        with Project.open(project_path) as project:
+            repository = NarrativeMapRepository(project)
+            reservations = repository.whole_scope_reserved_attempts(transport_batch_id)
+            publication = repository.read_whole_scope_current()
+    finally:
+        api.close()
+
+    assert stale["state"] == "stale"
+    assert stale["requires_fresh_preparation"] is True
+    assert stale["accounting"]["reserved_provider_calls"] == 0
+    assert constructions == 1
+    assert len(requests) == 1
+    assert reservations == ()
+    assert publication is None
+
+
 def test_whole_scope_lazy_provider_preserves_concurrent_cancellation(tmp_path: Path) -> None:
     source, project_path = _project(tmp_path)
     requests: list[NarrativeMapProviderRequest] = []
@@ -545,6 +781,82 @@ def test_whole_scope_lazy_provider_preserves_concurrent_cancellation(tmp_path: P
     assert cancelled["state"] == "cancelled"
     assert result["state"] == "cancelled"
     assert len(requests) == 1
+
+
+def test_reopened_whole_scope_resume_reconstructs_only_confirmed_cancelled_manifest(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    entered = threading.Event()
+    hierarchy_payload = _whole_scope_hierarchy_payload(project_path)
+
+    def cancellable_factory() -> _CancellableWholeScopeProductProvider:
+        return _CancellableWholeScopeProductProvider(requests, hierarchy_payload, entered)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=cancellable_factory)
+    api._retain_project_path(project_path, source)
+    worker_result: dict[str, object] = {}
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+
+        def start() -> None:
+            worker_result.update(
+                api.dispatch(
+                    "POST",
+                    M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+                    {
+                        "action": "start_hierarchy",
+                        "manifest_id": prepared["manifest_id"],
+                        "confirm_cloud": True,
+                    },
+                )
+            )
+
+        worker = threading.Thread(target=start)
+        worker.start()
+        assert entered.wait(timeout=5)
+        api.dispatch("POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["cancel"], {})
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+    finally:
+        api.close()
+
+    assert worker_result["state"] == "cancelled"
+    with Project.open(project_path) as project:
+        before = NarrativeMapRepository(project).read_whole_scope_build()
+    assert before is not None
+    original_manifest_id = before["hierarchy_manifest_id"]
+    original_transport_id = before["hierarchy_transport_batch_id"]
+
+    reopened = build_project_api(
+        _Dialogs(),
+        m15_provider_factory=lambda: _WholeScopeProductFakeProvider(
+            requests, hierarchy_payload
+        ),
+    )
+    reopened._retain_project_path(project_path, source)
+    try:
+        resumed = reopened.dispatch(
+            "POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["resume"], {}
+        )
+    finally:
+        reopened.close()
+
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        after = repository.read_whole_scope_build()
+        reservations = repository.whole_scope_reserved_attempts(str(original_transport_id))
+    assert resumed["state"] == "hierarchy_frozen"
+    assert len(requests) == 2
+    assert after is not None
+    assert after["hierarchy_manifest_id"] == original_manifest_id
+    assert after["hierarchy_transport_batch_id"] == original_transport_id
+    assert reservations == (1, 2)
 
 
 def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(

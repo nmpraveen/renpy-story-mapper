@@ -39,11 +39,13 @@ from renpy_story_mapper.narrative_map import (
     SemanticStage,
     SemanticStagePreparation,
     SemanticStatusView,
+    assemble_semantic_outline,
     assemble_semantic_outline_from_authority,
     build_all_eligible_gap_candidates,
     build_boundary_windows,
     build_fine_narrative_units,
     build_semantic_quotient_topology,
+    compile_hierarchy_to_gap_decisions,
 )
 from renpy_story_mapper.narrative_map.adapters import bind_m15_authority
 from renpy_story_mapper.narrative_map.contracts import (
@@ -63,6 +65,7 @@ from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
+    PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
     SterileNarrativeMapProvider,
@@ -83,6 +86,11 @@ from renpy_story_mapper.narrative_map.semantic_hierarchy import (
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     WholeScopeLogicalJob,
     WholeScopeStagePreparation,
+    derive_frozen_editorial_authority,
+)
+from renpy_story_mapper.narrative_map.semantic_projection import (
+    semantic_outline_hash,
+    semantic_outline_payload,
 )
 from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_whole_scope_hierarchy_response,
@@ -164,6 +172,14 @@ class M15SemanticInputs:
     @property
     def source_hash(self) -> str:
         return self.canonical.source_generation
+
+
+@dataclass(frozen=True)
+class _FrozenEditorialAuthority:
+    hierarchy_hash: str
+    hierarchy_payload: Mapping[str, object]
+    subjects: tuple[WholeScopeEditorialSubject, ...]
+    evidence: tuple[Mapping[str, object], ...]
 
 
 @dataclass(frozen=True)
@@ -277,11 +293,15 @@ class M15WholeScopeProductController:
             return whole_scope_status_response(status)
         if action in {"resume", "retry"}:
             with self._execution_lock:
-                preparation = self._current_preparation()
-                return self._execute(preparation, operation=action)
+                stage, recovery_preparation = self._current_preparation()
+                if recovery_preparation is None:
+                    return self._stale_preparation(stage, None)
+                return self._execute(recovery_preparation, operation=action)
         raise ValueError("unsupported whole-scope semantic action")
 
-    def _prepare_hierarchy(self) -> WholeScopeStagePreparation:
+    def _prepare_hierarchy(
+        self, *, recover_confirmed: bool = False
+    ) -> WholeScopeStagePreparation:
         with Project.open(self._project_path()) as project:
             inputs = load_m15_semantic_inputs(project)
             service = NarrativeMapService(NarrativeMapRepository(project))
@@ -308,12 +328,15 @@ class M15WholeScopeProductController:
                 privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
                 valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
                 replay_existing=True,
+                recover_confirmed=recover_confirmed,
             )
         with self._lock:
             self._preparations[WholeScopeSemanticStage.HIERARCHY] = preparation
         return preparation
 
-    def _prepare_editorial(self) -> WholeScopeStagePreparation:
+    def _prepare_editorial(
+        self, *, recover_confirmed: bool = False
+    ) -> WholeScopeStagePreparation:
         with Project.open(self._project_path()) as project:
             inputs = load_m15_semantic_inputs(project)
             repository = NarrativeMapRepository(project)
@@ -321,8 +344,11 @@ class M15WholeScopeProductController:
             status = service.whole_scope_semantic_status()
             if status is None or status.hierarchy_state != "frozen" or not status.hierarchy_hash:
                 raise ValueError("Stage E requires the exact frozen Stage H hierarchy")
-            subjects = service.frozen_whole_scope_editorial_subjects()
-            evidence = _whole_scope_editorial_evidence(inputs, subjects)
+            frozen = _reconstruct_frozen_editorial_authority(inputs, repository)
+            if status.hierarchy_hash != frozen.hierarchy_hash:
+                raise ValueError("Stage E hierarchy is stale for current authority")
+            subjects = frozen.subjects
+            evidence = list(frozen.evidence)
             payload = {
                 "schema": M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
                 "scope_id": status.scope_id,
@@ -344,6 +370,7 @@ class M15WholeScopeProductController:
                 privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
                 valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
                 replay_existing=True,
+                recover_confirmed=recover_confirmed,
             )
         with self._lock:
             self._preparations[WholeScopeSemanticStage.EDITORIAL] = preparation
@@ -361,7 +388,9 @@ class M15WholeScopeProductController:
             service = NarrativeMapService(repository)
             inputs = self._current_inputs(preparation, project, repository, service)
             if inputs is None:
-                return self._stale_preparation(preparation.stage, preparation)
+                return self._stale_preparation(
+                    preparation.stage, preparation, service=service
+                )
             status = service.whole_scope_semantic_status()
             prefix_state = (
                 None
@@ -377,11 +406,24 @@ class M15WholeScopeProductController:
                 and prefix_state in {"validated", "frozen", "complete"}
             )
             consent = preparation.consent if replay_only else preparation.granted_consent()
-            if not replay_only and prefix_state == "awaiting_consent":
+            raw = repository.read_whole_scope_build()
+            prefix = preparation.stage.value
+            if operation in {"resume", "retry"} and (
+                replay_only
+                or prefix_state not in {"cancelled", "failed"}
+                or raw is None
+                or raw.get(f"confirmed_{prefix}_manifest_id") != consent.manifest_id
+            ):
+                return self._stale_preparation(
+                    preparation.stage, preparation, service=service
+                )
+            if operation == "start" and not replay_only and prefix_state == "awaiting_consent":
                 service.confirm_whole_scope_consent(preparation, consent)
             refreshed_inputs = self._current_inputs(preparation, project, repository, service)
             if refreshed_inputs is None:
-                return self._stale_preparation(preparation.stage, preparation)
+                return self._stale_preparation(
+                    preparation.stage, preparation, service=service
+                )
             inputs = refreshed_inputs
             provider = None if replay_only else _LazyM15Provider(self._provider_factory)
             with self._lock:
@@ -470,11 +512,20 @@ class M15WholeScopeProductController:
     def _stale_preparation(
         self,
         stage: WholeScopeSemanticStage,
-        preparation: WholeScopeStagePreparation,
+        preparation: WholeScopeStagePreparation | None,
+        *,
+        service: NarrativeMapService | None = None,
     ) -> Mapping[str, object]:
         with self._lock:
-            if self._preparations.get(stage) is preparation:
+            if preparation is None or self._preparations.get(stage) is preparation:
                 self._preparations.pop(stage, None)
+        if service is None:
+            with Project.open(self._project_path()) as project:
+                NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).fence_stale_whole_scope_preparation(stage, preparation)
+        else:
+            service.fence_stale_whole_scope_preparation(stage, preparation)
         return whole_scope_stale_preparation_response(stage)
 
     def _status(self) -> Mapping[str, object]:
@@ -484,7 +535,9 @@ class M15WholeScopeProductController:
             ).whole_scope_semantic_status()
         return whole_scope_status_response(status)
 
-    def _current_preparation(self) -> WholeScopeStagePreparation:
+    def _current_preparation(
+        self,
+    ) -> tuple[WholeScopeSemanticStage, WholeScopeStagePreparation | None]:
         with Project.open(self._project_path()) as project:
             status = NarrativeMapService(
                 NarrativeMapRepository(project)
@@ -496,14 +549,15 @@ class M15WholeScopeProductController:
             if status.editorial_state != "not_started"
             else WholeScopeSemanticStage.HIERARCHY
         )
-        preparation = self._preparations.get(stage)
-        if preparation is not None:
-            return preparation
-        return (
-            self._prepare_editorial()
-            if stage is WholeScopeSemanticStage.EDITORIAL
-            else self._prepare_hierarchy()
-        )
+        try:
+            preparation = (
+                self._prepare_editorial(recover_confirmed=True)
+                if stage is WholeScopeSemanticStage.EDITORIAL
+                else self._prepare_hierarchy(recover_confirmed=True)
+            )
+        except (KeyError, TypeError, ValueError):
+            return stage, None
+        return stage, preparation
 
 
 def _whole_scope_preparation_matches_current(
@@ -593,6 +647,7 @@ def _whole_scope_preparation_matches_current(
         )
     else:
         status = service.whole_scope_semantic_status()
+        frozen = _reconstruct_frozen_editorial_authority(inputs, repository)
         if (
             status is None
             or status.authority != authority
@@ -600,11 +655,11 @@ def _whole_scope_preparation_matches_current(
             or status.correction_id != M15_SEMANTIC_CORRECTION_ID
             or status.scope_id != preparation.scope_id
             or status.hierarchy_state != "frozen"
-            or not status.hierarchy_hash
+            or status.hierarchy_hash != frozen.hierarchy_hash
         ):
             return False
-        subjects = service.frozen_whole_scope_editorial_subjects()
-        evidence = _whole_scope_editorial_evidence(inputs, subjects)
+        subjects = frozen.subjects
+        evidence = list(frozen.evidence)
         payload = {
             "schema": M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
             "scope_id": status.scope_id,
@@ -662,6 +717,7 @@ def _whole_scope_preparation_matches_current(
             and job.known_characters == characters
             and job.membership_hash == status.hierarchy_hash
             and raw.get("hierarchy_hash") == status.hierarchy_hash
+            and raw.get("authoritative_hierarchy") == frozen.hierarchy_payload
             and raw.get("frozen_editorial_subjects")
             == [item.to_dict() for item in subjects]
             and raw.get("frozen_editorial_evidence_hash") == canonical_hash(evidence)
@@ -926,6 +982,153 @@ def _whole_scope_hierarchy_input(
     return scope_id, payload, hard_locks
 
 
+def _whole_scope_hierarchy_job(
+    inputs: M15SemanticInputs,
+) -> tuple[PreparedNarrativeJob, tuple[WholeScopeLogicalJob, ...]]:
+    authority = inputs.units[0].authority
+    scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+    ordered_unit_ids = tuple(item.unit_id for item in inputs.units)
+    evidence_ids = tuple(
+        dict.fromkeys(
+            item.evidence_id
+            for unit_id in ordered_unit_ids
+            for item in inputs.evidence_by_unit[unit_id]
+        )
+    )
+    characters = tuple(
+        dict.fromkeys(speaker for item in inputs.units for speaker in item.speaker_ids)
+    )
+    logical_id = stable_m15_id(
+        "whole_scope_hierarchy_logical_job",
+        {
+            "authority": authority.to_dict(),
+            "scope_id": scope_id,
+            "source_hash": inputs.source_hash,
+            "correction_id": M15_SEMANTIC_CORRECTION_ID,
+            "input_hash": canonical_hash(payload),
+        },
+    )
+    logical_jobs = (
+        WholeScopeLogicalJob(
+            WholeScopeSemanticStage.HIERARCHY,
+            logical_id,
+            "scope",
+            scope_id,
+            None,
+        ),
+    )
+    return (
+        PreparedNarrativeJob(
+            kind=ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            authority=authority,
+            subject=WholeScopeProviderSubject(
+                WholeScopeSemanticStage.HIERARCHY,
+                scope_id,
+                ordered_unit_ids,
+            ),
+            subject_id=scope_id,
+            input_hash=canonical_hash(payload),
+            prompt_version=WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+            response_schema=WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+            payload=cast(dict[str, JsonValue], payload),
+            known_evidence_ids=evidence_ids,
+            known_characters=characters,
+            source_hash=inputs.source_hash,
+            correction_id=M15_SEMANTIC_CORRECTION_ID,
+            privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
+            logical_job_ids=(logical_id,),
+            combined_submission_limit=MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+        ),
+        logical_jobs,
+    )
+
+
+def _reconstruct_frozen_editorial_authority(
+    inputs: M15SemanticInputs,
+    repository: NarrativeMapRepository,
+) -> _FrozenEditorialAuthority:
+    raw = repository.read_whole_scope_build()
+    if raw is None or raw.get("hierarchy_state") != "frozen":
+        raise ValueError("Stage E requires a frozen Stage H build")
+    hierarchy_job, logical_jobs = _whole_scope_hierarchy_job(inputs)
+    record = repository.get(ProviderJobKind.WHOLE_SCOPE_HIERARCHY, hierarchy_job.job_id)
+    if (
+        record is None
+        or record.status is not NarrativeJobStatus.VALIDATED
+        or record.result is None
+        or record.input_hash != hierarchy_job.input_hash
+        or record.subject_id != hierarchy_job.subject_id
+        or record.prompt_version != hierarchy_job.prompt_version
+        or record.response_schema != hierarchy_job.response_schema
+        or record.authority_hash != hierarchy_job.authority.identity
+        or record.profile_hash != canonical_hash(m15_provider_profile().to_dict())
+        or record.consent_manifest_id != raw.get("confirmed_hierarchy_manifest_id")
+        or raw.get("hierarchy_result") != record.result
+    ):
+        raise ValueError("sealed Stage H result is unavailable or stale")
+    hierarchy_result = record.result
+    expected_logical_jobs = [
+        {
+            "stage": item.stage.value,
+            "logical_job_id": item.logical_job_id,
+            "subject_kind": item.subject_kind,
+            "subject_id": item.subject_id,
+            "membership_hash": item.membership_hash,
+        }
+        for item in logical_jobs
+    ]
+    if (
+        raw.get("scope_id") != hierarchy_job.subject_id
+        or raw.get("authority") != hierarchy_job.authority.to_dict()
+        or raw.get("source_hash") != inputs.source_hash
+        or raw.get("correction_id") != M15_SEMANTIC_CORRECTION_ID
+        or raw.get("privacy_scope") != M15_SEMANTIC_PRIVACY_SCOPE
+        or raw.get("hierarchy_transport_batch_id") != hierarchy_job.job_id
+        or raw.get("hierarchy_logical_jobs") != expected_logical_jobs
+    ):
+        raise ValueError("sealed Stage H identity is stale for current authority")
+    parsed = validate_whole_scope_hierarchy_response(hierarchy_result, hierarchy_job)
+    if parsed.proposal is None or not parsed.valid:
+        raise ValueError("sealed Stage H result cannot be reconstructed")
+    scope_id, _payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+    validated = validate_whole_scope_hierarchy_from_authority(
+        inputs.canonical,
+        inputs.scene_model,
+        parsed.proposal,
+        hard_locks,
+        scope_id=scope_id,
+        authority=hierarchy_job.authority,
+    )
+    outline = assemble_semantic_outline(
+        validated.units,
+        validated.candidates,
+        compile_hierarchy_to_gap_decisions(validated),
+        choices=validated.choices,
+    )
+    hierarchy_payload = semantic_outline_payload(outline)
+    hierarchy_hash = semantic_outline_hash(outline)
+    subjects, evidence = derive_frozen_editorial_authority(
+        outline,
+        validated.units,
+        _whole_scope_editorial_evidence_from_inputs(inputs),
+        hierarchy_hash,
+    )
+    if (
+        raw.get("hierarchy_hash") != hierarchy_hash
+        or raw.get("authoritative_hierarchy") != hierarchy_payload
+        or raw.get("frozen_editorial_subjects")
+        != [item.to_dict() for item in subjects]
+        or raw.get("frozen_editorial_evidence_hash") != canonical_hash(evidence)
+    ):
+        raise ValueError("frozen Stage E authority is stale or non-canonical")
+    return _FrozenEditorialAuthority(
+        hierarchy_hash,
+        hierarchy_payload,
+        subjects,
+        tuple(evidence),
+    )
+
+
 def _whole_scope_editorial_evidence_from_inputs(
     inputs: M15SemanticInputs,
 ) -> list[dict[str, object]]:
@@ -941,22 +1144,6 @@ def _whole_scope_editorial_evidence_from_inputs(
             seen[item.evidence_id] = item.text
             values.append({"evidence_id": item.evidence_id, "text": item.text})
     return values
-
-
-def _whole_scope_editorial_evidence(
-    inputs: M15SemanticInputs,
-    subjects: Sequence[WholeScopeEditorialSubject],
-) -> list[dict[str, object]]:
-    expected = tuple(
-        dict.fromkeys(evidence_id for item in subjects for evidence_id in item.evidence_ids)
-    )
-    by_id = {
-        cast(str, item["evidence_id"]): item
-        for item in _whole_scope_editorial_evidence_from_inputs(inputs)
-    }
-    if any(evidence_id not in by_id for evidence_id in expected):
-        raise ValueError("frozen Stage E evidence is stale for current authority")
-    return [dict(by_id[evidence_id]) for evidence_id in expected]
 
 
 def load_m15_semantic_inputs(project: Project) -> M15SemanticInputs:

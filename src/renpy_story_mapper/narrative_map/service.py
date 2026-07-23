@@ -92,6 +92,7 @@ class NarrativeMapService:
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
         replay_existing: bool = False,
+        recover_confirmed: bool = False,
     ) -> WholeScopeStagePreparation:
         return self._whole_scope.prepare_hierarchy(
             authority,
@@ -111,6 +112,7 @@ class NarrativeMapService:
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
             replay_existing=replay_existing,
+            recover_confirmed=recover_confirmed,
         )
 
     def start_whole_scope_hierarchy(
@@ -160,6 +162,7 @@ class NarrativeMapService:
         maximum_output_bytes: int = 2_000_000,
         timeout_seconds: float = 300.0,
         replay_existing: bool = False,
+        recover_confirmed: bool = False,
     ) -> WholeScopeStagePreparation:
         return self._whole_scope.prepare_editorial(
             authority,
@@ -178,6 +181,7 @@ class NarrativeMapService:
             maximum_output_bytes=maximum_output_bytes,
             timeout_seconds=timeout_seconds,
             replay_existing=replay_existing,
+            recover_confirmed=recover_confirmed,
         )
 
     def start_whole_scope_editorial(
@@ -209,6 +213,13 @@ class NarrativeMapService:
 
     def cancel_whole_scope_semantic_build(self) -> WholeScopeSemanticStatus | None:
         return self._whole_scope.cancel()
+
+    def fence_stale_whole_scope_preparation(
+        self,
+        stage: WholeScopeSemanticStage,
+        preparation: WholeScopeStagePreparation | None = None,
+    ) -> WholeScopeSemanticStatus | None:
+        return self._whole_scope.fence_stale_preparation(stage, preparation)
 
     def resume_whole_scope_semantic_build(
         self,
