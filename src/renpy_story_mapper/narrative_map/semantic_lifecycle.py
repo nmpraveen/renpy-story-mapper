@@ -1800,7 +1800,16 @@ class WholeScopeSemanticLifecycle:
         ):
             replayed = dict(raw)
             replayed["cache_hits"] = cast(int, replayed.get("cache_hits", 0)) + 1
-            self._repository.write_whole_scope_build(replayed)
+            if not self._repository.write_whole_scope_build_if_stage(
+                replayed,
+                expected_build=raw,
+                stage=prefix,
+                manifest_id=preparation.consent.manifest_id,
+                expected_state=state,
+            ):
+                return NarrativeWorkflowReport(
+                    (), (), 0, 0, 0, 0, 0, False, (preparation.job.job_id,)
+                )
             return NarrativeWorkflowReport(
                 (preparation.job.job_id,), (), 1, 0, 0, 0, 0, False
             )
@@ -1928,21 +1937,51 @@ class WholeScopeSemanticLifecycle:
         updated["hierarchy_state"] = "frozen"
         updated["hierarchy_hash"] = exact_hash
         updated["authoritative_hierarchy"] = normalized
-        self._repository.write_whole_scope_build(updated)
+        self._repository.write_whole_scope_build_if_stage(
+            updated,
+            expected_build=raw,
+            stage="hierarchy",
+            manifest_id=preparation.consent.manifest_id,
+            expected_state="validated",
+        )
         return self.status_required()
 
     def cancel(self) -> WholeScopeSemanticStatus | None:
         raw = self._repository.read_whole_scope_build()
         if raw is None:
             return None
+        expected_publication = self._repository.read_whole_scope_current()
         updated = dict(raw)
-        if updated.get("editorial_state") in {"awaiting_consent", "awaiting_start", "running"}:
+        stage: str | None = None
+        state: str | None = None
+        if isinstance(updated.get("editorial_state"), str) and updated.get(
+            "editorial_state"
+        ) in {"awaiting_consent", "awaiting_start", "running"}:
+            stage = "editorial"
+            state = cast(str, updated["editorial_state"])
             updated["editorial_state"] = "cancelled"
-        elif updated.get("hierarchy_state") in {"awaiting_consent", "awaiting_start", "running"}:
+        elif isinstance(updated.get("hierarchy_state"), str) and updated.get(
+            "hierarchy_state"
+        ) in {"awaiting_consent", "awaiting_start", "running"}:
+            stage = "hierarchy"
+            state = cast(str, updated["hierarchy_state"])
             updated["hierarchy_state"] = "cancelled"
+        if stage is None or state is None:
+            return self.status_required()
+        manifest_id = raw.get(f"{stage}_manifest_id")
+        if not isinstance(manifest_id, str) or not manifest_id:
+            raise ValueError("whole-scope cancellable stage manifest is unavailable")
         updated["failure_codes"] = ["cancelled"]
-        self._repository.write_whole_scope_build(updated)
-        if self._active_workflow is not None:
+        cancelled = self._repository.write_whole_scope_build_if_stage(
+            updated,
+            expected_build=raw,
+            stage=stage,
+            manifest_id=manifest_id,
+            expected_state=state,
+            check_expected_publication=True,
+            expected_publication=expected_publication,
+        )
+        if cancelled and self._active_workflow is not None:
             self._active_workflow.cancel()
         return self.status_required()
 

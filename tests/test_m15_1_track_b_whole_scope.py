@@ -32,7 +32,9 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
     BoundaryWindow,
 )
+from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeSemanticStatus
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
 from renpy_story_mapper.project import Project
 
@@ -205,6 +207,35 @@ class _BlockingFakeProvider(_FakeProvider):
         return super().submit(request, cancelled)
 
 
+class _PausingTransitionRepository(NarrativeMapRepository):
+    def __init__(
+        self,
+        project: Project,
+        predicate: Callable[[object], bool],
+        entered: Event,
+        release: Event,
+    ) -> None:
+        super().__init__(project)
+        self._predicate = predicate
+        self._entered = entered
+        self._release = release
+
+    def _pause(self, payload: object) -> None:
+        if self._predicate(payload):
+            self._entered.set()
+            assert self._release.wait(5)
+
+    def write_whole_scope_build(self, payload):  # type: ignore[no-untyped-def,override]
+        self._pause(payload)
+        return super().write_whole_scope_build(payload)
+
+    def write_whole_scope_build_if_stage(  # type: ignore[no-untyped-def,override]
+        self, payload, **kwargs
+    ):
+        self._pause(payload)
+        return super().write_whole_scope_build_if_stage(payload, **kwargs)
+
+
 class _FakeSterileRunner:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -230,7 +261,9 @@ class _FakeSterileRunner:
         pass
 
 
-def _prepare_hierarchy(service: NarrativeMapService, *, replay: bool = False):
+def _prepare_hierarchy(
+    service: NarrativeMapService, *, replay: bool = False, run_id: str = "stage-h-run"
+):
     return service.prepare_whole_scope_hierarchy(
         _authority(),
         "scope-day-1",
@@ -239,7 +272,7 @@ def _prepare_hierarchy(service: NarrativeMapService, *, replay: bool = False):
         known_evidence_ids=("evidence-a", "evidence-b"),
         known_characters=("Ava",),
         profile=_profile(),
-        run_id="stage-h-run",
+        run_id=run_id,
         source_hash="source-hash",
         correction_id="m15.1",
         replay_existing=replay,
@@ -543,7 +576,7 @@ def test_concurrent_cancel_is_a_durable_fence_against_provider_completion(
         service.confirm_whole_scope_consent(preparation, consent)
 
     provider = _BlockingFakeProvider(_hierarchy_output())
-    reports: list[object] = []
+    reports: list[NarrativeWorkflowReport] = []
 
     def run_provider() -> None:
         with Project.open(path) as project:
@@ -803,3 +836,272 @@ def test_targeted_repair_may_replace_rejected_editorial_record(tmp_path: Path) -
 
     assert report.validated_job_ids == (preparation.job.job_id,)
     assert report.provider_calls == 2
+
+
+@pytest.mark.parametrize("stage", ("hierarchy", "editorial"))
+@pytest.mark.parametrize("completion_first", (False, True))
+def test_cancel_and_completion_are_atomic_in_both_orders(
+    tmp_path: Path, stage: str, completion_first: bool
+) -> None:
+    path = tmp_path / f"cancel-{stage}-{completion_first}.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        if stage == "hierarchy":
+            preparation = _prepare_hierarchy(service)
+            payload = _hierarchy_output()
+        else:
+            _, hierarchy_hash = _run_valid_hierarchy(service)
+            assert hierarchy_hash is not None
+            preparation = service.prepare_whole_scope_editorial(
+                _authority(),
+                "scope-day-1",
+                hierarchy_hash,
+                _subjects(),
+                _editorial_input(hierarchy_hash),
+                profile=_profile(),
+                run_id="reverse-cancel-editorial",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+            payload = _editorial_output(hierarchy_hash)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+
+    provider = _BlockingFakeProvider(payload)
+    errors: list[BaseException] = []
+    cancel_statuses: list[WholeScopeSemanticStatus | None] = []
+
+    def run_stage() -> None:
+        try:
+            with Project.open(path) as project:
+                service = NarrativeMapService(NarrativeMapRepository(project))
+                if stage == "hierarchy":
+                    service.start_whole_scope_hierarchy(
+                        preparation, provider=provider, consent=consent
+                    )
+                else:
+                    service.start_whole_scope_editorial(
+                        preparation, provider=provider, consent=consent
+                    )
+        except BaseException as exc:
+            errors.append(exc)
+
+    stage_thread = Thread(target=run_stage)
+    stage_thread.start()
+    assert provider.entered.wait(5)
+
+    cancel_thread: Thread | None = None
+    cancel_release = Event()
+    if completion_first:
+        cancel_entered = Event()
+
+        def cancel_late() -> None:
+            try:
+                with Project.open(path) as project:
+                    repository = _PausingTransitionRepository(
+                        project,
+                        lambda value: isinstance(value, dict)
+                        and "cancelled"
+                        in {
+                            value.get("hierarchy_state"),
+                            value.get("editorial_state"),
+                        },
+                        cancel_entered,
+                        cancel_release,
+                    )
+                    cancel_statuses.append(
+                        NarrativeMapService(repository).cancel_whole_scope_semantic_build()
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        cancel_thread = Thread(target=cancel_late)
+        cancel_thread.start()
+        assert cancel_entered.wait(5)
+        provider.release.set()
+        stage_thread.join(5)
+        assert not stage_thread.is_alive()
+        cancel_release.set()
+        cancel_thread.join(5)
+    else:
+        with Project.open(path) as project:
+            cancel_statuses.append(
+                NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).cancel_whole_scope_semantic_build()
+            )
+        provider.release.set()
+        stage_thread.join(5)
+
+    assert not stage_thread.is_alive()
+    assert cancel_thread is None or not cancel_thread.is_alive()
+    assert errors == [] and len(cancel_statuses) == 1
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        status = NarrativeMapService(repository).whole_scope_semantic_status()
+        publication = repository.read_whole_scope_current()
+        logical_records = repository.read_whole_scope_logical_records()
+
+    assert status is not None
+    assert cancel_statuses[0] is not None
+    if completion_first:
+        assert cancel_statuses[0] == status
+    if completion_first:
+        if stage == "hierarchy":
+            assert status.hierarchy_state == "validated"
+            assert publication is None and len(logical_records) == 1
+        else:
+            assert status.editorial_state == "complete"
+            assert publication is not None
+            assert publication["publication_hash"] == status.publication_hash
+            assert len(logical_records) == 3
+    elif stage == "hierarchy":
+        assert cancel_statuses[0].hierarchy_state == "cancelled"
+        assert status.hierarchy_state == "cancelled"
+        assert publication is None and logical_records == ()
+    else:
+        assert cancel_statuses[0].editorial_state == "cancelled"
+        assert status.editorial_state == "cancelled"
+        assert publication is None and len(logical_records) == 1
+
+
+@pytest.mark.parametrize("stale_replay_last", (False, True))
+def test_zero_submit_replay_cannot_overwrite_changed_preparation(
+    tmp_path: Path, stale_replay_last: bool
+) -> None:
+    path = tmp_path / f"replay-preparation-{stale_replay_last}.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        _run_valid_hierarchy(service)
+        replay = _prepare_hierarchy(service, replay=True)
+
+    reports: list[NarrativeWorkflowReport] = []
+    errors: list[BaseException] = []
+    replay_release = Event()
+    replay_thread: Thread | None = None
+    if stale_replay_last:
+        replay_entered = Event()
+
+        def replay_late() -> None:
+            try:
+                with Project.open(path) as project:
+                    repository = _PausingTransitionRepository(
+                        project,
+                        lambda value: isinstance(value, dict)
+                        and value.get("hierarchy_state") == "frozen"
+                        and value.get("cache_hits") == 1,
+                        replay_entered,
+                        replay_release,
+                    )
+                    reports.append(
+                        NarrativeMapService(repository).start_whole_scope_hierarchy(replay)
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        replay_thread = Thread(target=replay_late)
+        replay_thread.start()
+        assert replay_entered.wait(5)
+    else:
+        with Project.open(path) as project:
+            reports.append(
+                NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).start_whole_scope_hierarchy(replay)
+            )
+
+    with Project.open(path) as project:
+        changed = _prepare_hierarchy(
+            NarrativeMapService(NarrativeMapRepository(project)),
+            run_id="changed-replay-preparation",
+        )
+    if replay_thread is not None:
+        replay_release.set()
+        replay_thread.join(5)
+        assert not replay_thread.is_alive()
+
+    assert errors == [] and len(reports) == 1
+    with Project.open(path) as project:
+        final = NarrativeMapRepository(project).read_whole_scope_build()
+    assert final is not None
+    assert final["hierarchy_manifest_id"] == changed.consent.manifest_id
+    assert final["hierarchy_state"] == "awaiting_consent"
+    if stale_replay_last:
+        report = reports[0]
+        assert report.cache_hits == 0
+        assert report.deferred_job_ids == (replay.job.job_id,)
+
+
+@pytest.mark.parametrize("stale_freeze_last", (False, True))
+def test_freeze_cannot_overwrite_changed_preparation(
+    tmp_path: Path, stale_freeze_last: bool
+) -> None:
+    path = tmp_path / f"freeze-preparation-{stale_freeze_last}.rsmproj"
+    hierarchy = {"schema": "synthetic-authoritative-hierarchy-v1", "beats": ["beat-a"]}
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        service.start_whole_scope_hierarchy(
+            preparation, provider=_FakeProvider([_hierarchy_output()]), consent=consent
+        )
+
+    errors: list[BaseException] = []
+    freeze_statuses: list[WholeScopeSemanticStatus] = []
+    freeze_release = Event()
+    freeze_thread: Thread | None = None
+    if stale_freeze_last:
+        freeze_entered = Event()
+
+        def freeze_late() -> None:
+            try:
+                with Project.open(path) as project:
+                    repository = _PausingTransitionRepository(
+                        project,
+                        lambda value: isinstance(value, dict)
+                        and value.get("hierarchy_state") == "frozen",
+                        freeze_entered,
+                        freeze_release,
+                    )
+                    freeze_statuses.append(
+                        NarrativeMapService(repository).freeze_whole_scope_hierarchy(
+                            preparation, hierarchy
+                        )
+                    )
+            except BaseException as exc:
+                errors.append(exc)
+
+        freeze_thread = Thread(target=freeze_late)
+        freeze_thread.start()
+        assert freeze_entered.wait(5)
+    else:
+        with Project.open(path) as project:
+            freeze_statuses.append(
+                NarrativeMapService(
+                    NarrativeMapRepository(project)
+                ).freeze_whole_scope_hierarchy(preparation, hierarchy)
+            )
+
+    with Project.open(path) as project:
+        changed = _prepare_hierarchy(
+            NarrativeMapService(NarrativeMapRepository(project)),
+            run_id="changed-freeze-preparation",
+        )
+    if freeze_thread is not None:
+        freeze_release.set()
+        freeze_thread.join(5)
+        assert not freeze_thread.is_alive()
+
+    assert errors == [] and len(freeze_statuses) == 1
+    with Project.open(path) as project:
+        final = NarrativeMapRepository(project).read_whole_scope_build()
+    assert final is not None
+    assert final["hierarchy_manifest_id"] == changed.consent.manifest_id
+    assert final["hierarchy_state"] == "awaiting_consent"
+    assert final["hierarchy_hash"] is None
+    if stale_freeze_last:
+        assert freeze_statuses[0].hierarchy_state == "awaiting_consent"
+        assert freeze_statuses[0].hierarchy_hash is None
+    else:
+        assert freeze_statuses[0].hierarchy_state == "frozen"

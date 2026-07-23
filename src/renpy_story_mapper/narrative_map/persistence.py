@@ -382,6 +382,8 @@ class NarrativeMapRepository:
         expected_state: str,
         logical_records: Sequence[Mapping[str, object]] = (),
         publication: Mapping[str, object] | None = None,
+        check_expected_publication: bool = False,
+        expected_publication: Mapping[str, object] | None = None,
     ) -> bool:
         """Compare-and-set a whole-scope stage and any derived publication records."""
 
@@ -407,12 +409,16 @@ class NarrativeMapRepository:
             records.append((WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, logical_job_id, record))
         for _, _, value in records:
             _validate_durable(value)
+        if expected_publication is not None:
+            _validate_durable(expected_publication)
         return self._write_whole_scope_payloads_if_stage(
             tuple(records),
             expected_build=expected_build,
             stage=stage,
             manifest_id=manifest_id,
             expected_state=expected_state,
+            check_expected_publication=check_expected_publication,
+            expected_publication=expected_publication,
         )
 
     def read_whole_scope_build(self) -> Mapping[str, object] | None:
@@ -1295,6 +1301,8 @@ class NarrativeMapRepository:
         stage: str,
         manifest_id: str,
         expected_state: str,
+        check_expected_publication: bool,
+        expected_publication: Mapping[str, object] | None,
     ) -> bool:
         connection = self._project._require_open()
         now = storage.utc_now()
@@ -1323,6 +1331,32 @@ class NarrativeMapRepository:
                 or active.get(f"{stage}_state") != expected_state
             ):
                 return False
+            if check_expected_publication:
+                publication_row = connection.execute(
+                    "SELECT payload_json,payload_hash FROM payloads "
+                    "WHERE collection=? AND record_key='current'",
+                    (WHOLE_SCOPE_CURRENT_COLLECTION,),
+                ).fetchone()
+                if publication_row is None:
+                    if expected_publication is not None:
+                        return False
+                else:
+                    publication_encoded = bytes(publication_row["payload_json"])
+                    if storage.payload_digest(publication_encoded) != publication_row[
+                        "payload_hash"
+                    ]:
+                        raise storage.ProjectCorruptError(
+                            "whole-scope publication checksum does not match stored data"
+                        )
+                    if expected_publication is None or publication_encoded != (
+                        storage.canonical_json(
+                            _detached_mapping(
+                                expected_publication,
+                                "expected whole-scope publication",
+                            )
+                        )
+                    ):
+                        return False
             for collection, key, value in records:
                 payload = storage.canonical_json(value)
                 connection.execute(
