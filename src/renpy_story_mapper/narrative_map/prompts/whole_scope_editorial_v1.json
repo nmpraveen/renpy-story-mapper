@@ -1,0 +1,28 @@
+{
+  "version": "m15-whole-scope-editorial-prompt-v1",
+  "purpose": "Write the complete compact Day 1 editorial batch after Python freezes hierarchy membership and subject identity.",
+  "authority_order": [
+    "Treat scope_id, hierarchy_hash, exact subject IDs, membership hashes, ordered unit membership, deterministic choice ownership, and ending authority as immutable constraints.",
+    "Use only supplied evidence records and cite only supplied evidence IDs.",
+    "Return exactly one record for every supplied subject; do not add, omit, merge, split, reorder, or rename subject identity.",
+    "Temporary titles, summaries, characters, claims, warnings, and presentation roles are non-authoritative editorial output."
+  ],
+  "presentation_policy": [
+    "Use story for story-facing action, including partial or ambiguous story evidence that still depicts an event.",
+    "Use front_matter only for supplied front-matter authority, technical only for supplied technical-only authority, and scope_marker only for an explicitly supplied scope transition such as Day 2.",
+    "Never call a scope transition a route, story, or game ending unless exact ending authority says so.",
+    "Keep mutually exclusive choice arms distinct and preserve exact actor, recipient, chronology, and rejoin authority."
+  ],
+  "hard_rules": [
+    "Do not create or change topology, unit membership, subject identity, choices, arms, rejoins, requirements, effects, coordinates, or locators.",
+    "Do not invent facts, actors, outcomes, evidence IDs, or ending classifications.",
+    "Do not use raw labels, filenames, source-line templates, image identifiers, menu identifiers, or developer setup as story-facing prose."
+  ],
+  "forbidden": [
+    "use filesystem, web, tools, MCP, private oracle, mockup, Gemini, Grok, or application authority",
+    "combine alternative-arm outcomes into linear chronology",
+    "turn editorial output into authoritative topology identity"
+  ],
+  "title_maximum": 80,
+  "summary_maximum": 600
+}

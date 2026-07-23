@@ -1,0 +1,87 @@
+{
+  "schema": "m15-whole-scope-generalized-fixture-v1",
+  "synthetic": true,
+  "scope_id": "scope-synthetic-day",
+  "authority": {
+    "source_generation": "generation-synthetic",
+    "canonical_schema": "canonical-synthetic-v1",
+    "canonical_hash": "canonical-hash-synthetic",
+    "atom_schema": "atom-synthetic-v1",
+    "atom_hash": "atom-hash-synthetic"
+  },
+  "units": [
+    {"unit_id": "unit-arrival", "sequence_id": "main-pre", "ordinal": 0, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-arrival"]},
+    {"unit_id": "unit-greeting", "sequence_id": "main-pre", "ordinal": 1, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-greeting"]},
+    {"unit_id": "unit-question", "sequence_id": "main-pre", "ordinal": 2, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-question"]},
+    {"unit_id": "unit-path-a-step", "sequence_id": "choice-one-arm-a", "ordinal": 0, "parent_choice_id": "choice-one", "parent_arm_id": "arm-a", "evidence_ids": ["evidence-path-a-step"]},
+    {"unit_id": "unit-path-a-result", "sequence_id": "choice-one-arm-a", "ordinal": 1, "parent_choice_id": "choice-one", "parent_arm_id": "arm-a", "evidence_ids": ["evidence-path-a-result"]},
+    {"unit_id": "unit-path-b-step", "sequence_id": "choice-one-arm-b", "ordinal": 0, "parent_choice_id": "choice-one", "parent_arm_id": "arm-b", "evidence_ids": ["evidence-path-b-step"]},
+    {"unit_id": "unit-path-b-result", "sequence_id": "choice-one-arm-b", "ordinal": 1, "parent_choice_id": "choice-one", "parent_arm_id": "arm-b", "evidence_ids": ["evidence-path-b-result"]},
+    {"unit_id": "unit-rejoin", "sequence_id": "main-post", "ordinal": 0, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-rejoin"]},
+    {"unit_id": "unit-evening", "sequence_id": "main-post", "ordinal": 1, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-evening"]},
+    {"unit_id": "unit-next-day-marker", "sequence_id": "main-post", "ordinal": 2, "parent_choice_id": null, "parent_arm_id": null, "evidence_ids": ["evidence-next-day-marker"]}
+  ],
+  "authority_bound_unit_ids": [
+    "unit-arrival",
+    "unit-greeting",
+    "unit-question",
+    "unit-path-a-step",
+    "unit-path-a-result",
+    "unit-path-b-step",
+    "unit-path-b-result",
+    "unit-rejoin",
+    "unit-evening",
+    "unit-next-day-marker"
+  ],
+  "authority_bound_evidence_ids": [
+    "evidence-arrival",
+    "evidence-greeting",
+    "evidence-question",
+    "evidence-path-a-step",
+    "evidence-path-a-result",
+    "evidence-path-b-step",
+    "evidence-path-b-result",
+    "evidence-rejoin",
+    "evidence-evening",
+    "evidence-next-day-marker"
+  ],
+  "hard_locks": [
+    {"lock_id": "lock-choice-one", "kind": "choice_ownership", "choice_id": "choice-one", "arm_ids": ["arm-a", "arm-b"]},
+    {"lock_id": "lock-next-day", "kind": "scope_marker", "unit_ids": ["unit-next-day-marker"]}
+  ],
+  "stage_h_response": {
+    "scope_id": "scope-synthetic-day",
+    "beat_groups": [
+      {"proposal_key": "proposal-arrival", "ordered_unit_ids": ["unit-arrival", "unit-greeting"], "confidence": 0.9, "reason": "One continuous arrival exchange.", "warnings": []},
+      {"proposal_key": "proposal-question", "ordered_unit_ids": ["unit-question"], "confidence": 0.95, "reason": "The question opens the deterministic choice.", "warnings": []},
+      {"proposal_key": "proposal-arm-a", "ordered_unit_ids": ["unit-path-a-step", "unit-path-a-result"], "confidence": 0.88, "reason": "One alternative action and its immediate result.", "warnings": []},
+      {"proposal_key": "proposal-arm-b", "ordered_unit_ids": ["unit-path-b-step", "unit-path-b-result"], "confidence": 0.88, "reason": "The other alternative action and its immediate result.", "warnings": []},
+      {"proposal_key": "proposal-evening", "ordered_unit_ids": ["unit-rejoin", "unit-evening"], "confidence": 0.9, "reason": "Shared continuation after the choice rejoins.", "warnings": []},
+      {"proposal_key": "proposal-scope-marker", "ordered_unit_ids": ["unit-next-day-marker"], "confidence": 1.0, "reason": "The supplied hard lock identifies a scope transition.", "warnings": []}
+    ],
+    "major_clusters": [
+      {"proposal_key": "cluster-opening", "ordered_beat_keys": ["proposal-arrival", "proposal-question"], "confidence": 0.92, "reason": "Opening activity through the choice prompt.", "warnings": []},
+      {"proposal_key": "cluster-alternatives", "ordered_beat_keys": ["proposal-arm-a", "proposal-arm-b"], "confidence": 0.9, "reason": "Deterministically separate alternative arms.", "warnings": []},
+      {"proposal_key": "cluster-continuation", "ordered_beat_keys": ["proposal-evening", "proposal-scope-marker"], "confidence": 0.91, "reason": "Shared continuation through the explicit scope marker.", "warnings": []}
+    ],
+    "uncertain_unit_ids": [],
+    "warnings": []
+  },
+  "expected_compiled_adjacent_decisions": [
+    {"sequence_id": "main-pre", "left_unit_id": "unit-arrival", "right_unit_id": "unit-greeting", "decision": "same_beat"},
+    {"sequence_id": "main-pre", "left_unit_id": "unit-greeting", "right_unit_id": "unit-question", "decision": "new_beat_same_cluster"},
+    {"sequence_id": "choice-one-arm-a", "left_unit_id": "unit-path-a-step", "right_unit_id": "unit-path-a-result", "decision": "same_beat"},
+    {"sequence_id": "choice-one-arm-b", "left_unit_id": "unit-path-b-step", "right_unit_id": "unit-path-b-result", "decision": "same_beat"},
+    {"sequence_id": "main-post", "left_unit_id": "unit-rejoin", "right_unit_id": "unit-evening", "decision": "same_beat"},
+    {"sequence_id": "main-post", "left_unit_id": "unit-evening", "right_unit_id": "unit-next-day-marker", "decision": "new_beat_same_cluster"}
+  ],
+  "stage_e_subjects": [
+    {"subject_kind": "beat", "subject_id": "derived-beat-arrival", "membership_hash": "membership-arrival", "presentation_role": "story"},
+    {"subject_kind": "beat", "subject_id": "derived-beat-question", "membership_hash": "membership-question", "presentation_role": "story"},
+    {"subject_kind": "beat", "subject_id": "derived-beat-arm-a", "membership_hash": "membership-arm-a", "presentation_role": "story"},
+    {"subject_kind": "beat", "subject_id": "derived-beat-arm-b", "membership_hash": "membership-arm-b", "presentation_role": "story"},
+    {"subject_kind": "beat", "subject_id": "derived-beat-evening", "membership_hash": "membership-evening", "presentation_role": "story"},
+    {"subject_kind": "beat", "subject_id": "derived-beat-scope-marker", "membership_hash": "membership-scope-marker", "presentation_role": "scope_marker"},
+    {"subject_kind": "choice", "subject_id": "choice-one", "membership_hash": "membership-choice-one", "presentation_role": "story"}
+  ]
+}

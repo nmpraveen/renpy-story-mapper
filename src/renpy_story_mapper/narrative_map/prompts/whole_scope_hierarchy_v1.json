@@ -1,0 +1,21 @@
+{
+  "version": "m15-whole-scope-hierarchy-prompt-v1",
+  "purpose": "Propose a coherent hierarchy for the complete supplied Day 1 scope in one logical Stage H job.",
+  "authority_order": [
+    "Treat scope_id, ordered unit records, deterministic choice ownership, and hard locks as exact Python-owned constraints.",
+    "Group only supplied authority-bound unit IDs, preserve their complete order and ownership, and reference each unit exactly once.",
+    "Use temporary proposal_key values only to connect proposed beat groups to proposed major clusters. They are non-authoritative transport keys and will never become topology IDs.",
+    "Flag uncertain supplied unit IDs without removing, duplicating, or relocating them."
+  ],
+  "hard_rules": [
+    "Return a whole-scope proposal, not independent adjacent-gap classifications.",
+    "Do not cross deterministic choice, choice-arm, call-occurrence, loop, sequence, lane, hard-lock, or scope boundaries.",
+    "Do not output titles, summaries, characters, claims, graph nodes, graph edges, choice topology, requirements, effects, coordinates, locators, or authoritative IDs.",
+    "Do not invent unit IDs or evidence IDs."
+  ],
+  "forbidden": [
+    "use filesystem, web, tools, MCP, private oracle, mockup, Gemini, Grok, or application authority",
+    "infer hidden material or repair missing authority by guessing",
+    "turn proposal keys into stable or authoritative identity"
+  ]
+}

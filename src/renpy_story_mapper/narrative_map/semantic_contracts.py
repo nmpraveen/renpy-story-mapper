@@ -32,6 +32,11 @@ M15_CHOICE_COMPOSITION_SCHEMA = "m15-choice-composition-v2"
 M15_SEMANTIC_OUTLINE_SCHEMA = "m15-semantic-outline-v2"
 M15_SEMANTIC_SUMMARY_SCHEMA = "m15-semantic-summary-v2"
 M15_SEMANTIC_BUILD_SCHEMA = "m15-semantic-build-v2"
+M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA = "m15-whole-scope-hierarchy-input-v1"
+M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA = "m15-whole-scope-hierarchy-proposal-v1"
+M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA = "m15-whole-scope-editorial-input-v1"
+M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA = "m15-whole-scope-editorial-batch-v1"
+MAXIMUM_DAY1_PROVIDER_SUBMISSIONS = 4
 
 
 class SemanticBoundaryKind(StrEnum):
@@ -44,6 +49,18 @@ class SemanticBoundaryKind(StrEnum):
 class SemanticClaimClass(StrEnum):
     FACTUAL = "factual"
     INTERPRETIVE = "interpretive"
+
+
+class SemanticPresentationRole(StrEnum):
+    STORY = "story"
+    FRONT_MATTER = "front_matter"
+    TECHNICAL = "technical"
+    SCOPE_MARKER = "scope_marker"
+
+
+class WholeScopeSemanticStage(StrEnum):
+    HIERARCHY = "hierarchy"
+    EDITORIAL = "editorial"
 
 
 class SemanticBuildState(StrEnum):
@@ -61,6 +78,217 @@ class SemanticBuildState(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     STALE = "stale"
+
+
+@dataclass(frozen=True)
+class ProposedBeatGroup:
+    """One non-authoritative Stage H grouping proposal.
+
+    ``proposal_key`` is transport-local and must never be published as a topology ID.
+    Python derives stable beat identity only after validating the complete proposal.
+    """
+
+    proposal_key: str
+    ordered_unit_ids: tuple[str, ...]
+    confidence: float
+    reason: str
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_text(self.proposal_key, "beat proposal key")
+        _require_unique(self.ordered_unit_ids, "beat proposal unit ID", allow_empty=False)
+        if isinstance(self.confidence, bool) or not 0 <= self.confidence <= 1:
+            raise ValueError("beat proposal confidence must be between zero and one")
+        _require_text(self.reason, "beat proposal reason", maximum=MAX_REASON_LENGTH)
+        _require_unique(self.warnings, "beat proposal warning")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "proposal_key": self.proposal_key,
+            "ordered_unit_ids": list(self.ordered_unit_ids),
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class ProposedMajorCluster:
+    """One non-authoritative Stage H grouping of temporary beat proposal keys."""
+
+    proposal_key: str
+    ordered_beat_keys: tuple[str, ...]
+    confidence: float
+    reason: str
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_text(self.proposal_key, "cluster proposal key")
+        _require_unique(self.ordered_beat_keys, "cluster proposal beat key", allow_empty=False)
+        if isinstance(self.confidence, bool) or not 0 <= self.confidence <= 1:
+            raise ValueError("cluster proposal confidence must be between zero and one")
+        _require_text(self.reason, "cluster proposal reason", maximum=MAX_REASON_LENGTH)
+        _require_unique(self.warnings, "cluster proposal warning")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "proposal_key": self.proposal_key,
+            "ordered_beat_keys": list(self.ordered_beat_keys),
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class WholeScopeHierarchyProposal:
+    """Complete Stage H response before deterministic authority validation and compilation."""
+
+    scope_id: str
+    beat_groups: tuple[ProposedBeatGroup, ...]
+    major_clusters: tuple[ProposedMajorCluster, ...]
+    uncertain_unit_ids: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_text(self.scope_id, "whole-scope hierarchy scope ID")
+        if not self.beat_groups:
+            raise ValueError("a whole-scope hierarchy requires at least one beat proposal")
+        if not self.major_clusters:
+            raise ValueError("a whole-scope hierarchy requires at least one cluster proposal")
+        beat_keys = tuple(item.proposal_key for item in self.beat_groups)
+        cluster_keys = tuple(item.proposal_key for item in self.major_clusters)
+        _require_unique(beat_keys, "beat proposal key", allow_empty=False)
+        _require_unique(cluster_keys, "cluster proposal key", allow_empty=False)
+        referenced_beat_keys = tuple(
+            key for cluster in self.major_clusters for key in cluster.ordered_beat_keys
+        )
+        if referenced_beat_keys != beat_keys:
+            raise ValueError(
+                "cluster proposals must reference every beat proposal exactly once "
+                "in proposal order"
+            )
+        _require_unique(self.uncertain_unit_ids, "uncertain hierarchy unit ID")
+        _require_unique(self.warnings, "whole-scope hierarchy warning")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "schema": M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA,
+            "scope_id": self.scope_id,
+            "beat_groups": [item.to_dict() for item in self.beat_groups],
+            "major_clusters": [item.to_dict() for item in self.major_clusters],
+            "uncertain_unit_ids": list(self.uncertain_unit_ids),
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class WholeScopeEditorialRecord:
+    """Non-authoritative Stage E prose for one exact Python-derived subject."""
+
+    subject_kind: str
+    subject_id: str
+    membership_hash: str
+    presentation_role: SemanticPresentationRole
+    title: str
+    summary: str
+    characters: tuple[str, ...]
+    claims: tuple[SemanticSummaryClaim, ...]
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.subject_kind not in {"beat", "major_cluster", "choice"}:
+            raise ValueError("editorial subject kind is unsupported")
+        _require_text(self.subject_id, "editorial subject ID")
+        _require_text(self.membership_hash, "editorial membership hash")
+        if not isinstance(self.presentation_role, SemanticPresentationRole):
+            raise ValueError("editorial presentation role is unsupported")
+        _require_text(self.title, "editorial title", maximum=MAX_TITLE_LENGTH)
+        _require_text(self.summary, "editorial summary", maximum=MAX_SUMMARY_LENGTH)
+        _require_unique(self.characters, "editorial character")
+        if not self.claims:
+            raise ValueError("an editorial record requires evidence-linked claims")
+        _require_unique(self.warnings, "editorial warning")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "subject_kind": self.subject_kind,
+            "subject_id": self.subject_id,
+            "membership_hash": self.membership_hash,
+            "presentation_role": self.presentation_role.value,
+            "title": self.title,
+            "summary": self.summary,
+            "characters": list(self.characters),
+            "claims": [
+                {
+                    "claim_class": claim.claim_class.value,
+                    "text": claim.text,
+                    "evidence_ids": list(claim.evidence_ids),
+                }
+                for claim in self.claims
+            ],
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class WholeScopeEditorialBatch:
+    scope_id: str
+    hierarchy_hash: str
+    records: tuple[WholeScopeEditorialRecord, ...]
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_text(self.scope_id, "whole-scope editorial scope ID")
+        _require_text(self.hierarchy_hash, "whole-scope editorial hierarchy hash")
+        if not self.records:
+            raise ValueError("a whole-scope editorial batch requires at least one record")
+        subjects = tuple(f"{item.subject_kind}:{item.subject_id}" for item in self.records)
+        _require_unique(subjects, "whole-scope editorial subject", allow_empty=False)
+        _require_unique(self.warnings, "whole-scope editorial warning")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "schema": M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA,
+            "scope_id": self.scope_id,
+            "hierarchy_hash": self.hierarchy_hash,
+            "records": [item.to_dict() for item in self.records],
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class WholeScopeLogicalProvenance:
+    """Durable logical-job identity separated from a provider transport submission."""
+
+    stage: WholeScopeSemanticStage
+    logical_job_id: str
+    transport_batch_id: str
+    input_hash: str
+    manifest_id: str
+    provider_identity_hash: str
+    cache_identity: str
+    scope_id: str
+    attempt: int
+    submission_number: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stage, WholeScopeSemanticStage):
+            raise ValueError("whole-scope provenance stage is unsupported")
+        for value, label in (
+            (self.logical_job_id, "whole-scope logical job ID"),
+            (self.transport_batch_id, "whole-scope transport batch ID"),
+            (self.input_hash, "whole-scope input hash"),
+            (self.manifest_id, "whole-scope manifest ID"),
+            (self.provider_identity_hash, "whole-scope provider identity hash"),
+            (self.cache_identity, "whole-scope cache identity"),
+            (self.scope_id, "whole-scope provenance scope ID"),
+        ):
+            _require_text(value, label)
+        if self.attempt not in {1, 2}:
+            raise ValueError("whole-scope stage permits only an initial or one repair attempt")
+        if not 1 <= self.submission_number <= MAXIMUM_DAY1_PROVIDER_SUBMISSIONS:
+            raise ValueError("whole-scope submission number exceeds the four-call ceiling")
 
 
 @dataclass(frozen=True)
