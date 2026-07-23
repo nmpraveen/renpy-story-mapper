@@ -603,8 +603,14 @@ def test_legacy_quarantine_loses_to_concurrent_publication_without_overwrite(
         if calls == 1:
             raw = repository.read_whole_scope_build()
             assert raw is not None
+            concurrent = dict(raw)
+            concurrent["hierarchy_state"] = "frozen"
+            concurrent["hierarchy_hash"] = "concurrent-hierarchy"
+            concurrent["authoritative_hierarchy"] = {
+                "schema": "m15-whole-scope-concurrent-hierarchy-test-v1"
+            }
             repository.publish_whole_scope_current(
-                build=raw,
+                build=concurrent,
                 publication=publication,
                 logical_records=(),
             )
@@ -648,7 +654,8 @@ def test_legacy_quarantine_loses_to_concurrent_publication_without_overwrite(
         )
         assert raw is not None
         assert raw["correction_id"] == "m15.1-product-path-v1"
-        assert raw["hierarchy_state"] == "validated"
+        assert raw["hierarchy_state"] == "frozen"
+        assert raw["hierarchy_hash"] == "concurrent-hierarchy"
         assert record is not None and record.status.value == "validated"
         assert record.consent_manifest_id == old_manifest_id
         assert repository.read_whole_scope_current() == publication

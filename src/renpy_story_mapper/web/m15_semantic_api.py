@@ -115,6 +115,10 @@ class M15ProviderFactory(Protocol):
     def __call__(self) -> NarrativeMapProvider: ...
 
 
+class _LegacyHierarchyConcurrentUpdate(RuntimeError):
+    """An invalid legacy hierarchy changed while fail-closed quarantine ran."""
+
+
 class _NoSubmitProvider:
     """Fail closed if a supposedly cache-only replay attempts transmission."""
 
@@ -254,12 +258,18 @@ class M15WholeScopeProductController:
 
     def __call__(self, action: str, body: dict[str, JsonValue]) -> Mapping[str, object]:
         if action == "prepare_hierarchy":
-            with self._execution_lock:
-                preparation = self._prepare_hierarchy()
+            try:
+                with self._execution_lock:
+                    preparation = self._prepare_hierarchy()
+            except _LegacyHierarchyConcurrentUpdate:
+                return self._legacy_reconciliation_stale_response()
             return whole_scope_preparation_response(preparation)
         if action == "prepare_editorial":
-            with self._execution_lock:
-                preparation = self._prepare_editorial()
+            try:
+                with self._execution_lock:
+                    preparation = self._prepare_editorial()
+            except _LegacyHierarchyConcurrentUpdate:
+                return self._legacy_reconciliation_stale_response()
             return whole_scope_preparation_response(preparation)
         if action in {"start_hierarchy", "start_editorial"}:
             stage = (
@@ -270,20 +280,26 @@ class M15WholeScopeProductController:
             manifest_id = body.get("manifest_id")
             if not isinstance(manifest_id, str) or body.get("confirm_cloud") is not True:
                 raise ValueError("whole-scope start requires exact manifest confirmation")
-            with self._execution_lock:
-                with self._lock:
-                    current_preparation = self._preparations.get(stage)
-                if current_preparation is None:
-                    current_preparation = (
-                        self._prepare_hierarchy()
-                        if stage is WholeScopeSemanticStage.HIERARCHY
-                        else self._prepare_editorial()
-                    )
-                if current_preparation.consent.manifest_id != manifest_id:
-                    return self._stale_preparation(stage, current_preparation)
-                return self._execute(current_preparation, operation="start")
+            try:
+                with self._execution_lock:
+                    with self._lock:
+                        current_preparation = self._preparations.get(stage)
+                    if current_preparation is None:
+                        current_preparation = (
+                            self._prepare_hierarchy()
+                            if stage is WholeScopeSemanticStage.HIERARCHY
+                            else self._prepare_editorial()
+                        )
+                    if current_preparation.consent.manifest_id != manifest_id:
+                        return self._stale_preparation(stage, current_preparation)
+                    return self._execute(current_preparation, operation="start")
+            except _LegacyHierarchyConcurrentUpdate:
+                return self._legacy_reconciliation_stale_response()
         if action == "status":
-            return self._status()
+            try:
+                return self._status()
+            except _LegacyHierarchyConcurrentUpdate:
+                return self._legacy_reconciliation_stale_response()
         if action == "cancel":
             self._cancel_event.set()
             with self._lock:
@@ -296,11 +312,14 @@ class M15WholeScopeProductController:
                 status = service.cancel_whole_scope_semantic_build()
             return whole_scope_status_response(status)
         if action in {"resume", "retry"}:
-            with self._execution_lock:
-                stage, recovery_preparation = self._current_preparation()
-                if recovery_preparation is None:
-                    return self._stale_preparation(stage, None)
-                return self._execute(recovery_preparation, operation=action)
+            try:
+                with self._execution_lock:
+                    stage, recovery_preparation = self._current_preparation()
+                    if recovery_preparation is None:
+                        return self._stale_preparation(stage, None)
+                    return self._execute(recovery_preparation, operation=action)
+            except _LegacyHierarchyConcurrentUpdate:
+                return self._legacy_reconciliation_stale_response()
         raise ValueError("unsupported whole-scope semantic action")
 
     def _prepare_hierarchy(
@@ -401,81 +420,99 @@ class M15WholeScopeProductController:
         service: NarrativeMapService,
         *,
         inputs: M15SemanticInputs | None = None,
-    ) -> bool:
-        raw = repository.read_whole_scope_build()
-        if (
-            raw is None
-            or raw.get("correction_id") != M15_SEMANTIC_CORRECTION_ID
-            or raw.get("hierarchy_state") != "validated"
-            or not isinstance(raw.get("hierarchy_result"), Mapping)
-            or raw.get("hierarchy_hash") is not None
-            or raw.get("authoritative_hierarchy") is not None
-            or raw.get("publication_hash") is not None
-            or raw.get("editorial_state") != "not_started"
-            or repository.read_whole_scope_current() is not None
-        ):
-            return False
+    ) -> None:
         current_inputs = inputs if inputs is not None else load_m15_semantic_inputs(project)
-        job, logical_jobs = _whole_scope_hierarchy_job(
-            current_inputs,
-            correction_id=M15_SEMANTIC_CORRECTION_ID,
-        )
-        expected_logical_jobs = [
-            {
-                "stage": item.stage.value,
-                "logical_job_id": item.logical_job_id,
-                "subject_kind": item.subject_kind,
-                "subject_id": item.subject_id,
-                "membership_hash": item.membership_hash,
-            }
-            for item in logical_jobs
-        ]
-        expected_build_id = stable_m15_id(
-            "whole_scope_build",
-            {
-                "authority": job.authority.to_dict(),
-                "scope_id": job.subject_id,
-                "source_hash": current_inputs.source_hash,
-                "correction_id": M15_SEMANTIC_CORRECTION_ID,
-                "privacy_scope": M15_SEMANTIC_PRIVACY_SCOPE,
-                "profile": m15_provider_profile().to_dict(),
-                "hierarchy_transport_batch_id": job.job_id,
-            },
-        )
-        record = repository.get(job.kind, job.job_id)
-        if (
-            record is None
-            or record.status is not NarrativeJobStatus.VALIDATED
-            or record.result is None
-            or raw.get("build_id") != expected_build_id
-            or raw.get("scope_id") != job.subject_id
-            or raw.get("authority") != job.authority.to_dict()
-            or raw.get("source_hash") != current_inputs.source_hash
-            or raw.get("privacy_scope") != M15_SEMANTIC_PRIVACY_SCOPE
-            or raw.get("hierarchy_transport_batch_id") != job.job_id
-            or raw.get("hierarchy_logical_jobs") != expected_logical_jobs
-            or raw.get("hierarchy_result") != record.result
-            or raw.get("confirmed_hierarchy_manifest_id")
-            != record.consent_manifest_id
-        ):
-            return False
-        validated, findings = _validate_hierarchy_for_current_authority(
-            current_inputs,
-            job,
-            record.result,
-            scope_id=job.subject_id,
-            authority=job.authority,
-        )
-        if validated is not None:
-            return False
-        error_code = (
-            findings[0].code if findings else "hierarchy_authority_invalid"
-        )
-        return service.quarantine_invalid_whole_scope_hierarchy(
-            job,
-            m15_provider_profile(),
-            error_code=error_code,
-            logical_job_ids=tuple(item.logical_job_id for item in logical_jobs),
+        lost_quarantine_cas = False
+        for _attempt in range(2):
+            raw = repository.read_whole_scope_build()
+            is_legacy_unfrozen = (
+                raw is not None
+                and raw.get("correction_id") == M15_SEMANTIC_CORRECTION_ID
+                and raw.get("hierarchy_state") == "validated"
+                and isinstance(raw.get("hierarchy_result"), Mapping)
+                and raw.get("hierarchy_hash") is None
+                and raw.get("authoritative_hierarchy") is None
+                and raw.get("publication_hash") is None
+                and raw.get("editorial_state") == "not_started"
+            )
+            if not is_legacy_unfrozen:
+                if lost_quarantine_cas:
+                    raise _LegacyHierarchyConcurrentUpdate
+                return
+            assert raw is not None
+            if repository.read_whole_scope_current() is not None:
+                raise _LegacyHierarchyConcurrentUpdate
+            job, logical_jobs = _whole_scope_hierarchy_job(
+                current_inputs,
+                correction_id=M15_SEMANTIC_CORRECTION_ID,
+            )
+            expected_logical_jobs = [
+                {
+                    "stage": item.stage.value,
+                    "logical_job_id": item.logical_job_id,
+                    "subject_kind": item.subject_kind,
+                    "subject_id": item.subject_id,
+                    "membership_hash": item.membership_hash,
+                }
+                for item in logical_jobs
+            ]
+            expected_build_id = stable_m15_id(
+                "whole_scope_build",
+                {
+                    "authority": job.authority.to_dict(),
+                    "scope_id": job.subject_id,
+                    "source_hash": current_inputs.source_hash,
+                    "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                    "privacy_scope": M15_SEMANTIC_PRIVACY_SCOPE,
+                    "profile": m15_provider_profile().to_dict(),
+                    "hierarchy_transport_batch_id": job.job_id,
+                },
+            )
+            record = repository.get(job.kind, job.job_id)
+            if (
+                record is None
+                or record.status is not NarrativeJobStatus.VALIDATED
+                or record.result is None
+                or raw.get("build_id") != expected_build_id
+                or raw.get("scope_id") != job.subject_id
+                or raw.get("authority") != job.authority.to_dict()
+                or raw.get("source_hash") != current_inputs.source_hash
+                or raw.get("privacy_scope") != M15_SEMANTIC_PRIVACY_SCOPE
+                or raw.get("hierarchy_transport_batch_id") != job.job_id
+                or raw.get("hierarchy_logical_jobs") != expected_logical_jobs
+                or raw.get("hierarchy_result") != record.result
+                or raw.get("confirmed_hierarchy_manifest_id")
+                != record.consent_manifest_id
+            ):
+                raise _LegacyHierarchyConcurrentUpdate
+            validated, findings = _validate_hierarchy_for_current_authority(
+                current_inputs,
+                job,
+                record.result,
+                scope_id=job.subject_id,
+                authority=job.authority,
+            )
+            if validated is not None:
+                return
+            error_code = (
+                findings[0].code if findings else "hierarchy_authority_invalid"
+            )
+            if service.quarantine_invalid_whole_scope_hierarchy(
+                job,
+                m15_provider_profile(),
+                error_code=error_code,
+                logical_job_ids=tuple(item.logical_job_id for item in logical_jobs),
+            ):
+                return
+            lost_quarantine_cas = True
+        raise _LegacyHierarchyConcurrentUpdate
+
+    def _legacy_reconciliation_stale_response(self) -> Mapping[str, object]:
+        with self._lock:
+            self._preparations.pop(WholeScopeSemanticStage.HIERARCHY, None)
+            self._preparations.pop(WholeScopeSemanticStage.EDITORIAL, None)
+        return whole_scope_stale_preparation_response(
+            WholeScopeSemanticStage.HIERARCHY
         )
 
     def _execute(
