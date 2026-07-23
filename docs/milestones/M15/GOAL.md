@@ -1,6 +1,6 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: In progress
+Status: Revise
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -27,8 +27,9 @@ M15.1 is done only when the exact private Day 1 project produces, through the su
 workflow, a compact chronological Prologue/Day 1 Story Map that matches the meaning of the private
 evaluation oracle; preserves four local choices, eight exact arms, and every proven rejoin; makes
 the major story sections understandable without technical knowledge; and opens exact evidence from
-every visible item. The semantic result must come from separately consented boundary and frozen-
-summary production stages with one-to-one live provenance, persist across reopen, replay unchanged
+every visible item. The semantic result must come from separately consented whole-scope hierarchy
+(Stage H) and whole-scope editorial (Stage E) production with one-to-one logical provenance,
+persist across reopen, replay unchanged
 with zero provider submissions, remain readable in normal-flow vertical HTML at 100% and 200%,
 preserve deterministic authority and private-input immutability, pass independent semantic/visual
 review and the final Windows Release gate, and be present on the exact passing pushed head of the
@@ -36,14 +37,18 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 
 ## Deliverables
 
-- Versioned fine narrative-unit, exhaustive adjacent-gap candidate, hierarchical boundary-decision,
-  deterministic beat/cluster assembly, temporary-choice composition, and Narrative Map contracts.
-- Deterministic assembly and topology derived only from current M10 authority, with exact M10/M11
-  evidence and no AI-created membership, edge, choice, arm, rejoin, gate, effect, or locator.
-- A supported two-stage semantic lifecycle: prepare/consent/run boundaries, freeze membership,
-  prepare/consent/run summaries, validate, atomically publish, resume/retry, and zero-submit replay.
-- Durable boundary jobs, summary jobs, caches, accounting, build status, sanitized failures, and
-  complete one-to-one live provenance for every eligible gap and visible AI-authored title/summary.
+- Versioned fine narrative-unit, exhaustive adjacent-gap compatibility, whole-scope hierarchy
+  proposal, deterministic validation/compilation/assembly, temporary-choice composition, batched
+  editorial, and Narrative Map contracts.
+- Deterministic assembly and topology derived only from current M10 authority with exact M10/M11
+  evidence. AI-proposed grouping becomes membership only after complete Python validation; AI
+  cannot create an authoritative edge, choice, arm, rejoin, gate, effect, locator, or stable ID.
+- A supported two-stage semantic lifecycle: prepare/consent/run Stage H, validate and freeze
+  hierarchy, prepare/consent/run Stage E, validate logical records independently, atomically
+  publish, cancel/recover/retry, reopen, and zero-submit replay.
+- Durable hierarchy and editorial logical jobs, transport batches, caches, accounting, build
+  status, sanitized failures, and complete one-to-one provenance for every accepted membership and
+  visible AI-authored title/summary/role/claim.
 - A compact editorial Story Map rendered as normal-flow semantic HTML in a bounded vertical column,
   with local choice connectors, nested ownership, compact rejoins, responsive 100%/200% behavior,
   accessible disclosure/search, and exact Detail/Evidence navigation.
@@ -58,40 +63,52 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 1. Fine narrative units are versioned and authority-bound; each contains exactly one story-facing
    atom/turn plus only generically proven technical context, exact IDs/locators, structural anchors,
    choice ownership, and a normalized identity.
-2. Every legally adjacent story-facing gap inside a linear structural sequence has one stable
-   candidate. Hard chapter/day, lane, call-occurrence, loop, terminal/unresolved, split, arm, and
-   proven-rejoin locks cannot be crossed.
-3. Boundary windows batch several owned candidates with bounded context halos. Every eligible gap
-   has exactly one validated live decision and exact job/window/input/provider/cache provenance.
-4. Boundary output is limited to `same_beat`, `new_beat_same_cluster`, `new_major_cluster`, or
-   `uncertain`, with bounded reason/confidence/warnings. AI cannot return membership or topology.
-5. Python assembles complete, contiguous, ordered, non-overlapping beat and major-cluster
-   membership. Missing, duplicate, crossing, cross-arm, cross-lane, or cross-lock decisions fail
-   closed and prevent a scope from being called complete.
+2. Every legally adjacent story-facing gap inside a linear structural sequence retains one stable
+   internal candidate for exhaustive compatibility. Hard chapter/day, lane, call-occurrence, loop,
+   terminal/unresolved, split, arm, and proven-rejoin locks cannot be crossed.
+3. Stage H submits one coherent bounded day/chapter scope whenever it fits: every authority-bound
+   fine-unit ID exactly once in deterministic order, with evidence, speakers, source IDs, ownership,
+   sequence, and hard locks. Future oversize scopes split only at hard or validated boundaries.
+4. Stage H may return only scope identity, temporary proposal keys, ordered beat groups containing
+   existing unit IDs, ordered major clusters referencing those proposal keys, confidence, reasons,
+   uncertain unit IDs, and warnings. Proposal keys are non-authoritative; it returns no titles,
+   summaries, coordinates, graph facts, choices, rejoins, requirements, effects, locators, or
+   invented authority IDs.
+5. Python proves exact source/authority/scope/provider identity, coverage, uniqueness, order,
+   contiguity, ownership, and every hard lock; uncertainty or invalidity fails closed. It derives
+   stable beat/cluster IDs from authority plus membership, compiles membership into the existing
+   `same_beat` / `new_beat_same_cluster` / `new_major_cluster` decisions, and uses the existing
+   deterministic assembler.
 6. Temporary choices compose deterministically with explicit parent cluster/choice/arm ownership,
    ordered exact-caption arms, relationship IDs, shared physical targets where applicable, and
    exactly-once post-rejoin continuation.
-7. After membership freezes, independent summary jobs produce short action-focused titles,
-   beginning-to-end summaries, characters, and evidence-linked factual/interpretive claims for
-   every visible beat/cluster and meaningful choice question.
+7. After hierarchy freezes, Stage E sends the whole bounded hierarchy/evidence in an editorial
+   batch and returns one logical record for every frozen beat, major cluster, and meaningful choice:
+   exact subject ID/membership hash, action-focused title, beginning-to-end summary, characters,
+   presentation role, warnings, and factual/interpretive claims citing only existing evidence IDs.
+   Python validates and persists each record independently with one-to-one provenance.
 8. No visible story item uses a source-line template, raw label/image/menu identifier, technical
    lifecycle word, atom/evidence count, duplicated caption-only routing card, or unsupported fact
    as its title or summary. Missing/invalid AI content remains partial rather than silently generic.
 9. M10 remains the sole authority for edges, choices, arm order, rejoins, requirements, effects,
    calls, loops, terminals, unresolved behavior, and evidence locations; every visible interactive
    item returns its own matching Detail/Evidence identity and provenance.
-10. The normal browser supports boundary manifest review/Confirm/Cancel, boundary progress/cancel/
-    resume, separate frozen-summary manifest review/Confirm/Cancel, summary progress/cancel/resume,
+10. The normal browser supports Stage H manifest review/Confirm/Cancel, hierarchy progress/cancel/
+    recovery, separate Stage E manifest review/Confirm/Cancel, editorial progress/cancel/recovery,
     and honest complete/partial/failed/cancelled/stale status through production APIs.
-11. Fresh boundary and summary consents are exact, separate, expiring, finite, and bound to source,
+11. Fresh Stage H and Stage E consents are exact, separate, expiring, finite, and bound to source,
     authority, correction, prompt/schema, membership, provider/profile, jobs, hashes, privacy scope,
     and resource ceilings. Changed identity requires a new zero-submit preview and fresh consent.
 12. Live acceptance uses only the locked sterile Codex CLI provider identity requested and resolved
-    as `gpt-5.6-sol`, Medium reasoning, and fast mode off, with no provider/model fallback. Track
-    development itself makes no live provider call.
-13. A fresh exact acceptance copy records nonzero boundary jobs, summary jobs, semantic caches, and
-    a complete current build. Reopen preserves it; unchanged replay makes zero submits/calls/tokens
-    and reproduces membership, summary, map, and visible-order hashes.
+    as `gpt-5.6-sol`, Medium reasoning, and fast mode off, with no provider/model fallback. Day 1
+    expects one successful Stage H and one successful Stage E submission; at most one targeted
+    repair per stage is allowed, and more than four submissions requires new explicit approval.
+    Track development itself makes no live provider call.
+13. A fresh exact acceptance copy records nonzero hierarchy/editorial logical jobs, their transport
+    batches, semantic caches, and a complete current build. Reopen preserves it; unchanged replay
+    makes zero submits/calls/tokens and reproduces membership, editorial, map, and visible-order
+    hashes. Historical adjacent-gap/isolated-summary records remain readable but stale for the new
+    production identity.
 14. The generated private result, evaluated only after all generation artifacts freeze, matches the
     private oracle's chronology, major-section boundaries, four choice questions, eight unique exact
     arms, nested ownership, four authoritative rejoin relationships, and extracted-scope ending.
@@ -120,8 +137,8 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 
 | Criteria | Required proof | Current result |
 |---|---|---|
-| 1-6 | Versioned contracts, generalized synthetic split/choice/nesting/call/loop/lane/terminal fixtures, complete ownership/topology/provenance checks | Pending; prior coarse-corridor evidence rejected |
-| 7-13 | Two-stage API/service/browser flow, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, live provenance, reopen and zero-submit replay | Pending; prior accepted project had zero semantic jobs/cache |
+| 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Pending revised shared freeze; adjacent-only work is historical |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | Pending revised shared freeze; 94/161 historical production is stale |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |
@@ -137,18 +154,21 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
   solver backend, stored results, or M13 stored-result citations.
 - No private source, oracle, handoff, mockup, exact private-derived prose, or image bytes in Git.
 - No provider call before the coordinator presents that exact stage manifest and the user explicitly
-  approves it. Boundary consent never authorizes summaries, and old consent never authorizes changed
+  approves it. Stage H consent never authorizes Stage E, and old consent never authorizes changed
   inputs, prompts, schemas, membership, provider identity, limits, or expiry.
-- No second M15 PR, PR merge, M14 start, destructive cleanup, or unrelated refactor.
+- No replacement integration branch, second M15 PR, new milestone, PR merge, M14 start, destructive
+  cleanup, or unrelated refactor. Bounded worker and reviewer branches/worktrees are allowed.
 
 ## Handoff rules
 
 - The coordinator owns contract decisions, task creation/monitoring, ordered integration, private
   evaluation, consent requests, evidence, PR #26, and the single active native goal.
-- Track A owns provider-independent fine units, gap candidates, deterministic hierarchy/topology,
-  provenance, generalized fixtures, and its independent reviewer; no provider/API/UI/private oracle.
-- Track B owns the supported two-stage provider lifecycle, projection, jobs/cache/accounting,
-  validation/publication/replay, and its independent reviewer; no edges/layout/private oracle/live call.
+- Track A owns whole-scope hierarchy contracts, provider-independent validation,
+  hierarchy-to-gap compilation, deterministic assembly/stable IDs, provenance, structural-lock and
+  nested-choice fixtures, and its independent reviewer; no provider/API/UI/private oracle.
+- Track B owns Stage H/Stage E prompts/schemas, exact consents, sterile projection, logical-record
+  versus transport-batch provenance, jobs/cache/accounting, validation/publication/replay,
+  historical compatibility, and its independent reviewer; no topology/layout/private oracle/live call.
 - Track C owns the compact vertical UI, product controls, responsive/local connector geometry,
   exhaustive Detail/Evidence mapping, browser evidence, and its independent reviewer; no topology
   invention or private hardcoding.
@@ -159,3 +179,5 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
   findings, assumptions, limitations, likely conflicts, and remaining acceptance work.
 - Keep status at `Integration` until reviewed changes are actually integrated. Complete the native
   goal only when this corrected contract is genuinely PR-ready; leave PR #26 unmerged.
+- Bounded Track A/B/C and reviewer branches/worktrees are required execution branches. They do not
+  replace the single integration branch and must not create a second PR or milestone.

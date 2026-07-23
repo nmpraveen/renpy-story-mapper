@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes requested)
+Updated: 2026-07-23 (M15.1 lifecycle Revise; whole-scope semantic gate pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,31 +13,47 @@ Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes r
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. Revised semantic-review `PASS` and native-goal activation occurred on
-  2026-07-21. The prior `PR ready` result is
-  revoked and recorded as Changes Requested because its generic wide graph did not meet the human
-  narrative outcome. Its product heads, screenshots, visible-order export, reviews, Release, and
-  GitHub checks are historical rejected-baseline evidence only.
+- Status: Revise. The 2026-07-21 semantic `PASS` is revoked because it made adjacent-gap votes the
+  provider's primary semantic task. The observable done condition is unchanged. The contract is
+  being reconciled to whole-scope Stage H hierarchy proposal plus Stage E editorial batching, and
+  broad product work remains stopped until the repeated semantic review returns `PASS`. The prior
+  `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
+  checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
-  `FAIL / CHANGES REQUIRED` before any oracle or mockup access. Its blockers are: published
-  producer-manifest lineage is rejected by the reader; the projection is too large and promotes
-  technical/generic material; choice widgets sort after their consequences; and several visible
-  summaries are factually wrong. Oracle comparison and browser acceptance remain paused. The live
-  provider records are preserved as historical production evidence while generalized failing-first
-  corrections and a fresh blind Stage 1 candidate are prepared.
-- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). Broad implementation begins
-  only after the replacement native goal is recorded and the shared versioned schemas,
-  generalized examples, and genuinely failing-first tests freeze in one exact base commit. That
-  shared freeze is `c768b19c8d9364db8f1987cb420e69ac0c2e535d`: 14 contract/workflow checks,
-  Ruff, and strict mypy pass; the expected implementation baseline is seven Track A/B/C failures.
-- Native Codex goal: active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` with the verbatim
-  revised done condition. Before creation the goal service reported no active goal; it reactivated
-  the current coordinator task ID, so there remains exactly one active milestone goal.
-- Required task topology: after the shared freeze, create separate visible Track A, Track B, and
-  Track C Codex tasks/worktrees, each with an independent exact-head reviewer, then a separate final
-  source-first/private-reference reviewer task. The coordinator owns ordered integration and all
-  private evaluation. All three implementation tasks completed from exact `c768b19` and their
-  reviewed corrections are integrated locally through `4f6f740`:
+  `FAIL / CHANGES REQUIRED` before any oracle or mockup access. The original report was recovered
+  verbatim from coordinator task history, including its P2, and retained in local private
+  acceptance storage outside Git. Its five findings are published-reader lineage rejection,
+  fundamental density/section-count failure, choice-after-consequence ordering, factual summary
+  errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
+  remain paused.
+- Semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The prior adjacent-only `PASS` and
+  shared freeze `c768b19c8d9364db8f1987cb420e69ac0c2e535d` are historical. The coordinator must
+  repeat the gate against the reconciled Stage H/Stage E contract and record `PASS`, then freeze new
+  versioned schemas, generalized examples, and genuinely failing-first tests in one exact commit.
+- Native Codex goal: the user removed the stale goal and explicitly requested a new one on
+  2026-07-23. Active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` now binds the unchanged
+  observable outcome to whole-scope Stage H/Stage E production, exact deterministic validation,
+  separate consents, blind reviews, visual approval, Release, and PR #26 readiness. It remains
+  active through this `Revise` cycle.
+- Interrupted-state recovery: integration HEAD `1c66cc3312e2af322f405c161df47a495cce617f`,
+  branch/upstream divergence 48 ahead and zero behind, 13 modified tracked files, and two v4
+  resources were verified. The v4 SHA-256 values matched the supplied checkpoint. The supplied
+  tracked-diff hash `7c85c813de1a8cb8f522d9b4adde820fdfd79f4a` did not match the current Git blob
+  hash `8d4f76b20a52509b5912557376c7434cce27e560`; no prior track was active, the file set
+  matched, and the actual state was preserved rather than normalized.
+- Safety isolation: only the explicit 13 tracked files plus two v4 resources were committed to
+  local unpushed branch `codex/m15-1-interrupted-safety-20260723` at
+  `9aa6b7cb1d26115c1a35b10492233633cf7a00f5` (455 insertions, 143 deletions). The scan found no
+  secret/private-derived content; the sole private-reference match was a generic prompt prohibition.
+  `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` remain untouched. A separate clean
+  worktree at `C:/Users/prave/.codex/worktrees/m15-1-revise-20260723/Renpy` holds the existing
+  integration branch at `1c66cc3`.
+- Required task topology after the revised shared freeze: separate visible Track A (hierarchy
+  validation/compiler), Track B (batched provider lifecycle/persistence), and Track C (compact
+  projection/UI) tasks/worktrees, each with an independent exact-head reviewer, then fresh blind
+  membership and final source-first/private-reference reviewer tasks. Bounded worker and reviewer
+  branches/worktrees are allowed; no replacement integration branch, second PR, or new milestone
+  is. The coordinator owns ordered integration and all private evaluation. Prior tasks are history:
   - Track A task `019f84a1-897e-7a91-a622-fc00f5a10d72`, worktree
     `C:/Users/prave/.codex/worktrees/dc1a/Renpy`, branch `codex/m15-1-track-a`;
   - Track B task `019f84a1-897f-7953-a1f6-fa043410bcee`, worktree
@@ -48,7 +64,7 @@ Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes r
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
-- Integrated verification: 174 M15 tests passed with two expected opt-in browser skips; 169
+- Historical adjacent-only verification: 174 M15 tests passed with two expected opt-in browser skips; 169
   web/M10/M11 compatibility tests and both enabled Chrome suites (10 tests) passed. Ruff, strict
   mypy over 114 source files, JavaScript syntax, whitespace, and the private-reference diff scan
   passed. Track A reviewed head `09062370`, Track B final product-path head `ca048973`, and Track C
@@ -59,17 +75,16 @@ Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes r
   `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`, 2,140,282 bytes,
   `2026-07-03T01:11:16Z`. Both matched the ignored private manifest. Final before/after proof remains
   required; private source, oracle, handoff, mockups, and output artifacts stay outside Git.
-- Provider state: approved boundary manifest `consent_8a1657a8917261da9d8082a4` was superseded
+- Historical provider state: approved boundary manifest `consent_8a1657a8917261da9d8082a4` was superseded
   in-process by matching effective manifest `consent_647d928f95ccc14b1ca02bb4` and consumed by
   94 bounded provider submissions. Zero jobs validated: 93 failed `output_schema_rejected` because
   Codex CLI 0.144.0 rejects the schemas' `uniqueItems` keyword, and one failed
   `provider_unavailable`; no workflow tokens were recorded. Source, seed, and M10-M13 authority
   rows remained unchanged. Four versioned successor response schemas now remove only that
   unsupported keyword while preserving strict local uniqueness validation and changing job/cache/
-  consent identity. Focused correction tests pass; full gates and a fresh zero-submit boundary
-  preview remain mandatory before retry. The user granted standing authorization for future exact
-  M15.1 manifests in this task; each exact manifest must still be generated, verified, and recorded
-  separately. Summaries remain impossible until boundary membership freezes.
+  consent identity. Those records remain readable but are stale for Stage H/Stage E. The current
+  resumption and historical consents do not authorize either revised provider stage; each exact
+  manifest must be presented for explicit consent.
 - Versioned-schema live retry manifest `consent_7857c66fd76b25a58a6b4713` proved the schema fix
   across 59 validated windows with zero job errors, then its 15-minute consent expired before the
   60th reservation, leaving 35 pending. The source, archive, and M10-M13 authority rows remained
@@ -84,7 +99,7 @@ Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes r
   mypy over 114 source files, and whitespace checks. Live boundary records are 94/94 validated;
   one recovery-only product preparation must checkpoint the final 94/94 accounting.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
-- Live semantic production is complete at `e925afd9b9f7fb83f44518e67a6eca5f14655f30`.
+- Historical live semantic production completed at `e925afd9b9f7fb83f44518e67a6eca5f14655f30`.
   Boundary checkpoint evidence records 94/94 validated jobs; checkpoint manifest/result SHA-256
   are `817889a6f46a02780013ced0cb7e886cdd46765ed075d97a7463654edb26bc29` and
   `d448ed9688e6bde4a7b2542647513ce7da2892bb35d3076a779e68dd354eca66`.
@@ -96,7 +111,7 @@ Updated: 2026-07-21 (M15.1 correction In progress; blind source review changes r
   authority rows remained unchanged. Recovery, race-fencing, and combined-repair corrections pass
   203 M15 tests with two expected browser skips, Ruff, strict mypy over 114 files, and independent
   review with no P0-P2. Final private review, browser/user acceptance, Release, and PR readiness
-  remain pending.
+  remain pending. None of this is current Stage H/Stage E acceptance proof.
 - Existing untracked `.playwright-cli/`, `docs/handoffs/`, `output/`, and `tmp/` content remains
   preserved. M14, full-game work, game/creator execution, PR merge, and unrelated scope remain
   deferred or excluded.

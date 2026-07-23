@@ -1,11 +1,12 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-21
+Last revised: 2026-07-23
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 after explicit user instruction on 2026-07-21; its prior PR-ready result was
-rejected and the lifecycle returned through Changes Requested to In progress after a revised
-semantic `PASS` and native-goal activation. The same branch and open PR #26 continue; M14 remains deferred. M13
+correction inside M15. Its prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
+moved to `Revise` because the adjacent-gap-only primary AI task did not produce a coherent human
+outline. The active native goal, existing integration branch, and open PR #26 continue while the
+whole-scope hierarchy/editorial contract receives a repeated semantic review. M14 remains deferred. M13
 implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
 is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
@@ -1177,9 +1178,10 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: In progress after the revised semantic-review `PASS` and native-goal activation on
-2026-07-21. The earlier M15 PR-ready claim is revoked; its wide generic graph and supporting
-evidence are a rejected baseline.
+Status: Revise. The 2026-07-21 semantic `PASS` is revoked because it froze adjacent-gap-only AI
+classification as the primary semantic method. The active native goal remains running while this
+contract is reconciled and the single semantic gate is repeated. The earlier M15 PR-ready claim,
+wide generic graph, and supporting evidence remain a rejected historical baseline.
 
 Objective: produce a compact chronological Story Map whose visible language explains narrative
 meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
@@ -1187,18 +1189,27 @@ effect, terminal, unresolved record, and evidence locator.
 
 Locked boundaries:
 
-- Construct versioned fine narrative units and one stable candidate for every legal adjacent gap.
-  Hard chapter/day, lane, call-occurrence, loop, terminal/unresolved, split, arm, and proven-rejoin
-  locks cannot be crossed.
-- AI may classify bounded adjacent gaps only. Python validates exhaustive decisions and assembles
-  complete ordered beat and major-cluster membership deterministically; missing, duplicate,
-  crossing, or invalid decisions fail closed.
-- After membership freezes, a separate summary stage may produce short action-focused titles,
-  beginning-to-end summaries, characters, and evidence-linked claims. Missing or invalid language
-  remains partial and can never be disguised by generic templates or technical counts.
-- Boundary preview/consent/run and frozen-summary preview/consent/run are separate durable stages
-  with exact expiring manifests, jobs, cache, accounting, provenance, resume/retry, atomic publish,
-  and zero-submit unchanged replay. Each live stage requires its own explicit user consent.
+- Keep versioned fine narrative units and one stable candidate for every legal adjacent gap as an
+  internal exhaustive representation. Hard chapter/day, lane, call-occurrence, loop,
+  terminal/unresolved, split, arm, and proven-rejoin locks cannot be crossed.
+- Stage H gives AI one coherent bounded day/chapter scope whenever it fits and permits it to group
+  only existing authority-bound fine-unit IDs into ordered proposed beats and major sections.
+  Temporary proposal keys, reasons, confidence, warnings, and uncertain-unit references are
+  non-authoritative. Stage H cannot return titles, summaries, coordinates, topology, choices,
+  requirements, effects, locators, or invented authority IDs.
+- Python proves exact coverage, order, contiguity, ownership, and every hard lock; rejects foreign,
+  missing, duplicate, crossing, structurally illegal, or uncertain membership; derives stable IDs
+  from authority plus validated membership; compiles the proposal into the exhaustive adjacent-gap
+  decisions; and feeds those decisions through the existing deterministic assembler.
+- After hierarchy freezes, Stage E may batch one logical record per existing beat, major cluster,
+  and meaningful choice. It may return action-focused titles, beginning-to-end summaries,
+  characters, presentation roles, warnings, and claims citing only existing evidence IDs. Python
+  validates each record independently and persists one-to-one logical provenance even when one
+  transport call carries many records.
+- Stage H preview/consent/run and Stage E preview/consent/run are separate durable stages with exact
+  expiring manifests, jobs, cache, accounting, cancellation, recovery, atomic publication, reopen,
+  and zero-submit unchanged replay. Day 1 expects one successful call per stage and allows no more
+  than four provider submissions total without new explicit approval.
 - Temporary choices remain local to their parent section, with ordered exact-caption arms, nested
   ownership, compact proven rejoins, and exactly-once continuation. M10/M11 authority and all
   M12/M13 compatibility surfaces remain preserved.
@@ -1208,14 +1219,15 @@ Locked boundaries:
 - The exact private Day 1 fixture is the first acceptance target. Private source, oracle, handoff,
   mockups, derived prose, and images never enter Git or provider input; original inputs remain
   read-only and no game, creator, or Ren'Py execution occurs.
-- Use one coordinator, three separate visible Track A/B/C tasks/worktrees with independent
-  exact-head reviews, and a separate final reviewer that freezes a source-first result before
-  comparing the same candidate with private references.
-- Correct the existing branch and PR #26 only. Require explicit user approval of actual final-head
-  100%/200% screenshots, then one final Windows Release/package gate and exact passing pushed-head
-  checks. Leave the PR open and unmerged.
+- Use one coordinator, three separate visible Track A/B/C tasks/worktrees with bounded worker
+  branches and independent exact-head reviewer branches/worktrees, plus a separate final reviewer
+  that freezes a source-first result before comparing the same candidate with private references.
+- Correct the existing integration branch and PR #26 only; bounded worker and reviewer branches are
+  allowed, but no replacement integration branch, second PR, or new milestone may be created.
+  Require explicit user approval of actual final-head 100%/200% screenshots, then one final Windows
+  Release/package gate and exact passing pushed-head checks. Leave the PR open and unmerged.
 
-M15.1 is PR-ready only when its exact two-stage live provenance, deterministic hierarchy/topology,
+M15.1 is PR-ready only when its exact Stage H/Stage E live provenance, deterministic hierarchy/topology,
 private semantic result, compact browser presentation, exhaustive evidence mapping, persistence and
 zero-submit replay, immutability, independent reviews, user visual approval, Release/package gates,
 and exact open PR #26 head all satisfy `docs/milestones/M15/GOAL.md` with no unresolved P0-P2.
@@ -1306,11 +1318,13 @@ and unresolved items.
 
 ## 11. Current next action
 
-M15.1 is the single active correction inside M15 on exact correction base
-`55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`. Record its replacement native goal, freeze shared
-schemas/generalized examples/failing-first tests, dispatch three separate visible reviewed tracks,
-integrate in order, and complete fake-provider verification. Then obtain separate exact boundary
-and frozen-summary consents, freeze and independently review the live candidate, obtain explicit
-user approval of actual final screenshots, and run one final Release/package/PR-head gate on the
-existing open unmerged PR #26. Do not infer either provider consent, expand to full-game scope,
-begin M14, merge the PR, or commit private evaluation material.
+M15.1 is the single active correction inside M15. Keep its current native goal active, complete the
+2026-07-23 `Revise` reconciliation, and obtain a repeated semantic `PASS` before product work.
+Then freeze revised whole-scope hierarchy/editorial schemas, generalized examples, and failing-first
+tests; dispatch separate visible reviewed Track A/B/C worktrees from that exact head; integrate in
+order; and complete fake-provider/reopen/zero-submit verification. Present the exact Stage H
+manifest for explicit consent, review frozen membership blind, then separately present Stage E for
+explicit consent. After final blind/private review, obtain user approval of actual final-head
+screenshots and run one final Release/package/PR-head gate on existing open unmerged PR #26. Do not
+infer provider consent, exceed four Day 1 submissions, create a replacement integration branch or
+second PR, expand to full-game scope, begin M14, merge the PR, or commit private evaluation material.
