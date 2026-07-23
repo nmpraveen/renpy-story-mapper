@@ -233,6 +233,9 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
             scope_id,
             tuple(item.unit_id for item in inputs.units),
             payload,
+            hierarchy_units=inputs.units,
+            evidence_by_unit=inputs.evidence_by_unit,
+            hierarchy_hard_locks=hard_locks,
             known_evidence_ids=evidence_ids,
             known_characters=characters,
             profile=m15_provider_profile(),
@@ -438,12 +441,15 @@ def _persist_legacy_unfrozen_invalid_hierarchy(
         repository = NarrativeMapRepository(project)
         service = NarrativeMapService(repository)
         profile = m15_provider_profile()
-        scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+        scope_id, payload, hard_locks = _whole_scope_hierarchy_input(inputs)
         preparation = service.prepare_whole_scope_hierarchy(
             inputs.units[0].authority,
             scope_id,
             tuple(item.unit_id for item in inputs.units),
             payload,
+            hierarchy_units=inputs.units,
+            evidence_by_unit=inputs.evidence_by_unit,
+            hierarchy_hard_locks=hard_locks,
             known_evidence_ids=tuple(
                 dict.fromkeys(
                     item.evidence_id
@@ -981,6 +987,9 @@ def test_direct_service_exact_authority_validator_rejects_unrepresentable_result
             scope_id,
             tuple(item.unit_id for item in inputs.units),
             payload,
+            hierarchy_units=inputs.units,
+            evidence_by_unit=inputs.evidence_by_unit,
+            hierarchy_hard_locks=hard_locks,
             known_evidence_ids=tuple(
                 dict.fromkeys(
                     item.evidence_id

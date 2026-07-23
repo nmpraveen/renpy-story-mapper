@@ -74,7 +74,6 @@ from renpy_story_mapper.narrative_map.provider import (
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
-    M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
     MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     WholeScopeSemanticStage,
 )
@@ -88,6 +87,7 @@ from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     WholeScopeLogicalJob,
     WholeScopeStagePreparation,
     derive_frozen_editorial_authority,
+    whole_scope_hierarchy_input_payload,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
     semantic_outline_hash,
@@ -102,7 +102,7 @@ from renpy_story_mapper.web.contracts import JsonValue
 
 M15_SEMANTIC_RESPONSE_SCHEMA: Final = "m15-semantic-production-v1"
 M15_SEMANTIC_CORRECTION_ID: Final = "m15.1-product-path-v1"
-M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v3"
+M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v4"
 M15_SEMANTIC_PRIVACY_SCOPE: Final = "story_evidence_only"
 M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"
@@ -335,12 +335,15 @@ class M15WholeScopeProductController:
                 service,
                 inputs=inputs,
             )
-            scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+            scope_id, payload, hard_locks = _whole_scope_hierarchy_input(inputs)
             preparation = service.prepare_whole_scope_hierarchy(
                 inputs.units[0].authority,
                 scope_id,
                 tuple(item.unit_id for item in inputs.units),
                 payload,
+                hierarchy_units=inputs.units,
+                evidence_by_unit=inputs.evidence_by_unit,
+                hierarchy_hard_locks=hard_locks,
                 known_evidence_ids=tuple(
                     dict.fromkeys(
                         item.evidence_id
@@ -1119,55 +1122,13 @@ def _whole_scope_hierarchy_input(
         )
         for choice_id, arm_ids in arms_by_choice.items()
     )
-    evidence: list[dict[str, JsonValue]] = []
-    for unit in inputs.units:
-        records = inputs.evidence_by_unit.get(unit.unit_id)
-        if records is None or not records:
-            raise ValueError("each Stage H unit requires exact transient evidence")
-        if tuple(item.unit_id for item in records) != (unit.unit_id,) * len(records):
-            raise ValueError("Stage H evidence ownership is not exact")
-        if tuple(item.evidence_id for item in records) != unit.evidence_ids:
-            raise ValueError("Stage H evidence does not match fine-unit authority")
-        evidence.extend(item.to_prompt_dict() for item in records)
-    payload: dict[str, object] = {
-        "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
-        "scope_id": scope_id,
-        "authority": authority.to_dict(),
-        "ordered_unit_ids": list(ordered_unit_ids),
-        "units": [
-            {
-                "unit_id": item.unit_id,
-                "sequence_id": item.sequence_id,
-                "ordinal": item.ordinal,
-                "story_atom_id": item.story_atom_id,
-                "parent_choice_id": item.parent_choice_id,
-                "parent_arm_id": item.parent_arm_id,
-                "evidence_ids": list(item.evidence_ids),
-                "speaker_ids": list(item.speaker_ids),
-                "lane_id": item.lane_id,
-                "call_occurrence_id": item.call_occurrence_id,
-                "call_occurrence_path": list(item.call_occurrence_path),
-                "call_site_path": list(item.call_site_path),
-                "loop_id": item.loop_id,
-                "entry_node_id": item.entry_node_id,
-                "exit_node_id": item.exit_node_id,
-            }
-            for item in inputs.units
-        ],
-        "evidence": evidence,
-        "hard_locks": [
-            {
-                "lock_id": item.lock_id,
-                "kind": item.kind.value,
-                "unit_ids": list(item.unit_ids),
-                "left_unit_id": item.left_unit_id,
-                "right_unit_id": item.right_unit_id,
-                "choice_id": item.choice_id,
-                "arm_ids": list(item.arm_ids),
-            }
-            for item in hard_locks
-        ],
-    }
+    payload = whole_scope_hierarchy_input_payload(
+        authority,
+        scope_id,
+        inputs.units,
+        inputs.evidence_by_unit,
+        hard_locks,
+    )
     return scope_id, payload, hard_locks
 
 

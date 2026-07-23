@@ -33,10 +33,18 @@ M15_SEMANTIC_OUTLINE_SCHEMA = "m15-semantic-outline-v2"
 M15_SEMANTIC_SUMMARY_SCHEMA = "m15-semantic-summary-v2"
 M15_SEMANTIC_BUILD_SCHEMA = "m15-semantic-build-v2"
 M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA = "m15-whole-scope-hierarchy-input-v2"
-M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA = "m15-whole-scope-hierarchy-proposal-v1"
+M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA = "m15-whole-scope-hierarchy-proposal-v2"
 M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA = "m15-whole-scope-editorial-input-v1"
 M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA = "m15-whole-scope-editorial-batch-v1"
 MAXIMUM_DAY1_PROVIDER_SUBMISSIONS = 4
+MAXIMUM_WHOLE_SCOPE_HIERARCHY_PAYLOAD_BYTES = 645_000
+MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS = 732
+MAXIMUM_WHOLE_SCOPE_MAJOR_CLUSTERS = 16
+MAXIMUM_WHOLE_SCOPE_PROPOSAL_KEY_LENGTH = 48
+MAXIMUM_WHOLE_SCOPE_REASON_LENGTH = 80
+MAXIMUM_WHOLE_SCOPE_WARNING_LENGTH = 64
+MAXIMUM_WHOLE_SCOPE_ITEM_WARNINGS = 1
+MAXIMUM_WHOLE_SCOPE_BATCH_WARNINGS = 4
 
 
 class SemanticBoundaryKind(StrEnum):
@@ -80,6 +88,19 @@ class SemanticBuildState(StrEnum):
     STALE = "stale"
 
 
+def _require_whole_scope_warnings(
+    warnings: tuple[str, ...],
+    label: str,
+    *,
+    maximum_items: int = MAXIMUM_WHOLE_SCOPE_ITEM_WARNINGS,
+) -> None:
+    if len(warnings) > maximum_items:
+        raise ValueError(f"{label} exceeds its item bound")
+    _require_unique(warnings, label)
+    for warning in warnings:
+        _require_text(warning, label, maximum=MAXIMUM_WHOLE_SCOPE_WARNING_LENGTH)
+
+
 @dataclass(frozen=True)
 class ProposedBeatGroup:
     """One non-authoritative Stage H grouping proposal.
@@ -95,12 +116,20 @@ class ProposedBeatGroup:
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_text(self.proposal_key, "beat proposal key")
+        _require_text(
+            self.proposal_key,
+            "beat proposal key",
+            maximum=MAXIMUM_WHOLE_SCOPE_PROPOSAL_KEY_LENGTH,
+        )
         _require_unique(self.ordered_unit_ids, "beat proposal unit ID", allow_empty=False)
         if isinstance(self.confidence, bool) or not 0 <= self.confidence <= 1:
             raise ValueError("beat proposal confidence must be between zero and one")
-        _require_text(self.reason, "beat proposal reason", maximum=MAX_REASON_LENGTH)
-        _require_unique(self.warnings, "beat proposal warning")
+        _require_text(
+            self.reason,
+            "beat proposal reason",
+            maximum=MAXIMUM_WHOLE_SCOPE_REASON_LENGTH,
+        )
+        _require_whole_scope_warnings(self.warnings, "beat proposal warning")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -123,12 +152,20 @@ class ProposedMajorCluster:
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_text(self.proposal_key, "cluster proposal key")
+        _require_text(
+            self.proposal_key,
+            "cluster proposal key",
+            maximum=MAXIMUM_WHOLE_SCOPE_PROPOSAL_KEY_LENGTH,
+        )
         _require_unique(self.ordered_beat_keys, "cluster proposal beat key", allow_empty=False)
         if isinstance(self.confidence, bool) or not 0 <= self.confidence <= 1:
             raise ValueError("cluster proposal confidence must be between zero and one")
-        _require_text(self.reason, "cluster proposal reason", maximum=MAX_REASON_LENGTH)
-        _require_unique(self.warnings, "cluster proposal warning")
+        _require_text(
+            self.reason,
+            "cluster proposal reason",
+            maximum=MAXIMUM_WHOLE_SCOPE_REASON_LENGTH,
+        )
+        _require_whole_scope_warnings(self.warnings, "cluster proposal warning")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {
@@ -156,6 +193,10 @@ class WholeScopeHierarchyProposal:
             raise ValueError("a whole-scope hierarchy requires at least one beat proposal")
         if not self.major_clusters:
             raise ValueError("a whole-scope hierarchy requires at least one cluster proposal")
+        if len(self.beat_groups) > MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS:
+            raise ValueError("whole-scope hierarchy exceeds the beat-group bound")
+        if len(self.major_clusters) > MAXIMUM_WHOLE_SCOPE_MAJOR_CLUSTERS:
+            raise ValueError("whole-scope hierarchy exceeds the major-cluster bound")
         beat_keys = tuple(item.proposal_key for item in self.beat_groups)
         cluster_keys = tuple(item.proposal_key for item in self.major_clusters)
         _require_unique(beat_keys, "beat proposal key", allow_empty=False)
@@ -169,7 +210,13 @@ class WholeScopeHierarchyProposal:
                 "in proposal order"
             )
         _require_unique(self.uncertain_unit_ids, "uncertain hierarchy unit ID")
-        _require_unique(self.warnings, "whole-scope hierarchy warning")
+        if len(self.uncertain_unit_ids) > MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS:
+            raise ValueError("whole-scope hierarchy uncertainty exceeds its bound")
+        _require_whole_scope_warnings(
+            self.warnings,
+            "whole-scope hierarchy warning",
+            maximum_items=MAXIMUM_WHOLE_SCOPE_BATCH_WARNINGS,
+        )
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {

@@ -61,7 +61,7 @@ MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v1"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v2"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -817,7 +817,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
             "whole_scope_hierarchy_v2.json",
-            "whole_scope_hierarchy_v1.schema.json",
+            "whole_scope_hierarchy_v2.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
             WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,

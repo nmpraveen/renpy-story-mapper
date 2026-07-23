@@ -33,7 +33,10 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticOutline,
     WholeScopeSemanticStage,
 )
-from renpy_story_mapper.narrative_map.semantic_hierarchy import ValidatedWholeScopeHierarchy
+from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    HierarchyHardLock,
+    ValidatedWholeScopeHierarchy,
+)
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     BoundaryStageOutput,
     SemanticLifecycle,
@@ -80,6 +83,9 @@ class NarrativeMapService:
         ordered_unit_ids: Sequence[str],
         input_payload: Mapping[str, object],
         *,
+        hierarchy_units: Sequence[FineNarrativeUnit],
+        evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
+        hierarchy_hard_locks: Sequence[HierarchyHardLock],
         known_evidence_ids: Sequence[str],
         known_characters: Sequence[str] = (),
         profile: ProviderProfile,
@@ -100,6 +106,9 @@ class NarrativeMapService:
             scope_id,
             ordered_unit_ids,
             input_payload,
+            hierarchy_units=hierarchy_units,
+            evidence_by_unit=evidence_by_unit,
+            hierarchy_hard_locks=hierarchy_hard_locks,
             known_evidence_ids=known_evidence_ids,
             known_characters=known_characters,
             profile=profile,

@@ -80,7 +80,7 @@ def _assert_provider_schema_subset(value: object) -> None:
 
 def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> None:
     schema_root = RESOURCE_ROOT / "schemas"
-    hierarchy = json.loads((schema_root / "whole_scope_hierarchy_v1.schema.json").read_text())
+    hierarchy = json.loads((schema_root / "whole_scope_hierarchy_v2.schema.json").read_text())
     editorial = json.loads((schema_root / "whole_scope_editorial_v1.schema.json").read_text())
 
     assert hierarchy["$id"] == M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
@@ -92,6 +92,8 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
     assert not hierarchy_names.intersection(
         {"title", "summary", "characters", "claims", "edges", "coordinates", "locators"}
     )
+    assert hierarchy["properties"]["beat_groups"]["maxItems"] == 732
+    assert hierarchy["properties"]["major_clusters"]["maxItems"] == 16
 
     editorial_names = _property_names(editorial)
     assert {"title", "summary", "presentation_role", "evidence_ids"} <= editorial_names
@@ -102,7 +104,7 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
 
 def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids() -> None:
     prompt_root = RESOURCE_ROOT / "prompts"
-    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v1.json").read_text())
+    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v2.json").read_text())
     editorial = json.loads((prompt_root / "whole_scope_editorial_v1.json").read_text())
     combined = json.dumps([hierarchy, editorial]).lower()
 

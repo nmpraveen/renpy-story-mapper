@@ -15,6 +15,10 @@ from renpy_story_mapper.narrative_map.contracts import (
 )
 from renpy_story_mapper.narrative_map.provider import PreparedNarrativeJob, ProviderJobKind
 from renpy_story_mapper.narrative_map.semantic_contracts import (
+    MAXIMUM_WHOLE_SCOPE_BATCH_WARNINGS,
+    MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS,
+    MAXIMUM_WHOLE_SCOPE_MAJOR_CLUSTERS,
+    MAXIMUM_WHOLE_SCOPE_WARNING_LENGTH,
     BoundaryWindow,
     ProposedBeatGroup,
     ProposedMajorCluster,
@@ -317,7 +321,10 @@ def validate_whole_scope_hierarchy_response(
         )
     uncertain = payload.get("uncertain_unit_ids")
     warnings = payload.get("warnings")
-    if not _text_list(uncertain, MAX_REASON_LENGTH):
+    if (
+        not _text_list(uncertain, MAX_REASON_LENGTH)
+        or len(cast(list[str], uncertain)) > MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS
+    ):
         return WholeScopeHierarchyValidation(
             None, (ValidationFinding("invalid_uncertain_units", job.job_id),)
         )
@@ -325,13 +332,21 @@ def validate_whole_scope_hierarchy_response(
         return WholeScopeHierarchyValidation(
             None, (ValidationFinding("uncertain_membership", job.job_id),)
         )
-    if not _text_list(warnings, MAX_REASON_LENGTH):
+    if (
+        not _text_list(warnings, MAXIMUM_WHOLE_SCOPE_WARNING_LENGTH)
+        or len(cast(list[str], warnings)) > MAXIMUM_WHOLE_SCOPE_BATCH_WARNINGS
+    ):
         return WholeScopeHierarchyValidation(
             None, (ValidationFinding("invalid_warnings", job.job_id),)
         )
     raw_beats = payload.get("beat_groups")
     raw_clusters = payload.get("major_clusters")
-    if not isinstance(raw_beats, list) or not isinstance(raw_clusters, list):
+    if (
+        not isinstance(raw_beats, list)
+        or not isinstance(raw_clusters, list)
+        or not 1 <= len(raw_beats) <= MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS
+        or not 1 <= len(raw_clusters) <= MAXIMUM_WHOLE_SCOPE_MAJOR_CLUSTERS
+    ):
         return WholeScopeHierarchyValidation(
             None, (ValidationFinding("invalid_hierarchy_arrays", job.job_id),)
         )

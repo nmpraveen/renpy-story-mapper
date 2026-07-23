@@ -39,6 +39,9 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
     M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
     MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+    MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS,
+    MAXIMUM_WHOLE_SCOPE_HIERARCHY_PAYLOAD_BYTES,
+    FineNarrativeUnit,
     LiveSemanticProvenance,
     SemanticBoundaryDecision,
     SemanticBuildRecord,
@@ -80,6 +83,77 @@ WHOLE_SCOPE_BUILD_ENVELOPE = "m15-whole-scope-semantic-build-v1"
 WHOLE_SCOPE_PUBLICATION_SCHEMA = "m15-whole-scope-semantic-publication-v1"
 
 CancelledCallback = Callable[[], bool]
+
+
+def whole_scope_hierarchy_input_payload(
+    authority: AuthorityBinding,
+    scope_id: str,
+    units: Sequence[FineNarrativeUnit],
+    evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
+    hard_locks: Sequence[HierarchyHardLock],
+) -> dict[str, object]:
+    """Construct the only accepted Stage H payload from frozen typed authority."""
+
+    materialized_units = tuple(units)
+    materialized_locks = tuple(hard_locks)
+    if (
+        not materialized_units
+        or len(materialized_units) > MAXIMUM_WHOLE_SCOPE_BEAT_GROUPS
+        or any(item.authority != authority for item in materialized_units)
+    ):
+        raise ValueError("Stage H typed units do not match exact authority")
+    evidence: list[dict[str, JsonValue]] = []
+    for unit in materialized_units:
+        records = tuple(evidence_by_unit.get(unit.unit_id, ()))
+        if not records:
+            raise ValueError("each Stage H unit requires exact transient evidence")
+        if tuple(item.unit_id for item in records) != (unit.unit_id,) * len(records):
+            raise ValueError("Stage H evidence ownership is not exact")
+        if tuple(item.evidence_id for item in records) != unit.evidence_ids:
+            raise ValueError("Stage H evidence does not match fine-unit authority")
+        evidence.extend(item.to_prompt_dict() for item in records)
+    payload: dict[str, object] = {
+        "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+        "scope_id": scope_id,
+        "authority": authority.to_dict(),
+        "ordered_unit_ids": [item.unit_id for item in materialized_units],
+        "units": [
+            {
+                "unit_id": item.unit_id,
+                "sequence_id": item.sequence_id,
+                "ordinal": item.ordinal,
+                "story_atom_id": item.story_atom_id,
+                "evidence_ids": list(item.evidence_ids),
+                "speaker_ids": list(item.speaker_ids),
+                "lane_id": item.lane_id,
+                "call_occurrence_id": item.call_occurrence_id,
+                "call_occurrence_path": list(item.call_occurrence_path),
+                "call_site_path": list(item.call_site_path),
+                "loop_id": item.loop_id,
+                "parent_choice_id": item.parent_choice_id,
+                "parent_arm_id": item.parent_arm_id,
+                "entry_node_id": item.entry_node_id,
+                "exit_node_id": item.exit_node_id,
+            }
+            for item in materialized_units
+        ],
+        "evidence": evidence,
+        "hard_locks": [
+            {
+                "lock_id": item.lock_id,
+                "kind": item.kind.value,
+                "unit_ids": list(item.unit_ids),
+                "left_unit_id": item.left_unit_id,
+                "right_unit_id": item.right_unit_id,
+                "choice_id": item.choice_id,
+                "arm_ids": list(item.arm_ids),
+            }
+            for item in materialized_locks
+        ],
+    }
+    if len(storage.canonical_json(payload)) > MAXIMUM_WHOLE_SCOPE_HIERARCHY_PAYLOAD_BYTES:
+        raise ValueError("Stage H exact typed payload exceeds its repair-safe input bound")
+    return payload
 
 
 class SemanticStage(StrEnum):
@@ -1496,6 +1570,9 @@ class WholeScopeSemanticLifecycle:
         ordered_unit_ids: Sequence[str],
         input_payload: Mapping[str, object],
         *,
+        hierarchy_units: Sequence[FineNarrativeUnit],
+        evidence_by_unit: Mapping[str, Sequence[SemanticEvidenceRecord]],
+        hierarchy_hard_locks: Sequence[HierarchyHardLock],
         known_evidence_ids: Sequence[str],
         known_characters: Sequence[str] = (),
         profile: ProviderProfile,
@@ -1517,6 +1594,15 @@ class WholeScopeSemanticLifecycle:
         )
         characters = _whole_scope_strings(known_characters, "Stage H character")
         payload = _whole_scope_mapping(input_payload, "Stage H input")
+        exact_payload = whole_scope_hierarchy_input_payload(
+            authority,
+            scope_id,
+            hierarchy_units,
+            evidence_by_unit,
+            hierarchy_hard_locks,
+        )
+        if payload != exact_payload:
+            raise ValueError("Stage H payload does not match exact typed authority")
         _validate_stage_h_input(
             payload,
             authority,

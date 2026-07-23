@@ -1154,12 +1154,10 @@ def _whole_scope_hierarchy_lock(
         locked["__whole_scope_clusters__"] = []
         return locked
     locked["__whole_scope_beat_groups__"] = [
-        {"proposal_key": item.proposal_key, "item": item.to_dict()}
-        for item in validation.valid_beat_groups
+        item.to_dict() for item in validation.valid_beat_groups
     ]
     locked["__whole_scope_clusters__"] = [
-        {"proposal_key": item.proposal_key, "item": item.to_dict()}
-        for item in validation.valid_major_clusters
+        item.to_dict() for item in validation.valid_major_clusters
     ]
     return locked
 
@@ -1194,13 +1192,12 @@ def _matches_named_items(payload: object, key: str, constraint: JsonValue) -> bo
         if not isinstance(locked, Mapping):
             return False
         proposal_key = locked.get("proposal_key")
-        expected = locked.get("item")
         matches = [
             item
             for item in items
             if isinstance(item, Mapping) and item.get("proposal_key") == proposal_key
         ]
-        if len(matches) != 1 or canonical_hash(matches[0]) != canonical_hash(expected):
+        if len(matches) != 1 or canonical_hash(matches[0]) != canonical_hash(locked):
             return False
     return True
 

@@ -600,7 +600,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     assert report.provider_calls == 1
     assert len(runner.requests) == 1
     request = runner.requests[0]
-    assert request.schema_path.name == "whole_scope_hierarchy_v1.schema.json"
+    assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
     assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v2"
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
