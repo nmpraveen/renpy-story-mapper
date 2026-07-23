@@ -7,7 +7,7 @@ Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
 AI semantic task.
 
-Decision: REVISE
+Decision: PASS
 
 ## Review result
 
@@ -32,9 +32,22 @@ coherent semantic grouping from the transmitted request alone.
 
 The approved manifest `consent_c988d3b944a81c177303d32f` is exhausted after two calls. The first
 response failed product validation and the automatic targeted repair ended
-`provider_process_failed`; no hierarchy or publication was created and Stage E was untouched. The
-semantic gate remains `REVISE` until a failing-first projection correction passes independent
-exact-head review and the complete authority set receives another semantic `PASS`.
+`provider_process_failed`; no hierarchy or publication was created and Stage E was untouched.
+
+The bounded correction used genuine failing-first commits for missing evidence, mutable same-shape
+authority, and an oversized worst-legal retained repair. The first independent exact-head review
+returned `FAIL` with those last two P1s. The worker then moved canonical payload construction behind
+typed `FineNarrativeUnit`, `SemanticEvidenceRecord`, and ordered `HierarchyHardLock` inputs,
+versioned the response/repair/product identities, and imposed matching schema/domain bounds. The
+same reviewer passed exact head `a7997b13d6a4b6d91edcacbf1182c526c709cc3b` with no P0-P2. The
+full chain is integrated through `a7cdf9ffbfe2e6d1a884f9f794f347862bcca66b`.
+
+Exact provider-free sizing is 642,416 payload bytes, 644,522 initial-envelope bytes, 645,071
+authority-repair bytes, and 917,391 bytes for the worst legal retained repair, leaving 82,609 bytes
+below the one-million-byte ceiling. Coordinator gates passed with 341 M15 tests/three expected
+skips, 75 cross-web/API tests, 19 browser asset-contract tests/two expected skips, 44 workflow
+tests, Ruff, strict mypy over 115 source files, dependency/JavaScript/JSON/diff/privacy/frozen
+checks, and nine synthetic cases with zero provider calls and zero game execution.
 
 ## Requirements mapping
 
@@ -121,12 +134,16 @@ exact-head review and the complete authority set receives another semantic `PASS
 
 ## Gate decision
 
-The observable done condition remains unchanged, but the current implementation does not satisfy
-the contract it claims to implement. Stage H must project every fine unit with its exact transient
-evidence, speakers, source identity, sequence and deterministic structural ownership while keeping
-provider text non-durable and preserving the bounded sterile envelope. The correction must be
-failing-first, independently reviewed at its exact head, integrated without a replacement branch or
-PR, and followed by a repeated semantic review plus fresh provider-free gates. No further live
-provider transmission is allowed under the exhausted manifest.
+The observable done condition remains unchanged. The corrected Stage H projection now supplies the
+semantic evidence and complete bounded structural context required by criterion 3, binds it to one
+typed authority seam before durable state or consent, preserves valid retained items exactly during
+repair, and proves every legal repair envelope remains below its sterile ceiling. Identity changes
+invalidate the exhausted manifest and all older cache/consent paths. The implementation remains
+subordinate to M10/M11 authority, provider text remains transient, and independent review plus
+coordinator gates show no unresolved P0-P2.
 
-REVISE
+The semantic gate is `PASS`. A new live Stage H call is still forbidden until a fresh exact manifest
+is prepared and the user separately approves both that manifest and exceeding four total Day 1
+submissions. Stage E remains unprepared and separately consent-gated.
+
+PASS

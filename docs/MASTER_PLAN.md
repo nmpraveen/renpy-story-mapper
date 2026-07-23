@@ -7,8 +7,9 @@ correction inside M15. Its prior PR-ready result was rejected, and on 2026-07-23
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
 semantic `PASS`, but the live Stage H audit then proved that the request projection omitted the
-required story evidence and structural context. The gate is therefore back in `Revise`; the active
-native goal, existing integration branch, and open PR #26 continue.
+required story evidence and structural context. A failing-first typed-authority and repair-bound
+correction passed independent exact-head review and coordinator gates, so the semantic gate has
+again returned `PASS`; the active native goal, existing integration branch, and open PR #26 continue.
 M14 remains deferred. M13
 implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
@@ -1181,12 +1182,13 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: In progress in `Revise`. The 2026-07-21 adjacent-gap-only `PASS` remains revoked. The later
-whole-scope `PASS` is also suspended after the live Stage H request audit proved that its projection
-sent IDs without the evidence, speakers, source identity, and structural ownership required for a
-coherent semantic grouping. The active native goal, existing integration branch, and PR #26
-continue; the earlier M15 PR-ready claim, wide generic graph, and supporting evidence remain a
-rejected historical baseline.
+Status: In progress after a repeated semantic `PASS`. The 2026-07-21 adjacent-gap-only `PASS`
+remains revoked. The first whole-scope implementation also returned to `Revise` after live Stage H
+proved that its request sent IDs without the evidence and structural context required for semantic
+grouping. The corrected v2 input/response/prompt and v4 product identity now bind exact typed
+authority and bound every legal retained repair below the sterile input ceiling. The active native
+goal, existing integration branch, and PR #26 continue; the earlier M15 PR-ready claim, wide
+generic graph, and supporting evidence remain a rejected historical baseline.
 
 Objective: produce a compact chronological Story Map whose visible language explains narrative
 meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
@@ -1326,13 +1328,12 @@ and unresolved items.
 ## 11. Current next action
 
 M15.1 is the single active correction inside M15. Its current native goal remains active and the
-semantic gate is in `Revise`. Preserve the exhausted Stage H evidence, correct the criterion-3
-request projection with failing-first tests, obtain an independent exact-head review, repeat the
-semantic gate, and rerun provider-free verification. Any later Stage H attempt requires a fresh
-exact manifest plus explicit approval to exceed four total Day 1 submissions; a successful frozen
-hierarchy must then be reviewed blind before separately presenting Stage E for consent. After final
-blind/private review, obtain user approval of actual final-head screenshots and run one final
-Release/package/PR-head gate on existing open unmerged PR #26. Do not infer provider consent,
-exceed four Day 1 submissions without that explicit approval, create a replacement integration
-branch or second PR, expand to full-game scope, begin M14, merge the PR, or commit private
-evaluation material.
+semantic gate has a repeated `PASS` after the reviewed criterion-3 request correction. Prepare a
+fresh isolated Stage H acceptance copy without submission and present its exact manifest together
+with a separate request for explicit approval to exceed four total Day 1 submissions. Only after
+both approvals may Stage H run; a successful frozen hierarchy must then be reviewed blind before
+separately presenting Stage E for consent. After final blind/private review, obtain user approval
+of actual final-head screenshots and run one final Release/package/PR-head gate on existing open
+unmerged PR #26. Do not infer provider consent, exceed four Day 1 submissions without that explicit
+approval, create a replacement integration branch or second PR, expand to full-game scope, begin
+M14, merge the PR, or commit private evaluation material.

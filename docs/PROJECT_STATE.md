@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-23 (M15.1 In progress; criterion-3 request projection in Revise)
+Updated: 2026-07-23 (M15.1 In progress; corrected Stage H semantic gate PASS)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,12 +13,13 @@ Updated: 2026-07-23 (M15.1 In progress; criterion-3 request projection in Revise
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress in `Revise`. The 2026-07-21 adjacent-only `PASS` is revoked, and the later
-  whole-scope `PASS` is suspended. Live Stage H proved that the shipped request projected 732 unit
-  IDs but zero of 741 available evidence records and omitted required speaker, source, and
-  structural ownership context. Approved manifest `consent_c988d3b944a81c177303d32f` exhausted
-  both calls without producing a hierarchy. A bounded failing-first projection correction and
-  independent exact-head review are active; no new live call or Stage E work is authorized. The prior
+- Status: In progress after a repeated semantic `PASS`. Live Stage H proved that the prior shipped
+  request projected 732 unit IDs but zero of 741 available evidence records and omitted required
+  speaker, source, and structural ownership context. Approved manifest
+  `consent_c988d3b944a81c177303d32f` exhausted both calls without producing a hierarchy. The
+  failing-first typed-authority and repair-bound correction is now integrated and independently
+  reviewed with no P0-P2. A new live call still requires a fresh exact manifest plus separate
+  explicit approval to exceed four total Day 1 submissions; Stage E remains unauthorized. The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
@@ -28,17 +29,17 @@ Updated: 2026-07-23 (M15.1 In progress; criterion-3 request projection in Revise
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The earlier whole-scope
+- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). The earlier whole-scope
   `PASS` after transition commit `b5d08f5` is historical because its implementation audit missed
   the criterion-3 request-projection defect. The prior adjacent-only shared freeze
-  `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. Revised shared freeze `cf30b5e`,
-  the three track implementations/reviews, and earlier provider-free architecture gate remain
-  evidence for their exact heads but are not current Stage H acceptance proof.
+  `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. The corrected exact-head review
+  passed at `a7997b1`; the equivalent full chain is integrated through `a7cdf9f` and passed fresh
+  coordinator gates.
 - Native Codex goal: the user removed the stale goal and explicitly requested a new one on
   2026-07-23. Active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` now binds the unchanged
   observable outcome to whole-scope Stage H/Stage E production, exact deterministic validation,
   separate consents, blind reviews, visual approval, Release, and PR #26 readiness. It remains
-  active through this `Revise` cycle.
+  active through implementation, live acceptance, visual approval, Release, and PR readiness.
 - Interrupted-state recovery: integration HEAD `1c66cc3312e2af322f405c161df47a495cce617f`,
   branch/upstream divergence 48 ahead and zero behind, 13 modified tracked files, and two v4
   resources were verified. The v4 SHA-256 values matched the supplied checkpoint. The supplied
@@ -116,6 +117,21 @@ Updated: 2026-07-23 (M15.1 In progress; criterion-3 request projection in Revise
   publication. Source/archive/baseline fingerprints remain unchanged and Stage E was not prepared.
   The manifest is exhausted. Audit artifact SHA-256 is
   `4CE78DCA1E5674B47BA44145BDAB39D016A526546E33F245554927093E6E1B6D`.
+- Stage H criterion-3 projection correction: bounded worker branch
+  `codex/m15-1-stage-h-payload` used failing-first commits `485aad8`, `0c6cc34`, and `d0a4d3a`.
+  The first exact-head review failed `a01ba6b` with two P1s: same-shaped payload values were not
+  bound to typed authority, and a worst-legal retained repair could exceed one million bytes. The
+  corrected v2 input/response/prompt, repair policy v2, and product identity v4 now construct the
+  only accepted payload from typed units/evidence/ordered hard locks and bound groups, keys,
+  reasons, and warnings consistently. The same reviewer passed exact head `a7997b1` with no P0-P2.
+  Integrated commits `117720b`, `6bcdb73`, `1d155f9`, `3c490b0`, and `a7cdf9f` have `src/` and
+  `tests/` identical to the reviewed tree. Exact sizing: 642,416-byte payload; 644,522-byte initial
+  envelope; 645,071-byte authority repair; 917,391-byte worst legal retained repair; 82,609 bytes
+  minimum headroom. Coordinator gates: 341 M15 passed/3 expected skips, 75 cross-web/API, 19 browser
+  asset-contract passed/2 expected skips, 44 workflow, Ruff, strict mypy over 115 source files,
+  dependency/JS/JSON/diff/privacy/frozen checks, and nine zero-provider/zero-game synthetic cases.
+  Source/archive/accepted-baseline fingerprints remain unchanged. Outside-Git correction artifact
+  SHA-256 is `6F22E9C70FB27047A9D9159B7BAC9896A6FB37CE395DF259ACD374A78375FFFF`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
