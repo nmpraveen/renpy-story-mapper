@@ -7,7 +7,7 @@ Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
 AI semantic task.
 
-Decision: PASS
+Decision: REVISE
 
 ## Review result
 
@@ -24,8 +24,17 @@ for frozen existing subjects. Provider output remains non-authoritative.
 
 The lifecycle transition was recorded at `b5d08f567132f8bd2743a39187e57dffe18b3a00`. The
 coordinator then reread the reconciled authority set and repeated the gate against the complete
-revised contract. The observable done condition, deliverables, numbered criteria, exclusions,
-evidence, task ownership, consent boundaries, and handoff rules are mutually consistent.
+revised contract. That `PASS` is now historical: live Stage H acceptance proved that the shipped
+request projection carried 732 unit IDs but zero of the 741 available evidence records, while its
+unit records omitted speakers, source IDs/locators, lane/call/loop ownership, and other required
+structural anchors. This violates `GOAL.md` criterion 3 and leaves the provider unable to perform a
+coherent semantic grouping from the transmitted request alone.
+
+The approved manifest `consent_c988d3b944a81c177303d32f` is exhausted after two calls. The first
+response failed product validation and the automatic targeted repair ended
+`provider_process_failed`; no hierarchy or publication was created and Stage E was untouched. The
+semantic gate remains `REVISE` until a failing-first projection correction passes independent
+exact-head review and the complete authority set receives another semantic `PASS`.
 
 ## Requirements mapping
 
@@ -112,12 +121,12 @@ evidence, task ownership, consent boundaries, and handoff rules are mutually con
 
 ## Gate decision
 
-The observable done condition is unchanged. The revised Stage H/Stage E authority split is bounded,
-testable, privacy-safe, compatible with historical records, and subordinate to M10/M11 facts. The
-contract states exact validation, failure, consent, provider-budget, task/reviewer, evidence,
-browser, and release boundaries without requiring invented scope. No unresolved semantic choice
-blocks the shared schema/example/failing-first freeze. Broad product implementation may begin only
-after that shared freeze is committed and the required separate visible tasks are created from its
-exact clean head.
+The observable done condition remains unchanged, but the current implementation does not satisfy
+the contract it claims to implement. Stage H must project every fine unit with its exact transient
+evidence, speakers, source identity, sequence and deterministic structural ownership while keeping
+provider text non-durable and preserving the bounded sterile envelope. The correction must be
+failing-first, independently reviewed at its exact head, integrated without a replacement branch or
+PR, and followed by a repeated semantic review plus fresh provider-free gates. No further live
+provider transmission is allowed under the exhausted manifest.
 
-PASS
+REVISE

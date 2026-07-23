@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
+Updated: 2026-07-23 (M15.1 In progress; criterion-3 request projection in Revise)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,13 +13,12 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. The 2026-07-21 adjacent-only `PASS` is revoked. The observable done
-  condition is unchanged; whole-scope Stage H hierarchy proposal plus Stage E editorial batching
-  passed the repeated semantic gate on 2026-07-23. Revised Tracks A/B/C, the exhausted-live-run
-  corrections, and provider-free integration are complete and independently reviewed with no
-  unresolved P0-P2 at integration head `5d782ce`. A fresh isolated exact zero-submit Stage H
-  preparation produced manifest `consent_c988d3b944a81c177303d32f`; the next gate is separate
-  explicit approval of that exact manifest. The prior
+- Status: In progress in `Revise`. The 2026-07-21 adjacent-only `PASS` is revoked, and the later
+  whole-scope `PASS` is suspended. Live Stage H proved that the shipped request projected 732 unit
+  IDs but zero of 741 available evidence records and omitted required speaker, source, and
+  structural ownership context. Approved manifest `consent_c988d3b944a81c177303d32f` exhausted
+  both calls without producing a hierarchy. A bounded failing-first projection correction and
+  independent exact-head review are active; no new live call or Stage E work is authorized. The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
@@ -29,11 +28,12 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) on 2026-07-23 after transition commit
-  `b5d08f5`. The prior adjacent-only shared freeze `c768b19c8d9364db8f1987cb420e69ac0c2e535d`
-  is historical. Revised shared freeze `cf30b5e`, all three track implementations/reviews, and the
-  provider-free integrated architecture gate are complete. Stage H provider transmission remains
-  unauthorized until its exact manifest is prepared without submission and explicitly approved.
+- Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The earlier whole-scope
+  `PASS` after transition commit `b5d08f5` is historical because its implementation audit missed
+  the criterion-3 request-projection defect. The prior adjacent-only shared freeze
+  `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. Revised shared freeze `cf30b5e`,
+  the three track implementations/reviews, and earlier provider-free architecture gate remain
+  evidence for their exact heads but are not current Stage H acceptance proof.
 - Native Codex goal: the user removed the stale goal and explicitly requested a new one on
   2026-07-23. Active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` now binds the unchanged
   observable outcome to whole-scope Stage H/Stage E production, exact deterministic validation,
@@ -100,7 +100,7 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   evidence; a fresh exact acceptance copy must be prepared without submission before a new Stage H
   manifest is presented. The outside-Git failure artifact SHA-256 is
   `ADFE0EFF8E2311AA11AAC14624589AA7B3F1BE2803A938E1ABD7C02FC1A2532C`.
-- Fresh Stage H v2 preparation: accepted baseline
+- Fresh Stage H v2 execution: accepted baseline
   `output/playwright/m15-private-final/corrected-working-copy.rsmproj` was copied to fresh isolated
   `output/m15-1-whole-scope-acceptance-v2-20260723/msday1-working.rsmproj`. The shipped product API
   prepared manifest `consent_c988d3b944a81c177303d32f` for build
@@ -109,8 +109,13 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   900-second timeout. Preparation recorded zero provider constructions, reservations, calls, and
   tokens; source, original archive, and accepted baseline fingerprints remained unchanged.
   Outside-Git preparation artifact SHA-256 is
-  `32B8A7C5F98D3D6EB8D80D66051B89B003B052619BF90718D09514B032E491E2`. No transmission is
-  authorized until the user explicitly approves this exact manifest; Stage E remains separate.
+  `32B8A7C5F98D3D6EB8D80D66051B89B003B052619BF90718D09514B032E491E2`. The user approved that
+  exact manifest. The run consumed both calls/reservations (87,813 input tokens, 15,553 output
+  tokens, 285,516 accounted ms); the first response failed validation and the targeted repair ended
+  `provider_process_failed`. Durable state is failed with no hierarchy, logical result, cache, or
+  publication. Source/archive/baseline fingerprints remain unchanged and Stage E was not prepared.
+  The manifest is exhausted. Audit artifact SHA-256 is
+  `4CE78DCA1E5674B47BA44145BDAB39D016A526546E33F245554927093E6E1B6D`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
