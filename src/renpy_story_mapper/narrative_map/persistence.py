@@ -372,6 +372,49 @@ class NarrativeMapRepository:
         _validate_durable(normalized)
         self._write_payloads(((WHOLE_SCOPE_BUILD_COLLECTION, "active", normalized),))
 
+    def write_whole_scope_build_if_stage(
+        self,
+        payload: Mapping[str, object],
+        *,
+        expected_build: Mapping[str, object],
+        stage: str,
+        manifest_id: str,
+        expected_state: str,
+        logical_records: Sequence[Mapping[str, object]] = (),
+        publication: Mapping[str, object] | None = None,
+    ) -> bool:
+        """Compare-and-set a whole-scope stage and any derived publication records."""
+
+        if stage not in {"hierarchy", "editorial"} or not manifest_id or not expected_state:
+            raise ValueError("whole-scope stage write precondition is invalid")
+        normalized = _detached_mapping(payload, "whole-scope semantic build")
+        records: list[tuple[str, str, Mapping[str, object]]] = [
+            (WHOLE_SCOPE_BUILD_COLLECTION, "active", normalized)
+        ]
+        if publication is not None:
+            records.append(
+                (
+                    WHOLE_SCOPE_CURRENT_COLLECTION,
+                    "current",
+                    _detached_mapping(publication, "whole-scope publication"),
+                )
+            )
+        for value in logical_records:
+            record = _detached_mapping(value, "whole-scope logical job")
+            logical_job_id = record.get("logical_job_id")
+            if not isinstance(logical_job_id, str) or not logical_job_id:
+                raise ValueError("whole-scope logical job identity is missing")
+            records.append((WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, logical_job_id, record))
+        for _, _, value in records:
+            _validate_durable(value)
+        return self._write_whole_scope_payloads_if_stage(
+            tuple(records),
+            expected_build=expected_build,
+            stage=stage,
+            manifest_id=manifest_id,
+            expected_state=expected_state,
+        )
+
     def read_whole_scope_build(self) -> Mapping[str, object] | None:
         raw = self._payload(WHOLE_SCOPE_BUILD_COLLECTION, "active")
         if raw is None:
@@ -538,26 +581,51 @@ class NarrativeMapRepository:
     ) -> None:
         if not transport_batch_id or any(attempt not in {1, 2} for attempt in attempts):
             raise ValueError("whole-scope settlement identity is invalid")
-        raw = self._payload(WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined")
-        if raw is None:
-            return
-        reservations = _whole_scope_submission_reservations(raw, combined_limit=4)
-        expected = set(attempts)
-        for item in reservations:
-            if (
-                item["transport_batch_id"] == transport_batch_id
-                and item["attempt"] in expected
-            ):
-                item["settled"] = True
-        payload: dict[str, object] = {
-            "schema": WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA,
-            "combined_limit": 4,
-            "reservations": reservations,
-        }
-        _validate_durable(payload)
-        self._write_payloads(
-            ((WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined", payload),)
-        )
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='combined'",
+                (WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,),
+            ).fetchone()
+            if row is None:
+                return
+            encoded = bytes(row["payload_json"])
+            if storage.payload_digest(encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError(
+                    "whole-scope submission ledger checksum is invalid"
+                )
+            reservations = _whole_scope_submission_reservations(
+                storage.decode_json(encoded), combined_limit=4
+            )
+            expected = set(attempts)
+            for item in reservations:
+                if (
+                    item["transport_batch_id"] == transport_batch_id
+                    and item["attempt"] in expected
+                ):
+                    item["settled"] = True
+            payload: dict[str, object] = {
+                "schema": WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA,
+                "combined_limit": 4,
+                "reservations": reservations,
+            }
+            _validate_durable(payload)
+            updated = storage.canonical_json(payload)
+            connection.execute(
+                "UPDATE payloads SET payload_json=?,payload_hash=?,updated_utc=? "
+                "WHERE collection=? AND record_key='combined'",
+                (
+                    updated,
+                    storage.payload_digest(updated),
+                    storage.utc_now(),
+                    WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection=? AND record_key='combined'",
+                (WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,),
+            )
 
     def whole_scope_submission_count(self) -> int:
         raw = self._payload(WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined")
@@ -576,6 +644,11 @@ class NarrativeMapRepository:
             for item in _whole_scope_submission_reservations(raw, combined_limit=4)
             if item["transport_batch_id"] == transport_batch_id
         }
+
+    def whole_scope_reserved_attempts(self, transport_batch_id: str) -> tuple[int, ...]:
+        if not transport_batch_id:
+            raise ValueError("whole-scope transport batch identity is missing")
+        return tuple(sorted(self.whole_scope_submission_ordinals(transport_batch_id)))
 
     def read_historical_semantic_records(self) -> tuple[Mapping[str, object], ...]:
         """Expose legacy records under their original kinds with an explicit stale marker."""
@@ -1193,6 +1266,62 @@ class NarrativeMapRepository:
                 _detached_mapping(expected_build, "expected semantic build")
             )
             if active_encoded != expected_encoded:
+                return False
+            for collection, key, value in records:
+                payload = storage.canonical_json(value)
+                connection.execute(
+                    """
+                    INSERT INTO payloads(
+                        collection,record_key,payload_json,payload_hash,updated_utc
+                    ) VALUES (?,?,?,?,?)
+                    ON CONFLICT(collection,record_key) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        payload_hash=excluded.payload_hash,
+                        updated_utc=excluded.updated_utc
+                    """,
+                    (collection, key, payload, storage.payload_digest(payload), now),
+                )
+                connection.execute(
+                    "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                    (collection, key),
+                )
+        return True
+
+    def _write_whole_scope_payloads_if_stage(
+        self,
+        records: tuple[tuple[str, str, Mapping[str, object]], ...],
+        *,
+        expected_build: Mapping[str, object],
+        stage: str,
+        manifest_id: str,
+        expected_state: str,
+    ) -> bool:
+        connection = self._project._require_open()
+        now = storage.utc_now()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='active'",
+                (WHOLE_SCOPE_BUILD_COLLECTION,),
+            ).fetchone()
+            if row is None:
+                raise storage.ProjectCorruptError("whole-scope semantic build is missing")
+            active_encoded = bytes(row["payload_json"])
+            if storage.payload_digest(active_encoded) != row["payload_hash"]:
+                raise storage.ProjectCorruptError(
+                    "whole-scope semantic build checksum does not match stored data"
+                )
+            active = storage.decode_json(active_encoded)
+            if not isinstance(active, Mapping):
+                raise storage.ProjectCorruptError("whole-scope semantic build is not an object")
+            expected_encoded = storage.canonical_json(
+                _detached_mapping(expected_build, "expected whole-scope semantic build")
+            )
+            if (
+                active_encoded != expected_encoded
+                or active.get(f"{stage}_manifest_id") != manifest_id
+                or active.get(f"{stage}_state") != expected_state
+            ):
                 return False
             for collection, key, value in records:
                 payload = storage.canonical_json(value)

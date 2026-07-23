@@ -224,7 +224,16 @@ class NarrativeBoundaryWorkflow:
                     validated.append(job.job_id)
                     cache_hits += 1
                     continue
-            initial_attempt = record.attempt_count + 1
+            whole_scope_job = job.kind in {
+                ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+                ProviderJobKind.WHOLE_SCOPE_EDITORIAL,
+            }
+            durable_attempts = (
+                self._repository.whole_scope_reserved_attempts(job.job_id)
+                if whole_scope_job
+                else ()
+            )
+            initial_attempt = max((record.attempt_count, *durable_attempts)) + 1
             outcome = self._submit_with_repair(
                 job,
                 consent=consent,
@@ -242,20 +251,34 @@ class NarrativeBoundaryWorkflow:
                 (job.job_id, attempt)
                 for attempt in range(initial_attempt, outcome.attempt_count + 1)
             )
+            cumulative_attempt_count = outcome.attempt_count
+            cumulative_provider_calls = outcome.provider_calls
+            cumulative_usage = _optional_combined_usage(outcome.usages)
+            if whole_scope_job:
+                all_durable_attempts = self._repository.whole_scope_reserved_attempts(job.job_id)
+                cumulative_attempt_count = max(
+                    (record.attempt_count, outcome.attempt_count, *all_durable_attempts)
+                )
+                cumulative_provider_calls = max(
+                    record.provider_calls, len(all_durable_attempts)
+                )
+                cumulative_usage = _optional_combined_usage(
+                    (*_stored_usage(record.usage), *outcome.usages)
+                )
             if outcome.cancelled:
                 recorded = self._repository.record_failure_if_unchanged(
                     job,
                     self._profile,
                     expected_record=record,
-                    attempt_count=outcome.attempt_count,
-                    provider_calls=outcome.provider_calls,
+                    attempt_count=cumulative_attempt_count,
+                    provider_calls=cumulative_provider_calls,
                     error_code="cancelled",
                     provider_identity=(
                         None
                         if outcome.provider_identity is None
                         else outcome.provider_identity.to_dict()
                     ),
-                    usage=_optional_combined_usage(outcome.usages),
+                    usage=cumulative_usage,
                     consent_manifest_id=consent.manifest_id,
                 )
                 if not recorded:
@@ -273,15 +296,15 @@ class NarrativeBoundaryWorkflow:
                         job,
                         self._profile,
                         expected_record=record,
-                        attempt_count=outcome.attempt_count,
-                        provider_calls=outcome.provider_calls,
+                        attempt_count=cumulative_attempt_count,
+                        provider_calls=cumulative_provider_calls,
                         error_code=outcome.error_code or "invalid_output",
                         provider_identity=(
                             None
                             if outcome.provider_identity is None
                             else outcome.provider_identity.to_dict()
                         ),
-                        usage=_optional_combined_usage(outcome.usages),
+                        usage=cumulative_usage,
                         consent_manifest_id=consent.manifest_id,
                     )
                     if not recorded:
@@ -293,11 +316,11 @@ class NarrativeBoundaryWorkflow:
                 job,
                 self._profile,
                 expected_record=record,
-                attempt_count=outcome.attempt_count,
-                provider_calls=outcome.provider_calls,
+                attempt_count=cumulative_attempt_count,
+                provider_calls=cumulative_provider_calls,
                 result=outcome.result,
                 provider_identity=outcome.provider_identity.to_dict(),
-                usage=_combined_usage(outcome.usages),
+                usage=cumulative_usage or ProviderUsage(0, 0, 0, cost_micros=0),
                 consent_manifest_id=consent.manifest_id,
             )
             if not recorded:
@@ -746,6 +769,26 @@ def _optional_combined_usage(usages: Sequence[ProviderUsage]) -> ProviderUsage |
     return _combined_usage(usages) if usages else None
 
 
+def _stored_usage(value: Mapping[str, object] | None) -> tuple[ProviderUsage, ...]:
+    if value is None:
+        return ()
+    input_tokens = value.get("input_tokens")
+    output_tokens = value.get("output_tokens")
+    elapsed_ms = value.get("elapsed_ms")
+    cost_micros = value.get("cost_micros")
+    if (
+        not isinstance(input_tokens, int)
+        or isinstance(input_tokens, bool)
+        or not isinstance(output_tokens, int)
+        or isinstance(output_tokens, bool)
+        or not isinstance(elapsed_ms, int)
+        or isinstance(elapsed_ms, bool)
+        or (cost_micros is not None and not isinstance(cost_micros, int))
+    ):
+        raise ValueError("persisted whole-scope provider usage is invalid")
+    return (ProviderUsage(input_tokens, output_tokens, elapsed_ms, cost_micros=cost_micros),)
+
+
 def _semantic_lock(
     job: PreparedNarrativeJob,
     payload: object,
@@ -1048,158 +1091,39 @@ def _claim_semantic_projection(
 def _whole_scope_hierarchy_lock(
     job: PreparedNarrativeJob, payload: Mapping[str, object]
 ) -> dict[str, JsonValue]:
-    from renpy_story_mapper.narrative_map.provider import WholeScopeProviderSubject
-
-    if not isinstance(job.subject, WholeScopeProviderSubject):
-        return {}
+    validation = validate_whole_scope_hierarchy_response(payload, job)
     locked: dict[str, JsonValue] = {}
-    if payload.get("scope_id") == job.subject.scope_id:
-        locked["scope_id"] = job.subject.scope_id
-    allowed_units = set(job.subject.ordered_unit_ids)
-    beat_groups: list[JsonValue] = []
-    raw_beats = payload.get("beat_groups")
-    if isinstance(raw_beats, list):
-        for item in raw_beats:
-            if not isinstance(item, Mapping):
-                continue
-            unit_ids = item.get("ordered_unit_ids")
-            proposal_key = item.get("proposal_key")
-            if (
-                set(item)
-                == {"proposal_key", "ordered_unit_ids", "confidence", "reason", "warnings"}
-                and isinstance(proposal_key, str)
-                and proposal_key
-                and isinstance(unit_ids, list)
-                and unit_ids
-                and len(unit_ids) == len({value for value in unit_ids if isinstance(value, str)})
-                and all(isinstance(value, str) and value in allowed_units for value in unit_ids)
-                and _whole_scope_group_scalars_are_valid(item)
-            ):
-                beat_groups.append(
-                    {"proposal_key": proposal_key, "item": cast(JsonValue, dict(item))}
-                )
-    cluster_groups: list[JsonValue] = []
-    raw_clusters = payload.get("major_clusters")
-    if isinstance(raw_clusters, list):
-        for item in raw_clusters:
-            if not isinstance(item, Mapping):
-                continue
-            beat_keys = item.get("ordered_beat_keys")
-            proposal_key = item.get("proposal_key")
-            if (
-                set(item)
-                == {"proposal_key", "ordered_beat_keys", "confidence", "reason", "warnings"}
-                and isinstance(proposal_key, str)
-                and proposal_key
-                and isinstance(beat_keys, list)
-                and beat_keys
-                and len(beat_keys) == len({value for value in beat_keys if isinstance(value, str)})
-                and all(isinstance(value, str) and value for value in beat_keys)
-                and _whole_scope_group_scalars_are_valid(item)
-            ):
-                cluster_groups.append(
-                    {"proposal_key": proposal_key, "item": cast(JsonValue, dict(item))}
-                )
-    locked["__whole_scope_beat_groups__"] = beat_groups
-    locked["__whole_scope_clusters__"] = cluster_groups
+    if payload.get("scope_id") == job.subject_id:
+        locked["scope_id"] = job.subject_id
+    locked["__whole_scope_beat_groups__"] = [
+        {"proposal_key": item.proposal_key, "item": item.to_dict()}
+        for item in validation.valid_beat_groups
+    ]
+    locked["__whole_scope_clusters__"] = [
+        {"proposal_key": item.proposal_key, "item": item.to_dict()}
+        for item in validation.valid_major_clusters
+    ]
     return locked
 
 
 def _whole_scope_editorial_lock(
     job: PreparedNarrativeJob, payload: Mapping[str, object]
 ) -> dict[str, JsonValue]:
-    from renpy_story_mapper.narrative_map.provider import WholeScopeProviderSubject
-
-    if not isinstance(job.subject, WholeScopeProviderSubject):
-        return {}
+    validation = validate_whole_scope_editorial_response(payload, job)
     locked: dict[str, JsonValue] = {}
-    if payload.get("scope_id") == job.subject.scope_id:
-        locked["scope_id"] = job.subject.scope_id
-    if payload.get("hierarchy_hash") == job.subject.hierarchy_hash:
-        locked["hierarchy_hash"] = cast(str, job.subject.hierarchy_hash)
-    expected = {item.identity: item for item in job.subject.editorial_subjects}
-    records: list[JsonValue] = []
-    raw_records = payload.get("records")
-    if isinstance(raw_records, list):
-        for item in raw_records:
-            if not isinstance(item, Mapping):
-                continue
-            identity = f"{item.get('subject_kind')}:{item.get('subject_id')}"
-            exact = expected.get(identity)
-            if exact is not None and _whole_scope_editorial_item_is_valid(item, exact):
-                records.append({"identity": identity, "item": cast(JsonValue, dict(item))})
-    locked["__whole_scope_records__"] = records
-    return locked
-
-
-def _whole_scope_group_scalars_are_valid(item: Mapping[str, object]) -> bool:
-    confidence = item.get("confidence")
-    return bool(
-        isinstance(confidence, int | float)
-        and not isinstance(confidence, bool)
-        and 0 <= float(confidence) <= 1
-        and _repair_text(item.get("reason"), MAX_REASON_LENGTH)
-        and _repair_text_list(item.get("warnings"), MAX_REASON_LENGTH)
-    )
-
-
-def _whole_scope_editorial_item_is_valid(item: Mapping[str, object], exact: object) -> bool:
-    from renpy_story_mapper.narrative_map.provider import WholeScopeEditorialSubject
-    from renpy_story_mapper.narrative_map.semantic_contracts import SemanticPresentationRole
-
-    if not isinstance(exact, WholeScopeEditorialSubject):
-        return False
-    if (
-        set(item)
-        != {
-            "subject_kind",
-            "subject_id",
-            "membership_hash",
-            "presentation_role",
-            "title",
-            "summary",
-            "characters",
-            "claims",
-            "warnings",
+    if payload.get("scope_id") == job.subject_id:
+        locked["scope_id"] = job.subject_id
+    hierarchy_hash = payload.get("hierarchy_hash")
+    if isinstance(hierarchy_hash, str) and hierarchy_hash == job.membership_hash:
+        locked["hierarchy_hash"] = hierarchy_hash
+    locked["__whole_scope_records__"] = [
+        {
+            "identity": f"{item.subject_kind}:{item.subject_id}",
+            "item": item.to_dict(),
         }
-        or item.get("subject_kind") != exact.subject_kind
-        or item.get("subject_id") != exact.subject_id
-        or item.get("membership_hash") != exact.membership_hash
-    ):
-        return False
-    try:
-        SemanticPresentationRole(cast(str, item.get("presentation_role")))
-    except (TypeError, ValueError):
-        return False
-    characters = item.get("characters")
-    claims = item.get("claims")
-    if (
-        not _repair_text(item.get("title"), MAX_TITLE_LENGTH)
-        or not _repair_text(item.get("summary"), MAX_SUMMARY_LENGTH)
-        or not _repair_text_list(characters, MAX_REASON_LENGTH)
-        or any(value not in exact.known_characters for value in cast(list[str], characters))
-        or not _repair_text_list(item.get("warnings"), MAX_REASON_LENGTH)
-        or not isinstance(claims, list)
-        or not claims
-    ):
-        return False
-    for claim in claims:
-        if not isinstance(claim, Mapping) or set(claim) != {
-            "claim_class",
-            "text",
-            "evidence_ids",
-        }:
-            return False
-        evidence_ids = claim.get("evidence_ids")
-        if (
-            claim.get("claim_class") not in {"factual", "interpretive"}
-            or not _repair_text(claim.get("text"), MAX_SUMMARY_LENGTH)
-            or not _repair_text_list(evidence_ids, MAX_REASON_LENGTH)
-            or not cast(list[str], evidence_ids)
-            or any(value not in exact.evidence_ids for value in cast(list[str], evidence_ids))
-        ):
-            return False
-    return True
+        for item in validation.valid_records
+    ]
+    return locked
 
 
 def _matches_named_items(payload: object, key: str, constraint: JsonValue) -> bool:

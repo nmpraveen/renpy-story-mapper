@@ -4,6 +4,7 @@ import copy
 import json
 from collections.abc import Callable
 from pathlib import Path
+from threading import Event, Thread
 from typing import cast
 
 import pytest
@@ -186,6 +187,22 @@ class _FakeProvider:
 
     def cancel(self) -> None:
         self.cancel_count += 1
+
+
+class _BlockingFakeProvider(_FakeProvider):
+    def __init__(self, payload: dict[str, object]) -> None:
+        super().__init__([payload])
+        self.entered = Event()
+        self.release = Event()
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        self.entered.set()
+        assert self.release.wait(5)
+        return super().submit(request, cancelled)
 
 
 class _FakeSterileRunner:
@@ -513,3 +530,276 @@ def test_historical_boundary_records_remain_original_and_stale(tmp_path: Path) -
             "production_identity_status": "historical_stale",
         },
     )
+
+
+def test_concurrent_cancel_is_a_durable_fence_against_provider_completion(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "cancel-fence.rsmproj"
+    with Project.create(path) as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+
+    provider = _BlockingFakeProvider(_hierarchy_output())
+    reports: list[object] = []
+
+    def run_provider() -> None:
+        with Project.open(path) as project:
+            service = NarrativeMapService(NarrativeMapRepository(project))
+            reports.append(
+                service.start_whole_scope_hierarchy(
+                    preparation, provider=provider, consent=consent
+                )
+            )
+
+    worker = Thread(target=run_provider)
+    worker.start()
+    assert provider.entered.wait(5)
+    with Project.open(path) as project:
+        cancelling = NarrativeMapService(NarrativeMapRepository(project))
+        cancelled = cancelling.cancel_whole_scope_semantic_build()
+        assert cancelled is not None and cancelled.hierarchy_state == "cancelled"
+    provider.release.set()
+    worker.join(5)
+    assert not worker.is_alive() and len(reports) == 1
+
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        status = NarrativeMapService(repository).whole_scope_semantic_status()
+        publication = repository.read_whole_scope_current()
+        logical = repository.read_whole_scope_logical_records()
+
+    assert status is not None and status.hierarchy_state == "cancelled"
+    assert publication is None
+    assert logical == ()
+
+
+@pytest.mark.parametrize("iteration", range(3))
+def test_settlement_and_reservation_are_one_transactional_read_modify_write(
+    tmp_path: Path, iteration: int
+) -> None:
+    path = tmp_path / f"settlement-race-{iteration}.rsmproj"
+    with Project.create(path) as project:
+        NarrativeMapRepository(project).reserve_whole_scope_provider_submission(
+            stage="hierarchy",
+            manifest_id="manifest-h",
+            maximum_manifest_calls=2,
+            transport_batch_id="batch-h",
+            attempt=1,
+            combined_limit=4,
+        )
+
+    settlement_read = Event()
+    reservation_finished = Event()
+
+    class _PausingLegacySettlementRepository(NarrativeMapRepository):
+        def _write_payloads(self, records):  # type: ignore[no-untyped-def,override]
+            if records and records[0][1] == "combined":
+                settlement_read.set()
+                assert reservation_finished.wait(5)
+            return super()._write_payloads(records)
+
+    def settle() -> None:
+        with Project.open(path) as project:
+            _PausingLegacySettlementRepository(
+                project
+            ).settle_whole_scope_provider_submissions(
+                transport_batch_id="batch-h", attempts=(1,)
+            )
+
+    worker = Thread(target=settle)
+    worker.start()
+    legacy_interleaving = settlement_read.wait(0.2)
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        repository.reserve_whole_scope_provider_submission(
+            stage="hierarchy",
+            manifest_id="manifest-h",
+            maximum_manifest_calls=2,
+            transport_batch_id="batch-h",
+            attempt=2,
+            combined_limit=4,
+        )
+    reservation_finished.set()
+    worker.join(5)
+    assert not worker.is_alive()
+    with Project.open(path) as project:
+        repository = NarrativeMapRepository(project)
+        assert repository.whole_scope_submission_ordinals("batch-h") == {1: 1, 2: 2}
+        assert repository.whole_scope_submission_count() == 2
+    assert legacy_interleaving is False
+
+
+def test_crash_reserved_attempt_is_recovered_as_consumed_history(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "crash-reserved.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        repository.reserve_whole_scope_provider_submission(
+            stage="hierarchy",
+            manifest_id=consent.manifest_id,
+            maximum_manifest_calls=2,
+            transport_batch_id=preparation.job.job_id,
+            attempt=1,
+            combined_limit=4,
+        )
+        provider = _FakeProvider([_hierarchy_output()])
+        report = service.resume_whole_scope_semantic_build(
+            preparation, provider=provider, consent=consent
+        )
+        record = repository.get(preparation.job.kind, preparation.job.job_id)
+
+    assert report.provider_calls == 1
+    assert len(provider.requests) == 1
+    assert record is not None and record.attempt_count == 2
+    assert record.provider_calls == 2
+
+
+def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "cumulative-retry.rsmproj") as project:
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        first = service.prepare_whole_scope_hierarchy(
+            _authority(),
+            "scope-day-1",
+            ("unit-a", "unit-b"),
+            _hierarchy_input(),
+            known_evidence_ids=("evidence-a", "evidence-b"),
+            profile=_profile(),
+            run_id="first-manifest",
+            source_hash="source-hash",
+            correction_id="m15.1",
+            maximum_provider_calls=1,
+        )
+        first_consent = first.granted_consent()
+        service.confirm_whole_scope_consent(first, first_consent)
+        failed = service.start_whole_scope_hierarchy(
+            first, provider=_FakeProvider([{"bad": True}]), consent=first_consent
+        )
+        second = _prepare_hierarchy(service)
+        second_consent = second.granted_consent()
+        service.confirm_whole_scope_consent(second, second_consent)
+        succeeded = service.retry_whole_scope_semantic_build(
+            second, provider=_FakeProvider([_hierarchy_output()]), consent=second_consent
+        )
+        status = service.whole_scope_semantic_status()
+
+    assert failed.provider_calls == succeeded.provider_calls == 1
+    assert status is not None
+    assert status.accounting.transport_submissions == 2
+    assert status.accounting.input_tokens == 200
+    assert status.accounting.output_tokens == 40
+    assert status.accounting.elapsed_ms == 10
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda payload: payload.update({"external_context": {"reference": "synthetic"}}),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"credential_hint": "synthetic"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["hard_locks"]).append(
+            {"lock_id": "lock-a", "tool": {"name": "synthetic"}}
+        ),
+    ),
+)
+def test_stage_h_input_projection_fails_closed_before_preparation(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], object]
+) -> None:
+    with Project.create(tmp_path / "stage-h-sterile-shape.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        payload = _hierarchy_input()
+        mutate(payload)
+        with pytest.raises(ValueError):
+            service.prepare_whole_scope_hierarchy(
+                _authority(),
+                "scope-day-1",
+                ("unit-a", "unit-b"),
+                payload,
+                known_evidence_ids=("evidence-a", "evidence-b"),
+                profile=_profile(),
+                run_id="sterile-shape",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        assert service.whole_scope_semantic_status() is None
+
+
+def test_stage_e_input_projection_fails_closed_before_prompt_serialization(
+    tmp_path: Path,
+) -> None:
+    with Project.create(tmp_path / "stage-e-sterile-shape.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        _, hierarchy_hash = _run_valid_hierarchy(service)
+        assert hierarchy_hash is not None
+        payload = _editorial_input(hierarchy_hash)
+        cast(list[dict[str, object]], payload["evidence"])[0]["transport_tool"] = {
+            "name": "synthetic"
+        }
+        with pytest.raises(ValueError, match="Stage E input shape"):
+            service.prepare_whole_scope_editorial(
+                _authority(),
+                "scope-day-1",
+                hierarchy_hash,
+                _subjects(),
+                payload,
+                profile=_profile(),
+                run_id="sterile-editorial-shape",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        status = service.whole_scope_semantic_status()
+        assert status is not None and status.editorial_state == "not_started"
+
+
+def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Path) -> None:
+    invalid = _hierarchy_output()
+    cast(list[dict[str, object]], invalid["beat_groups"])[1]["ordered_unit_ids"] = [
+        "unit-a"
+    ]
+    with Project.create(tmp_path / "targeted-hierarchy-repair.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([invalid, _hierarchy_output()])
+        report = service.start_whole_scope_hierarchy(
+            preparation, provider=provider, consent=consent
+        )
+
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    assert report.provider_calls == 2
+
+
+def test_targeted_repair_may_replace_rejected_editorial_record(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "targeted-editorial-repair.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        _, hierarchy_hash = _run_valid_hierarchy(service)
+        assert hierarchy_hash is not None
+        preparation = service.prepare_whole_scope_editorial(
+            _authority(),
+            "scope-day-1",
+            hierarchy_hash,
+            _subjects(),
+            _editorial_input(hierarchy_hash),
+            profile=_profile(),
+            run_id="targeted-editorial",
+            source_hash="source-hash",
+            correction_id="m15.1",
+        )
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        invalid = _editorial_output(hierarchy_hash)
+        cast(list[dict[str, object]], invalid["records"])[0]["title"] = "Evidence Node"
+        provider = _FakeProvider([invalid, _editorial_output(hierarchy_hash)])
+        report = service.start_whole_scope_editorial(
+            preparation, provider=provider, consent=consent
+        )
+
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    assert report.provider_calls == 2

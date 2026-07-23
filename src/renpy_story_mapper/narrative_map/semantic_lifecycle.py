@@ -1507,7 +1507,7 @@ class WholeScopeSemanticLifecycle:
         )
         characters = _whole_scope_strings(known_characters, "Stage H character")
         payload = _whole_scope_mapping(input_payload, "Stage H input")
-        _validate_stage_h_input(payload, authority, scope_id, ordered)
+        _validate_stage_h_input(payload, authority, scope_id, ordered, evidence)
         _validate_whole_scope_limits(maximum_provider_calls)
         logical_id = stable_m15_id(
             "whole_scope_hierarchy_logical_job",
@@ -1815,10 +1815,24 @@ class WholeScopeSemanticLifecycle:
         consent.validate_for((preparation.job,), preparation.consent.profile)
         if raw.get(f"confirmed_{prefix}_manifest_id") != consent.manifest_id:
             raise ValueError("whole-scope consent must be confirmed before start")
+        if state not in {"awaiting_start", "cancelled", "failed"}:
+            return NarrativeWorkflowReport(
+                (), (), 0, 0, 0, 0, 0, False, (preparation.job.job_id,)
+            )
         updated = dict(raw)
         updated[f"{prefix}_state"] = "running"
         updated["failure_codes"] = []
-        self._repository.write_whole_scope_build(updated)
+        if not self._repository.write_whole_scope_build_if_stage(
+            updated,
+            expected_build=raw,
+            stage=prefix,
+            manifest_id=consent.manifest_id,
+            expected_state=state,
+        ):
+            return NarrativeWorkflowReport(
+                (), (), 0, 0, 0, 0, 0, False, (preparation.job.job_id,)
+            )
+        running = updated
         workflow = NarrativeBoundaryWorkflow(
             self._repository,
             provider,
@@ -1850,10 +1864,10 @@ class WholeScopeSemanticLifecycle:
             transport_batch_id=preparation.job.job_id,
             attempts=attempts,
         )
-        current = self._require_preparation(preparation)
-        final = dict(current)
+        final = dict(running)
         final["cache_hits"] = cast(int, final.get("cache_hits", 0)) + report.cache_hits
         record = self._repository.get(preparation.job.kind, preparation.job.job_id)
+        logical_records: tuple[Mapping[str, object], ...] = ()
         if report.cancelled:
             final[f"{prefix}_state"] = "cancelled"
             final["failure_codes"] = ["cancelled"]
@@ -1866,16 +1880,31 @@ class WholeScopeSemanticLifecycle:
             final[f"{prefix}_result"] = dict(record.result)
             final["failure_codes"] = []
             logical_records = self._logical_records(preparation, record)
-            self._repository.write_whole_scope_logical_records(logical_records)
             if preparation.stage is WholeScopeSemanticStage.EDITORIAL:
                 final["editorial_state"] = "complete"
-                self._publish(final, preparation, logical_records)
+                self._publish(
+                    final,
+                    preparation,
+                    logical_records,
+                    expected_running=running,
+                )
                 return report
         else:
             final[f"{prefix}_state"] = "failed"
             error_code = record.error_code if record is not None else None
             final["failure_codes"] = [error_code or "stage_failed"]
-        self._repository.write_whole_scope_build(final)
+        self._repository.write_whole_scope_build_if_stage(
+            final,
+            expected_build=running,
+            stage=prefix,
+            manifest_id=consent.manifest_id,
+            expected_state="running",
+            logical_records=(
+                logical_records
+                if preparation.stage is WholeScopeSemanticStage.HIERARCHY
+                else ()
+            ),
+        )
         return report
 
     def freeze_hierarchy(
@@ -2072,7 +2101,9 @@ class WholeScopeSemanticLifecycle:
         build: dict[str, object],
         preparation: WholeScopeStagePreparation,
         editorial_records: Sequence[Mapping[str, object]],
-    ) -> None:
+        *,
+        expected_running: Mapping[str, object],
+    ) -> bool:
         hierarchy = build.get("authoritative_hierarchy")
         hierarchy_result = build.get("hierarchy_result")
         editorial_result = build.get("editorial_result")
@@ -2115,10 +2146,14 @@ class WholeScopeSemanticLifecycle:
         publication_hash = canonical_hash(publication)
         publication["publication_hash"] = publication_hash
         build["publication_hash"] = publication_hash
-        self._repository.publish_whole_scope_current(
-            build=build,
-            publication=publication,
+        return self._repository.write_whole_scope_build_if_stage(
+            build,
+            expected_build=expected_running,
+            stage="editorial",
+            manifest_id=preparation.consent.manifest_id,
+            expected_state="running",
             logical_records=editorial_records,
+            publication=publication,
         )
 
     def _status(self, raw: Mapping[str, object]) -> WholeScopeSemanticStatus:
@@ -2170,23 +2205,7 @@ def _whole_scope_mapping(value: Mapping[str, object], label: str) -> dict[str, o
     if not isinstance(decoded, dict):
         raise ValueError(f"{label} must be an object")
     validate_privacy_safe_keys(decoded, label=label, allow_raw_content=True)
-    _reject_external_authority_keys(decoded, label)
     return cast(dict[str, object], decoded)
-
-
-def _reject_external_authority_keys(value: object, label: str) -> None:
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            normalized = "".join(character for character in key.casefold() if character.isalnum())
-            if any(
-                marker in normalized
-                for marker in ("privateoracle", "mockup", "gemini", "grok", "filesystemauthority")
-            ):
-                raise ValueError(f"{label} contains forbidden external authority")
-            _reject_external_authority_keys(item, label)
-    elif isinstance(value, list):
-        for item in value:
-            _reject_external_authority_keys(item, label)
 
 
 def _whole_scope_strings(
@@ -2220,12 +2239,120 @@ def _validate_stage_h_input(
     authority: AuthorityBinding,
     scope_id: str,
     ordered_unit_ids: tuple[str, ...],
+    known_evidence_ids: tuple[str, ...],
 ) -> None:
+    expected_fields = {
+        "schema",
+        "scope_id",
+        "authority",
+        "ordered_unit_ids",
+        "units",
+        "hard_locks",
+    }
+    units = payload.get("units")
+    hard_locks = payload.get("hard_locks")
+    if set(payload) != expected_fields or not isinstance(units, list) or not isinstance(
+        hard_locks, list
+    ):
+        raise ValueError("Stage H input shape is not exact")
+    unit_fields = {
+        "unit_id",
+        "sequence_id",
+        "ordinal",
+        "parent_choice_id",
+        "parent_arm_id",
+        "evidence_ids",
+    }
+    supplied_units: list[str] = []
+    allowed_evidence = set(known_evidence_ids)
+    for item in units:
+        item_evidence = item.get("evidence_ids") if isinstance(item, Mapping) else None
+        if (
+            not isinstance(item, Mapping)
+            or not {"unit_id", "evidence_ids"} <= set(item) <= unit_fields
+            or not isinstance(item.get("unit_id"), str)
+            or not isinstance(item_evidence, list)
+            or not item_evidence
+            or any(
+                not isinstance(evidence_id, str) or evidence_id not in allowed_evidence
+                for evidence_id in item_evidence
+            )
+            or len(item_evidence) != len(set(cast(list[str], item_evidence)))
+            or (
+                "sequence_id" in item
+                and (not isinstance(item["sequence_id"], str) or not item["sequence_id"])
+            )
+            or (
+                "ordinal" in item
+                and (
+                    not isinstance(item["ordinal"], int)
+                    or isinstance(item["ordinal"], bool)
+                    or item["ordinal"] < 0
+                )
+            )
+            or any(
+                key in item
+                and item[key] is not None
+                and (not isinstance(item[key], str) or not item[key])
+                for key in ("parent_choice_id", "parent_arm_id")
+            )
+        ):
+            raise ValueError("Stage H input shape is not exact")
+        supplied_units.append(cast(str, item.get("unit_id")))
+    lock_variants = (
+        {"lock_id", "kind", "choice_id", "arm_ids"},
+        {"lock_id", "kind", "unit_ids"},
+    )
+    allowed_choices = {
+        cast(str, item["parent_choice_id"])
+        for item in cast(list[Mapping[str, object]], units)
+        if isinstance(item.get("parent_choice_id"), str)
+    }
+    allowed_arms = {
+        cast(str, item["parent_arm_id"])
+        for item in cast(list[Mapping[str, object]], units)
+        if isinstance(item.get("parent_arm_id"), str)
+    }
+    for item in hard_locks:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) not in lock_variants
+            or not isinstance(item.get("lock_id"), str)
+            or not item.get("lock_id")
+            or not isinstance(item.get("kind"), str)
+        ):
+            raise ValueError("Stage H input shape is not exact")
+        if any(
+            key in item
+            and (
+                not isinstance(item[key], list)
+                or any(not isinstance(value, str) for value in cast(list[object], item[key]))
+            )
+            for key in ("arm_ids", "unit_ids")
+        ):
+            raise ValueError("Stage H input shape is not exact")
+        if set(item) == lock_variants[0] and (
+            item.get("kind") != "choice_ownership"
+            or item.get("choice_id") not in allowed_choices
+            or not cast(list[object], item.get("arm_ids"))
+            or any(arm_id not in allowed_arms for arm_id in cast(list[object], item["arm_ids"]))
+        ):
+            raise ValueError("Stage H input shape is not exact")
+        if set(item) == lock_variants[1] and (
+            item.get("kind") != "scope_marker"
+            or not cast(list[object], item.get("unit_ids"))
+            or any(
+                unit_id not in ordered_unit_ids
+                for unit_id in cast(list[object], item["unit_ids"])
+            )
+        ):
+            raise ValueError("Stage H input shape is not exact")
     if (
         payload.get("schema") != M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
         or payload.get("scope_id") != scope_id
         or payload.get("authority") != authority.to_dict()
         or payload.get("ordered_unit_ids") != list(ordered_unit_ids)
+        or supplied_units != list(ordered_unit_ids)
     ):
         raise ValueError("Stage H input identity is not exact")
 
@@ -2237,12 +2364,40 @@ def _validate_stage_e_input(
     hierarchy_hash: str,
     subjects: Sequence[WholeScopeEditorialSubject],
 ) -> None:
+    if set(payload) != {
+        "schema",
+        "scope_id",
+        "authority",
+        "hierarchy_hash",
+        "subjects",
+        "evidence",
+    }:
+        raise ValueError("Stage E input shape is not exact")
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, list):
+        raise ValueError("Stage E input shape is not exact")
+    allowed_evidence = {evidence_id for item in subjects for evidence_id in item.evidence_ids}
+    supplied_evidence: list[str] = []
+    for item in evidence:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"evidence_id", "text"}
+            or not isinstance(item.get("evidence_id"), str)
+            or item.get("evidence_id") not in allowed_evidence
+            or not isinstance(item.get("text"), str)
+            or not cast(str, item.get("text")).strip()
+        ):
+            raise ValueError("Stage E input shape is not exact")
+        supplied_evidence.append(cast(str, item.get("evidence_id")))
+    if len(supplied_evidence) != len(set(supplied_evidence)):
+        raise ValueError("Stage E input shape is not exact")
     if (
         payload.get("schema") != M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA
         or payload.get("scope_id") != scope_id
         or payload.get("authority") != authority.to_dict()
         or payload.get("hierarchy_hash") != hierarchy_hash
         or payload.get("subjects") != [item.to_dict() for item in subjects]
+        or set(supplied_evidence) != allowed_evidence
     ):
         raise ValueError("Stage E input identity is not exact")
 

@@ -98,6 +98,8 @@ class SemanticSummaryValidation:
 class WholeScopeHierarchyValidation:
     proposal: WholeScopeHierarchyProposal | None
     findings: tuple[ValidationFinding, ...]
+    valid_beat_groups: tuple[ProposedBeatGroup, ...] = ()
+    valid_major_clusters: tuple[ProposedMajorCluster, ...] = ()
 
     @property
     def valid(self) -> bool:
@@ -381,8 +383,38 @@ def validate_whole_scope_hierarchy_response(
     )
     if cluster_beat_keys != beat_keys or len(cluster_beat_keys) != len(set(cluster_beat_keys)):
         findings.append(ValidationFinding("inexact_cluster_coverage", job.job_id))
+    unit_counts = {unit_id: flattened.count(unit_id) for unit_id in set(flattened)}
+    beat_key_counts = {key: beat_keys.count(key) for key in set(beat_keys)}
+    valid_beats = tuple(
+        beat
+        for beat in beats
+        if beat_key_counts.get(beat.proposal_key) == 1
+        and all(
+            unit_id in subject.ordered_unit_ids and unit_counts.get(unit_id) == 1
+            for unit_id in beat.ordered_unit_ids
+        )
+    )
+    valid_beat_keys = {beat.proposal_key for beat in valid_beats}
+    cluster_key_counts = {
+        key: cluster_beat_keys.count(key) for key in set(cluster_beat_keys)
+    }
+    cluster_proposal_keys = tuple(cluster.proposal_key for cluster in clusters)
+    valid_clusters = tuple(
+        cluster
+        for cluster in clusters
+        if cluster_proposal_keys.count(cluster.proposal_key) == 1
+        and all(
+            beat_key in valid_beat_keys and cluster_key_counts.get(beat_key) == 1
+            for beat_key in cluster.ordered_beat_keys
+        )
+    )
     if findings:
-        return WholeScopeHierarchyValidation(None, tuple(dict.fromkeys(findings)))
+        return WholeScopeHierarchyValidation(
+            None,
+            tuple(dict.fromkeys(findings)),
+            valid_beats,
+            valid_clusters,
+        )
     try:
         proposal = WholeScopeHierarchyProposal(
             subject.scope_id,
@@ -395,7 +427,7 @@ def validate_whole_scope_hierarchy_response(
         return WholeScopeHierarchyValidation(
             None, (ValidationFinding("invalid_hierarchy", job.job_id),)
         )
-    return WholeScopeHierarchyValidation(proposal, ())
+    return WholeScopeHierarchyValidation(proposal, (), tuple(beats), tuple(clusters))
 
 
 def validate_whole_scope_editorial_response(
@@ -453,7 +485,7 @@ def validate_whole_scope_editorial_response(
             continue
         record, record_findings = _whole_scope_editorial_record(item, exact, index)
         findings.extend(record_findings)
-        if record is not None:
+        if record is not None and supplied.count(identity) == 1:
             records.append(record)
     if findings or len(records) != len(expected):
         return WholeScopeEditorialValidation(
