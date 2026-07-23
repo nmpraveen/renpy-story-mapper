@@ -1,6 +1,6 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: In progress after corrected Stage H projection review and repeated semantic `PASS`.
+Status: Blocked at the corrected Stage H exact-consent gate after repeated semantic `PASS`.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-23 (M15.1 In progress; corrected Stage H semantic gate PASS)
+Updated: 2026-07-23 (M15.1 Blocked at corrected Stage H exact-consent gate)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,13 +13,17 @@ Updated: 2026-07-23 (M15.1 In progress; corrected Stage H semantic gate PASS)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress after a repeated semantic `PASS`. Live Stage H proved that the prior shipped
+- Status: Blocked. The corrected Stage H exact-consent gate remains the blocker after a repeated
+  semantic `PASS`. Live Stage H proved that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
   speaker, source, and structural ownership context. Approved manifest
   `consent_c988d3b944a81c177303d32f` exhausted both calls without producing a hierarchy. The
   failing-first typed-authority and repair-bound correction is now integrated and independently
   reviewed with no P0-P2. A new live call still requires a fresh exact manifest plus separate
-  explicit approval to exceed four total Day 1 submissions; Stage E remains unauthorized. The prior
+  explicit approval to exceed four total Day 1 submissions. The same approval blocker persisted
+  for three consecutive goal turns, so the native goal and lifecycle are recorded `Blocked` without
+  changing the semantic decision or completed provider-free evidence. Stage E remains unauthorized.
+  The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
