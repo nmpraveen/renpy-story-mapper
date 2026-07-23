@@ -75,15 +75,21 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   acceptance cases with zero provider calls and zero game execution. Live Stage H/E, private
   semantic review, real Chrome, Release, screenshots/user approval, push/checks, and PR readiness
   remain pending.
-- Stage H zero-submit preparation: the supported product path opened an isolated copy of the exact
-  private Day 1 project and prepared sterile manifest `consent_da4aecc72b5dfb3fb4523c27` for build
-  `whole_scope_build_83b5644d73e7b0ba4e026b5f`. It binds one hierarchy job to source
-  `e66a736f...`, authority `ff90b999...`, input `93c4d290...`, prompt `6dc49699...`, schema
-  `ca333eea...`, `gpt-5.6-sol` Medium with fast mode off, maximum two calls including one targeted
-  repair, and expiry `2026-07-23T18:11:54.030401+00:00`. Provider constructions, calls,
-  reservations, and tokens are zero. The sterile preparation artifact is outside Git with SHA-256
-  `CBF4441BEF6B25FCA9F39A48679FFF368D03CF9B8DDD76F70F49A27F79354A22`. Exact user consent is
-  required before any Stage H transmission.
+- Stage H live acceptance correction: the supported product path opened an isolated copy of the
+  exact private Day 1 project and prepared sterile manifest `consent_da4aecc72b5dfb3fb4523c27`
+  for build `whole_scope_build_83b5644d73e7b0ba4e026b5f`; the user approved that exact manifest.
+  Attempt 1 transmitted and timed out at 300 seconds. Exact retry attempt 2 returned after about
+  297 seconds; cumulative accounting is two calls/reservations, 87,813 input tokens, and 16,301
+  output tokens. Full Python validation then rejected the schema-valid response because its cluster
+  membership was not representable by the existing assembler. Durable state incorrectly remained
+  `validated` with no hierarchy hash or failure code, so this is a live-path P1 rather than Stage H
+  acceptance. Source/archive hashes and timestamps remain unchanged; Stage E was not prepared or
+  called. The manifest is exhausted and no third call is allowed. Bounded correction task
+  `019f8f26-dec1-7032-9da5-127c20a6040f` must move full authority validation inside the repair
+  lifecycle, fail exhausted invalid output durably, and increase the finite disclosed timeout; the
+  same independent architecture task must pass the exact correction before a fresh Stage H
+  manifest is prepared. The outside-Git failure artifact SHA-256 is
+  `ADFE0EFF8E2311AA11AAC14624589AA7B3F1BE2803A938E1ABD7C02FC1A2532C`.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
