@@ -45,6 +45,8 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     WholeScopeHierarchyProposal,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    HierarchyHardLock,
+    HierarchyHardLockKind,
     ValidatedWholeScopeHierarchy,
     compile_hierarchy_to_gap_decisions,
     validate_whole_scope_hierarchy,
@@ -53,7 +55,10 @@ from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     WholeScopeSemanticLifecycle,
     WholeScopeSemanticStatus,
 )
-from renpy_story_mapper.narrative_map.semantic_projection import semantic_outline_hash
+from renpy_story_mapper.narrative_map.semantic_projection import (
+    SemanticEvidenceRecord,
+    semantic_outline_hash,
+)
 from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_whole_scope_hierarchy_response,
 )
@@ -120,6 +125,25 @@ def _hierarchy_input() -> dict[str, object]:
             for unit in units
         ],
         "hard_locks": [],
+    }
+
+
+def _hierarchy_evidence_by_unit() -> dict[str, tuple[SemanticEvidenceRecord, ...]]:
+    units = _validated_hierarchy().units
+    return {
+        unit.unit_id: (
+            SemanticEvidenceRecord(
+                unit.unit_id,
+                unit.story_atom_id,
+                unit.evidence_ids[0],
+                unit.ordinal,
+                "dialogue",
+                "Ava arrives." if unit.ordinal == 0 else "Ava settles in.",
+                "Ava",
+                unit.story_locator,
+            ),
+        )
+        for unit in units
     }
 
 
@@ -1093,6 +1117,127 @@ def test_stage_h_input_projection_fails_closed_before_preparation(
                 known_characters=("Ava",),
                 profile=_profile(),
                 run_id="sterile-shape",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        assert service.whole_scope_semantic_status() is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda payload: cast(list[dict[str, object]], payload["evidence"])[0].update(
+            {"text": "Altered same-shaped story evidence."}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["evidence"])[0].update(
+            {"atom_id": "atom-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["evidence"])[0].update(
+            {"kind": "narration"}
+        ),
+        lambda payload: cast(
+            dict[str, object],
+            cast(list[dict[str, object]], payload["evidence"])[0]["locator"],
+        ).update({"start_line": 99, "end_line": 99}),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"sequence_id": "sequence-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"lane_id": "lane-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"call_occurrence_id": "call-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"loop_id": "loop-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"parent_choice_id": "choice-altered", "parent_arm_id": "arm-altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"entry_node_id": "entry-altered", "exit_node_id": "exit-altered"}
+        ),
+    ),
+)
+def test_stage_h_same_shape_authority_mutation_fails_before_consent(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], object]
+) -> None:
+    with Project.create(tmp_path / "stage-h-exact-authority.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        payload = _hierarchy_input()
+        mutate(payload)
+        units = _validated_hierarchy().units
+        with pytest.raises(ValueError, match="exact typed authority"):
+            service.prepare_whole_scope_hierarchy(
+                _authority(),
+                "scope-day-1",
+                tuple(item.unit_id for item in units),
+                payload,
+                hierarchy_units=units,
+                evidence_by_unit=_hierarchy_evidence_by_unit(),
+                hierarchy_hard_locks=(),
+                known_evidence_ids=("evidence-a", "evidence-b"),
+                known_characters=("Ava",),
+                profile=_profile(),
+                run_id="same-shape-authority-mutation",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        assert service.whole_scope_semantic_status() is None
+
+
+@pytest.mark.parametrize("mutation", ("omitted", "reordered", "changed"))
+def test_stage_h_exact_hard_lock_order_is_bound_before_consent(
+    tmp_path: Path, mutation: str
+) -> None:
+    with Project.create(tmp_path / f"stage-h-lock-{mutation}.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        units = _validated_hierarchy().units
+        locks = (
+            HierarchyHardLock(
+                "lock-a",
+                HierarchyHardLockKind.SCOPE_MARKER,
+                unit_ids=(units[0].unit_id,),
+            ),
+            HierarchyHardLock(
+                "lock-b",
+                HierarchyHardLockKind.SCOPE_MARKER,
+                unit_ids=(units[1].unit_id,),
+            ),
+        )
+        payload = _hierarchy_input()
+        exact_locks = [
+            {
+                "lock_id": item.lock_id,
+                "kind": item.kind.value,
+                "unit_ids": list(item.unit_ids),
+                "left_unit_id": item.left_unit_id,
+                "right_unit_id": item.right_unit_id,
+                "choice_id": item.choice_id,
+                "arm_ids": list(item.arm_ids),
+            }
+            for item in locks
+        ]
+        payload["hard_locks"] = (
+            []
+            if mutation == "omitted"
+            else list(reversed(exact_locks))
+            if mutation == "reordered"
+            else [*exact_locks[:-1], {**exact_locks[-1], "lock_id": "lock-changed"}]
+        )
+        with pytest.raises(ValueError, match="exact typed authority"):
+            service.prepare_whole_scope_hierarchy(
+                _authority(),
+                "scope-day-1",
+                tuple(item.unit_id for item in units),
+                payload,
+                hierarchy_units=units,
+                evidence_by_unit=_hierarchy_evidence_by_unit(),
+                hierarchy_hard_locks=locks,
+                known_evidence_ids=("evidence-a", "evidence-b"),
+                known_characters=("Ava",),
+                profile=_profile(),
+                run_id=f"hard-lock-{mutation}",
                 source_hash="source-hash",
                 correction_id="m15.1",
             )
