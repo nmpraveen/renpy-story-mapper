@@ -26,9 +26,9 @@ function element(tag, className, text) {
 }
 
 const STORY_MAP_PUBLISHED_STATES = new Set(["complete", "partial"]);
-const STORY_MAP_ACTIVE_STATES = new Set(["boundaries_running", "summaries_running", "validating"]);
+const STORY_MAP_ACTIVE_STATES = new Set(["hierarchy_running", "editorial_running", "boundaries_running", "summaries_running", "validating"]);
 const STORY_MAP_CANCELABLE_STATES = new Set([
-  "awaiting_boundary_consent", "awaiting_summary_consent", ...STORY_MAP_ACTIVE_STATES,
+  "awaiting_hierarchy_consent", "awaiting_editorial_consent", "awaiting_boundary_consent", "awaiting_summary_consent", ...STORY_MAP_ACTIVE_STATES,
 ]);
 
 function storyMapBuildState(page = state.page) {
@@ -47,6 +47,10 @@ function narrativePresentation(page = state.page, mode = state.mode) {
 
 function storyMapStatusLabel(buildState) {
   const labels = {
+    hierarchy_prepared: "Story-structure manifest prepared.", awaiting_hierarchy_consent: "Story-structure manifest awaits confirmation.",
+    hierarchy_running: "Organizing the whole story scope.", hierarchy_frozen: "Story structure is frozen. Editorial wording is ready to prepare.",
+    editorial_prepared: "Editorial manifest prepared.", awaiting_editorial_consent: "Editorial manifest awaits confirmation.",
+    editorial_running: "Writing evidence-linked story wording.",
     not_started: "Story Map has not been built.", boundaries_prepared: "Boundary manifest prepared.",
     awaiting_boundary_consent: "Boundary manifest awaits confirmation.", boundaries_running: "Finding story boundaries.",
     membership_frozen: "Story membership is frozen. Summaries are ready to prepare.", summaries_prepared: "Summary manifest prepared.",
@@ -60,11 +64,13 @@ function storyMapStatusLabel(buildState) {
 function storyItemButton(item, className, indexLabel, { arm = false } = {}) {
   const button = element("button", className); button.type = "button";
   button.dataset.elementId = item.id; button.dataset.kind = item.kind || "story_item";
+  button.dataset.editorialStatus = item.editorial_status || "complete";
   if (item.search_match === false) button.classList.add("story-search-hidden");
   button.setAttribute("aria-label", `Open ${item.title || "story item"} in Detail and Evidence`);
   const index = element("span", arm ? "story-arm-index" : "story-row-index", indexLabel);
   const copy = element("span", "story-row-copy"); copy.append(element("span", "story-row-title", item.title));
   if (item.summary) copy.append(element("span", "story-row-summary", item.summary));
+  if (item.editorial_status === "partial") copy.append(element("span", "story-partial-label", "Partial evidence"));
   button.append(index, copy, element("span", "story-detail-glyph", "▤"));
   button.addEventListener("click", () => openDetail(item.id));
   button.addEventListener("focus", () => selectItem(item));
@@ -575,8 +581,8 @@ async function loadNarrative() {
 function renderStoryMapBuildControls() {
   const buildState = state.storyMapBuild?.state || storyMapBuildState();
   $("#storyMapBuildStatus").textContent = storyMapStatusLabel(buildState);
-  $("#prepareBoundaries").disabled = !["not_started", "boundaries_prepared", "awaiting_boundary_consent", "failed", "cancelled", "stale", "partial"].includes(buildState);
-  $("#prepareSummaries").disabled = !["membership_frozen", "summaries_prepared", "awaiting_summary_consent"].includes(buildState);
+  $("#prepareBoundaries").disabled = !["not_started", "hierarchy_prepared", "awaiting_hierarchy_consent", "boundaries_prepared", "awaiting_boundary_consent", "failed", "cancelled", "stale", "partial"].includes(buildState);
+  $("#prepareSummaries").disabled = !["hierarchy_frozen", "editorial_prepared", "awaiting_editorial_consent", "membership_frozen", "summaries_prepared", "awaiting_summary_consent"].includes(buildState);
   $("#cancelStoryMapBuild").hidden = !STORY_MAP_CANCELABLE_STATES.has(buildState);
   $("#resumeStoryMapBuild").hidden = buildState !== "cancelled";
   $("#retryStoryMapBuild").hidden = !["partial", "failed"].includes(buildState);
@@ -608,8 +614,8 @@ function showStoryMapManifest(stage, prepared) {
   const manifestId = storyMapManifestId(prepared);
   if (!manifestId) throw new TypeError("Prepared Story Map stage has no exact manifest identity");
   state.storyMapManifest = prepared; state.storyMapStage = stage;
-  $("#storyMapConsentEyebrow").textContent = stage === "boundaries" ? "Boundary manifest" : "Frozen-summary manifest";
-  $("#storyMapConsentTitle").textContent = stage === "boundaries" ? "Confirm story boundaries" : "Confirm titles and summaries";
+  $("#storyMapConsentEyebrow").textContent = stage === "hierarchy" ? "Whole-scope structure manifest" : "Whole-scope editorial manifest";
+  $("#storyMapConsentTitle").textContent = stage === "hierarchy" ? "Confirm story structure" : "Confirm story wording";
   const facts = $("#storyMapConsentFacts"); facts.replaceChildren();
   const value = (...paths) => storyMapManifestValue(prepared, paths);
   const requestedModel = value("provider.requested_model", "manifest.provider.requested_model", "provider_profile.requested_model", "manifest.provider_profile.requested_model");
@@ -630,7 +636,7 @@ function showStoryMapManifest(stage, prepared) {
     ["Authority", value("authority_hash", "manifest.authority_hash", "bindings.authority_hash", "manifest.bindings.authority_hash")],
     ["Correction", value("correction_id", "manifest.correction_id", "correction_hash", "manifest.correction_hash", "bindings.correction_hash", "manifest.bindings.correction_hash")],
     ["Prompt / schema", promptHash !== null && schemaHash !== null ? `${promptHash} / ${schemaHash}` : null],
-    ["Membership", stage === "boundaries" ? "Frozen only after boundary validation" : value("membership_hash", "manifest.membership_hash", "bindings.membership_hash", "manifest.bindings.membership_hash", "scope_hash", "manifest.scope_hash")],
+    ["Membership", stage === "hierarchy" ? "Frozen only after hierarchy validation" : value("membership_hash", "manifest.membership_hash", "bindings.membership_hash", "manifest.bindings.membership_hash", "scope_hash", "manifest.scope_hash")],
     ["Provider profile", [requestedModel, resolvedModel, reasoning, fastMode].every((item) => item !== null) ? `${requestedModel} → ${resolvedModel} · ${reasoning} reasoning · fast mode ${storyMapManifestDisplay(fastMode)}` : null],
     ["Jobs", jobs], ["Input hash", value("job_identity_hash", "manifest.job_identity_hash", "input_hash", "selection_hash", "manifest.input_hash", "manifest.selection_hash")],
     ["Privacy scope", value("privacy_scope", "manifest.privacy_scope", "bindings.privacy_scope", "manifest.bindings.privacy_scope")],
@@ -645,7 +651,7 @@ function showStoryMapManifest(stage, prepared) {
 
 async function prepareStoryMapStage(stage) {
   try {
-    const prepared = stage === "boundaries" ? await api.prepareStoryBoundaries() : await api.prepareStorySummaries();
+    const prepared = stage === "hierarchy" ? await api.prepareStoryHierarchy() : await api.prepareStoryEditorial();
     state.storyMapBuild = prepared; renderStoryMapBuildControls(); showStoryMapManifest(stage, prepared);
   } catch (error) { toast(error.message); }
 }
@@ -654,7 +660,7 @@ async function confirmStoryMapStage() {
   const stage = state.storyMapStage; const manifestId = storyMapManifestId(state.storyMapManifest);
   if (!stage || !manifestId || $("#confirmStoryMapStage").disabled) { toast("Prepare this stage again before confirming"); return; }
   try {
-    const started = stage === "boundaries" ? await api.startStoryBoundaries(manifestId) : await api.startStorySummaries(manifestId);
+    const started = stage === "hierarchy" ? await api.startStoryHierarchy(manifestId) : await api.startStoryEditorial(manifestId);
     state.storyMapBuild = started; state.storyMapManifest = null; state.storyMapStage = null;
     $("#storyMapConsentDialog").close(); renderStoryMapBuildControls();
     if (STORY_MAP_ACTIVE_STATES.has(started.state)) pollStoryMapBuild();
@@ -1192,8 +1198,8 @@ function bind() {
   $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
   $("#buildStoryMap").addEventListener("click", () => { renderStoryMapBuildControls(); $("#storyMapBuildDialog").showModal(); });
   $("#closeStoryMapBuild").addEventListener("click", () => $("#storyMapBuildDialog").close());
-  $("#prepareBoundaries").addEventListener("click", () => prepareStoryMapStage("boundaries"));
-  $("#prepareSummaries").addEventListener("click", () => prepareStoryMapStage("summaries"));
+  $("#prepareBoundaries").addEventListener("click", () => prepareStoryMapStage("hierarchy"));
+  $("#prepareSummaries").addEventListener("click", () => prepareStoryMapStage("editorial"));
   $("#confirmStoryMapStage").addEventListener("click", confirmStoryMapStage);
   $("#cancelStoryMapConsent").addEventListener("click", () => { state.storyMapManifest = null; state.storyMapStage = null; $("#storyMapConsentDialog").close(); renderStoryMapBuildControls(); });
   $("#cancelStoryMapBuild").addEventListener("click", () => runStoryMapBuildAction("cancelStoryMapBuild"));

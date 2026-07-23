@@ -64,6 +64,8 @@ from renpy_story_mapper.narrative_map.projection import (
 )
 from renpy_story_mapper.narrative_map.provider import ProviderJobKind
 from renpy_story_mapper.narrative_map.semantic_projection import (
+    MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS,
+    CompactWholeScopeProjection,
     project_compact_semantic_edges,
     project_compact_semantic_nodes,
     semantic_outline_hash,
@@ -152,6 +154,73 @@ def narrative_map_page(
         "focus": focus,
     }
     return page
+
+
+def whole_scope_projection_page(
+    projection: CompactWholeScopeProjection,
+    *,
+    authority_hash: str,
+    publication_hash: str,
+    build_id: str,
+    outline_label: str = "Story outline",
+) -> dict[str, object]:
+    """Serialize one already-validated Stage H/E projection for the normal browser flow.
+
+    This adapter is deliberately persistence- and provider-free. Track B owns publication and
+    lifecycle validation; the integrated product can call this only after those checks succeed.
+    """
+
+    for value, label in (
+        (authority_hash, "whole-scope authority hash"),
+        (publication_hash, "whole-scope publication hash"),
+        (build_id, "whole-scope build ID"),
+        (outline_label, "whole-scope outline label"),
+    ):
+        if not value or value != value.strip():
+            raise ValueError(f"{label} must be non-empty and trimmed")
+    sections = [
+        item for item in projection.nodes if item.get("kind") == "major_cluster"
+    ]
+    if not sections:
+        raise ValueError("whole-scope normal flow requires a visible major section")
+    nodes = [dict(item) for item in projection.nodes]
+    edges = [_semantic_edge_payload(item) for item in projection.edges]
+    return {
+        "schema": NARRATIVE_MAP_PAGE_SCHEMA,
+        "status": "available",
+        "level": "narrative_map",
+        "presentation_levels": ["narrative_map", "detail_evidence"],
+        "authority_hash": authority_hash,
+        "map_hash": publication_hash,
+        "publication_hash": publication_hash,
+        "build_id": build_id,
+        "build_state": "partial" if projection.partial_subject_ids else "complete",
+        "outline_label": outline_label,
+        "technical_correction_id": None,
+        "correction_status": {"state": "whole_scope_applied"},
+        "nodes": nodes,
+        "edges": edges,
+        "lanes": [{"id": "story-spine", "kind": "spine", "label": "Story spine"}],
+        "initial_node_ids": [str(sections[0]["id"])],
+        "hidden_technical_count": len(projection.omitted_subject_ids),
+        "omitted_subject_ids": list(projection.omitted_subject_ids),
+        "partial_subject_ids": list(projection.partial_subject_ids),
+        "density": {
+            "visible_rows": projection.visible_row_count,
+            "maximum_visible_rows": MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS,
+            "major_sections": len(sections),
+            "choices": sum(item.get("kind") == "choice" for item in projection.nodes),
+            "choice_arms": sum(
+                item.get("kind") == "choice_arm" for item in projection.nodes
+            ),
+            "rejoins": sum(item.get("kind") == "rejoin" for item in projection.nodes),
+        },
+        "total_nodes": len(nodes),
+        "total_edges": len(edges),
+        "provider_calls": 0,
+        "m12_requests": 0,
+        "fallback": None,
+    }
 
 
 def narrative_map_detail(project: Project, element_id: str) -> dict[str, object]:
@@ -996,7 +1065,12 @@ def _semantic_detail(
     edge = next((item for item in semantic.edges if item["id"] == element_id), None)
     if node is None and edge is None:
         raise KeyError(element_id)
-    unit_ids = _detail_unit_ids(semantic.outline, element_id)
+    projected_member_unit_ids = (
+        _string_sequence(node.get("member_unit_ids"), "projected member unit IDs")
+        if node is not None and "member_unit_ids" in node
+        else ()
+    )
+    unit_ids = projected_member_unit_ids or _detail_unit_ids(semantic.outline, element_id)
     unit_by_id = {item.unit_id: item for item in semantic.units}
     selected_units = [unit_by_id[item] for item in unit_ids if item in unit_by_id]
     topology_node = next(
@@ -1109,7 +1183,15 @@ def _semantic_detail(
     facts = [canonical_facts[item] for item in fact_ids if item in canonical_facts]
     selected = dict(node or edge or {})
     summary = semantic.summaries.get(element_id)
+    if summary is None and node is not None and isinstance(node.get("claims"), list):
+        summary = node
     summary_provenance = semantic.summary_provenance.get(element_id)
+    if (
+        summary_provenance is None
+        and node is not None
+        and isinstance(node.get("summary_provenance"), Mapping)
+    ):
+        summary_provenance = cast(Mapping[str, object], node["summary_provenance"])
     claims = (
         []
         if summary is None
@@ -1143,7 +1225,17 @@ def _semantic_detail(
             for item in canonical_edge_ids[:MAX_DETAIL_EDGES]
             if item in canonical_edges
         ],
-        "choices": _semantic_choices(snapshot.canonical, semantic.outline, element_id),
+        "choices": _semantic_choices(
+            snapshot.canonical,
+            semantic.outline,
+            (
+                str(node["choice_id"])
+                if node is not None
+                and node.get("kind") == "choice_arm"
+                and node.get("choice_id") is not None
+                else element_id
+            ),
+        ),
         "requirements": [_fact_payload(item) for item in facts if _is_requirement(item)],
         "effects": [_fact_payload(item) for item in facts if not _is_requirement(item)],
         "dialogue": [_atom_payload(item) for item in atoms if item.kind is AtomKind.DIALOGUE],

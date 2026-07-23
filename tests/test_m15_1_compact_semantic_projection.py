@@ -2,19 +2,29 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from m15_test_support import linear_authority
 from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalGraph,
     CanonicalRegion,
     DerivedProof,
     OriginReference,
 )
-from renpy_story_mapper.m11_scene_model import AtomKind
+from renpy_story_mapper.m11_scene_model import AtomKind, SceneModel
 from renpy_story_mapper.narrative_map import (
     ChoiceComposition,
     EvidenceNavigation,
+    FineNarrativeUnit,
     MajorCluster,
     SemanticBeat,
+    SemanticClaimClass,
     SemanticOutline,
+    SemanticPresentationRole,
+    SemanticSummaryClaim,
+    WholeScopeEditorialBatch,
+    WholeScopeEditorialRecord,
+    build_compact_whole_scope_projection,
     build_fine_narrative_units,
     stable_m15_id,
 )
@@ -29,7 +39,9 @@ from renpy_story_mapper.narrative_map.semantic_projection import (
     choice_owns_visual_rejoin,
     project_compact_semantic_edges,
     project_compact_semantic_nodes,
+    semantic_outline_hash,
 )
+from renpy_story_mapper.web.narrative_map_api import whole_scope_projection_page
 
 
 def _summary(subject_kind: str, subject_id: str) -> dict[str, object]:
@@ -45,9 +57,9 @@ def _summary(subject_kind: str, subject_id: str) -> dict[str, object]:
 
 
 def _projection_fixture() -> tuple[
-    object,
-    object,
-    tuple[object, ...],
+    CanonicalGraph,
+    SceneModel,
+    tuple[FineNarrativeUnit, ...],
     SemanticOutline,
     SemanticQuotientTopology,
     dict[str, dict[str, object]],
@@ -446,3 +458,234 @@ def test_nested_choice_without_own_continuation_uses_ancestor_visual_rejoin() ->
     assert choice_owns_visual_rejoin(outer, choices, {"outer", "nested"})
     assert not choice_owns_visual_rejoin(nested, choices, {"outer", "nested"})
     assert nested.rejoin_relationship_ids == ("nested-rel-a", "nested-rel-b")
+
+
+def _whole_scope_editorial(
+    outline: SemanticOutline,
+    units: tuple[FineNarrativeUnit, ...],
+) -> tuple[WholeScopeEditorialBatch, dict[str, dict[str, object]]]:
+    unit_by_id = {item.unit_id: item for item in units}
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    evidence_by_subject: dict[str, set[str]] = {
+        beat.beat_id: {
+            evidence_id
+            for unit_id in beat.ordered_unit_ids
+            for evidence_id in unit_by_id[unit_id].evidence_ids
+        }
+        for beat in outline.beats
+    }
+    for cluster in outline.clusters:
+        evidence_by_subject[cluster.cluster_id] = {
+            evidence_id
+            for beat_id in cluster.ordered_beat_ids
+            for evidence_id in evidence_by_subject[beat_by_id[beat_id].beat_id]
+        }
+    for choice in outline.choices:
+        evidence_by_subject[choice.choice_id] = {
+            evidence_id
+            for beat in outline.beats
+            if beat.parent_choice_id == choice.choice_id
+            for evidence_id in evidence_by_subject[beat.beat_id]
+        }
+
+    records: list[WholeScopeEditorialRecord] = []
+    subjects = (
+        *(("beat", item.beat_id, item.parent_cluster_id) for item in outline.beats),
+        *(("major_cluster", item.cluster_id, item.cluster_id) for item in outline.clusters),
+        *(("choice", item.choice_id, item.parent_cluster_id) for item in outline.choices),
+    )
+    for subject_kind, subject_id, cluster_id in subjects:
+        role = (
+            SemanticPresentationRole.FRONT_MATTER
+            if cluster_id == "cluster-setup"
+            else SemanticPresentationRole.STORY
+        )
+        if subject_id == "beat-8":
+            role = SemanticPresentationRole.SCOPE_MARKER
+        evidence_id = sorted(evidence_by_subject[subject_id])[0]
+        records.append(
+            WholeScopeEditorialRecord(
+                subject_kind,
+                subject_id,
+                f"membership-{subject_id}",
+                role,
+                f"Synthetic {subject_kind} {subject_id}",
+                f"The synthetic {subject_id} develops from beginning to end.",
+                ("Character A",),
+                (
+                    SemanticSummaryClaim(
+                        SemanticClaimClass.FACTUAL,
+                        f"Synthetic evidence supports {subject_id}.",
+                        (evidence_id,),
+                    ),
+                ),
+            )
+        )
+    batch = WholeScopeEditorialBatch(
+        "scope-synthetic",
+        semantic_outline_hash(outline),
+        tuple(records),
+    )
+    return batch, {
+        item.subject_id: {
+            "subject_id": item.subject_id,
+            "logical_job_id": f"logical-{item.subject_id}",
+            "transport_batch_id": "transport-editorial-synthetic",
+        }
+        for item in records
+    }
+
+
+def test_whole_scope_projection_filters_roles_and_preserves_exact_arm_identity() -> None:
+    canonical, model, units, outline, topology, *_rest = _projection_fixture()
+    batch, provenance = _whole_scope_editorial(outline, units)
+
+    projection = build_compact_whole_scope_projection(
+        canonical,
+        model,
+        units,
+        outline,
+        topology,
+        batch,
+        provenance,
+    )
+
+    assert projection.visible_row_count == 5
+    assert {item["kind"] for item in projection.nodes} == {
+        "major_cluster",
+        "choice",
+        "choice_arm",
+        "rejoin",
+    }
+    assert "cluster-setup" in projection.omitted_subject_ids
+    assert "choice-setup" in projection.omitted_subject_ids
+    assert "beat-8" in projection.omitted_subject_ids
+    arms = [item for item in projection.nodes if item["kind"] == "choice_arm"]
+    assert [item["title"] for item in arms] == ["Take the path", "Stay behind"]
+    assert [item["arm_id"] for item in arms] == ["story-a", "story-b"]
+    assert all(item["id"] not in {"beat-6", "beat-7"} for item in arms)
+    assert [item["member_subject_ids"] for item in arms] == [["beat-6"], ["beat-7"]]
+    assert all(item["member_unit_ids"] for item in arms)
+    assert all(item["evidence_ids"] for item in arms)
+    assert all(item["navigation"]["target_id"] == item["id"] for item in arms)
+    assert all(
+        edge.source_subject_id in {str(item["id"]) for item in projection.nodes}
+        and edge.target_subject_id in {str(item["id"]) for item in projection.nodes}
+        for edge in projection.edges
+    )
+
+
+def test_whole_scope_projection_orders_choice_arms_and_rejoin_and_reports_density() -> None:
+    canonical, model, units, outline, topology, *_rest = _projection_fixture()
+    batch, provenance = _whole_scope_editorial(outline, units)
+    projection = build_compact_whole_scope_projection(
+        canonical,
+        model,
+        units,
+        outline,
+        topology,
+        batch,
+        provenance,
+    )
+    order = {str(item["id"]): int(item["order"]) for item in projection.nodes}
+    choice = next(item for item in projection.nodes if item["kind"] == "choice")
+    arms = [item for item in projection.nodes if item["kind"] == "choice_arm"]
+    rejoin = next(item for item in projection.nodes if item["kind"] == "rejoin")
+    assert order[str(choice["id"])] < min(order[str(item["id"])] for item in arms)
+    assert max(order[str(item["id"])] for item in arms) < order[str(rejoin["id"])]
+
+    page = whole_scope_projection_page(
+        projection,
+        authority_hash=canonical.authority_hash,
+        publication_hash="a" * 64,
+        build_id="build-synthetic",
+    )
+    assert page["provider_calls"] == 0
+    assert page["m12_requests"] == 0
+    page_nodes = page["nodes"]
+    page_edges = page["edges"]
+    assert isinstance(page_nodes, list) and isinstance(page_edges, list)
+    for item in page_nodes:
+        assert isinstance(item, dict)
+        navigation = item["navigation"]
+        assert isinstance(navigation, dict) and navigation["target_id"] == item["id"]
+    for item in page_edges:
+        assert isinstance(item, dict)
+        navigation = item["navigation"]
+        assert isinstance(navigation, dict) and navigation["target_id"] == item["id"]
+        assert item["evidence_ids"]
+    assert page["density"] == {
+        "visible_rows": 5,
+        "maximum_visible_rows": 32,
+        "major_sections": 1,
+        "choices": 1,
+        "choice_arms": 2,
+        "rejoins": 1,
+    }
+
+
+def test_whole_scope_projection_marks_ambiguous_arm_partial_and_rejects_foreign_evidence() -> None:
+    canonical, model, units, outline, topology, *_rest = _projection_fixture()
+    batch, provenance = _whole_scope_editorial(outline, units)
+    partial_batch = replace(
+        batch,
+        records=tuple(
+            replace(item, warnings=("Synthetic ambiguity remains.",))
+            if item.subject_id == "beat-6"
+            else item
+            for item in batch.records
+        ),
+    )
+    projection = build_compact_whole_scope_projection(
+        canonical,
+        model,
+        units,
+        outline,
+        topology,
+        partial_batch,
+        provenance,
+    )
+    partial_arm = next(
+        item
+        for item in projection.nodes
+        if item.get("kind") == "choice_arm" and item.get("arm_id") == "story-a"
+    )
+    assert partial_arm["editorial_status"] == "partial"
+    assert partial_arm["warnings"] == ["Synthetic ambiguity remains."]
+    assert partial_arm["id"] in projection.partial_subject_ids
+    partial_page = whole_scope_projection_page(
+        projection,
+        authority_hash=canonical.authority_hash,
+        publication_hash="b" * 64,
+        build_id="build-partial-synthetic",
+    )
+    assert partial_page["build_state"] == "partial"
+
+    original = next(item for item in batch.records if item.subject_id == "beat-6")
+    foreign = replace(
+        original,
+        claims=(
+            SemanticSummaryClaim(
+                SemanticClaimClass.FACTUAL,
+                "A claim cites evidence outside the frozen subject.",
+                ("evidence-foreign",),
+            ),
+        ),
+    )
+    invalid_batch = replace(
+        batch,
+        records=tuple(
+            foreign if item.subject_id == foreign.subject_id else item
+            for item in batch.records
+        ),
+    )
+    with pytest.raises(ValueError, match="foreign evidence"):
+        build_compact_whole_scope_projection(
+            canonical,
+            model,
+            units,
+            outline,
+            topology,
+            invalid_batch,
+            provenance,
+        )

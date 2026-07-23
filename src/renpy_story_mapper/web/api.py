@@ -140,6 +140,7 @@ from renpy_story_mapper.web.contracts import (
     M15_SEMANTIC_EMPTY_REQUEST_FIELDS,
     M15_SEMANTIC_PREPARE_REQUEST_FIELDS,
     M15_SEMANTIC_START_REQUEST_FIELDS,
+    M15_WHOLE_SCOPE_SEMANTIC_ROUTES,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -240,6 +241,16 @@ class DialogAdapter(Protocol):
 
 
 type M13ProviderFactory = Callable[[], NarrativeProvider]
+
+
+class M15WholeScopeController(Protocol):
+    """Integration seam for Track B's provider/persistence-owned Stage H/E lifecycle."""
+
+    def __call__(
+        self,
+        action: str,
+        body: dict[str, JsonValue],
+    ) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -362,6 +373,7 @@ class ProjectApi:
         m07_provider_factory: ProviderFactory | None = None,
         m13_provider_factory: M13ProviderFactory | None = None,
         m15_provider_factory: M15ProviderFactory | None = None,
+        m15_whole_scope_controller: M15WholeScopeController | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -395,6 +407,7 @@ class ProjectApi:
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
         self._m15_provider_factory = m15_provider_factory or default_m15_provider_factory
+        self._m15_whole_scope_controller = m15_whole_scope_controller
         self._m15_prepared: SemanticStagePreparation | None = None
         self._m15_consent: NarrativeConsentManifest | None = None
         self._m15_active_provider: NarrativeMapProvider | None = None
@@ -452,6 +465,7 @@ class ProjectApi:
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
                     "m15": dict(M15_API_ROUTES),
+                    "m15_whole_scope_semantic": dict(M15_WHOLE_SCOPE_SEMANTIC_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -632,6 +646,34 @@ class ProjectApi:
                     "view": "simplified",
                 }
             return json_value(detail)
+        whole_scope_actions = {
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"]: "prepare_hierarchy",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"]: "start_hierarchy",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"]: "prepare_editorial",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"]: "start_editorial",
+        }
+        if method == "POST" and path in whole_scope_actions:
+            expected_action = whole_scope_actions[path]
+            start_action = expected_action.startswith("start_")
+            fields = (
+                M15_SEMANTIC_START_REQUEST_FIELDS
+                if start_action
+                else M15_SEMANTIC_PREPARE_REQUEST_FIELDS
+            )
+            exact_fields(body, allowed=fields, required=fields)
+            if require_string(body, "action", maximum=32) != expected_action:
+                raise ValueError("whole-scope semantic action does not match its route")
+            if start_action:
+                require_string(body, "manifest_id", maximum=512)
+                if not boolean(body, "confirm_cloud"):
+                    raise ValueError("whole-scope semantic start requires exact confirmation")
+            if self._m15_whole_scope_controller is None:
+                raise ApiProblem(
+                    409,
+                    "m15_whole_scope_not_integrated",
+                    "Whole-scope semantic production is not available in this build.",
+                )
+            return json_value(dict(self._m15_whole_scope_controller(expected_action, body)))
         if method == "POST" and path == M15_API_ROUTES["prepare_boundaries"]:
             exact_fields(
                 body,

@@ -19,7 +19,11 @@ from renpy_story_mapper.narrative_map.provider import (
 from renpy_story_mapper.narrative_map.semantic_contracts import BoundaryWindow
 from renpy_story_mapper.project import refresh_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
-from renpy_story_mapper.web.contracts import M15_API_ROUTES
+from renpy_story_mapper.web.contracts import (
+    M15_API_ROUTES,
+    M15_WHOLE_SCOPE_SEMANTIC_ROUTES,
+    JsonValue,
+)
 from renpy_story_mapper.web.state import UserStateStore
 from test_m15_track_c import _Dialogs, _project
 
@@ -86,6 +90,66 @@ class _ProductFakeProvider:
 
     def cancel(self) -> None:
         self.cancel_count += 1
+
+
+def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, dict[str, JsonValue]]] = []
+
+    def controller(
+        action: str,
+        body: dict[str, JsonValue],
+    ) -> dict[str, object]:
+        calls.append((action, dict(body)))
+        return {
+            "state": (
+                "hierarchy_prepared" if action == "prepare_hierarchy" else "hierarchy_running"
+            ),
+            "manifest_id": "manifest-synthetic",
+            "requires_confirmation": action == "prepare_hierarchy",
+        }
+
+    api = ProjectApi(
+        _Dialogs(),
+        state_store=UserStateStore(tmp_path / "state.json"),
+        m15_whole_scope_controller=controller,
+    )
+    try:
+        bootstrap = api.dispatch("GET", "/api/v1/bootstrap", {})
+        assert isinstance(bootstrap, dict)
+        routes = bootstrap["routes"]
+        assert isinstance(routes, dict)
+        assert routes["m15_whole_scope_semantic"] == M15_WHOLE_SCOPE_SEMANTIC_ROUTES
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        assert isinstance(prepared, dict) and prepared["state"] == "hierarchy_prepared"
+        started = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": "manifest-synthetic",
+                "confirm_cloud": True,
+            },
+        )
+        assert isinstance(started, dict) and started["state"] == "hierarchy_running"
+        assert [item[0] for item in calls] == ["prepare_hierarchy", "start_hierarchy"]
+        with pytest.raises(ValueError, match="exact confirmation"):
+            api.dispatch(
+                "POST",
+                M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+                {
+                    "action": "start_editorial",
+                    "manifest_id": "manifest-editorial-synthetic",
+                    "confirm_cloud": False,
+                },
+            )
+    finally:
+        api.close()
 
 
 class _FailingProductProvider(_ProductFakeProvider):

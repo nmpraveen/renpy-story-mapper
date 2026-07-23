@@ -36,11 +36,14 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     NarrativeGapCandidate,
     SemanticBeat,
     SemanticOutline,
+    SemanticPresentationRole,
     SemanticSummary,
+    WholeScopeEditorialBatch,
 )
 
 MAXIMUM_OWNED_GAPS_PER_WINDOW = 8
 MAXIMUM_CONTEXT_UNITS_PER_WINDOW = 16
+MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS = 32
 
 _STORY_CONTENT_ATOM_KINDS = frozenset(
     {
@@ -115,6 +118,20 @@ class FrozenSummaryInput:
         _unique(self.ordered_unit_ids, "summary input unit ID", allow_empty=False)
         _unique(self.evidence_ids, "summary input evidence ID", allow_empty=False)
         _unique(self.known_characters, "summary input character")
+
+
+@dataclass(frozen=True)
+class CompactWholeScopeProjection:
+    """One bounded, role-filtered normal-flow projection of frozen whole-scope work."""
+
+    nodes: tuple[dict[str, object], ...]
+    edges: tuple[SemanticTopologyEdge, ...]
+    omitted_subject_ids: tuple[str, ...]
+    partial_subject_ids: tuple[str, ...]
+
+    @property
+    def visible_row_count(self) -> int:
+        return len(self.nodes)
 
 
 def prepare_semantic_boundary_jobs(
@@ -575,6 +592,8 @@ def project_compact_semantic_nodes(
     topology: SemanticQuotientTopology,
     summaries: Mapping[str, Mapping[str, object]],
     provenance: Mapping[str, Mapping[str, object]],
+    *,
+    presentation_roles: Mapping[str, SemanticPresentationRole] | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Project the frozen hierarchy as compact story-facing rows in source chronology.
 
@@ -633,6 +652,8 @@ def project_compact_semantic_nodes(
     region_by_id = {item.id: item for item in canonical.regions}
 
     def is_shallow_setup_detour(choice: ChoiceComposition) -> bool:
+        if presentation_roles is not None:
+            return False
         if choice.canonical_region_id is None:
             return False
         region = region_by_id.get(choice.canonical_region_id)
@@ -660,14 +681,25 @@ def project_compact_semantic_nodes(
         if choice_id in visiting:
             raise ValueError("compact semantic projection choice ownership contains a cycle")
         choice = choice_by_id[choice_id]
+        if (
+            presentation_roles is not None
+            and (
+                presentation_roles.get(choice_id) is not SemanticPresentationRole.STORY
+                or presentation_roles.get(choice.parent_cluster_id)
+                is not SemanticPresentationRole.STORY
+            )
+        ):
+            return False
         if is_shallow_setup_detour(choice):
             return False
         visiting.add(choice_id)
         arm_results = []
         for arm_id in choice.ordered_arm_ids:
-            has_direct_story = any(
-                beat_has_story_content(beat)
-                for beat in beats_by_arm.get((choice_id, arm_id), ())
+            arm_beats = beats_by_arm.get((choice_id, arm_id), ())
+            has_direct_story = (
+                bool(arm_beats)
+                if presentation_roles is not None
+                else any(beat_has_story_content(beat) for beat in arm_beats)
             )
             has_nested_story = any(
                 choice_is_story_facing(child.choice_id)
@@ -699,22 +731,31 @@ def project_compact_semantic_nodes(
             if beat.parent_cluster_id == choice.parent_cluster_id
         )
 
-    visible_cluster_ids = {
-        cluster.cluster_id
-        for cluster in outline.clusters
-        if any(
-            beat.parent_choice_id is None and beat_has_story_content(beat)
-            for beat_id in cluster.ordered_beat_ids
-            if (beat := beat_by_id[beat_id])
-        )
-        or any(choice_id in visible_choice_ids for choice_id in cluster.ordered_choice_ids)
-    }
+    visible_cluster_ids = (
+        {
+            cluster.cluster_id
+            for cluster in outline.clusters
+            if presentation_roles.get(cluster.cluster_id)
+            is SemanticPresentationRole.STORY
+        }
+        if presentation_roles is not None
+        else {
+            cluster.cluster_id
+            for cluster in outline.clusters
+            if any(
+                beat.parent_choice_id is None and beat_has_story_content(beat)
+                for beat_id in cluster.ordered_beat_ids
+                if (beat := beat_by_id[beat_id])
+            )
+            or any(choice_id in visible_choice_ids for choice_id in cluster.ordered_choice_ids)
+        }
+    )
     visible_top_choices = tuple(
         choice
         for choice in outline.choices
         if choice.parent_choice_id is None and choice.choice_id in visible_choice_ids
     )
-    if visible_top_choices:
+    if visible_top_choices and presentation_roles is None:
         first_story_choice_position = min(
             choice_position_from_authority(choice) for choice in visible_top_choices
         )
@@ -839,7 +880,7 @@ def project_compact_semantic_nodes(
                 }
             )
             ranked_nodes.append(
-                ((beat_position(representative), 2, arm_ordinal), arm_node)
+                ((choice_position, 2, arm_ordinal), arm_node)
             )
 
     choice_by_rejoin: dict[str, ChoiceComposition] = {}
@@ -923,6 +964,357 @@ def project_compact_semantic_nodes(
         node["ordinal"] = order - 1
         result.append(node)
     return tuple(result)
+
+
+def build_compact_whole_scope_projection(
+    canonical: CanonicalGraph,
+    model: SceneModel,
+    units: Sequence[FineNarrativeUnit],
+    outline: SemanticOutline,
+    topology: SemanticQuotientTopology,
+    editorial: WholeScopeEditorialBatch,
+    provenance: Mapping[str, Mapping[str, object]],
+) -> CompactWholeScopeProjection:
+    """Build the revised Stage H/E projection without inventing presentation authority.
+
+    Stage E roles decide which editorial subjects enter normal story flow. Choice arms remain
+    deterministic M10/M11 structures: their presentation IDs derive from authority plus exact
+    choice/arm identity, captions remain byte-for-byte contract captions, and their Detail /
+    Evidence membership covers every collapsed beat in that arm.
+    """
+
+    materialized_units = tuple(units)
+    if editorial.hierarchy_hash != semantic_outline_hash(outline):
+        raise ValueError("whole-scope editorial hierarchy identity is stale")
+    records = editorial.records
+    records_by_id = {item.subject_id: item for item in records}
+    if len(records_by_id) != len(records):
+        raise ValueError("whole-scope editorial subject IDs must be globally unique")
+    expected_subjects = {
+        *(item.beat_id for item in outline.beats),
+        *(item.cluster_id for item in outline.clusters),
+        *(item.choice_id for item in outline.choices),
+    }
+    if set(records_by_id) != expected_subjects:
+        raise ValueError("whole-scope editorial records must cover every frozen subject")
+    if set(provenance) != expected_subjects:
+        raise ValueError("whole-scope editorial provenance must be one-to-one with subjects")
+
+    allowed_evidence = _whole_scope_evidence_by_subject(outline, materialized_units)
+    for record in records:
+        if record.subject_kind != _whole_scope_subject_kind(outline, record.subject_id):
+            raise ValueError("whole-scope editorial subject kind is inconsistent")
+        cited = {
+            evidence_id
+            for claim in record.claims
+            for evidence_id in claim.evidence_ids
+        }
+        if not cited or not cited.issubset(allowed_evidence[record.subject_id]):
+            raise ValueError("whole-scope editorial claim cites foreign evidence")
+
+    summaries: dict[str, Mapping[str, object]] = {
+        record.subject_id: cast(Mapping[str, object], record.to_dict())
+        for record in records
+    }
+    roles = {record.subject_id: record.presentation_role for record in records}
+    base_nodes = project_compact_semantic_nodes(
+        canonical,
+        model,
+        materialized_units,
+        outline,
+        topology,
+        summaries,
+        provenance,
+        presentation_roles=roles,
+    )
+    base_node_ids = tuple(str(item["id"]) for item in base_nodes)
+    base_edges = project_compact_semantic_edges(topology, base_node_ids)
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    cluster_by_id = {item.cluster_id: item for item in outline.clusters}
+    unit_by_id = {item.unit_id: item for item in materialized_units}
+
+    arm_id_remap: dict[str, str] = {}
+    nodes: list[dict[str, object]] = []
+    partial_subject_ids: list[str] = []
+    for base in base_nodes:
+        node = dict(base)
+        if node.get("kind") == "choice_arm":
+            choice_id = str(node["choice_id"])
+            arm_id = str(node["arm_id"])
+            member_beat_ids = tuple(
+                str(item)
+                for item in cast(Sequence[object], node.get("collapsed_beat_ids", ()))
+            )
+            member_beats = tuple(
+                beat_by_id[item] for item in member_beat_ids if item in beat_by_id
+            )
+            if not member_beats:
+                raise ValueError("a visible whole-scope arm has no frozen beat membership")
+            member_records = tuple(records_by_id[item.beat_id] for item in member_beats)
+            story_records = tuple(
+                item
+                for item in member_records
+                if item.presentation_role is SemanticPresentationRole.STORY
+            )
+            presentation_id = stable_m15_id(
+                "semantic_choice_arm_presentation",
+                {
+                    "canonical_hash": canonical.authority_hash,
+                    "choice_id": choice_id,
+                    "arm_id": arm_id,
+                },
+            )
+            arm_id_remap[str(node["id"])] = presentation_id
+            warnings = _ordered_strings(
+                warning for item in member_records for warning in item.warnings
+            )
+            member_unit_ids = tuple(
+                unit_id for beat in member_beats for unit_id in beat.ordered_unit_ids
+            )
+            evidence_ids = _ordered_strings(
+                (
+                    *(
+                        evidence_id
+                        for item in member_records
+                        for claim in item.claims
+                        for evidence_id in claim.evidence_ids
+                    ),
+                    *(
+                        evidence_id
+                        for unit_id in member_unit_ids
+                        for evidence_id in unit_by_id[unit_id].evidence_ids
+                    ),
+                )
+            )
+            node.update(
+                {
+                    "id": presentation_id,
+                    "summary": " ".join(
+                        _ordered_strings(item.summary for item in story_records)
+                    ),
+                    "characters": list(
+                        _ordered_strings(
+                            character for item in story_records for character in item.characters
+                        )
+                    ),
+                    "claims": [
+                        {
+                            "claim_class": claim.claim_class.value,
+                            "text": claim.text,
+                            "evidence_ids": list(claim.evidence_ids),
+                        }
+                        for item in story_records
+                        for claim in item.claims
+                    ],
+                    "warnings": list(warnings),
+                    "presentation_role": SemanticPresentationRole.STORY.value,
+                    "editorial_status": (
+                        "complete" if story_records and not warnings else "partial"
+                    ),
+                    "member_subject_ids": list(member_beat_ids),
+                    "member_unit_ids": list(member_unit_ids),
+                    "evidence_ids": list(evidence_ids),
+                    "membership_hash": canonical_hash(
+                        [item.membership_hash for item in member_records]
+                    ),
+                    "summary_provenance": {
+                        "subject_kind": "choice_arm",
+                        "subject_id": presentation_id,
+                        "member_subject_ids": list(member_beat_ids),
+                        "member_provenance": [dict(provenance[item]) for item in member_beat_ids],
+                    },
+                    "navigation": {
+                        "mode": "detail_evidence",
+                        "target_kind": "choice_arm",
+                        "target_id": presentation_id,
+                    },
+                }
+            )
+            if node["editorial_status"] == "partial":
+                partial_subject_ids.append(presentation_id)
+        else:
+            node_record = records_by_id.get(str(node["id"]))
+            if node_record is not None:
+                collapsed_warnings = (
+                    _ordered_strings(
+                        (
+                            *node_record.warnings,
+                            *(
+                                warning
+                                for beat_id in cluster_by_id[
+                                    node_record.subject_id
+                                ].ordered_beat_ids
+                                for warning in records_by_id[beat_id].warnings
+                            ),
+                        )
+                    )
+                    if node_record.subject_kind == "major_cluster"
+                    else node_record.warnings
+                )
+                node_cited = _ordered_strings(
+                    evidence_id
+                    for claim in node_record.claims
+                    for evidence_id in claim.evidence_ids
+                )
+                node.update(
+                    {
+                        "presentation_role": node_record.presentation_role.value,
+                        "editorial_status": (
+                            "partial" if collapsed_warnings else "complete"
+                        ),
+                        "warnings": list(collapsed_warnings),
+                        "evidence_ids": list(node_cited),
+                        "membership_hash": node_record.membership_hash,
+                    }
+                )
+                if collapsed_warnings:
+                    partial_subject_ids.append(node_record.subject_id)
+            else:
+                node.update(
+                    {
+                        "presentation_role": "structural",
+                        "editorial_status": "partial" if node.get("unresolved") else "complete",
+                    }
+                )
+                if node.get("unresolved"):
+                    partial_subject_ids.append(str(node["id"]))
+        nodes.append(node)
+
+    projected_edges: list[SemanticTopologyEdge] = []
+    for edge in base_edges:
+        source_id = arm_id_remap.get(edge.source_subject_id, edge.source_subject_id)
+        target_id = arm_id_remap.get(edge.target_subject_id, edge.target_subject_id)
+        projected_edges.append(
+            SemanticTopologyEdge(
+                edge_id=stable_m15_id(
+                    "semantic_whole_scope_edge",
+                    {
+                        "canonical_hash": topology.canonical_hash,
+                        "source": source_id,
+                        "target": target_id,
+                        "kind": edge.kind.value,
+                        "authority_edge_ids": list(edge.authority_edge_ids),
+                    },
+                ),
+                source_subject_id=source_id,
+                target_subject_id=target_id,
+                kind=edge.kind,
+                authority_edge_ids=edge.authority_edge_ids,
+                requirement_ids=edge.requirement_ids,
+                effect_ids=edge.effect_ids,
+                evidence_ids=edge.evidence_ids,
+            )
+        )
+
+    if len(nodes) > MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS:
+        raise ValueError("compact whole-scope projection exceeds the 32-row normal-flow limit")
+    _validate_whole_scope_choice_order(nodes, outline)
+    visible_ids = {str(item["id"]) for item in nodes}
+    if any(
+        item.source_subject_id not in visible_ids or item.target_subject_id not in visible_ids
+        for item in projected_edges
+    ):
+        raise ValueError("whole-scope projection contains a non-visible edge endpoint")
+    omitted = tuple(
+        item.subject_id
+        for item in records
+        if item.presentation_role is not SemanticPresentationRole.STORY
+    )
+    return CompactWholeScopeProjection(
+        tuple(nodes),
+        tuple(projected_edges),
+        omitted,
+        _ordered_strings(partial_subject_ids),
+    )
+
+
+def _whole_scope_subject_kind(outline: SemanticOutline, subject_id: str) -> str:
+    if any(item.beat_id == subject_id for item in outline.beats):
+        return "beat"
+    if any(item.cluster_id == subject_id for item in outline.clusters):
+        return "major_cluster"
+    if any(item.choice_id == subject_id for item in outline.choices):
+        return "choice"
+    raise ValueError("whole-scope editorial record references an unknown subject")
+
+
+def _whole_scope_evidence_by_subject(
+    outline: SemanticOutline,
+    units: Sequence[FineNarrativeUnit],
+) -> dict[str, set[str]]:
+    unit_by_id = {item.unit_id: item for item in units}
+    evidence = {
+        beat.beat_id: {
+            evidence_id
+            for unit_id in beat.ordered_unit_ids
+            for evidence_id in unit_by_id[unit_id].evidence_ids
+        }
+        for beat in outline.beats
+    }
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    for cluster in outline.clusters:
+        evidence[cluster.cluster_id] = {
+            evidence_id
+            for beat_id in cluster.ordered_beat_ids
+            for evidence_id in evidence[beat_by_id[beat_id].beat_id]
+        }
+    choices = {item.choice_id: item for item in outline.choices}
+
+    def descendants(choice_id: str, visiting: frozenset[str]) -> frozenset[str]:
+        if choice_id in visiting:
+            raise ValueError("whole-scope choice ownership contains a cycle")
+        choice = choices.get(choice_id)
+        if choice is None:
+            raise ValueError("whole-scope choice ownership references an unknown choice")
+        result = {choice_id}
+        for child_id in choice.child_choice_ids:
+            result.update(descendants(child_id, visiting | {choice_id}))
+        return frozenset(result)
+
+    for choice in outline.choices:
+        owned = descendants(choice.choice_id, frozenset())
+        evidence[choice.choice_id] = {
+            evidence_id
+            for beat in outline.beats
+            if beat.parent_choice_id in owned
+            for evidence_id in evidence[beat.beat_id]
+        }
+        if not evidence[choice.choice_id]:
+            evidence[choice.choice_id] = set(evidence[choice.parent_cluster_id])
+    return evidence
+
+
+def _validate_whole_scope_choice_order(
+    nodes: Sequence[Mapping[str, object]],
+    outline: SemanticOutline,
+) -> None:
+    order = {str(item["id"]): int(cast(int, item["order"])) for item in nodes}
+    visible_choices = {
+        str(item["id"]): item for item in nodes if item.get("kind") == "choice"
+    }
+    arms_by_choice: dict[str, list[Mapping[str, object]]] = {}
+    rejoins_by_choice: dict[str, list[Mapping[str, object]]] = {}
+    for item in nodes:
+        choice_id = item.get("choice_id")
+        if not isinstance(choice_id, str):
+            continue
+        if item.get("kind") == "choice_arm":
+            arms_by_choice.setdefault(choice_id, []).append(item)
+        elif item.get("kind") == "rejoin":
+            rejoins_by_choice.setdefault(choice_id, []).append(item)
+    choice_by_id = {item.choice_id: item for item in outline.choices}
+    for choice_id in visible_choices:
+        choice = choice_by_id[choice_id]
+        arms = arms_by_choice.get(choice_id, [])
+        if [str(item["arm_id"]) for item in arms] != list(choice.ordered_arm_ids):
+            raise ValueError("whole-scope choice arms are incomplete or out of order")
+        if any(order[choice_id] >= order[str(item["id"])] for item in arms):
+            raise ValueError("whole-scope choice must precede every consequence arm")
+        if any(
+            order[str(rejoin["id"])] <= max(order[str(item["id"])] for item in arms)
+            for rejoin in rejoins_by_choice.get(choice_id, ())
+        ):
+            raise ValueError("whole-scope rejoin must follow every alternative outcome")
 
 
 def choice_owns_visual_rejoin(

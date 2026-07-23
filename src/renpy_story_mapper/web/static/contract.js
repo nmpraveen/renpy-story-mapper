@@ -41,6 +41,11 @@ export const ENDPOINTS = Object.freeze({
   narrativeCancel: "/api/v1/m13/cancel",
   narrativeMap: "/api/v1/m15/narrative-map",
   narrativeDetail: "/api/v1/m15/detail",
+  storyMapPrepareHierarchy: "/api/v1/m15/semantic/prepare_hierarchy",
+  storyMapStartHierarchy: "/api/v1/m15/semantic/start_hierarchy",
+  storyMapPrepareEditorial: "/api/v1/m15/semantic/prepare_editorial",
+  storyMapStartEditorial: "/api/v1/m15/semantic/start_editorial",
+  // Read-only compatibility names for historical adjacent-gap projects.
   storyMapPrepareBoundaries: "/api/v1/m15/semantic/prepare_boundaries",
   storyMapStartBoundaries: "/api/v1/m15/semantic/start_boundaries",
   storyMapPrepareSummaries: "/api/v1/m15/semantic/prepare_summaries",
@@ -77,6 +82,8 @@ function uniqueStrings(value, label, maximum = 64) {
 function sameArray(left, right) { return left.length === right.length && left.every((item, index) => item === right[index]); }
 
 const SEMANTIC_BUILD_STATES = new Set([
+  "hierarchy_prepared", "awaiting_hierarchy_consent", "hierarchy_running",
+  "hierarchy_frozen", "editorial_prepared", "awaiting_editorial_consent", "editorial_running",
   "not_started", "boundaries_prepared", "awaiting_boundary_consent", "boundaries_running",
   "membership_frozen", "summaries_prepared", "awaiting_summary_consent", "summaries_running",
   "validating", "complete", "partial", "failed", "cancelled", "stale",

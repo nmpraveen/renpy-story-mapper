@@ -75,6 +75,31 @@ def test_two_stage_controls_are_separate_and_never_implicit() -> None:
     assert "await loadStoryMapBuildStatus()" in status_loader
 
 
+def test_whole_scope_stage_h_and_e_routes_drive_the_normal_build_controls() -> None:
+    html = _text("index.html")
+    contract = _text("contract.js")
+    api = _text("api.js")
+    app = _text("app.js")
+    for route in (
+        "/api/v1/m15/semantic/prepare_hierarchy",
+        "/api/v1/m15/semantic/start_hierarchy",
+        "/api/v1/m15/semantic/prepare_editorial",
+        "/api/v1/m15/semantic/start_editorial",
+    ):
+        assert route in contract
+    for method in (
+        "prepareStoryHierarchy",
+        "startStoryHierarchy",
+        "prepareStoryEditorial",
+        "startStoryEditorial",
+    ):
+        assert method in api
+        assert method in app
+    assert 'data-semantic-stage="hierarchy"' in html
+    assert 'data-semantic-stage="editorial"' in html
+    assert "Group the complete bounded scope without changing routes." in html
+
+
 def test_real_browser_harness_checks_responsive_evidence_and_exact_navigation() -> None:
     source = HARNESS.read_text(encoding="utf-8")
     for marker in (

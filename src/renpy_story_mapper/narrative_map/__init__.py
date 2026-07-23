@@ -113,8 +113,11 @@ from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     SemanticStatusView,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
+    MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS,
+    CompactWholeScopeProjection,
     FrozenSummaryInput,
     SemanticEvidenceRecord,
+    build_compact_whole_scope_projection,
 )
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import (
@@ -142,6 +145,7 @@ __all__ = [
     "M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA",
     "M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA",
     "M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA",
+    "MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS",
     "MAXIMUM_DAY1_PROVIDER_SUBMISSIONS",
     "AuthorityBinding",
     "BoundaryCandidate",
@@ -152,6 +156,7 @@ __all__ = [
     "BoundaryStageOutput",
     "BoundaryWindow",
     "ChoiceComposition",
+    "CompactWholeScopeProjection",
     "CoverageState",
     "DerivedHierarchyIds",
     "EvidenceNavigation",
@@ -210,6 +215,7 @@ __all__ = [
     "build_boundary_candidates",
     "build_boundary_windows",
     "build_choice_compositions",
+    "build_compact_whole_scope_projection",
     "build_fine_narrative_units",
     "build_narrative_corridors",
     "build_narrative_map",

@@ -209,6 +209,25 @@ export class LocalApi {
     if (typeof elementId !== "string" || !elementId) throw new TypeError("Narrative Map element ID is required");
     return assertNarrativeMapDetail(await this.request(ENDPOINTS.narrativeDetail, { method: "POST", body: { element_id: elementId } }));
   }
+  async prepareStoryHierarchy(options = {}) {
+    const action = "prepare_hierarchy";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapPrepareHierarchy, { method: "POST", body: { action, ...options } }));
+  }
+  async startStoryHierarchy(manifestId) {
+    if (typeof manifestId !== "string" || !manifestId) throw new TypeError("Hierarchy manifest identity is required");
+    const action = "start_hierarchy";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapStartHierarchy, { method: "POST", body: { action, manifest_id: manifestId, confirm_cloud: true } }));
+  }
+  async prepareStoryEditorial(options = {}) {
+    const action = "prepare_editorial";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapPrepareEditorial, { method: "POST", body: { action, ...options } }));
+  }
+  async startStoryEditorial(manifestId) {
+    if (typeof manifestId !== "string" || !manifestId) throw new TypeError("Editorial manifest identity is required");
+    const action = "start_editorial";
+    return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapStartEditorial, { method: "POST", body: { action, manifest_id: manifestId, confirm_cloud: true } }));
+  }
+  // Legacy adjacent-gap routes remain readable compilation targets for historical projects.
   async prepareStoryBoundaries(options = {}) {
     const action = "prepare_boundaries";
     return assertStoryMapProduction(await this.request(ENDPOINTS.storyMapPrepareBoundaries, { method: "POST", body: { action, ...options } }));

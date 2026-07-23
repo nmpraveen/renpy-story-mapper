@@ -152,6 +152,16 @@ M15_API_ROUTES: Final[dict[str, str]] = {
     "resume": "/api/v1/m15/semantic/resume",
     "retry": "/api/v1/m15/semantic/retry",
 }
+M15_WHOLE_SCOPE_SEMANTIC_ROUTES: Final[dict[str, str]] = {
+    "prepare_hierarchy": "/api/v1/m15/semantic/prepare_hierarchy",
+    "start_hierarchy": "/api/v1/m15/semantic/start_hierarchy",
+    "prepare_editorial": "/api/v1/m15/semantic/prepare_editorial",
+    "start_editorial": "/api/v1/m15/semantic/start_editorial",
+    "status": "/api/v1/m15/semantic/status",
+    "cancel": "/api/v1/m15/semantic/cancel",
+    "resume": "/api/v1/m15/semantic/resume",
+    "retry": "/api/v1/m15/semantic/retry",
+}
 M15_MAP_REQUEST_FIELDS: Final = ("query", "focus")
 M15_DETAIL_REQUEST_FIELDS: Final = ("element_id",)
 M15_SEMANTIC_PREPARE_REQUEST_FIELDS: Final = ("action",)
