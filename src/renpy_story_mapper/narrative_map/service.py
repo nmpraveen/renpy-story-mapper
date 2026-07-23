@@ -127,6 +127,8 @@ class NarrativeMapService:
     ) -> NarrativeWorkflowReport:
         if preparation.stage is not WholeScopeSemanticStage.HIERARCHY:
             raise ValueError("Stage H start requires a Stage H preparation")
+        if authority_validator is None:
+            raise ValueError("Stage H requires an exact authority validator")
         return self._whole_scope.start(
             preparation,
             provider=provider,
@@ -144,6 +146,21 @@ class NarrativeMapService:
     ) -> WholeScopeSemanticStatus:
         return self._whole_scope.freeze_hierarchy(
             preparation, validated_hierarchy, evidence, hierarchy_hash
+        )
+
+    def quarantine_invalid_whole_scope_hierarchy(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        *,
+        error_code: str,
+        logical_job_ids: Sequence[str],
+    ) -> bool:
+        return self._whole_scope.quarantine_invalid_hierarchy(
+            job,
+            profile,
+            error_code=error_code,
+            logical_job_ids=logical_job_ids,
         )
 
     def prepare_whole_scope_editorial(

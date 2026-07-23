@@ -421,6 +421,129 @@ class NarrativeMapRepository:
             expected_publication=expected_publication,
         )
 
+    def quarantine_invalid_whole_scope_hierarchy(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        *,
+        expected_record: NarrativeJobRecord,
+        expected_build: Mapping[str, object],
+        build: Mapping[str, object],
+        error_code: str,
+        logical_job_ids: Sequence[str],
+    ) -> bool:
+        """Atomically quarantine one legacy validated-but-unfrozen Stage H result."""
+
+        if (
+            job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+            or expected_record.kind is not job.kind
+            or expected_record.job_id != job.job_id
+            or expected_record.status is not NarrativeJobStatus.VALIDATED
+            or expected_record.result is None
+            or _ERROR_CODE.fullmatch(error_code) is None
+        ):
+            raise ValueError("legacy Stage H quarantine identity is invalid")
+        logical_ids = tuple(logical_job_ids)
+        if (
+            not logical_ids
+            or len(logical_ids) != len(set(logical_ids))
+            or any(not item or item != item.strip() for item in logical_ids)
+        ):
+            raise ValueError("legacy Stage H logical-job quarantine scope is invalid")
+        normalized_build = _detached_mapping(build, "quarantined whole-scope build")
+        _validate_durable(normalized_build)
+        failed_record = self._envelope(
+            job,
+            profile,
+            status=NarrativeJobStatus.FAILED,
+            attempt_count=expected_record.attempt_count,
+            provider_calls=expected_record.provider_calls,
+            result=None,
+            provider_identity=expected_record.provider_identity,
+            usage=expected_record.usage,
+            error_code=error_code,
+            consent_manifest_id=None,
+        )
+        connection = self._project._require_open()
+        now = storage.utc_now()
+        job_collection = _collection(job.kind)
+        cache_key = self.cache_key(job, profile)
+        with storage.transaction(connection):
+            build_row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='active'",
+                (WHOLE_SCOPE_BUILD_COLLECTION,),
+            ).fetchone()
+            job_row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key=?",
+                (job_collection, job.job_id),
+            ).fetchone()
+            if build_row is None or job_row is None:
+                return False
+            build_encoded = bytes(build_row["payload_json"])
+            job_encoded = bytes(job_row["payload_json"])
+            if (
+                storage.payload_digest(build_encoded) != build_row["payload_hash"]
+                or storage.payload_digest(job_encoded) != job_row["payload_hash"]
+            ):
+                raise storage.ProjectCorruptError(
+                    "legacy Stage H quarantine checksum does not match stored data"
+                )
+            current_job = storage.decode_json(job_encoded)
+            if not isinstance(current_job, Mapping):
+                raise storage.ProjectCorruptError("legacy Stage H job is not an object")
+            if (
+                build_encoded
+                != storage.canonical_json(
+                    _detached_mapping(expected_build, "expected legacy Stage H build")
+                )
+                or self._decode(current_job, job.kind, job.job_id) != expected_record
+            ):
+                return False
+            publication = connection.execute(
+                "SELECT 1 FROM payloads WHERE collection=? AND record_key='current'",
+                (WHOLE_SCOPE_CURRENT_COLLECTION,),
+            ).fetchone()
+            if publication is not None:
+                return False
+            for collection, key, value in (
+                (WHOLE_SCOPE_BUILD_COLLECTION, "active", normalized_build),
+                (job_collection, job.job_id, failed_record),
+            ):
+                encoded = storage.canonical_json(value)
+                connection.execute(
+                    """
+                    INSERT INTO payloads(
+                        collection,record_key,payload_json,payload_hash,updated_utc
+                    ) VALUES (?,?,?,?,?)
+                    ON CONFLICT(collection,record_key) DO UPDATE SET
+                        payload_json=excluded.payload_json,
+                        payload_hash=excluded.payload_hash,
+                        updated_utc=excluded.updated_utc
+                    """,
+                    (collection, key, encoded, storage.payload_digest(encoded), now),
+                )
+                connection.execute(
+                    "DELETE FROM payload_dependencies WHERE collection=? AND record_key=?",
+                    (collection, key),
+                )
+            for collection, keys in (
+                (CACHE_COLLECTION, (cache_key,)),
+                (WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, logical_ids),
+            ):
+                for key in keys:
+                    connection.execute(
+                        "DELETE FROM payloads WHERE collection=? AND record_key=?",
+                        (collection, key),
+                    )
+                    connection.execute(
+                        "DELETE FROM payload_dependencies "
+                        "WHERE collection=? AND record_key=?",
+                        (collection, key),
+                    )
+        return True
+
     def read_whole_scope_build(self) -> Mapping[str, object] | None:
         raw = self._payload(WHOLE_SCOPE_BUILD_COLLECTION, "active")
         if raw is None:

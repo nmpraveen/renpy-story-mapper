@@ -457,6 +457,7 @@ def _run_valid_hierarchy(service: NarrativeMapService):
         preparation,
         provider=_FakeProvider([_hierarchy_output()]),
         consent=consent,
+        authority_validator=_accept_synthetic_hierarchy_authority,
     )
     assert report.provider_calls == 1
     status = service.freeze_whole_scope_hierarchy(
@@ -496,7 +497,10 @@ def test_stage_h_fake_provider_fault_matrix_allows_only_one_targeted_repair(
         service.confirm_whole_scope_consent(preparation, consent)
         provider = _FakeProvider([invalid, valid])
         report = service.start_whole_scope_hierarchy(
-            preparation, provider=provider, consent=consent
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
         status = service.whole_scope_semantic_status()
 
@@ -520,6 +524,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
             preparation,
             provider=SterileNarrativeMapProvider(runner=runner),
             consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
 
     assert report.provider_calls == 1
@@ -548,7 +553,10 @@ def test_boolean_whole_scope_confidence_is_rejected_directly_and_by_fake_provide
         service.confirm_whole_scope_consent(preparation, consent)
         provider = _FakeProvider([malformed, _hierarchy_output()])
         report = service.start_whole_scope_hierarchy(
-            preparation, provider=provider, consent=consent
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
 
     assert report.provider_calls == 2
@@ -569,6 +577,7 @@ def test_hierarchy_freeze_and_editorial_preparation_reject_authority_substitutio
             preparation,
             provider=_FakeProvider([_hierarchy_output()]),
             consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
         assert report.validated_job_ids == (preparation.job.job_id,)
 
@@ -694,7 +703,10 @@ def test_two_exact_consents_logical_provenance_accounting_and_zero_submit_reopen
     with Project.open(path) as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         replay_hierarchy = _prepare_hierarchy(service, replay=True)
-        hierarchy_report = service.start_whole_scope_hierarchy(replay_hierarchy)
+        hierarchy_report = service.start_whole_scope_hierarchy(
+            replay_hierarchy,
+            authority_validator=_accept_synthetic_hierarchy_authority,
+        )
         replay_editorial = service.prepare_whole_scope_editorial(
             _authority(),
             "scope-day-1",
@@ -725,11 +737,17 @@ def test_repair_ceiling_and_cancel_resume_are_durable(tmp_path: Path) -> None:
         service.confirm_whole_scope_consent(preparation, consent)
         provider = _FakeProvider([{"bad": True}, {"still_bad": True}])
         failed = service.start_whole_scope_hierarchy(
-            preparation, provider=provider, consent=consent
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
         retry_provider = _FakeProvider([_hierarchy_output()])
         retried = service.retry_whole_scope_semantic_build(
-            preparation, provider=retry_provider, consent=consent
+            preparation,
+            provider=retry_provider,
+            consent=consent,
+            hierarchy_authority_validator=_accept_synthetic_hierarchy_authority,
         )
         status = service.whole_scope_semantic_status()
 
@@ -749,10 +767,14 @@ def test_repair_ceiling_and_cancel_resume_are_durable(tmp_path: Path) -> None:
             provider=_FakeProvider([]),
             consent=consent,
             cancelled=lambda: True,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
         resumed_provider = _FakeProvider([_hierarchy_output()])
         resumed = service.resume_whole_scope_semantic_build(
-            preparation, provider=resumed_provider, consent=consent
+            preparation,
+            provider=resumed_provider,
+            consent=consent,
+            hierarchy_authority_validator=_accept_synthetic_hierarchy_authority,
         )
         resumed_status = service.whole_scope_semantic_status()
 
@@ -840,7 +862,12 @@ def test_concurrent_cancel_is_a_durable_fence_against_provider_completion(
         with Project.open(path) as project:
             service = NarrativeMapService(NarrativeMapRepository(project))
             reports.append(
-                service.start_whole_scope_hierarchy(preparation, provider=provider, consent=consent)
+                service.start_whole_scope_hierarchy(
+                    preparation,
+                    provider=provider,
+                    consent=consent,
+                    authority_validator=_accept_synthetic_hierarchy_authority,
+                )
             )
 
     worker = Thread(target=run_provider)
@@ -936,7 +963,10 @@ def test_crash_reserved_attempt_is_recovered_as_consumed_history(tmp_path: Path)
         )
         provider = _FakeProvider([_hierarchy_output()])
         report = service.resume_whole_scope_semantic_build(
-            preparation, provider=provider, consent=consent
+            preparation,
+            provider=provider,
+            consent=consent,
+            hierarchy_authority_validator=_accept_synthetic_hierarchy_authority,
         )
         record = repository.get(preparation.job.kind, preparation.job.job_id)
 
@@ -965,13 +995,19 @@ def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Pa
         first_consent = first.granted_consent()
         service.confirm_whole_scope_consent(first, first_consent)
         failed = service.start_whole_scope_hierarchy(
-            first, provider=_FakeProvider([{"bad": True}]), consent=first_consent
+            first,
+            provider=_FakeProvider([{"bad": True}]),
+            consent=first_consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
         second = _prepare_hierarchy(service)
         second_consent = second.granted_consent()
         service.confirm_whole_scope_consent(second, second_consent)
         succeeded = service.retry_whole_scope_semantic_build(
-            second, provider=_FakeProvider([_hierarchy_output()]), consent=second_consent
+            second,
+            provider=_FakeProvider([_hierarchy_output()]),
+            consent=second_consent,
+            hierarchy_authority_validator=_accept_synthetic_hierarchy_authority,
         )
         status = service.whole_scope_semantic_status()
 
@@ -1054,7 +1090,10 @@ def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Pa
         service.confirm_whole_scope_consent(preparation, consent)
         provider = _FakeProvider([invalid, _hierarchy_output()])
         report = service.start_whole_scope_hierarchy(
-            preparation, provider=provider, consent=consent
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
 
     assert report.validated_job_ids == (preparation.job.job_id,)
@@ -1131,7 +1170,10 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
                 if stage == "hierarchy":
                     stage_reports.append(
                         service.start_whole_scope_hierarchy(
-                            preparation, provider=provider, consent=consent
+                            preparation,
+                            provider=provider,
+                            consent=consent,
+                            authority_validator=_accept_synthetic_hierarchy_authority,
                         )
                     )
                 else:
@@ -1373,7 +1415,10 @@ def test_zero_submit_replay_cannot_overwrite_changed_preparation(
                         replay_release,
                     )
                     reports.append(
-                        NarrativeMapService(repository).start_whole_scope_hierarchy(replay)
+                        NarrativeMapService(repository).start_whole_scope_hierarchy(
+                            replay,
+                            authority_validator=_accept_synthetic_hierarchy_authority,
+                        )
                     )
             except BaseException as exc:
                 errors.append(exc)
@@ -1385,7 +1430,8 @@ def test_zero_submit_replay_cannot_overwrite_changed_preparation(
         with Project.open(path) as project:
             reports.append(
                 NarrativeMapService(NarrativeMapRepository(project)).start_whole_scope_hierarchy(
-                    replay
+                    replay,
+                    authority_validator=_accept_synthetic_hierarchy_authority,
                 )
             )
 
@@ -1423,7 +1469,10 @@ def test_freeze_cannot_overwrite_changed_preparation(
         consent = preparation.granted_consent()
         service.confirm_whole_scope_consent(preparation, consent)
         service.start_whole_scope_hierarchy(
-            preparation, provider=_FakeProvider([_hierarchy_output()]), consent=consent
+            preparation,
+            provider=_FakeProvider([_hierarchy_output()]),
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
         )
 
     errors: list[BaseException] = []

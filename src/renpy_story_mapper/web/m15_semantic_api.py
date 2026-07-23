@@ -102,6 +102,7 @@ from renpy_story_mapper.web.contracts import JsonValue
 
 M15_SEMANTIC_RESPONSE_SCHEMA: Final = "m15-semantic-production-v1"
 M15_SEMANTIC_CORRECTION_ID: Final = "m15.1-product-path-v1"
+M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v2"
 M15_SEMANTIC_PRIVACY_SCOPE: Final = "story_evidence_only"
 M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"
@@ -307,7 +308,14 @@ class M15WholeScopeProductController:
     ) -> WholeScopeStagePreparation:
         with Project.open(self._project_path()) as project:
             inputs = load_m15_semantic_inputs(project)
-            service = NarrativeMapService(NarrativeMapRepository(project))
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            self._reconcile_legacy_invalid_hierarchy(
+                project,
+                repository,
+                service,
+                inputs=inputs,
+            )
             scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
             preparation = service.prepare_whole_scope_hierarchy(
                 inputs.units[0].authority,
@@ -327,7 +335,7 @@ class M15WholeScopeProductController:
                 profile=m15_provider_profile(),
                 run_id=f"m15-web-whole-scope-h-{uuid.uuid4().hex}",
                 source_hash=inputs.source_hash,
-                correction_id=M15_SEMANTIC_CORRECTION_ID,
+                correction_id=M15_WHOLE_SCOPE_CORRECTION_ID,
                 privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
                 valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
                 timeout_seconds=M15_SEMANTIC_STAGE_H_TIMEOUT_SECONDS,
@@ -345,6 +353,12 @@ class M15WholeScopeProductController:
             inputs = load_m15_semantic_inputs(project)
             repository = NarrativeMapRepository(project)
             service = NarrativeMapService(repository)
+            self._reconcile_legacy_invalid_hierarchy(
+                project,
+                repository,
+                service,
+                inputs=inputs,
+            )
             status = service.whole_scope_semantic_status()
             if status is None or status.hierarchy_state != "frozen" or not status.hierarchy_hash:
                 raise ValueError("Stage E requires the exact frozen Stage H hierarchy")
@@ -370,7 +384,7 @@ class M15WholeScopeProductController:
                 profile=m15_provider_profile(),
                 run_id=f"m15-web-whole-scope-e-{uuid.uuid4().hex}",
                 source_hash=inputs.source_hash,
-                correction_id=M15_SEMANTIC_CORRECTION_ID,
+                correction_id=M15_WHOLE_SCOPE_CORRECTION_ID,
                 privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
                 valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
                 replay_existing=True,
@@ -379,6 +393,90 @@ class M15WholeScopeProductController:
         with self._lock:
             self._preparations[WholeScopeSemanticStage.EDITORIAL] = preparation
         return preparation
+
+    def _reconcile_legacy_invalid_hierarchy(
+        self,
+        project: Project,
+        repository: NarrativeMapRepository,
+        service: NarrativeMapService,
+        *,
+        inputs: M15SemanticInputs | None = None,
+    ) -> bool:
+        raw = repository.read_whole_scope_build()
+        if (
+            raw is None
+            or raw.get("correction_id") != M15_SEMANTIC_CORRECTION_ID
+            or raw.get("hierarchy_state") != "validated"
+            or not isinstance(raw.get("hierarchy_result"), Mapping)
+            or raw.get("hierarchy_hash") is not None
+            or raw.get("authoritative_hierarchy") is not None
+            or raw.get("publication_hash") is not None
+            or raw.get("editorial_state") != "not_started"
+            or repository.read_whole_scope_current() is not None
+        ):
+            return False
+        current_inputs = inputs if inputs is not None else load_m15_semantic_inputs(project)
+        job, logical_jobs = _whole_scope_hierarchy_job(
+            current_inputs,
+            correction_id=M15_SEMANTIC_CORRECTION_ID,
+        )
+        expected_logical_jobs = [
+            {
+                "stage": item.stage.value,
+                "logical_job_id": item.logical_job_id,
+                "subject_kind": item.subject_kind,
+                "subject_id": item.subject_id,
+                "membership_hash": item.membership_hash,
+            }
+            for item in logical_jobs
+        ]
+        expected_build_id = stable_m15_id(
+            "whole_scope_build",
+            {
+                "authority": job.authority.to_dict(),
+                "scope_id": job.subject_id,
+                "source_hash": current_inputs.source_hash,
+                "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                "privacy_scope": M15_SEMANTIC_PRIVACY_SCOPE,
+                "profile": m15_provider_profile().to_dict(),
+                "hierarchy_transport_batch_id": job.job_id,
+            },
+        )
+        record = repository.get(job.kind, job.job_id)
+        if (
+            record is None
+            or record.status is not NarrativeJobStatus.VALIDATED
+            or record.result is None
+            or raw.get("build_id") != expected_build_id
+            or raw.get("scope_id") != job.subject_id
+            or raw.get("authority") != job.authority.to_dict()
+            or raw.get("source_hash") != current_inputs.source_hash
+            or raw.get("privacy_scope") != M15_SEMANTIC_PRIVACY_SCOPE
+            or raw.get("hierarchy_transport_batch_id") != job.job_id
+            or raw.get("hierarchy_logical_jobs") != expected_logical_jobs
+            or raw.get("hierarchy_result") != record.result
+            or raw.get("confirmed_hierarchy_manifest_id")
+            != record.consent_manifest_id
+        ):
+            return False
+        validated, findings = _validate_hierarchy_for_current_authority(
+            current_inputs,
+            job,
+            record.result,
+            scope_id=job.subject_id,
+            authority=job.authority,
+        )
+        if validated is not None:
+            return False
+        error_code = (
+            findings[0].code if findings else "hierarchy_authority_invalid"
+        )
+        return service.quarantine_invalid_whole_scope_hierarchy(
+            job,
+            m15_provider_profile(),
+            error_code=error_code,
+            logical_job_ids=tuple(item.logical_job_id for item in logical_jobs),
+        )
 
     def _execute(
         self,
@@ -444,25 +542,16 @@ class M15WholeScopeProductController:
                     job: PreparedNarrativeJob,
                     result: Mapping[str, object],
                 ) -> tuple[ValidationFinding, ...]:
-                    parsed = validate_whole_scope_hierarchy_response(result, job)
-                    if parsed.proposal is None or not parsed.valid:
-                        return parsed.findings
-                    try:
-                        validated = validate_whole_scope_hierarchy_from_authority(
-                            inputs.canonical,
-                            inputs.scene_model,
-                            parsed.proposal,
-                            hard_locks,
-                            scope_id=preparation.scope_id,
-                            authority=preparation.authority,
-                        )
-                    except ValueError as exc:
-                        code = (
-                            "hierarchy_not_representable"
-                            if "representable" in str(exc)
-                            else "hierarchy_authority_invalid"
-                        )
-                        return (ValidationFinding(code, job.job_id),)
+                    validated, findings = _validate_hierarchy_for_current_authority(
+                        inputs,
+                        job,
+                        result,
+                        scope_id=preparation.scope_id,
+                        authority=preparation.authority,
+                        hard_locks=hard_locks,
+                    )
+                    if validated is None:
+                        return findings
                     validated_hierarchies[canonical_hash(result)] = validated
                     return ()
 
@@ -568,18 +657,20 @@ class M15WholeScopeProductController:
 
     def _status(self) -> Mapping[str, object]:
         with Project.open(self._project_path()) as project:
-            status = NarrativeMapService(
-                NarrativeMapRepository(project)
-            ).whole_scope_semantic_status()
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            self._reconcile_legacy_invalid_hierarchy(project, repository, service)
+            status = service.whole_scope_semantic_status()
         return whole_scope_status_response(status)
 
     def _current_preparation(
         self,
     ) -> tuple[WholeScopeSemanticStage, WholeScopeStagePreparation | None]:
         with Project.open(self._project_path()) as project:
-            status = NarrativeMapService(
-                NarrativeMapRepository(project)
-            ).whole_scope_semantic_status()
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            self._reconcile_legacy_invalid_hierarchy(project, repository, service)
+            status = service.whole_scope_semantic_status()
         if status is None:
             raise ValueError("no whole-scope semantic build is available")
         stage = (
@@ -613,11 +704,11 @@ def _whole_scope_preparation_matches_current(
     common_matches = (
         preparation.authority == authority
         and preparation.source_hash == inputs.source_hash
-        and preparation.correction_id == M15_SEMANTIC_CORRECTION_ID
+        and preparation.correction_id == M15_WHOLE_SCOPE_CORRECTION_ID
         and preparation.privacy_scope == M15_SEMANTIC_PRIVACY_SCOPE
         and job.authority == authority
         and job.source_hash == inputs.source_hash
-        and job.correction_id == M15_SEMANTIC_CORRECTION_ID
+        and job.correction_id == M15_WHOLE_SCOPE_CORRECTION_ID
         and job.privacy_scope == M15_SEMANTIC_PRIVACY_SCOPE
         and job.story_facing is True
         and job.combined_submission_limit == MAXIMUM_DAY1_PROVIDER_SUBMISSIONS
@@ -625,7 +716,7 @@ def _whole_scope_preparation_matches_current(
         and raw.get("scope_id") == preparation.scope_id
         and raw.get("authority") == authority.to_dict()
         and raw.get("source_hash") == inputs.source_hash
-        and raw.get("correction_id") == M15_SEMANTIC_CORRECTION_ID
+        and raw.get("correction_id") == M15_WHOLE_SCOPE_CORRECTION_ID
         and raw.get("privacy_scope") == M15_SEMANTIC_PRIVACY_SCOPE
     )
     if not common_matches:
@@ -651,7 +742,7 @@ def _whole_scope_preparation_matches_current(
                 "authority": authority.to_dict(),
                 "scope_id": scope_id,
                 "source_hash": inputs.source_hash,
-                "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                "correction_id": M15_WHOLE_SCOPE_CORRECTION_ID,
                 "input_hash": canonical_hash(payload),
             },
         )
@@ -690,7 +781,7 @@ def _whole_scope_preparation_matches_current(
             status is None
             or status.authority != authority
             or status.source_hash != inputs.source_hash
-            or status.correction_id != M15_SEMANTIC_CORRECTION_ID
+            or status.correction_id != M15_WHOLE_SCOPE_CORRECTION_ID
             or status.scope_id != preparation.scope_id
             or status.hierarchy_state != "frozen"
             or status.hierarchy_hash != frozen.hierarchy_hash
@@ -717,7 +808,7 @@ def _whole_scope_preparation_matches_current(
                         "hierarchy_hash": status.hierarchy_hash,
                         "subject": item.to_dict(),
                         "source_hash": inputs.source_hash,
-                        "correction_id": M15_SEMANTIC_CORRECTION_ID,
+                        "correction_id": M15_WHOLE_SCOPE_CORRECTION_ID,
                     },
                 ),
                 item.subject_kind,
@@ -776,7 +867,7 @@ def _whole_scope_preparation_matches_current(
             "authority": authority.to_dict(),
             "scope_id": preparation.scope_id,
             "source_hash": inputs.source_hash,
-            "correction_id": M15_SEMANTIC_CORRECTION_ID,
+            "correction_id": M15_WHOLE_SCOPE_CORRECTION_ID,
             "privacy_scope": M15_SEMANTIC_PRIVACY_SCOPE,
             "profile": profile.to_dict(),
             "hierarchy_transport_batch_id": hierarchy_transport_batch_id,
@@ -1020,8 +1111,46 @@ def _whole_scope_hierarchy_input(
     return scope_id, payload, hard_locks
 
 
+def _validate_hierarchy_for_current_authority(
+    inputs: M15SemanticInputs,
+    job: PreparedNarrativeJob,
+    result: Mapping[str, object],
+    *,
+    scope_id: str,
+    authority: AuthorityBinding,
+    hard_locks: Sequence[HierarchyHardLock] | None = None,
+) -> tuple[ValidatedWholeScopeHierarchy | None, tuple[ValidationFinding, ...]]:
+    parsed = validate_whole_scope_hierarchy_response(result, job)
+    if parsed.proposal is None or not parsed.valid:
+        return None, parsed.findings
+    locks = (
+        tuple(hard_locks)
+        if hard_locks is not None
+        else _whole_scope_hierarchy_input(inputs)[2]
+    )
+    try:
+        validated = validate_whole_scope_hierarchy_from_authority(
+            inputs.canonical,
+            inputs.scene_model,
+            parsed.proposal,
+            locks,
+            scope_id=scope_id,
+            authority=authority,
+        )
+    except ValueError as exc:
+        code = (
+            "hierarchy_not_representable"
+            if "representable" in str(exc)
+            else "hierarchy_authority_invalid"
+        )
+        return None, (ValidationFinding(code, job.job_id),)
+    return validated, ()
+
+
 def _whole_scope_hierarchy_job(
     inputs: M15SemanticInputs,
+    *,
+    correction_id: str = M15_WHOLE_SCOPE_CORRECTION_ID,
 ) -> tuple[PreparedNarrativeJob, tuple[WholeScopeLogicalJob, ...]]:
     authority = inputs.units[0].authority
     scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
@@ -1042,7 +1171,7 @@ def _whole_scope_hierarchy_job(
             "authority": authority.to_dict(),
             "scope_id": scope_id,
             "source_hash": inputs.source_hash,
-            "correction_id": M15_SEMANTIC_CORRECTION_ID,
+            "correction_id": correction_id,
             "input_hash": canonical_hash(payload),
         },
     )
@@ -1072,7 +1201,7 @@ def _whole_scope_hierarchy_job(
             known_evidence_ids=evidence_ids,
             known_characters=characters,
             source_hash=inputs.source_hash,
-            correction_id=M15_SEMANTIC_CORRECTION_ID,
+            correction_id=correction_id,
             privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
             logical_job_ids=(logical_id,),
             combined_submission_limit=MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
@@ -1119,7 +1248,7 @@ def _reconstruct_frozen_editorial_authority(
         raw.get("scope_id") != hierarchy_job.subject_id
         or raw.get("authority") != hierarchy_job.authority.to_dict()
         or raw.get("source_hash") != inputs.source_hash
-        or raw.get("correction_id") != M15_SEMANTIC_CORRECTION_ID
+        or raw.get("correction_id") != M15_WHOLE_SCOPE_CORRECTION_ID
         or raw.get("privacy_scope") != M15_SEMANTIC_PRIVACY_SCOPE
         or raw.get("hierarchy_transport_batch_id") != hierarchy_job.job_id
         or raw.get("hierarchy_logical_jobs") != expected_logical_jobs

@@ -159,6 +159,8 @@ class NarrativeBoundaryWorkflow:
     ) -> NarrativeWorkflowReport:
         if job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
             raise ValueError("Stage H workflow received a different job kind")
+        if authority_validator is None:
+            raise ValueError("Stage H requires an exact authority validator")
         return self._run(
             (job,),
             consent,

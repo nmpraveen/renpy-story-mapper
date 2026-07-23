@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -19,6 +19,7 @@ from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
+    PreparedNarrativeJob,
     ProviderJobKind,
     WholeScopeProviderSubject,
 )
@@ -30,6 +31,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 )
 from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeStagePreparation
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
+from renpy_story_mapper.narrative_map.validation import ValidationFinding
 from renpy_story_mapper.project import Project, refresh_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.contracts import (
@@ -39,7 +41,9 @@ from renpy_story_mapper.web.contracts import (
 )
 from renpy_story_mapper.web.launcher import build_project_api
 from renpy_story_mapper.web.m15_semantic_api import (
+    M15_WHOLE_SCOPE_CORRECTION_ID,
     M15WholeScopeProductController,
+    _validate_hierarchy_for_current_authority,
     _whole_scope_hierarchy_input,
     load_m15_semantic_inputs,
     m15_provider_profile,
@@ -459,6 +463,7 @@ def test_reopen_quarantines_legacy_unfrozen_invalid_hierarchy_and_rolls_identity
     assert retried["accounting"]["provider_calls"] == 0
     assert old_record is not None and old_record.status.value == "failed"
     assert old_record.result is None
+    assert old_record.consent_manifest_id is None
     assert old_record.attempt_count == old_record.provider_calls == 2
     assert old_cache is None
     assert quarantined_build is not None
@@ -473,12 +478,86 @@ def test_reopen_quarantines_legacy_unfrozen_invalid_hierarchy_and_rolls_identity
     assert corrected.job.job_id != old_preparation.job.job_id
     assert corrected.consent.job_identity_hash != old_job_identity
     assert constructions == 0
+    requests: list[NarrativeMapProviderRequest] = []
+    outcomes: list[dict[str, object] | NarrativeMapProviderError] = [
+        _unrepresentable_whole_scope_hierarchy_payload(project_path),
+        _whole_scope_hierarchy_payload(project_path),
+    ]
+    execution_api = build_project_api(
+        _Dialogs(),
+        m15_provider_factory=lambda: _SequencedWholeScopeProductProvider(
+            requests, outcomes
+        ),
+    )
+    execution_api._retain_project_path(project_path, source)
+    try:
+        corrected_result = execution_api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": corrected.consent.manifest_id,
+                "confirm_cloud": True,
+            },
+        )
+    finally:
+        execution_api.close()
+    assert corrected_result["state"] == "hierarchy_frozen"
+    assert len(requests) == 2
     with Project.open(project_path) as project:
         repository = NarrativeMapRepository(project)
         assert repository.whole_scope_reserved_attempts(
             old_preparation.job.job_id
         ) == (1, 2)
-        assert repository.whole_scope_reserved_attempts(corrected.job.job_id) == ()
+        assert repository.whole_scope_reserved_attempts(corrected.job.job_id) == (1, 2)
+        status = NarrativeMapService(repository).whole_scope_semantic_status()
+        assert status is not None
+        assert status.accounting.combined_submission_count == 4
+
+
+def test_direct_service_replay_quarantines_legacy_invalid_validated_result(
+    tmp_path: Path,
+) -> None:
+    _source, project_path = _project(tmp_path)
+    preparation, _manifest_id, _build_id, _job_identity = (
+        _persist_legacy_unfrozen_invalid_hierarchy(project_path)
+    )
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        _scope_id, _payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+
+        def exact_validator(
+            job: PreparedNarrativeJob,
+            result: Mapping[str, object],
+        ) -> tuple[ValidationFinding, ...]:
+            _validated, findings = _validate_hierarchy_for_current_authority(
+                inputs,
+                job,
+                result,
+                scope_id=preparation.scope_id,
+                authority=preparation.authority,
+                hard_locks=hard_locks,
+            )
+            return findings
+
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            authority_validator=exact_validator,
+        )
+        record = repository.get(preparation.job.kind, preparation.job.job_id)
+        build = repository.read_whole_scope_build()
+
+    assert report.provider_calls == 0
+    assert report.failed_job_ids == (preparation.job.job_id,)
+    assert record is not None and record.status.value == "failed"
+    assert record.result is None
+    assert record.consent_manifest_id is None
+    assert record.attempt_count == record.provider_calls == 2
+    assert build is not None and build["hierarchy_state"] == "failed"
+    assert build["failure_codes"] == ["hierarchy_not_representable"]
+    assert build["confirmed_hierarchy_manifest_id"] is None
 
 
 def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
@@ -521,6 +600,76 @@ def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
     assert completed["accounting"]["provider_calls"] == 2
     assert len(requests) == 2
     assert requests[1].repair_codes == ("hierarchy_not_representable",)
+
+
+def test_direct_service_exact_authority_validator_rejects_unrepresentable_result(
+    tmp_path: Path,
+) -> None:
+    _source, project_path = _project(tmp_path)
+    invalid = _unrepresentable_whole_scope_hierarchy_payload(project_path)
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        repository = NarrativeMapRepository(project)
+        service = NarrativeMapService(repository)
+        profile = m15_provider_profile()
+        scope_id, payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+        preparation = service.prepare_whole_scope_hierarchy(
+            inputs.units[0].authority,
+            scope_id,
+            tuple(item.unit_id for item in inputs.units),
+            payload,
+            known_evidence_ids=tuple(
+                dict.fromkeys(
+                    item.evidence_id
+                    for unit in inputs.units
+                    for item in inputs.evidence_by_unit[unit.unit_id]
+                )
+            ),
+            known_characters=tuple(
+                dict.fromkeys(
+                    speaker for unit in inputs.units for speaker in unit.speaker_ids
+                )
+            ),
+            profile=profile,
+            run_id="direct-exact-authority-validation",
+            source_hash=inputs.source_hash,
+            correction_id=M15_WHOLE_SCOPE_CORRECTION_ID,
+            timeout_seconds=900.0,
+        )
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+
+        def exact_validator(
+            job: PreparedNarrativeJob,
+            result: Mapping[str, object],
+        ) -> tuple[ValidationFinding, ...]:
+            _validated, findings = _validate_hierarchy_for_current_authority(
+                inputs,
+                job,
+                result,
+                scope_id=scope_id,
+                authority=inputs.units[0].authority,
+                hard_locks=hard_locks,
+            )
+            return findings
+
+        provider = _SequencedWholeScopeProductProvider(
+            [], [deepcopy(invalid), deepcopy(invalid)]
+        )
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=exact_validator,
+        )
+        record = repository.get(preparation.job.kind, preparation.job.job_id)
+
+    assert report.failed_job_ids == (preparation.job.job_id,)
+    assert report.validated_job_ids == ()
+    assert report.provider_calls == 2
+    assert record is not None and record.status.value == "failed"
+    assert record.error_code == "hierarchy_not_representable"
+    assert record.result is None
 
 
 def test_stage_h_exhausted_authority_failure_is_sanitized_and_not_retryable(

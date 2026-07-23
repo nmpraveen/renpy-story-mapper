@@ -64,6 +64,7 @@ from renpy_story_mapper.narrative_map.semantic_validation import (
     validate_semantic_boundary_response,
     validate_semantic_summary_response,
 )
+from renpy_story_mapper.narrative_map.validation import ValidationFinding
 from renpy_story_mapper.narrative_map.workflow import (
     NarrativeBoundaryWorkflow,
     NarrativeWorkflowReport,
@@ -1852,6 +1853,11 @@ class WholeScopeSemanticLifecycle:
         cancelled: CancelledCallback | None = None,
         hierarchy_authority_validator: WholeScopeHierarchyAuthorityValidator | None = None,
     ) -> NarrativeWorkflowReport:
+        if (
+            preparation.stage is WholeScopeSemanticStage.HIERARCHY
+            and hierarchy_authority_validator is None
+        ):
+            raise ValueError("Stage H requires an exact authority validator")
         raw = self._require_preparation(preparation)
         prefix = preparation.stage.value
         state = raw.get(f"{prefix}_state")
@@ -1862,6 +1868,40 @@ class WholeScopeSemanticLifecycle:
             and record.result is not None
             and state in {"validated", "frozen", "complete"}
         ):
+            if preparation.stage is WholeScopeSemanticStage.HIERARCHY:
+                assert hierarchy_authority_validator is not None
+                try:
+                    replay_findings = hierarchy_authority_validator(
+                        preparation.job, record.result
+                    )
+                except ValueError:
+                    replay_findings = (
+                        ValidationFinding(
+                            "hierarchy_authority_invalid",
+                            preparation.job.job_id,
+                        ),
+                    )
+                if replay_findings:
+                    error_code = replay_findings[0].code
+                    quarantined = self.quarantine_invalid_hierarchy(
+                        preparation.job,
+                        preparation.consent.profile,
+                        error_code=error_code,
+                        logical_job_ids=tuple(
+                            item.logical_job_id for item in preparation.logical_jobs
+                        ),
+                    )
+                    return NarrativeWorkflowReport(
+                        (),
+                        (preparation.job.job_id,) if quarantined else (),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        False,
+                        () if quarantined else (preparation.job.job_id,),
+                    )
             replayed = dict(raw)
             replayed["cache_hits"] = cast(int, replayed.get("cache_hits", 0)) + 1
             if not self._repository.write_whole_scope_build_if_stage(
@@ -1969,8 +2009,8 @@ class WholeScopeSemanticLifecycle:
                 )
         else:
             final[f"{prefix}_state"] = "failed"
-            error_code = record.error_code if record is not None else None
-            final["failure_codes"] = [error_code or "stage_failed"]
+            failure_code = record.error_code if record is not None else None
+            final["failure_codes"] = [failure_code or "stage_failed"]
         committed = self._repository.write_whole_scope_build_if_stage(
             final,
             expected_build=running,
@@ -2087,6 +2127,65 @@ class WholeScopeSemanticLifecycle:
         )
         return self.status_required()
 
+    def quarantine_invalid_hierarchy(
+        self,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        *,
+        error_code: str,
+        logical_job_ids: Sequence[str],
+    ) -> bool:
+        """Fail closed for one historical validated result that never froze."""
+
+        if job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
+            raise ValueError("legacy hierarchy quarantine requires a Stage H job")
+        raw = self._repository.read_whole_scope_build()
+        record = self._repository.get(job.kind, job.job_id)
+        if (
+            raw is None
+            or record is None
+            or raw.get("hierarchy_state") != "validated"
+            or raw.get("hierarchy_transport_batch_id") != job.job_id
+            or raw.get("hierarchy_result") != record.result
+            or raw.get("hierarchy_hash") is not None
+            or raw.get("authoritative_hierarchy") is not None
+            or raw.get("publication_hash") is not None
+            or raw.get("editorial_state") != "not_started"
+            or self._repository.read_whole_scope_current() is not None
+        ):
+            return False
+        updated = dict(raw)
+        updated.update(
+            {
+                "hierarchy_state": "failed",
+                "hierarchy_result": None,
+                "confirmed_hierarchy_manifest_id": None,
+                "hierarchy_hash": None,
+                "authoritative_hierarchy": None,
+                "frozen_editorial_subjects": [],
+                "frozen_editorial_evidence_hash": None,
+                "editorial_state": "not_started",
+                "editorial_transport_batch_id": None,
+                "editorial_logical_jobs": [],
+                "editorial_manifest_id": None,
+                "editorial_manifest": None,
+                "editorial_profile": None,
+                "editorial_result": None,
+                "confirmed_editorial_manifest_id": None,
+                "failure_codes": [error_code],
+                "publication_hash": None,
+            }
+        )
+        return self._repository.quarantine_invalid_whole_scope_hierarchy(
+            job,
+            profile,
+            expected_record=record,
+            expected_build=raw,
+            build=updated,
+            error_code=error_code,
+            logical_job_ids=logical_job_ids,
+        )
+
     def fence_stale_preparation(
         self,
         stage: WholeScopeSemanticStage,
@@ -2100,6 +2199,12 @@ class WholeScopeSemanticLifecycle:
         prefix = stage.value
         state = raw.get(f"{prefix}_state")
         manifest_id = raw.get(f"{prefix}_manifest_id")
+        failure_codes = cast(list[object], raw.get("failure_codes", []))
+        if state == "failed" and any(
+            code in {"hierarchy_authority_invalid", "hierarchy_not_representable"}
+            for code in failure_codes
+        ):
+            return self.status_required()
         if (
             state not in {"awaiting_consent", "awaiting_start", "cancelled", "failed"}
             or not isinstance(manifest_id, str)
