@@ -23,13 +23,20 @@ BOUNDARY_JOBS_COLLECTION: Final = "m15_boundary_jobs"
 SUMMARY_JOBS_COLLECTION: Final = "m15_event_summary_jobs"
 SEMANTIC_BOUNDARY_JOBS_COLLECTION: Final = "m15_semantic_boundary_jobs"
 SEMANTIC_SUMMARY_JOBS_COLLECTION: Final = "m15_semantic_summary_jobs"
+WHOLE_SCOPE_HIERARCHY_JOBS_COLLECTION: Final = "m15_whole_scope_hierarchy_jobs"
+WHOLE_SCOPE_EDITORIAL_JOBS_COLLECTION: Final = "m15_whole_scope_editorial_jobs"
 CACHE_COLLECTION: Final = "m15_narrative_cache"
 SEMANTIC_BUILD_COLLECTION: Final = "m15_semantic_builds"
 SEMANTIC_CURRENT_COLLECTION: Final = "m15_semantic_current"
 SEMANTIC_CALL_LEDGER_COLLECTION: Final = "m15_semantic_call_ledgers"
+WHOLE_SCOPE_BUILD_COLLECTION: Final = "m15_whole_scope_semantic_builds"
+WHOLE_SCOPE_CURRENT_COLLECTION: Final = "m15_whole_scope_semantic_current"
+WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION: Final = "m15_whole_scope_logical_jobs"
+WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION: Final = "m15_whole_scope_submission_ledger"
 PERSISTENCE_SCHEMA: Final = "m15-narrative-job-envelope-v1"
 CACHE_SCHEMA: Final = "m15-narrative-cache-v1"
 SEMANTIC_CALL_LEDGER_SCHEMA: Final = "m15-semantic-call-ledger-v2"
+WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA: Final = "m15-whole-scope-submission-ledger-v1"
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 
 
@@ -357,6 +364,237 @@ class NarrativeMapRepository:
         if not isinstance(raw, Mapping):
             raise storage.ProjectCorruptError("M15.1 semantic build payload is not an object")
         return _detached_mapping(raw, "semantic build")
+
+    def write_whole_scope_build(self, payload: Mapping[str, object]) -> None:
+        """Persist the active whole-scope build without relabeling legacy semantic records."""
+
+        normalized = _detached_mapping(payload, "whole-scope semantic build")
+        _validate_durable(normalized)
+        self._write_payloads(((WHOLE_SCOPE_BUILD_COLLECTION, "active", normalized),))
+
+    def read_whole_scope_build(self) -> Mapping[str, object] | None:
+        raw = self._payload(WHOLE_SCOPE_BUILD_COLLECTION, "active")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("whole-scope semantic build is not an object")
+        return _detached_mapping(raw, "whole-scope semantic build")
+
+    def publish_whole_scope_current(
+        self,
+        *,
+        build: Mapping[str, object],
+        publication: Mapping[str, object],
+        logical_records: Sequence[Mapping[str, object]],
+    ) -> None:
+        """Atomically publish Stage E plus its one-to-one logical provenance."""
+
+        normalized_build = _detached_mapping(build, "whole-scope semantic build")
+        normalized_publication = _detached_mapping(publication, "whole-scope publication")
+        records: list[tuple[str, str, Mapping[str, object]]] = [
+            (WHOLE_SCOPE_BUILD_COLLECTION, "active", normalized_build),
+            (WHOLE_SCOPE_CURRENT_COLLECTION, "current", normalized_publication),
+        ]
+        for value in logical_records:
+            normalized = _detached_mapping(value, "whole-scope logical job")
+            logical_job_id = normalized.get("logical_job_id")
+            if not isinstance(logical_job_id, str) or not logical_job_id:
+                raise ValueError("whole-scope logical job identity is missing")
+            records.append((WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, logical_job_id, normalized))
+        for _, _, value in records:
+            _validate_durable(value)
+        self._write_payloads(tuple(records))
+
+    def write_whole_scope_logical_records(
+        self, records: Sequence[Mapping[str, object]]
+    ) -> None:
+        writes: list[tuple[str, str, Mapping[str, object]]] = []
+        for value in records:
+            normalized = _detached_mapping(value, "whole-scope logical job")
+            logical_job_id = normalized.get("logical_job_id")
+            if not isinstance(logical_job_id, str) or not logical_job_id:
+                raise ValueError("whole-scope logical job identity is missing")
+            _validate_durable(normalized)
+            writes.append((WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, logical_job_id, normalized))
+        self._write_payloads(tuple(writes))
+
+    def read_whole_scope_logical_records(self) -> tuple[Mapping[str, object], ...]:
+        values: list[Mapping[str, object]] = []
+        for key in self._keys(WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION):
+            raw = self._payload(WHOLE_SCOPE_LOGICAL_JOBS_COLLECTION, key)
+            if not isinstance(raw, Mapping) or raw.get("logical_job_id") != key:
+                raise storage.ProjectCorruptError("whole-scope logical job identity is invalid")
+            values.append(_detached_mapping(raw, "whole-scope logical job"))
+        return tuple(values)
+
+    def read_whole_scope_current(self) -> Mapping[str, object] | None:
+        raw = self._payload(WHOLE_SCOPE_CURRENT_COLLECTION, "current")
+        if raw is None:
+            return None
+        if not isinstance(raw, Mapping):
+            raise storage.ProjectCorruptError("whole-scope publication is not an object")
+        return _detached_mapping(raw, "whole-scope publication")
+
+    def reserve_whole_scope_provider_submission(
+        self,
+        *,
+        stage: str,
+        manifest_id: str,
+        maximum_manifest_calls: int,
+        transport_batch_id: str,
+        attempt: int,
+        combined_limit: int,
+    ) -> int:
+        """Atomically reserve one transport submission across Stage H and Stage E."""
+
+        if stage not in {"hierarchy", "editorial"}:
+            raise ValueError("whole-scope submission stage is invalid")
+        if (
+            not manifest_id
+            or not transport_batch_id
+            or attempt not in {1, 2}
+            or combined_limit != 4
+            or not 1 <= maximum_manifest_calls <= 2
+        ):
+            raise ValueError("whole-scope submission identity or ceiling is invalid")
+        connection = self._project._require_open()
+        with storage.transaction(connection):
+            row = connection.execute(
+                "SELECT payload_json,payload_hash FROM payloads "
+                "WHERE collection=? AND record_key='combined'",
+                (WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,),
+            ).fetchone()
+            if row is None:
+                reservations: list[dict[str, object]] = []
+            else:
+                encoded = bytes(row["payload_json"])
+                if storage.payload_digest(encoded) != row["payload_hash"]:
+                    raise storage.ProjectCorruptError(
+                        "whole-scope submission ledger checksum is invalid"
+                    )
+                raw = storage.decode_json(encoded)
+                reservations = _whole_scope_submission_reservations(
+                    raw, combined_limit=combined_limit
+                )
+            if any(
+                item["transport_batch_id"] == transport_batch_id
+                and item["attempt"] == attempt
+                for item in reservations
+            ):
+                raise SemanticJobAttemptReservedError(
+                    "the whole-scope transport attempt is already reserved"
+                )
+            if sum(item["manifest_id"] == manifest_id for item in reservations) >= (
+                maximum_manifest_calls
+            ):
+                raise SemanticCallLimitError("the exact stage manifest call ceiling is exhausted")
+            if len(reservations) >= combined_limit:
+                raise SemanticCallLimitError(
+                    "the combined whole-scope submission ceiling is exhausted"
+                )
+            ordinal = len(reservations) + 1
+            reservations.append(
+                {
+                    "ordinal": ordinal,
+                    "stage": stage,
+                    "manifest_id": manifest_id,
+                    "transport_batch_id": transport_batch_id,
+                    "attempt": attempt,
+                    "settled": False,
+                }
+            )
+            payload: dict[str, object] = {
+                "schema": WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA,
+                "combined_limit": combined_limit,
+                "reservations": reservations,
+            }
+            _validate_durable(payload)
+            encoded = storage.canonical_json(payload)
+            connection.execute(
+                """
+                INSERT INTO payloads(collection,record_key,payload_json,payload_hash,updated_utc)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(collection,record_key) DO UPDATE SET
+                    payload_json=excluded.payload_json,
+                    payload_hash=excluded.payload_hash,
+                    updated_utc=excluded.updated_utc
+                """,
+                (
+                    WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,
+                    "combined",
+                    encoded,
+                    storage.payload_digest(encoded),
+                    storage.utc_now(),
+                ),
+            )
+            connection.execute(
+                "DELETE FROM payload_dependencies WHERE collection=? AND record_key='combined'",
+                (WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION,),
+            )
+        return ordinal
+
+    def settle_whole_scope_provider_submissions(
+        self, *, transport_batch_id: str, attempts: Sequence[int]
+    ) -> None:
+        if not transport_batch_id or any(attempt not in {1, 2} for attempt in attempts):
+            raise ValueError("whole-scope settlement identity is invalid")
+        raw = self._payload(WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined")
+        if raw is None:
+            return
+        reservations = _whole_scope_submission_reservations(raw, combined_limit=4)
+        expected = set(attempts)
+        for item in reservations:
+            if (
+                item["transport_batch_id"] == transport_batch_id
+                and item["attempt"] in expected
+            ):
+                item["settled"] = True
+        payload: dict[str, object] = {
+            "schema": WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA,
+            "combined_limit": 4,
+            "reservations": reservations,
+        }
+        _validate_durable(payload)
+        self._write_payloads(
+            ((WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined", payload),)
+        )
+
+    def whole_scope_submission_count(self) -> int:
+        raw = self._payload(WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined")
+        return 0 if raw is None else len(
+            _whole_scope_submission_reservations(raw, combined_limit=4)
+        )
+
+    def whole_scope_submission_ordinals(
+        self, transport_batch_id: str
+    ) -> Mapping[int, int]:
+        raw = self._payload(WHOLE_SCOPE_SUBMISSION_LEDGER_COLLECTION, "combined")
+        if raw is None:
+            return {}
+        return {
+            cast(int, item["attempt"]): cast(int, item["ordinal"])
+            for item in _whole_scope_submission_reservations(raw, combined_limit=4)
+            if item["transport_batch_id"] == transport_batch_id
+        }
+
+    def read_historical_semantic_records(self) -> tuple[Mapping[str, object], ...]:
+        """Expose legacy records under their original kinds with an explicit stale marker."""
+
+        records: list[Mapping[str, object]] = []
+        for kind in (
+            ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW,
+            ProviderJobKind.SEMANTIC_SUMMARY,
+        ):
+            for record in self.list(kind):
+                records.append(
+                    {
+                        "original_kind": kind.value,
+                        "job_id": record.job_id,
+                        "status": record.status.value,
+                        "production_identity_status": "historical_stale",
+                    }
+                )
+        return tuple(records)
 
     def reconcile_semantic_manifests(
         self,
@@ -1129,7 +1367,11 @@ def _collection(kind: ProviderJobKind) -> str:
         return SUMMARY_JOBS_COLLECTION
     if kind is ProviderJobKind.SEMANTIC_BOUNDARY_WINDOW:
         return SEMANTIC_BOUNDARY_JOBS_COLLECTION
-    return SEMANTIC_SUMMARY_JOBS_COLLECTION
+    if kind is ProviderJobKind.SEMANTIC_SUMMARY:
+        return SEMANTIC_SUMMARY_JOBS_COLLECTION
+    if kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
+        return WHOLE_SCOPE_HIERARCHY_JOBS_COLLECTION
+    return WHOLE_SCOPE_EDITORIAL_JOBS_COLLECTION
 
 
 def _detached_mapping(value: Mapping[str, object], label: str) -> dict[str, object]:
@@ -1214,4 +1456,48 @@ def _semantic_call_reservations(
             )
         job_attempts.add(job_attempt)
         reservations.append(dict(item))
+    return reservations
+
+
+def _whole_scope_submission_reservations(
+    raw: object, *, combined_limit: int
+) -> list[dict[str, object]]:
+    if (
+        not isinstance(raw, Mapping)
+        or raw.get("schema") != WHOLE_SCOPE_SUBMISSION_LEDGER_SCHEMA
+        or raw.get("combined_limit") != combined_limit
+        or not isinstance(raw.get("reservations"), list)
+    ):
+        raise storage.ProjectCorruptError("whole-scope submission ledger identity is invalid")
+    reservations: list[dict[str, object]] = []
+    attempts: set[tuple[str, int]] = set()
+    for ordinal, item in enumerate(cast(list[object], raw["reservations"]), 1):
+        if (
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "ordinal",
+                "stage",
+                "manifest_id",
+                "transport_batch_id",
+                "attempt",
+                "settled",
+            }
+            or item.get("ordinal") != ordinal
+            or item.get("stage") not in {"hierarchy", "editorial"}
+            or not isinstance(item.get("manifest_id"), str)
+            or not item.get("manifest_id")
+            or not isinstance(item.get("transport_batch_id"), str)
+            or not item.get("transport_batch_id")
+            or item.get("attempt") not in {1, 2}
+            or not isinstance(item.get("settled"), bool)
+        ):
+            raise storage.ProjectCorruptError("whole-scope submission reservation is invalid")
+        identity = (cast(str, item["transport_batch_id"]), cast(int, item["attempt"]))
+        if identity in attempts:
+            raise storage.ProjectCorruptError("whole-scope transport attempt is duplicated")
+        attempts.add(identity)
+        reservations.append(dict(item))
+    if len(reservations) > combined_limit:
+        raise storage.ProjectCorruptError("whole-scope submission ceiling is exceeded")
     return reservations

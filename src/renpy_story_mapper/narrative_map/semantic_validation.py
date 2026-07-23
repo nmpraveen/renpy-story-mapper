@@ -16,11 +16,17 @@ from renpy_story_mapper.narrative_map.contracts import (
 from renpy_story_mapper.narrative_map.provider import PreparedNarrativeJob, ProviderJobKind
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     BoundaryWindow,
+    ProposedBeatGroup,
+    ProposedMajorCluster,
     SemanticBoundaryDecision,
     SemanticBoundaryKind,
     SemanticClaimClass,
+    SemanticPresentationRole,
     SemanticSummary,
     SemanticSummaryClaim,
+    WholeScopeEditorialBatch,
+    WholeScopeEditorialRecord,
+    WholeScopeHierarchyProposal,
 )
 from renpy_story_mapper.narrative_map.validation import ValidationFinding
 
@@ -38,6 +44,29 @@ _SUMMARY_FIELDS = frozenset(
     }
 )
 _CLAIM_FIELDS = frozenset({"claim_class", "text", "evidence_ids"})
+_HIERARCHY_FIELDS = frozenset(
+    {"scope_id", "beat_groups", "major_clusters", "uncertain_unit_ids", "warnings"}
+)
+_PROPOSED_BEAT_FIELDS = frozenset(
+    {"proposal_key", "ordered_unit_ids", "confidence", "reason", "warnings"}
+)
+_PROPOSED_CLUSTER_FIELDS = frozenset(
+    {"proposal_key", "ordered_beat_keys", "confidence", "reason", "warnings"}
+)
+_EDITORIAL_BATCH_FIELDS = frozenset({"scope_id", "hierarchy_hash", "records", "warnings"})
+_EDITORIAL_RECORD_FIELDS = frozenset(
+    {
+        "subject_kind",
+        "subject_id",
+        "membership_hash",
+        "presentation_role",
+        "title",
+        "summary",
+        "characters",
+        "claims",
+        "warnings",
+    }
+)
 _TECHNICAL_TITLE = re.compile(
     r"(?:\b(?:atom|boundary|cache|cluster|evidence|job|label|line|menu|node|source)\b|"
     r"^(?:bg|cg|scene|show|hide|image)[ _:-]|\b\d+\s+(?:atoms?|lines?|items?|nodes?)\b)",
@@ -63,6 +92,27 @@ class SemanticSummaryValidation:
     @property
     def valid(self) -> bool:
         return self.summary is not None and not self.findings
+
+
+@dataclass(frozen=True)
+class WholeScopeHierarchyValidation:
+    proposal: WholeScopeHierarchyProposal | None
+    findings: tuple[ValidationFinding, ...]
+
+    @property
+    def valid(self) -> bool:
+        return self.proposal is not None and not self.findings
+
+
+@dataclass(frozen=True)
+class WholeScopeEditorialValidation:
+    batch: WholeScopeEditorialBatch | None
+    valid_records: tuple[WholeScopeEditorialRecord, ...]
+    findings: tuple[ValidationFinding, ...]
+
+    @property
+    def valid(self) -> bool:
+        return self.batch is not None and not self.findings
 
 
 def validate_semantic_boundary_response(
@@ -233,6 +283,287 @@ def validate_semantic_summary_response(
             membership_hash,
             cast(str, title),
             cast(str, summary_text),
+            tuple(cast(list[str], characters)),
+            tuple(claims),
+            tuple(cast(list[str], warnings)),
+        ),
+        (),
+    )
+
+
+def validate_whole_scope_hierarchy_response(
+    payload: object,
+    job: PreparedNarrativeJob,
+) -> WholeScopeHierarchyValidation:
+    from renpy_story_mapper.narrative_map.provider import WholeScopeProviderSubject
+    from renpy_story_mapper.narrative_map.semantic_contracts import WholeScopeSemanticStage
+
+    subject = job.subject
+    if (
+        job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+        or not isinstance(subject, WholeScopeProviderSubject)
+        or subject.stage is not WholeScopeSemanticStage.HIERARCHY
+    ):
+        raise ValueError("whole-scope hierarchy validation requires a Stage H job")
+    if not isinstance(payload, Mapping) or set(payload) != _HIERARCHY_FIELDS:
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("invalid_envelope", job.job_id),)
+        )
+    if payload.get("scope_id") != subject.scope_id:
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("wrong_scope", job.job_id),)
+        )
+    uncertain = payload.get("uncertain_unit_ids")
+    warnings = payload.get("warnings")
+    if not _text_list(uncertain, MAX_REASON_LENGTH):
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("invalid_uncertain_units", job.job_id),)
+        )
+    if cast(list[str], uncertain):
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("uncertain_membership", job.job_id),)
+        )
+    if not _text_list(warnings, MAX_REASON_LENGTH):
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("invalid_warnings", job.job_id),)
+        )
+    raw_beats = payload.get("beat_groups")
+    raw_clusters = payload.get("major_clusters")
+    if not isinstance(raw_beats, list) or not isinstance(raw_clusters, list):
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("invalid_hierarchy_arrays", job.job_id),)
+        )
+    beats: list[ProposedBeatGroup] = []
+    findings: list[ValidationFinding] = []
+    for index, item in enumerate(raw_beats):
+        if not isinstance(item, Mapping) or set(item) != _PROPOSED_BEAT_FIELDS:
+            findings.append(ValidationFinding("invalid_beat_group", job.job_id, index))
+            continue
+        try:
+            beats.append(
+                ProposedBeatGroup(
+                    cast(str, item.get("proposal_key")),
+                    tuple(cast(list[str], item.get("ordered_unit_ids"))),
+                    float(cast(float, item.get("confidence"))),
+                    cast(str, item.get("reason")),
+                    tuple(cast(list[str], item.get("warnings"))),
+                )
+            )
+        except (TypeError, ValueError):
+            findings.append(ValidationFinding("invalid_beat_group", job.job_id, index))
+    flattened = tuple(unit_id for beat in beats for unit_id in beat.ordered_unit_ids)
+    if len(flattened) != len(set(flattened)):
+        findings.append(ValidationFinding("duplicate_unit", job.job_id))
+    if any(unit_id not in subject.ordered_unit_ids for unit_id in flattened):
+        findings.append(ValidationFinding("foreign_unit", job.job_id))
+    if flattened != subject.ordered_unit_ids:
+        findings.append(ValidationFinding("inexact_unit_coverage", job.job_id))
+    clusters: list[ProposedMajorCluster] = []
+    for index, item in enumerate(raw_clusters):
+        if not isinstance(item, Mapping) or set(item) != _PROPOSED_CLUSTER_FIELDS:
+            findings.append(ValidationFinding("invalid_major_cluster", job.job_id, index))
+            continue
+        try:
+            clusters.append(
+                ProposedMajorCluster(
+                    cast(str, item.get("proposal_key")),
+                    tuple(cast(list[str], item.get("ordered_beat_keys"))),
+                    float(cast(float, item.get("confidence"))),
+                    cast(str, item.get("reason")),
+                    tuple(cast(list[str], item.get("warnings"))),
+                )
+            )
+        except (TypeError, ValueError):
+            findings.append(ValidationFinding("invalid_major_cluster", job.job_id, index))
+    beat_keys = tuple(item.proposal_key for item in beats)
+    cluster_beat_keys = tuple(
+        beat_key for cluster in clusters for beat_key in cluster.ordered_beat_keys
+    )
+    if cluster_beat_keys != beat_keys or len(cluster_beat_keys) != len(set(cluster_beat_keys)):
+        findings.append(ValidationFinding("inexact_cluster_coverage", job.job_id))
+    if findings:
+        return WholeScopeHierarchyValidation(None, tuple(dict.fromkeys(findings)))
+    try:
+        proposal = WholeScopeHierarchyProposal(
+            subject.scope_id,
+            tuple(beats),
+            tuple(clusters),
+            (),
+            tuple(cast(list[str], warnings)),
+        )
+    except ValueError:
+        return WholeScopeHierarchyValidation(
+            None, (ValidationFinding("invalid_hierarchy", job.job_id),)
+        )
+    return WholeScopeHierarchyValidation(proposal, ())
+
+
+def validate_whole_scope_editorial_response(
+    payload: object,
+    job: PreparedNarrativeJob,
+) -> WholeScopeEditorialValidation:
+    from renpy_story_mapper.narrative_map.provider import WholeScopeProviderSubject
+    from renpy_story_mapper.narrative_map.semantic_contracts import WholeScopeSemanticStage
+
+    subject = job.subject
+    if (
+        job.kind is not ProviderJobKind.WHOLE_SCOPE_EDITORIAL
+        or not isinstance(subject, WholeScopeProviderSubject)
+        or subject.stage is not WholeScopeSemanticStage.EDITORIAL
+    ):
+        raise ValueError("whole-scope editorial validation requires a Stage E job")
+    if not isinstance(payload, Mapping) or set(payload) != _EDITORIAL_BATCH_FIELDS:
+        return WholeScopeEditorialValidation(
+            None, (), (ValidationFinding("invalid_envelope", job.job_id),)
+        )
+    if payload.get("scope_id") != subject.scope_id:
+        return WholeScopeEditorialValidation(
+            None, (), (ValidationFinding("wrong_scope", job.job_id),)
+        )
+    if payload.get("hierarchy_hash") != subject.hierarchy_hash:
+        return WholeScopeEditorialValidation(
+            None, (), (ValidationFinding("stale_hierarchy", job.job_id),)
+        )
+    warnings = payload.get("warnings")
+    raw_records = payload.get("records")
+    if not _text_list(warnings, MAX_REASON_LENGTH) or not isinstance(raw_records, list):
+        return WholeScopeEditorialValidation(
+            None, (), (ValidationFinding("invalid_editorial_batch", job.job_id),)
+        )
+    expected = tuple(item.identity for item in subject.editorial_subjects)
+    supplied = tuple(
+        f"{item.get('subject_kind')}:{item.get('subject_id')}"
+        if isinstance(item, Mapping)
+        else ""
+        for item in raw_records
+    )
+    findings: list[ValidationFinding] = []
+    if len(supplied) != len(set(supplied)):
+        findings.append(ValidationFinding("duplicate_subject", job.job_id))
+    if any(identity not in expected for identity in supplied):
+        findings.append(ValidationFinding("foreign_subject", job.job_id))
+    if supplied != expected:
+        findings.append(ValidationFinding("inexact_subject_coverage", job.job_id))
+    expected_by_identity = {item.identity: item for item in subject.editorial_subjects}
+    records: list[WholeScopeEditorialRecord] = []
+    for index, item in enumerate(raw_records):
+        identity = supplied[index]
+        exact = expected_by_identity.get(identity)
+        if exact is None:
+            continue
+        record, record_findings = _whole_scope_editorial_record(item, exact, index)
+        findings.extend(record_findings)
+        if record is not None:
+            records.append(record)
+    if findings or len(records) != len(expected):
+        return WholeScopeEditorialValidation(
+            None, tuple(records), tuple(dict.fromkeys(findings))
+        )
+    batch = WholeScopeEditorialBatch(
+        subject.scope_id,
+        cast(str, subject.hierarchy_hash),
+        tuple(records),
+        tuple(cast(list[str], warnings)),
+    )
+    return WholeScopeEditorialValidation(batch, tuple(records), ())
+
+
+def _whole_scope_editorial_record(
+    value: object,
+    expected: object,
+    index: int,
+) -> tuple[WholeScopeEditorialRecord | None, tuple[ValidationFinding, ...]]:
+    from renpy_story_mapper.narrative_map.provider import WholeScopeEditorialSubject
+
+    if not isinstance(expected, WholeScopeEditorialSubject):
+        raise TypeError("whole-scope editorial subject contract is invalid")
+    if not isinstance(value, Mapping) or set(value) != _EDITORIAL_RECORD_FIELDS:
+        return None, (ValidationFinding("invalid_editorial_record", expected.subject_id, index),)
+    if (
+        value.get("subject_kind") != expected.subject_kind
+        or value.get("subject_id") != expected.subject_id
+        or value.get("membership_hash") != expected.membership_hash
+    ):
+        return None, (ValidationFinding("stale_subject", expected.subject_id, index),)
+    title = value.get("title")
+    summary = value.get("summary")
+    characters = value.get("characters")
+    warnings = value.get("warnings")
+    role_value = value.get("presentation_role")
+    try:
+        role = SemanticPresentationRole(cast(str, role_value))
+    except (TypeError, ValueError):
+        role = None
+    findings: list[ValidationFinding] = []
+    if not _text(title, MAX_TITLE_LENGTH) or _TECHNICAL_TITLE.search(cast(str, title)):
+        findings.append(ValidationFinding("invalid_title", expected.subject_id, index))
+    if (
+        not _text(summary, MAX_SUMMARY_LENGTH)
+        or (isinstance(title, str) and cast(str, summary).casefold() == title.casefold())
+    ):
+        findings.append(ValidationFinding("invalid_summary", expected.subject_id, index))
+    if role is None:
+        findings.append(ValidationFinding("invalid_presentation_role", expected.subject_id, index))
+    if not _text_list(characters, MAX_REASON_LENGTH) or any(
+        character not in expected.known_characters
+        for character in cast(list[str], characters)
+    ):
+        findings.append(ValidationFinding("invalid_characters", expected.subject_id, index))
+    if not _text_list(warnings, MAX_REASON_LENGTH):
+        findings.append(ValidationFinding("invalid_warnings", expected.subject_id, index))
+    claims_value = value.get("claims")
+    claims: list[SemanticSummaryClaim] = []
+    claim_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    if not isinstance(claims_value, list) or not claims_value:
+        findings.append(ValidationFinding("invalid_claims", expected.subject_id, index))
+    else:
+        for claim_index, claim in enumerate(claims_value):
+            if not isinstance(claim, Mapping) or set(claim) != _CLAIM_FIELDS:
+                findings.append(
+                    ValidationFinding("invalid_claim_fields", expected.subject_id, claim_index)
+                )
+                continue
+            try:
+                claim_class = SemanticClaimClass(cast(str, claim.get("claim_class")))
+            except (TypeError, ValueError):
+                claim_class = None
+            text = claim.get("text")
+            evidence_ids = claim.get("evidence_ids")
+            if (
+                claim_class is None
+                or not _text(text, MAX_SUMMARY_LENGTH)
+                or not _text_list(evidence_ids, MAX_REASON_LENGTH, allow_empty=False)
+                or any(
+                    evidence_id not in expected.evidence_ids
+                    for evidence_id in cast(list[str], evidence_ids)
+                )
+            ):
+                findings.append(
+                    ValidationFinding("invalid_claim", expected.subject_id, claim_index)
+                )
+                continue
+            key = (
+                claim_class.value,
+                cast(str, text),
+                tuple(cast(list[str], evidence_ids)),
+            )
+            if key in claim_keys:
+                findings.append(
+                    ValidationFinding("duplicate_claim", expected.subject_id, claim_index)
+                )
+                continue
+            claim_keys.add(key)
+            claims.append(SemanticSummaryClaim(claim_class, key[1], key[2]))
+    if findings:
+        return None, tuple(findings)
+    return (
+        WholeScopeEditorialRecord(
+            expected.subject_kind,
+            expected.subject_id,
+            expected.membership_hash,
+            cast(SemanticPresentationRole, role),
+            cast(str, title),
+            cast(str, summary),
             tuple(cast(list[str], characters)),
             tuple(claims),
             tuple(cast(list[str], warnings)),

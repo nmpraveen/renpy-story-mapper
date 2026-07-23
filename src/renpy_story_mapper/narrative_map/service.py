@@ -24,18 +24,23 @@ from renpy_story_mapper.narrative_map.provider import (
     PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
+    WholeScopeEditorialSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     BoundaryWindow,
     FineNarrativeUnit,
     NarrativeGapCandidate,
     SemanticOutline,
+    WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     BoundaryStageOutput,
     SemanticLifecycle,
     SemanticStagePreparation,
     SemanticStatusView,
+    WholeScopeSemanticLifecycle,
+    WholeScopeSemanticStatus,
+    WholeScopeStagePreparation,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
     FrozenSummaryInput,
@@ -64,6 +69,177 @@ class NarrativeMapService:
     def __init__(self, repository: NarrativeMapRepository) -> None:
         self._repository = repository
         self._semantic = SemanticLifecycle(repository)
+        self._whole_scope = WholeScopeSemanticLifecycle(repository)
+
+    def prepare_whole_scope_hierarchy(
+        self,
+        authority: AuthorityBinding,
+        scope_id: str,
+        ordered_unit_ids: Sequence[str],
+        input_payload: Mapping[str, object],
+        *,
+        known_evidence_ids: Sequence[str],
+        known_characters: Sequence[str] = (),
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = "story_evidence_only",
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int = 2,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
+    ) -> WholeScopeStagePreparation:
+        return self._whole_scope.prepare_hierarchy(
+            authority,
+            scope_id,
+            ordered_unit_ids,
+            input_payload,
+            known_evidence_ids=known_evidence_ids,
+            known_characters=known_characters,
+            profile=profile,
+            run_id=run_id,
+            source_hash=source_hash,
+            correction_id=correction_id,
+            privacy_scope=privacy_scope,
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
+        )
+
+    def start_whole_scope_hierarchy(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None = None,
+        consent: NarrativeConsentManifest | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        if preparation.stage is not WholeScopeSemanticStage.HIERARCHY:
+            raise ValueError("Stage H start requires a Stage H preparation")
+        return self._whole_scope.start(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def freeze_whole_scope_hierarchy(
+        self,
+        preparation: WholeScopeStagePreparation,
+        authoritative_hierarchy: Mapping[str, object],
+        hierarchy_hash: str | None = None,
+    ) -> WholeScopeSemanticStatus:
+        return self._whole_scope.freeze_hierarchy(
+            preparation, authoritative_hierarchy, hierarchy_hash
+        )
+
+    def prepare_whole_scope_editorial(
+        self,
+        authority: AuthorityBinding,
+        scope_id: str,
+        hierarchy_hash: str,
+        subjects: Sequence[WholeScopeEditorialSubject],
+        input_payload: Mapping[str, object],
+        *,
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = "story_evidence_only",
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int = 2,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
+    ) -> WholeScopeStagePreparation:
+        return self._whole_scope.prepare_editorial(
+            authority,
+            scope_id,
+            hierarchy_hash,
+            subjects,
+            input_payload,
+            profile=profile,
+            run_id=run_id,
+            source_hash=source_hash,
+            correction_id=correction_id,
+            privacy_scope=privacy_scope,
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+            replay_existing=replay_existing,
+        )
+
+    def start_whole_scope_editorial(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None = None,
+        consent: NarrativeConsentManifest | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        if preparation.stage is not WholeScopeSemanticStage.EDITORIAL:
+            raise ValueError("Stage E start requires a Stage E preparation")
+        return self._whole_scope.start(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def confirm_whole_scope_consent(
+        self,
+        preparation: WholeScopeStagePreparation,
+        consent: NarrativeConsentManifest,
+    ) -> WholeScopeSemanticStatus:
+        return self._whole_scope.confirm_consent(preparation, consent)
+
+    def whole_scope_semantic_status(self) -> WholeScopeSemanticStatus | None:
+        return self._whole_scope.status()
+
+    def cancel_whole_scope_semantic_build(self) -> WholeScopeSemanticStatus | None:
+        return self._whole_scope.cancel()
+
+    def resume_whole_scope_semantic_build(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None = None,
+        consent: NarrativeConsentManifest | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._whole_scope.resume(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def retry_whole_scope_semantic_build(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None = None,
+        consent: NarrativeConsentManifest | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self._whole_scope.retry(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def read_current_whole_scope_publication(self) -> Mapping[str, object] | None:
+        return self._whole_scope.read_current()
 
     def prepare_boundaries(
         self,

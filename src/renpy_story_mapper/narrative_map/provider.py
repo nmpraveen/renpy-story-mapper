@@ -29,10 +29,14 @@ from renpy_story_mapper.narrative_map.contracts import (
     stable_m15_id,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
+    M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA,
+    M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA,
+    MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     BoundaryWindow,
     ChoiceComposition,
     MajorCluster,
     SemanticBeat,
+    WholeScopeSemanticStage,
 )
 from renpy_story_mapper.organization.sterile_runner import (
     SterileCodexRunner,
@@ -49,10 +53,15 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v1"
+WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
+WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
+WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v1"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -106,6 +115,8 @@ class ProviderJobKind(StrEnum):
     EVENT_SUMMARY = "event_summary"
     SEMANTIC_BOUNDARY_WINDOW = "semantic_boundary_window"
     SEMANTIC_SUMMARY = "semantic_summary"
+    WHOLE_SCOPE_HIERARCHY = "whole_scope_hierarchy"
+    WHOLE_SCOPE_EDITORIAL = "whole_scope_editorial"
 
 
 @dataclass(frozen=True)
@@ -143,6 +154,96 @@ class ProviderProfile:
 
 
 @dataclass(frozen=True)
+class WholeScopeEditorialSubject:
+    """Exact frozen Stage E subject identity and its allowed evidence vocabulary."""
+
+    subject_kind: str
+    subject_id: str
+    membership_hash: str
+    evidence_ids: tuple[str, ...]
+    known_characters: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.subject_kind not in {"beat", "major_cluster", "choice"}:
+            raise ValueError("whole-scope editorial subject kind is unsupported")
+        for value, label in (
+            (self.subject_id, "whole-scope editorial subject ID"),
+            (self.membership_hash, "whole-scope editorial membership hash"),
+        ):
+            if not value or value != value.strip():
+                raise ValueError(f"{label} must be a non-empty trimmed string")
+        for values, label in (
+            (self.evidence_ids, "whole-scope editorial evidence ID"),
+            (self.known_characters, "whole-scope editorial character"),
+        ):
+            if len(values) != len(set(values)) or any(
+                not value or value != value.strip() for value in values
+            ):
+                raise ValueError(f"{label} values must be unique non-empty strings")
+        if not self.evidence_ids:
+            raise ValueError("whole-scope editorial subjects require evidence IDs")
+
+    @property
+    def identity(self) -> str:
+        return f"{self.subject_kind}:{self.subject_id}"
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {
+            "subject_kind": self.subject_kind,
+            "subject_id": self.subject_id,
+            "membership_hash": self.membership_hash,
+            "evidence_ids": list(self.evidence_ids),
+            "known_characters": list(self.known_characters),
+        }
+
+
+@dataclass(frozen=True)
+class WholeScopeProviderSubject:
+    """Transient Stage H/E batch subject; only its identifiers enter durable metadata."""
+
+    stage: WholeScopeSemanticStage
+    scope_id: str
+    ordered_unit_ids: tuple[str, ...] = ()
+    hierarchy_hash: str | None = None
+    editorial_subjects: tuple[WholeScopeEditorialSubject, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stage, WholeScopeSemanticStage):
+            raise ValueError("whole-scope provider stage is unsupported")
+        if not self.scope_id or self.scope_id != self.scope_id.strip():
+            raise ValueError("whole-scope provider scope ID must be non-empty and trimmed")
+        if self.stage is WholeScopeSemanticStage.HIERARCHY:
+            if (
+                not self.ordered_unit_ids
+                or self.hierarchy_hash is not None
+                or self.editorial_subjects
+            ):
+                raise ValueError("Stage H requires only ordered authority-bound unit IDs")
+            if len(self.ordered_unit_ids) != len(set(self.ordered_unit_ids)):
+                raise ValueError("Stage H authority-bound unit IDs must be unique")
+        else:
+            if self.ordered_unit_ids or not self.hierarchy_hash or not self.editorial_subjects:
+                raise ValueError("Stage E requires a hierarchy hash and frozen editorial subjects")
+            identities = tuple(item.identity for item in self.editorial_subjects)
+            if len(identities) != len(set(identities)):
+                raise ValueError("Stage E editorial subject identities must be unique")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        value: dict[str, JsonValue] = {
+            "stage": self.stage.value,
+            "scope_id": self.scope_id,
+        }
+        if self.stage is WholeScopeSemanticStage.HIERARCHY:
+            value["ordered_unit_ids"] = list(self.ordered_unit_ids)
+        else:
+            value["hierarchy_hash"] = cast(str, self.hierarchy_hash)
+            value["editorial_subjects"] = [
+                item.to_dict() for item in self.editorial_subjects
+            ]
+        return value
+
+
+@dataclass(frozen=True)
 class PreparedNarrativeJob:
     """One exact transient semantic job; ``payload`` must never be persisted."""
 
@@ -155,6 +256,7 @@ class PreparedNarrativeJob:
         | SemanticBeat
         | MajorCluster
         | ChoiceComposition
+        | WholeScopeProviderSubject
     )
     subject_id: str
     input_hash: str
@@ -168,6 +270,8 @@ class PreparedNarrativeJob:
     correction_id: str | None = None
     membership_hash: str | None = None
     privacy_scope: str | None = None
+    logical_job_ids: tuple[str, ...] = ()
+    combined_submission_limit: int | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id or self.subject_id != self.subject_id.strip():
@@ -178,6 +282,10 @@ class PreparedNarrativeJob:
             raise ValueError("job evidence IDs must be unique")
         if len(self.known_characters) != len(set(self.known_characters)):
             raise ValueError("job characters must be unique")
+        if len(self.logical_job_ids) != len(set(self.logical_job_ids)) or any(
+            not value or value != value.strip() for value in self.logical_job_ids
+        ):
+            raise ValueError("job logical identities must be unique non-empty strings")
         expected_subject = _subject_id(self.subject)
         if self.subject_id != expected_subject:
             raise ValueError("job subject does not match its frozen contract identity")
@@ -197,6 +305,29 @@ class PreparedNarrativeJob:
                 raise ValueError("semantic summary jobs require a frozen visible subject")
             if self.membership_hash is None:
                 raise ValueError("semantic summary jobs require frozen membership")
+        elif self.kind in {
+            ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            ProviderJobKind.WHOLE_SCOPE_EDITORIAL,
+        }:
+            expected_stage = (
+                WholeScopeSemanticStage.HIERARCHY
+                if self.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+                else WholeScopeSemanticStage.EDITORIAL
+            )
+            if (
+                not isinstance(self.subject, WholeScopeProviderSubject)
+                or self.subject.stage is not expected_stage
+                or not self.logical_job_ids
+                or self.combined_submission_limit != MAXIMUM_DAY1_PROVIDER_SUBMISSIONS
+            ):
+                raise ValueError("whole-scope jobs require exact logical and submission identity")
+            if self.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY:
+                if len(self.logical_job_ids) != 1 or self.membership_hash is not None:
+                    raise ValueError("Stage H requires one logical job and no membership hash")
+            elif self.membership_hash != self.subject.hierarchy_hash:
+                raise ValueError("Stage E requires exact frozen hierarchy membership")
+        elif self.logical_job_ids or self.combined_submission_limit is not None:
+            raise ValueError("legacy M15 jobs cannot carry whole-scope submission identity")
         self.validate_integrity()
 
     @property
@@ -217,6 +348,10 @@ class PreparedNarrativeJob:
             exact_scope["membership_hash"] = self.membership_hash
         if self.privacy_scope is not None:
             exact_scope["privacy_scope"] = self.privacy_scope
+        if self.logical_job_ids:
+            exact_scope["logical_job_ids"] = list(self.logical_job_ids)
+        if self.combined_submission_limit is not None:
+            exact_scope["combined_submission_limit"] = self.combined_submission_limit
         return stable_m15_id(
             f"{self.kind.value}_job",
             exact_scope,
@@ -245,6 +380,10 @@ class PreparedNarrativeJob:
             metadata["membership_hash"] = self.membership_hash
         if self.privacy_scope is not None:
             metadata["privacy_scope"] = self.privacy_scope
+        if self.logical_job_ids:
+            metadata["logical_job_ids"] = list(self.logical_job_ids)
+        if self.combined_submission_limit is not None:
+            metadata["combined_submission_limit"] = self.combined_submission_limit
         return metadata
 
     def validate_integrity(self) -> None:
@@ -675,6 +814,16 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
             "semantic_summary_v3.json",
             "semantic_summary_v3.schema.json",
         ),
+        ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
+            WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+            "whole_scope_hierarchy_v1.json",
+            "whole_scope_hierarchy_v1.schema.json",
+        ),
+        ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
+            WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,
+            "whole_scope_editorial_v1.json",
+            "whole_scope_editorial_v1.schema.json",
+        ),
     }
     response_schema, prompt_name, schema_name = resources[job.kind]
     if job.response_schema != response_schema:
@@ -690,6 +839,7 @@ def _subject_id(
         | SemanticBeat
         | MajorCluster
         | ChoiceComposition
+        | WholeScopeProviderSubject
     ),
 ) -> str:
     if isinstance(subject, BoundaryCandidate):
@@ -698,6 +848,8 @@ def _subject_id(
         return subject.event_id
     if isinstance(subject, BoundaryWindow):
         return subject.window_id
+    if isinstance(subject, WholeScopeProviderSubject):
+        return subject.scope_id
     if isinstance(subject, SemanticBeat):
         return subject.beat_id
     if isinstance(subject, MajorCluster):
@@ -735,23 +887,38 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
             "job": request.job.payload,
         },
     }
-    if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY and request.repair_codes:
-        if request.consent.repair_policy_version != SEMANTIC_REPAIR_POLICY_VERSION:
+    if request.repair_codes and request.job.kind in {
+        ProviderJobKind.SEMANTIC_SUMMARY,
+        ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+        ProviderJobKind.WHOLE_SCOPE_EDITORIAL,
+    }:
+        expected_policy = (
+            SEMANTIC_REPAIR_POLICY_VERSION
+            if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY
+            else WHOLE_SCOPE_REPAIR_POLICY_VERSION
+        )
+        if request.consent.repair_policy_version != expected_policy:
             raise NarrativeMapProviderError(
                 "repair_policy_mismatch",
                 "The M15 repair policy is not bound to the exact consent.",
                 provider_call_reserved=False,
             )
-        envelope["request"]["repair_guidance_version"] = SEMANTIC_REPAIR_POLICY_VERSION
+        envelope["request"]["repair_guidance_version"] = expected_policy
         envelope["request"]["locked_semantics_policy"] = (
             "Copy every scalar and claim slot in request.locked_semantics exactly. Change only "
             "fields identified by request.repair_codes as described in request.repair_guidance."
         )
-        envelope["request"]["repair_guidance"] = [
-            _SEMANTIC_REPAIR_GUIDANCE[code]
-            for code in request.repair_codes
-            if code in _SEMANTIC_REPAIR_GUIDANCE
-        ]
+        if request.job.kind is ProviderJobKind.SEMANTIC_SUMMARY:
+            envelope["request"]["repair_guidance"] = [
+                _SEMANTIC_REPAIR_GUIDANCE[code]
+                for code in request.repair_codes
+                if code in _SEMANTIC_REPAIR_GUIDANCE
+            ]
+        else:
+            envelope["request"]["repair_guidance"] = [
+                "Return the complete exact stage envelope. Preserve every valid locked item "
+                "byte-for-byte and repair only missing or invalid entries."
+            ]
     return json.dumps(
         envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
@@ -763,10 +930,24 @@ def _repair_policy_version(
     semantic_summary = tuple(
         job.kind is ProviderJobKind.SEMANTIC_SUMMARY for job in jobs
     )
-    if any(semantic_summary) and not all(semantic_summary):
+    whole_scope = tuple(
+        job.kind
+        in {
+            ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            ProviderJobKind.WHOLE_SCOPE_EDITORIAL,
+        }
+        for job in jobs
+    )
+    if (any(semantic_summary) and not all(semantic_summary)) or (
+        any(whole_scope) and not all(whole_scope)
+    ):
         raise ValueError("M15 repair-policy consent cannot mix job kinds")
     if any(semantic_summary):
         return SEMANTIC_REPAIR_POLICY_VERSION
+    if any(whole_scope):
+        if len({job.kind for job in jobs}) != 1:
+            raise ValueError("whole-scope consent cannot mix Stage H and Stage E")
+        return WHOLE_SCOPE_REPAIR_POLICY_VERSION
     return None
 
 

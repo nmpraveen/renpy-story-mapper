@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import cast
 
+from renpy_story_mapper import storage
+from renpy_story_mapper.narrative.privacy import validate_privacy_safe_keys
 from renpy_story_mapper.narrative_map.contracts import (
     AuthorityBinding,
     JsonValue,
@@ -20,19 +22,30 @@ from renpy_story_mapper.narrative_map.persistence import (
     NarrativeMapRepository,
 )
 from renpy_story_mapper.narrative_map.provider import (
+    WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION,
+    WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,
+    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+    WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
     NarrativeConsentManifest,
     NarrativeMapProvider,
     PreparedNarrativeJob,
     ProviderJobKind,
     ProviderProfile,
+    WholeScopeEditorialSubject,
+    WholeScopeProviderSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
+    M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
+    M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+    MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     LiveSemanticProvenance,
     SemanticBoundaryDecision,
     SemanticBuildRecord,
     SemanticBuildState,
     SemanticOutline,
     SemanticSummary,
+    WholeScopeLogicalProvenance,
+    WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
     FrozenSummaryInput,
@@ -54,6 +67,8 @@ from renpy_story_mapper.narrative_map.workflow import (
 SEMANTIC_BUILD_ENVELOPE = "m15-semantic-build-envelope-v2"
 SEMANTIC_PUBLICATION_SCHEMA = "m15-semantic-publication-v2"
 DEFAULT_PRIVACY_SCOPE = "story_evidence_only"
+WHOLE_SCOPE_BUILD_ENVELOPE = "m15-whole-scope-semantic-build-v1"
+WHOLE_SCOPE_PUBLICATION_SCHEMA = "m15-whole-scope-semantic-publication-v1"
 
 CancelledCallback = Callable[[], bool]
 
@@ -110,6 +125,77 @@ class SemanticStatusView:
 class BoundaryStageOutput:
     decisions: tuple[SemanticBoundaryDecision, ...]
     provenance: tuple[LiveSemanticProvenance, ...]
+
+
+@dataclass(frozen=True)
+class WholeScopeLogicalJob:
+    stage: WholeScopeSemanticStage
+    logical_job_id: str
+    subject_kind: str
+    subject_id: str
+    membership_hash: str | None
+
+
+@dataclass(frozen=True)
+class WholeScopeStagePreparation:
+    stage: WholeScopeSemanticStage
+    build_id: str
+    authority: AuthorityBinding
+    scope_id: str
+    source_hash: str
+    correction_id: str
+    privacy_scope: str
+    hierarchy_hash: str | None
+    job: PreparedNarrativeJob
+    logical_jobs: tuple[WholeScopeLogicalJob, ...]
+    consent: NarrativeConsentManifest
+
+    def granted_consent(self) -> NarrativeConsentManifest:
+        return replace(self.consent, consent_granted=True)
+
+
+@dataclass(frozen=True)
+class WholeScopeSemanticAccounting:
+    logical_jobs: int = 0
+    transport_submissions: int = 0
+    cache_hits: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    elapsed_ms: int = 0
+    combined_submission_count: int = 0
+
+    def __post_init__(self) -> None:
+        values = (
+            self.logical_jobs,
+            self.transport_submissions,
+            self.cache_hits,
+            self.input_tokens,
+            self.output_tokens,
+            self.elapsed_ms,
+            self.combined_submission_count,
+        )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in values
+        ):
+            raise ValueError("whole-scope accounting values must be non-negative integers")
+        if self.combined_submission_count > MAXIMUM_DAY1_PROVIDER_SUBMISSIONS:
+            raise ValueError("whole-scope accounting exceeds the four-submission ceiling")
+
+
+@dataclass(frozen=True)
+class WholeScopeSemanticStatus:
+    build_id: str
+    scope_id: str
+    authority: AuthorityBinding
+    source_hash: str
+    correction_id: str
+    hierarchy_state: str
+    editorial_state: str
+    hierarchy_hash: str | None
+    publication_hash: str | None
+    failure_codes: tuple[str, ...]
+    accounting: WholeScopeSemanticAccounting
 
 
 class SemanticLifecycle:
@@ -1385,6 +1471,790 @@ class SemanticLifecycle:
         updated["failure_codes"] = [code]
         self._repository.write_semantic_build(updated)
         return updated
+
+
+class WholeScopeSemanticLifecycle:
+    """Durable two-gate Stage H/Stage E lifecycle over one transport batch per stage."""
+
+    def __init__(self, repository: NarrativeMapRepository) -> None:
+        self._repository = repository
+        self._active_workflow: NarrativeBoundaryWorkflow | None = None
+
+    def prepare_hierarchy(
+        self,
+        authority: AuthorityBinding,
+        scope_id: str,
+        ordered_unit_ids: Sequence[str],
+        input_payload: Mapping[str, object],
+        *,
+        known_evidence_ids: Sequence[str],
+        known_characters: Sequence[str] = (),
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = DEFAULT_PRIVACY_SCOPE,
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int = 2,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
+    ) -> WholeScopeStagePreparation:
+        ordered = _whole_scope_strings(ordered_unit_ids, "Stage H unit ID", allow_empty=False)
+        evidence = _whole_scope_strings(
+            known_evidence_ids, "Stage H evidence ID", allow_empty=False
+        )
+        characters = _whole_scope_strings(known_characters, "Stage H character")
+        payload = _whole_scope_mapping(input_payload, "Stage H input")
+        _validate_stage_h_input(payload, authority, scope_id, ordered)
+        _validate_whole_scope_limits(maximum_provider_calls)
+        logical_id = stable_m15_id(
+            "whole_scope_hierarchy_logical_job",
+            {
+                "authority": authority.to_dict(),
+                "scope_id": scope_id,
+                "source_hash": source_hash,
+                "correction_id": correction_id,
+                "input_hash": canonical_hash(payload),
+            },
+        )
+        subject = WholeScopeProviderSubject(
+            WholeScopeSemanticStage.HIERARCHY,
+            scope_id,
+            ordered,
+        )
+        job = PreparedNarrativeJob(
+            kind=ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            authority=authority,
+            subject=subject,
+            subject_id=scope_id,
+            input_hash=canonical_hash(payload),
+            prompt_version=WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+            response_schema=WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+            payload=cast(dict[str, JsonValue], payload),
+            known_evidence_ids=evidence,
+            known_characters=characters,
+            source_hash=_whole_scope_text(source_hash, "source hash"),
+            correction_id=_whole_scope_text(correction_id, "correction ID"),
+            privacy_scope=_whole_scope_text(privacy_scope, "privacy scope"),
+            logical_job_ids=(logical_id,),
+            combined_submission_limit=MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+        )
+        logical_jobs = (
+            WholeScopeLogicalJob(
+                WholeScopeSemanticStage.HIERARCHY,
+                logical_id,
+                "scope",
+                scope_id,
+                None,
+            ),
+        )
+        consent = NarrativeConsentManifest.for_jobs(
+            run_id=run_id,
+            profile=profile,
+            jobs=(job,),
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        build_id = stable_m15_id(
+            "whole_scope_build",
+            {
+                "authority": authority.to_dict(),
+                "scope_id": scope_id,
+                "source_hash": source_hash,
+                "correction_id": correction_id,
+                "privacy_scope": privacy_scope,
+                "profile": profile.to_dict(),
+                "hierarchy_transport_batch_id": job.job_id,
+            },
+        )
+        existing = self._repository.read_whole_scope_build()
+        if not (
+            replay_existing
+            and existing is not None
+            and existing.get("build_id") == build_id
+            and existing.get("hierarchy_transport_batch_id") == job.job_id
+        ):
+            build: dict[str, object] = {
+                "schema": WHOLE_SCOPE_BUILD_ENVELOPE,
+                "build_id": build_id,
+                "scope_id": scope_id,
+                "authority": authority.to_dict(),
+                "source_hash": source_hash,
+                "correction_id": correction_id,
+                "privacy_scope": privacy_scope,
+                "hierarchy_state": "awaiting_consent",
+                "editorial_state": "not_started",
+                "hierarchy_transport_batch_id": job.job_id,
+                "hierarchy_logical_jobs": [
+                    _whole_scope_logical_job_payload(item) for item in logical_jobs
+                ],
+                "hierarchy_manifest_id": consent.manifest_id,
+                "hierarchy_manifest": consent.identity_dict(),
+                "hierarchy_profile": profile.to_dict(),
+                "hierarchy_hash": None,
+                "hierarchy_result": None,
+                "authoritative_hierarchy": None,
+                "editorial_transport_batch_id": None,
+                "editorial_logical_jobs": [],
+                "editorial_manifest_id": None,
+                "editorial_manifest": None,
+                "editorial_profile": None,
+                "editorial_result": None,
+                "confirmed_hierarchy_manifest_id": None,
+                "confirmed_editorial_manifest_id": None,
+                "failure_codes": [],
+                "cache_hits": 0,
+                "publication_hash": None,
+            }
+            self._repository.write_whole_scope_build(build)
+        else:
+            manifest = existing.get("hierarchy_manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("persisted Stage H manifest is unavailable")
+            consent = _restore_manifest(manifest, profile)
+        return WholeScopeStagePreparation(
+            WholeScopeSemanticStage.HIERARCHY,
+            build_id,
+            authority,
+            scope_id,
+            source_hash,
+            correction_id,
+            privacy_scope,
+            None,
+            job,
+            logical_jobs,
+            consent,
+        )
+
+    def prepare_editorial(
+        self,
+        authority: AuthorityBinding,
+        scope_id: str,
+        hierarchy_hash: str,
+        subjects: Sequence[WholeScopeEditorialSubject],
+        input_payload: Mapping[str, object],
+        *,
+        profile: ProviderProfile,
+        run_id: str,
+        source_hash: str,
+        correction_id: str,
+        privacy_scope: str = DEFAULT_PRIVACY_SCOPE,
+        valid_for: timedelta = timedelta(minutes=15),
+        maximum_provider_calls: int = 2,
+        maximum_input_bytes: int = 1_000_000,
+        maximum_output_bytes: int = 2_000_000,
+        timeout_seconds: float = 300.0,
+        replay_existing: bool = False,
+    ) -> WholeScopeStagePreparation:
+        frozen_subjects = tuple(subjects)
+        if not frozen_subjects:
+            raise ValueError("Stage E requires at least one frozen subject")
+        identities = tuple(item.identity for item in frozen_subjects)
+        if len(identities) != len(set(identities)):
+            raise ValueError("Stage E frozen subject identities must be unique")
+        payload = _whole_scope_mapping(input_payload, "Stage E input")
+        _validate_stage_e_input(payload, authority, scope_id, hierarchy_hash, frozen_subjects)
+        _validate_whole_scope_limits(maximum_provider_calls)
+        raw = self._require_build(authority, scope_id, source_hash, correction_id)
+        if raw.get("hierarchy_state") != "frozen" or raw.get("hierarchy_hash") != hierarchy_hash:
+            raise ValueError("Stage E requires the exact durable frozen hierarchy")
+        logical_jobs = tuple(
+            WholeScopeLogicalJob(
+                WholeScopeSemanticStage.EDITORIAL,
+                stable_m15_id(
+                    "whole_scope_editorial_logical_job",
+                    {
+                        "authority": authority.to_dict(),
+                        "scope_id": scope_id,
+                        "hierarchy_hash": hierarchy_hash,
+                        "subject": item.to_dict(),
+                        "source_hash": source_hash,
+                        "correction_id": correction_id,
+                    },
+                ),
+                item.subject_kind,
+                item.subject_id,
+                item.membership_hash,
+            )
+            for item in frozen_subjects
+        )
+        subject = WholeScopeProviderSubject(
+            WholeScopeSemanticStage.EDITORIAL,
+            scope_id,
+            hierarchy_hash=hierarchy_hash,
+            editorial_subjects=frozen_subjects,
+        )
+        known_evidence_ids = tuple(
+            dict.fromkeys(
+                evidence_id for item in frozen_subjects for evidence_id in item.evidence_ids
+            )
+        )
+        known_characters = tuple(
+            dict.fromkeys(
+                character for item in frozen_subjects for character in item.known_characters
+            )
+        )
+        job = PreparedNarrativeJob(
+            kind=ProviderJobKind.WHOLE_SCOPE_EDITORIAL,
+            authority=authority,
+            subject=subject,
+            subject_id=scope_id,
+            input_hash=canonical_hash(payload),
+            prompt_version=WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION,
+            response_schema=WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,
+            payload=cast(dict[str, JsonValue], payload),
+            known_evidence_ids=known_evidence_ids,
+            known_characters=known_characters,
+            source_hash=_whole_scope_text(source_hash, "source hash"),
+            correction_id=_whole_scope_text(correction_id, "correction ID"),
+            membership_hash=_whole_scope_text(hierarchy_hash, "hierarchy hash"),
+            privacy_scope=_whole_scope_text(privacy_scope, "privacy scope"),
+            logical_job_ids=tuple(item.logical_job_id for item in logical_jobs),
+            combined_submission_limit=MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+        )
+        consent = NarrativeConsentManifest.for_jobs(
+            run_id=run_id,
+            profile=profile,
+            jobs=(job,),
+            valid_for=valid_for,
+            maximum_provider_calls=maximum_provider_calls,
+            maximum_input_bytes=maximum_input_bytes,
+            maximum_output_bytes=maximum_output_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        if replay_existing and raw.get("editorial_transport_batch_id") == job.job_id:
+            manifest = raw.get("editorial_manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("persisted Stage E manifest is unavailable")
+            consent = _restore_manifest(manifest, profile)
+        else:
+            updated = dict(raw)
+            updated.update(
+                {
+                    "editorial_state": "awaiting_consent",
+                    "editorial_transport_batch_id": job.job_id,
+                    "editorial_logical_jobs": [
+                        _whole_scope_logical_job_payload(item) for item in logical_jobs
+                    ],
+                    "editorial_manifest_id": consent.manifest_id,
+                    "editorial_manifest": consent.identity_dict(),
+                    "editorial_profile": profile.to_dict(),
+                    "confirmed_editorial_manifest_id": None,
+                    "editorial_result": None,
+                    "failure_codes": [],
+                }
+            )
+            self._repository.write_whole_scope_build(updated)
+        return WholeScopeStagePreparation(
+            WholeScopeSemanticStage.EDITORIAL,
+            cast(str, raw["build_id"]),
+            authority,
+            scope_id,
+            source_hash,
+            correction_id,
+            privacy_scope,
+            hierarchy_hash,
+            job,
+            logical_jobs,
+            consent,
+        )
+
+    def confirm_consent(
+        self,
+        preparation: WholeScopeStagePreparation,
+        consent: NarrativeConsentManifest,
+    ) -> WholeScopeSemanticStatus:
+        if consent.manifest_id != preparation.consent.manifest_id:
+            raise ValueError("whole-scope consent does not match the exact reviewed manifest")
+        consent.validate_for((preparation.job,), preparation.consent.profile)
+        raw = self._require_preparation(preparation)
+        updated = dict(raw)
+        prefix = preparation.stage.value
+        updated[f"confirmed_{prefix}_manifest_id"] = consent.manifest_id
+        updated[f"{prefix}_state"] = "awaiting_start"
+        self._repository.write_whole_scope_build(updated)
+        return self.status_required()
+
+    def start(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None,
+        consent: NarrativeConsentManifest | None,
+        cancelled: CancelledCallback | None = None,
+    ) -> NarrativeWorkflowReport:
+        raw = self._require_preparation(preparation)
+        prefix = preparation.stage.value
+        state = raw.get(f"{prefix}_state")
+        record = self._repository.get(preparation.job.kind, preparation.job.job_id)
+        if (
+            record is not None
+            and record.status is NarrativeJobStatus.VALIDATED
+            and record.result is not None
+            and state in {"validated", "frozen", "complete"}
+        ):
+            replayed = dict(raw)
+            replayed["cache_hits"] = cast(int, replayed.get("cache_hits", 0)) + 1
+            self._repository.write_whole_scope_build(replayed)
+            return NarrativeWorkflowReport(
+                (preparation.job.job_id,), (), 1, 0, 0, 0, 0, False
+            )
+        if record is not None and record.attempt_count >= 2:
+            return NarrativeWorkflowReport(
+                (), (preparation.job.job_id,), 0, 0, 0, 0, 0, False
+            )
+        if provider is None or consent is None:
+            raise ValueError("a cache miss requires an explicitly consented fake/live provider")
+        if consent.manifest_id != preparation.consent.manifest_id:
+            raise ValueError("whole-scope start consent is stale")
+        consent.validate_for((preparation.job,), preparation.consent.profile)
+        if raw.get(f"confirmed_{prefix}_manifest_id") != consent.manifest_id:
+            raise ValueError("whole-scope consent must be confirmed before start")
+        updated = dict(raw)
+        updated[f"{prefix}_state"] = "running"
+        updated["failure_codes"] = []
+        self._repository.write_whole_scope_build(updated)
+        workflow = NarrativeBoundaryWorkflow(
+            self._repository,
+            provider,
+            preparation.consent.profile,
+            timeout_seconds=consent.timeout_seconds,
+        )
+        self._active_workflow = workflow
+        try:
+            if preparation.stage is WholeScopeSemanticStage.HIERARCHY:
+                report = workflow.run_whole_scope_hierarchy_job(
+                    preparation.job,
+                    consent=consent,
+                    cancelled=cancelled,
+                )
+            else:
+                report = workflow.run_whole_scope_editorial_job(
+                    preparation.job,
+                    consent=consent,
+                    cancelled=cancelled,
+                )
+        finally:
+            self._active_workflow = None
+        attempts = tuple(
+            attempt
+            for job_id, attempt in report.terminal_reservations
+            if job_id == preparation.job.job_id
+        )
+        self._repository.settle_whole_scope_provider_submissions(
+            transport_batch_id=preparation.job.job_id,
+            attempts=attempts,
+        )
+        current = self._require_preparation(preparation)
+        final = dict(current)
+        final["cache_hits"] = cast(int, final.get("cache_hits", 0)) + report.cache_hits
+        record = self._repository.get(preparation.job.kind, preparation.job.job_id)
+        if report.cancelled:
+            final[f"{prefix}_state"] = "cancelled"
+            final["failure_codes"] = ["cancelled"]
+        elif (
+            record is not None
+            and record.status is NarrativeJobStatus.VALIDATED
+            and record.result is not None
+        ):
+            final[f"{prefix}_state"] = "validated"
+            final[f"{prefix}_result"] = dict(record.result)
+            final["failure_codes"] = []
+            logical_records = self._logical_records(preparation, record)
+            self._repository.write_whole_scope_logical_records(logical_records)
+            if preparation.stage is WholeScopeSemanticStage.EDITORIAL:
+                final["editorial_state"] = "complete"
+                self._publish(final, preparation, logical_records)
+                return report
+        else:
+            final[f"{prefix}_state"] = "failed"
+            error_code = record.error_code if record is not None else None
+            final["failure_codes"] = [error_code or "stage_failed"]
+        self._repository.write_whole_scope_build(final)
+        return report
+
+    def freeze_hierarchy(
+        self,
+        preparation: WholeScopeStagePreparation,
+        authoritative_hierarchy: Mapping[str, object],
+        hierarchy_hash: str | None = None,
+    ) -> WholeScopeSemanticStatus:
+        if preparation.stage is not WholeScopeSemanticStage.HIERARCHY:
+            raise ValueError("only Stage H can freeze hierarchy membership")
+        raw = self._require_preparation(preparation)
+        if raw.get("hierarchy_state") != "validated" or not isinstance(
+            raw.get("hierarchy_result"), Mapping
+        ):
+            raise ValueError("hierarchy cannot freeze before validated Stage H output")
+        normalized = _whole_scope_mapping(authoritative_hierarchy, "authoritative hierarchy")
+        exact_hash = canonical_hash(normalized)
+        if hierarchy_hash is not None and hierarchy_hash != exact_hash:
+            raise ValueError("frozen hierarchy hash does not match its exact payload")
+        updated = dict(raw)
+        updated["hierarchy_state"] = "frozen"
+        updated["hierarchy_hash"] = exact_hash
+        updated["authoritative_hierarchy"] = normalized
+        self._repository.write_whole_scope_build(updated)
+        return self.status_required()
+
+    def cancel(self) -> WholeScopeSemanticStatus | None:
+        raw = self._repository.read_whole_scope_build()
+        if raw is None:
+            return None
+        updated = dict(raw)
+        if updated.get("editorial_state") in {"awaiting_consent", "awaiting_start", "running"}:
+            updated["editorial_state"] = "cancelled"
+        elif updated.get("hierarchy_state") in {"awaiting_consent", "awaiting_start", "running"}:
+            updated["hierarchy_state"] = "cancelled"
+        updated["failure_codes"] = ["cancelled"]
+        self._repository.write_whole_scope_build(updated)
+        if self._active_workflow is not None:
+            self._active_workflow.cancel()
+        return self.status_required()
+
+    def status(self) -> WholeScopeSemanticStatus | None:
+        raw = self._repository.read_whole_scope_build()
+        return None if raw is None else self._status(raw)
+
+    def status_required(self) -> WholeScopeSemanticStatus:
+        status = self.status()
+        if status is None:
+            raise ValueError("whole-scope semantic build is unavailable")
+        return status
+
+    def read_current(self) -> Mapping[str, object] | None:
+        return self._repository.read_whole_scope_current()
+
+    def resume(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None,
+        consent: NarrativeConsentManifest | None,
+        cancelled: CancelledCallback | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self.start(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def retry(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        provider: NarrativeMapProvider | None,
+        consent: NarrativeConsentManifest | None,
+        cancelled: CancelledCallback | None = None,
+    ) -> NarrativeWorkflowReport:
+        return self.resume(
+            preparation,
+            provider=provider,
+            consent=consent,
+            cancelled=cancelled,
+        )
+
+    def _require_build(
+        self,
+        authority: AuthorityBinding,
+        scope_id: str,
+        source_hash: str,
+        correction_id: str,
+    ) -> Mapping[str, object]:
+        raw = self._repository.read_whole_scope_build()
+        if (
+            raw is None
+            or raw.get("schema") != WHOLE_SCOPE_BUILD_ENVELOPE
+            or raw.get("scope_id") != scope_id
+            or raw.get("authority") != authority.to_dict()
+            or raw.get("source_hash") != source_hash
+            or raw.get("correction_id") != correction_id
+        ):
+            raise ValueError("whole-scope build identity is stale")
+        return raw
+
+    def _require_preparation(
+        self, preparation: WholeScopeStagePreparation
+    ) -> Mapping[str, object]:
+        raw = self._require_build(
+            preparation.authority,
+            preparation.scope_id,
+            preparation.source_hash,
+            preparation.correction_id,
+        )
+        prefix = preparation.stage.value
+        if (
+            raw.get("build_id") != preparation.build_id
+            or raw.get(f"{prefix}_transport_batch_id") != preparation.job.job_id
+            or raw.get(f"{prefix}_manifest_id") != preparation.consent.manifest_id
+        ):
+            raise ValueError("whole-scope stage preparation is stale")
+        return raw
+
+    def _logical_records(
+        self,
+        preparation: WholeScopeStagePreparation,
+        record: NarrativeJobRecord,
+    ) -> tuple[Mapping[str, object], ...]:
+        if record.result is None or record.provider_identity is None:
+            raise ValueError("whole-scope logical provenance requires validated transport output")
+        ordinals = self._repository.whole_scope_submission_ordinals(preparation.job.job_id)
+        submission_number = ordinals.get(record.attempt_count)
+        if submission_number is None:
+            raise ValueError(
+                "whole-scope validated transport is missing durable submission identity"
+            )
+        cache_identity = self._repository.cache_key(
+            preparation.job, preparation.consent.profile
+        )
+        results_by_subject: dict[str, Mapping[str, object]] = {}
+        if preparation.stage is WholeScopeSemanticStage.EDITORIAL:
+            raw_records = record.result.get("records")
+            if not isinstance(raw_records, list):
+                raise ValueError("validated editorial batch is missing records")
+            for value in raw_records:
+                if isinstance(value, Mapping):
+                    results_by_subject[
+                        f"{value.get('subject_kind')}:{value.get('subject_id')}"
+                    ] = value
+        payloads: list[Mapping[str, object]] = []
+        for logical in preparation.logical_jobs:
+            result = (
+                record.result
+                if logical.stage is WholeScopeSemanticStage.HIERARCHY
+                else results_by_subject.get(f"{logical.subject_kind}:{logical.subject_id}")
+            )
+            if not isinstance(result, Mapping):
+                raise ValueError("whole-scope logical result coverage is incomplete")
+            provenance = WholeScopeLogicalProvenance(
+                logical.stage,
+                logical.logical_job_id,
+                preparation.job.job_id,
+                preparation.job.input_hash,
+                record.consent_manifest_id or preparation.consent.manifest_id,
+                canonical_hash(record.provider_identity),
+                cache_identity,
+                preparation.scope_id,
+                record.attempt_count,
+                submission_number,
+            )
+            payloads.append(
+                {
+                    "schema": "m15-whole-scope-logical-job-v1",
+                    "build_id": preparation.build_id,
+                    "stage": logical.stage.value,
+                    "logical_job_id": provenance.logical_job_id,
+                    "transport_batch_id": provenance.transport_batch_id,
+                    "subject_kind": logical.subject_kind,
+                    "subject_id": logical.subject_id,
+                    "membership_hash": logical.membership_hash,
+                    "input_hash": provenance.input_hash,
+                    "manifest_id": provenance.manifest_id,
+                    "provider_identity_hash": provenance.provider_identity_hash,
+                    "cache_identity": provenance.cache_identity,
+                    "scope_id": provenance.scope_id,
+                    "attempt": provenance.attempt,
+                    "submission_number": provenance.submission_number,
+                    "result": dict(result),
+                    "result_hash": canonical_hash(result),
+                }
+            )
+        return tuple(payloads)
+
+    def _publish(
+        self,
+        build: dict[str, object],
+        preparation: WholeScopeStagePreparation,
+        editorial_records: Sequence[Mapping[str, object]],
+    ) -> None:
+        hierarchy = build.get("authoritative_hierarchy")
+        hierarchy_result = build.get("hierarchy_result")
+        editorial_result = build.get("editorial_result")
+        if not all(
+            isinstance(item, Mapping)
+            for item in (hierarchy, hierarchy_result, editorial_result)
+        ):
+            raise ValueError("whole-scope publication requires frozen hierarchy and editorial data")
+        all_records = tuple(
+            item
+            for item in self._repository.read_whole_scope_logical_records()
+            if item.get("build_id") == preparation.build_id
+        )
+        logical_records = tuple(
+            item for item in (*all_records, *editorial_records) if isinstance(item, Mapping)
+        )
+        by_id = {cast(str, item["logical_job_id"]): item for item in logical_records}
+        expected_ids = tuple(
+            cast(str, item["logical_job_id"])
+            for key in ("hierarchy_logical_jobs", "editorial_logical_jobs")
+            for item in cast(list[Mapping[str, object]], build.get(key, []))
+        )
+        if set(by_id) != set(expected_ids):
+            raise ValueError("whole-scope publication logical provenance is incomplete")
+        publication: dict[str, object] = {
+            "schema": WHOLE_SCOPE_PUBLICATION_SCHEMA,
+            "build_id": preparation.build_id,
+            "scope_id": preparation.scope_id,
+            "authority": preparation.authority.to_dict(),
+            "source_hash": preparation.source_hash,
+            "correction_id": preparation.correction_id,
+            "hierarchy_hash": build["hierarchy_hash"],
+            "hierarchy_proposal": dict(cast(Mapping[str, object], hierarchy_result)),
+            "authoritative_hierarchy": dict(cast(Mapping[str, object], hierarchy)),
+            "editorial_batch": dict(cast(Mapping[str, object], editorial_result)),
+            "logical_provenance": [
+                dict(by_id[logical_id]) for logical_id in expected_ids
+            ],
+        }
+        publication_hash = canonical_hash(publication)
+        publication["publication_hash"] = publication_hash
+        build["publication_hash"] = publication_hash
+        self._repository.publish_whole_scope_current(
+            build=build,
+            publication=publication,
+            logical_records=editorial_records,
+        )
+
+    def _status(self, raw: Mapping[str, object]) -> WholeScopeSemanticStatus:
+        authority = _authority(raw.get("authority"))
+        records = tuple(
+            record
+            for kind, key in (
+                (ProviderJobKind.WHOLE_SCOPE_HIERARCHY, "hierarchy_transport_batch_id"),
+                (ProviderJobKind.WHOLE_SCOPE_EDITORIAL, "editorial_transport_batch_id"),
+            )
+            for job_id in (raw.get(key),)
+            if isinstance(job_id, str)
+            for record in (self._repository.get(kind, job_id),)
+            if record is not None
+        )
+        usage_values = tuple(record.usage for record in records if record.usage is not None)
+        logical_jobs = sum(
+            len(cast(list[object], raw.get(key, [])))
+            for key in ("hierarchy_logical_jobs", "editorial_logical_jobs")
+        )
+        return WholeScopeSemanticStatus(
+            cast(str, raw["build_id"]),
+            cast(str, raw["scope_id"]),
+            authority,
+            cast(str, raw["source_hash"]),
+            cast(str, raw["correction_id"]),
+            cast(str, raw["hierarchy_state"]),
+            cast(str, raw["editorial_state"]),
+            cast(str | None, raw.get("hierarchy_hash")),
+            cast(str | None, raw.get("publication_hash")),
+            tuple(cast(list[str], raw.get("failure_codes", []))),
+            WholeScopeSemanticAccounting(
+                logical_jobs=logical_jobs,
+                transport_submissions=sum(record.provider_calls for record in records),
+                cache_hits=cast(int, raw.get("cache_hits", 0)),
+                input_tokens=sum(cast(int, item.get("input_tokens", 0)) for item in usage_values),
+                output_tokens=sum(cast(int, item.get("output_tokens", 0)) for item in usage_values),
+                elapsed_ms=sum(cast(int, item.get("elapsed_ms", 0)) for item in usage_values),
+                combined_submission_count=self._repository.whole_scope_submission_count(),
+            ),
+        )
+
+
+def _whole_scope_mapping(value: Mapping[str, object], label: str) -> dict[str, object]:
+    try:
+        decoded = storage.decode_json(storage.canonical_json(value))
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must contain canonical JSON values") from None
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{label} must be an object")
+    validate_privacy_safe_keys(decoded, label=label, allow_raw_content=True)
+    _reject_external_authority_keys(decoded, label)
+    return cast(dict[str, object], decoded)
+
+
+def _reject_external_authority_keys(value: object, label: str) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized = "".join(character for character in key.casefold() if character.isalnum())
+            if any(
+                marker in normalized
+                for marker in ("privateoracle", "mockup", "gemini", "grok", "filesystemauthority")
+            ):
+                raise ValueError(f"{label} contains forbidden external authority")
+            _reject_external_authority_keys(item, label)
+    elif isinstance(value, list):
+        for item in value:
+            _reject_external_authority_keys(item, label)
+
+
+def _whole_scope_strings(
+    values: Sequence[str], label: str, *, allow_empty: bool = True
+) -> tuple[str, ...]:
+    result = tuple(values)
+    if (not allow_empty and not result) or len(result) != len(set(result)) or any(
+        not value or value != value.strip() for value in result
+    ):
+        raise ValueError(f"{label} values must be unique non-empty strings")
+    return result
+
+
+def _whole_scope_text(value: str, label: str) -> str:
+    if not value or value != value.strip():
+        raise ValueError(f"whole-scope {label} must be non-empty and trimmed")
+    return value
+
+
+def _validate_whole_scope_limits(maximum_provider_calls: int) -> None:
+    if (
+        not isinstance(maximum_provider_calls, int)
+        or isinstance(maximum_provider_calls, bool)
+        or not 1 <= maximum_provider_calls <= 2
+    ):
+        raise ValueError("each whole-scope stage permits one initial and at most one repair")
+
+
+def _validate_stage_h_input(
+    payload: Mapping[str, object],
+    authority: AuthorityBinding,
+    scope_id: str,
+    ordered_unit_ids: tuple[str, ...],
+) -> None:
+    if (
+        payload.get("schema") != M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
+        or payload.get("scope_id") != scope_id
+        or payload.get("authority") != authority.to_dict()
+        or payload.get("ordered_unit_ids") != list(ordered_unit_ids)
+    ):
+        raise ValueError("Stage H input identity is not exact")
+
+
+def _validate_stage_e_input(
+    payload: Mapping[str, object],
+    authority: AuthorityBinding,
+    scope_id: str,
+    hierarchy_hash: str,
+    subjects: Sequence[WholeScopeEditorialSubject],
+) -> None:
+    if (
+        payload.get("schema") != M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA
+        or payload.get("scope_id") != scope_id
+        or payload.get("authority") != authority.to_dict()
+        or payload.get("hierarchy_hash") != hierarchy_hash
+        or payload.get("subjects") != [item.to_dict() for item in subjects]
+    ):
+        raise ValueError("Stage E input identity is not exact")
+
+
+def _whole_scope_logical_job_payload(job: WholeScopeLogicalJob) -> dict[str, object]:
+    return {
+        "stage": job.stage.value,
+        "logical_job_id": job.logical_job_id,
+        "subject_kind": job.subject_kind,
+        "subject_id": job.subject_id,
+        "membership_hash": job.membership_hash,
+    }
 
 
 def _new_build_payload(
