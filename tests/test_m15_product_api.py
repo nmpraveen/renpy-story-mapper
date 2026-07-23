@@ -4,6 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,7 +35,10 @@ from renpy_story_mapper.web.contracts import (
     JsonValue,
 )
 from renpy_story_mapper.web.launcher import build_project_api
-from renpy_story_mapper.web.m15_semantic_api import load_m15_semantic_inputs
+from renpy_story_mapper.web.m15_semantic_api import (
+    M15WholeScopeProductController,
+    load_m15_semantic_inputs,
+)
 from renpy_story_mapper.web.state import UserStateStore
 from test_m15_track_c import _Dialogs, _project
 
@@ -225,6 +229,28 @@ class _CancellableWholeScopeProductProvider(_WholeScopeProductFakeProvider):
         raise NarrativeMapProviderError("cancelled", "The fake request was cancelled.")
 
 
+class _SequencedWholeScopeProductProvider(_WholeScopeProductFakeProvider):
+    def __init__(
+        self,
+        requests: list[NarrativeMapProviderRequest],
+        outcomes: list[dict[str, object] | NarrativeMapProviderError],
+    ) -> None:
+        super().__init__(requests, {})
+        self.outcomes = outcomes
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, NarrativeMapProviderError):
+            self.requests.append(request)
+            raise outcome
+        self.hierarchy_payload = outcome
+        return super().submit(request, cancelled)
+
+
 def _whole_scope_hierarchy_payload(project_path: Path) -> dict[str, object]:
     with Project.open(project_path) as project:
         inputs = load_m15_semantic_inputs(project)
@@ -267,6 +293,211 @@ def _whole_scope_hierarchy_payload(project_path: Path) -> dict[str, object]:
         "uncertain_unit_ids": [],
         "warnings": [],
     }
+
+
+def _unrepresentable_whole_scope_hierarchy_payload(
+    project_path: Path,
+) -> dict[str, object]:
+    payload = _whole_scope_hierarchy_payload(project_path)
+    beat_groups = payload["beat_groups"]
+    assert isinstance(beat_groups, list)
+    payload["major_clusters"] = [
+        {
+            "proposal_key": "whole-scope-unrepresentable-cluster",
+            "ordered_beat_keys": [item["proposal_key"] for item in beat_groups],
+            "confidence": 0.9,
+            "reason": "These supported synthetic actions form one story section.",
+            "warnings": [],
+        }
+    ]
+    return payload
+
+
+def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    outcomes: list[dict[str, object] | NarrativeMapProviderError] = [
+        _unrepresentable_whole_scope_hierarchy_payload(project_path),
+        _whole_scope_hierarchy_payload(project_path),
+    ]
+
+    api = build_project_api(
+        _Dialogs(),
+        m15_provider_factory=lambda: _SequencedWholeScopeProductProvider(
+            requests, outcomes
+        ),
+    )
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        completed = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": prepared["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+    finally:
+        api.close()
+
+    assert completed["state"] == "hierarchy_frozen"
+    assert completed["hierarchy_hash"]
+    assert completed["accounting"]["provider_calls"] == 2
+    assert len(requests) == 2
+    assert requests[1].repair_codes == ("hierarchy_not_representable",)
+
+
+def test_stage_h_exhausted_authority_failure_is_sanitized_and_not_retryable(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    invalid = _unrepresentable_whole_scope_hierarchy_payload(project_path)
+    outcomes: list[dict[str, object] | NarrativeMapProviderError] = [
+        deepcopy(invalid),
+        deepcopy(invalid),
+    ]
+    constructions = 0
+
+    def factory() -> _SequencedWholeScopeProductProvider:
+        nonlocal constructions
+        constructions += 1
+        return _SequencedWholeScopeProductProvider(requests, outcomes)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        failed = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": prepared["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        with pytest.raises(ValueError, match="frozen Stage H"):
+            api.dispatch(
+                "POST",
+                M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+                {"action": "prepare_editorial"},
+            )
+        retried = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["retry"],
+            {},
+        )
+    finally:
+        api.close()
+
+    assert failed["state"] == "failed"
+    assert failed["hierarchy_hash"] is None
+    assert failed["progress"]["failure_codes"] == ["hierarchy_not_representable"]
+    assert failed["accounting"]["provider_calls"] == 2
+    assert retried["state"] == "stale"
+    assert retried["requires_fresh_preparation"] is True
+    assert retried["manifest_id"] is None
+    assert retried["accounting"]["provider_calls"] == 0
+    assert constructions == 1
+    assert len(requests) == 2
+
+
+def test_stage_h_timeout_recovery_uses_second_attempt_and_cumulative_accounting(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    outcomes: list[dict[str, object] | NarrativeMapProviderError] = [
+        NarrativeMapProviderError(
+            "timeout",
+            "The synthetic request reached its finite deadline.",
+            transient=True,
+            provider_call_reserved=True,
+        ),
+        _whole_scope_hierarchy_payload(project_path),
+    ]
+    constructions = 0
+
+    def factory() -> _SequencedWholeScopeProductProvider:
+        nonlocal constructions
+        constructions += 1
+        return _SequencedWholeScopeProductProvider(requests, outcomes)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        timed_out = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": prepared["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        recovered = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["retry"],
+            {},
+        )
+    finally:
+        api.close()
+
+    assert timed_out["state"] == "failed"
+    assert timed_out["progress"]["failure_codes"] == ["timeout"]
+    assert timed_out["accounting"]["provider_calls"] == 1
+    assert recovered["state"] == "hierarchy_frozen"
+    assert recovered["accounting"]["provider_calls"] == 2
+    assert recovered["accounting"]["reserved_provider_calls"] == 2
+    assert constructions == 2
+    assert len(requests) == 2
+    assert {request.timeout_seconds for request in requests} == {900.0}
+
+
+def test_stage_h_preview_exposes_timeout_and_binds_it_to_manifest_identity(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    api = build_project_api(
+        _Dialogs(),
+        m15_provider_factory=lambda: (_ for _ in ()).throw(
+            AssertionError("preparation must not construct a provider")
+        ),
+    )
+    api._retain_project_path(project_path, source)
+    try:
+        preview = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        controller = api._m15_whole_scope_controller
+        assert isinstance(controller, M15WholeScopeProductController)
+        preparation = controller._preparations[WholeScopeSemanticStage.HIERARCHY]
+        prior_timeout_manifest = replace(preparation.consent, timeout_seconds=300.0)
+    finally:
+        api.close()
+
+    assert preview["manifest"]["limits"]["timeout_seconds"] == 900.0
+    assert preparation.consent.manifest_id != prior_timeout_manifest.manifest_id
 
 
 def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecycle(
