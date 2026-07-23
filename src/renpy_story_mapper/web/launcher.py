@@ -9,7 +9,11 @@ import webbrowser
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication
 
-from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.api import DialogAdapter, ProjectApi
+from renpy_story_mapper.web.m15_semantic_api import (
+    M15ProviderFactory,
+    M15WholeScopeProductController,
+)
 from renpy_story_mapper.web.picker import QtDialogAdapter
 from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
 
@@ -33,6 +37,22 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_project_api(
+    dialogs: DialogAdapter,
+    *,
+    m15_provider_factory: M15ProviderFactory | None = None,
+) -> ProjectApi:
+    """Construct the shipped API with an explicit, provider-lazy Stage H/E controller."""
+
+    return ProjectApi(
+        dialogs,
+        m15_provider_factory=m15_provider_factory,
+        m15_whole_scope_controller_factory=lambda project_path, provider_factory: (
+            M15WholeScopeProductController(project_path, provider_factory)
+        ),
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     instance = QApplication.instance()
@@ -40,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     dialogs = QtDialogAdapter()
     shutdown_bridge = QtShutdownBridge(app)
-    api = ProjectApi(dialogs)
+    api = build_project_api(dialogs)
     server = LocalWebServer(
         "127.0.0.1", 0, api, shutdown_callback=shutdown_bridge.request
     )

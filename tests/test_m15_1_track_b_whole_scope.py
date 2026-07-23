@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from threading import Event, Thread
 from typing import cast
@@ -11,7 +12,14 @@ import pytest
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity, ProviderSettings
 from renpy_story_mapper.narrative.provider import ProviderUsage
-from renpy_story_mapper.narrative_map.contracts import AuthorityBinding, canonical_hash
+from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
+from renpy_story_mapper.narrative_map.contracts import (
+    AuthorityBinding,
+    Provenance,
+    SourceLocator,
+    canonical_hash,
+)
+from renpy_story_mapper.narrative_map.corridors import build_all_eligible_gap_candidates
 from renpy_story_mapper.narrative_map.persistence import (
     NarrativeMapRepository,
     SemanticCallLimitError,
@@ -31,8 +39,21 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
     M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
     BoundaryWindow,
+    FineNarrativeUnit,
+    ProposedBeatGroup,
+    ProposedMajorCluster,
+    WholeScopeHierarchyProposal,
+)
+from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    ValidatedWholeScopeHierarchy,
+    compile_hierarchy_to_gap_decisions,
+    validate_whole_scope_hierarchy,
 )
 from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeSemanticStatus
+from renpy_story_mapper.narrative_map.semantic_projection import semantic_outline_hash
+from renpy_story_mapper.narrative_map.semantic_validation import (
+    validate_whole_scope_hierarchy_response,
+)
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
@@ -54,33 +75,35 @@ def _profile(model: str = "fake-semantic-model") -> ProviderProfile:
 
 
 def _hierarchy_input() -> dict[str, object]:
+    unit_ids = _validated_hierarchy().ordered_unit_ids
     return {
         "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
         "scope_id": "scope-day-1",
         "authority": _authority().to_dict(),
-        "ordered_unit_ids": ["unit-a", "unit-b"],
+        "ordered_unit_ids": list(unit_ids),
         "units": [
-            {"unit_id": "unit-a", "evidence_ids": ["evidence-a"]},
-            {"unit_id": "unit-b", "evidence_ids": ["evidence-b"]},
+            {"unit_id": unit_ids[0], "evidence_ids": ["evidence-a"]},
+            {"unit_id": unit_ids[1], "evidence_ids": ["evidence-b"]},
         ],
         "hard_locks": [],
     }
 
 
 def _hierarchy_output() -> dict[str, object]:
+    unit_ids = _validated_hierarchy().ordered_unit_ids
     return {
         "scope_id": "scope-day-1",
         "beat_groups": [
             {
                 "proposal_key": "proposal-a",
-                "ordered_unit_ids": ["unit-a"],
+                "ordered_unit_ids": [unit_ids[0]],
                 "confidence": 0.9,
                 "reason": "The first synthetic action stands alone.",
                 "warnings": [],
             },
             {
                 "proposal_key": "proposal-b",
-                "ordered_unit_ids": ["unit-b"],
+                "ordered_unit_ids": [unit_ids[1]],
                 "confidence": 0.9,
                 "reason": "The second synthetic action stands alone.",
                 "warnings": [],
@@ -101,17 +124,115 @@ def _hierarchy_output() -> dict[str, object]:
 
 
 def _subjects() -> tuple[WholeScopeEditorialSubject, ...]:
+    hierarchy = _validated_hierarchy()
+    outline = assemble_semantic_outline(
+        hierarchy.units,
+        hierarchy.candidates,
+        compile_hierarchy_to_gap_decisions(hierarchy),
+    )
+    hierarchy_hash = semantic_outline_hash(outline)
+
+    def membership_hash(subject_kind: str, subject_id: str, unit_ids: tuple[str, ...]) -> str:
+        return canonical_hash(
+            {
+                "hierarchy_hash": hierarchy_hash,
+                "subject_kind": subject_kind,
+                "subject_id": subject_id,
+                "ordered_unit_ids": list(unit_ids),
+            }
+        )
+
     return (
         WholeScopeEditorialSubject(
-            "beat", "beat-a", "membership-a", ("evidence-a",), ("Ava",)
+            "beat",
+            outline.beats[0].beat_id,
+            membership_hash("beat", outline.beats[0].beat_id, (hierarchy.units[0].unit_id,)),
+            ("evidence-a",),
+            ("Ava",),
+        ),
+        WholeScopeEditorialSubject(
+            "beat",
+            outline.beats[1].beat_id,
+            membership_hash("beat", outline.beats[1].beat_id, (hierarchy.units[1].unit_id,)),
+            ("evidence-b",),
+            ("Ava",),
         ),
         WholeScopeEditorialSubject(
             "major_cluster",
-            "cluster-day",
-            "membership-cluster",
+            outline.clusters[0].cluster_id,
+            membership_hash(
+                "major_cluster", outline.clusters[0].cluster_id, hierarchy.ordered_unit_ids
+            ),
             ("evidence-a", "evidence-b"),
             ("Ava",),
         ),
+    )
+
+
+def _unit(key: str, ordinal: int) -> FineNarrativeUnit:
+    locator = SourceLocator("game/synthetic.rpy", ordinal + 1, ordinal + 1, "physical_source")
+    return FineNarrativeUnit(
+        authority=_authority(),
+        sequence_id="scope-day-1",
+        ordinal=ordinal,
+        story_atom_id=f"atom-{key}",
+        story_locator=locator,
+        technical_context_atom_ids=(),
+        node_ids=(f"node-{key}",),
+        evidence_ids=(f"evidence-{key}",),
+        speaker_ids=("Ava",),
+        context_ids=(),
+        lane_id="lane-main",
+        call_occurrence_id=None,
+        loop_id=None,
+        parent_choice_id=None,
+        parent_arm_id=None,
+        entry_node_id=f"node-{key}",
+        exit_node_id=f"node-{key}",
+        incident_edge_ids=(),
+        provenance=Provenance(
+            atom_ids=(f"atom-{key}",),
+            node_ids=(f"node-{key}",),
+            evidence_ids=(f"evidence-{key}",),
+            locators=(locator,),
+        ),
+    )
+
+
+def _validated_hierarchy() -> ValidatedWholeScopeHierarchy:
+    units = (_unit("a", 0), _unit("b", 1))
+    proposal = WholeScopeHierarchyProposal(
+        "scope-day-1",
+        (
+            ProposedBeatGroup(
+                "proposal-a", (units[0].unit_id,), 0.9, "The first action stands alone."
+            ),
+            ProposedBeatGroup(
+                "proposal-b", (units[1].unit_id,), 0.9, "The second action stands alone."
+            ),
+        ),
+        (
+            ProposedMajorCluster(
+                "cluster-day",
+                ("proposal-a", "proposal-b"),
+                0.9,
+                "Both actions form the same period.",
+            ),
+        ),
+    )
+    return validate_whole_scope_hierarchy(
+        proposal,
+        units,
+        build_all_eligible_gap_candidates(units),
+        scope_id="scope-day-1",
+        authority=_authority(),
+    )
+
+
+def _frozen_evidence() -> tuple[dict[str, object], ...]:
+    return (
+        {"evidence_id": "evidence-a", "text": "Ava arrives."},
+        {"evidence_id": "evidence-b", "text": "Ava settles in."},
     )
 
 
@@ -130,13 +251,20 @@ def _editorial_input(hierarchy_hash: str) -> dict[str, object]:
 
 
 def _editorial_record(subject: WholeScopeEditorialSubject) -> dict[str, object]:
+    title = (
+        "Ava Arrives"
+        if subject.evidence_ids == ("evidence-a",)
+        else "Ava Settles In"
+        if subject.evidence_ids == ("evidence-b",)
+        else "A New Day Begins"
+    )
     return {
         "subject_kind": subject.subject_kind,
         "subject_id": subject.subject_id,
         "membership_hash": subject.membership_hash,
         "presentation_role": "story",
-        "title": "Ava Arrives" if subject.subject_kind == "beat" else "A New Day Begins",
-        "summary": "Ava arrives and then settles into the beginning of the day.",
+        "title": title,
+        "summary": f"{title} as the supported synthetic story progresses.",
         "characters": ["Ava"],
         "claims": [
             {
@@ -267,7 +395,7 @@ def _prepare_hierarchy(
     return service.prepare_whole_scope_hierarchy(
         _authority(),
         "scope-day-1",
-        ("unit-a", "unit-b"),
+        _validated_hierarchy().ordered_unit_ids,
         _hierarchy_input(),
         known_evidence_ids=("evidence-a", "evidence-b"),
         known_characters=("Ava",),
@@ -289,9 +417,16 @@ def _run_valid_hierarchy(service: NarrativeMapService):
         consent=consent,
     )
     assert report.provider_calls == 1
-    hierarchy = {"schema": "synthetic-authoritative-hierarchy-v1", "beats": ["beat-a"]}
-    status = service.freeze_whole_scope_hierarchy(preparation, hierarchy)
-    assert status.hierarchy_hash == canonical_hash(hierarchy)
+    status = service.freeze_whole_scope_hierarchy(
+        preparation, _validated_hierarchy(), _frozen_evidence()
+    )
+    assert status.hierarchy_hash == semantic_outline_hash(
+        assemble_semantic_outline(
+            _validated_hierarchy().units,
+            _validated_hierarchy().candidates,
+            compile_hierarchy_to_gap_decisions(_validated_hierarchy()),
+        )
+    )
     return preparation, status.hierarchy_hash
 
 
@@ -352,6 +487,87 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     envelope = json.loads(request.stdin)
     assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v1"
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
+
+
+@pytest.mark.parametrize("target", ("beat", "cluster"))
+def test_boolean_whole_scope_confidence_is_rejected_directly_and_by_fake_provider(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    malformed = _hierarchy_output()
+    key = "beat_groups" if target == "beat" else "major_clusters"
+    cast(list[dict[str, object]], malformed[key])[0]["confidence"] = True
+    with Project.create(tmp_path / f"boolean-confidence-{target}.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        direct = validate_whole_scope_hierarchy_response(malformed, preparation.job)
+        assert not direct.valid
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([malformed, _hierarchy_output()])
+        report = service.start_whole_scope_hierarchy(
+            preparation, provider=provider, consent=consent
+        )
+
+    assert report.provider_calls == 2
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    assert len(provider.requests) == 2
+    assert provider.requests[1].repair_codes
+
+
+def test_hierarchy_freeze_and_editorial_preparation_reject_authority_substitution(
+    tmp_path: Path,
+) -> None:
+    with Project.create(tmp_path / "authority-substitution.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=_FakeProvider([_hierarchy_output()]),
+            consent=consent,
+        )
+        assert report.validated_job_ids == (preparation.job.job_id,)
+
+        unrelated = replace(_validated_hierarchy(), scope_id="scope-unrelated")
+        with pytest.raises(ValueError, match="foreign"):
+            service.freeze_whole_scope_hierarchy(preparation, unrelated, _frozen_evidence())
+        assert service.whole_scope_semantic_status().hierarchy_state == "validated"  # type: ignore[union-attr]
+
+        frozen = service.freeze_whole_scope_hierarchy(
+            preparation, _validated_hierarchy(), _frozen_evidence()
+        )
+        assert frozen.hierarchy_hash is not None
+        exact_subjects = service.frozen_whole_scope_editorial_subjects()
+        assert len({item.membership_hash for item in exact_subjects}) == len(exact_subjects)
+        assert all(item.membership_hash != frozen.hierarchy_hash for item in exact_subjects)
+        foreign_subjects = list(_subjects())
+        foreign_subjects[0] = WholeScopeEditorialSubject(
+            "beat",
+            "foreign-beat",
+            cast(str, frozen.hierarchy_hash),
+            ("foreign-evidence",),
+        )
+        foreign_payload = _editorial_input(cast(str, frozen.hierarchy_hash))
+        foreign_payload["subjects"] = [item.to_dict() for item in foreign_subjects]
+        foreign_payload["evidence"] = [
+            {"evidence_id": "foreign-evidence", "text": "Synthetic foreign evidence."}
+        ]
+        with pytest.raises(ValueError, match="exact frozen hierarchy authority"):
+            service.prepare_whole_scope_editorial(
+                _authority(),
+                "scope-day-1",
+                cast(str, frozen.hierarchy_hash),
+                foreign_subjects,
+                foreign_payload,
+                profile=_profile(),
+                run_id="foreign-stage-e",
+                source_hash="source-hash",
+                correction_id="m15.1",
+            )
+        final = service.whole_scope_semantic_status()
+        assert final is not None and final.editorial_state == "not_started"
 
 
 def test_whole_scope_prepare_rejects_external_authority_and_credential_keys(
@@ -424,12 +640,12 @@ def test_two_exact_consents_logical_provenance_accounting_and_zero_submit_reopen
 
     assert report.provider_calls == 2
     assert status is not None and status.editorial_state == "complete"
-    assert status.accounting.logical_jobs == 3
+    assert status.accounting.logical_jobs == 4
     assert status.accounting.transport_submissions == 3
     assert status.accounting.combined_submission_count == 3
     assert publication is not None and publication["publication_hash"] == status.publication_hash
-    assert len(logical_records) == 3
-    assert len({item["logical_job_id"] for item in logical_records}) == 3
+    assert len(logical_records) == 4
+    assert len({item["logical_job_id"] for item in logical_records}) == 4
     assert all(item["logical_job_id"] != item["transport_batch_id"] for item in logical_records)
     assert hierarchy_cache != editorial_cache
 
@@ -582,9 +798,7 @@ def test_concurrent_cancel_is_a_durable_fence_against_provider_completion(
         with Project.open(path) as project:
             service = NarrativeMapService(NarrativeMapRepository(project))
             reports.append(
-                service.start_whole_scope_hierarchy(
-                    preparation, provider=provider, consent=consent
-                )
+                service.start_whole_scope_hierarchy(preparation, provider=provider, consent=consent)
             )
 
     worker = Thread(target=run_provider)
@@ -636,9 +850,7 @@ def test_settlement_and_reservation_are_one_transactional_read_modify_write(
 
     def settle() -> None:
         with Project.open(path) as project:
-            _PausingLegacySettlementRepository(
-                project
-            ).settle_whole_scope_provider_submissions(
+            _PausingLegacySettlementRepository(project).settle_whole_scope_provider_submissions(
                 transport_batch_id="batch-h", attempts=(1,)
             )
 
@@ -699,7 +911,7 @@ def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Pa
         first = service.prepare_whole_scope_hierarchy(
             _authority(),
             "scope-day-1",
-            ("unit-a", "unit-b"),
+            _validated_hierarchy().ordered_unit_ids,
             _hierarchy_input(),
             known_evidence_ids=("evidence-a", "evidence-b"),
             profile=_profile(),
@@ -792,9 +1004,7 @@ def test_stage_e_input_projection_fails_closed_before_prompt_serialization(
 
 def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Path) -> None:
     invalid = _hierarchy_output()
-    cast(list[dict[str, object]], invalid["beat_groups"])[1]["ordered_unit_ids"] = [
-        "unit-a"
-    ]
+    cast(list[dict[str, object]], invalid["beat_groups"])[1]["ordered_unit_ids"] = ["unit-a"]
     with Project.create(tmp_path / "targeted-hierarchy-repair.rsmproj") as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         preparation = _prepare_hierarchy(service)
@@ -905,12 +1115,14 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
                 with Project.open(path) as project:
                     repository = _PausingTransitionRepository(
                         project,
-                        lambda value: isinstance(value, dict)
-                        and "cancelled"
-                        in {
-                            value.get("hierarchy_state"),
-                            value.get("editorial_state"),
-                        },
+                        lambda value: (
+                            isinstance(value, dict)
+                            and "cancelled"
+                            in {
+                                value.get("hierarchy_state"),
+                                value.get("editorial_state"),
+                            }
+                        ),
                         cancel_entered,
                         cancel_release,
                     )
@@ -972,7 +1184,7 @@ def test_cancel_and_completion_are_atomic_in_both_orders(
             assert status.editorial_state == "complete"
             assert publication is not None
             assert publication["publication_hash"] == status.publication_hash
-            assert len(logical_records) == 3
+            assert len(logical_records) == 4
     elif stage == "hierarchy":
         assert cancel_statuses[0].hierarchy_state == "cancelled"
         assert status.hierarchy_state == "cancelled"
@@ -1022,8 +1234,10 @@ def test_consent_confirmation_cannot_overwrite_newer_preparation(
                 with Project.open(path) as project:
                     repository = _PausingTransitionRepository(
                         project,
-                        lambda value: isinstance(value, dict)
-                        and value.get(f"{stage}_state") == "awaiting_start",
+                        lambda value: (
+                            isinstance(value, dict)
+                            and value.get(f"{stage}_state") == "awaiting_start"
+                        ),
                         confirm_entered,
                         confirm_release,
                     )
@@ -1041,9 +1255,9 @@ def test_consent_confirmation_cannot_overwrite_newer_preparation(
     else:
         with Project.open(path) as project:
             statuses.append(
-                NarrativeMapService(
-                    NarrativeMapRepository(project)
-                ).confirm_whole_scope_consent(preparation, consent)
+                NarrativeMapService(NarrativeMapRepository(project)).confirm_whole_scope_consent(
+                    preparation, consent
+                )
             )
 
     with Project.open(path) as project:
@@ -1108,9 +1322,11 @@ def test_zero_submit_replay_cannot_overwrite_changed_preparation(
                 with Project.open(path) as project:
                     repository = _PausingTransitionRepository(
                         project,
-                        lambda value: isinstance(value, dict)
-                        and value.get("hierarchy_state") == "frozen"
-                        and value.get("cache_hits") == 1,
+                        lambda value: (
+                            isinstance(value, dict)
+                            and value.get("hierarchy_state") == "frozen"
+                            and value.get("cache_hits") == 1
+                        ),
                         replay_entered,
                         replay_release,
                     )
@@ -1126,9 +1342,9 @@ def test_zero_submit_replay_cannot_overwrite_changed_preparation(
     else:
         with Project.open(path) as project:
             reports.append(
-                NarrativeMapService(
-                    NarrativeMapRepository(project)
-                ).start_whole_scope_hierarchy(replay)
+                NarrativeMapService(NarrativeMapRepository(project)).start_whole_scope_hierarchy(
+                    replay
+                )
             )
 
     with Project.open(path) as project:
@@ -1158,7 +1374,7 @@ def test_freeze_cannot_overwrite_changed_preparation(
     tmp_path: Path, stale_freeze_last: bool
 ) -> None:
     path = tmp_path / f"freeze-preparation-{stale_freeze_last}.rsmproj"
-    hierarchy = {"schema": "synthetic-authoritative-hierarchy-v1", "beats": ["beat-a"]}
+    hierarchy = _validated_hierarchy()
     with Project.create(path) as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         preparation = _prepare_hierarchy(service)
@@ -1180,14 +1396,15 @@ def test_freeze_cannot_overwrite_changed_preparation(
                 with Project.open(path) as project:
                     repository = _PausingTransitionRepository(
                         project,
-                        lambda value: isinstance(value, dict)
-                        and value.get("hierarchy_state") == "frozen",
+                        lambda value: (
+                            isinstance(value, dict) and value.get("hierarchy_state") == "frozen"
+                        ),
                         freeze_entered,
                         freeze_release,
                     )
                     freeze_statuses.append(
                         NarrativeMapService(repository).freeze_whole_scope_hierarchy(
-                            preparation, hierarchy
+                            preparation, hierarchy, _frozen_evidence()
                         )
                     )
             except BaseException as exc:
@@ -1199,9 +1416,9 @@ def test_freeze_cannot_overwrite_changed_preparation(
     else:
         with Project.open(path) as project:
             freeze_statuses.append(
-                NarrativeMapService(
-                    NarrativeMapRepository(project)
-                ).freeze_whole_scope_hierarchy(preparation, hierarchy)
+                NarrativeMapService(NarrativeMapRepository(project)).freeze_whole_scope_hierarchy(
+                    preparation, hierarchy, _frozen_evidence()
+                )
             )
 
     with Project.open(path) as project:

@@ -253,6 +253,11 @@ class M15WholeScopeController(Protocol):
     ) -> Mapping[str, object]: ...
 
 
+type M15WholeScopeControllerFactory = Callable[
+    [Callable[[], Path], M15ProviderFactory], M15WholeScopeController
+]
+
+
 @dataclass(frozen=True)
 class _PreparedM13WebRun:
     prepared: PreparedNarrativeRun
@@ -374,7 +379,13 @@ class ProjectApi:
         m13_provider_factory: M13ProviderFactory | None = None,
         m15_provider_factory: M15ProviderFactory | None = None,
         m15_whole_scope_controller: M15WholeScopeController | None = None,
+        m15_whole_scope_controller_factory: M15WholeScopeControllerFactory | None = None,
     ) -> None:
+        if (
+            m15_whole_scope_controller is not None
+            and m15_whole_scope_controller_factory is not None
+        ):
+            raise ValueError("provide a whole-scope controller or its factory, not both")
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
         self._project_path: Path | None = None
@@ -407,7 +418,13 @@ class ProjectApi:
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
         self._m15_provider_factory = m15_provider_factory or default_m15_provider_factory
-        self._m15_whole_scope_controller = m15_whole_scope_controller
+        self._m15_whole_scope_controller = (
+            m15_whole_scope_controller
+            if m15_whole_scope_controller is not None
+            else m15_whole_scope_controller_factory(self._project, self._m15_provider_factory)
+            if m15_whole_scope_controller_factory is not None
+            else None
+        )
         self._m15_semantic_route_family: str | None = None
         self._m15_prepared: SemanticStagePreparation | None = None
         self._m15_consent: NarrativeConsentManifest | None = None

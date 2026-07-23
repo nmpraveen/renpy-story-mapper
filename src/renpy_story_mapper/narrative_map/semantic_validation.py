@@ -342,11 +342,14 @@ def validate_whole_scope_hierarchy_response(
             findings.append(ValidationFinding("invalid_beat_group", job.job_id, index))
             continue
         try:
+            confidence = item.get("confidence")
+            if isinstance(confidence, bool):
+                raise ValueError("beat confidence cannot be boolean")
             beats.append(
                 ProposedBeatGroup(
                     cast(str, item.get("proposal_key")),
                     tuple(cast(list[str], item.get("ordered_unit_ids"))),
-                    float(cast(float, item.get("confidence"))),
+                    float(cast(float, confidence)),
                     cast(str, item.get("reason")),
                     tuple(cast(list[str], item.get("warnings"))),
                 )
@@ -366,11 +369,14 @@ def validate_whole_scope_hierarchy_response(
             findings.append(ValidationFinding("invalid_major_cluster", job.job_id, index))
             continue
         try:
+            confidence = item.get("confidence")
+            if isinstance(confidence, bool):
+                raise ValueError("cluster confidence cannot be boolean")
             clusters.append(
                 ProposedMajorCluster(
                     cast(str, item.get("proposal_key")),
                     tuple(cast(list[str], item.get("ordered_beat_keys"))),
-                    float(cast(float, item.get("confidence"))),
+                    float(cast(float, confidence)),
                     cast(str, item.get("reason")),
                     tuple(cast(list[str], item.get("warnings"))),
                 )

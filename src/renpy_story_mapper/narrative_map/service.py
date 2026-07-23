@@ -33,6 +33,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticOutline,
     WholeScopeSemanticStage,
 )
+from renpy_story_mapper.narrative_map.semantic_hierarchy import ValidatedWholeScopeHierarchy
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     BoundaryStageOutput,
     SemanticLifecycle,
@@ -132,11 +133,12 @@ class NarrativeMapService:
     def freeze_whole_scope_hierarchy(
         self,
         preparation: WholeScopeStagePreparation,
-        authoritative_hierarchy: Mapping[str, object],
+        validated_hierarchy: ValidatedWholeScopeHierarchy,
+        evidence: Sequence[Mapping[str, object]],
         hierarchy_hash: str | None = None,
     ) -> WholeScopeSemanticStatus:
         return self._whole_scope.freeze_hierarchy(
-            preparation, authoritative_hierarchy, hierarchy_hash
+            preparation, validated_hierarchy, evidence, hierarchy_hash
         )
 
     def prepare_whole_scope_editorial(
@@ -240,6 +242,11 @@ class NarrativeMapService:
 
     def read_current_whole_scope_publication(self) -> Mapping[str, object] | None:
         return self._whole_scope.read_current()
+
+    def frozen_whole_scope_editorial_subjects(
+        self,
+    ) -> tuple[WholeScopeEditorialSubject, ...]:
+        return self._whole_scope.frozen_editorial_subjects()
 
     def prepare_boundaries(
         self,

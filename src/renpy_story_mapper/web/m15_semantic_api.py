@@ -7,10 +7,14 @@ never enter its response serializers.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from pathlib import Path
+from threading import Event, Lock
+from typing import Final, Protocol, cast
 
 from renpy_story_mapper.canonical_graph_contract import (
     CANONICAL_GRAPH_SCHEMA,
@@ -46,6 +50,7 @@ from renpy_story_mapper.narrative_map.contracts import (
     AuthorityBinding,
     SourceLocator,
     canonical_hash,
+    stable_m15_id,
 )
 from renpy_story_mapper.narrative_map.persistence import NarrativeJobStatus
 from renpy_story_mapper.narrative_map.provider import (
@@ -55,8 +60,24 @@ from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderResponse,
     ProviderProfile,
     SterileNarrativeMapProvider,
+    WholeScopeEditorialSubject,
+)
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
+    M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+    WholeScopeSemanticStage,
+)
+from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    HierarchyHardLock,
+    HierarchyHardLockKind,
+    validate_whole_scope_hierarchy_from_authority,
+)
+from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeStagePreparation
+from renpy_story_mapper.narrative_map.semantic_validation import (
+    validate_whole_scope_hierarchy_response,
 )
 from renpy_story_mapper.project import Project
+from renpy_story_mapper.web.contracts import JsonValue
 
 M15_SEMANTIC_RESPONSE_SCHEMA: Final = "m15-semantic-production-v1"
 M15_SEMANTIC_CORRECTION_ID: Final = "m15.1-product-path-v1"
@@ -148,6 +169,474 @@ def default_m15_provider_factory() -> NarrativeMapProvider:
     """Construct the sterile adapter lazily, after exact web confirmation."""
 
     return SterileNarrativeMapProvider()
+
+
+class M15WholeScopeProductController:
+    """Shipped Stage H/E adapter over current project authority and durable lifecycle state."""
+
+    def __init__(
+        self,
+        project_path: Callable[[], Path],
+        provider_factory: M15ProviderFactory = default_m15_provider_factory,
+    ) -> None:
+        self._project_path = project_path
+        self._provider_factory = provider_factory
+        self._preparations: dict[WholeScopeSemanticStage, WholeScopeStagePreparation] = {}
+        self._lock = Lock()
+        self._cancel_event = Event()
+        self._active_provider: NarrativeMapProvider | None = None
+
+    def __call__(self, action: str, body: dict[str, JsonValue]) -> Mapping[str, object]:
+        if action == "prepare_hierarchy":
+            preparation = self._prepare_hierarchy()
+            return whole_scope_preparation_response(preparation)
+        if action == "prepare_editorial":
+            preparation = self._prepare_editorial()
+            return whole_scope_preparation_response(preparation)
+        if action in {"start_hierarchy", "start_editorial"}:
+            stage = (
+                WholeScopeSemanticStage.HIERARCHY
+                if action == "start_hierarchy"
+                else WholeScopeSemanticStage.EDITORIAL
+            )
+            manifest_id = body.get("manifest_id")
+            if not isinstance(manifest_id, str) or body.get("confirm_cloud") is not True:
+                raise ValueError("whole-scope start requires exact manifest confirmation")
+            with self._lock:
+                current_preparation = self._preparations.get(stage)
+            if current_preparation is None:
+                current_preparation = (
+                    self._prepare_hierarchy()
+                    if stage is WholeScopeSemanticStage.HIERARCHY
+                    else self._prepare_editorial()
+                )
+            if current_preparation.consent.manifest_id != manifest_id:
+                raise ValueError("whole-scope preparation is stale")
+            return self._execute(current_preparation, operation="start")
+        if action == "status":
+            return self._status()
+        if action == "cancel":
+            self._cancel_event.set()
+            with self._lock:
+                provider = self._active_provider
+            if provider is not None:
+                with suppress(Exception):
+                    provider.cancel()
+            with Project.open(self._project_path()) as project:
+                service = NarrativeMapService(NarrativeMapRepository(project))
+                status = service.cancel_whole_scope_semantic_build()
+            return whole_scope_status_response(status)
+        if action in {"resume", "retry"}:
+            preparation = self._current_preparation()
+            return self._execute(preparation, operation=action)
+        raise ValueError("unsupported whole-scope semantic action")
+
+    def _prepare_hierarchy(self) -> WholeScopeStagePreparation:
+        with Project.open(self._project_path()) as project:
+            inputs = load_m15_semantic_inputs(project)
+            service = NarrativeMapService(NarrativeMapRepository(project))
+            scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+            preparation = service.prepare_whole_scope_hierarchy(
+                inputs.units[0].authority,
+                scope_id,
+                tuple(item.unit_id for item in inputs.units),
+                payload,
+                known_evidence_ids=tuple(
+                    dict.fromkeys(
+                        item.evidence_id
+                        for unit_id in tuple(item.unit_id for item in inputs.units)
+                        for item in inputs.evidence_by_unit[unit_id]
+                    )
+                ),
+                known_characters=tuple(
+                    dict.fromkeys(speaker for item in inputs.units for speaker in item.speaker_ids)
+                ),
+                profile=m15_provider_profile(),
+                run_id=f"m15-web-whole-scope-h-{uuid.uuid4().hex}",
+                source_hash=inputs.source_hash,
+                correction_id=M15_SEMANTIC_CORRECTION_ID,
+                privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
+                valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
+                replay_existing=True,
+            )
+        with self._lock:
+            self._preparations[WholeScopeSemanticStage.HIERARCHY] = preparation
+        return preparation
+
+    def _prepare_editorial(self) -> WholeScopeStagePreparation:
+        with Project.open(self._project_path()) as project:
+            inputs = load_m15_semantic_inputs(project)
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            status = service.whole_scope_semantic_status()
+            if status is None or status.hierarchy_state != "frozen" or not status.hierarchy_hash:
+                raise ValueError("Stage E requires the exact frozen Stage H hierarchy")
+            subjects = service.frozen_whole_scope_editorial_subjects()
+            evidence = _whole_scope_editorial_evidence(inputs, subjects)
+            payload = {
+                "schema": M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
+                "scope_id": status.scope_id,
+                "authority": status.authority.to_dict(),
+                "hierarchy_hash": status.hierarchy_hash,
+                "subjects": [item.to_dict() for item in subjects],
+                "evidence": evidence,
+            }
+            preparation = service.prepare_whole_scope_editorial(
+                status.authority,
+                status.scope_id,
+                status.hierarchy_hash,
+                subjects,
+                payload,
+                profile=m15_provider_profile(),
+                run_id=f"m15-web-whole-scope-e-{uuid.uuid4().hex}",
+                source_hash=inputs.source_hash,
+                correction_id=M15_SEMANTIC_CORRECTION_ID,
+                privacy_scope=M15_SEMANTIC_PRIVACY_SCOPE,
+                valid_for=M15_SEMANTIC_CONSENT_VALID_FOR,
+                replay_existing=True,
+            )
+        with self._lock:
+            self._preparations[WholeScopeSemanticStage.EDITORIAL] = preparation
+        return preparation
+
+    def _execute(
+        self,
+        preparation: WholeScopeStagePreparation,
+        *,
+        operation: str,
+    ) -> Mapping[str, object]:
+        self._cancel_event.clear()
+        with Project.open(self._project_path()) as project:
+            inputs = load_m15_semantic_inputs(project)
+            repository = NarrativeMapRepository(project)
+            service = NarrativeMapService(repository)
+            status = service.whole_scope_semantic_status()
+            prefix_state = (
+                None
+                if status is None
+                else status.hierarchy_state
+                if preparation.stage is WholeScopeSemanticStage.HIERARCHY
+                else status.editorial_state
+            )
+            record = repository.get(preparation.job.kind, preparation.job.job_id)
+            replay_only = bool(
+                record is not None
+                and record.status is NarrativeJobStatus.VALIDATED
+                and prefix_state in {"validated", "frozen", "complete"}
+            )
+            consent = preparation.consent if replay_only else preparation.granted_consent()
+            if not replay_only and prefix_state == "awaiting_consent":
+                service.confirm_whole_scope_consent(preparation, consent)
+            provider = None if replay_only else self._provider_factory()
+            with self._lock:
+                self._active_provider = provider
+            try:
+                if operation == "resume":
+                    report = service.resume_whole_scope_semantic_build(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=self._cancel_event.is_set,
+                    )
+                elif operation == "retry":
+                    report = service.retry_whole_scope_semantic_build(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=self._cancel_event.is_set,
+                    )
+                elif preparation.stage is WholeScopeSemanticStage.HIERARCHY:
+                    report = service.start_whole_scope_hierarchy(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=self._cancel_event.is_set,
+                    )
+                else:
+                    report = service.start_whole_scope_editorial(
+                        preparation,
+                        provider=provider,
+                        consent=consent,
+                        cancelled=self._cancel_event.is_set,
+                    )
+            finally:
+                with self._lock:
+                    if self._active_provider is provider:
+                        self._active_provider = None
+            if (
+                preparation.stage is WholeScopeSemanticStage.HIERARCHY
+                and preparation.job.job_id in report.validated_job_ids
+            ):
+                refreshed = service.whole_scope_semantic_status()
+                if refreshed is not None and refreshed.hierarchy_state == "validated":
+                    record = repository.get(preparation.job.kind, preparation.job.job_id)
+                    if record is None or record.result is None:
+                        raise ValueError("validated Stage H result is unavailable")
+                    parsed = validate_whole_scope_hierarchy_response(record.result, preparation.job)
+                    if parsed.proposal is None or not parsed.valid:
+                        raise ValueError("validated Stage H result cannot be reconstructed")
+                    _scope_id, _payload, hard_locks = _whole_scope_hierarchy_input(inputs)
+                    validated = validate_whole_scope_hierarchy_from_authority(
+                        inputs.canonical,
+                        inputs.scene_model,
+                        parsed.proposal,
+                        hard_locks,
+                        scope_id=preparation.scope_id,
+                        authority=preparation.authority,
+                    )
+                    service.freeze_whole_scope_hierarchy(
+                        preparation,
+                        validated,
+                        _whole_scope_editorial_evidence_from_inputs(inputs),
+                    )
+            return whole_scope_status_response(service.whole_scope_semantic_status())
+
+    def _status(self) -> Mapping[str, object]:
+        with Project.open(self._project_path()) as project:
+            status = NarrativeMapService(
+                NarrativeMapRepository(project)
+            ).whole_scope_semantic_status()
+        return whole_scope_status_response(status)
+
+    def _current_preparation(self) -> WholeScopeStagePreparation:
+        with Project.open(self._project_path()) as project:
+            status = NarrativeMapService(
+                NarrativeMapRepository(project)
+            ).whole_scope_semantic_status()
+        if status is None:
+            raise ValueError("no whole-scope semantic build is available")
+        stage = (
+            WholeScopeSemanticStage.EDITORIAL
+            if status.editorial_state != "not_started"
+            else WholeScopeSemanticStage.HIERARCHY
+        )
+        preparation = self._preparations.get(stage)
+        if preparation is not None:
+            return preparation
+        return (
+            self._prepare_editorial()
+            if stage is WholeScopeSemanticStage.EDITORIAL
+            else self._prepare_hierarchy()
+        )
+
+
+def whole_scope_preparation_response(
+    preparation: WholeScopeStagePreparation,
+) -> dict[str, object]:
+    consent = preparation.consent
+    settings = consent.profile.settings.to_dict()
+    manifest = {
+        "manifest_id": consent.manifest_id,
+        "stage": preparation.stage.value,
+        "expires_at": consent.expires_utc,
+        "source_hash": preparation.source_hash,
+        "authority_hash": canonical_hash(preparation.authority.to_dict()),
+        "correction_hash": canonical_hash({"correction_id": preparation.correction_id}),
+        "prompt_hash": canonical_hash(
+            {
+                "prompt_version": preparation.job.prompt_version,
+                "repair_policy_version": consent.repair_policy_version,
+            }
+        ),
+        "schema_hash": canonical_hash({"response_schema": preparation.job.response_schema}),
+        "membership_hash": preparation.hierarchy_hash,
+        "input_hash": consent.job_identity_hash,
+        "privacy_scope": preparation.privacy_scope,
+        "provider": {
+            "provider": consent.profile.provider,
+            "adapter": consent.profile.adapter,
+            "adapter_version": consent.profile.adapter_version,
+            "requested_model": consent.profile.requested_model,
+            "resolved_model": consent.profile.requested_model,
+            "settings": {
+                "model_reasoning_effort": settings.get("reasoning_effort"),
+                "fast_mode": settings.get("fast_mode"),
+            },
+        },
+        "job_count": len(preparation.logical_jobs),
+        "limits": {
+            "max_provider_calls": consent.maximum_provider_calls,
+            "max_input_bytes": consent.maximum_input_bytes,
+            "max_output_bytes": consent.maximum_output_bytes,
+            "timeout_seconds": consent.timeout_seconds,
+            "max_concurrency": 1,
+        },
+    }
+    stage_name = preparation.stage.value
+    return {
+        "schema": M15_SEMANTIC_RESPONSE_SCHEMA,
+        "state": f"awaiting_{stage_name}_consent",
+        "stage": stage_name,
+        "build_id": preparation.build_id,
+        "manifest_id": consent.manifest_id,
+        "consent_id": consent.manifest_id,
+        "requires_confirmation": True,
+        "replay_only": False,
+        "manifest": manifest,
+        **manifest,
+        "progress": {"logical_jobs": len(preparation.logical_jobs), "completed": 0},
+        "accounting": _whole_scope_empty_accounting(),
+        "publication_hash": None,
+    }
+
+
+def whole_scope_status_response(status: object) -> dict[str, object]:
+    from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeSemanticStatus
+
+    if not isinstance(status, WholeScopeSemanticStatus):
+        return {
+            "schema": M15_SEMANTIC_RESPONSE_SCHEMA,
+            "state": "not_started",
+            "stage": None,
+            "build_id": None,
+            "manifest_id": None,
+            "requires_confirmation": False,
+            "progress": {"logical_jobs": 0, "completed": 0},
+            "accounting": _whole_scope_empty_accounting(),
+            "publication_hash": None,
+        }
+    if status.editorial_state != "not_started":
+        stage = "editorial"
+        raw_state = status.editorial_state
+    else:
+        stage = "hierarchy"
+        raw_state = status.hierarchy_state
+    if raw_state in {"awaiting_consent", "awaiting_start"}:
+        state = f"awaiting_{stage}_consent"
+    elif raw_state == "running":
+        state = f"{stage}_running"
+    elif stage == "hierarchy" and raw_state == "frozen":
+        state = "hierarchy_frozen"
+    elif stage == "editorial" and raw_state == "complete":
+        state = "complete"
+    else:
+        state = raw_state
+    accounting = status.accounting
+    return {
+        "schema": M15_SEMANTIC_RESPONSE_SCHEMA,
+        "state": state,
+        "stage": stage,
+        "build_id": status.build_id,
+        "manifest_id": None,
+        "requires_confirmation": raw_state == "awaiting_consent",
+        "progress": {
+            "logical_jobs": accounting.logical_jobs,
+            "completed": (
+                accounting.logical_jobs if state in {"hierarchy_frozen", "complete"} else 0
+            ),
+            "failure_codes": list(status.failure_codes),
+        },
+        "accounting": {
+            "provider_calls": accounting.transport_submissions,
+            "reserved_provider_calls": accounting.combined_submission_count,
+            "input_tokens": accounting.input_tokens,
+            "output_tokens": accounting.output_tokens,
+            "elapsed_ms": accounting.elapsed_ms,
+            "cache_hits": accounting.cache_hits,
+        },
+        "hierarchy_hash": status.hierarchy_hash,
+        "publication_hash": status.publication_hash,
+    }
+
+
+def _whole_scope_empty_accounting() -> dict[str, int]:
+    return {
+        "provider_calls": 0,
+        "reserved_provider_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_ms": 0,
+        "cache_hits": 0,
+    }
+
+
+def _whole_scope_hierarchy_input(
+    inputs: M15SemanticInputs,
+) -> tuple[str, dict[str, object], tuple[HierarchyHardLock, ...]]:
+    authority = inputs.units[0].authority
+    ordered_unit_ids = tuple(item.unit_id for item in inputs.units)
+    scope_id = stable_m15_id(
+        "whole_scope",
+        {"authority": authority.to_dict(), "ordered_unit_ids": list(ordered_unit_ids)},
+    )
+    arms_by_choice: dict[str, list[str]] = {}
+    for unit in inputs.units:
+        if unit.parent_choice_id is not None and unit.parent_arm_id is not None:
+            arms = arms_by_choice.setdefault(unit.parent_choice_id, [])
+            if unit.parent_arm_id not in arms:
+                arms.append(unit.parent_arm_id)
+    hard_locks = tuple(
+        HierarchyHardLock(
+            stable_m15_id(
+                "whole_scope_choice_lock",
+                {"choice_id": choice_id, "arm_ids": arm_ids},
+            ),
+            HierarchyHardLockKind.CHOICE_OWNERSHIP,
+            choice_id=choice_id,
+            arm_ids=tuple(arm_ids),
+        )
+        for choice_id, arm_ids in arms_by_choice.items()
+    )
+    payload: dict[str, object] = {
+        "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+        "scope_id": scope_id,
+        "authority": authority.to_dict(),
+        "ordered_unit_ids": list(ordered_unit_ids),
+        "units": [
+            {
+                "unit_id": item.unit_id,
+                "sequence_id": item.sequence_id,
+                "ordinal": item.ordinal,
+                "parent_choice_id": item.parent_choice_id,
+                "parent_arm_id": item.parent_arm_id,
+                "evidence_ids": list(item.evidence_ids),
+            }
+            for item in inputs.units
+        ],
+        "hard_locks": [
+            {
+                "lock_id": item.lock_id,
+                "kind": item.kind.value,
+                "choice_id": item.choice_id,
+                "arm_ids": list(item.arm_ids),
+            }
+            for item in hard_locks
+        ],
+    }
+    return scope_id, payload, hard_locks
+
+
+def _whole_scope_editorial_evidence_from_inputs(
+    inputs: M15SemanticInputs,
+) -> list[dict[str, object]]:
+    values: list[dict[str, object]] = []
+    seen: dict[str, str] = {}
+    for unit_id in tuple(item.unit_id for item in inputs.units):
+        for item in inputs.evidence_by_unit[unit_id]:
+            previous = seen.get(item.evidence_id)
+            if previous is not None:
+                if previous != item.text:
+                    raise ValueError("current evidence identity resolves to conflicting text")
+                continue
+            seen[item.evidence_id] = item.text
+            values.append({"evidence_id": item.evidence_id, "text": item.text})
+    return values
+
+
+def _whole_scope_editorial_evidence(
+    inputs: M15SemanticInputs,
+    subjects: Sequence[WholeScopeEditorialSubject],
+) -> list[dict[str, object]]:
+    expected = tuple(
+        dict.fromkeys(evidence_id for item in subjects for evidence_id in item.evidence_ids)
+    )
+    by_id = {
+        cast(str, item["evidence_id"]): item
+        for item in _whole_scope_editorial_evidence_from_inputs(inputs)
+    }
+    if any(evidence_id not in by_id for evidence_id in expected):
+        raise ValueError("frozen Stage E evidence is stale for current authority")
+    return [dict(by_id[evidence_id]) for evidence_id in expected]
 
 
 def load_m15_semantic_inputs(project: Project) -> M15SemanticInputs:

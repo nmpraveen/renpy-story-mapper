@@ -10,20 +10,29 @@ import pytest
 
 from renpy_story_mapper.narrative.contracts import ProviderIdentity
 from renpy_story_mapper.narrative.provider import ProviderUsage
+from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
 from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderError,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     ProviderJobKind,
+    WholeScopeProviderSubject,
 )
-from renpy_story_mapper.narrative_map.semantic_contracts import BoundaryWindow
-from renpy_story_mapper.project import refresh_ingested_project
+from renpy_story_mapper.narrative_map.semantic_contracts import (
+    BoundaryWindow,
+    SemanticBoundaryDecision,
+    SemanticBoundaryKind,
+    WholeScopeSemanticStage,
+)
+from renpy_story_mapper.project import Project, refresh_ingested_project
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.contracts import (
     M15_API_ROUTES,
     M15_WHOLE_SCOPE_SEMANTIC_ROUTES,
     JsonValue,
 )
+from renpy_story_mapper.web.launcher import build_project_api
+from renpy_story_mapper.web.m15_semantic_api import load_m15_semantic_inputs
 from renpy_story_mapper.web.state import UserStateStore
 from test_m15_track_c import _Dialogs, _project
 
@@ -90,6 +99,243 @@ class _ProductFakeProvider:
 
     def cancel(self) -> None:
         self.cancel_count += 1
+
+
+def test_shipped_launcher_wires_durable_stage_h_without_constructing_provider(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    provider_constructions = 0
+
+    def forbidden_provider() -> _ProductFakeProvider:
+        nonlocal provider_constructions
+        provider_constructions += 1
+        raise AssertionError("provider construction is forbidden during product preparation")
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_provider)
+    api._retain_project_path(project_path, source)
+    try:
+        bootstrap = api.dispatch("GET", "/api/v1/bootstrap", {})
+        prepared = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        status = api.dispatch("POST", M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"], {})
+    finally:
+        api.close()
+
+    assert bootstrap["routes"]["m15_whole_scope_semantic"] == (M15_WHOLE_SCOPE_SEMANTIC_ROUTES)
+    assert prepared["state"] == "awaiting_hierarchy_consent"
+    assert prepared["manifest_id"]
+    assert status["state"] == "awaiting_hierarchy_consent"
+    assert provider_constructions == 0
+
+
+class _WholeScopeProductFakeProvider(_ProductFakeProvider):
+    def __init__(
+        self,
+        requests: list[NarrativeMapProviderRequest],
+        hierarchy_payload: dict[str, object],
+    ) -> None:
+        super().__init__(requests)
+        self.hierarchy_payload = hierarchy_payload
+
+    def submit(
+        self,
+        request: NarrativeMapProviderRequest,
+        cancelled: Callable[[], bool],
+    ) -> NarrativeMapProviderResponse:
+        assert not cancelled()
+        self.requests.append(request)
+        subject = request.job.subject
+        assert isinstance(subject, WholeScopeProviderSubject)
+        if subject.stage is WholeScopeSemanticStage.HIERARCHY:
+            payload: dict[str, object] = dict(self.hierarchy_payload)
+            payload["scope_id"] = subject.scope_id
+        else:
+            payload = {
+                "scope_id": subject.scope_id,
+                "hierarchy_hash": subject.hierarchy_hash,
+                "records": [
+                    {
+                        "subject_kind": item.subject_kind,
+                        "subject_id": item.subject_id,
+                        "membership_hash": item.membership_hash,
+                        "presentation_role": "story",
+                        "title": f"Supported Story Action {index + 1}",
+                        "summary": (
+                            f"Supported story action {index + 1} begins and reaches its result."
+                        ),
+                        "characters": list(item.known_characters),
+                        "claims": [
+                            {
+                                "claim_class": "factual",
+                                "text": (
+                                    f"Supported story action {index + 1} occurs in this scope."
+                                ),
+                                "evidence_ids": [item.evidence_ids[0]],
+                            }
+                        ],
+                        "warnings": [],
+                    }
+                    for index, item in enumerate(subject.editorial_subjects)
+                ],
+                "warnings": [],
+            }
+        profile = request.profile
+        return NarrativeMapProviderResponse(
+            request.request_id,
+            ProviderIdentity(
+                profile.provider,
+                profile.adapter,
+                profile.adapter_version,
+                profile.requested_model,
+                profile.requested_model,
+                profile.settings,
+            ),
+            payload,
+            ProviderUsage(100, 20, 5),
+        )
+
+
+def test_shipped_controller_completes_fake_stage_h_and_e_through_durable_lifecycle(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    requests: list[NarrativeMapProviderRequest] = []
+    constructions = 0
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+    decisions = tuple(
+        SemanticBoundaryDecision(
+            item.candidate_id,
+            SemanticBoundaryKind.NEW_BEAT_SAME_CLUSTER,
+            "The deterministic synthetic action changes.",
+            0.9,
+        )
+        for item in inputs.candidates
+    )
+    outline = assemble_semantic_outline(inputs.units, inputs.candidates, decisions)
+    beat_keys = {
+        item.beat_id: f"whole-scope-beat-{index + 1}" for index, item in enumerate(outline.beats)
+    }
+    hierarchy_payload: dict[str, object] = {
+        "scope_id": "replaced-by-provider",
+        "beat_groups": [
+            {
+                "proposal_key": beat_keys[item.beat_id],
+                "ordered_unit_ids": list(item.ordered_unit_ids),
+                "confidence": 0.9,
+                "reason": "This supported synthetic action is one bounded beat.",
+                "warnings": [],
+            }
+            for item in outline.beats
+        ],
+        "major_clusters": [
+            {
+                "proposal_key": f"whole-scope-cluster-{index + 1}",
+                "ordered_beat_keys": [beat_keys[item] for item in cluster.ordered_beat_ids],
+                "confidence": 0.9,
+                "reason": "These supported synthetic actions form one story section.",
+                "warnings": [],
+            }
+            for index, cluster in enumerate(outline.clusters)
+        ],
+        "uncertain_unit_ids": [],
+        "warnings": [],
+    }
+
+    def factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        return _WholeScopeProductFakeProvider(requests, hierarchy_payload)
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=factory)
+    api._retain_project_path(project_path, source)
+    try:
+        hierarchy = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        hierarchy_status = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        editorial_status = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+    finally:
+        api.close()
+
+    assert hierarchy_status["state"] == "hierarchy_frozen"
+    assert editorial_status["state"] == "complete"
+    assert editorial_status["publication_hash"]
+    assert constructions == 2
+    assert len(requests) == 2
+
+    replay_constructions = 0
+
+    def forbidden_replay_provider() -> _WholeScopeProductFakeProvider:
+        nonlocal replay_constructions
+        replay_constructions += 1
+        raise AssertionError("unchanged whole-scope replay must not construct a provider")
+
+    reopened = build_project_api(_Dialogs(), m15_provider_factory=forbidden_replay_provider)
+    reopened._retain_project_path(project_path, source)
+    try:
+        replay_hierarchy = reopened.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+        replay_hierarchy_status = reopened.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
+            {
+                "action": "start_hierarchy",
+                "manifest_id": replay_hierarchy["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+        replay_editorial = reopened.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        replay_editorial_status = reopened.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": replay_editorial["manifest_id"],
+                "confirm_cloud": True,
+            },
+        )
+    finally:
+        reopened.close()
+
+    assert replay_hierarchy_status["state"] == "complete"
+    assert replay_editorial_status["state"] == "complete"
+    assert replay_editorial_status["publication_hash"] == editorial_status["publication_hash"]
+    assert replay_constructions == 0
 
 
 def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
@@ -309,8 +555,7 @@ def _wait(api: ProjectApi) -> dict[str, object]:
 def _change_current_m10_m11_authority(source: Path, project_path: Path) -> None:
     story = source / "story.rpy"
     story.write_bytes(
-        story.read_bytes()
-        + b'\nlabel post_preview_change:\n    "Changed authority."\n    return\n'
+        story.read_bytes() + b'\nlabel post_preview_change:\n    "Changed authority."\n    return\n'
     )
     refresh_ingested_project(project_path, source)
 
@@ -452,9 +697,7 @@ def test_fake_provider_two_stage_publication_and_reopen_are_exact_replays(
             },
         )
         assert _wait(api)["state"] == "completed"
-        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == (
-            "membership_frozen"
-        )
+        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == ("membership_frozen")
 
         summaries = api.dispatch(
             "POST",
@@ -464,9 +707,7 @@ def test_fake_provider_two_stage_publication_and_reopen_are_exact_replays(
         summary_manifest = summaries["manifest_id"]
         assert summary_manifest != boundary_manifest
         assert summaries["requires_confirmation"] is True
-        assert summaries["manifest"]["repair_policy_version"] == (
-            "m15-semantic-repair-guidance-v2"
-        )
+        assert summaries["manifest"]["repair_policy_version"] == ("m15-semantic-repair-guidance-v2")
         api.dispatch(
             "POST",
             M15_API_ROUTES["start_summaries"],
@@ -668,9 +909,7 @@ def test_reopened_resume_recovers_confirmed_cancelled_boundary_stage(
         assert entered.wait(timeout=5)
         api.dispatch("POST", M15_API_ROUTES["cancel"], {})
         assert _wait(api)["state"] == "cancelled"
-        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == (
-            "cancelled"
-        )
+        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == ("cancelled")
         assert len(cancelled_requests) == 1
     finally:
         api.close()
@@ -725,9 +964,7 @@ def test_reopened_resume_recovers_confirmed_cancelled_summary_stage(
             },
         )
         assert _wait(api)["state"] == "completed"
-        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == (
-            "membership_frozen"
-        )
+        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == ("membership_frozen")
         summaries = api.dispatch(
             "POST",
             M15_API_ROUTES["prepare_summaries"],
@@ -745,9 +982,7 @@ def test_reopened_resume_recovers_confirmed_cancelled_summary_stage(
         assert entered.wait(timeout=5)
         api.dispatch("POST", M15_API_ROUTES["cancel"], {})
         assert _wait(api)["state"] == "cancelled"
-        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == (
-            "cancelled"
-        )
+        assert api.dispatch("POST", M15_API_ROUTES["status"], {})["state"] == ("cancelled")
         assert boundary_requests
         assert len(cancelled_requests) == 1
     finally:

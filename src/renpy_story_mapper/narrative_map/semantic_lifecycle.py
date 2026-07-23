@@ -10,6 +10,7 @@ from typing import cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.narrative.privacy import validate_privacy_safe_keys
+from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
 from renpy_story_mapper.narrative_map.contracts import (
     AuthorityBinding,
     JsonValue,
@@ -46,6 +47,10 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticSummary,
     WholeScopeLogicalProvenance,
     WholeScopeSemanticStage,
+)
+from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    ValidatedWholeScopeHierarchy,
+    compile_hierarchy_to_gap_decisions,
 )
 from renpy_story_mapper.narrative_map.semantic_projection import (
     FrozenSummaryInput,
@@ -1599,6 +1604,8 @@ class WholeScopeSemanticLifecycle:
                 "hierarchy_hash": None,
                 "hierarchy_result": None,
                 "authoritative_hierarchy": None,
+                "frozen_editorial_subjects": [],
+                "frozen_editorial_evidence_hash": None,
                 "editorial_transport_batch_id": None,
                 "editorial_logical_jobs": [],
                 "editorial_manifest_id": None,
@@ -1657,12 +1664,19 @@ class WholeScopeSemanticLifecycle:
         identities = tuple(item.identity for item in frozen_subjects)
         if len(identities) != len(set(identities)):
             raise ValueError("Stage E frozen subject identities must be unique")
-        payload = _whole_scope_mapping(input_payload, "Stage E input")
-        _validate_stage_e_input(payload, authority, scope_id, hierarchy_hash, frozen_subjects)
-        _validate_whole_scope_limits(maximum_provider_calls)
         raw = self._require_build(authority, scope_id, source_hash, correction_id)
         if raw.get("hierarchy_state") != "frozen" or raw.get("hierarchy_hash") != hierarchy_hash:
             raise ValueError("Stage E requires the exact durable frozen hierarchy")
+        expected_subjects = _frozen_editorial_subjects(raw)
+        if tuple(item.to_dict() for item in frozen_subjects) != tuple(
+            item.to_dict() for item in expected_subjects
+        ):
+            raise ValueError("Stage E subjects are not the exact frozen hierarchy authority")
+        payload = _whole_scope_mapping(input_payload, "Stage E input")
+        _validate_stage_e_input(payload, authority, scope_id, hierarchy_hash, frozen_subjects)
+        if canonical_hash(payload.get("evidence")) != raw.get("frozen_editorial_evidence_hash"):
+            raise ValueError("Stage E evidence is not the exact frozen authority projection")
+        _validate_whole_scope_limits(maximum_provider_calls)
         logical_jobs = tuple(
             WholeScopeLogicalJob(
                 WholeScopeSemanticStage.EDITORIAL,
@@ -1938,7 +1952,8 @@ class WholeScopeSemanticLifecycle:
     def freeze_hierarchy(
         self,
         preparation: WholeScopeStagePreparation,
-        authoritative_hierarchy: Mapping[str, object],
+        validated_hierarchy: ValidatedWholeScopeHierarchy,
+        evidence: Sequence[Mapping[str, object]],
         hierarchy_hash: str | None = None,
     ) -> WholeScopeSemanticStatus:
         if preparation.stage is not WholeScopeSemanticStage.HIERARCHY:
@@ -1948,14 +1963,81 @@ class WholeScopeSemanticLifecycle:
             raw.get("hierarchy_result"), Mapping
         ):
             raise ValueError("hierarchy cannot freeze before validated Stage H output")
-        normalized = _whole_scope_mapping(authoritative_hierarchy, "authoritative hierarchy")
-        exact_hash = canonical_hash(normalized)
+        if not isinstance(validated_hierarchy, ValidatedWholeScopeHierarchy):
+            raise ValueError("hierarchy freeze requires Track A validated authority")
+        if (
+            validated_hierarchy.scope_id != preparation.scope_id
+            or validated_hierarchy.authority != preparation.authority
+            or validated_hierarchy.ordered_unit_ids
+            != cast(WholeScopeProviderSubject, preparation.job.subject).ordered_unit_ids
+        ):
+            raise ValueError("validated hierarchy is foreign to the exact Stage H preparation")
+        hierarchy_result = cast(Mapping[str, object], raw["hierarchy_result"])
+        expected_groups = [
+            {
+                "proposal_key": item.proposal_key,
+                "ordered_unit_ids": list(item.ordered_unit_ids),
+            }
+            for item in validated_hierarchy.beat_groups
+        ]
+        expected_clusters = [
+            {
+                "proposal_key": item.proposal_key,
+                "ordered_beat_keys": list(item.ordered_beat_keys),
+            }
+            for item in validated_hierarchy.major_clusters
+        ]
+        actual_groups = (
+            [
+                {
+                    "proposal_key": item.get("proposal_key"),
+                    "ordered_unit_ids": item.get("ordered_unit_ids"),
+                }
+                for item in cast(list[Mapping[str, object]], hierarchy_result.get("beat_groups"))
+            ]
+            if isinstance(hierarchy_result.get("beat_groups"), list)
+            else None
+        )
+        actual_clusters = (
+            [
+                {
+                    "proposal_key": item.get("proposal_key"),
+                    "ordered_beat_keys": item.get("ordered_beat_keys"),
+                }
+                for item in cast(list[Mapping[str, object]], hierarchy_result.get("major_clusters"))
+            ]
+            if isinstance(hierarchy_result.get("major_clusters"), list)
+            else None
+        )
+        if (
+            hierarchy_result.get("scope_id") != preparation.scope_id
+            or actual_groups != expected_groups
+            or actual_clusters != expected_clusters
+            or hierarchy_result.get("uncertain_unit_ids") != []
+        ):
+            raise ValueError("validated hierarchy does not match the exact Stage H result")
+        outline = assemble_semantic_outline(
+            validated_hierarchy.units,
+            validated_hierarchy.candidates,
+            compile_hierarchy_to_gap_decisions(validated_hierarchy),
+            choices=validated_hierarchy.choices,
+        )
+        normalized = semantic_outline_payload(outline)
+        exact_hash = semantic_outline_hash(outline)
         if hierarchy_hash is not None and hierarchy_hash != exact_hash:
             raise ValueError("frozen hierarchy hash does not match its exact payload")
+        frozen_subjects, frozen_evidence = _derive_frozen_editorial_authority(
+            outline,
+            validated_hierarchy.units,
+            evidence,
+            exact_hash,
+        )
         updated = dict(raw)
         updated["hierarchy_state"] = "frozen"
         updated["hierarchy_hash"] = exact_hash
         updated["authoritative_hierarchy"] = normalized
+        updated["frozen_editorial_subjects"] = [item.to_dict() for item in frozen_subjects]
+        updated["frozen_editorial_evidence_hash"] = canonical_hash(frozen_evidence)
         self._repository.write_whole_scope_build_if_stage(
             updated,
             expected_build=raw,
@@ -2016,6 +2098,12 @@ class WholeScopeSemanticLifecycle:
 
     def read_current(self) -> Mapping[str, object] | None:
         return self._repository.read_whole_scope_current()
+
+    def frozen_editorial_subjects(self) -> tuple[WholeScopeEditorialSubject, ...]:
+        raw = self._repository.read_whole_scope_build()
+        if raw is None or raw.get("hierarchy_state") != "frozen":
+            raise ValueError("Stage E requires a frozen whole-scope hierarchy")
+        return _frozen_editorial_subjects(raw)
 
     def resume(
         self,
@@ -2484,6 +2572,150 @@ def _validate_stage_e_input(
         or set(supplied_evidence) != allowed_evidence
     ):
         raise ValueError("Stage E input identity is not exact")
+
+
+def _derive_frozen_editorial_authority(
+    outline: SemanticOutline,
+    units: Sequence[object],
+    evidence: Sequence[Mapping[str, object]],
+    hierarchy_hash: str,
+) -> tuple[tuple[WholeScopeEditorialSubject, ...], list[dict[str, object]]]:
+    from renpy_story_mapper.narrative_map.semantic_contracts import FineNarrativeUnit
+
+    materialized_units = tuple(units)
+    if not all(isinstance(item, FineNarrativeUnit) for item in materialized_units):
+        raise ValueError("frozen editorial authority requires fine narrative units")
+    typed_units = cast(tuple[FineNarrativeUnit, ...], materialized_units)
+    unit_by_id = {item.unit_id: item for item in typed_units}
+    if tuple(unit_by_id) != outline.ordered_unit_ids:
+        raise ValueError("frozen editorial units do not match the authoritative outline")
+    beat_by_id = {item.beat_id: item for item in outline.beats}
+    choice_by_id = {item.choice_id: item for item in outline.choices}
+
+    def cluster_units(cluster_id: str) -> tuple[str, ...]:
+        cluster = next(item for item in outline.clusters if item.cluster_id == cluster_id)
+        return tuple(
+            unit_id
+            for beat_id in cluster.ordered_beat_ids
+            for unit_id in beat_by_id[beat_id].ordered_unit_ids
+        )
+
+    def choice_units(choice_id: str) -> tuple[str, ...]:
+        owned: set[str] = set()
+        visiting: set[str] = set()
+
+        def collect(current_id: str) -> None:
+            if current_id in visiting:
+                raise ValueError("frozen editorial choice authority contains a cycle")
+            if current_id in owned:
+                return
+            current = choice_by_id.get(current_id)
+            if current is None:
+                raise ValueError("frozen editorial choice authority is incomplete")
+            visiting.add(current_id)
+            for child_id in current.child_choice_ids:
+                collect(child_id)
+            visiting.remove(current_id)
+            owned.add(current_id)
+
+        collect(choice_id)
+        selected = {
+            unit_id
+            for beat in outline.beats
+            if beat.parent_choice_id in owned
+            for unit_id in beat.ordered_unit_ids
+        }
+        ordered = tuple(item for item in outline.ordered_unit_ids if item in selected)
+        if not ordered:
+            parent_cluster = choice_by_id[choice_id].parent_cluster_id
+            return cluster_units(parent_cluster)
+        return ordered
+
+    subject_memberships: list[tuple[str, str, tuple[str, ...]]] = [
+        *(("beat", item.beat_id, item.ordered_unit_ids) for item in outline.beats),
+        *(
+            ("major_cluster", item.cluster_id, cluster_units(item.cluster_id))
+            for item in outline.clusters
+        ),
+        *(("choice", item.choice_id, choice_units(item.choice_id)) for item in outline.choices),
+    ]
+    subjects = tuple(
+        WholeScopeEditorialSubject(
+            subject_kind,
+            subject_id,
+            canonical_hash(
+                {
+                    "hierarchy_hash": hierarchy_hash,
+                    "subject_kind": subject_kind,
+                    "subject_id": subject_id,
+                    "ordered_unit_ids": list(ordered_unit_ids),
+                }
+            ),
+            tuple(
+                dict.fromkeys(
+                    evidence_id
+                    for unit_id in ordered_unit_ids
+                    for evidence_id in unit_by_id[unit_id].evidence_ids
+                )
+            ),
+            tuple(
+                dict.fromkeys(
+                    speaker
+                    for unit_id in ordered_unit_ids
+                    for speaker in unit_by_id[unit_id].speaker_ids
+                )
+            ),
+        )
+        for subject_kind, subject_id, ordered_unit_ids in subject_memberships
+    )
+    expected_evidence_ids = tuple(
+        dict.fromkeys(evidence_id for item in subjects for evidence_id in item.evidence_ids)
+    )
+    normalized_evidence: list[dict[str, object]] = []
+    for item in evidence:
+        if (
+            set(item) != {"evidence_id", "text"}
+            or not isinstance(item.get("evidence_id"), str)
+            or not isinstance(item.get("text"), str)
+            or not cast(str, item["text"]).strip()
+        ):
+            raise ValueError("frozen editorial evidence shape is not exact")
+        normalized_evidence.append(dict(item))
+    if tuple(item["evidence_id"] for item in normalized_evidence) != expected_evidence_ids:
+        raise ValueError("frozen editorial evidence is foreign, missing, duplicate, or reordered")
+    return subjects, normalized_evidence
+
+
+def _frozen_editorial_subjects(
+    raw: Mapping[str, object],
+) -> tuple[WholeScopeEditorialSubject, ...]:
+    values = raw.get("frozen_editorial_subjects")
+    if not isinstance(values, list) or not values:
+        raise ValueError("frozen editorial subject authority is unavailable")
+    subjects: list[WholeScopeEditorialSubject] = []
+    for item in values:
+        if not isinstance(item, Mapping) or set(item) != {
+            "subject_kind",
+            "subject_id",
+            "membership_hash",
+            "evidence_ids",
+            "known_characters",
+        }:
+            raise ValueError("frozen editorial subject authority is malformed")
+        evidence_ids = item.get("evidence_ids")
+        characters = item.get("known_characters")
+        if not isinstance(evidence_ids, list) or not isinstance(characters, list):
+            raise ValueError("frozen editorial subject authority is malformed")
+        subjects.append(
+            WholeScopeEditorialSubject(
+                cast(str, item.get("subject_kind")),
+                cast(str, item.get("subject_id")),
+                cast(str, item.get("membership_hash")),
+                tuple(cast(list[str], evidence_ids)),
+                tuple(cast(list[str], characters)),
+            )
+        )
+    return tuple(subjects)
 
 
 def _whole_scope_logical_job_payload(job: WholeScopeLogicalJob) -> dict[str, object]:

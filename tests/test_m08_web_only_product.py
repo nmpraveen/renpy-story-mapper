@@ -156,7 +156,7 @@ def test_launcher_does_not_quit_when_native_picker_closes(
         "QtShutdownBridge",
         lambda _app: SimpleNamespace(request=lambda: None),
     )
-    monkeypatch.setattr(launcher, "ProjectApi", lambda _dialogs: object())
+    monkeypatch.setattr(launcher, "build_project_api", lambda _dialogs: object())
     monkeypatch.setattr(launcher, "LocalWebServer", lambda *_args, **_kwargs: _Server())
     monkeypatch.setattr(launcher, "start_in_thread", lambda _server: _Thread())
 

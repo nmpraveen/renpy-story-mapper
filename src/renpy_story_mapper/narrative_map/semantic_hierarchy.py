@@ -12,10 +12,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
+from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.narrative_map.adapters import ordered_unique
-from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
+from renpy_story_mapper.narrative_map.assembly import (
+    assemble_semantic_outline,
+    assemble_semantic_outline_from_authority,
+)
 from renpy_story_mapper.narrative_map.contracts import AuthorityBinding
-from renpy_story_mapper.narrative_map.corridors import build_all_eligible_gap_candidates
+from renpy_story_mapper.narrative_map.corridors import (
+    build_all_eligible_gap_candidates,
+    build_fine_narrative_units,
+)
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     ChoiceComposition,
     FineNarrativeUnit,
@@ -187,6 +195,7 @@ def validate_whole_scope_hierarchy(
     *,
     scope_id: str | None = None,
     authority: AuthorityBinding | None = None,
+    _defer_choice_authority: bool = False,
 ) -> ValidatedWholeScopeHierarchy:
     """Validate exact Stage H identity, coverage, order, ownership, and hard locks.
 
@@ -226,7 +235,11 @@ def validate_whole_scope_hierarchy(
     if any(item.authority != exact_authority for item in materialized_candidates):
         raise ValueError("whole-scope hierarchy candidates have mixed authority")
 
-    _validate_choices(materialized_choices, materialized_units)
+    if _defer_choice_authority:
+        if materialized_choices:
+            raise ValueError("deferred choice authority cannot accept supplied choices")
+    else:
+        _validate_choices(materialized_choices, materialized_units)
     _validate_temporary_keys(
         proposal,
         materialized_units,
@@ -286,9 +299,56 @@ def validate_whole_scope_hierarchy(
         major_clusters=proposal.major_clusters,
         _validation_seal=_VALIDATION_SEAL,
     )
-    _validate_hard_locks(validated)
+    _validate_hard_locks(validated, defer_choice_authority=_defer_choice_authority)
     _assemble_exact_outline(validated)
     return validated
+
+
+def validate_whole_scope_hierarchy_from_authority(
+    canonical: CanonicalGraph,
+    scene_model: SceneModel,
+    proposal: WholeScopeHierarchyProposal,
+    hard_locks: Sequence[HierarchyHardLock | Mapping[str, object]] = (),
+    *,
+    scope_id: str | None = None,
+    authority: AuthorityBinding | None = None,
+) -> ValidatedWholeScopeHierarchy:
+    """Bind one Stage H proposal to the current M10/M11 assembly, including choices."""
+
+    units = build_fine_narrative_units(canonical, scene_model)
+    candidates = build_all_eligible_gap_candidates(units)
+    normalized_locks = tuple(_normalize_lock(item) for item in hard_locks)
+    preliminary = validate_whole_scope_hierarchy(
+        proposal,
+        units,
+        candidates,
+        tuple(),
+        tuple(
+            item
+            for item in normalized_locks
+            if item.kind is not HierarchyHardLockKind.CHOICE_OWNERSHIP
+        ),
+        scope_id=scope_id,
+        authority=authority,
+        _defer_choice_authority=True,
+    )
+    decisions = compile_hierarchy_to_gap_decisions(preliminary)
+    exact_units, exact_candidates, outline = assemble_semantic_outline_from_authority(
+        canonical,
+        scene_model,
+        decisions,
+    )
+    if exact_units != units or exact_candidates != candidates:
+        raise ValueError("current hierarchy authority changed during deterministic assembly")
+    return validate_whole_scope_hierarchy(
+        proposal,
+        exact_units,
+        exact_candidates,
+        outline.choices,
+        normalized_locks,
+        scope_id=scope_id,
+        authority=authority,
+    )
 
 
 def compile_hierarchy_to_gap_decisions(
@@ -487,7 +547,11 @@ def _validate_choices(
             raise ValueError("whole-scope hierarchy unit references foreign choice-arm authority")
 
 
-def _validate_hard_locks(hierarchy: ValidatedWholeScopeHierarchy) -> None:
+def _validate_hard_locks(
+    hierarchy: ValidatedWholeScopeHierarchy,
+    *,
+    defer_choice_authority: bool = False,
+) -> None:
     unit_ids = set(hierarchy.ordered_unit_ids)
     choice_by_id = {item.choice_id: item for item in hierarchy.choices}
     beat_by_unit = {
@@ -512,6 +576,8 @@ def _validate_hard_locks(hierarchy: ValidatedWholeScopeHierarchy) -> None:
         if not referenced_units <= unit_ids:
             raise ValueError("whole-scope hard lock references foreign fine-unit identity")
         if lock.kind is HierarchyHardLockKind.CHOICE_OWNERSHIP:
+            if defer_choice_authority:
+                continue
             assert lock.choice_id is not None
             choice = choice_by_id.get(lock.choice_id)
             if choice is None or choice.ordered_arm_ids != lock.arm_ids:
