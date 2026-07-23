@@ -21,6 +21,7 @@ from renpy_story_mapper.narrative_map.provider import (
     NarrativeMapProviderResponse,
     PreparedNarrativeJob,
     ProviderJobKind,
+    ProviderProfile,
     WholeScopeProviderSubject,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
@@ -405,6 +406,255 @@ def _persist_legacy_unfrozen_invalid_hierarchy(
         preparation.build_id,
         consent.job_identity_hash,
     )
+
+
+@pytest.mark.parametrize(
+    ("action", "body"),
+    (
+        ("prepare_hierarchy", {"action": "prepare_hierarchy"}),
+        ("start_hierarchy", {"confirm_cloud": True}),
+        ("prepare_editorial", {"action": "prepare_editorial"}),
+        ("status", {}),
+        ("resume", {}),
+        ("retry", {}),
+    ),
+)
+def test_legacy_quarantine_repeated_cas_loss_fails_closed_on_every_product_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    body: dict[str, JsonValue],
+) -> None:
+    source, project_path = _project(tmp_path)
+    old_preparation, old_manifest_id, _old_build_id, _old_job_identity = (
+        _persist_legacy_unfrozen_invalid_hierarchy(project_path)
+    )
+    if action == "start_hierarchy":
+        body = {
+            "action": "start_hierarchy",
+            "manifest_id": old_manifest_id,
+            "confirm_cloud": True,
+        }
+    original = NarrativeMapRepository.quarantine_invalid_whole_scope_hierarchy
+    losses = 0
+
+    def force_repeated_loss(
+        repository: NarrativeMapRepository,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        **kwargs: object,
+    ) -> bool:
+        nonlocal losses
+        losses += 1
+        raw = repository.read_whole_scope_build()
+        assert raw is not None
+        drifted = dict(raw)
+        drifted["failure_codes"] = [f"concurrent_update_{losses}"]
+        repository.write_whole_scope_build(drifted)
+        return original(repository, job, profile, **kwargs)
+
+    monkeypatch.setattr(
+        NarrativeMapRepository,
+        "quarantine_invalid_whole_scope_hierarchy",
+        force_repeated_loss,
+    )
+    constructions = 0
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        raise AssertionError("lost legacy quarantine CAS must remain zero-submit")
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        result = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES[action],
+            body,
+        )
+    finally:
+        api.close()
+
+    assert result["state"] == "stale"
+    assert result["stage"] == "hierarchy"
+    assert result["build_id"] is None
+    assert result["manifest_id"] is None
+    assert result["requires_fresh_preparation"] is True
+    assert result["accounting"]["provider_calls"] == 0
+    assert constructions == 0
+    assert losses == 2
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        raw = repository.read_whole_scope_build()
+        record = repository.get(
+            ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            old_preparation.job.job_id,
+        )
+        cache = repository.load_cache(old_preparation.job, m15_provider_profile())
+        assert raw is not None
+        assert raw["correction_id"] == "m15.1-product-path-v1"
+        assert raw["hierarchy_state"] == "validated"
+        assert raw["hierarchy_result"] is not None
+        assert record is not None and record.status.value == "validated"
+        assert record.consent_manifest_id == old_manifest_id
+        assert cache is not None
+        assert repository.whole_scope_reserved_attempts(
+            old_preparation.job.job_id
+        ) == (1, 2)
+
+
+def test_legacy_quarantine_retries_one_safe_cas_loss_before_v2_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, project_path = _project(tmp_path)
+    old_preparation, old_manifest_id, _old_build_id, _old_job_identity = (
+        _persist_legacy_unfrozen_invalid_hierarchy(project_path)
+    )
+    original = NarrativeMapRepository.quarantine_invalid_whole_scope_hierarchy
+    calls = 0
+
+    def lose_once(
+        repository: NarrativeMapRepository,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        **kwargs: object,
+    ) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raw = repository.read_whole_scope_build()
+            assert raw is not None
+            drifted = dict(raw)
+            drifted["failure_codes"] = ["concurrent_update_once"]
+            repository.write_whole_scope_build(drifted)
+        return original(repository, job, profile, **kwargs)
+
+    monkeypatch.setattr(
+        NarrativeMapRepository,
+        "quarantine_invalid_whole_scope_hierarchy",
+        lose_once,
+    )
+    constructions = 0
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        raise AssertionError("migration and preview must remain zero-submit")
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        result = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+    finally:
+        api.close()
+
+    assert result["state"] == "awaiting_hierarchy_consent"
+    assert result["manifest_id"] != old_manifest_id
+    assert result["manifest"]["limits"]["timeout_seconds"] == 900.0
+    assert calls == 2
+    assert constructions == 0
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        old_record = repository.get(
+            ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            old_preparation.job.job_id,
+        )
+        raw = repository.read_whole_scope_build()
+        assert old_record is not None and old_record.status.value == "failed"
+        assert old_record.result is None
+        assert old_record.consent_manifest_id is None
+        assert raw is not None
+        assert raw["correction_id"] == M15_WHOLE_SCOPE_CORRECTION_ID
+        assert raw["hierarchy_state"] == "awaiting_consent"
+        assert repository.whole_scope_reserved_attempts(
+            old_preparation.job.job_id
+        ) == (1, 2)
+
+
+def test_legacy_quarantine_loses_to_concurrent_publication_without_overwrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, project_path = _project(tmp_path)
+    old_preparation, old_manifest_id, _old_build_id, _old_job_identity = (
+        _persist_legacy_unfrozen_invalid_hierarchy(project_path)
+    )
+    original = NarrativeMapRepository.quarantine_invalid_whole_scope_hierarchy
+    publication = {
+        "schema": "m15-whole-scope-concurrent-publication-test-v1",
+        "publication_hash": "concurrent-publication",
+    }
+    calls = 0
+
+    def publish_before_quarantine(
+        repository: NarrativeMapRepository,
+        job: PreparedNarrativeJob,
+        profile: ProviderProfile,
+        **kwargs: object,
+    ) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raw = repository.read_whole_scope_build()
+            assert raw is not None
+            repository.publish_whole_scope_current(
+                build=raw,
+                publication=publication,
+                logical_records=(),
+            )
+        return original(repository, job, profile, **kwargs)
+
+    monkeypatch.setattr(
+        NarrativeMapRepository,
+        "quarantine_invalid_whole_scope_hierarchy",
+        publish_before_quarantine,
+    )
+    constructions = 0
+
+    def forbidden_factory() -> _WholeScopeProductFakeProvider:
+        nonlocal constructions
+        constructions += 1
+        raise AssertionError("concurrent publication must remain zero-submit")
+
+    api = build_project_api(_Dialogs(), m15_provider_factory=forbidden_factory)
+    api._retain_project_path(project_path, source)
+    try:
+        result = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+            {"action": "prepare_hierarchy"},
+        )
+    finally:
+        api.close()
+
+    assert result["state"] == "stale"
+    assert result["build_id"] is None
+    assert result["manifest_id"] is None
+    assert result["accounting"]["provider_calls"] == 0
+    assert calls == 1
+    assert constructions == 0
+    with Project.open(project_path) as project:
+        repository = NarrativeMapRepository(project)
+        raw = repository.read_whole_scope_build()
+        record = repository.get(
+            ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+            old_preparation.job.job_id,
+        )
+        assert raw is not None
+        assert raw["correction_id"] == "m15.1-product-path-v1"
+        assert raw["hierarchy_state"] == "validated"
+        assert record is not None and record.status.value == "validated"
+        assert record.consent_manifest_id == old_manifest_id
+        assert repository.read_whole_scope_current() == publication
+        assert repository.whole_scope_reserved_attempts(
+            old_preparation.job.job_id
+        ) == (1, 2)
 
 
 def test_reopen_quarantines_legacy_unfrozen_invalid_hierarchy_and_rolls_identity(
