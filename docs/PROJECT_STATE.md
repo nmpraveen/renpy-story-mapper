@@ -17,8 +17,9 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   condition is unchanged; whole-scope Stage H hierarchy proposal plus Stage E editorial batching
   passed the repeated semantic gate on 2026-07-23. Revised Tracks A/B/C, the exhausted-live-run
   corrections, and provider-free integration are complete and independently reviewed with no
-  unresolved P0-P2 at integration head `5d782ce`. The next gate is a fresh isolated exact
-  zero-submit Stage H preparation and separate explicit consent. The prior
+  unresolved P0-P2 at integration head `5d782ce`. A fresh isolated exact zero-submit Stage H
+  preparation produced manifest `consent_c988d3b944a81c177303d32f`; the next gate is separate
+  explicit approval of that exact manifest. The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
 - The first uncontaminated source-first final review froze exact candidate `ac898b0` and returned
@@ -99,6 +100,17 @@ Updated: 2026-07-23 (M15.1 In progress; whole-scope semantic gate PASS)
   evidence; a fresh exact acceptance copy must be prepared without submission before a new Stage H
   manifest is presented. The outside-Git failure artifact SHA-256 is
   `ADFE0EFF8E2311AA11AAC14624589AA7B3F1BE2803A938E1ABD7C02FC1A2532C`.
+- Fresh Stage H v2 preparation: accepted baseline
+  `output/playwright/m15-private-final/corrected-working-copy.rsmproj` was copied to fresh isolated
+  `output/m15-1-whole-scope-acceptance-v2-20260723/msday1-working.rsmproj`. The shipped product API
+  prepared manifest `consent_c988d3b944a81c177303d32f` for build
+  `whole_scope_build_0f843c9c1ef607c4de085bcc`, one logical hierarchy job, provider
+  `gpt-5.6-sol` Medium with fast mode off, maximum two calls, concurrency one, and a finite
+  900-second timeout. Preparation recorded zero provider constructions, reservations, calls, and
+  tokens; source, original archive, and accepted baseline fingerprints remained unchanged.
+  Outside-Git preparation artifact SHA-256 is
+  `32B8A7C5F98D3D6EB8D80D66051B89B003B052619BF90718D09514B032E491E2`. No transmission is
+  authorized until the user explicitly approves this exact manifest; Stage E remains separate.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
