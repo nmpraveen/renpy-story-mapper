@@ -132,6 +132,19 @@ Updated: 2026-07-23 (M15.1 In progress; corrected Stage H semantic gate PASS)
   dependency/JS/JSON/diff/privacy/frozen checks, and nine zero-provider/zero-game synthetic cases.
   Source/archive/accepted-baseline fingerprints remain unchanged. Outside-Git correction artifact
   SHA-256 is `6F22E9C70FB27047A9D9159B7BAC9896A6FB37CE395DF259ACD374A78375FFFF`.
+- Fresh corrected Stage H v3 preparation: the unchanged accepted baseline was copied to isolated
+  `output/m15-1-whole-scope-acceptance-v3-20260723/msday1-working.rsmproj`. The shipped product
+  controller prepared build `whole_scope_build_c9f828ed30398aef1f2a2555` and exact manifest
+  `consent_0694aa9eeb81df6b0a0a36cb`, expiring `2026-07-23T21:10:59.022751Z`. Identity is bound to
+  correction hash `7fb38163...ed39`, prompt hash `2f48bada...a7b2`, schema hash
+  `87a4c4e4...a05b`, source hash `e66a736f...728d`, authority hash `ff90b999...a778`, and input hash
+  `ed207984...ae9c`; provider is requested/resolved `gpt-5.6-sol`, Medium, fast off. Limits remain
+  one logical job, two calls, concurrency one, 1,000,000 input bytes, 2,000,000 output bytes, and
+  900 seconds. Initial envelope is 644,543 bytes. Preparation constructed no provider and recorded
+  zero reservations/calls/tokens; source/archive/accepted baseline remain unchanged. Artifact
+  SHA-256 is `5F21BFF6D6B2B954521064F3A515C1ACFFC7CFB71D8740A23B9F121852D81789`.
+  Transmission requires two separate explicit approvals: exceed four total Day 1 submissions and
+  approve this exact manifest. Stage E remains unauthorized.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
