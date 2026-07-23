@@ -4,6 +4,7 @@ import copy
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
 from typing import cast
@@ -15,6 +16,7 @@ from renpy_story_mapper.narrative.provider import ProviderUsage
 from renpy_story_mapper.narrative_map.assembly import assemble_semantic_outline
 from renpy_story_mapper.narrative_map.contracts import (
     AuthorityBinding,
+    JsonValue,
     Provenance,
     SourceLocator,
     canonical_hash,
@@ -27,6 +29,9 @@ from renpy_story_mapper.narrative_map.persistence import (
 from renpy_story_mapper.narrative_map.provider import (
     SEMANTIC_BOUNDARY_PROMPT_VERSION,
     SEMANTIC_BOUNDARY_RESPONSE_SCHEMA,
+    WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+    WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+    NarrativeConsentManifest,
     NarrativeMapProviderRequest,
     NarrativeMapProviderResponse,
     PreparedNarrativeJob,
@@ -34,15 +39,20 @@ from renpy_story_mapper.narrative_map.provider import (
     ProviderProfile,
     SterileNarrativeMapProvider,
     WholeScopeEditorialSubject,
+    WholeScopeProviderSubject,
+    _resource_names,
+    _serialize_prompt,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
     M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+    MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     BoundaryWindow,
     FineNarrativeUnit,
     ProposedBeatGroup,
     ProposedMajorCluster,
     WholeScopeHierarchyProposal,
+    WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
     HierarchyHardLock,
@@ -64,7 +74,10 @@ from renpy_story_mapper.narrative_map.semantic_validation import (
 )
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import ValidationFinding
-from renpy_story_mapper.narrative_map.workflow import NarrativeWorkflowReport
+from renpy_story_mapper.narrative_map.workflow import (
+    NarrativeWorkflowReport,
+    _whole_scope_hierarchy_lock,
+)
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
 from renpy_story_mapper.project import Project
 
@@ -455,6 +468,9 @@ def _prepare_hierarchy(
         "scope-day-1",
         _validated_hierarchy().ordered_unit_ids,
         _hierarchy_input(),
+        hierarchy_units=_validated_hierarchy().units,
+        evidence_by_unit=_hierarchy_evidence_by_unit(),
+        hierarchy_hard_locks=(),
         known_evidence_ids=("evidence-a", "evidence-b"),
         known_characters=("Ava",),
         profile=_profile(),
@@ -590,6 +606,154 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
+def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:
+    unit_ids = tuple(f"fine_unit_{index:024x}" for index in range(732))
+    evidence_ids = tuple(f"evidence_{index:024x}" for index in range(732))
+    units = [
+        {
+            "unit_id": unit_id,
+            "sequence_id": "sequence-day-1",
+            "ordinal": index,
+            "story_atom_id": f"atom_{index:024x}",
+            "evidence_ids": [evidence_ids[index]],
+            "speaker_ids": [],
+            "lane_id": "lane-main",
+            "call_occurrence_id": None,
+            "call_occurrence_path": [],
+            "call_site_path": [],
+            "loop_id": None,
+            "parent_choice_id": None,
+            "parent_arm_id": None,
+            "entry_node_id": f"node_{index:024x}",
+            "exit_node_id": f"node_{index:024x}",
+        }
+        for index, unit_id in enumerate(unit_ids)
+    ]
+    evidence = [
+        {
+            "unit_id": unit_id,
+            "atom_id": f"atom_{index:024x}",
+            "evidence_id": evidence_ids[index],
+            "ordinal": index,
+            "kind": "dialogue",
+            "text": "story",
+            "speaker": None,
+            "locator": {
+                "relative_path": "game/day1.rpy",
+                "start_line": index + 1,
+                "end_line": index + 1,
+                "line_basis": "physical_source",
+            },
+        }
+        for index, unit_id in enumerate(unit_ids)
+    ]
+    payload: dict[str, object] = {
+        "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
+        "scope_id": "scope-day-1",
+        "authority": _authority().to_dict(),
+        "ordered_unit_ids": list(unit_ids),
+        "units": units,
+        "evidence": evidence,
+        "hard_locks": [],
+    }
+    target_payload_bytes = 645_000
+    current_payload_bytes = len(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    )
+    assert current_payload_bytes < target_payload_bytes
+    evidence[0]["text"] = "story" + "x" * (target_payload_bytes - current_payload_bytes)
+    assert (
+        len(
+            json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()
+        )
+        == target_payload_bytes
+    )
+    subject = WholeScopeProviderSubject(
+        WholeScopeSemanticStage.HIERARCHY,
+        "scope-day-1",
+        unit_ids,
+    )
+    job = PreparedNarrativeJob(
+        ProviderJobKind.WHOLE_SCOPE_HIERARCHY,
+        _authority(),
+        subject,
+        subject.scope_id,
+        canonical_hash(payload),
+        WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION,
+        WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+        cast(dict[str, JsonValue], payload),
+        evidence_ids,
+        source_hash="source-hash",
+        correction_id="m15.1-repair-bound",
+        privacy_scope="story_evidence_only",
+        logical_job_ids=("logical-stage-h",),
+        combined_submission_limit=MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+    )
+    beat_keys = tuple(
+        (f"beat_{index:04d}_" + "k" * 48)[:48] for index in range(len(unit_ids))
+    )
+    beat_groups = [
+        {
+            "proposal_key": beat_key,
+            "ordered_unit_ids": [unit_id],
+            "confidence": 0.9,
+            "reason": "r" * 80,
+            "warnings": ["w" * 64],
+        }
+        for beat_key, unit_id in zip(beat_keys, unit_ids, strict=True)
+    ]
+    covered_keys = beat_keys[:-1]
+    cluster_groups = [
+        {
+            "proposal_key": (f"cluster_{index:02d}_" + "c" * 48)[:48],
+            "ordered_beat_keys": list(covered_keys[index::16]),
+            "confidence": 0.9,
+            "reason": "r" * 80,
+            "warnings": ["w" * 64],
+        }
+        for index in range(16)
+    ]
+    prior_response = {
+        "scope_id": subject.scope_id,
+        "beat_groups": beat_groups,
+        "major_clusters": cluster_groups,
+        "uncertain_unit_ids": [],
+        "warnings": [],
+    }
+    locked = _whole_scope_hierarchy_lock(
+        job, prior_response, {"inexact_cluster_coverage"}
+    )
+    profile = _profile()
+    consent = NarrativeConsentManifest.for_jobs(
+        run_id="worst-legal-retained-lock",
+        profile=profile,
+        jobs=(job,),
+        consent_granted=True,
+        valid_for=timedelta(minutes=5),
+        maximum_provider_calls=2,
+        maximum_input_bytes=1_000_000,
+        maximum_output_bytes=2_000_000,
+        timeout_seconds=900.0,
+    )
+    request = NarrativeMapProviderRequest(
+        "worst_legal_retained_lock_request",
+        consent,
+        profile,
+        job,
+        repair_codes=("inexact_cluster_coverage",),
+        repair_semantics=locked,
+        timeout_seconds=900.0,
+        maximum_input_bytes=1_000_000,
+        maximum_output_bytes=2_000_000,
+    )
+    prompt_name, _schema_name = _resource_names(job)
+    repair_bytes = len(_serialize_prompt(request, prompt_name))
+    assert repair_bytes <= 925_000
+    assert 1_000_000 - repair_bytes >= 75_000
+
+
 @pytest.mark.parametrize("target", ("beat", "cluster"))
 def test_boolean_whole_scope_confidence_is_rejected_directly_and_by_fake_provider(
     tmp_path: Path,
@@ -689,6 +853,9 @@ def test_whole_scope_prepare_rejects_external_authority_and_credential_keys(
                     "scope-day-1",
                     ("unit-a", "unit-b"),
                     payload,
+                    hierarchy_units=_validated_hierarchy().units,
+                    evidence_by_unit=_hierarchy_evidence_by_unit(),
+                    hierarchy_hard_locks=(),
                     known_evidence_ids=("evidence-a", "evidence-b"),
                     profile=_profile(),
                     run_id="sterile-input",
@@ -1039,6 +1206,9 @@ def test_retry_accumulates_durable_calls_and_usage_across_manifests(tmp_path: Pa
             "scope-day-1",
             _validated_hierarchy().ordered_unit_ids,
             _hierarchy_input(),
+            hierarchy_units=_validated_hierarchy().units,
+            evidence_by_unit=_hierarchy_evidence_by_unit(),
+            hierarchy_hard_locks=(),
             known_evidence_ids=("evidence-a", "evidence-b"),
             known_characters=("Ava",),
             profile=_profile(),
@@ -1113,6 +1283,9 @@ def test_stage_h_input_projection_fails_closed_before_preparation(
                 "scope-day-1",
                 _validated_hierarchy().ordered_unit_ids,
                 payload,
+                hierarchy_units=_validated_hierarchy().units,
+                evidence_by_unit=_hierarchy_evidence_by_unit(),
+                hierarchy_hard_locks=(),
                 known_evidence_ids=("evidence-a", "evidence-b"),
                 known_characters=("Ava",),
                 profile=_profile(),
