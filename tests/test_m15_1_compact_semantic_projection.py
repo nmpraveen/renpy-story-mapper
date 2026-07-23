@@ -689,3 +689,30 @@ def test_whole_scope_projection_marks_ambiguous_arm_partial_and_rejects_foreign_
             invalid_batch,
             provenance,
         )
+
+
+def test_whole_scope_batch_warning_keeps_an_otherwise_clean_publication_partial() -> None:
+    canonical, model, units, outline, topology, *_rest = _projection_fixture()
+    batch, provenance = _whole_scope_editorial(outline, units)
+    warning_batch = replace(batch, warnings=("Whole scope remains ambiguous.",))
+
+    projection = build_compact_whole_scope_projection(
+        canonical,
+        model,
+        units,
+        outline,
+        topology,
+        warning_batch,
+        provenance,
+    )
+
+    assert projection.partial_subject_ids == ()
+    assert projection.warnings == ("Whole scope remains ambiguous.",)
+    page = whole_scope_projection_page(
+        projection,
+        authority_hash=canonical.authority_hash,
+        publication_hash="c" * 64,
+        build_id="build-scope-warning-synthetic",
+    )
+    assert page["build_state"] == "partial"
+    assert page["warnings"] == ["Whole scope remains ambiguous."]

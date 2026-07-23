@@ -103,11 +103,9 @@ def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
     ) -> dict[str, object]:
         calls.append((action, dict(body)))
         return {
-            "state": (
-                "hierarchy_prepared" if action == "prepare_hierarchy" else "hierarchy_running"
-            ),
+            "state": f"{action}_handled",
             "manifest_id": "manifest-synthetic",
-            "requires_confirmation": action == "prepare_hierarchy",
+            "requires_confirmation": action.startswith("prepare_"),
         }
 
     api = ProjectApi(
@@ -126,7 +124,7 @@ def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
             M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
             {"action": "prepare_hierarchy"},
         )
-        assert isinstance(prepared, dict) and prepared["state"] == "hierarchy_prepared"
+        assert isinstance(prepared, dict) and prepared["state"] == "prepare_hierarchy_handled"
         started = api.dispatch(
             "POST",
             M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_hierarchy"],
@@ -136,8 +134,44 @@ def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
                 "confirm_cloud": True,
             },
         )
-        assert isinstance(started, dict) and started["state"] == "hierarchy_running"
-        assert [item[0] for item in calls] == ["prepare_hierarchy", "start_hierarchy"]
+        assert isinstance(started, dict) and started["state"] == "start_hierarchy_handled"
+        editorial = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_editorial"],
+            {"action": "prepare_editorial"},
+        )
+        assert isinstance(editorial, dict) and editorial["state"] == "prepare_editorial_handled"
+        editorial_started = api.dispatch(
+            "POST",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["start_editorial"],
+            {
+                "action": "start_editorial",
+                "manifest_id": "manifest-editorial-synthetic",
+                "confirm_cloud": True,
+            },
+        )
+        assert (
+            isinstance(editorial_started, dict)
+            and editorial_started["state"] == "start_editorial_handled"
+        )
+        for action in ("status", "cancel", "resume", "retry"):
+            response = api.dispatch(
+                "POST",
+                M15_WHOLE_SCOPE_SEMANTIC_ROUTES[action],
+                {},
+            )
+            assert isinstance(response, dict) and response["state"] == f"{action}_handled"
+        assert [item[0] for item in calls] == [
+            "prepare_hierarchy",
+            "start_hierarchy",
+            "prepare_editorial",
+            "start_editorial",
+            "status",
+            "cancel",
+            "resume",
+            "retry",
+        ]
+        assert all(body == {} for _action, body in calls[-4:])
         with pytest.raises(ValueError, match="exact confirmation"):
             api.dispatch(
                 "POST",
@@ -148,6 +182,63 @@ def test_whole_scope_routes_validate_and_delegate_to_the_track_b_controller(
                     "confirm_cloud": False,
                 },
             )
+    finally:
+        api.close()
+
+
+def test_whole_scope_lifecycle_routes_fall_back_to_legacy_when_controller_is_absent(
+    tmp_path: Path,
+) -> None:
+    api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
+    try:
+        with pytest.raises(ApiProblem) as unavailable:
+            api.dispatch(
+                "POST",
+                M15_WHOLE_SCOPE_SEMANTIC_ROUTES["prepare_hierarchy"],
+                {"action": "prepare_hierarchy"},
+            )
+        assert unavailable.value.status == 409
+        assert unavailable.value.code == "m15_whole_scope_not_integrated"
+
+        for action in ("status", "cancel", "resume", "retry"):
+            with pytest.raises(ApiProblem) as legacy_response:
+                api.dispatch(
+                    "POST",
+                    M15_WHOLE_SCOPE_SEMANTIC_ROUTES[action],
+                    {},
+                )
+            assert legacy_response.value.status == 409
+            assert legacy_response.value.code == "no_project"
+    finally:
+        api.close()
+
+
+def test_explicit_legacy_prepare_keeps_shared_lifecycle_on_legacy_controller(
+    tmp_path: Path,
+) -> None:
+    source, project_path = _project(tmp_path)
+    whole_scope_calls: list[str] = []
+
+    def controller(action: str, _body: dict[str, JsonValue]) -> dict[str, object]:
+        whole_scope_calls.append(action)
+        return {"state": f"{action}_handled"}
+
+    api = ProjectApi(
+        _Dialogs(),
+        state_store=UserStateStore(tmp_path / "state.json"),
+        m15_whole_scope_controller=controller,
+    )
+    api._retain_project_path(project_path, source)
+    try:
+        prepared = api.dispatch(
+            "POST",
+            M15_API_ROUTES["prepare_boundaries"],
+            {"action": "prepare_boundaries"},
+        )
+        status = api.dispatch("POST", M15_API_ROUTES["status"], {})
+        assert isinstance(prepared, dict)
+        assert isinstance(status, dict)
+        assert whole_scope_calls == []
     finally:
         api.close()
 

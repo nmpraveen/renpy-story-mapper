@@ -194,7 +194,11 @@ def whole_scope_projection_page(
         "map_hash": publication_hash,
         "publication_hash": publication_hash,
         "build_id": build_id,
-        "build_state": "partial" if projection.partial_subject_ids else "complete",
+        "build_state": (
+            "partial"
+            if projection.partial_subject_ids or projection.warnings
+            else "complete"
+        ),
         "outline_label": outline_label,
         "technical_correction_id": None,
         "correction_status": {"state": "whole_scope_applied"},
@@ -205,6 +209,7 @@ def whole_scope_projection_page(
         "hidden_technical_count": len(projection.omitted_subject_ids),
         "omitted_subject_ids": list(projection.omitted_subject_ids),
         "partial_subject_ids": list(projection.partial_subject_ids),
+        "warnings": list(projection.warnings),
         "density": {
             "visible_rows": projection.visible_row_count,
             "maximum_visible_rows": MAXIMUM_COMPACT_WHOLE_SCOPE_ROWS,

@@ -408,6 +408,7 @@ class ProjectApi:
         self._m13_result: NarrativePipelineResult | None = None
         self._m15_provider_factory = m15_provider_factory or default_m15_provider_factory
         self._m15_whole_scope_controller = m15_whole_scope_controller
+        self._m15_semantic_route_family: str | None = None
         self._m15_prepared: SemanticStagePreparation | None = None
         self._m15_consent: NarrativeConsentManifest | None = None
         self._m15_active_provider: NarrativeMapProvider | None = None
@@ -673,7 +674,25 @@ class ProjectApi:
                     "m15_whole_scope_not_integrated",
                     "Whole-scope semantic production is not available in this build.",
                 )
+            self._m15_semantic_route_family = "whole_scope"
             return json_value(dict(self._m15_whole_scope_controller(expected_action, body)))
+        whole_scope_lifecycle_actions = {
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["status"]: "status",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["cancel"]: "cancel",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["resume"]: "resume",
+            M15_WHOLE_SCOPE_SEMANTIC_ROUTES["retry"]: "retry",
+        }
+        if method == "POST" and path in whole_scope_lifecycle_actions:
+            exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
+            if (
+                self._m15_whole_scope_controller is not None
+                and self._m15_semantic_route_family != "legacy"
+            ):
+                expected_action = whole_scope_lifecycle_actions[path]
+                self._m15_semantic_route_family = "whole_scope"
+                return json_value(
+                    dict(self._m15_whole_scope_controller(expected_action, body))
+                )
         if method == "POST" and path == M15_API_ROUTES["prepare_boundaries"]:
             exact_fields(
                 body,
@@ -682,6 +701,7 @@ class ProjectApi:
             )
             if require_string(body, "action", maximum=32) != "prepare_boundaries":
                 raise ValueError("semantic action does not match its route")
+            self._m15_semantic_route_family = "legacy"
             return json_value(self._m15_prepare(SemanticStage.BOUNDARIES))
         if method == "POST" and path == M15_API_ROUTES["start_boundaries"]:
             exact_fields(
@@ -691,6 +711,7 @@ class ProjectApi:
             )
             if require_string(body, "action", maximum=32) != "start_boundaries":
                 raise ValueError("semantic action does not match its route")
+            self._m15_semantic_route_family = "legacy"
             return json_value(self._m15_start(SemanticStage.BOUNDARIES, body))
         if method == "POST" and path == M15_API_ROUTES["prepare_summaries"]:
             exact_fields(
@@ -700,6 +721,7 @@ class ProjectApi:
             )
             if require_string(body, "action", maximum=32) != "prepare_summaries":
                 raise ValueError("semantic action does not match its route")
+            self._m15_semantic_route_family = "legacy"
             return json_value(self._m15_prepare(SemanticStage.SUMMARIES))
         if method == "POST" and path == M15_API_ROUTES["start_summaries"]:
             exact_fields(
@@ -709,6 +731,7 @@ class ProjectApi:
             )
             if require_string(body, "action", maximum=32) != "start_summaries":
                 raise ValueError("semantic action does not match its route")
+            self._m15_semantic_route_family = "legacy"
             return json_value(self._m15_start(SemanticStage.SUMMARIES, body))
         if method == "POST" and path == M15_API_ROUTES["status"]:
             exact_fields(body, allowed=M15_SEMANTIC_EMPTY_REQUEST_FIELDS)
@@ -2216,6 +2239,7 @@ class ProjectApi:
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
             self._clear_m13_locked()
+            self._m15_semantic_route_family = None
         self._state_store.record_project(path)
 
     def _create(self, path: Path, source: Path, cancelled: threading.Event) -> None:
@@ -2248,6 +2272,7 @@ class ProjectApi:
             self._m07_start_binding = None
             self._clear_m07_run_metrics_locked()
             self._clear_m13_locked()
+            self._m15_semantic_route_family = None
         self._state_store.record_project(path)
 
     def _refresh(self, cancelled: threading.Event) -> None:

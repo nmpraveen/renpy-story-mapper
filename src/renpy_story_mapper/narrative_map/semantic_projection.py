@@ -128,6 +128,7 @@ class CompactWholeScopeProjection:
     edges: tuple[SemanticTopologyEdge, ...]
     omitted_subject_ids: tuple[str, ...]
     partial_subject_ids: tuple[str, ...]
+    warnings: tuple[str, ...]
 
     @property
     def visible_row_count(self) -> int:
@@ -1225,6 +1226,7 @@ def build_compact_whole_scope_projection(
         tuple(projected_edges),
         omitted,
         _ordered_strings(partial_subject_ids),
+        _ordered_strings(editorial.warnings),
     )
 
 
