@@ -638,8 +638,15 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     guidance = " ".join(envelope["request"]["repair_guidance"])
     assert "uncertain_unit_ids must be []" in guidance
     assert "Never clear uncertainty mechanically" in guidance
+    lock_policy = envelope["request"]["locked_semantics_policy"]
+    assert "__whole_scope_beat_groups__" in lock_policy
+    assert "beat_groups" in lock_policy
+    assert "same proposal_key" in lock_policy
+    assert "__whole_scope_clusters__" in lock_policy
+    assert "major_clusters" in lock_policy
+    assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v3"
+        "m15-whole-scope-targeted-repair-v4"
     )
 
 
@@ -1566,6 +1573,17 @@ def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Pa
 
     assert report.validated_job_ids == (preparation.job.job_id,)
     assert report.provider_calls == 2
+    repair_request = provider.requests[1]
+    assert repair_request.repair_semantics is not None
+    locked_beats = repair_request.repair_semantics["__whole_scope_beat_groups__"]
+    assert locked_beats == [_hierarchy_output()["beat_groups"][0]]  # type: ignore[index]
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    envelope = json.loads(_serialize_prompt(repair_request, prompt_name))
+    lock_policy = envelope["request"]["locked_semantics_policy"]
+    assert "copy every object in __whole_scope_beat_groups__ byte-for-byte" in (
+        lock_policy.lower()
+    )
+    assert "into beat_groups exactly once with the same proposal_key" in lock_policy
 
 
 def test_targeted_repair_may_replace_rejected_editorial_record(tmp_path: Path) -> None:
