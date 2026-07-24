@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at fresh exact Stage H v5 execution)
+Updated: 2026-07-24 (M15.1 In progress at Stage H lock-policy correction review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -22,9 +22,10 @@ Updated: 2026-07-24 (M15.1 In progress at fresh exact Stage H v5 execution)
   reviewed with no P0-P2. The user explicitly approved exceeding four total Day 1 submissions with
   at most two additional Stage H calls. V4 then used both calls and failed closed with
   `uncertain_membership`, creating no hierarchy or publication. The lifecycle returned through
-  `Revise`; failing-first prompt/repair correction `70f60eb` now has repeated semantic `PASS` and
-  passed independent exact-head rereview at `e33b773` with no P0-P2. Fresh zero-submit preparation
-  is next. The user's latest
+  `Revise`; failing-first prompt/repair correction `70f60eb` passed independent exact-head rereview
+  at `e33b773`. V5 then used both calls and failed closed with `semantic_reinterpretation`.
+  Lock-policy correction `b97fa47` has repeated semantic `PASS` and awaits independent exact-head
+  review. The user's latest
   standing authorization removes routine per-manifest approval pauses while exact identity,
   freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage E remains
   impossible until Stage H freezes.
@@ -188,6 +189,17 @@ Updated: 2026-07-24 (M15.1 In progress at fresh exact Stage H v5 execution)
   zero/absent. Source/archive/accepted baseline are unchanged. Preparation artifact SHA-256 is
   `84957AF6D27D1B4918D4A7B7A336C90655791BEAA73A82965B69536A6EBCD5E4`. The user's standing
   authorization permits exact bounded execution without another approval pause.
+- Stage H v5 execution and lock-policy correction: exact manifest
+  `consent_14655be0e14020371cdf104f` executed while valid, consumed two calls, and failed closed with
+  `semantic_reinterpretation`. It recorded 497,401 input tokens and 30,020 output tokens but no
+  hierarchy, logical record, publication, or Stage E activity. Source/archive/accepted baseline
+  remained unchanged. Result artifact SHA-256 is
+  `DFD1533DFD4CEE3F5DF53F5E5FD9E9EA36D398EBBAFDFBE0B18D57B83B3F5933`. The lifecycle returned to
+  `Revise`. A failing-first test proved hierarchy repair was still described with summary-specific
+  scalar/claim lock wording. Commit `b97fa47` explicitly maps internal beat, cluster, and editorial
+  record locks to their complete output arrays, preserves byte-for-byte Python enforcement, and
+  bumps the exact repair-policy identity to v4. Focused 106/106, Ruff, and strict mypy pass; repeated
+  semantic review is `PASS`, with independent exact-head review next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

@@ -3,16 +3,17 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in progress at the v4 uncertainty-repair correction review. Its
+correction inside M15 and is in progress at the v5 whole-scope lock-policy correction review. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
 semantic `PASS`, but the live Stage H audit then proved that the request projection omitted the
 required story evidence and structural context. A failing-first typed-authority and repair-bound
 correction passed independent exact-head review and coordinator gates. A later v4 live run failed
-closed on `uncertain_membership`; prompt/repair correction `70f60eb` now has repeated semantic
-`PASS` and passed exact-head rereview at `e33b773` with no P0-P2. Fresh zero-submit preparation is
-next. The active native goal, existing integration branch, and open PR #26 continue.
+closed on `uncertain_membership`; prompt/repair correction `70f60eb` passed exact-head rereview at
+`e33b773`. V5 then failed closed on `semantic_reinterpretation`; lock-policy correction `b97fa47`
+has repeated semantic `PASS` and awaits exact-head review. The active native goal, existing
+integration branch, and open PR #26 continue.
 M14 remains deferred. M13
 implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
@@ -1338,9 +1339,11 @@ manifest `consent_5181073c41933f07c2ccc887` executed while valid, exhausted its 
 repair, and failed closed with `uncertain_membership` without publishing a hierarchy. Commit
 `70f60eb` corrects the contradictory prompt/repair policy with new consent identity while
 preserving truthful fail-closed uncertainty; repeated semantic review is `PASS`, and independent
-exact-head rereview passed `e33b773` with no P0-P2. Fresh zero-submit preparation produced exact
-manifest `consent_14655be0e14020371cdf104f`; bounded Stage H execution is next under the user's
-standing authorization.
+exact-head rereview passed `e33b773` with no P0-P2. Fresh v5 manifest
+`consent_14655be0e14020371cdf104f` then failed closed after two calls with
+`semantic_reinterpretation`. Failing-first lock-policy correction `b97fa47` preserves Python's
+byte-for-byte enforcement while mapping whole-scope internal locks explicitly for the repair
+provider; repeated semantic review is `PASS` and independent exact-head review is next.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

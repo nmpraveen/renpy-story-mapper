@@ -177,6 +177,34 @@ then passed 1,498 tests with five expected opt-in skips and the known load-sensi
 deselected; that benchmark passed separately at 1.97 seconds. Live zero-submit preparation may now
 proceed from this reviewed correction.
 
+## 2026-07-24 whole-scope lock-policy correction
+
+Exact v5 manifest `consent_14655be0e14020371cdf104f` executed while valid, used one initial call
+plus one repair, and failed closed with `semantic_reinterpretation`. It recorded 497,401 input
+tokens and 30,020 output tokens, but created no hierarchy, logical record, publication, or Stage E
+activity. Source, archive, and accepted-baseline fingerprints remained unchanged. Result artifact
+SHA-256 is `DFD1533DFD4CEE3F5DF53F5E5FD9E9EA36D398EBBAFDFBE0B18D57B83B3F5933`.
+
+The lifecycle returned to `Revise`. Python's semantic lock behaved correctly: the repair changed a
+provider item already accepted and locked, so publication was rejected. The defect was again in
+the provider-facing contract. Whole-scope repairs were told to preserve “scalar and claim slots,”
+language belonging to semantic-summary repair, while their actual lock payload uses
+`__whole_scope_beat_groups__`, `__whole_scope_clusters__`, and `__whole_scope_records__`. The
+generic fallback did not explain how those internal collections map into the required complete
+Stage H/Stage E arrays.
+
+A failing-first assertion reproduced the missing mapping. Commit `b97fa47` gives Stage H exact
+byte-for-byte mapping from locked beat/cluster objects into `beat_groups`/`major_clusters`, gives
+Stage E the equivalent subject-identity mapping into `records`, prohibits returning internal lock
+keys, and permits changes only to entries absent from the lock collections. Python enforcement is
+unchanged and remains the authority. The consent-bound whole-scope repair policy advances to
+`m15-whole-scope-targeted-repair-v4`, invalidating every prior manifest/cache route. Focused
+M15.1/product tests pass 106/106; Ruff and strict mypy pass.
+
+This correction improves provider compliance without weakening safety, topology authority,
+privacy, or exact manifest controls. The lifecycle moved through `Semantic review` and returns to
+`In progress` with `PASS`, pending independent exact-head review before any fresh preparation.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
@@ -185,12 +213,12 @@ typed authority seam before durable state or consent, preserves valid retained i
 repair, and proves every legal repair envelope remains below its sterile ceiling. Identity changes
 invalidate the exhausted manifest and all older cache/consent paths. The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
-`a7997b1` passed independent review with no P0-P2; this prompt/policy correction independently
-passed exact-head rereview at `e33b773` with no P0-P2.
+`a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
+P0-P2. The new lock-policy correction requires its own independent exact-head review.
 
-The semantic gate is `PASS`. Manifest `consent_5181073c41933f07c2ccc887` is exhausted and cannot be
-reused. Commit `70f60eb` changes the prompt and repair-policy identities, so the next Stage H run
-requires a fresh zero-submit preparation and exact manifest audit. The user's standing
+The semantic gate is `PASS`. Manifest `consent_14655be0e14020371cdf104f` is exhausted and cannot be
+reused. Commit `b97fa47` changes the repair-policy identity, so another Stage H run is forbidden
+until independent exact-head review passes and a fresh zero-submit manifest is audited. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
