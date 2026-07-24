@@ -199,8 +199,9 @@ Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
   `Revise`. A failing-first test proved hierarchy repair was still described with summary-specific
   scalar/claim lock wording. Commit `b97fa47` explicitly maps internal beat, cluster, and editorial
   record locks to their complete output arrays, preserves byte-for-byte Python enforcement, and
-  bumps the exact repair-policy identity to v4. Focused 106/106, Ruff, and strict mypy pass; repeated
-  semantic review is `PASS`, with independent exact-head review next.
+  bumps the exact repair-policy identity to v4. Expanded focused 107/107, Ruff, strict mypy, 1,499
+  functional tests/five expected skips, and the isolated M06 benchmark pass. Repeated semantic and
+  independent exact-head review are `PASS` at `1adfe2d`; fresh zero-submit preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

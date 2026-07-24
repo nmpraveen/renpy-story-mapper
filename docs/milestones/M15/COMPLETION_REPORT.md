@@ -39,8 +39,8 @@ rereview passed `e33b773` with no P0-P2. The expanded M15.1/product set passed 1
 functional repository suite passed 1,498 tests with five expected skips, and the deselected
 load-sensitive M06 benchmark passed separately at 1.97 seconds. V5 then failed closed after two
 calls with `semantic_reinterpretation`, producing no hierarchy/publication and leaving Stage E
-untouched. Lock-policy correction `b97fa47` has repeated semantic `PASS` and awaits independent
-exact-head review before any fresh preparation.
+untouched. Lock-policy correction `b97fa47` has repeated semantic and independent exact-head `PASS`
+at `1adfe2d`; fresh zero-submit preparation is permitted.
 
 ## Evidence status
 
