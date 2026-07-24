@@ -63,7 +63,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Branch and PR identity | Complete | Local and remote branch head matched the correction base; PR #26 was open, non-draft, mergeable, and unmerged at preflight |
 | Private-input preflight | Complete | Source and archive SHA-256, size, and timestamps matched the private manifest; private materials remain ignored and unstaged |
 | Revised contract | Complete | `GOAL.md` defines fine semantic units, exhaustive boundaries, deterministic hierarchy, two-stage live production, compact vertical UI, and corrected acceptance gates |
-| Historical revised semantic gate | Historical complete | `SEMANTIC_REVIEW.md` recorded `PASS` on 2026-07-21; the current v11 correction gate is `PENDING` in `Revise` |
+| Revised semantic gate | Complete | Current v11 correction is `PASS`; independent exact-head review passed `6d99fd4` with no P0-P2. The 2026-07-21 pass remains historical. |
 | Replacement native goal | Complete | Goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` is active with the exact revised done condition and remains active through genuine PR readiness |
 | Shared failing-first freeze | Complete | Exact head `c768b19c8d9364db8f1987cb420e69ac0c2e535d`; 14 passing contract/workflow checks, Ruff, strict mypy, and 7 expected track-owned failures |
 | Tracks A/B/C and exact-head reviews | Complete | Track A reviewed head `09062370`; Track B final supported product-path head `ca048973`; Track C final compatibility head `61a3eef`; all required exact-head reviews passed with no unresolved P0-P2 |

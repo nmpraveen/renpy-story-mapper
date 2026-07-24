@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
+Updated: 2026-07-24 (M15.1 passed repeated semantic review for Stage H v11 correction)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -33,7 +33,8 @@ Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
   5,015 output tokens; no hierarchy or publication exists. Its compact repair completed, proving
   the timeout correction. Prompt v11/policy v12/product v7/schema v4 bind the Python-proven
   evidence-complete and singleton-available invariant while retaining local fail-closed
-  uncertainty validation. Focused tests pass 132/132; review is pending. Stage E remains
+  uncertainty validation. Focused tests pass 132/132; repeated semantic review is `PASS`, and
+  independent exact-head review passed `6d99fd4` with no P0-P2. Stage E remains
   impossible until Stage H freezes.
   The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
@@ -45,8 +46,9 @@ Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Current revised semantic gate: [`PENDING`](milestones/M15/SEMANTIC_REVIEW.md) for the v11
-  uncertainty correction. The earlier whole-scope `PASS` after transition commit `b5d08f5` is
+- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) for the v11 uncertainty
+  correction; independent exact-head review passed `6d99fd4` with no P0-P2. The earlier whole-scope
+  `PASS` after transition commit `b5d08f5` is
   historical because its implementation audit missed
   the criterion-3 request-projection defect. The prior adjacent-only shared freeze
   `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. The corrected exact-head review
@@ -312,7 +314,8 @@ Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
   evidence, and a conservative singleton beat is always structurally available. Prompt v11,
   repair policy v12, product identity v7, and immutable successor schema v4 therefore require
   `uncertain_unit_ids: []` at provider transport. Historical/fake nonempty uncertainty is still
-  rejected locally. Focused tests pass 132/132; lifecycle is `Revise` pending review.
+  rejected locally. Focused tests pass 132/132; repeated semantic review is `PASS`, and independent
+  exact-head review passed `6d99fd4` with no P0-P2. Fresh V12 zero-submit preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

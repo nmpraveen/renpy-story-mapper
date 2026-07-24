@@ -3,7 +3,8 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in `Revise` for the v11 evidence-complete uncertainty correction. Its
+correction inside M15 and is in repeated `Semantic review` after the v11 evidence-complete
+uncertainty correction passed independent exact-head review. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
@@ -1372,7 +1373,8 @@ failed closed because the provider returned nonempty uncertainty despite exact e
 unit and an always-available conservative singleton placement. Prompt v11/repair policy v12/
 product v7/response schema v4 bind those Python-proven preparation invariants and require empty
 uncertainty at provider transport; local fake/historical validation remains fail-closed. Focused
-tests pass 132/132; repeated semantic and exact-head review are pending.
+tests pass 132/132; repeated semantic review is `PASS`, and independent exact-head review passed
+`6d99fd4` with no P0-P2.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

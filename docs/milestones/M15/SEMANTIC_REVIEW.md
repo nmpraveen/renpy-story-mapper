@@ -7,7 +7,7 @@ Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
 AI semantic task.
 
-Decision: PENDING
+Decision: PASS
 
 ## Review result
 
@@ -382,8 +382,8 @@ v12, product identity v7, and immutable successor response schema v4 therefore r
 transport to return `uncertain_unit_ids: []`; this does not synthesize evidence, accept an invalid
 group, or weaken the complete Python authority validator. Historical and fake responses with
 nonempty uncertainty still fail closed locally. Schema v3 remains byte-preserved. Focused
-hierarchy/product verification passes 132/132. Lifecycle is `Revise`; repeated semantic review and
-independent exact-head review are pending.
+hierarchy/product verification passes 132/132. Repeated semantic review is `PASS`; independent
+exact-head review passed `6d99fd4` with no P0-P2.
 
 ## Gate decision
 
@@ -401,12 +401,13 @@ subordinate to M10/M11 authority and provider text remains transient. Predecesso
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PENDING` in `Revise`. V11 manifest
+The semantic gate is `PASS` in repeated `Semantic review`. Independent exact-head review passed
+`6d99fd4` with no P0-P2. V11 manifest
 `consent_195336f83e426fb222fecc19` is exhausted and cannot be reused. Another fresh Stage H
-preparation is forbidden until repeated semantic and independent exact-head review complete. The user's standing
+preparation may proceed only after a fresh zero-submit identity/fingerprint audit. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
 own fresh exact manifest under the same audit discipline.
 
-PENDING
+PASS

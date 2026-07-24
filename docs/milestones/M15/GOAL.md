@@ -1,13 +1,14 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: `Revise` after Stage H v11 exhausted both slots and failed closed with
+Status: Repeated `Semantic review` after Stage H v11 exhausted both slots and failed closed with
 `uncertain_membership`. No hierarchy, publication, or Stage E exists. The compact repair completed,
 proving the retransmission correction. Prompt v11/repair policy v12/product v7 and immutable
 successor response schema v4 encode the Python-proven prepared-input invariant: every unit has exact
 evidence and a conservative singleton placement is structurally available, so provider transport
 must return `uncertain_unit_ids: []`. Local validation still rejects nonempty uncertainty from fake
-or historical responses. Focused verification passes 132/132; semantic and exact-head review are
-pending.
+or historical responses. Focused verification passes 132/132; repeated semantic review is `PASS`,
+and independent exact-head review passed `6d99fd4` with no P0-P2. Fresh V12 zero-submit preparation
+is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -147,7 +148,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V11 exact manifest `consent_195336f83e426fb222fecc19` exhausted both slots and failed closed with `uncertain_membership`; 483,973 input and 5,015 output tokens were recorded. No hierarchy/records/publication/Stage E exists and protected fingerprints are unchanged. Result SHA-256 is `0F36D04F16370FB45F69400E413DA73E48648609EC11F5DB77DE31286CC44703`. The compact typed repair completed quickly. Prompt v11/policy v12/product v7 and response schema v4 bind the proven evidence-complete/singleton-available invariant and require empty provider uncertainty; immutable v2/v3 resources and local fail-closed validation remain unchanged. Focused verification passes 132/132; review is pending. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V11 exact manifest `consent_195336f83e426fb222fecc19` exhausted both slots and failed closed with `uncertain_membership`; 483,973 input and 5,015 output tokens were recorded. No hierarchy/records/publication/Stage E exists and protected fingerprints are unchanged. Result SHA-256 is `0F36D04F16370FB45F69400E413DA73E48648609EC11F5DB77DE31286CC44703`. The compact typed repair completed quickly. Prompt v11/policy v12/product v7 and response schema v4 bind the proven evidence-complete/singleton-available invariant and require empty provider uncertainty; immutable v2/v3 resources and local fail-closed validation remain unchanged. Focused verification passes 132/132; repeated semantic review is `PASS`, and independent exact-head review passed `6d99fd4` with no P0-P2. Fresh V12 preparation is next. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |
