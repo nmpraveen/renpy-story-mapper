@@ -28,6 +28,12 @@ Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
   and left protected inputs unchanged. Phase 01 and its local-model supplement remain accepted
   evidence for the new direction.
+- Phase 02 visible tracks: Track A coordinator `019f968f-e973-7380-9a26-0443389993a9` in
+  `C:/Users/prave/.codex/worktrees/981c/Renpy` and Track B coordinator
+  `019f968f-e973-7380-9a26-0464d6f7073f` in
+  `C:/Users/prave/.codex/worktrees/0ec5/Renpy`, both based on exact shared head `43c6251` with
+  explicit Sol/High settings. The task API has no fast-mode selector, so fast mode remains
+  unavailable/unverified.
 - Phase 02 design: a bounded `src/renpy_story_mapper/story_map_v2/` package using coherent source
   chunks, one compact mapper shape, Python-owned exact mechanics and stable target anchors,
   chronological partial-capable assembly, and an opt-in refusal-only loopback fallback. The
