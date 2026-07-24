@@ -30,7 +30,6 @@ from renpy_story_mapper.narrative_map.contracts import (
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA,
-    M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA,
     MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
     BoundaryWindow,
     ChoiceComposition,
@@ -54,7 +53,7 @@ SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
 WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v10"
-WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
+WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = "m15-whole-scope-hierarchy-response-v3"
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
 MAXIMUM_INPUT_BYTES = 1_000_000
@@ -871,7 +870,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
             "whole_scope_hierarchy_v10.json",
-            "whole_scope_hierarchy_v2.schema.json",
+            "whole_scope_hierarchy_v3.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
             WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,
@@ -971,7 +970,7 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
         else:
             compact_choice_repair = (
                 request.job.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY
-                and "choice_cluster_split" in request.repair_codes
+                and request.repair_codes == ("choice_cluster_split",)
             )
             if compact_choice_repair:
                 envelope["request"]["locked_semantics_policy"] = (

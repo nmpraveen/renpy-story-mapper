@@ -76,6 +76,7 @@ from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import ValidationFinding
 from renpy_story_mapper.narrative_map.workflow import (
     NarrativeWorkflowReport,
+    _hydrate_whole_scope_repair_payload,
     _whole_scope_hierarchy_lock,
 )
 from renpy_story_mapper.organization.sterile_runner import SterileRunRequest, SterileRunResult
@@ -603,7 +604,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     assert report.provider_calls == 1
     assert len(runner.requests) == 1
     request = runner.requests[0]
-    assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
+    assert request.schema_path.name == "whole_scope_hierarchy_v3.schema.json"
     envelope = json.loads(request.stdin)
     assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v10"
     prompt = json.dumps(envelope).lower()
@@ -806,6 +807,47 @@ def test_empty_beat_list_remains_invalid_outside_typed_repair(tmp_path: Path) ->
     }
 
 
+def test_compact_hydration_requires_exact_singleton_repair_code(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "mixed-choice-repair.rsmproj") as project:
+        preparation = _prepare_hierarchy(
+            NarrativeMapService(NarrativeMapRepository(project))
+        )
+    compact = _hierarchy_output()
+    compact["beat_groups"] = []
+    locked = _whole_scope_hierarchy_lock(
+        preparation.job,
+        _hierarchy_output(),
+        {"choice_cluster_split"},
+    )
+    mixed_codes = ("choice_cluster_split", "hierarchy_authority_invalid")
+    assert (
+        _hydrate_whole_scope_repair_payload(
+            preparation.job,
+            compact,
+            mixed_codes,
+            locked,
+        )
+        is compact
+    )
+    consent = preparation.granted_consent()
+    request = NarrativeMapProviderRequest(
+        "mixed_choice_repair_request",
+        consent,
+        consent.profile,
+        preparation.job,
+        repair_codes=mixed_codes,
+        repair_semantics=locked,
+        timeout_seconds=consent.timeout_seconds,
+        maximum_input_bytes=consent.maximum_input_bytes,
+        maximum_output_bytes=consent.maximum_output_bytes,
+    )
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    policy = json.loads(_serialize_prompt(request, prompt_name))["request"][
+        "locked_semantics_policy"
+    ]
+    assert "copy every object in __whole_scope_beat_groups__ byte-for-byte" in policy.lower()
+
+
 def test_truthful_uncertainty_after_repair_remains_terminal(
     tmp_path: Path,
 ) -> None:
@@ -842,10 +884,17 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
     prior_prompt_job = replace(
         current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v9"
     )
+    prior_schema_job = replace(
+        current_job, response_schema="m15-whole-scope-hierarchy-proposal-v2"
+    )
     profile = _profile()
     assert prior_prompt_job.job_id != current_job.job_id
+    assert prior_schema_job.job_id != current_job.job_id
     assert NarrativeMapRepository.cache_key(
         prior_prompt_job, profile
+    ) != NarrativeMapRepository.cache_key(current_job, profile)
+    assert NarrativeMapRepository.cache_key(
+        prior_schema_job, profile
     ) != NarrativeMapRepository.cache_key(current_job, profile)
     assert "repair_policy_version" not in NarrativeMapRepository.cache_identity(
         current_job, profile

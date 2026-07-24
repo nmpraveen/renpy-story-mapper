@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.narrative_map.provider import (
+    WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
+)
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA,
     M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA,
@@ -81,11 +84,15 @@ def _assert_provider_schema_subset(value: object) -> None:
 def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> None:
     schema_root = RESOURCE_ROOT / "schemas"
     hierarchy = json.loads((schema_root / "whole_scope_hierarchy_v2.schema.json").read_text())
+    transport = json.loads(
+        (schema_root / "whole_scope_hierarchy_v3.schema.json").read_text()
+    )
     editorial = json.loads((schema_root / "whole_scope_editorial_v1.schema.json").read_text())
 
     assert hierarchy["$id"] == M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
+    assert transport["$id"] == WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA
     assert editorial["$id"] == M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
-    _assert_provider_schema_subset([hierarchy, editorial])
+    _assert_provider_schema_subset([hierarchy, transport, editorial])
 
     hierarchy_names = _property_names(hierarchy)
     assert {"proposal_key", "ordered_unit_ids", "ordered_beat_keys"} <= hierarchy_names
@@ -93,6 +100,8 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
         {"title", "summary", "characters", "claims", "edges", "coordinates", "locators"}
     )
     assert hierarchy["properties"]["beat_groups"]["maxItems"] == 732
+    assert hierarchy["properties"]["beat_groups"]["minItems"] == 1
+    assert transport["properties"]["beat_groups"]["minItems"] == 0
     assert hierarchy["properties"]["major_clusters"]["maxItems"] == 16
 
     editorial_names = _property_names(editorial)

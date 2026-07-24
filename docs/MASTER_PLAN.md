@@ -1368,7 +1368,7 @@ beats byte-for-byte during repair, and unlocks only clusters. V10 then exhausted
 first response completed, but the cluster-only repair timed out while retransmitting 732 locked
 beats. Prompt v10/repair policy v11/product v6 now permit only that repair to return an empty beat
 list and rehydrate the exact validated locked beats locally before full validation. Combined
-provider-free tests pass 131/131 and repeated semantic review is `PASS`; independent exact-head
+provider-free tests pass 132/132 and repeated semantic review is `PASS`; independent exact-head
 rereview is pending.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,

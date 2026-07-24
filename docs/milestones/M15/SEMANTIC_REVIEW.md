@@ -355,11 +355,12 @@ or Stage E exists, and protected fingerprints remain unchanged. Result artifact 
 `9EF48ED5BE124D03A808392BB9D330B9BFCF5755EC0067575B6441E7E761A03F`.
 
 The choice-only repair still forced the provider to copy all 732 already validated beats into its
-response. Prompt v10, repair policy v11, product identity v6, and the changed versioned schema hash
-permit only this typed repair to return `beat_groups: []`. Python rehydrates the exact locked beat
+response. Prompt v10, repair policy v11, product identity v6, and new response schema v3 preserve
+immutable schema v2 while permitting only this typed repair to return `beat_groups: []`. Python
+rehydrates the exact locked beat
 objects before semantic-lock matching and the unchanged complete authority validator. Initial
 empty beat lists and repairs without locked beats still fail closed. Combined provider-free tests
-pass 131/131; Ruff and strict mypy over 115 source files pass. Lifecycle returns to repeated
+pass 132/132; Ruff and strict mypy over 115 source files pass. Lifecycle returns to repeated
 `Semantic review` with `PASS`, pending independent exact-head rereview.
 
 ## Gate decision
@@ -368,9 +369,10 @@ The observable done condition remains unchanged. The corrected Stage H projectio
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
 repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 remains
-current. Prompt v9 and product identity v5 invalidate prior job, cache, and consent-job identity;
-repair policy v10 additionally invalidates prior consent-manifest identity but does not
-independently enter the successful-result cache key.
+current. Prompt v10, response schema v3, and product identity v6 invalidate prior job, cache, and
+consent-job identity while immutable response schema v2 is preserved; repair policy v11
+additionally invalidates prior consent-manifest identity but does not independently enter the
+successful-result cache key.
 The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no

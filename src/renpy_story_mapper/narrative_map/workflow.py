@@ -1182,7 +1182,7 @@ def _hydrate_whole_scope_repair_payload(
 ) -> Mapping[str, object]:
     if (
         job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY
-        or "choice_cluster_split" not in repair_codes
+        or tuple(repair_codes) != ("choice_cluster_split",)
         or payload.get("beat_groups") != []
     ):
         return payload
