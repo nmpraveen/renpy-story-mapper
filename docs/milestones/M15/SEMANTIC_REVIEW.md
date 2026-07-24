@@ -9,7 +9,29 @@ Story Map V2 rewrite decision.
 
 Decision: REVISE
 
-## Current Phase 01 review result
+## Current transition decision
+
+Phase 01 is complete and the user accepted its vertical product direction, then requested the
+Phase 02 prompt. The frozen Phase 01 package remains valid evidence, but a fresh acceptance audit
+does not adopt the report's ~2.5k Luna normal target as a proven context limit. The four scopes
+contain different story material and each cell was sampled once; Luna's ~5.3k semantic result was
+strong but operationally quarantined, its ~8k defect was exact range transcription, and it passed
+the complete ~10.7k Day 1. Phase 02 therefore starts with natural ~8k corridors, splits
+branch-heavy material nearer ~5k, and retains ~10.7k as the current tested ceiling.
+
+The accepted AI/Python boundary is simple: AI writes approximate event and branch-outcome meaning;
+Python inserts exact captions, arm order, conditions, effects, rejoins, destinations, and route
+facts. Cloud Luna remains the initial mapper, Terra the later whole-story synthesizer, and there is
+no always-on auditor. The local Qwen mapper is an opt-in loopback fallback only for an explicit
+cloud content/safety refusal or a deliberate local/private run. It never handles unrelated
+provider errors, silently switches, censors text, or auto-starts/downloads/loads a model.
+
+Decision remains `REVISE`: the detailed Phase 02 handoff is approved for a new coordinator, but
+broad implementation must wait for that coordinator's single early semantic/architecture review.
+The required design must be a new simple V2 seam and must not recreate Stage H/E, atom allocation,
+adjacent-gap voting, hierarchy compilation, or exact prose replay under new names.
+
+## Completed Phase 01 review result
 
 V12 is terminally failed with `hierarchy_not_representable` after two calls, 484,092 input tokens,
 33,752 output tokens, and 618,327 ms. It created no hierarchy, logical record, or publication and
@@ -19,10 +41,10 @@ whole-story chronological overview, visible choices and branch outcomes, and sel
 entry-to-target witness paths.
 
 The existing Stage H/Stage E contract is therefore not semantically authorized for further broad
-implementation. Phase 01 is a bounded calibration and disposable vertical-proof experiment, not a
-product rewrite. It may perform read-only discovery, prepare private local artifacts, run the
-explicitly authorized capped Luna/Terra/Sol matrix, and build a local prototype outside tracked
-product code. Phase 02 remains unapproved.
+implementation. Phase 01 was a bounded calibration and disposable vertical-proof experiment, not
+a product rewrite. It performed read-only discovery, the explicitly authorized capped
+Luna/Terra/Sol matrix, and a local prototype outside tracked product code. Those actions are now
+complete historical evidence for the accepted V2 direction.
 
 ### Phase 01 authority and boundaries
 
@@ -484,10 +506,10 @@ exact-head review passed `6d99fd4` with no P0-P2.
 
 ## Gate decision
 
-The Stage H/Stage E semantic `PASS` is revoked for future work. Broad product implementation must
-stop until a later user-approved Story Map V2 contract resolves the product architecture. The
-approved Phase 01 experiment may proceed because it is bounded, read-only with respect to product
-code and original inputs, has explicit provider/privacy/call limits, and ends in user review rather
-than product implementation.
+The Stage H/Stage E semantic `PASS` is revoked for future work. Phase 01 is complete and accepted
+as direction. The Phase 02 coordinator handoff defines the next bounded objective, but broad
+implementation must wait for that new coordinator to freeze and pass the single early simple V2
+semantic/architecture review. That gate, not this transition note, authorizes Track A/Track B code.
+PR #26 remains draft and unmerged.
 
 REVISE

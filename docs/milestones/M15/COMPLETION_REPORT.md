@@ -22,9 +22,10 @@ requirements/effects/rejoins/endings, selectable entry-to-target witness paths, 
 approximate summaries. The lifecycle is `Revise`; the prior semantic `PASS` is revoked for future
 work.
 
-Only Phase 01 calibration and a disposable vertical proof are active. Phase 02 product
-implementation, broad product-code changes, push, PR mutation, merge, M14, and M15.1 completion
-remain unapproved or excluded. The native goal is left untouched during this experiment.
+Phase 01 calibration, the disposable vertical proof, and the separate local-model supplement are
+complete. The user declared Phase 01 done and requested the next-phase prompt. Phase 02 product
+implementation has not started; it must begin in a new coordinator with a single active goal and
+early semantic review. PR merge, Phase 03+, M14, and M15.1 completion remain excluded.
 
 The user rejected the prior M15 Story Map because it presented a wide generic engineering graph
 rather than a compact human-readable narrative. The previous `PR ready` status is revoked. M15.1 is
@@ -89,9 +90,10 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
 | Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
-| Story Map V2 Phase 01 | Ready for user review | Matrix closed at exactly 20 submissions with no retry/replacement. First final review found one P1 in path classification; the provider-free correction added zero calls and now selects Luna High/fast-off mapping, Terra synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna context. Rereview exposed a narrower setup-range equality hole; checker v3 rejects 18 adversarial mutations without changing the recommendation. Hardened independent rereview passed with P0/P1/P2 all zero. Terra's 16k/24k public-synthetic results remain alternative evidence and exact end-to-end dollar preference is unresolved. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. Actual user screenshot/model approval remains pending. |
+| Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Current whole-scope Stage E | Pending | Cannot prepare or execute until a frozen Stage H hierarchy passes blind membership review. |
+| Phase 02 handoff | Prepared, not started | Detailed coordinator prompt at `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`. Cloud stays primary; local Qwen is opt-in/refusal-only; Python owns exact mechanics; one early semantic gate precedes broad implementation. |
+| Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
 | Final Release and exact PR head | Pending | Run once after visual approval; PR must remain open and unmerged |
@@ -108,11 +110,11 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 
 ## Current limitations
 
-- Corrected implementation is integrated locally but the current hierarchy does not exist; the
-  existing PR remains intentionally behind until whole-scope live semantic, review, screenshot,
-  Release, and final-head gates pass.
-- Historical boundary/summary production is complete only for its superseded identity. Current
-  Stage H is failed and Stage E is pending; all private artifacts remain ignored and unstaged.
+- Rejected Stage H/E implementation is integrated locally in historical commits but no supported
+  replacement core exists yet. The existing PR remains intentionally behind until Phase 02 creates
+  the replacement and exact-head checks pass.
+- Historical boundary/summary production is complete only for its superseded identity. Stage H/E
+  is rejected for future supported work; all private artifacts remain ignored and unstaged.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
   installer/public distribution, and PR merge remain outside this correction.
 - The visible task surface can set model and reasoning but exposes no fast-mode selector; that

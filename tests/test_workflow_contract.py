@@ -43,8 +43,8 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
             "Blocked",
         )
     )
-    assert "Revised semantic gate: [`PASS`]" in state
+    assert "Revised semantic gate: [`REVISE`]" in state
     assert "docs/milestones/M15/GOAL.md" in state
-    assert "PR #22" in state
-    assert "f67df8a7cb805bf4adf8590585bae700d2f3117f" in state
+    assert "PR #26" in state
+    assert "55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719" in state
     assert "default_prompt" in interface

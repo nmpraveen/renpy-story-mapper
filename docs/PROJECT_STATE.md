@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
+Updated: 2026-07-24 (Phase 01 accepted; Phase 02 handoff prepared; lifecycle `Revise`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,17 +13,18 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: Revise. Stage H V12 completed as a failed historical attempt with
+- Status: In progress. The semantic decision remains `REVISE`. Stage H V12 completed as a failed historical attempt with
   `hierarchy_not_representable` after two calls, 484,092 input tokens, 33,752 output tokens, and
   618,327 ms. It produced no hierarchy, logical record, or publication and left protected inputs
   unchanged. The user rejected Stage H/Stage E for future supported work and approved Story Map V2
-  Phase 01 calibration and vertical proof only. Product implementation remains stopped; Phase 02
-  is unapproved.
-- Active Phase 01: empirically compare Luna/Terra/Sol at High for mapping, synthesis, and audit;
-  identify a practical context target and role configuration; build a disposable local whole-Day-1
-  vertical overview with visible branches and selectable witness paths; obtain independent review;
-  then stop for user judgment. Maximum 20 planned and 23 total provider submissions. No product
-  rewrite, push, PR mutation, merge, M14, second PR, new milestone, or M15.1 completion.
+  Phase 01 calibration and vertical proof. Phase 01 and the local-model supplement are now complete;
+  the user declared the phase done and requested the next-phase prompt. Product implementation has
+  not started. The detailed Phase 02 handoff is
+  `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md` and must begin in a new coordinator
+  task with a fresh single active goal and early semantic review.
+- Accepted Phase 01 outcome: the compact vertical whole-Day-1 overview, visible local choices, and
+  selectable witness paths are the product direction. The frozen experiment remains exact at 20
+  hosted submissions plus the separately authorized four local calls.
 - Phase 01 task topology: Calibration Preparation task
   `019f95b2-8214-7592-8c56-c10e28a7de5d`, Blind Matrix Reviewer task
   `019f95ce-57c2-7103-b416-8bb54592b79d`, and Vertical Prototype task
@@ -42,21 +43,32 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   correction v3 accepts only exact controls—including exact arm boundaries—retains the genuine
   large-Luna inverted-range failure, rejects 18 adversarial field/range mutations, adds zero calls,
   and preserves both earlier evidence states. The corrected
-  recommendation is Luna High/fast-off mapping, Terra High/fast-off synthesis, no default auditor,
-  a conservative ~2.5k normal Luna target, and ~10.7k validated Luna maximum. Terra's clean ~16k/
-  ~24k public-synthetic calls remain alternative-pipeline evidence; exact total dollar preference
-  is unresolved because Luna's cheaper tier requires many more estimated calls. The same
+  report recommendation is Luna High/fast-off mapping, Terra High/fast-off synthesis, no default
+  auditor, a conservative ~2.5k normal Luna target, and ~10.7k validated Luna maximum. A fresh
+  acceptance audit does not adopt ~2.5k as a production cutoff: the scopes contain different story
+  material, each cell was sampled once, and Luna passed the complete ~10.7k Day 1. Phase 02 instead
+  starts at natural ~8k corridors, splits branch-heavy material nearer ~5k, and keeps ~10.7k as the
+  current ceiling. Terra's clean ~16k/~24k public-synthetic calls remain transport/exploratory
+  evidence, not complex-story validation; exact total dollar preference remains unresolved. The same
   independent Sol/High reviewer recomputed checker v3, all 18 mutations, all 12 path cells, and the
-  full evidence/containment package and returned `PASS` with P0/P1/P2 all zero. Phase 01 is ready
-  for user review; screenshots and the model/context choice still require actual user approval.
+  full evidence/containment package and returned `PASS` with P0/P1/P2 all zero. The user accepted
+  the Phase 01 direction; no default auditor remains a provisional simplicity choice because P3
+  tested only a clean candidate.
 - The user-authorized local LM Studio supplement is complete: exactly four P1 mapper calls ran on
   the already-frozen small/medium/large/full inputs using installed model
   `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`. All four succeeded and were schema-valid;
   checker v3 passed medium/large/full and blocked small for four captions with literal surrounding
   quotation marks. Scores were 97.05 blocked, 96.35 eligible, 97.10 eligible, and 95.85 eligible.
   The separate localhost-only ledger records no retry/fallback and unchanged source/archive. The
-  original 20-call PASS package remains frozen; product work, Phase 02, push, and PR mutation remain
-  stopped.
+  original 20-call PASS package remains frozen. Cloud remains primary. Phase 02 may implement an
+  opt-in loopback fallback only for an explicit cloud content/safety refusal or a deliberate local
+  run; it must not auto-start/load/download LM Studio/model, handle unrelated failures by fallback,
+  or let AI own exact mechanics.
+
+- Git/PR checkpoint: the local integration branch is 133 commits ahead of PR #26's historical
+  remote failing-first head. The unpushed stack includes the rejected Stage H/E implementation, so
+  it is intentionally not pushed before a replacement exists. PR #26 is draft/not ready and must
+  remain open and unmerged through the later phases.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
@@ -91,8 +103,9 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
 - Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The Stage H/Stage E
-  `PASS` is revoked for future work; the bounded Phase 01 experiment may proceed without broad
-  product implementation. Historical v11 review evidence follows: the v11 uncertainty
+  `PASS` is revoked for future work. Phase 01 is complete; the new Phase 02 coordinator must freeze
+  and pass one early simple V2 semantic/architecture review before broad product implementation.
+  Historical v11 review evidence follows: the v11 uncertainty
   correction; independent exact-head review passed `6d99fd4` with no P0-P2. The earlier whole-scope
   `PASS` after transition commit `b5d08f5` is
   historical because its implementation audit missed
@@ -102,9 +115,9 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   coordinator gates.
 - Native Codex goal: tracked history records goal/task
   `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` for the rejected whole-scope Stage H/Stage E objective.
-  Phase 01 preflight found no active native goal in the current coordinator service. Per the
-  approved Phase 01 plan, the coordinator will not create, replace, complete, or claim to resume a
-  goal during this experimental phase.
+  Phase 01 preflight found no active native goal in the current coordinator service. The new Phase
+  02 Coordinator must create one goal for the bounded Phase 02 contract and retain it through its
+  implementation, integration, acceptance, review, and checkpoint push.
 - Interrupted-state recovery: integration HEAD `1c66cc3312e2af322f405c161df47a495cce617f`,
   branch/upstream divergence 48 ahead and zero behind, 13 modified tracked files, and two v4
   resources were verified. The v4 SHA-256 values matched the supplied checkpoint. The supplied

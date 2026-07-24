@@ -5,9 +5,11 @@ Last revised: 2026-07-24
 Status: M01 through M13 are complete and merged. M15.1 is the single active Story Map correction
 inside M15 and is in `Revise`. Stage H V12 failed with `hierarchy_not_representable` after two
 calls and produced no hierarchy, logical record, or publication. The user rejected Stage H/Stage E
-for future supported work and approved Story Map V2 Phase 01 calibration and vertical proof only.
-Phase 02 product implementation is unapproved; the same integration branch and open unmerged PR
-#26 continue. The prior semantic `PASS` is revoked for future work.
+for future supported work and approved the Story Map V2 rewrite direction. Phase 01 calibration,
+the disposable vertical proof, and the local-model supplement are complete. The user declared Phase
+01 done and requested the Phase 02 prompt. Phase 02 implementation has not started; the same
+integration branch and open draft/unmerged PR #26 continue. The prior semantic `PASS` is revoked
+for future work.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -15,8 +17,13 @@ synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna
 caught a narrower setup-arm range-equality hole, now hardened by checker v3 with 18 adversarial
 mutations rejected and no selection change. Terra's 16k/24k public-synthetic passes remain
 alternative evidence. Hardened independent rereview passed with P0/P1/P2 all zero. Phase 01 is
-ready for user review, while screenshot/model approval remains pending; no Phase 02 or product
-implementation is authorized.
+accepted for its visual/product direction. A fresh acceptance audit found that the report's ~2.5k
+normal Luna rule is not an established context limit because the scopes contain different story
+material, each cell was sampled once, and Luna passed the complete ~10.7k private Day 1. Phase 02
+will begin with natural ~8k corridors, split branch-heavy material nearer ~5k, retain ~10.7k as the
+tested ceiling, and measure actual workflow economics. Luna remains the initial low-cost mapper,
+Terra remains the later whole-story synthesizer and balanced mapper alternative, and no always-on
+auditor is planned.
 
 The user's 2026-07-24 follow-up authorized and completed a separate localhost-only LM Studio
 supplement: one P1 mapper call at each frozen small/medium/large/full Day 1 scope using the exact
@@ -24,9 +31,10 @@ installed Qwen model, with a four-call ceiling, no retry/fallback, unchanged sou
 outside-Git evidence. All four calls succeeded and were schema-valid; checker v3 passed medium,
 large, and full, while small was blocked because literal surrounding quotation marks made all four
 captions inexact. Weighted scores were 97.05 blocked, 96.35 eligible, 97.10 eligible, and 95.85
-eligible. The result is useful local-draft evidence but does not supersede the Phase 01 hosted-model
-recommendation. The original 20-call package and its PASS remain immutable historical evidence; no
-P2/P3, context extension, product work, Phase 02, push, or PR mutation was authorized or performed.
+eligible. The result supports an opt-in loopback mapper fallback for explicit cloud content/safety
+refusals or deliberate local/private runs. Cloud stays primary; fallback never auto-installs,
+starts, loads, censors, or enters retry cascades, and Python owns exact mechanics. The original
+20-call package and its PASS remain immutable historical evidence.
 
 Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
 uncertainty correction passed independent exact-head review. Its
@@ -1386,18 +1394,17 @@ and unresolved items.
 
 ## 11. Current next action
 
-Execute Story Map V2 Phase 01 only: freeze the starting state and reconciled `Revise` lifecycle;
-prepare coherent Day 1 packets, mechanics digests, and frozen generic prompts without provider
-calls; run the capped Luna/Terra/Sol High matrix with exact identity/settings/accounting; score it
-blind with deterministic path-critical checks; select the cheapest eligible role configuration;
-build and capture a disposable local whole-Day-1 vertical prototype with five representative
-witness paths; verify privacy, source/archive immutability, call ceilings, zero remote requests on
-open, and PR #26 non-mutation; obtain a separate independent final review; then present the report,
-matrix, prototype, screenshots, and recommendation for user judgment.
+Start one new user-visible Phase 02 Coordinator task with
+`docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`. It must create one active Phase 02 goal,
+run the repository's single early semantic-review gate, and then coordinate separate visible
+worktree tracks for the simple Story Map V2 core and cloud/refusal-local-fallback execution. The
+supported flow is coherent source chunks → AI narrative summaries → Python-owned exact mechanics →
+one chronological core record. It must not revive Stage H/E under new names.
 
-Do not implement Phase 02, broadly change tracked product code, delete historical Stage H/Stage E
-systems, push, mutate or merge PR #26, start M14, create a second PR or milestone, or claim M15.1
-complete.
+Use natural ~8k story corridors, split branch-heavy material nearer ~5k, and stay below the current
+~10.7k validated ceiling. Cloud Luna High/fast-off is the initial mapper; local Qwen is opt-in and
+refusal-only; no default auditor or Phase 03 Terra synthesis runs in Phase 02. Keep PR #26 draft and
+unmerged. Do not start Phase 03+, M14, a second PR/milestone, or claim M15.1 complete.
 
 ### Rejected historical next action
 

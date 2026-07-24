@@ -9,9 +9,12 @@ and approved a clean Story Map V2 rewrite direction. The prior semantic `PASS` i
 future work. Historical implementation and evidence remain readable below but do not authorize
 product implementation.
 
-Current authorization: Phase 01 calibration and vertical proof only. Phase 02 product
-implementation, broad product refactoring, PR mutation, M14 work, and milestone completion are not
-authorized.
+Current authorization: Phase 01 is complete and accepted as the basis for a separately coordinated
+Phase 02 core rewrite. This handoff task may record the decision, write the Phase 02 coordinator
+prompt, and correct PR #26 to draft/not-ready status. It must not implement Phase 02. Phase 02 begins
+only when the user starts the new coordinator with
+`docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`; Phase 03+, M14, PR merge, and milestone
+completion remain unauthorized.
 
 Current Phase 01 evidence: the 20-call experiment and disposable prototype are complete. The first
 independent final review found one path-classification P1; a provider-free correction now selects
@@ -19,7 +22,12 @@ Luna mapping, Terra synthesis, no default auditor, and a conservative ~2.5k norm
 Luna context policy. Rereview caught a narrower setup-range equality hole, now hardened by checker
 v3 with 18 adversarial mutations rejected and no selection change. Terra's 16k/24k public-synthetic
 results are retained as alternative evidence. Hardened independent rereview passed with P0/P1/P2
-all zero. Phase 01 is ready for user review; user screenshot/model approval remains required.
+all zero. The user declared Phase 01 done and requested the next-phase prompt. A fresh acceptance
+audit approves the vertical product direction but rejects the report's ~2.5k Luna default as a
+proven context limit: the scopes contain different material, each cell was sampled once, and Luna
+passed full ~10.7k Day 1. Phase 02 will start at natural ~8k corridors, split branch-heavy material
+nearer ~5k, retain ~10.7k as the tested ceiling, and measure the real workflow before claiming the
+cheapest complete pipeline.
 
 User-approved local-model supplement (2026-07-24): run exactly four additional localhost-only P1
 mapper evaluations against the already-frozen small, medium, large, and full Day 1 inputs using
@@ -36,6 +44,13 @@ literal surrounding quotation marks on all four captions. Weighted results are 9
 96.35 eligible, 97.10 eligible, and 95.85 eligible for small through full. Source/archive hashes
 remained unchanged. This makes the local model useful for draft mapping but does not supersede the
 hosted Phase 01 recommendation or authorize any later phase.
+
+Phase 02 cloud/local decision: cloud remains primary with Luna High/fast-off as the initial mapper
+and Terra High/fast-off reserved for later whole-story synthesis. No always-on auditor is planned.
+The local Qwen mapper is an opt-in backup only for an explicit hosted content/safety refusal or a
+deliberate local/private run. Python, not AI, owns exact captions, arm order, conditions, effects,
+rejoins, destinations, and route facts. Local fallback must reuse the refused packet, stay
+loopback-only, never form a retry cascade, and never auto-download/start/load LM Studio or a model.
 
 ## Active Phase 01 done condition
 
