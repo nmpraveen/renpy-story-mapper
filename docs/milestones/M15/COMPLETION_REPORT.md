@@ -35,7 +35,10 @@ Stage E has not run. Source/archive/accepted-baseline fingerprints remained unch
 policy v3 without weakening fail-closed behavior. Repeated semantic review is `PASS`; its first
 exact-head review found one P1/two P2 lifecycle-evidence corrections while passing the runtime
 design. Those findings and two suggested uncertainty regressions are corrected; exact-head
-rereview remains required before a fresh zero-submit manifest.
+rereview passed `e33b773` with no P0-P2. The expanded M15.1/product set passed 106 tests, the full
+functional repository suite passed 1,498 tests with five expected skips, and the deselected
+load-sensitive M06 benchmark passed separately at 1.97 seconds. Fresh zero-submit preparation is
+now permitted.
 
 ## Evidence status
 

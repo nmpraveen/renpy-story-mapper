@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at uncertainty-repair exact-head rereview)
+Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 

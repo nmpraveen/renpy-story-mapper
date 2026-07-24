@@ -171,7 +171,11 @@ reviews are distinguished, and the completion report labels historical productio
 Two additional reviewer-suggested regressions prove that an unlocked uncertain proposal may
 legitimately regroup units and that repeated truthful uncertainty remains terminal. The expanded
 M15.1/product set passes 106/106; the three uncertainty-specific tests pass; Ruff and strict mypy
-remain clean. Exact-head rereview remains mandatory before live preparation.
+remain clean. Independent rereview returned `PASS` at exact head
+`e33b77384364ad37b9febbe5944a21aca8217af8` with no P0-P2. The full functional repository suite
+then passed 1,498 tests with five expected opt-in skips and the known load-sensitive M06 benchmark
+deselected; that benchmark passed separately at 1.97 seconds. Live zero-submit preparation may now
+proceed from this reviewed correction.
 
 ## Gate decision
 
@@ -181,8 +185,8 @@ typed authority seam before durable state or consent, preserves valid retained i
 repair, and proves every legal repair envelope remains below its sterile ceiling. Identity changes
 invalidate the exhausted manifest and all older cache/consent paths. The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
-`a7997b1` passed independent review with no P0-P2; this prompt/policy correction remains subject to
-its own exact-head rereview before another live call.
+`a7997b1` passed independent review with no P0-P2; this prompt/policy correction independently
+passed exact-head rereview at `e33b773` with no P0-P2.
 
 The semantic gate is `PASS`. Manifest `consent_5181073c41933f07c2ccc887` is exhausted and cannot be
 reused. Commit `70f60eb` changes the prompt and repair-policy identities, so the next Stage H run

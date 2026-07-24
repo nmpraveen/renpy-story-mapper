@@ -1337,8 +1337,9 @@ M15.1 is the single active correction inside M15. Its native goal remains active
 manifest `consent_5181073c41933f07c2ccc887` executed while valid, exhausted its initial plus one
 repair, and failed closed with `uncertain_membership` without publishing a hierarchy. Commit
 `70f60eb` corrects the contradictory prompt/repair policy with new consent identity while
-preserving truthful fail-closed uncertainty; repeated semantic review is `PASS`. The next action is
-independent exact-head review, then a fresh zero-submit Stage H manifest and bounded execution.
+preserving truthful fail-closed uncertainty; repeated semantic review is `PASS`, and independent
+exact-head rereview passed `e33b773` with no P0-P2. The next action is a fresh zero-submit Stage H
+manifest and bounded execution.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
