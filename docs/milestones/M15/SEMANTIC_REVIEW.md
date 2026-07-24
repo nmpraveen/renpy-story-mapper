@@ -81,7 +81,9 @@ synthesis, and no default auditor. Its conservative Luna policy is ~2.5k normal 
 validated maximum. Terra's already-run 16k/24k public-synthetic passes remain valid evidence for a
 higher-throughput alternative, but do not extend Luna's validation. The supplied tier order favors
 Luna per call; exact end-to-end dollar preference remains unresolved because the conservative Luna
-policy implies many more calls. Independent rereview and user screenshot approval remain pending.
+policy implies many more calls. The same independent Sol/High reviewer recomputed the hardened
+package and returned `PASS` with P0/P1/P2 all zero. Phase 01 is ready for user review; user
+screenshot approval remains pending.
 
 ## Historical Stage H/Stage E review result
 

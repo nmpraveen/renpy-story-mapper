@@ -14,7 +14,8 @@ review found one path-classification P1; its provider-free correction selects Lu
 synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna context. Rereview
 caught a narrower setup-arm range-equality hole, now hardened by checker v3 with 18 adversarial
 mutations rejected and no selection change. Terra's 16k/24k public-synthetic passes remain
-alternative evidence. Hardened rereview and user approval remain pending; no Phase 02 or product
+alternative evidence. Hardened independent rereview passed with P0/P1/P2 all zero. Phase 01 is
+ready for user review, while screenshot/model approval remains pending; no Phase 02 or product
 implementation is authorized.
 
 Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
