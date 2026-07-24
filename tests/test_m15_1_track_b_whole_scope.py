@@ -604,7 +604,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     envelope = json.loads(request.stdin)
     assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v5"
     prompt = json.dumps(envelope).lower()
-    assert "each ordered_unit_ids array must contain unique unit ids" in prompt
+    assert "each ordered_unit_ids array must contain unique, nonempty, trimmed unit ids" in prompt
     assert "trimmed" in prompt
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
@@ -1640,7 +1640,7 @@ def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Pa
     )
     assert "into beat_groups exactly once with the same proposal_key" in lock_policy
     guidance = " ".join(envelope["request"]["repair_guidance"])
-    assert "Each ordered_unit_ids array must contain unique unit IDs" in guidance
+    assert "Each ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs" in guidance
     assert "trimmed" in guidance
     assert "between 0 and 1" in guidance
 

@@ -115,7 +115,7 @@ def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids(
     assert "cite only supplied evidence ids" in combined
     assert "semantic ambiguity alone" in combined
     assert "singleton beat" in combined
-    assert "each ordered_unit_ids array must contain unique unit ids" in combined
+    assert "each ordered_unit_ids array must contain unique, nonempty, trimmed unit ids" in combined
     assert "trimmed" in combined
 
 

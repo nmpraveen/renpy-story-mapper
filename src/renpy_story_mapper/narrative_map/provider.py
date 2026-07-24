@@ -79,7 +79,8 @@ _SEMANTIC_REPAIR_GUIDANCE = {
 _WHOLE_SCOPE_REPAIR_GUIDANCE = {
     "invalid_beat_group": (
         "Replace every rejected beat group and return the complete Stage H envelope. Each "
-        "ordered_unit_ids array must contain unique unit IDs, with no duplicate inside a group. "
+        "ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs, with no duplicate "
+        "inside a group. "
         "Every proposal_key, reason, and warning must be nonempty and trimmed; proposal_key is at "
         "most 48 characters, reason at most 80, and each warning at most 64. Confidence must be a "
         "number between 0 and 1, warnings must contain at most one unique string, and every beat "
