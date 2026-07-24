@@ -1,6 +1,6 @@
 # M15.1 semantic review
 
-Date: 2026-07-23
+Date: 2026-07-24
 
 Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 
@@ -130,7 +130,37 @@ checks, and nine synthetic cases with zero provider calls and zero game executio
   architecture, integration, debugging, correctness, security, semantic, and review task. The task
   surface has no fast-mode selector, so fast mode is unavailable/unverified. The live product
   profile remains `gpt-5.6-sol`, Medium reasoning, fast mode off.
-- This resumption and historical consent do not authorize Stage H or Stage E provider transmission.
+- On 2026-07-24 the user granted standing authorization for all remaining M15.1 gates and bounded
+  provider runs through completion. Exact manifests, freshness, identity, privacy, and resource
+  limits remain mandatory audit controls, but routine per-manifest approval pauses are removed.
+
+## 2026-07-24 uncertainty-repair correction
+
+Fresh v4 manifest `consent_5181073c41933f07c2ccc887` executed while valid under the user's exact
+authorization. It used one initial Stage H call and one targeted repair, then failed closed with
+`uncertain_membership`: 482,491 input tokens, 14,385 output tokens, and no hierarchy, logical
+record, publication, or Stage E activity. Source, archive, and accepted-baseline fingerprints
+remained unchanged. The failure artifact SHA-256 is
+`E68A26B5434116DF1463445CF1EC4994D2A797B74CE6A4722C37C1436852269B`.
+
+The lifecycle returned to `Revise`. The validator correctly rejects nonempty
+`uncertain_unit_ids`, and the semantic lock correctly unlocks rejected hierarchy groups; Python
+does not clear uncertainty. The defect was a prompt/repair-policy contradiction: the initial
+prompt invited uncertain IDs while the generic targeted-repair instruction did not explain that
+`uncertain_membership` cannot produce an accepted hierarchy. A failing-first regression reproduced
+that omission. Commit `70f60eb` introduces prompt identity
+`m15-whole-scope-hierarchy-prompt-v3` and consent-bound repair policy
+`m15-whole-scope-targeted-repair-v3`. The repair now requires evidence-based re-evaluation,
+permits an empty uncertainty list only after confident placement, and explicitly requires truthful
+uncertainty to remain so the run still fails closed. The focused correction tests passed 2/2; the
+broader M15.1/product set passed 104/104; Ruff and strict mypy passed. The full repository run had
+1,496 passes, five expected skips, and only the known hardware-sensitive M06 timing threshold at
+2.035 seconds; that exact benchmark passed immediately in isolation at 1.86 seconds.
+
+The corrected contract preserves every authority and privacy boundary, changes consent/cache
+identity, and does not weaken uncertainty handling. The lifecycle therefore moved through
+`Semantic review` and returns to `In progress` with a repeated semantic `PASS`, pending independent
+exact-head review and a fresh zero-submit manifest.
 
 ## Gate decision
 
@@ -142,11 +172,12 @@ invalidate the exhausted manifest and all older cache/consent paths. The impleme
 subordinate to M10/M11 authority, provider text remains transient, and independent review plus
 coordinator gates show no unresolved P0-P2.
 
-The semantic gate is `PASS`. The user explicitly approved exceeding four total Day 1 submissions
-with at most two additional Stage H calls. Expired v3 consent was not used. Fresh zero-submit
-manifest `consent_5181073c41933f07c2ccc887`, expiring `2026-07-24T14:25:53.093664Z`, is prepared
-with unchanged reviewed identities and zero provider construction/reservations/calls/tokens. A live
-Stage H call remains forbidden until the user separately approves that exact fresh manifest.
-Stage E remains unprepared and separately consent-gated.
+The semantic gate is `PASS`. Manifest `consent_5181073c41933f07c2ccc887` is exhausted and cannot be
+reused. Commit `70f60eb` changes the prompt and repair-policy identities, so the next Stage H run
+requires a fresh zero-submit preparation and exact manifest audit. The user's standing
+authorization permits the coordinator to execute that fresh bounded manifest without another
+routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
+verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
+own fresh exact manifest under the same audit discipline.
 
 PASS

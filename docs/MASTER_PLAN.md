@@ -3,14 +3,16 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in progress at the fresh corrected Stage H exact-consent gate. Its
+correction inside M15 and is in progress at the v4 uncertainty-repair correction review. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
 semantic `PASS`, but the live Stage H audit then proved that the request projection omitted the
 required story evidence and structural context. A failing-first typed-authority and repair-bound
-correction passed independent exact-head review and coordinator gates, so the semantic gate has
-again returned `PASS`; the active native goal, existing integration branch, and open PR #26 continue.
+correction passed independent exact-head review and coordinator gates. A later v4 live run failed
+closed on `uncertain_membership`; prompt/repair correction `70f60eb` now has repeated semantic
+`PASS` and awaits exact-head review. The active native goal, existing integration branch, and open
+PR #26 continue.
 M14 remains deferred. M13
 implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
@@ -1183,8 +1185,8 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: In progress at the fresh corrected Stage H exact-consent gate after a repeated semantic
-`PASS`. The 2026-07-21 adjacent-gap-only `PASS`
+Status: In progress after the failed v4 Stage H uncertainty run returned through `Revise`, a
+failing-first prompt/repair correction, and repeated semantic `PASS`. The 2026-07-21 adjacent-gap-only `PASS`
 remains revoked. The first whole-scope implementation also returned to `Revise` after live Stage H
 proved that its request sent IDs without the evidence and structural context required for semantic
 grouping. The corrected v2 input/response/prompt and v4 product identity now bind exact typed
@@ -1329,16 +1331,17 @@ and unresolved items.
 
 ## 11. Current next action
 
-M15.1 is the single active correction inside M15. Its native goal has resumed at the fresh
-corrected Stage H exact-consent gate and the
-semantic gate has a repeated `PASS` after the reviewed criterion-3 request correction. Fresh
-isolated zero-submit preparation produced exact Stage H manifest
-`consent_5181073c41933f07c2ccc887`, expiring `2026-07-24T14:25:53.093664Z`. The user explicitly
-approved exceeding four total Day 1 submissions with at most two additional Stage H calls; only
-this fresh exact manifest consent remains pending. Only after that approval may Stage H run; a
-successful frozen hierarchy must then be reviewed blind before
+M15.1 is the single active correction inside M15. Its native goal remains active. Exact Stage H
+manifest `consent_5181073c41933f07c2ccc887` executed while valid, exhausted its initial plus one
+repair, and failed closed with `uncertain_membership` without publishing a hierarchy. Commit
+`70f60eb` corrects the contradictory prompt/repair policy with new consent identity while
+preserving truthful fail-closed uncertainty; repeated semantic review is `PASS`. The next action is
+independent exact-head review, then a fresh zero-submit Stage H manifest and bounded execution.
+The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
+per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
+and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
 separately presenting Stage E for consent. After final blind/private review, obtain user approval
 of actual final-head screenshots and run one final Release/package/PR-head gate on existing open
-unmerged PR #26. Do not infer provider consent, exceed four Day 1 submissions without that explicit
-approval, create a replacement integration branch or second PR, expand to full-game scope, begin
+unmerged PR #26. Do not exceed each exact manifest's bounded call limit, create a replacement
+integration branch or second PR, expand to full-game scope, begin
 M14, merge the PR, or commit private evaluation material.

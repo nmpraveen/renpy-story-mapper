@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at fresh corrected Stage H exact-consent gate)
+Updated: 2026-07-24 (M15.1 In progress at reviewed uncertainty-repair correction)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,17 +13,20 @@ Updated: 2026-07-24 (M15.1 In progress at fresh corrected Stage H exact-consent 
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. The native goal resumed on 2026-07-24 and the corrected Stage H
-  exact-consent gate remains the current step after a repeated semantic `PASS`. Live Stage H proved
+- Status: In progress. The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
   speaker, source, and structural ownership context. Approved manifest
   `consent_c988d3b944a81c177303d32f` exhausted both calls without producing a hierarchy. The
   failing-first typed-authority and repair-bound correction is now integrated and independently
   reviewed with no P0-P2. The user explicitly approved exceeding four total Day 1 submissions with
-  at most two additional Stage H calls. The expired v3 manifest was not used; a fresh exact v4
-  manifest is prepared provider-free and awaits its separate exact consent. Stage E remains
-  unauthorized.
+  at most two additional Stage H calls. V4 then used both calls and failed closed with
+  `uncertain_membership`, creating no hierarchy or publication. The lifecycle returned through
+  `Revise`; failing-first prompt/repair correction `70f60eb` now has repeated semantic `PASS` and
+  awaits independent exact-head review before a fresh zero-submit manifest. The user's latest
+  standing authorization removes routine per-manifest approval pauses while exact identity,
+  freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage E remains
+  impossible until Stage H freezes.
   The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
@@ -164,7 +167,12 @@ Updated: 2026-07-24 (M15.1 In progress at fresh corrected Stage H exact-consent 
   unchanged. The working copy is 12,124,160 bytes at SHA-256
   `2349fe6c6a9e7f0bace214b71990bb4db8bd78f480ba145dcc74aa707513aeee`; preparation artifact
   SHA-256 is `5DD286EE293A67EC6567E99A2F439EDEEBB384ADFF0A18091C7B88F7B16A448C`.
-  Transmission remains forbidden until the user explicitly approves this exact fresh manifest.
+  The manifest executed while valid and is now exhausted. It consumed two submissions, failed
+  `uncertain_membership`, recorded 482,491 input tokens and 14,385 output tokens, and produced no
+  hierarchy, logical record, or publication. Failure artifact SHA-256 is
+  `E68A26B5434116DF1463445CF1EC4994D2A797B74CE6A4722C37C1436852269B`; source/archive/accepted
+  baseline remained unchanged. The prompt/repair contradiction found from this failure is corrected
+  at `70f60eb` with new prompt and repair-policy identities; old consent cannot be reused.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
