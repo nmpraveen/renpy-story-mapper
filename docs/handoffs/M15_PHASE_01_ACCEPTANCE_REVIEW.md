@@ -39,6 +39,13 @@ Luna's real total quality/call economics are worse.
 The no-default-auditor choice remains appropriate for simplicity, but the Phase 01 audit tested
 only one clean candidate. It does not prove that selective review can never help.
 
+Other non-blocking limits: Terra's 16k/24k synthetic extensions demonstrate transport/JSON capacity,
+not comprehension of an equally complex story; the measured latency/tokens include Codex harness
+overhead; and the independent rereview predates the final packaging/local-supplement edits. The
+later final manifests match the current artifacts, so these limits do not overturn the prototype or
+cloud/local conclusions, but Phase 02 must measure its own supported workflow instead of treating
+Phase 01 estimates as production guarantees.
+
 ## Local fallback policy
 
 - Cloud is primary.
