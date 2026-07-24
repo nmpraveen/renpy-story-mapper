@@ -30,8 +30,16 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
   unavailable/unverified. Its provider-free preparation manifest SHA-256 is
   `78f08dce903dbd64556cb32b8432ad31c7dc680644e8c4a3e9ddc0db9804fbbd`; all verification passed
-  with zero provider/network/game/Git/PR actions. The P1 coordinator matrix is now ready to run.
-  Blind Matrix Reviewer, Vertical Prototype, and Final Phase 01 Reviewer tasks remain undispatched
+  with zero provider/network/game/Git/PR actions. The coordinator completed all 12 planned P1
+  submissions with no retry or replacement. Ten cells are operationally clean; two cells returned
+  valid schema-conforming semantic responses but performed an unauthorized read-only local skill
+  read and are quarantined from final selection. Deterministic path checks passed 10/12; the two
+  failures are frozen for independent scoring. Blind Matrix Reviewer task
+  `019f95ce-57c2-7103-b416-8bb54592b79d` is active in separate worktree
+  `C:/Users/prave/.codex/worktrees/2ed5/Renpy` from exact commit `d91fd3b`, with model identities,
+  provider metadata, path-check outcomes, and the private identity key withheld. It uses
+  `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
+  unavailable/unverified. Vertical Prototype and Final Phase 01 Reviewer remain undispatched
   until their dependencies freeze.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
