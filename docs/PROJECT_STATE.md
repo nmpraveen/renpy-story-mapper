@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
+Updated: 2026-07-24 (M15.1 In progress at fresh exact Stage H v5 execution)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -174,6 +174,20 @@ Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
   `E68A26B5434116DF1463445CF1EC4994D2A797B74CE6A4722C37C1436852269B`; source/archive/accepted
   baseline remained unchanged. The prompt/repair contradiction found from this failure is corrected
   at `70f60eb` with new prompt and repair-policy identities; old consent cannot be reused.
+- Fresh corrected Stage H v5 preparation: after exact-head review `PASS` at `f44ab19`, the unchanged
+  accepted baseline was copied to isolated
+  `output/m15-1-whole-scope-acceptance-v5-20260724/msday1-working.rsmproj`. A provider-forbidden
+  preparation created exact manifest `consent_14655be0e14020371cdf104f`, expiring
+  `2026-07-24T15:12:27.164065Z`, for build `whole_scope_build_f976f648d0f606eaa1b74c0b`.
+  It binds prompt `m15-whole-scope-hierarchy-prompt-v3`, repair policy
+  `m15-whole-scope-targeted-repair-v3`, response schema v2, prompt hash
+  `3168131c5200e2e2f0ede5e118636f6914a61c2c751430d43103e0b70d33bae4`, input hash
+  `8e3c4659a61ba0cd07ae57d90df41cb025974c4bc26b7a68e522cff6e149081a`, and the unchanged
+  authority/source/schema/provider/privacy/limit identities. Initial envelope is 644,718 bytes;
+  provider constructions, reservations, calls, tokens, records, hierarchy, and publication are
+  zero/absent. Source/archive/accepted baseline are unchanged. Preparation artifact SHA-256 is
+  `84957AF6D27D1B4918D4A7B7A336C90655791BEAA73A82965B69536A6EBCD5E4`. The user's standing
+  authorization permits exact bounded execution without another approval pause.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
