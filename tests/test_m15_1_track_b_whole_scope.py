@@ -602,7 +602,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v3"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v4"
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
@@ -638,6 +638,8 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     guidance = " ".join(envelope["request"]["repair_guidance"])
     assert "uncertain_unit_ids must be []" in guidance
     assert "Never clear uncertainty mechanically" in guidance
+    assert "Semantic ambiguity alone" in guidance
+    assert "singleton beat" in guidance
     lock_policy = envelope["request"]["locked_semantics_policy"]
     assert "__whole_scope_beat_groups__" in lock_policy
     assert "beat_groups" in lock_policy
@@ -646,7 +648,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert "major_clusters" in lock_policy
     assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v4"
+        "m15-whole-scope-targeted-repair-v5"
     )
 
 

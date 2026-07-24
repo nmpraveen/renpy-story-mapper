@@ -104,7 +104,7 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
 
 def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids() -> None:
     prompt_root = RESOURCE_ROOT / "prompts"
-    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v3.json").read_text())
+    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v4.json").read_text())
     editorial = json.loads((prompt_root / "whole_scope_editorial_v1.json").read_text())
     combined = json.dumps([hierarchy, editorial]).lower()
 
@@ -113,6 +113,8 @@ def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids(
     assert "non-authoritative" in combined
     assert "group only supplied authority-bound unit ids" in combined
     assert "cite only supplied evidence ids" in combined
+    assert "semantic ambiguity alone" in combined
+    assert "singleton beat" in combined
 
 
 def test_hierarchy_allows_temporary_keys_but_requires_exact_proposal_coverage() -> None:

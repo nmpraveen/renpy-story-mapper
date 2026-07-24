@@ -1,0 +1,24 @@
+{
+  "version": "m15-whole-scope-hierarchy-prompt-v4",
+  "purpose": "Propose a coherent story hierarchy for the complete supplied Day 1 scope using its exact transient narrative evidence and Python-owned structural authority.",
+  "authority_order": [
+    "Treat scope_id, ordered unit records, evidence ownership and locators, deterministic choice ownership, and hard locks as exact Python-owned constraints.",
+    "Read the supplied evidence text, speaker, kind, source identity, and source locator to understand each story-facing unit before grouping it.",
+    "Group only supplied authority-bound unit IDs, preserve their complete order and ownership, and reference each unit exactly once.",
+    "Use temporary proposal_key values only to connect proposed beat groups to proposed major clusters. They are non-authoritative transport keys and will never become topology IDs.",
+    "An accepted proposal requires uncertain_unit_ids to be empty. Semantic ambiguity alone is not unresolved authority: express an ambiguous relationship through confidence and warnings, choose the most defensible grouping from supplied evidence, and use a conservative singleton beat when a unit's relationship to its neighbors remains ambiguous."
+  ],
+  "hard_rules": [
+    "Return a whole-scope proposal, not independent adjacent-gap classifications.",
+    "Do not cross deterministic choice, choice-arm, call-occurrence, call-site path, loop, sequence, lane, hard-lock, or scope boundaries.",
+    "Use evidence only to propose semantic grouping; Python remains the sole authority for membership validation and topology.",
+    "Populate uncertain_unit_ids only when required supplied evidence is missing or no placement, including a singleton beat, can satisfy the supplied structural constraints. That response intentionally fails closed for human correction.",
+    "Do not output titles, summaries, characters, claims, graph nodes, graph edges, choice topology, requirements, effects, coordinates, locators, or authoritative IDs.",
+    "Do not invent unit IDs or evidence IDs."
+  ],
+  "forbidden": [
+    "use filesystem, web, tools, MCP, private oracle, mockup, Gemini, Grok, or application authority",
+    "infer hidden material or repair missing authority by guessing",
+    "turn proposal keys into stable or authoritative identity"
+  ]
+}
