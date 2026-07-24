@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
+Updated: 2026-07-24 (Phase 02 early semantic review passed; shared freeze next)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,13 +13,13 @@ Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: `Semantic review` / `REVISE`. The user started the approved Phase 02 coordinator
+- Status: `Ready`; semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded
-  correction reconciles lifecycle authority and specifies deterministic branch-event lineage,
+  correction reconciled lifecycle authority and specifies deterministic branch-event lineage,
   self-contained V2 transports with a transitive dependency gate, and deliberate local-only
-  execution. Broad product implementation remains paused until the same reviewer returns `PASS`
-  on the corrected exact head. Stage H V12 remains a failed
+  execution. The same reviewer rereviewed corrected exact head `4d32f08` and returned `PASS` with
+  no unresolved P0-P2. Shared contract/failing-first work may begin. Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
   and left protected inputs unchanged. Phase 01 and its local-model supplement remain accepted
@@ -119,10 +119,10 @@ Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The Stage H/Stage E
+- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). The Stage H/Stage E
   `PASS` is revoked for future work. Phase 01 is complete; the Phase 02 coordinator froze the
-  simple V2 contract/design and received `REVISE` on its first early review. One bounded
-  correction is pending same-task rereview before broad product implementation.
+  simple V2 contract/design, received `REVISE` on its first early review, applied the one bounded
+  correction, and received same-task rereview `PASS` at `4d32f08` with no P0-P2.
   Historical v11 review evidence follows: the v11 uncertainty
   correction; independent exact-head review passed `6d99fd4` with no P0-P2. The earlier whole-scope
   `PASS` after transition commit `b5d08f5` is

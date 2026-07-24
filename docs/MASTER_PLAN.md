@@ -3,13 +3,14 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active Story Map correction
-inside M15 and is in Phase 02 `Semantic review`. Stage H V12 failed with
+inside M15 and is Phase 02 `Ready`. Stage H V12 failed with
 `hierarchy_not_representable` after two
 calls and produced no hierarchy, logical record, or publication. The user rejected Stage H/Stage E
 for future supported work and approved the Story Map V2 rewrite direction. Phase 01 calibration,
 the disposable vertical proof, and the local-model supplement are complete. The user started the
 approved Phase 02 core rewrite, locked one simple V2 contract/design, and activated its exact
-native goal. Broad implementation waits for the separate early semantic reviewer. The same
+native goal. The separate early semantic review passed exact head `4d32f08` with no unresolved
+P0-P2. The same
 integration branch and open draft/unmerged PR #26 continue; the rejected Stage H/E `PASS` remains
 historical only.
 
@@ -1222,12 +1223,14 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Phase 02 `Semantic review`. Stage H V12 failed terminally with
+Status: Phase 02 `Ready`; semantic decision `PASS`. Stage H V12 failed terminally with
 `hierarchy_not_representable`; the user rejected Stage H/Stage E as the future supported semantic
 architecture. Phase 01 calibration, its disposable vertical proof, and the local-model supplement
 are complete and accepted. The user started the bounded Story Map V2 Phase 02 core rewrite, one
-matching native goal is active, and broad implementation waits for the required early reviewer
-`PASS`. Phase 03+, M14, PR merge, and milestone completion remain excluded.
+matching native goal is active. The required early reviewer returned `REVISE` once, the one
+bounded correction closed its four P1s, and same-task rereview passed exact head `4d32f08` with no
+unresolved P0-P2. Shared contract/failing-first work may begin. Phase 03+, M14, PR merge, and
+milestone completion remain excluded.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
