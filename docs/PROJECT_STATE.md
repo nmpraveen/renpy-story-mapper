@@ -45,8 +45,9 @@ Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md). The earlier whole-scope
-  `PASS` after transition commit `b5d08f5` is historical because its implementation audit missed
+- Current revised semantic gate: [`PENDING`](milestones/M15/SEMANTIC_REVIEW.md) for the v11
+  uncertainty correction. The earlier whole-scope `PASS` after transition commit `b5d08f5` is
+  historical because its implementation audit missed
   the criterion-3 request-projection defect. The prior adjacent-only shared freeze
   `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. The corrected exact-head review
   passed at `a7997b1`; the equivalent full chain is integrated through `a7cdf9f` and passed fresh
