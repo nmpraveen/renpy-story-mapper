@@ -277,8 +277,9 @@ groups remain byte-for-byte immutable, and Python continues to reject every inva
 The focused M15.1/product set passes 108/108; Ruff, strict mypy over 115 source files, JSON parsing,
 and diff checks pass. This correction does not change the done condition, privacy scope, provider
 profile, call ceiling, output schema, topology authority, or Stage E gate. The lifecycle moved
-through `Revise` and `Semantic review`; the repeated gate decision is `PASS`, pending independent
-exact-head review before another fresh preparation.
+through `Revise` and `Semantic review`; the repeated gate decision is `PASS`. Independent
+exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head functional suite passed 1,500
+tests with five expected opt-in skips; the isolated M06 benchmark, Ruff, and strict mypy passed.
 
 ## Gate decision
 
@@ -296,8 +297,8 @@ P0-P2.
 
 The semantic gate is `PASS`. V7 manifest `consent_0ef74a1324d245a21acfb2c5` is exhausted and cannot
 be reused. The prompt-v5/repair-policy-v6 correction changes exact prompt/job/cache/consent and
-repair-manifest identity; another Stage H preparation is forbidden until independent exact-head
-review passes. The user's standing
+repair-manifest identity. Independent exact-head rereview passed `6ab84ab` with no P0-P2, so a fresh
+zero-submit Stage H preparation may proceed. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its

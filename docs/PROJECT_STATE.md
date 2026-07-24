@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 in semantic review for invalid-beat repair correction)
+Updated: 2026-07-24 (M15.1 in progress after invalid-beat repair review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -243,8 +243,10 @@ Updated: 2026-07-24 (M15.1 in semantic review for invalid-beat repair correction
   through `Revise`. Failing-first correction advances prompt v5 and consent-bound repair policy
   v6 with explicit per-group unique-ID, trimmed-field, length, confidence, warning, and exact-field
   constraints while leaving Python rejection unchanged. Focused 108/108, Ruff, strict mypy over
-  115 source files, JSON parsing, and diff checks pass. Repeated semantic review is `PASS`; an
-  independent exact-head review is required before another fresh zero-submit preparation.
+  115 source files, JSON parsing, and diff checks pass. Repeated semantic review is `PASS`;
+  independent exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head functional suite
+  passed 1,500 tests with five expected opt-in skips, and the isolated M06 benchmark passed. Fresh
+  zero-submit Stage H preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

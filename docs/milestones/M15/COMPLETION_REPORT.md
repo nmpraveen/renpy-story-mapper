@@ -44,7 +44,9 @@ Ambiguity-threshold correction `b81dbad` passed independent rereview at `dc5a631
 V7 then failed closed after two calls with `invalid_beat_group`; no hierarchy/publication exists
 and Stage E remains untouched. The failing-first prompt-v5/repair-policy-v6 correction explicitly
 covers the typed beat invariants omitted from generic repair guidance while leaving Python
-rejection unchanged. Focused and static gates pass; independent exact-head review is next.
+rejection unchanged. Independent exact-head rereview passed `6ab84ab` with no P0-P2; the
+exact-head 1,500-test functional suite, isolated M06 benchmark, focused, and static gates pass.
+Fresh zero-submit Stage H preparation is next.
 
 ## Evidence status
 
@@ -62,7 +64,7 @@ rejection unchanged. Focused and static gates pass; independent exact-head revie
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
 | Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
 | Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
-| Current whole-scope Stage H | Invalid-beat correction review | V7 failed closed after two calls with `invalid_beat_group`; no hierarchy/publication exists. Failing-first prompt-v5/repair-policy-v6 correction explicitly covers unique IDs and every typed beat constraint without weakening Python rejection. Focused/static gates pass; independent exact-head review is pending. |
+| Current whole-scope Stage H | Ready for fresh zero-submit preparation | V7 failed closed after two calls with `invalid_beat_group`; no hierarchy/publication exists. Failing-first prompt-v5/repair-policy-v6 correction explicitly covers unique IDs and every typed beat constraint without weakening Python rejection. Independent rereview passed `6ab84ab` with no P0-P2; exact-head full/focused/static gates pass. |
 | Current whole-scope Stage E | Pending | Cannot prepare or execute until a frozen Stage H hierarchy passes blind membership review. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |

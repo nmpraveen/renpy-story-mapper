@@ -1350,7 +1350,9 @@ rereview passed `dc5a631` with no P0-P2. V7 manifest `consent_0ef74a1324d245a21a
 two calls and failed closed with `invalid_beat_group`, producing no hierarchy/publication or Stage E
 activity. The failing-first prompt-v5/repair-policy-v6 correction explicitly covers every typed beat
 invariant omitted from generic repair guidance without weakening Python rejection. Repeated semantic
-review is `PASS`; independent exact-head rereview is required before fresh preparation.
+review is `PASS`; independent exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head
+functional suite passed 1,500 tests with five expected opt-in skips, and the isolated M06 benchmark,
+Ruff, and strict mypy also passed. Fresh zero-submit preparation is next.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
