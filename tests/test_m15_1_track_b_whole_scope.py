@@ -740,6 +740,23 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
     )
 
     current_consent = preparation.granted_consent()
+    prior_prompt_consent = NarrativeConsentManifest.for_jobs(
+        run_id="prior-prompt-consent-identity",
+        profile=profile,
+        jobs=(prior_prompt_job,),
+        consent_granted=True,
+        valid_for=timedelta(minutes=5),
+        maximum_provider_calls=current_consent.maximum_provider_calls,
+        maximum_input_bytes=current_consent.maximum_input_bytes,
+        maximum_output_bytes=current_consent.maximum_output_bytes,
+        timeout_seconds=current_consent.timeout_seconds,
+    )
+    assert prior_prompt_consent.job_ids != current_consent.job_ids
+    assert prior_prompt_consent.job_identity_hashes != (
+        current_consent.job_identity_hashes
+    )
+    assert prior_prompt_consent.job_identity_hash != current_consent.job_identity_hash
+
     prior_policy_consent = replace(
         current_consent,
         repair_policy_version="m15-whole-scope-targeted-repair-v4",
