@@ -14,17 +14,28 @@ The user rejected the prior M15 Story Map because it presented a wide generic en
 rather than a compact human-readable narrative. The previous `PR ready` status is revoked. M15.1 is
 a correction inside the same milestone, branch, and PR; it is not complete and no prior screenshot,
 visible-order export, review, provider-free map, Release run, or passing PR head satisfies the new
-contract.
+contract. All boundary/summary workflow evidence below is historical compatibility evidence, not
+current whole-scope Stage H/Stage E acceptance.
 
-The corrected implementation and supported product path are integrated locally and independently
-reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
+The earlier corrected implementation and supported boundary/summary path were integrated locally
+and independently reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
 unsupported response-schema keyword. Versioned successor schemas preserve old identities and local
-validation while removing that provider-incompatible keyword. Boundary and summary production are
-complete, but the uncontaminated source-first final review failed at exact head `ac898b0` before
+validation while removing that provider-incompatible keyword. Historical boundary and summary
+production completed, but the uncontaminated source-first final review failed at exact head `ac898b0` before
 oracle/mockup access. It found blocking reader-lineage, projection-density/chronology, and factual-
 summary defects. Those findings revoke the current verification claim; generalized correction and
 a fresh blind Stage 1 are required before private comparison, browser acceptance, user visual
 approval, or the final Release/PR gate.
+
+The current whole-scope correction is not complete. Stage H v4 manifest
+`consent_5181073c41933f07c2ccc887` exhausted one initial call plus one targeted repair and failed
+closed with `uncertain_membership`; it produced no hierarchy, logical records, or publication, and
+Stage E has not run. Source/archive/accepted-baseline fingerprints remained unchanged. Commit
+`70f60eb` adds a failing-first uncertainty regression, hierarchy prompt v3, and consent-bound repair
+policy v3 without weakening fail-closed behavior. Repeated semantic review is `PASS`; its first
+exact-head review found one P1/two P2 lifecycle-evidence corrections while passing the runtime
+design. Those findings and two suggested uncertainty regressions are corrected; exact-head
+rereview remains required before a fresh zero-submit manifest.
 
 ## Evidence status
 
@@ -40,8 +51,10 @@ approval, or the final Release/PR gate.
 | Integrated fake-provider acceptance | Complete | Local integration head `4f6f740`; 174 M15 passed/2 expected opt-in skips, 169 compatibility passed, both enabled Chrome suites 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, whitespace, and private-reference diff scan passed |
 | Provider-schema correction | Complete and independently reviewed | Four versioned successors preserve historical resources and remove only unsupported `uniqueItems`; all four current/stale routes and all eight delegated uniqueness sites have direct regression coverage. Independent re-review passed with no P0-P2. 184 M15 passed/2 expected opt-in skips, 169 compatibility passed, enabled Chrome 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, JSON parsing, whitespace, and four public Codex CLI 0.144.0 schema canaries passed. The optional exhaustive repository run exceeded 300 seconds without emitting a failure and is not counted as passed. |
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
-| Live boundaries | Complete | Final checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. |
-| Live summaries | Complete | At reviewed head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations are exactly 529/529; source/archive/authority rows are unchanged. Recovery, six concurrency races, record/build CAS, and combined repair disclosure were independently reviewed with no P0-P2; 203 M15 tests passed with two expected browser skips, Ruff, and strict mypy over 114 files. Private evidence is under `output/m15-1-live-acceptance-20260721-125206/`. |
+| Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
+| Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
+| Current whole-scope Stage H | Correction rereview | V4 failed closed after two calls with `uncertain_membership`; no hierarchy/publication exists. Prompt/policy correction begins at `70f60eb`; fresh exact manifest preparation is forbidden until rereview passes. |
+| Current whole-scope Stage E | Pending | Cannot prepare or execute until a frozen Stage H hierarchy passes blind membership review. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
 | Final Release and exact PR head | Pending | Run once after visual approval; PR must remain open and unmerged |
@@ -58,9 +71,11 @@ approval, or the final Release/PR gate.
 
 ## Current limitations
 
-- Corrected implementation is integrated locally but the blind source-first candidate failed; the existing PR remains
-  intentionally behind until live semantic, review, screenshot, Release, and final-head gates pass.
-- Live semantic production is complete; its private artifacts remain ignored and unstaged.
+- Corrected implementation is integrated locally but the current hierarchy does not exist; the
+  existing PR remains intentionally behind until whole-scope live semantic, review, screenshot,
+  Release, and final-head gates pass.
+- Historical boundary/summary production is complete only for its superseded identity. Current
+  Stage H is failed and Stage E is pending; all private artifacts remain ignored and unstaged.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
   installer/public distribution, and PR merge remain outside this correction.
 - The visible task surface can set model and reasoning but exposes no fast-mode selector; that

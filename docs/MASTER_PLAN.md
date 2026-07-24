@@ -1221,8 +1221,10 @@ Locked boundaries:
   transport call carries many records.
 - Stage H preview/consent/run and Stage E preview/consent/run are separate durable stages with exact
   expiring manifests, jobs, cache, accounting, cancellation, recovery, atomic publication, reopen,
-  and zero-submit unchanged replay. Day 1 expects one successful call per stage and allows no more
-  than four provider submissions total without new explicit approval.
+  and zero-submit unchanged replay. Day 1 expects one successful call per stage and normally allows
+  no more than four provider submissions total. The user's 2026-07-24 standing authorization
+  covers the additional exact bounded manifests needed to finish M15.1 without relaxing their
+  individual call ceilings or identity/privacy/freshness audits.
 - Temporary choices remain local to their parent section, with ordered exact-caption arms, nested
   ownership, compact proven rejoins, and exactly-once continuation. M10/M11 authority and all
   M12/M13 compatibility surfaces remain preserved.

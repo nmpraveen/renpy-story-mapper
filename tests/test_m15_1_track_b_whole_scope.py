@@ -610,7 +610,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     tmp_path: Path,
 ) -> None:
     uncertain = _hierarchy_output()
-    uncertain["uncertain_unit_ids"] = ["unit-b"]
+    uncertain["uncertain_unit_ids"] = [_validated_hierarchy().ordered_unit_ids[1]]
     with Project.create(tmp_path / "uncertain-membership-repair.rsmproj") as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         preparation = _prepare_hierarchy(service)
@@ -641,6 +641,73 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert envelope["request"]["repair_guidance_version"] == (
         "m15-whole-scope-targeted-repair-v3"
     )
+
+
+def test_uncertain_membership_repair_may_legitimately_regroup_unlocked_units(
+    tmp_path: Path,
+) -> None:
+    initial = _hierarchy_output()
+    initial["uncertain_unit_ids"] = [_validated_hierarchy().ordered_unit_ids[1]]
+    regrouped = _hierarchy_output()
+    unit_ids = _validated_hierarchy().ordered_unit_ids
+    regrouped["beat_groups"] = [
+        {
+            "proposal_key": "proposal-combined",
+            "ordered_unit_ids": list(unit_ids),
+            "confidence": 0.9,
+            "reason": "The supplied evidence supports one continuous action.",
+            "warnings": [],
+        }
+    ]
+    regrouped["major_clusters"] = [
+        {
+            "proposal_key": "cluster-day",
+            "ordered_beat_keys": ["proposal-combined"],
+            "confidence": 0.9,
+            "reason": "The action belongs to the same synthetic period.",
+            "warnings": [],
+        }
+    ]
+    with Project.create(tmp_path / "uncertain-membership-regroup.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([initial, regrouped])
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
+        )
+
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    assert report.provider_calls == 2
+
+
+def test_truthful_uncertainty_after_repair_remains_terminal(
+    tmp_path: Path,
+) -> None:
+    uncertain = _hierarchy_output()
+    uncertain["uncertain_unit_ids"] = [_validated_hierarchy().ordered_unit_ids[1]]
+    with Project.create(tmp_path / "truthful-uncertainty-terminal.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([uncertain, copy.deepcopy(uncertain)])
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
+        )
+        status = service.whole_scope_semantic_status()
+
+    assert report.validated_job_ids == ()
+    assert report.failed_job_ids == (preparation.job.job_id,)
+    assert report.provider_calls == 2
+    assert status is not None and status.hierarchy_state == "failed"
 
 
 def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:

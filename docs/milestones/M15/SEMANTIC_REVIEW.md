@@ -162,6 +162,17 @@ identity, and does not weaken uncertainty handling. The lifecycle therefore move
 `Semantic review` and returns to `In progress` with a repeated semantic `PASS`, pending independent
 exact-head review and a fresh zero-submit manifest.
 
+The first exact-head review of `496350e` returned `FAIL` on lifecycle evidence only: the goal still
+contained one stale per-manifest approval clause, the gate paragraph prematurely generalized a
+predecessor review, and `COMPLETION_REPORT.md` presented superseded boundary/summary production as
+current. It found the runtime correction sound. Those P1/P2 findings are corrected: the standing
+authorization is now unambiguous without weakening exact manifest controls, predecessor and current
+reviews are distinguished, and the completion report labels historical production explicitly.
+Two additional reviewer-suggested regressions prove that an unlocked uncertain proposal may
+legitimately regroup units and that repeated truthful uncertainty remains terminal. The expanded
+M15.1/product set passes 106/106; the three uncertainty-specific tests pass; Ruff and strict mypy
+remain clean. Exact-head rereview remains mandatory before live preparation.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
@@ -169,8 +180,9 @@ semantic evidence and complete bounded structural context required by criterion 
 typed authority seam before durable state or consent, preserves valid retained items exactly during
 repair, and proves every legal repair envelope remains below its sterile ceiling. Identity changes
 invalidate the exhausted manifest and all older cache/consent paths. The implementation remains
-subordinate to M10/M11 authority, provider text remains transient, and independent review plus
-coordinator gates show no unresolved P0-P2.
+subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
+`a7997b1` passed independent review with no P0-P2; this prompt/policy correction remains subject to
+its own exact-head rereview before another live call.
 
 The semantic gate is `PASS`. Manifest `consent_5181073c41933f07c2ccc887` is exhausted and cannot be
 reused. Commit `70f60eb` changes the prompt and repair-policy identities, so the next Stage H run

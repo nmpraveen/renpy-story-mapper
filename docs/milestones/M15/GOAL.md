@@ -103,7 +103,9 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 12. Live acceptance uses only the locked sterile Codex CLI provider identity requested and resolved
     as `gpt-5.6-sol`, Medium reasoning, and fast mode off, with no provider/model fallback. Day 1
     expects one successful Stage H and one successful Stage E submission; at most one targeted
-    repair per stage is allowed, and more than four submissions requires new explicit approval.
+    repair per stage is allowed. The user's 2026-07-24 standing authorization explicitly covers
+    the additional exact bounded Stage H/Stage E manifests required to finish this goal; it does
+    not relax any per-manifest call ceiling, identity, freshness, privacy, or audit requirement.
     Track development itself makes no live provider call.
 13. A fresh exact acceptance copy records nonzero hierarchy/editorial logical jobs, their transport
     batches, semantic caches, and a complete current build. Reopen preserves it; unchanged replay
@@ -139,7 +141,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | Provider-free complete through integrated head `a7cdf9f`. V4 manifest `consent_5181073c41933f07c2ccc887` then exhausted its two calls and failed closed with `uncertain_membership`; no hierarchy/publication was created and Stage E remained untouched. Lifecycle returned to `Revise`. Failing-first correction `70f60eb` replaces the contradictory hierarchy prompt with v3 and binds targeted uncertainty repair to policy v3 without mechanically clearing uncertainty. Focused correction 2/2, broader M15.1/product 104/104, Ruff, and strict mypy pass; full pytest produced 1,496 passes/five expected skips plus one hardware-sensitive M06 timing miss that passed alone at 1.86 seconds. Repeated semantic review is `PASS`; independent exact-head review and a fresh zero-submit Stage H manifest remain next. The user's standing authorization covers the remaining exact, bounded manifests without routine approval pauses. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | Provider-free complete through integrated head `a7cdf9f`. V4 manifest `consent_5181073c41933f07c2ccc887` then exhausted its two calls and failed closed with `uncertain_membership`; no hierarchy/publication was created and Stage E remained untouched. Lifecycle returned to `Revise`. Failing-first correction `70f60eb` replaces the contradictory hierarchy prompt with v3 and binds targeted uncertainty repair to policy v3 without mechanically clearing uncertainty. The first exact-head review of `496350e` found one P1/two P2 lifecycle-evidence defects but passed the runtime design; those findings and its two suggested safety regressions are corrected. Expanded M15.1/product 106/106, Ruff, and strict mypy pass; full pytest produced 1,496 passes/five expected skips plus one hardware-sensitive M06 timing miss that passed alone at 1.86 seconds. Repeated semantic review is `PASS`; exact-head rereview and a fresh zero-submit Stage H manifest remain next. The user's standing authorization covers the remaining exact, bounded manifests without routine approval pauses. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |
@@ -154,16 +156,17 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 - No deletion or semantic repurposing of M10/M11/M12/M13 authority, compatibility storage, M12
   solver backend, stored results, or M13 stored-result citations.
 - No private source, oracle, handoff, mockup, exact private-derived prose, or image bytes in Git.
-- No provider call before the coordinator presents that exact stage manifest and the user explicitly
-  approves it. Stage H consent never authorizes Stage E, and old consent never authorizes changed
-  inputs, prompts, schemas, membership, provider identity, limits, or expiry.
+- No provider call before the coordinator generates, verifies, and records that exact stage
+  manifest. The user's 2026-07-24 standing authorization permits execution without another routine
+  approval pause, but one stage's manifest never authorizes another and old consent never
+  authorizes changed inputs, prompts, schemas, membership, provider identity, limits, or expiry.
 - No replacement integration branch, second M15 PR, new milestone, PR merge, M14 start, destructive
   cleanup, or unrelated refactor. Bounded worker and reviewer branches/worktrees are allowed.
 
 ## Handoff rules
 
 - The coordinator owns contract decisions, task creation/monitoring, ordered integration, private
-  evaluation, consent requests, evidence, PR #26, and the single active native goal.
+  evaluation, exact-manifest audits, evidence, PR #26, and the single active native goal.
 - Track A owns whole-scope hierarchy contracts, provider-independent validation,
   hierarchy-to-gap compilation, deterministic assembly/stable IDs, provenance, structural-lock and
   nested-choice fixtures, and its independent reviewer; no provider/API/UI/private oracle.
