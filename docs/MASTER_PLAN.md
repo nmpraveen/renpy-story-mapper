@@ -12,7 +12,7 @@ required story evidence and structural context. A failing-first typed-authority 
 correction passed independent exact-head review and coordinator gates. A later v4 live run failed
 closed on `uncertain_membership`; prompt/repair correction `70f60eb` passed exact-head rereview at
 `e33b773`. V5 then failed closed on `semantic_reinterpretation`; lock-policy correction `b97fa47`
-has repeated semantic `PASS` and awaits exact-head review. The active native goal, existing
+has repeated semantic `PASS` and passed exact-head review at `1adfe2d` with no P0-P2. The active native goal, existing
 integration branch, and open PR #26 continue.
 M14 remains deferred. M13
 implementation PR #23 merged at
@@ -1343,7 +1343,8 @@ exact-head rereview passed `e33b773` with no P0-P2. Fresh v5 manifest
 `consent_14655be0e14020371cdf104f` then failed closed after two calls with
 `semantic_reinterpretation`. Failing-first lock-policy correction `b97fa47` preserves Python's
 byte-for-byte enforcement while mapping whole-scope internal locks explicitly for the repair
-provider; repeated semantic review is `PASS` and independent exact-head review is next.
+provider; repeated semantic review and exact-head review are `PASS`. Fresh zero-submit preparation
+is next.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

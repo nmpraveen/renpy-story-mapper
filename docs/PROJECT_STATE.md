@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at Stage H lock-policy correction review)
+Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -24,8 +24,9 @@ Updated: 2026-07-24 (M15.1 In progress at Stage H lock-policy correction review)
   `uncertain_membership`, creating no hierarchy or publication. The lifecycle returned through
   `Revise`; failing-first prompt/repair correction `70f60eb` passed independent exact-head rereview
   at `e33b773`. V5 then used both calls and failed closed with `semantic_reinterpretation`.
-  Lock-policy correction `b97fa47` has repeated semantic `PASS` and awaits independent exact-head
-  review. The user's latest
+  Lock-policy correction `b97fa47` has repeated semantic `PASS` and passed independent exact-head
+  review at `1adfe2d` with no P0-P2. The exact-head full functional suite passed 1,499 tests with
+  five expected opt-in skips; the isolated M06 benchmark also passed. The user's latest
   standing authorization removes routine per-manifest approval pauses while exact identity,
   freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage E remains
   impossible until Stage H freezes.

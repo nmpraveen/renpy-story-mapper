@@ -208,12 +208,13 @@ lacked direct serialized-prompt regressions, and this document incorrectly claim
 policy changed cache identity. The correction now proves a locked partial cluster is copied exactly
 while a new cluster repairs coverage, proves Stage E copies each wrapper's `item` value rather than
 the internal wrapper, and accurately limits the identity change to consent manifests. The expanded
-M15.1/product set passes 107/107; Ruff and strict mypy remain clean. Exact-head rereview is required
-before fresh preparation.
+M15.1/product set passes 107/107; Ruff and strict mypy remain clean. Exact-head rereview returned
+`PASS` at `1adfe2d16713192cc70ed376a8972e108917fc72` with no P0-P2. The exact-head full functional
+suite passed 1,499 tests with five expected opt-in skips and the isolated M06 benchmark passed.
 
 This correction improves provider compliance without weakening safety, topology authority,
 privacy, or exact manifest controls. The lifecycle moved through `Semantic review` and returns to
-`In progress` with `PASS`, pending independent exact-head review before any fresh preparation.
+`In progress` with `PASS`; fresh zero-submit preparation may proceed.
 
 ## Gate decision
 
@@ -225,11 +226,12 @@ identity change invalidates the exhausted manifest and all older consent paths; 
 cache identity is unchanged. The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
-P0-P2. The new lock-policy correction requires its own independent exact-head review.
+P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
+P0-P2.
 
 The semantic gate is `PASS`. Manifest `consent_14655be0e14020371cdf104f` is exhausted and cannot be
-reused. Commit `b97fa47` changes the repair-policy identity, so another Stage H run is forbidden
-until independent exact-head review passes and a fresh zero-submit manifest is audited. The user's standing
+reused. Commit `b97fa47` changes the repair-policy identity, so another Stage H run requires a
+fresh zero-submit manifest audit. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
