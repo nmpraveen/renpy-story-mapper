@@ -53,7 +53,10 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   assertions, four 100%/200% captures, clean responsive reflow, and zero remote/provider calls;
   manifest SHA-256 `786c7bb3...afa8`. The Phase 01 report, exact 20-call ledger, model/context
   matrix, manifests, fingerprints, and Phase 02 recommendation-only note are frozen locally. Final
-  Phase 01 Reviewer is ready to dispatch; screenshots still require actual user approval.
+  Phase 01 Reviewer task `019f95f8-f3f5-7081-a5be-e0aa00aee2ba` is active read-only in detached
+  worktree `C:/Users/prave/.codex/worktrees/edef/Renpy` at exact commit `40c3bf0`, using Sol/High
+  with task fast mode unavailable/unverified and zero story-provider authorization. Screenshots
+  still require actual user approval.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
