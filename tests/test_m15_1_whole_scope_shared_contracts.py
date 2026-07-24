@@ -104,7 +104,7 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
 
 def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids() -> None:
     prompt_root = RESOURCE_ROOT / "prompts"
-    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v9.json").read_text())
+    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v10.json").read_text())
     editorial = json.loads((prompt_root / "whole_scope_editorial_v1.json").read_text())
     combined = json.dumps([hierarchy, editorial]).lower()
 
@@ -126,6 +126,7 @@ def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids(
     assert "inclusive endpoints" in combined
     assert "precedence over context changes" in combined
     assert "all unconstrained beat and cluster boundaries remain your proposal" in combined
+    assert "explicit choice_cluster_split repair instruction" in combined
 
 
 def test_hierarchy_allows_temporary_keys_but_requires_exact_proposal_coverage() -> None:

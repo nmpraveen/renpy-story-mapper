@@ -1364,8 +1364,12 @@ with no P0-P2, and the full exact-head suite passed 1,503 tests with five expect
 V9 manifest `consent_8f0c4d16185f61f8d2e194ee` then used two calls and failed closed with
 `hierarchy_authority_invalid`, creating no hierarchy/publication or Stage E state. The current
 prompt-v9/repair-policy-v10/product-v5 revision types choice-cluster-only failures, preserves valid
-beats byte-for-byte during repair, and unlocks only clusters. Repeated semantic review is `PASS`;
-only independent exact-head rereview remains pending.
+beats byte-for-byte during repair, and unlocks only clusters. V10 then exhausted both slots: its
+first response completed, but the cluster-only repair timed out while retransmitting 732 locked
+beats. Prompt v10/repair policy v11/product v6 now permit only that repair to return an empty beat
+list and rehydrate the exact validated locked beats locally before full validation. Combined
+provider-free tests pass 131/131 and repeated semantic review is `PASS`; independent exact-head
+rereview is pending.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

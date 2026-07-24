@@ -53,7 +53,7 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v9"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v10"
 WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
@@ -61,7 +61,7 @@ MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v10"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v11"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -79,8 +79,9 @@ _SEMANTIC_REPAIR_GUIDANCE = {
 _WHOLE_SCOPE_REPAIR_GUIDANCE = {
     "choice_cluster_split": (
         "The prior Stage H beat_groups are valid and locked byte-for-byte, but major_clusters "
-        "split at least one Python-owned choice range. Return those exact locked beat_groups and "
-        "replace major_clusters. For every choice_ownership hard lock, treat its one or two "
+        "split at least one Python-owned choice range. Return beat_groups as [] so Python can "
+        "reinsert those exact validated locked beats without retransmission, and replace "
+        "major_clusters. For every choice_ownership hard lock, treat its one or two "
         "unit_ids as inclusive endpoints in ordered_unit_ids and put every beat covering that "
         "range in one major cluster. This choice rule overrides lane, progression_runs, "
         "call_occurrence_path, and loop changes inside the range. Do not change beat membership, "
@@ -869,7 +870,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v9.json",
+            "whole_scope_hierarchy_v10.json",
             "whole_scope_hierarchy_v2.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
@@ -968,21 +969,38 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
                 if code in _SEMANTIC_REPAIR_GUIDANCE
             ]
         else:
-            envelope["request"]["locked_semantics_policy"] = (
-                "Copy request.locked_semantics.scope_id and hierarchy_hash exactly when present. "
-                "For Stage H, copy every object in __whole_scope_beat_groups__ byte-for-byte into "
-                "beat_groups exactly once with the same proposal_key, and copy every object in "
-                "__whole_scope_clusters__ byte-for-byte into major_clusters exactly once with the "
-                "same proposal_key. For Stage E, copy each entry's item value from "
-                "__whole_scope_records__ byte-for-byte into records exactly once with the same "
-                "subject_kind and subject_id; do not copy the identity/item wrapper. Do not return "
-                "the internal lock keys. Add or replace "
-                "only entries absent from these lock collections as required by repair_codes."
+            compact_choice_repair = (
+                request.job.kind is ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+                and "choice_cluster_split" in request.repair_codes
             )
-            envelope["request"]["repair_guidance"] = [
-                "Return the complete exact stage envelope. Preserve every valid locked item "
-                "byte-for-byte and repair only missing or invalid entries."
-            ]
+            if compact_choice_repair:
+                envelope["request"]["locked_semantics_policy"] = (
+                    "Copy request.locked_semantics.scope_id exactly. Return beat_groups as [] and "
+                    "do not copy __whole_scope_beat_groups__; Python will reinsert every locked "
+                    "validated beat byte-for-byte before validation. Replace major_clusters in "
+                    "full and do not return internal lock keys."
+                )
+                envelope["request"]["repair_guidance"] = [
+                    "Return the complete Stage H envelope with beat_groups as [], complete "
+                    "replacement major_clusters, uncertain_unit_ids, and warnings."
+                ]
+            else:
+                envelope["request"]["locked_semantics_policy"] = (
+                    "Copy request.locked_semantics.scope_id and hierarchy_hash exactly when "
+                    "present. For Stage H, copy every object in "
+                    "__whole_scope_beat_groups__ byte-for-byte into beat_groups exactly once with "
+                    "the same proposal_key, and copy every object in "
+                    "__whole_scope_clusters__ byte-for-byte into major_clusters exactly once with "
+                    "the same proposal_key. For Stage E, copy each entry's item value from "
+                    "__whole_scope_records__ byte-for-byte into records exactly once with the "
+                    "same subject_kind and subject_id; do not copy the identity/item wrapper. Do "
+                    "not return the internal lock keys. Add or replace only entries absent from "
+                    "these lock collections as required by repair_codes."
+                )
+                envelope["request"]["repair_guidance"] = [
+                    "Return the complete exact stage envelope. Preserve every valid locked item "
+                    "byte-for-byte and repair only missing or invalid entries."
+                ]
             envelope["request"]["repair_guidance"].extend(
                 _WHOLE_SCOPE_REPAIR_GUIDANCE[code]
                 for code in request.repair_codes

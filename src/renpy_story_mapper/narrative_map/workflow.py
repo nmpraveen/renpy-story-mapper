@@ -550,8 +550,14 @@ class NarrativeBoundaryWorkflow:
                     False,
                 )
             last_identity = identity
+            response_payload = _hydrate_whole_scope_repair_payload(
+                job,
+                response.payload,
+                repair_codes,
+                locked_semantics,
+            )
             if local_attempt == 2 and not _matches_semantic_lock(
-                job, response.payload, locked_semantics
+                job, response_payload, locked_semantics
             ):
                 return _JobOutcome(
                     None,
@@ -564,7 +570,7 @@ class NarrativeBoundaryWorkflow:
                 )
             result, findings = self._validate_response(
                 job,
-                response.payload,
+                response_payload,
                 identity,
                 hierarchy_authority_validator,
             )
@@ -1166,6 +1172,26 @@ def _whole_scope_hierarchy_lock(
         item.to_dict() for item in validation.valid_major_clusters
     ]
     return locked
+
+
+def _hydrate_whole_scope_repair_payload(
+    job: PreparedNarrativeJob,
+    payload: Mapping[str, object],
+    repair_codes: Sequence[str],
+    locked_semantics: Mapping[str, JsonValue],
+) -> Mapping[str, object]:
+    if (
+        job.kind is not ProviderJobKind.WHOLE_SCOPE_HIERARCHY
+        or "choice_cluster_split" not in repair_codes
+        or payload.get("beat_groups") != []
+    ):
+        return payload
+    locked_beats = locked_semantics.get("__whole_scope_beat_groups__")
+    if not isinstance(locked_beats, list) or not locked_beats:
+        return payload
+    hydrated = dict(payload)
+    hydrated["beat_groups"] = locked_beats
+    return hydrated
 
 
 def _whole_scope_editorial_lock(

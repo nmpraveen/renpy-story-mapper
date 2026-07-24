@@ -346,6 +346,22 @@ mypy over 115 source files. The lifecycle returns to `Semantic review`; the repe
 is `PASS`. Independent exact-head rereview passed `725d44f` with no P0-P2, and the exact-head full
 suite passed 1,505 tests with five expected opt-in skips. Fresh V10 zero-submit preparation is next.
 
+## Stage H v10 compact-repair revision
+
+Exact manifest `consent_96444c68c97ce0d025982e71` exhausted both reserved slots. Its first response
+completed with 241,792 input and 17,457 output tokens, then the typed cluster-only repair timed out
+at 900 seconds. Durable state is failed with `timeout`; no hierarchy, logical records, publication,
+or Stage E exists, and protected fingerprints remain unchanged. Result artifact SHA-256 is
+`9EF48ED5BE124D03A808392BB9D330B9BFCF5755EC0067575B6441E7E761A03F`.
+
+The choice-only repair still forced the provider to copy all 732 already validated beats into its
+response. Prompt v10, repair policy v11, product identity v6, and the changed versioned schema hash
+permit only this typed repair to return `beat_groups: []`. Python rehydrates the exact locked beat
+objects before semantic-lock matching and the unchanged complete authority validator. Initial
+empty beat lists and repairs without locked beats still fail closed. Combined provider-free tests
+pass 131/131; Ruff and strict mypy over 115 source files pass. Lifecycle returns to repeated
+`Semantic review` with `PASS`, pending independent exact-head rereview.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
@@ -361,8 +377,8 @@ subordinate to M10/M11 authority and provider text remains transient. Predecesso
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS` in repeated `Semantic review`. V9 manifest
-`consent_8f0c4d16185f61f8d2e194ee` is exhausted and cannot be reused. Another fresh Stage H
+The semantic gate is `PASS` in repeated `Semantic review`. V10 manifest
+`consent_96444c68c97ce0d025982e71` is exhausted and cannot be reused. Another fresh Stage H
 preparation is forbidden until independent exact-head rereview completes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are

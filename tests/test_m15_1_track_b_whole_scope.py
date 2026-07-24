@@ -605,7 +605,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v9"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v10"
     prompt = json.dumps(envelope).lower()
     assert (
         "each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, "
@@ -662,7 +662,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert "major_clusters" in lock_policy
     assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v10"
+        "m15-whole-scope-targeted-repair-v11"
     )
 
 
@@ -739,6 +739,7 @@ def test_choice_cluster_split_repair_locks_beats_and_replaces_only_clusters(
     envelope = json.loads(_serialize_prompt(request, prompt_name))
     guidance = " ".join(envelope["request"]["repair_guidance"])
     assert "beat_groups are valid and locked byte-for-byte" in guidance
+    assert "Return beat_groups as []" in guidance
     assert "replace major_clusters" in guidance
     assert "every beat covering that range in one major cluster" in guidance
 
@@ -751,7 +752,9 @@ def test_choice_cluster_split_repair_round_trip_preserves_all_valid_beats(
         preparation = _prepare_hierarchy(service)
         consent = preparation.granted_consent()
         service.confirm_whole_scope_consent(preparation, consent)
-        provider = _FakeProvider([_hierarchy_output(), _hierarchy_output()])
+        compact_repair = _hierarchy_output()
+        compact_repair["beat_groups"] = []
+        provider = _FakeProvider([_hierarchy_output(), compact_repair])
         validations = 0
 
         def choice_range_validator(
@@ -782,6 +785,25 @@ def test_choice_cluster_split_repair_round_trip_preserves_all_valid_beats(
         _hierarchy_output()["beat_groups"]
     )
     assert repair.repair_semantics["__whole_scope_clusters__"] == []
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    envelope = json.loads(_serialize_prompt(repair, prompt_name))
+    assert envelope["request"]["locked_semantics_policy"].startswith(
+        "Copy request.locked_semantics.scope_id exactly. Return beat_groups as []"
+    )
+
+
+def test_empty_beat_list_remains_invalid_outside_typed_repair(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "initial-empty-beats.rsmproj") as project:
+        preparation = _prepare_hierarchy(
+            NarrativeMapService(NarrativeMapRepository(project))
+        )
+    initial = _hierarchy_output()
+    initial["beat_groups"] = []
+    validation = validate_whole_scope_hierarchy_response(initial, preparation.job)
+    assert not validation.valid
+    assert {finding.code for finding in validation.findings} == {
+        "invalid_hierarchy_arrays"
+    }
 
 
 def test_truthful_uncertainty_after_repair_remains_terminal(
@@ -818,7 +840,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
         )
     current_job = preparation.job
     prior_prompt_job = replace(
-        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v8"
+        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v9"
     )
     profile = _profile()
     assert prior_prompt_job.job_id != current_job.job_id
@@ -849,7 +871,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
 
     prior_policy_consent = replace(
         current_consent,
-        repair_policy_version="m15-whole-scope-targeted-repair-v9",
+        repair_policy_version="m15-whole-scope-targeted-repair-v10",
     )
     assert prior_policy_consent.manifest_id != current_consent.manifest_id
     assert prior_policy_consent.job_ids == current_consent.job_ids

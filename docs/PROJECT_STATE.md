@@ -283,7 +283,19 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   merge guidance names exact inclusive choice ranges and precedence. Combined provider-free tests
   pass 130/130; Ruff and strict mypy over 115 source files pass. Repeated semantic review is `PASS`;
   independent exact-head rereview passed `725d44f` with no P0-P2. The exact-head full suite passed
-  1,505 tests with five expected opt-in skips. Fresh V10 zero-submit preparation is next.
+  1,505 tests with five expected opt-in skips.
+- Stage H v10 execution and compact-repair correction: exact manifest
+  `consent_96444c68c97ce0d025982e71` exhausted both reserved slots. The first response completed
+  with 241,792 input and 17,457 output tokens; the typed cluster-only repair then timed out at its
+  900-second limit. Durable state is failed with `timeout`; no hierarchy, logical record,
+  publication, or Stage E exists, and protected fingerprints remain unchanged. Result SHA-256 is
+  `9EF48ED5BE124D03A808392BB9D330B9BFCF5755EC0067575B6441E7E761A03F`.
+  The repair still required retransmitting all 732 locked beats. Prompt v10, repair policy v11,
+  product identity v6, and the versioned response-schema hash now permit a choice-only repair to
+  return `beat_groups: []`; Python rehydrates the exact validated locked beat objects before lock
+  matching and complete authority validation. Combined provider-free tests pass 131/131; Ruff and
+  strict mypy over 115 source files pass. Repeated semantic review is `PASS`; independent exact-head
+  rereview is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
