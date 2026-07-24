@@ -323,8 +323,9 @@ provider bound. Focused M15.1/product tests pass 110/110; combined hierarchy/pro
 128/128; Ruff, strict mypy over 115 source files, JSON parsing, and diff checks pass.
 
 The done condition, privacy scope, provider profile, two-call manifest ceiling, response schema,
-and Stage E gate are unchanged. The lifecycle remains in repeated `Semantic review` with `PASS`,
-pending independent exact-head rereview.
+and Stage E gate are unchanged. The lifecycle remains in repeated `Semantic review` with `PASS`.
+Independent exact-head rereview passed `19258ba` with no P0-P2. The exact-head full suite passed
+1,503 tests with five expected opt-in skips; both isolated M06 scale checks and static gates passed.
 
 ## Gate decision
 

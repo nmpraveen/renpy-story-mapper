@@ -53,7 +53,8 @@ correction then failed independent review because choice-owned parent/arms/rejoi
 normal context splits. Corrected input v5/prompt v8/policy v9 project compact exact progression
 runs and deduplicated authority-bound choice ranges on existing hard locks, state precedence, and
 enforce one cluster in Python. The private payload is 643,032 bytes under its 660,000-byte ceiling.
-Focused 110/110 and combined 128/128 plus static gates pass; independent rereview is next.
+Focused 110/110, combined 128/128, full exact-head 1,503, both M06 scale checks, and static gates
+pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H preparation is next.
 
 ## Evidence status
 
@@ -71,7 +72,7 @@ Focused 110/110 and combined 128/128 plus static gates pass; independent rerevie
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
 | Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
 | Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
-| Current whole-scope Stage H | Choice-aware assembler correction rereview | V8 failed closed after two calls with `hierarchy_not_representable`; no hierarchy/publication exists. Input v5/prompt v8/repair policy v9 project compact authority-bound progression runs plus choice-owned ranges with exact precedence and Python hard-lock enforcement. Focused/combined/static gates pass; independent exact-head rereview is pending. |
+| Current whole-scope Stage H | Fresh zero-submit preparation | V8 failed closed after two calls with `hierarchy_not_representable`; no hierarchy/publication exists. Input v5/prompt v8/repair policy v9 project compact authority-bound progression runs plus choice-owned ranges with exact precedence and Python hard-lock enforcement. Focused/combined/full/static gates pass; independent exact-head rereview passed `19258ba` with no P0-P2. |
 | Current whole-scope Stage E | Pending | Cannot prepare or execute until a frozen Stage H hierarchy passes blind membership review. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |

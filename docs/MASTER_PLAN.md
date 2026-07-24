@@ -1359,7 +1359,8 @@ splits alone conflict with choice-owned parent/arm/rejoin clustering. The correc
 prompt-v8/repair-policy-v9 path projects compact authority-bound progression runs and inclusive
 choice range endpoints into existing choice hard locks, gives them precedence over context splits,
 and enforces them without weakening
-validation. Repeated semantic review is `PASS`; independent exact-head rereview is next.
+validation. Repeated semantic review is `PASS`; independent exact-head rereview passed `19258ba`
+with no P0-P2, and the full exact-head suite passed 1,503 tests with five expected opt-in skips.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

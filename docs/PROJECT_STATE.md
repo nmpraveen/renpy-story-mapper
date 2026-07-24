@@ -269,8 +269,9 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   while a context-split proposal fails closed. Focused M15.1/product 110/110 and combined hierarchy
   128/128 pass; Ruff, strict mypy over 115 source files, JSON parsing, and diff checks pass. The
   exact private canonical payload is 643,032 bytes under the 660,000-byte typed-payload ceiling.
-  Repeated semantic review is `PASS`; independent exact-head rereview is required before fresh
-  zero-submit preparation.
+  Repeated semantic review is `PASS`; independent exact-head rereview passed `19258ba` with no
+  P0-P2. The exact-head full suite passed 1,503 tests with five expected opt-in skips; both isolated
+  M06 scale checks and static gates passed. Fresh zero-submit preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
