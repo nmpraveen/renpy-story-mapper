@@ -52,15 +52,15 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v10"
-WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = "m15-whole-scope-hierarchy-response-v3"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v11"
+WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = "m15-whole-scope-hierarchy-response-v4"
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
 MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v11"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v12"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -119,14 +119,14 @@ _WHOLE_SCOPE_REPAIR_GUIDANCE = {
         "invent, omit, reorder, or reinterpret any lock identity."
     ),
     "uncertain_membership": (
-        "The prior Stage H proposal declared unresolved membership. An accepted proposal requires "
-        "uncertain_unit_ids must be [] only after you re-evaluate every listed uncertain unit "
-        "against the complete supplied evidence and hard constraints. Semantic ambiguity alone is "
-        "not unresolved authority: express it with lower confidence and warnings, and use a "
-        "conservative singleton beat when the unit's relation to its neighbors is ambiguous. "
-        "Never clear uncertainty mechanically or guess. Return exact supplied uncertain unit IDs "
-        "only when required evidence is missing or no placement, including a singleton beat, can "
-        "satisfy the supplied structural constraints; that response intentionally fails closed."
+        "The prior Stage H proposal declared unresolved membership. Python preparation already "
+        "proved that every supplied unit has exact transient evidence, and a conservative "
+        "singleton beat is always a structurally available placement. Re-evaluate every listed "
+        "unit against that evidence and the hard constraints, express semantic ambiguity with "
+        "lower confidence and warnings, and return uncertain_unit_ids as []. Never clear "
+        "uncertainty mechanically or invent evidence; this instruction applies only because the "
+        "prepared-input invariants have already ruled out missing evidence and structural "
+        "impossibility."
     ),
 }
 
@@ -869,8 +869,8 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v10.json",
-            "whole_scope_hierarchy_v3.schema.json",
+            "whole_scope_hierarchy_v11.json",
+            "whole_scope_hierarchy_v4.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
             WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA,

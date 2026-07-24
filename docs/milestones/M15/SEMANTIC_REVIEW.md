@@ -7,7 +7,7 @@ Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
 AI semantic task.
 
-Decision: PASS
+Decision: PENDING
 
 ## Review result
 
@@ -365,14 +365,34 @@ pass 132/132; Ruff and strict mypy over 115 source files pass. Lifecycle returns
 and the exact-head full suite passed 1,507 tests with five expected opt-in skips. Fresh V11
 zero-submit preparation is next.
 
+## Stage H v11 evidence-complete uncertainty revision
+
+Exact manifest `consent_195336f83e426fb222fecc19` exhausted both bounded slots and failed closed
+with `uncertain_membership`, recording 483,973 input and 5,015 output tokens. It created no
+hierarchy, logical records, publication, or Stage E state, and protected fingerprints remained
+unchanged. Result artifact SHA-256 is
+`0F36D04F16370FB45F69400E413DA73E48648609EC11F5DB77DE31286CC44703`.
+The compact repair completed, so the v10/v11 transport correction removed the prior retransmission
+timeout.
+
+Python preparation rejects a Stage H payload unless every authority-bound unit owns exact
+transient evidence. A conservative singleton beat remains structurally available for every unit,
+while confidence and warnings preserve truthful semantic ambiguity. Prompt v11, repair policy
+v12, product identity v7, and immutable successor response schema v4 therefore require provider
+transport to return `uncertain_unit_ids: []`; this does not synthesize evidence, accept an invalid
+group, or weaken the complete Python authority validator. Historical and fake responses with
+nonempty uncertainty still fail closed locally. Schema v3 remains byte-preserved. Focused
+hierarchy/product verification passes 132/132. Lifecycle is `Revise`; repeated semantic review and
+independent exact-head review are pending.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
 repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 remains
-current. Prompt v10, response schema v3, and product identity v6 invalidate prior job, cache, and
-consent-job identity while immutable response schema v2 is preserved; repair policy v11
+current. Prompt v11, response schema v4, and product identity v7 invalidate prior job, cache, and
+consent-job identity while immutable response schemas v2 and v3 are preserved; repair policy v12
 additionally invalidates prior consent-manifest identity but does not independently enter the
 successful-result cache key.
 The implementation remains
@@ -381,12 +401,12 @@ subordinate to M10/M11 authority and provider text remains transient. Predecesso
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS` in repeated `Semantic review`. V10 manifest
-`consent_96444c68c97ce0d025982e71` is exhausted and cannot be reused. Another fresh Stage H
-preparation is forbidden until independent exact-head rereview completes. The user's standing
+The semantic gate is `PENDING` in `Revise`. V11 manifest
+`consent_195336f83e426fb222fecc19` is exhausted and cannot be reused. Another fresh Stage H
+preparation is forbidden until repeated semantic and independent exact-head review complete. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
 own fresh exact manifest under the same audit discipline.
 
-PASS
+PENDING

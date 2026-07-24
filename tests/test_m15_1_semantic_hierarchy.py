@@ -300,7 +300,22 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
         "lane-arm-b",
         "lane-rejoin",
     }
+    serialized_evidence = serialized["evidence"]
+    assert isinstance(serialized_evidence, list)
+    assert {item["unit_id"] for item in serialized_evidence} == {
+        unit.unit_id for unit in units
+    }
     assert serialized_locks[0]["unit_ids"] == [units[0].unit_id, units[-1].unit_id]
+    missing_evidence = dict(evidence_by_unit)
+    missing_evidence.pop(units[0].unit_id)
+    with pytest.raises(ValueError, match="each Stage H unit requires exact transient evidence"):
+        whole_scope_hierarchy_input_payload(
+            _authority(),
+            "scope-synthetic",
+            units,
+            missing_evidence,
+            (choice_lock,),
+        )
     validate_whole_scope_hierarchy(
         proposal,
         units,

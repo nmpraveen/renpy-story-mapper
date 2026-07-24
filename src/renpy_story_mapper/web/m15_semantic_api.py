@@ -105,7 +105,7 @@ from renpy_story_mapper.web.contracts import JsonValue
 
 M15_SEMANTIC_RESPONSE_SCHEMA: Final = "m15-semantic-production-v1"
 M15_SEMANTIC_CORRECTION_ID: Final = "m15.1-product-path-v1"
-M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v6"
+M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v7"
 M15_SEMANTIC_PRIVACY_SCOPE: Final = "story_evidence_only"
 M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"

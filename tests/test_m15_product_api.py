@@ -229,7 +229,7 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
             set(lock.unit_ids) <= {unit.unit_id for unit in inputs.units}
             for lock in choice_locks
         )
-        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v10")
+        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v11")
 
         evidence_ids = tuple(
             item["evidence_id"]

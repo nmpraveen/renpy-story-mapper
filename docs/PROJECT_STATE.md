@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
+Updated: 2026-07-24 (M15.1 in Revise for evidence-complete Stage H uncertainty)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -28,7 +28,12 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   review at `1adfe2d` with no P0-P2. The exact-head full functional suite passed 1,499 tests with
   five expected opt-in skips; the isolated M06 benchmark also passed. The user's latest
   standing authorization removes routine per-manifest approval pauses while exact identity,
-  freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage E remains
+  freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage H v11 then
+  exhausted two calls and failed closed with `uncertain_membership`, recording 483,973 input and
+  5,015 output tokens; no hierarchy or publication exists. Its compact repair completed, proving
+  the timeout correction. Prompt v11/policy v12/product v7/schema v4 bind the Python-proven
+  evidence-complete and singleton-available invariant while retaining local fail-closed
+  uncertainty validation. Focused tests pass 132/132; review is pending. Stage E remains
   impossible until Stage H freezes.
   The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
@@ -297,6 +302,16 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   strict mypy over 115 source files pass. Repeated semantic review is `PASS`; independent exact-head
   rereview passed `76ef7fc` with no P0-P2. The exact-head full suite passed 1,507 tests with five
   expected opt-in skips. Fresh V11 zero-submit preparation is next.
+- Stage H v11 execution and evidence-complete uncertainty correction: exact manifest
+  `consent_195336f83e426fb222fecc19` exhausted both slots and failed closed with
+  `uncertain_membership`, recording 483,973 input and 5,015 output tokens. No hierarchy, logical
+  records, publication, or Stage E exists; protected fingerprints remain unchanged. Result
+  SHA-256 is `0F36D04F16370FB45F69400E413DA73E48648609EC11F5DB77DE31286CC44703`.
+  The compact repair completed. Python preparation rejects any unit without exact transient
+  evidence, and a conservative singleton beat is always structurally available. Prompt v11,
+  repair policy v12, product identity v7, and immutable successor schema v4 therefore require
+  `uncertain_unit_ids: []` at provider transport. Historical/fake nonempty uncertainty is still
+  rejected locally. Focused tests pass 132/132; lifecycle is `Revise` pending review.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

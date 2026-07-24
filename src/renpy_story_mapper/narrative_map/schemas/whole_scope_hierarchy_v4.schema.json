@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "m15-whole-scope-hierarchy-response-v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope_id", "beat_groups", "major_clusters", "uncertain_unit_ids", "warnings"],
+  "properties": {
+    "scope_id": {"type": "string", "minLength": 1},
+    "beat_groups": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 732,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposal_key", "ordered_unit_ids", "confidence", "reason", "warnings"],
+        "properties": {
+          "proposal_key": {"type": "string", "minLength": 1, "maxLength": 48},
+          "ordered_unit_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 732,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 80},
+          "warnings": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {"type": "string", "minLength": 1, "maxLength": 64}
+          }
+        }
+      }
+    },
+    "major_clusters": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposal_key", "ordered_beat_keys", "confidence", "reason", "warnings"],
+        "properties": {
+          "proposal_key": {"type": "string", "minLength": 1, "maxLength": 48},
+          "ordered_beat_keys": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 732,
+            "items": {"type": "string", "minLength": 1, "maxLength": 48}
+          },
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 80},
+          "warnings": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {"type": "string", "minLength": 1, "maxLength": 64}
+          }
+        }
+      }
+    },
+    "uncertain_unit_ids": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {"type": "string", "minLength": 1, "maxLength": 64}
+    }
+  }
+}

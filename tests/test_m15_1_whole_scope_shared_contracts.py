@@ -84,8 +84,11 @@ def _assert_provider_schema_subset(value: object) -> None:
 def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> None:
     schema_root = RESOURCE_ROOT / "schemas"
     hierarchy = json.loads((schema_root / "whole_scope_hierarchy_v2.schema.json").read_text())
-    transport = json.loads(
+    prior_transport = json.loads(
         (schema_root / "whole_scope_hierarchy_v3.schema.json").read_text()
+    )
+    transport = json.loads(
+        (schema_root / "whole_scope_hierarchy_v4.schema.json").read_text()
     )
     editorial = json.loads((schema_root / "whole_scope_editorial_v1.schema.json").read_text())
 
@@ -101,7 +104,15 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
     )
     assert hierarchy["properties"]["beat_groups"]["maxItems"] == 732
     assert hierarchy["properties"]["beat_groups"]["minItems"] == 1
+    assert prior_transport["$id"] == "m15-whole-scope-hierarchy-response-v3"
+    assert prior_transport["properties"]["beat_groups"]["minItems"] == 0
+    assert prior_transport["properties"]["uncertain_unit_ids"]["maxItems"] == 732
     assert transport["properties"]["beat_groups"]["minItems"] == 0
+    assert transport["properties"]["uncertain_unit_ids"]["maxItems"] == 0
+    expected_transport = json.loads(json.dumps(prior_transport))
+    expected_transport["$id"] = WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA
+    expected_transport["properties"]["uncertain_unit_ids"]["maxItems"] = 0
+    assert transport == expected_transport
     assert hierarchy["properties"]["major_clusters"]["maxItems"] == 16
 
     editorial_names = _property_names(editorial)
@@ -113,7 +124,7 @@ def test_whole_scope_schema_versions_and_authority_boundaries_are_frozen() -> No
 
 def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids() -> None:
     prompt_root = RESOURCE_ROOT / "prompts"
-    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v10.json").read_text())
+    hierarchy = json.loads((prompt_root / "whole_scope_hierarchy_v11.json").read_text())
     editorial = json.loads((prompt_root / "whole_scope_editorial_v1.json").read_text())
     combined = json.dumps([hierarchy, editorial]).lower()
 
@@ -124,6 +135,8 @@ def test_whole_scope_prompts_forbid_external_authority_and_authoritative_ai_ids(
     assert "cite only supplied evidence ids" in combined
     assert "semantic ambiguity alone" in combined
     assert "singleton beat" in combined
+    assert "python preparation has already proved" in combined
+    assert "uncertain_unit_ids must be []" in combined
     assert (
         "each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, "
         "reason, and warnings" in combined

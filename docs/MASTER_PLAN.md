@@ -1366,10 +1366,13 @@ V9 manifest `consent_8f0c4d16185f61f8d2e194ee` then used two calls and failed cl
 prompt-v9/repair-policy-v10/product-v5 revision types choice-cluster-only failures, preserves valid
 beats byte-for-byte during repair, and unlocks only clusters. V10 then exhausted both slots: its
 first response completed, but the cluster-only repair timed out while retransmitting 732 locked
-beats. Prompt v10/repair policy v11/product v6 now permit only that repair to return an empty beat
-list and rehydrate the exact validated locked beats locally before full validation. Combined
-provider-free tests pass 132/132 and repeated semantic review is `PASS`; independent exact-head
-rereview is pending.
+beats. Prompt v10/repair policy v11/product v6 permit only that repair to return an empty beat list
+and rehydrate exact validated locked beats locally. V11 proved the compact repair completes, then
+failed closed because the provider returned nonempty uncertainty despite exact evidence for every
+unit and an always-available conservative singleton placement. Prompt v11/repair policy v12/
+product v7/response schema v4 bind those Python-proven preparation invariants and require empty
+uncertainty at provider transport; local fake/historical validation remains fail-closed. Focused
+tests pass 132/132; repeated semantic and exact-head review are pending.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
