@@ -3,7 +3,7 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in progress at the v5 whole-scope lock-policy correction review. Its
+correction inside M15 and is in semantic review for the v7 invalid-beat repair correction. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
@@ -1345,8 +1345,12 @@ exact-head rereview passed `e33b773` with no P0-P2. Fresh v5 manifest
 byte-for-byte enforcement while mapping whole-scope internal locks explicitly for the repair
 provider; repeated semantic review and exact-head review are `PASS`. V6 then failed closed with
 `uncertain_membership`; ambiguity-threshold correction `b81dbad` preserves Python rejection while
-directing ordinary editorial ambiguity to confidence/warnings or singleton beats. Repeated semantic
-review is `PASS`; independent exact-head review is next.
+directing ordinary editorial ambiguity to confidence/warnings or singleton beats, and independent
+rereview passed `dc5a631` with no P0-P2. V7 manifest `consent_0ef74a1324d245a21acfb2c5` then used
+two calls and failed closed with `invalid_beat_group`, producing no hierarchy/publication or Stage E
+activity. The failing-first prompt-v5/repair-policy-v6 correction explicitly covers every typed beat
+invariant omitted from generic repair guidance without weakening Python rejection. Repeated semantic
+review is `PASS`; independent exact-head rereview is required before fresh preparation.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

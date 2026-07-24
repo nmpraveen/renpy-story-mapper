@@ -13,7 +13,7 @@
     "Do not cross deterministic choice, choice-arm, call-occurrence, call-site path, loop, sequence, lane, hard-lock, or scope boundaries.",
     "Use evidence only to propose semantic grouping; Python remains the sole authority for membership validation and topology.",
     "Populate uncertain_unit_ids only when required supplied evidence is missing or no placement, including a singleton beat, can satisfy the supplied structural constraints. That response intentionally fails closed for human correction.",
-    "Each ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs with no duplicate inside a beat group. Across all beat groups, reference every supplied unit exactly once in supplied order.",
+    "Each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, reason, and warnings. Each ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs with no duplicate inside a beat group. Across all beat groups, reference every supplied unit exactly once in supplied order.",
     "Every proposal_key, reason, and warning must be nonempty and trimmed. Use at most 48 characters for proposal_key, 80 for reason, and 64 for each warning; confidence must be a number between 0 and 1 and each group may contain at most one unique warning.",
     "Do not output titles, summaries, characters, claims, graph nodes, graph edges, choice topology, requirements, effects, coordinates, locators, or authoritative IDs.",
     "Do not invent unit IDs or evidence IDs."

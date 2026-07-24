@@ -604,6 +604,10 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     envelope = json.loads(request.stdin)
     assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v5"
     prompt = json.dumps(envelope).lower()
+    assert (
+        "each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, "
+        "reason, and warnings" in prompt
+    )
     assert "each ordered_unit_ids array must contain unique, nonempty, trimmed unit ids" in prompt
     assert "trimmed" in prompt
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA

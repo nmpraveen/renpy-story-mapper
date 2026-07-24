@@ -285,18 +285,19 @@ exact-head review before another fresh preparation.
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. The repair-policy
-prompt v4 identity change invalidates prior job, cache, and consent-job identity. Repair policy v5
-additionally invalidates prior consent-manifest identity but does not independently enter the
-successful-result cache key. The implementation remains
+repair, and proves every legal repair envelope remains below its sterile ceiling. Prompt v5
+invalidates prior job, cache, and consent-job identity. Repair policy v6 additionally invalidates
+prior consent-manifest identity but does not independently enter the successful-result cache key.
+The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS`. Manifest `consent_19347f6e215c44d3bb8ae6ca` is exhausted and cannot be
-reused. Commit `b81dbad` changes prompt and repair-policy identity; another Stage H preparation is
-forbidden until independent exact-head review passes. The user's standing
+The semantic gate is `PASS`. V7 manifest `consent_0ef74a1324d245a21acfb2c5` is exhausted and cannot
+be reused. The prompt-v5/repair-policy-v6 correction changes exact prompt/job/cache/consent and
+repair-manifest identity; another Stage H preparation is forbidden until independent exact-head
+review passes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
