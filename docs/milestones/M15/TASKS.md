@@ -10,7 +10,8 @@ Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26),
 
 Lifecycle: repeated `Semantic review` after Stage H v10 exhausted both slots and its typed
 cluster-only repair timed out. The compact repair-response correction passes 132/132 combined
-provider-free tests and semantic `PASS`; independent exact-head rereview is next.
+provider-free tests and semantic `PASS`; independent exact-head rereview passed `76ef7fc` with no
+P0-P2 and the full suite passed 1,507 tests with five expected skips. V11 preparation is next.
 
 | Task | Owner | Dependencies | Status | Evidence / next gate |
 |---|---|---|---|---|

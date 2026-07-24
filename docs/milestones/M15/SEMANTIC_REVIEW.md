@@ -361,7 +361,9 @@ rehydrates the exact locked beat
 objects before semantic-lock matching and the unchanged complete authority validator. Initial
 empty beat lists and repairs without locked beats still fail closed. Combined provider-free tests
 pass 132/132; Ruff and strict mypy over 115 source files pass. Lifecycle returns to repeated
-`Semantic review` with `PASS`, pending independent exact-head rereview.
+`Semantic review` with `PASS`. Independent exact-head rereview passed `76ef7fc` with no P0-P2,
+and the exact-head full suite passed 1,507 tests with five expected opt-in skips. Fresh V11
+zero-submit preparation is next.
 
 ## Gate decision
 

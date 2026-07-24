@@ -295,7 +295,8 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   return `beat_groups: []`; Python rehydrates the exact validated locked beat objects before lock
   matching and complete authority validation. Combined provider-free tests pass 132/132; Ruff and
   strict mypy over 115 source files pass. Repeated semantic review is `PASS`; independent exact-head
-  rereview is next.
+  rereview passed `76ef7fc` with no P0-P2. The exact-head full suite passed 1,507 tests with five
+  expected opt-in skips. Fresh V11 zero-submit preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

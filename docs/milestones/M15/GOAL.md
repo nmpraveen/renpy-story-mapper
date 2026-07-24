@@ -4,7 +4,8 @@ Status: Repeated `Semantic review` after Stage H v10 exhausted both slots and th
 No hierarchy, publication, or Stage E exists. Prompt v10/repair policy v11/product v6 permit that
 repair to return `beat_groups: []`; Python rehydrates the exact validated locked beats before full
 authority validation. Provider-free verification passes 132/132 combined tests and the semantic
-gate is `PASS`; independent exact-head rereview is next.
+gate is `PASS`; independent exact-head rereview passed `76ef7fc` with no P0-P2 and the full suite
+passed 1,507 tests with five expected opt-in skips. Fresh V11 zero-submit preparation is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
