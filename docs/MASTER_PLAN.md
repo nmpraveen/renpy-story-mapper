@@ -1222,11 +1222,12 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Revise. Stage H V12 failed terminally with `hierarchy_not_representable`; the user rejected
-Stage H/Stage E as the future supported semantic architecture and approved only Story Map V2
-Phase 01 calibration and a disposable vertical proof. The prior Stage H/Stage E semantic `PASS` is
-revoked for future work. Phase 02 product implementation, broad refactoring, PR mutation, merge,
-M14, and milestone completion are unapproved or excluded.
+Status: Phase 02 `Semantic review`. Stage H V12 failed terminally with
+`hierarchy_not_representable`; the user rejected Stage H/Stage E as the future supported semantic
+architecture. Phase 01 calibration, its disposable vertical proof, and the local-model supplement
+are complete and accepted. The user started the bounded Story Map V2 Phase 02 core rewrite, one
+matching native goal is active, and broad implementation waits for the required early reviewer
+`PASS`. Phase 03+, M14, PR merge, and milestone completion remain excluded.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1248,7 +1249,21 @@ Objective: produce a compact chronological Story Map whose visible language expl
 meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
 effect, terminal, unresolved record, and evidence locator.
 
-Active Phase 01 boundaries:
+Active Phase 02 boundaries:
+
+- Build one new simple V2 core package using coherent source chunks, a compact mapper response,
+  Python-owned mechanics/anchors, chronological partial-capable assembly, and no supported Stage
+  H/E, adjacent-gap, atom-allocation, hierarchy, repair-lock, or exact-replay dependency.
+- Use exact Luna/High/fast-off for one cloud-primary private Day 1 acceptance run with at most six
+  planned/eight absolute hosted submissions, no semantic retry, and no default auditor.
+- Permit only an explicitly previewed refusal fallback or deliberate local-only run against the
+  exact already-loaded loopback Qwen mapper; never auto-start/load/download a model or cascade for
+  unrelated failures.
+- Keep original source/archive read-only, private artifacts outside Git, and no game/Ren'Py/creator
+  execution. End Phase 02 after provider-free checks, private acceptance, an independent exact-head
+  review, lifecycle evidence, and a passing draft PR #26 checkpoint.
+
+Historical completed Phase 01 boundaries:
 
 - Measure coherent raw-script context quality across approximately 2.5k, 5k, 8k, and full Day 1,
   and compare Luna/Terra/Sol High separately for mapping, synthesis, and audit.

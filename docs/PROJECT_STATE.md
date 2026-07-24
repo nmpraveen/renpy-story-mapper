@@ -13,9 +13,13 @@ Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: `Semantic review`. The user started the approved Phase 02 coordinator handoff. The one
-  Phase 02 contract and simple V2 design are locked; broad product implementation is paused until
-  the separate visible Early Contract Reviewer returns `PASS`. Stage H V12 remains a failed
+- Status: `Semantic review` / `REVISE`. The user started the approved Phase 02 coordinator
+  handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
+  exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded
+  correction reconciles lifecycle authority and specifies deterministic branch-event lineage,
+  self-contained V2 transports with a transitive dependency gate, and deliberate local-only
+  execution. Broad product implementation remains paused until the same reviewer returns `PASS`
+  on the corrected exact head. Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
   and left protected inputs unchanged. Phase 01 and its local-model supplement remain accepted
@@ -116,8 +120,9 @@ Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
 - Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The Stage H/Stage E
-  `PASS` is revoked for future work. Phase 01 is complete; the new Phase 02 coordinator must freeze
-  and pass one early simple V2 semantic/architecture review before broad product implementation.
+  `PASS` is revoked for future work. Phase 01 is complete; the Phase 02 coordinator froze the
+  simple V2 contract/design and received `REVISE` on its first early review. One bounded
+  correction is pending same-task rereview before broad product implementation.
   Historical v11 review evidence follows: the v11 uncertainty
   correction; independent exact-head review passed `6d99fd4` with no P0-P2. The earlier whole-scope
   `PASS` after transition commit `b5d08f5` is
@@ -126,10 +131,10 @@ Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
   `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. The corrected exact-head review
   passed at `a7997b1`; the equivalent full chain is integrated through `a7cdf9f` and passed fresh
   coordinator gates.
-- Native Codex goal: tracked history records goal/task
+- Historical native goal: tracked history records goal/task
   `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` for the rejected whole-scope Stage H/Stage E objective.
-  Phase 01 preflight found no active native goal in the current coordinator service. The new Phase
-  02 Coordinator must create one goal for the bounded Phase 02 contract and retain it through its
+  It is not the active goal. Current Phase 02 goal/task
+  `019f9676-c357-7803-a891-f03782bbb8ee` is recorded above and remains active through
   implementation, integration, acceptance, review, and checkpoint push.
 - Interrupted-state recovery: integration HEAD `1c66cc3312e2af322f405c161df47a495cce617f`,
   branch/upstream divergence 48 ahead and zero behind, 13 modified tracked files, and two v4

@@ -125,7 +125,9 @@ verifies the source identity, exact packet plan, transmitted fields, Luna/High/f
 and fallback choice. The run permits at most six planned hosted calls and eight total only for
 confirmed no-response transport replacements. It permits no semantic retry and no auditor.
 Local submission is allowed only for an actual hosted content/safety refusal when the preview
-enabled fallback and the exact already-loaded loopback model is verified.
+enabled fallback and the exact already-loaded loopback model is verified, or through a separately
+previewed user-selected `local_only` run that records zero hosted submissions. The Phase 02 private
+acceptance remains cloud-primary and does not run local-only merely to spend the option.
 
 ## Historical note
 

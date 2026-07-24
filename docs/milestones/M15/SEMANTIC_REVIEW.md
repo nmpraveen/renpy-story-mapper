@@ -4,7 +4,7 @@ Date: 2026-07-24
 
 Integration base: `f914908621efb6ccf1728e3028c6176f961e5a7e`
 
-Decision: REVIEW PENDING
+Decision: REVISE - bounded correction pending rereview
 
 ## Requirement verification
 
@@ -67,17 +67,31 @@ hierarchy compiler, repair protocol, exact-prose replay, browser, or durable ful
   replacement integration branch is created.
 - Local history being 136 commits ahead of the remote is expected rejected-history preservation,
   not permission to push before acceptance.
-- The native goal service currently has no active goal. A new goal will be created only after this
-  contract is locked and will exactly match the Phase 02 done condition.
+- Native goal/task `019f9676-c357-7803-a891-f03782bbb8ee` is active and exactly matches the Phase
+  02 done condition.
 - The task-creation API can set model and High reasoning but exposes no fast-mode field; fast mode
   will be recorded unavailable/unverified for visible tasks.
 - Live product identity remains exact Luna/High/fast-off and must be verified independently before
   private transmission; visible Codex task settings do not establish live provider identity.
 
-## Unresolved review decision
+## Early review result and bounded correction
 
-A separate visible Early Contract Reviewer must inspect the contract and design. Broad product
-implementation and Track A/Track B dispatch remain paused until that reviewer returns `PASS`.
-Only one bounded design correction and rereview is allowed.
+Visible reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed exact clean head
+`df755325edf2a679a3c0c372c9c350d9c37b989d` and returned `REVISE` with no P0/P2 and four P1s:
 
-REVIEW PENDING
+1. the detailed M15 master-plan section and the semantic-review goal assumption contradicted the
+   active Phase 02 state;
+2. branch-specific mapper events lacked a Python-owned canonical/arm-lineage binding and exact
+   anchor/reachability rule;
+3. the no-import rule did not name an implementable cloud/local transport seam or transitive
+   dependency check; and
+4. the provider transition diagram omitted the approved deliberate `local_only` mode.
+
+This is the one permitted bounded correction. `MASTER_PLAN.md` and the goal assumption are
+reconciled. `PHASE_02_DESIGN.md` now defines deterministic arm-lineage binding, ambiguous-range
+rejection, exact anchor/status inputs, self-contained V2 cloud/loopback transports with a
+transitive dependency gate, and a fully previewed local-only path. Broad implementation and Track
+A/Track B dispatch remain paused until the same reviewer rereviews the corrected exact head and
+returns `PASS`.
+
+REVISE

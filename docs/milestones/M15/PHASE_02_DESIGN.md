@@ -28,13 +28,23 @@ The package may import only stable lower-level records and utilities needed for 
 - `m11_scene_model` only for already-derived scene/lane/choice ownership and source order where it
   is useful, never as fine-atom allocation or a provider vocabulary;
 - `m12_model`/`m12_solver` only for existing route-to-target status and stable destinations;
-- current project/storage, source-navigation, safe ingestion, provider isolation, cancellation,
-  and canonical JSON helpers.
+- current project/storage, source-navigation, safe ingestion, and canonical JSON helpers.
 
 It must not import `renpy_story_mapper.narrative_map`, `renpy_story_mapper.narrative`, or
-`renpy_story_mapper.organization` in the supported V2 path. This keeps Stage H/E, adjacent-gap
-voting, semantic hierarchy compilation, atom/evidence allocation, old persistence, and repair
-machinery outside the architecture. A dependency test will enforce this boundary.
+`renpy_story_mapper.organization` directly or transitively in the supported V2 path. This keeps
+Stage H/E, adjacent-gap voting, semantic hierarchy compilation, atom/evidence allocation, old
+persistence, and repair machinery outside the architecture. A module-graph dependency test will
+import every `story_map_v2` module, walk its transitive `renpy_story_mapper` imports, and fail if a
+forbidden namespace is reachable.
+
+Provider isolation is implemented inside the new package, not imported from a rejected/historical
+semantic namespace. `story_map_v2/cloud_transport.py` is a minimal standard-library subprocess
+boundary for the exact sterile Codex CLI request, identity verification, cancellation, and
+sanitized result. `story_map_v2/loopback_transport.py` is a minimal standard-library HTTP boundary
+restricted to `127.0.0.1`/`localhost`, exact loaded-model discovery, identical-packet submission,
+cancellation, and sanitized result. They share only small V2 provider protocols and do not import
+or modify the old cloud/local transports. Track B must prove the same isolation/privacy properties
+with fakes before any live call.
 
 ## Provider-neutral records
 
@@ -76,16 +86,30 @@ Python validates that event ranges are ordered, nonempty, inside the chunk, and 
 branch summary must reference a real deterministic choice key and arm ordinal. Invalid mapper text
 does not alter authority.
 
+Before accepting an event, Python projects its source range to the current ordered source spans and
+canonical node IDs, then derives each story-facing node's complete outer-to-inner arm lineage from
+M10/M11 choice ownership. An event is branch-specific only when every covered story-facing node
+has one identical nonempty lineage. A range that crosses sibling arms, mixes a branch arm with its
+post-rejoin continuation, or otherwise contains incompatible lineages is rejected as an ambiguous
+AI event; exact mechanics remain in the partial core. A shared/spine event may cover only nodes
+with no arm lineage or one Python-proven shared continuation. The mapper never supplies or chooses
+lineage. Per-arm branch summaries obtain their lineage exclusively from the referenced deterministic
+choice key and arm ordinal, including any Python-owned nested parent lineage.
+
 The overlay always replaces any mapper rendering of path-critical fields with deterministic data:
 exact captions, arm order, conditions, effects, destinations, rejoins, reachability, unresolved
 status, and source navigation. AI punctuation or quoting around a caption is ignored. Setup/hint
 controls are not promoted to story paths unless deterministic route authority classifies them as
 story choices.
 
-Every visible event gets a target anchor derived from authority/source identity and its first
-source location. Every branch-specific event gets an anchor derived from the choice key, arm
-ordinal, and deterministic destination/source location. Generated titles never participate in
-target identity.
+Every visible event gets a target anchor from the source generation, canonical authority hash,
+first covered canonical node ID, relative source path, and first physical line. A branch-specific
+event additionally includes the complete ordered `(choice_key, arm_ordinal)` lineage and the
+Python-owned deterministic destination ID. A branch-summary target uses the same inputs from its
+referenced arm. Generated titles never participate in identity. Reachability is copied from the
+bound canonical nodes and, when requested, the exact M12 destination result: `reachable` requires
+confirmed reachable authority, `unreachable` requires a proven unreachable result, and any mixed,
+dynamic, incomplete, or unknown result is `unresolved` with its warning retained.
 
 Accepted chunks assemble by source order. Wording is not required to replay byte-for-byte.
 Missing, invalid, refused, or failed chunk summaries leave deterministic mechanics present and
@@ -100,13 +124,19 @@ cloud submitted --success--> cloud
 cloud submitted --explicit content/safety refusal + fallback enabled--> verify loopback model
 verify loopback model --exact match--> local submitted --success--> local_fallback
 verify/local failure, fallback disabled, or any non-refusal cloud failure --> missing
+prepared local_only --confirm exact preview--> verify loopback model
+verify loopback model --exact match--> local submitted --success--> local_only
 cancel requested --> cancel active provider, retain completed chunks, submit no later chunks
 ```
 
 The preview binds source, packet plan and hashes, prompt/schema, exact
 `gpt-5.6-luna`/High/fast-off settings, call ceilings, transmitted field names, privacy exclusions,
-and fallback choice. Any change requires a new preview and confirmation. Providers are constructed
-only after confirmation.
+and execution mode/fallback choice. Any change requires a new preview and confirmation. Providers
+are constructed only after confirmation. A `local_only` preview binds the same source, packets,
+prompt/schema, transmitted fields, privacy exclusions, exact loopback endpoint/model, and local
+call ceiling; it records zero planned/actual hosted submissions and never constructs the cloud
+provider. Both local origins use the same packet bytes and record elapsed time, response hash,
+usage when available, status, and sanitized reason.
 
 Only an explicit hosted content/safety refusal can enter the local-fallback transition. Timeout,
 rate limit, authentication, transport, invalid JSON/schema, identity mismatch, cancellation, and
@@ -120,8 +150,8 @@ unloads it.
 - Track A owns records, adapter, chunking, mapper serialization/response validation, mechanics
   overlay, target anchors, assembler, generalized fixtures, and package dependency checks.
 - Track B owns preview/confirmation identity, provider protocols, lazy cloud construction, error
-  classification, refusal-only loopback fallback, accounting, cancellation, and fake-provider
-  tests.
+  classification, self-contained cloud/loopback transports, refusal-only fallback, deliberate
+  local-only execution, accounting, cancellation, and fake-provider tests.
 - Shared seams are `StoryChunk`, mapper request/response, `ChunkExecutionResult`, and
   `StoryMapCore`; neither track edits the other track's provider-neutral/provider-policy files.
 - The coordinator owns shared-contract freeze, integration fixes, private inputs, live execution,
@@ -130,14 +160,15 @@ unloads it.
 ## Checks mapped to risks
 
 - Natural boundary, branch-density, rejoin-cluster, oversized-cluster tests prove chunk policy.
-- Linear, local rejoin, persistent, nested, conditional, and unresolved fixtures prove mechanics
-  overlay without private hard-coding.
+- Linear, local rejoin, persistent, nested, cross-arm, conditional, and unresolved fixtures prove
+  mechanics overlay and branch-lineage rejection without private hard-coding.
 - Range/order and invented choice/arm cases prove mapper validation.
-- Fake all-cloud, refusal/fallback enabled, refusal/fallback disabled, local unavailable/identity
-  mismatch, timeout, rate limit, bad JSON, cancellation, and partial assembly cases prove execution
-  policy.
-- Exact-caption quotation, setup-control filtering, stable target, and dependency/import tests
-  prove the Python/AI and architecture boundaries.
+- Fake all-cloud, refusal/fallback enabled, refusal/fallback disabled, deliberate local-only, local
+  unavailable/identity mismatch, timeout, rate limit, bad JSON, cancellation, and partial assembly
+  cases prove execution policy.
+- Exact-caption quotation, setup-control filtering, stable nested target, ambiguous cross-arm
+  rejection, and transitive dependency/import tests prove the Python/AI and architecture
+  boundaries.
 - Relevant M10/M11/M12, ingestion, privacy/isolation, source-navigation, and package-import
   regressions protect lower-level authority.
 

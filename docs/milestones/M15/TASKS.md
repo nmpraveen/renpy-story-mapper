@@ -13,7 +13,7 @@ Lifecycle: `Semantic review`
 | Lock Phase 02 contract | Coordinator | Preflight | M15 lifecycle docs | Complete: one done condition, deliverables, 16 acceptance criteria, exclusions, evidence, provider ceilings, topology, and handoff rules recorded |
 | Freeze simple V2 design | Coordinator | Contract | `PHASE_02_DESIGN.md` | Complete: new package boundary, lower-level authority, compact records, overlay, partial behavior, provider states, seams, and forbidden Stage H/E dependencies recorded |
 | Create native Phase 02 goal | Coordinator | Locked contract | Goal service / project state | Complete: active goal/task `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the contract done condition |
-| Early contract review | Separate visible read-only reviewer | Locked contract and design | Docs and read-only source discovery | Pending; broad implementation paused until `PASS` |
+| Early contract review | Visible read-only task `019f967d-8800-79e2-9dea-5f2412f6eecf` | Locked contract and design | Docs and read-only source discovery | `REVISE` at `df75532`: no P0/P2; four P1s in lifecycle reconciliation, branch-event lineage, concrete transport seam, and deliberate local-only state. One bounded correction is prepared; same-task rereview pending. Broad implementation remains paused. |
 | Shared contracts and failing-first tests | Coordinator | Early reviewer `PASS` | `story_map_v2` seams/tests | Pending |
 | Track A implementation and exact-head review | Separate visible Track A coordinator | Shared freeze | Provider-neutral V2 core | Pending |
 | Track B implementation and exact-head review | Separate visible Track B coordinator | Shared freeze | Execution/fallback policy | Pending |
