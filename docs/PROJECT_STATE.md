@@ -45,8 +45,11 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   at the private full scope and at public-synthetic ~16k/~24k extensions; both extension path checks
   passed. The provisional Phase 01 configuration is Terra High, fast off, for mapping and
   synthesis, no default auditor, 16k normal raw-token target, and 24k public-synthetic validated
-  maximum with earlier branch-density splits. Vertical Prototype is ready to dispatch; Final
-  Phase 01 Reviewer remains undispatched until the prototype and report freeze.
+  maximum with earlier branch-density splits. Vertical Prototype task
+  `019f95e8-24cb-7be0-b19d-70339367330f` is active in detached worktree
+  `C:/Users/prave/.codex/worktrees/c52f/Renpy` at exact commit `6a22c09`, using Sol/High with task
+  fast mode unavailable/unverified and zero story-provider authorization. Final Phase 01 Reviewer
+  remains undispatched until the prototype and report freeze.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
