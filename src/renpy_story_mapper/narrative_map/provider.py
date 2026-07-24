@@ -53,7 +53,7 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v5"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v6"
 WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
@@ -61,7 +61,7 @@ MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v6"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v7"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -86,6 +86,17 @@ _WHOLE_SCOPE_REPAIR_GUIDANCE = {
         "number between 0 and 1, warnings must contain at most one unique string, and every beat "
         "group must contain exactly proposal_key, ordered_unit_ids, confidence, reason, and "
         "warnings. Preserve all locked valid groups byte-for-byte."
+    ),
+    "hierarchy_not_representable": (
+        "The prior Stage H major_clusters cannot round-trip through the deterministic assembler. "
+        "Return a complete replacement hierarchy. major_clusters must reproduce the assembler "
+        "constraints supplied on each ordered unit: start a new major cluster whenever the first "
+        "unit of the next beat changes lane_id, progression_id, call_occurrence_path, or loop_id. "
+        "Do not split one deterministic choice region's owning parent, arm-local beats, and "
+        "post-rejoin continuation into incompatible clusters; parent_choice_id and parent_arm_id "
+        "are ownership constraints, not permission to invent topology. Preserve supplied order, "
+        "obey every hard lock, keep every locked valid item byte-for-byte, and use conservative "
+        "beat or cluster splits when semantic grouping conflicts with deterministic structure."
     ),
     "uncertain_membership": (
         "The prior Stage H proposal declared unresolved membership. An accepted proposal requires "
@@ -838,7 +849,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v5.json",
+            "whole_scope_hierarchy_v6.json",
             "whole_scope_hierarchy_v2.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (

@@ -113,6 +113,14 @@ def _hierarchy_input() -> dict[str, object]:
                 "evidence_ids": list(unit.evidence_ids),
                 "speaker_ids": list(unit.speaker_ids),
                 "lane_id": unit.lane_id,
+                "progression_id": next(
+                    (
+                        context
+                        for context in unit.context_ids
+                        if context.startswith("progression:")
+                    ),
+                    None,
+                ),
                 "call_occurrence_id": unit.call_occurrence_id,
                 "call_occurrence_path": list(unit.call_occurrence_path),
                 "call_site_path": list(unit.call_site_path),
@@ -602,7 +610,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v5"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v6"
     prompt = json.dumps(envelope).lower()
     assert (
         "each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, "
@@ -610,6 +618,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     )
     assert "each ordered_unit_ids array must contain unique, nonempty, trimmed unit ids" in prompt
     assert "trimmed" in prompt
+    assert "progression_id" in prompt
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
@@ -655,7 +664,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert "major_clusters" in lock_policy
     assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v6"
+        "m15-whole-scope-targeted-repair-v7"
     )
 
 
@@ -735,7 +744,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
         )
     current_job = preparation.job
     prior_prompt_job = replace(
-        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v4"
+        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v5"
     )
     profile = _profile()
     assert prior_prompt_job.job_id != current_job.job_id
@@ -766,7 +775,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
 
     prior_policy_consent = replace(
         current_consent,
-        repair_policy_version="m15-whole-scope-targeted-repair-v5",
+        repair_policy_version="m15-whole-scope-targeted-repair-v6",
     )
     assert prior_policy_consent.manifest_id != current_consent.manifest_id
     assert prior_policy_consent.job_ids == current_consent.job_ids

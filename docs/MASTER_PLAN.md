@@ -3,7 +3,7 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in semantic review for the v7 invalid-beat repair correction. Its
+correction inside M15 and is in semantic review for the v8 assembler-context projection. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
@@ -1350,9 +1350,13 @@ rereview passed `dc5a631` with no P0-P2. V7 manifest `consent_0ef74a1324d245a21a
 two calls and failed closed with `invalid_beat_group`, producing no hierarchy/publication or Stage E
 activity. The failing-first prompt-v5/repair-policy-v6 correction explicitly covers every typed beat
 invariant omitted from generic repair guidance without weakening Python rejection. Repeated semantic
-review is `PASS`; independent exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head
-functional suite passed 1,500 tests with five expected opt-in skips, and the isolated M06 benchmark,
-Ruff, and strict mypy also passed. Fresh zero-submit preparation is next.
+review is `PASS`; independent exact-head rereview passed `6ab84ab` with no P0-P2. V8 exact manifest
+`consent_3c1c64df0020fdb6f6733561` then used two calls and failed closed with
+`hierarchy_not_representable`, producing no hierarchy/publication or Stage E activity. Provider-free
+diagnosis proved that all 732 Day 1 units carry three assembler progression states with two
+transitions, but Stage H did not project `progression_id`. The failing-first input-v3/prompt-v6/
+repair-policy-v7 correction supplies that authority and exact assembler-context guidance without
+weakening validation. Repeated semantic review is `PASS`; independent exact-head review is next.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

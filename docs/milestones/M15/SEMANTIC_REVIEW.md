@@ -281,24 +281,52 @@ through `Revise` and `Semantic review`; the repeated gate decision is `PASS`. In
 exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head functional suite passed 1,500
 tests with five expected opt-in skips; the isolated M06 benchmark, Ruff, and strict mypy passed.
 
+## 2026-07-24 assembler-context projection correction
+
+Exact v8 manifest `consent_3c1c64df0020fdb6f6733561` executed while valid, used one initial call
+plus one repair, and failed closed with `hierarchy_not_representable`. It recorded 482,977 input
+tokens and 32,287 output tokens but created no hierarchy, logical record, publication, or Stage E
+activity. Protected fingerprints remained unchanged. Result artifact SHA-256 is
+`6334E0837698FDE14013FC2BF200A3B62EAF2940E7EADC9B5A29DC110FCA385E`.
+
+The assembler's major context is `(lane_id, progression_id, call_occurrence_path, loop_id)`, but
+Stage H input v2 projected every component except progression. Provider-free inspection of the
+exact failed working copy found 732 units, three progression states, and two transitions. The model
+therefore could not reproduce a deterministic partition whose required authority was absent from
+its request. Repair policy v6 also had no `hierarchy_not_representable` guidance. This is an input
+projection and repair-instruction defect, not authority to weaken representability checks.
+
+The failing-first correction advances the typed input schema to v3, preserves prompt versions
+v1-v5 and adds prompt v6, and advances the consent-bound repair policy to v7. Each unit now carries
+only its existing authority-bound `progression_id`; no prose, topology ID, or new authority is
+invented. Both initial and repair guidance require clusters to respect lane, progression,
+call-occurrence path, loop, hard-lock, and deterministic choice ownership. Python's exact
+representability validation remains unchanged. The changed input/prompt invalidates job, cache,
+and consent-job identity; repair-policy v7 additionally invalidates consent-manifest identity.
+
+Focused M15.1/product tests pass 109/109; Ruff, strict mypy over 115 source files, JSON parsing, and
+diff checks pass. The done condition, privacy scope, provider profile, two-call manifest ceiling,
+response schema, and Stage E gate are unchanged. The lifecycle moved through `Revise` and
+`Semantic review`; the repeated gate decision is `PASS`, pending independent exact-head review.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. Prompt v5
-invalidates prior job, cache, and consent-job identity. Repair policy v6 additionally invalidates
-prior consent-manifest identity but does not independently enter the successful-result cache key.
+repair, and proves every legal repair envelope remains below its sterile ceiling. Input v3 and
+prompt v6 invalidate prior job, cache, and consent-job identity. Repair policy v7 additionally
+invalidates prior consent-manifest identity but does not independently enter the successful-result cache key.
 The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS`. V7 manifest `consent_0ef74a1324d245a21acfb2c5` is exhausted and cannot
-be reused. The prompt-v5/repair-policy-v6 correction changes exact prompt/job/cache/consent and
-repair-manifest identity. Independent exact-head rereview passed `6ab84ab` with no P0-P2, so a fresh
-zero-submit Stage H preparation may proceed. The user's standing
+The semantic gate is `PASS`. V8 manifest `consent_3c1c64df0020fdb6f6733561` is exhausted and cannot
+be reused. The input-v3/prompt-v6/repair-policy-v7 correction changes exact input/prompt/job/cache/
+consent and repair-manifest identity. Another fresh Stage H preparation is forbidden until
+independent exact-head review passes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its

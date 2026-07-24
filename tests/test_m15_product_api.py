@@ -25,6 +25,8 @@ from renpy_story_mapper.narrative_map.provider import (
     ProviderJobKind,
     ProviderProfile,
     WholeScopeProviderSubject,
+    _resource_names,
+    _serialize_prompt,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     BoundaryWindow,
@@ -175,9 +177,17 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
                 "ordinal": unit.ordinal,
                 "story_atom_id": unit.story_atom_id,
                 "evidence_ids": list(unit.evidence_ids),
-                "speaker_ids": list(unit.speaker_ids),
-                "lane_id": unit.lane_id,
-                "call_occurrence_id": unit.call_occurrence_id,
+                    "speaker_ids": list(unit.speaker_ids),
+                    "lane_id": unit.lane_id,
+                    "progression_id": next(
+                        (
+                            context
+                            for context in unit.context_ids
+                            if context.startswith("progression:")
+                        ),
+                        None,
+                    ),
+                    "call_occurrence_id": unit.call_occurrence_id,
                 "call_occurrence_path": list(unit.call_occurrence_path),
                 "call_site_path": list(unit.call_site_path),
                 "loop_id": unit.loop_id,
@@ -218,7 +228,7 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
             }
             for lock in hard_locks
         ]
-        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v5")
+        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v6")
 
         evidence_ids = tuple(
             item["evidence_id"]
@@ -412,6 +422,24 @@ def _whole_scope_hierarchy_payload(project_path: Path) -> dict[str, object]:
         "uncertain_unit_ids": [],
         "warnings": [],
     }
+
+
+def test_stage_h_projects_exact_progression_context_for_assembler(tmp_path: Path) -> None:
+    _source, project_path = _project(tmp_path)
+    with Project.open(project_path) as project:
+        inputs = load_m15_semantic_inputs(project)
+        _scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
+
+    projected = payload["units"]
+    assert isinstance(projected, list)
+    expected = [
+        next(
+            (item for item in unit.context_ids if item.startswith("progression:")),
+            None,
+        )
+        for unit in inputs.units
+    ]
+    assert [item["progression_id"] for item in projected] == expected
 
 
 def _unrepresentable_whole_scope_hierarchy_payload(
@@ -969,6 +997,11 @@ def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
     assert completed["accounting"]["provider_calls"] == 2
     assert len(requests) == 2
     assert requests[1].repair_codes == ("hierarchy_not_representable",)
+    prompt_name, _schema_name = _resource_names(requests[1].job)
+    envelope = json.loads(_serialize_prompt(requests[1], prompt_name))
+    guidance = " ".join(envelope["request"]["repair_guidance"])
+    assert "progression_id" in guidance
+    assert "major_clusters must reproduce" in guidance
 
 
 def test_direct_service_exact_authority_validator_rejects_unrepresentable_result(

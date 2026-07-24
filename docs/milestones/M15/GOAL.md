@@ -1,9 +1,8 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: In progress after Stage H v7 failed closed with `invalid_beat_group`; lifecycle returned
-through `Revise`, and the failing-first prompt-v5/repair-policy-v6 correction has repeated semantic
-`PASS`. Independent exact-head rereview passed `6ab84ab` with no P0-P2; fresh zero-submit Stage H
-preparation is next.
+Status: Semantic review after Stage H v8 failed closed with `hierarchy_not_representable`;
+lifecycle returned through `Revise`, and the failing-first input-v3/prompt-v6/repair-policy-v7
+assembler-context correction has repeated semantic `PASS`. Independent exact-head review is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -143,7 +142,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V7 exact manifest `consent_0ef74a1324d245a21acfb2c5` used two calls and failed closed with `invalid_beat_group`: 482,745 input tokens, 29,299 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Result artifact SHA-256 is `FF2682149438490CD5035C79057DAC4C67E4F78AC5469C5A7554C863F900D532`. Failing-first correction advances prompt v5/repair policy v6 with explicit unique-ID and exact beat-field repair constraints without weakening Python rejection. Independent rereview passed exact head `6ab84ab` with no P0-P2. Focused 108/108, exact-head 1,500-test functional suite, isolated M06 benchmark, Ruff, strict mypy, JSON parsing, and diff checks pass; repeated semantic review is `PASS`. Fresh zero-submit preparation is next. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V8 exact manifest `consent_3c1c64df0020fdb6f6733561` used two calls and failed closed with `hierarchy_not_representable`: 482,977 input tokens, 32,287 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Result artifact SHA-256 is `6334E0837698FDE14013FC2BF200A3B62EAF2940E7EADC9B5A29DC110FCA385E`. Provider-free diagnosis found that the 732-unit input omitted the assembler's three-state/two-transition progression context. Failing-first input-v3/prompt-v6/repair-policy-v7 correction projects authority-bound `progression_id` and exact assembler-context guidance without weakening Python rejection. Focused 109/109, Ruff, strict mypy, JSON parsing, and diff checks pass; repeated semantic review is `PASS`. Independent exact-head review is next. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |

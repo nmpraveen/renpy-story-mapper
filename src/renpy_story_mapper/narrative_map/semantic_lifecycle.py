@@ -126,6 +126,14 @@ def whole_scope_hierarchy_input_payload(
                 "evidence_ids": list(item.evidence_ids),
                 "speaker_ids": list(item.speaker_ids),
                 "lane_id": item.lane_id,
+                "progression_id": next(
+                    (
+                        context
+                        for context in item.context_ids
+                        if context.startswith("progression:")
+                    ),
+                    None,
+                ),
                 "call_occurrence_id": item.call_occurrence_id,
                 "call_occurrence_path": list(item.call_occurrence_path),
                 "call_site_path": list(item.call_site_path),
@@ -2726,6 +2734,7 @@ def _validate_stage_h_input(
         "evidence_ids",
         "speaker_ids",
         "lane_id",
+        "progression_id",
         "call_occurrence_id",
         "call_occurrence_path",
         "call_site_path",
@@ -2776,6 +2785,7 @@ def _validate_stage_h_input(
                 for key in (
                     "call_occurrence_id",
                     "loop_id",
+                    "progression_id",
                     "parent_choice_id",
                     "parent_arm_id",
                 )

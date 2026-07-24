@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 in progress after invalid-beat repair review)
+Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -246,7 +246,25 @@ Updated: 2026-07-24 (M15.1 in progress after invalid-beat repair review)
   115 source files, JSON parsing, and diff checks pass. Repeated semantic review is `PASS`;
   independent exact-head rereview passed `6ab84ab` with no P0-P2. The exact-head functional suite
   passed 1,500 tests with five expected opt-in skips, and the isolated M06 benchmark passed. Fresh
-  zero-submit Stage H preparation is next.
+  zero-submit Stage H preparation was the v8 checkpoint below.
+- Stage H v8 execution and assembler-context projection: zero-submit preparation produced exact
+  manifest `consent_3c1c64df0020fdb6f6733561`, build
+  `whole_scope_build_fb850b343ee985493ff09da4`, prompt hash `45f4d55e...8d0c`, and input hash
+  `e7ca9f45...a55f`. It recorded zero provider constructions/calls/reservations/tokens; the
+  645,603-byte envelope fit, and protected fingerprints remained unchanged. Preparation artifact
+  SHA-256 is `A28D8BE69DE6FBBA7F77E3F3022FB07B4BE17393B7CD748209FDD4DEDE223F7B`.
+  The exact valid manifest consumed two calls, 482,977 input tokens, and 32,287 output tokens, then
+  failed closed with `hierarchy_not_representable`. It created no hierarchy, logical record,
+  publication, or Stage E activity; protected fingerprints remained unchanged. Result artifact
+  SHA-256 is `6334E0837698FDE14013FC2BF200A3B62EAF2940E7EADC9B5A29DC110FCA385E`.
+  Provider-free inspection found 732 units, three progression states, and two transitions; the
+  assembler uses progression in major-cluster context, but Stage H input v2 omitted it. The
+  lifecycle returned through `Revise`. Failing-first correction advances input v3, prompt v6, and
+  consent-bound repair policy v7 to project only the existing authority-bound `progression_id` and
+  require exact lane/progression/call-path/loop/choice-compatible cluster partitioning. Python
+  validation remains unchanged. Focused 109/109, Ruff, strict mypy over 115 source files, JSON
+  parsing, and diff checks pass. Repeated semantic review is `PASS`; independent exact-head review
+  is required before fresh zero-submit preparation.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
