@@ -39,8 +39,9 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
 - Final Phase 01 Reviewer task `019f95f8-f3f5-7081-a5be-e0aa00aee2ba` completed its first read-only
   pass and returned `CHANGES_REQUIRED` with one P1: the original checker incorrectly treated exact
   non-story setup controls in the full Luna response as invented story menus. Provider-free
-  correction v2 accepts those exact controls, retains the genuine large-Luna inverted-range
-  failure, adds zero calls, and preserves the full pre-correction package. The corrected
+  correction v3 accepts only exact controls—including exact arm boundaries—retains the genuine
+  large-Luna inverted-range failure, rejects 18 adversarial field/range mutations, adds zero calls,
+  and preserves both earlier evidence states. The corrected
   recommendation is Luna High/fast-off mapping, Terra High/fast-off synthesis, no default auditor,
   a conservative ~2.5k normal Luna target, and ~10.7k validated Luna maximum. Terra's clean ~16k/
   ~24k public-synthetic calls remain alternative-pipeline evidence; exact total dollar preference

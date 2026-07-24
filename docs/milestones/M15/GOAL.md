@@ -16,8 +16,10 @@ authorized.
 Current Phase 01 evidence: the 20-call experiment and disposable prototype are complete. The first
 independent final review found one path-classification P1; a provider-free correction now selects
 Luna mapping, Terra synthesis, no default auditor, and a conservative ~2.5k normal/~10.7k maximum
-Luna context policy. Terra's 16k/24k public-synthetic results are retained as alternative evidence.
-Corrected independent rereview and user screenshot/model approval remain required.
+Luna context policy. Rereview caught a narrower setup-range equality hole, now hardened by checker
+v3 with 18 adversarial mutations rejected and no selection change. Terra's 16k/24k public-synthetic
+results are retained as alternative evidence. Hardened independent rereview and user screenshot/
+model approval remain required.
 
 ## Active Phase 01 done condition
 

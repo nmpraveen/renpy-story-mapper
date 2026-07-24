@@ -69,10 +69,12 @@ is safe and observable without inventing Phase 02 scope.
 
 The first independent final review returned `CHANGES_REQUIRED` with one P1 and no P0/P2. The
 original deterministic checker rejected full Luna because it interpreted two exact, explicitly
-non-story setup controls as invented story menus. Provider-free checker v2 accepts only those
-source-grounded controls when captions, order, effects, ranges, and rejoin agree; it continues to
-reject the real inverted-range defect in large Luna. No provider call was added or repeated and
-the full pre-correction package remains preserved.
+non-story setup controls as invented story menus. Rereview then found the first correction required
+only scope-bounded, not exactly equal, setup-arm ranges. Provider-free checker v3 requires exact
+mechanics arm boundaries plus matching captions, order, conditions, proven effects, and rejoins;
+18 adversarial field/range mutations are rejected. It continues to reject the real inverted-range
+defect in large Luna. No provider call was added or repeated and both earlier evidence states remain
+preserved.
 
 The corrected provisional configuration is Luna High/fast-off mapping, Terra High/fast-off
 synthesis, and no default auditor. Its conservative Luna policy is ~2.5k normal and ~10.7k
