@@ -9,6 +9,12 @@ for future supported work and approved Story Map V2 Phase 01 calibration and ver
 Phase 02 product implementation is unapproved; the same integration branch and open unmerged PR
 #26 continue. The prior semantic `PASS` is revoked for future work.
 
+Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
+review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
+synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna context. Terra's
+16k/24k public-synthetic passes remain alternative evidence. Corrected rereview and user approval
+remain pending; no Phase 02 or product implementation is authorized.
+
 Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
 uncertainty correction passed independent exact-head review. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle

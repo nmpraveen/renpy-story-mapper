@@ -13,6 +13,12 @@ Current authorization: Phase 01 calibration and vertical proof only. Phase 02 pr
 implementation, broad product refactoring, PR mutation, M14 work, and milestone completion are not
 authorized.
 
+Current Phase 01 evidence: the 20-call experiment and disposable prototype are complete. The first
+independent final review found one path-classification P1; a provider-free correction now selects
+Luna mapping, Terra synthesis, no default auditor, and a conservative ~2.5k normal/~10.7k maximum
+Luna context policy. Terra's 16k/24k public-synthetic results are retained as alternative evidence.
+Corrected independent rereview and user screenshot/model approval remain required.
+
 ## Active Phase 01 done condition
 
 Phase 01 is done only when a bounded, identity-verified Luna/Terra/Sol High-reasoning experiment

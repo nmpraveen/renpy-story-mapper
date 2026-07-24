@@ -25,38 +25,27 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   then stop for user judgment. Maximum 20 planned and 23 total provider submissions. No product
   rewrite, push, PR mutation, merge, M14, second PR, new milestone, or M15.1 completion.
 - Phase 01 task topology: Calibration Preparation task
-  `019f95b2-8214-7592-8c56-c10e28a7de5d` completed in separate worktree
-  `C:/Users/prave/.codex/worktrees/c5ba/Renpy` from exact lifecycle commit `d5df3dd`. It uses
-  `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
-  unavailable/unverified. Its provider-free preparation manifest SHA-256 is
-  `78f08dce903dbd64556cb32b8432ad31c7dc680644e8c4a3e9ddc0db9804fbbd`; all verification passed
-  with zero provider/network/game/Git/PR actions. The coordinator completed all 12 planned P1
-  submissions with no retry or replacement. Ten cells are operationally clean; two cells returned
-  valid schema-conforming semantic responses but performed an unauthorized read-only local skill
-  read and are quarantined from final selection. Deterministic path checks passed 10/12; the two
-  failures are frozen for independent scoring. Blind Matrix Reviewer task
-  `019f95ce-57c2-7103-b416-8bb54592b79d` is active in separate worktree
-  `C:/Users/prave/.codex/worktrees/2ed5/Renpy` from exact commit `d91fd3b`, with model identities,
-  provider metadata, path-check outcomes, and the private identity key withheld. It uses
-  `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
-  unavailable/unverified. The same reviewer then froze the six-cell P2/P3 review with no blocker.
-  All three P3 models returned the same correct non-corrective `pass`; none demonstrated a fix.
-  The experiment closed at exactly 20 submissions with no retry/replacement. Terra passed cleanly
-  at the private full scope and at public-synthetic ~16k/~24k extensions; both extension path checks
-  passed. The provisional Phase 01 configuration is Terra High, fast off, for mapping and
-  synthesis, no default auditor, 16k normal raw-token target, and 24k public-synthetic validated
-  maximum with earlier branch-density splits. Vertical Prototype task
-  `019f95e8-24cb-7be0-b19d-70339367330f` is active in detached worktree
-  `C:/Users/prave/.codex/worktrees/c52f/Renpy` at exact commit `6a22c09`, using Sol/High with task
-  fast mode unavailable/unverified and zero story-provider authorization. The task froze a compact
-  six-section vertical prototype with five selectable witness targets, 24/24 correspondence
-  assertions, four 100%/200% captures, clean responsive reflow, and zero remote/provider calls;
-  manifest SHA-256 `786c7bb3...afa8`. The Phase 01 report, exact 20-call ledger, model/context
-  matrix, manifests, fingerprints, and Phase 02 recommendation-only note are frozen locally. Final
-  Phase 01 Reviewer task `019f95f8-f3f5-7081-a5be-e0aa00aee2ba` is active read-only in detached
-  worktree `C:/Users/prave/.codex/worktrees/edef/Renpy` at exact commit `40c3bf0`, using Sol/High
-  with task fast mode unavailable/unverified and zero story-provider authorization. Screenshots
-  still require actual user approval.
+  `019f95b2-8214-7592-8c56-c10e28a7de5d`, Blind Matrix Reviewer task
+  `019f95ce-57c2-7103-b416-8bb54592b79d`, and Vertical Prototype task
+  `019f95e8-24cb-7be0-b19d-70339367330f` are complete. Each used `gpt-5.6-sol` with High reasoning;
+  the visible-task API has no fast-mode selector, so that setting is unavailable/unverified. The
+  preparation manifest is `78f08dce...fbbd`; the prototype manifest is `786c7bb3...afa8`.
+  The experiment closed at exactly 20 submissions with no retry/replacement. Two schema-valid P1
+  cells are operationally quarantined for unauthorized read-only local skill access. P2 selected
+  Terra synthesis at 98.05 with three valid witnesses, and all P3 outputs were byte-identical
+  correct non-corrective passes, so no default auditor is justified. The six-section prototype has
+  five selectable witness targets, 24/24 correspondence assertions, four 100%/200% captures,
+  clean reflow, and zero remote/provider calls.
+- Final Phase 01 Reviewer task `019f95f8-f3f5-7081-a5be-e0aa00aee2ba` completed its first read-only
+  pass and returned `CHANGES_REQUIRED` with one P1: the original checker incorrectly treated exact
+  non-story setup controls in the full Luna response as invented story menus. Provider-free
+  correction v2 accepts those exact controls, retains the genuine large-Luna inverted-range
+  failure, adds zero calls, and preserves the full pre-correction package. The corrected
+  recommendation is Luna High/fast-off mapping, Terra High/fast-off synthesis, no default auditor,
+  a conservative ~2.5k normal Luna target, and ~10.7k validated Luna maximum. Terra's clean ~16k/
+  ~24k public-synthetic calls remain alternative-pipeline evidence; exact total dollar preference
+  is unresolved because Luna's cheaper tier requires many more estimated calls. Independent
+  rereview is pending. Screenshots still require actual user approval.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required

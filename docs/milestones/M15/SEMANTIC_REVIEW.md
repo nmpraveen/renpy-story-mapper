@@ -65,6 +65,22 @@ product code. Phase 02 remains unapproved.
 The current product contract therefore requires revision, while the bounded Phase 01 experiment
 is safe and observable without inventing Phase 02 scope.
 
+### Phase 01 independent-review correction
+
+The first independent final review returned `CHANGES_REQUIRED` with one P1 and no P0/P2. The
+original deterministic checker rejected full Luna because it interpreted two exact, explicitly
+non-story setup controls as invented story menus. Provider-free checker v2 accepts only those
+source-grounded controls when captions, order, effects, ranges, and rejoin agree; it continues to
+reject the real inverted-range defect in large Luna. No provider call was added or repeated and
+the full pre-correction package remains preserved.
+
+The corrected provisional configuration is Luna High/fast-off mapping, Terra High/fast-off
+synthesis, and no default auditor. Its conservative Luna policy is ~2.5k normal and ~10.7k
+validated maximum. Terra's already-run 16k/24k public-synthetic passes remain valid evidence for a
+higher-throughput alternative, but do not extend Luna's validation. The supplied tier order favors
+Luna per call; exact end-to-end dollar preference remains unresolved because the conservative Luna
+policy implies many more calls. Independent rereview and user screenshot approval remain pending.
+
 ## Historical Stage H/Stage E review result
 
 The observable M15.1 done condition remains unchanged: the supported product must produce a compact,
