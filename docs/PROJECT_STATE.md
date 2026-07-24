@@ -25,10 +25,12 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   then stop for user judgment. Maximum 20 planned and 23 total provider submissions. No product
   rewrite, push, PR mutation, merge, M14, second PR, new milestone, or M15.1 completion.
 - Phase 01 task topology: Calibration Preparation task
-  `019f95b2-8214-7592-8c56-c10e28a7de5d` is active in separate worktree
+  `019f95b2-8214-7592-8c56-c10e28a7de5d` completed in separate worktree
   `C:/Users/prave/.codex/worktrees/c5ba/Renpy` from exact lifecycle commit `d5df3dd`. It uses
   `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
-  unavailable/unverified. It is provider-free and may write only ignored Phase 01 artifacts.
+  unavailable/unverified. Its provider-free preparation manifest SHA-256 is
+  `78f08dce903dbd64556cb32b8432ad31c7dc680644e8c4a3e9ddc0db9804fbbd`; all verification passed
+  with zero provider/network/game/Git/PR actions. The P1 coordinator matrix is now ready to run.
   Blind Matrix Reviewer, Vertical Prototype, and Final Phase 01 Reviewer tasks remain undispatched
   until their dependencies freeze.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
