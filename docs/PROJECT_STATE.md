@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at exact Stage H v6 execution)
+Updated: 2026-07-24 (M15.1 In progress at ambiguity-threshold correction review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -214,6 +214,18 @@ Updated: 2026-07-24 (M15.1 In progress at exact Stage H v6 execution)
   baseline are unchanged. Preparation artifact SHA-256 is
   `C3B568547C71C953E206A8E8C9F768E7ACF235CFFED27843B27369E98A4D360B`. Standing authorization
   permits exact bounded execution without another routine pause.
+- Stage H v6 execution and ambiguity-threshold correction: exact manifest
+  `consent_19347f6e215c44d3bb8ae6ca` executed while valid, consumed two calls, and failed closed with
+  `uncertain_membership`. It recorded 482,652 input tokens and 31,690 output tokens but no
+  hierarchy, logical record, publication, or Stage E activity. Source/archive/accepted baseline
+  remained unchanged. Result artifact SHA-256 is
+  `320E1324B438AF93526B62F18417872E38E11DDDC6B82DFEBF40C623945DF9DC`. The lifecycle returned to
+  `Revise`. Repeated failures showed that ordinary editorial ambiguity was still being treated as
+  terminal uncertainty. Commit `b81dbad` advances hierarchy prompt v4 and repair policy v5: normal
+  ambiguity must use confidence/warnings or a conservative singleton beat, while nonempty
+  `uncertain_unit_ids` remains reserved for missing evidence or structural impossibility and is
+  still rejected by Python. Focused 107/107, Ruff, and strict mypy pass; repeated semantic review is
+  `PASS`, with independent exact-head review next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

@@ -1,8 +1,8 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: In progress after Stage H v5 failed closed with `semantic_reinterpretation`; the reviewed
-whole-scope lock-policy correction has semantic/exact-head `PASS`, and exact Stage H v6 execution
-is next under standing authorization.
+Status: In progress after Stage H v6 failed closed with `uncertain_membership`; lifecycle returned
+through `Revise`, ambiguity-threshold correction `b81dbad` has repeated semantic `PASS`, and
+independent exact-head review is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -142,7 +142,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V5 failed closed with `semantic_reinterpretation`; lock-policy correction `b97fa47` then passed semantic/exact-head review at `1adfe2d` with no P0-P2 plus 107 focused and 1,499 functional tests. Fresh provider-forbidden v6 preparation produced exact manifest `consent_19347f6e215c44d3bb8ae6ca`, expiring `2026-07-24T15:50:07.902526Z`, bound to repair policy v4, prompt hash `2a6beda4…d74e`, unchanged authority/source/schema/provider/privacy/resource identities, a 644,718-byte envelope, zero provider construction/reservations/calls/tokens, and unchanged protected fingerprints. Exact bounded execution is next under standing authorization. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V6 manifest `consent_19347f6e215c44d3bb8ae6ca` used two calls and failed closed with `uncertain_membership`: 482,652 input tokens, 31,690 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Artifact SHA-256 is `320E1324B438AF93526B62F18417872E38E11DDDC6B82DFEBF40C623945DF9DC`. Lifecycle returned to `Revise`. Failing-first prompt tests show ordinary editorial ambiguity was still allowed to become terminal uncertainty. Commit `b81dbad` advances hierarchy prompt v4 and consent repair policy v5, directs ambiguity to confidence/warnings or conservative singleton beats, and reserves nonempty uncertainty for missing evidence or structural impossibility; Python's fail-closed validator is unchanged. Focused 107/107, Ruff, and strict mypy pass; repeated semantic review is `PASS`. Independent exact-head review is next; no fresh run before review and zero-submit audit. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |

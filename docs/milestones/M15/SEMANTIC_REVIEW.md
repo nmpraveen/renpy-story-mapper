@@ -216,6 +216,32 @@ This correction improves provider compliance without weakening safety, topology 
 privacy, or exact manifest controls. The lifecycle moved through `Semantic review` and returns to
 `In progress` with `PASS`; fresh zero-submit preparation may proceed.
 
+## 2026-07-24 ambiguity-threshold correction
+
+Exact v6 manifest `consent_19347f6e215c44d3bb8ae6ca` executed while valid, used one initial call
+plus one repair, and failed closed with `uncertain_membership`. It recorded 482,652 input tokens
+and 31,690 output tokens but created no hierarchy, logical record, publication, or Stage E activity.
+Source, archive, and accepted-baseline fingerprints remained unchanged. Result artifact SHA-256 is
+`320E1324B438AF93526B62F18417872E38E11DDDC6B82DFEBF40C623945DF9DC`.
+
+The lifecycle returned to `Revise`. The validator remains correct: any nonempty uncertainty list
+must fail closed. The repeated provider behavior exposed an editorial-threshold defect instead.
+Prompt v3 allowed a model to classify normal ambiguity about neighboring beat membership as
+terminal uncertainty, even though a conservative singleton beat can preserve exact order and every
+structural constraint without inventing authority.
+
+A failing-first prompt freeze requires the corrected distinction. Commit `b81dbad` advances Stage H
+prompt identity to v4 and consent-bound repair policy to v5. It directs ordinary editorial
+ambiguity to the most defensible evidence-based grouping, lower confidence/warnings, or a
+conservative singleton beat. Nonempty `uncertain_unit_ids` remains truthful and permitted only when
+required supplied evidence is missing or no placement—including a singleton—can satisfy exact
+structural constraints; Python still rejects it unchanged. Focused M15.1/product tests pass
+107/107; Ruff and strict mypy pass.
+
+This correction narrows the meaning of terminal uncertainty without hiding it, guessing, or
+weakening authority. The lifecycle moved through `Semantic review` and returns to `In progress`
+with `PASS`, pending independent exact-head review before another fresh preparation.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
@@ -229,11 +255,9 @@ subordinate to M10/M11 authority and provider text remains transient. Predecesso
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS`. Manifest `consent_14655be0e14020371cdf104f` is exhausted and cannot be
-reused. Commit `b97fa47` changes the repair-policy identity, so another Stage H run requires a
-fresh zero-submit manifest audit. That audit produced exact v6 manifest
-`consent_19347f6e215c44d3bb8ae6ca`, expiring `2026-07-24T15:50:07.902526Z`, with zero provider
-activity and unchanged protected fingerprints. The user's standing
+The semantic gate is `PASS`. Manifest `consent_19347f6e215c44d3bb8ae6ca` is exhausted and cannot be
+reused. Commit `b81dbad` changes prompt and repair-policy identity; another Stage H preparation is
+forbidden until independent exact-head review passes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
