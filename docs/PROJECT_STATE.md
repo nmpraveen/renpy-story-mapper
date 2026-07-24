@@ -259,12 +259,18 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   SHA-256 is `6334E0837698FDE14013FC2BF200A3B62EAF2940E7EADC9B5A29DC110FCA385E`.
   Provider-free inspection found 732 units, three progression states, and two transitions; the
   assembler uses progression in major-cluster context, but Stage H input v2 omitted it. The
-  lifecycle returned through `Revise`. Failing-first correction advances input v3, prompt v6, and
-  consent-bound repair policy v7 to project only the existing authority-bound `progression_id` and
-  require exact lane/progression/call-path/loop/choice-compatible cluster partitioning. Python
-  validation remains unchanged. Focused 109/109, Ruff, strict mypy over 115 source files, JSON
-  parsing, and diff checks pass. Repeated semantic review is `PASS`; independent exact-head review
-  is required before fresh zero-submit preparation.
+  lifecycle returned through `Revise`. The first exact-head review found one P1: assembler choice
+  ownership overrides normal context splits, but the request lacked the owning parent/continuation
+  grouping. Corrected input v5, prompt v8, and consent-bound repair policy v9 project three compact
+  exact progression runs and deduplicated authority-bound inclusive unit-ID ranges on existing
+  choice-ownership hard locks, require each expanded range to share one
+  major cluster with precedence over context changes, and enforce that invariant in Python. No
+  topology ID or prose is added. The serialized differing-lane parent/arms/rejoin case round-trips,
+  while a context-split proposal fails closed. Focused M15.1/product 110/110 and combined hierarchy
+  128/128 pass; Ruff, strict mypy over 115 source files, JSON parsing, and diff checks pass. The
+  exact private canonical payload is 643,032 bytes under the 660,000-byte typed-payload ceiling.
+  Repeated semantic review is `PASS`; independent exact-head rereview is required before fresh
+  zero-submit preparation.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

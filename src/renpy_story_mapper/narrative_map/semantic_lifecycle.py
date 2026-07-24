@@ -112,11 +112,28 @@ def whole_scope_hierarchy_input_payload(
         if tuple(item.evidence_id for item in records) != unit.evidence_ids:
             raise ValueError("Stage H evidence does not match fine-unit authority")
         evidence.extend(item.to_prompt_dict() for item in records)
+    progression_runs: list[dict[str, str | None]] = []
+    previous_progression: object = object()
+    for unit in materialized_units:
+        progression_id = next(
+            (
+                context
+                for context in unit.context_ids
+                if context.startswith("progression:")
+            ),
+            None,
+        )
+        if progression_id != previous_progression:
+            progression_runs.append(
+                {"start_unit_id": unit.unit_id, "progression_id": progression_id}
+            )
+            previous_progression = progression_id
     payload: dict[str, object] = {
         "schema": M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA,
         "scope_id": scope_id,
         "authority": authority.to_dict(),
         "ordered_unit_ids": [item.unit_id for item in materialized_units],
+        "progression_runs": progression_runs,
         "units": [
             {
                 "unit_id": item.unit_id,
@@ -126,14 +143,6 @@ def whole_scope_hierarchy_input_payload(
                 "evidence_ids": list(item.evidence_ids),
                 "speaker_ids": list(item.speaker_ids),
                 "lane_id": item.lane_id,
-                "progression_id": next(
-                    (
-                        context
-                        for context in item.context_ids
-                        if context.startswith("progression:")
-                    ),
-                    None,
-                ),
                 "call_occurrence_id": item.call_occurrence_id,
                 "call_occurrence_path": list(item.call_occurrence_path),
                 "call_site_path": list(item.call_site_path),
@@ -2710,6 +2719,7 @@ def _validate_stage_h_input(
         "scope_id",
         "authority",
         "ordered_unit_ids",
+        "progression_runs",
         "units",
         "evidence",
         "hard_locks",
@@ -2717,11 +2727,13 @@ def _validate_stage_h_input(
     units = payload.get("units")
     evidence = payload.get("evidence")
     hard_locks = payload.get("hard_locks")
+    progression_runs = payload.get("progression_runs")
     if (
         set(payload) != expected_fields
         or not isinstance(units, list)
         or not isinstance(evidence, list)
         or not isinstance(hard_locks, list)
+        or not isinstance(progression_runs, list)
     ):
         raise ValueError("Stage H input shape is not exact")
     unit_fields = {
@@ -2734,7 +2746,6 @@ def _validate_stage_h_input(
         "evidence_ids",
         "speaker_ids",
         "lane_id",
-        "progression_id",
         "call_occurrence_id",
         "call_occurrence_path",
         "call_site_path",
@@ -2785,7 +2796,6 @@ def _validate_stage_h_input(
                 for key in (
                     "call_occurrence_id",
                     "loop_id",
-                    "progression_id",
                     "parent_choice_id",
                     "parent_arm_id",
                 )
@@ -2813,6 +2823,26 @@ def _validate_stage_h_input(
 
     if len(supplied_units) != len(set(supplied_units)):
         raise ValueError("Stage H input identity is not exact")
+
+    run_starts: list[int] = []
+    for run in progression_runs:
+        if (
+            not isinstance(run, Mapping)
+            or set(run) != {"start_unit_id", "progression_id"}
+            or run.get("start_unit_id") not in supplied_units
+            or (
+                run.get("progression_id") is not None
+                and (
+                    not isinstance(run.get("progression_id"), str)
+                    or not cast(str, run["progression_id"]).startswith("progression:")
+                    or cast(str, run["progression_id"]) != cast(str, run["progression_id"]).strip()
+                )
+            )
+        ):
+            raise ValueError("Stage H progression authority is not exact")
+        run_starts.append(supplied_units.index(cast(str, run["start_unit_id"])))
+    if not run_starts or run_starts[0] != 0 or run_starts != sorted(set(run_starts)):
+        raise ValueError("Stage H progression authority is not exact")
 
     evidence_fields = {
         "unit_id",

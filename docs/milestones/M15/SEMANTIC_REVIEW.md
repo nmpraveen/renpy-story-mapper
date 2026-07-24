@@ -296,26 +296,43 @@ therefore could not reproduce a deterministic partition whose required authority
 its request. Repair policy v6 also had no `hierarchy_not_representable` guidance. This is an input
 projection and repair-instruction defect, not authority to weaken representability checks.
 
-The failing-first correction advances the typed input schema to v3, preserves prompt versions
-v1-v5 and adds prompt v6, and advances the consent-bound repair policy to v7. Each unit now carries
-only its existing authority-bound `progression_id`; no prose, topology ID, or new authority is
-invented. Both initial and repair guidance require clusters to respect lane, progression,
-call-occurrence path, loop, hard-lock, and deterministic choice ownership. Python's exact
-representability validation remains unchanged. The changed input/prompt invalidates job, cache,
-and consent-job identity; repair-policy v7 additionally invalidates consent-manifest identity.
+The first correction advanced input v3/prompt v6/repair policy v7 and projected progression. Its
+independent review returned `FAIL` with one P1: the assembler forces arm-local beats and post-rejoin
+continuations into the choice parent's cluster before applying normal context splits, while the
+request exposed neither an owning parent unit set nor continuation grouping. The original guidance
+could therefore direct an invalid context split and repeat the live failure. The same review found
+one P2 stale count; the added typed-authority mutation case makes the focused total 110, not 109.
 
-Focused M15.1/product tests pass 109/109; Ruff, strict mypy over 115 source files, JSON parsing, and
-diff checks pass. The done condition, privacy scope, provider profile, two-call manifest ceiling,
-response schema, and Stage E gate are unchanged. The lifecycle moved through `Revise` and
-`Semantic review`; the repeated gate decision is `PASS`, pending independent exact-head review.
+The corrected input v5 preserves prompt versions v1-v7 and adds prompt v8; repair policy advances
+to v9. A conservative all-new-major-cluster authority assembly derives only the unit memberships
+that Python itself forces into each choice parent cluster. Existing `choice_ownership` hard locks
+carry inclusive ordered ranges represented by authority-bound unit-ID endpoints; duplicate nested
+sets are projected once to preserve the
+sterile byte budget. Prompt and repair rules require each listed set to share one major cluster and
+state that this choice rule overrides lane/progression/call-path/loop changes within the set.
+Python now enforces the same hard-lock invariant before exact assembly. No provider output,
+topology ID, source prose, or invented authority enters the constraint.
+
+A serialized four-unit choice with different parent/arm/rejoin lanes carries the exact required
+inclusive unit range and round-trips as one cluster; splitting it by context fails closed at the
+hard lock. The exact private projection contains three progression runs and five choice locks:
+four distinct required ranges represented by two existing unit-ID endpoints each, plus one
+deduplicated empty repeated constraint. Its canonical payload is 643,032 bytes under the
+660,000-byte typed-payload ceiling and remains below the one-million-byte sterile
+provider bound. Focused M15.1/product tests pass 110/110; combined hierarchy/product tests pass
+128/128; Ruff, strict mypy over 115 source files, JSON parsing, and diff checks pass.
+
+The done condition, privacy scope, provider profile, two-call manifest ceiling, response schema,
+and Stage E gate are unchanged. The lifecycle remains in repeated `Semantic review` with `PASS`,
+pending independent exact-head rereview.
 
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. Input v3 and
-prompt v6 invalidate prior job, cache, and consent-job identity. Repair policy v7 additionally
+repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 and
+prompt v8 invalidate prior job, cache, and consent-job identity. Repair policy v9 additionally
 invalidates prior consent-manifest identity but does not independently enter the successful-result cache key.
 The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
@@ -324,7 +341,7 @@ P0-P2. The new lock-policy correction passed independent exact-head review at `1
 P0-P2.
 
 The semantic gate is `PASS`. V8 manifest `consent_3c1c64df0020fdb6f6733561` is exhausted and cannot
-be reused. The input-v3/prompt-v6/repair-policy-v7 correction changes exact input/prompt/job/cache/
+be reused. The input-v5/prompt-v8/repair-policy-v9 correction changes exact input/prompt/job/cache/
 consent and repair-manifest identity. Another fresh Stage H preparation is forbidden until
 independent exact-head review passes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another

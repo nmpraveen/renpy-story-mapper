@@ -34,6 +34,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     SemanticBoundaryKind,
     WholeScopeSemanticStage,
 )
+from renpy_story_mapper.narrative_map.semantic_hierarchy import HierarchyHardLockKind
 from renpy_story_mapper.narrative_map.semantic_lifecycle import WholeScopeStagePreparation
 from renpy_story_mapper.narrative_map.service import NarrativeMapService
 from renpy_story_mapper.narrative_map.validation import ValidationFinding
@@ -179,14 +180,6 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
                 "evidence_ids": list(unit.evidence_ids),
                     "speaker_ids": list(unit.speaker_ids),
                     "lane_id": unit.lane_id,
-                    "progression_id": next(
-                        (
-                            context
-                            for context in unit.context_ids
-                            if context.startswith("progression:")
-                        ),
-                        None,
-                    ),
                     "call_occurrence_id": unit.call_occurrence_id,
                 "call_occurrence_path": list(unit.call_occurrence_path),
                 "call_site_path": list(unit.call_site_path),
@@ -228,7 +221,15 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
             }
             for lock in hard_locks
         ]
-        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v6")
+        choice_locks = [
+            lock for lock in hard_locks if lock.kind is HierarchyHardLockKind.CHOICE_OWNERSHIP
+        ]
+        assert all(lock.unit_ids for lock in choice_locks)
+        assert all(
+            set(lock.unit_ids) <= {unit.unit_id for unit in inputs.units}
+            for lock in choice_locks
+        )
+        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v8")
 
         evidence_ids = tuple(
             item["evidence_id"]
@@ -430,16 +431,21 @@ def test_stage_h_projects_exact_progression_context_for_assembler(tmp_path: Path
         inputs = load_m15_semantic_inputs(project)
         _scope_id, payload, _hard_locks = _whole_scope_hierarchy_input(inputs)
 
-    projected = payload["units"]
+    projected = payload["progression_runs"]
     assert isinstance(projected, list)
-    expected = [
-        next(
+    expected: list[dict[str, str | None]] = []
+    previous: object = object()
+    for unit in inputs.units:
+        progression_id = next(
             (item for item in unit.context_ids if item.startswith("progression:")),
             None,
         )
-        for unit in inputs.units
-    ]
-    assert [item["progression_id"] for item in projected] == expected
+        if progression_id != previous:
+            expected.append(
+                {"start_unit_id": unit.unit_id, "progression_id": progression_id}
+            )
+            previous = progression_id
+    assert projected == expected
 
 
 def _unrepresentable_whole_scope_hierarchy_payload(
@@ -1000,8 +1006,10 @@ def test_stage_h_full_authority_validation_repairs_before_durable_acceptance(
     prompt_name, _schema_name = _resource_names(requests[1].job)
     envelope = json.loads(_serialize_prompt(requests[1], prompt_name))
     guidance = " ".join(envelope["request"]["repair_guidance"])
-    assert "progression_id" in guidance
+    assert "progression_runs" in guidance
     assert "major_clusters must reproduce" in guidance
+    assert "choice_ownership hard lock" in guidance
+    assert "overrides" in guidance
 
 
 def test_direct_service_exact_authority_validator_rejects_unrepresentable_result(

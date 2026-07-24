@@ -3,7 +3,7 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in semantic review for the v8 assembler-context projection. Its
+correction inside M15 and is in semantic review for the v9 assembler-context projection. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
@@ -1354,9 +1354,12 @@ review is `PASS`; independent exact-head rereview passed `6ab84ab` with no P0-P2
 `consent_3c1c64df0020fdb6f6733561` then used two calls and failed closed with
 `hierarchy_not_representable`, producing no hierarchy/publication or Stage E activity. Provider-free
 diagnosis proved that all 732 Day 1 units carry three assembler progression states with two
-transitions, but Stage H did not project `progression_id`. The failing-first input-v3/prompt-v6/
-repair-policy-v7 correction supplies that authority and exact assembler-context guidance without
-weakening validation. Repeated semantic review is `PASS`; independent exact-head review is next.
+transitions, but Stage H did not project `progression_id`. First review then found that context
+splits alone conflict with choice-owned parent/arm/rejoin clustering. The corrected input-v5/
+prompt-v8/repair-policy-v9 path projects compact authority-bound progression runs and inclusive
+choice range endpoints into existing choice hard locks, gives them precedence over context splits,
+and enforces them without weakening
+validation. Repeated semantic review is `PASS`; independent exact-head rereview is next.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

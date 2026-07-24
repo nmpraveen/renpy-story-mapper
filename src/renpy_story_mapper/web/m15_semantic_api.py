@@ -75,6 +75,8 @@ from renpy_story_mapper.narrative_map.provider import (
 from renpy_story_mapper.narrative_map.semantic_contracts import (
     M15_WHOLE_SCOPE_EDITORIAL_INPUT_SCHEMA,
     MAXIMUM_DAY1_PROVIDER_SUBMISSIONS,
+    SemanticBoundaryDecision,
+    SemanticBoundaryKind,
     WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
@@ -1104,24 +1106,52 @@ def _whole_scope_hierarchy_input(
         "whole_scope",
         {"authority": authority.to_dict(), "ordered_unit_ids": list(ordered_unit_ids)},
     )
-    arms_by_choice: dict[str, list[str]] = {}
-    for unit in inputs.units:
-        if unit.parent_choice_id is not None and unit.parent_arm_id is not None:
-            arms = arms_by_choice.setdefault(unit.parent_choice_id, [])
-            if unit.parent_arm_id not in arms:
-                arms.append(unit.parent_arm_id)
-    hard_locks = tuple(
-        HierarchyHardLock(
+    constraint_decisions = tuple(
+        SemanticBoundaryDecision(
+            candidate.candidate_id,
+            SemanticBoundaryKind.NEW_MAJOR_CLUSTER,
+            "Conservative authority projection isolates each eligible boundary.",
+            1.0,
+        )
+        for candidate in inputs.candidates
+    )
+    _units, _candidates, constraint_outline = assemble_semantic_outline_from_authority(
+        inputs.canonical,
+        inputs.scene_model,
+        constraint_decisions,
+    )
+    hard_lock_items: list[HierarchyHardLock] = []
+    seen_required_sets: set[tuple[str, ...]] = set()
+    for choice in constraint_outline.choices:
+        required_unit_ids = tuple(
+            unit_id
+            for beat in constraint_outline.beats
+            if beat.parent_cluster_id == choice.parent_cluster_id
+            for unit_id in beat.ordered_unit_ids
+        )
+        projected_unit_ids = (
+            ()
+            if required_unit_ids in seen_required_sets
+            else (required_unit_ids[0], required_unit_ids[-1])
+        )
+        seen_required_sets.add(required_unit_ids)
+        hard_lock_items.append(
+            HierarchyHardLock(
             stable_m15_id(
                 "whole_scope_choice_lock",
-                {"choice_id": choice_id, "arm_ids": arm_ids},
+                {
+                    "choice_id": choice.choice_id,
+                    "arm_ids": list(choice.ordered_arm_ids),
+                    "unit_ids": list(projected_unit_ids),
+                },
             ),
             HierarchyHardLockKind.CHOICE_OWNERSHIP,
-            choice_id=choice_id,
-            arm_ids=tuple(arm_ids),
+            unit_ids=projected_unit_ids,
+            choice_id=choice.choice_id,
+            arm_ids=choice.ordered_arm_ids,
         )
-        for choice_id, arm_ids in arms_by_choice.items()
-    )
+        )
+    hard_locks = tuple(hard_lock_items)
     payload = whole_scope_hierarchy_input_payload(
         authority,
         scope_id,

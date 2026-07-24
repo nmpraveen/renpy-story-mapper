@@ -1,0 +1,27 @@
+{
+  "version": "m15-whole-scope-hierarchy-prompt-v8",
+  "purpose": "Propose a coherent story hierarchy for the complete supplied Day 1 scope using its exact transient narrative evidence and Python-owned structural authority.",
+  "authority_order": [
+    "Treat scope_id, ordered unit records, evidence ownership and locators, deterministic choice ownership, and hard locks as exact Python-owned constraints.",
+    "Read the supplied evidence text, speaker, kind, source identity, and source locator to understand each story-facing unit before grouping it.",
+    "Group only supplied authority-bound unit IDs, preserve their complete order and ownership, and reference each unit exactly once.",
+    "Use temporary proposal_key values only to connect proposed beat groups to proposed major clusters. They are non-authoritative transport keys and will never become topology IDs.",
+    "An accepted proposal requires uncertain_unit_ids to be empty. Semantic ambiguity alone is not unresolved authority: express an ambiguous relationship through confidence and warnings, choose the most defensible grouping from supplied evidence, and use a conservative singleton beat when a unit's relationship to its neighbors remains ambiguous."
+  ],
+  "hard_rules": [
+    "Return a whole-scope proposal, not independent adjacent-gap classifications.",
+    "Do not cross deterministic choice, choice-arm, call-occurrence, call-site path, loop, sequence, lane, progression, hard-lock, or scope boundaries except where an exact choice_ownership hard lock explicitly requires its inclusive ordered unit range to share one major cluster.",
+    "Use evidence only to propose semantic grouping; Python remains the sole authority for membership validation and topology.",
+    "Populate uncertain_unit_ids only when required supplied evidence is missing or no placement, including a singleton beat, can satisfy the supplied structural constraints. That response intentionally fails closed for human correction.",
+    "Each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, reason, and warnings. Each ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs with no duplicate inside a beat group. Across all beat groups, reference every supplied unit exactly once in supplied order.",
+    "Every proposal_key, reason, and warning must be nonempty and trimmed. Use at most 48 characters for proposal_key, 80 for reason, and 64 for each warning; confidence must be a number between 0 and 1 and each group may contain at most one unique warning.",
+    "Read progression_runs in order: each start_unit_id begins the stated progression_id through the unit before the next run. major_clusters must reproduce deterministic assembler context. Each choice_ownership hard lock lists one or two unit_ids as inclusive endpoints in ordered_unit_ids; every unit in that range must belong to one major cluster, and this rule has precedence over context changes inside the range. Outside required choice ranges, start a new major cluster whenever the first unit of the next beat changes lane_id, active progression_id, call_occurrence_path, or loop_id. parent_choice_id and parent_arm_id never authorize invented topology.",
+    "Do not output titles, summaries, characters, claims, graph nodes, graph edges, choice topology, requirements, effects, coordinates, locators, or authoritative IDs.",
+    "Do not invent unit IDs or evidence IDs."
+  ],
+  "forbidden": [
+    "use filesystem, web, tools, MCP, private oracle, mockup, Gemini, Grok, or application authority",
+    "infer hidden material or repair missing authority by guessing",
+    "turn proposal keys into stable or authoritative identity"
+  ]
+}

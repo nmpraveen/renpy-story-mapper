@@ -104,6 +104,9 @@ def _hierarchy_input() -> dict[str, object]:
         "scope_id": "scope-day-1",
         "authority": _authority().to_dict(),
         "ordered_unit_ids": list(unit_ids),
+        "progression_runs": [
+            {"start_unit_id": unit_ids[0], "progression_id": None}
+        ],
         "units": [
             {
                 "unit_id": unit.unit_id,
@@ -113,14 +116,6 @@ def _hierarchy_input() -> dict[str, object]:
                 "evidence_ids": list(unit.evidence_ids),
                 "speaker_ids": list(unit.speaker_ids),
                 "lane_id": unit.lane_id,
-                "progression_id": next(
-                    (
-                        context
-                        for context in unit.context_ids
-                        if context.startswith("progression:")
-                    ),
-                    None,
-                ),
                 "call_occurrence_id": unit.call_occurrence_id,
                 "call_occurrence_path": list(unit.call_occurrence_path),
                 "call_site_path": list(unit.call_site_path),
@@ -610,7 +605,7 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v6"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v8"
     prompt = json.dumps(envelope).lower()
     assert (
         "each beat group must contain exactly proposal_key, ordered_unit_ids, confidence, "
@@ -618,7 +613,10 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     )
     assert "each ordered_unit_ids array must contain unique, nonempty, trimmed unit ids" in prompt
     assert "trimmed" in prompt
-    assert "progression_id" in prompt
+    assert "progression_runs" in prompt
+    assert "choice_ownership hard lock lists one or two unit_ids" in prompt
+    assert "inclusive endpoints" in prompt
+    assert "precedence over context changes" in prompt
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
@@ -664,7 +662,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert "major_clusters" in lock_policy
     assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v7"
+        "m15-whole-scope-targeted-repair-v9"
     )
 
 
@@ -744,7 +742,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
         )
     current_job = preparation.job
     prior_prompt_job = replace(
-        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v5"
+        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v7"
     )
     profile = _profile()
     assert prior_prompt_job.job_id != current_job.job_id
@@ -775,7 +773,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
 
     prior_policy_consent = replace(
         current_consent,
-        repair_policy_version="m15-whole-scope-targeted-repair-v6",
+        repair_policy_version="m15-whole-scope-targeted-repair-v8",
     )
     assert prior_policy_consent.manifest_id != current_consent.manifest_id
     assert prior_policy_consent.job_ids == current_consent.job_ids
@@ -828,11 +826,14 @@ def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:
         "scope_id": "scope-day-1",
         "authority": _authority().to_dict(),
         "ordered_unit_ids": list(unit_ids),
+        "progression_runs": [
+            {"start_unit_id": unit_ids[0], "progression_id": None}
+        ],
         "units": units,
         "evidence": evidence,
         "hard_locks": [],
     }
-    target_payload_bytes = 645_000
+    target_payload_bytes = 660_000
     current_payload_bytes = len(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     )
@@ -926,8 +927,8 @@ def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:
     )
     prompt_name, _schema_name = _resource_names(job)
     repair_bytes = len(_serialize_prompt(request, prompt_name))
-    assert repair_bytes <= 925_000
-    assert 1_000_000 - repair_bytes >= 75_000
+    assert repair_bytes <= 1_000_000
+    assert 1_000_000 - repair_bytes >= 50_000
 
 
 @pytest.mark.parametrize("target", ("beat", "cluster"))
@@ -1494,9 +1495,9 @@ def test_stage_h_input_projection_fails_closed_before_preparation(
         lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
             {"lane_id": "lane-altered"}
         ),
-        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
-            {"progression_id": "progression:altered"}
-        ),
+        lambda payload: cast(
+            list[dict[str, object]], payload["progression_runs"]
+        )[0].update({"progression_id": "progression:altered"}),
         lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
             {"call_occurrence_id": "call-altered"}
         ),

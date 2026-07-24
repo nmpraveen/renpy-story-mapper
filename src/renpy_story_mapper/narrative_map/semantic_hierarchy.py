@@ -91,7 +91,7 @@ class HierarchyHardLock:
         if self.kind is HierarchyHardLockKind.CHOICE_OWNERSHIP:
             if self.choice_id is None or not self.arm_ids:
                 raise ValueError("choice-ownership hard lock requires a choice and ordered arms")
-            if self.unit_ids or self.left_unit_id is not None or self.right_unit_id is not None:
+            if self.left_unit_id is not None or self.right_unit_id is not None:
                 raise ValueError("choice-ownership hard lock has incompatible fields")
         elif self.kind in {
             HierarchyHardLockKind.SCOPE_MARKER,
@@ -582,6 +582,25 @@ def _validate_hard_locks(
             choice = choice_by_id.get(lock.choice_id)
             if choice is None or choice.ordered_arm_ids != lock.arm_ids:
                 raise ValueError("whole-scope hierarchy violates choice-ownership hard lock")
+            if lock.unit_ids:
+                ordered_positions = {
+                    unit_id: index
+                    for index, unit_id in enumerate(hierarchy.ordered_unit_ids)
+                }
+                start = ordered_positions[lock.unit_ids[0]]
+                end = ordered_positions[lock.unit_ids[-1]]
+                if start > end or len(lock.unit_ids) > 2:
+                    raise ValueError("choice cluster range hard lock is invalid")
+                required_unit_ids = hierarchy.ordered_unit_ids[start : end + 1]
+                if len(
+                    {
+                        cluster_by_beat[beat_by_unit[unit_id]]
+                        for unit_id in required_unit_ids
+                    }
+                ) != 1:
+                    raise ValueError(
+                        "whole-scope hierarchy splits a required choice cluster"
+                    )
         elif lock.kind in {
             HierarchyHardLockKind.SCOPE_MARKER,
             HierarchyHardLockKind.TERMINAL,

@@ -24,6 +24,10 @@ from renpy_story_mapper.narrative_map import (
     validate_whole_scope_hierarchy,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import SemanticOutline
+from renpy_story_mapper.narrative_map.semantic_lifecycle import (
+    whole_scope_hierarchy_input_payload,
+)
+from renpy_story_mapper.narrative_map.semantic_projection import SemanticEvidenceRecord
 
 
 def _authority() -> AuthorityBinding:
@@ -214,6 +218,7 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
             "arm-a",
             "arm-a",
             0,
+            lane_id="lane-arm-a",
             parent_choice_id="choice-one",
             parent_arm_id="arm-a",
         ),
@@ -221,14 +226,14 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
             "arm-b",
             "arm-b",
             0,
+            lane_id="lane-arm-b",
             parent_choice_id="choice-one",
             parent_arm_id="arm-b",
         ),
-        _unit("rejoin", "rejoin", 0),
+        _unit("rejoin", "rejoin", 0, lane_id="lane-rejoin"),
     )
     provisional = assemble_semantic_outline(units, (), ())
     assert isinstance(provisional, SemanticOutline)
-    assert len(provisional.clusters) == 1
     choice = ChoiceComposition(
         "choice-one",
         provisional.clusters[0].cluster_id,
@@ -255,7 +260,76 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
         ),
     )
 
+    choice_lock = HierarchyHardLock(
+        "choice-cluster-lock",
+        HierarchyHardLockKind.CHOICE_OWNERSHIP,
+        unit_ids=(units[0].unit_id, units[-1].unit_id),
+        choice_id="choice-one",
+        arm_ids=("arm-a", "arm-b"),
+    )
+    evidence_by_unit = {
+        unit.unit_id: (
+            SemanticEvidenceRecord(
+                unit.unit_id,
+                unit.story_atom_id,
+                unit.evidence_ids[0],
+                unit.ordinal,
+                "narration",
+                "Synthetic choice evidence.",
+                None,
+                unit.story_locator,
+            ),
+        )
+        for unit in units
+    }
+    serialized = whole_scope_hierarchy_input_payload(
+        _authority(),
+        "scope-synthetic",
+        units,
+        evidence_by_unit,
+        (choice_lock,),
+    )
+    serialized_units = serialized["units"]
+    serialized_locks = serialized["hard_locks"]
+    assert isinstance(serialized_units, list)
+    assert isinstance(serialized_locks, list)
+    assert {item["lane_id"] for item in serialized_units} == {
+        "lane-main",
+        "lane-arm-a",
+        "lane-arm-b",
+        "lane-rejoin",
+    }
+    assert serialized_locks[0]["unit_ids"] == [units[0].unit_id, units[-1].unit_id]
+    validate_whole_scope_hierarchy(
+        proposal,
+        units,
+        (),
+        (choice,),
+        (choice_lock,),
+    )
     _assert_exact_assembler_round_trip(proposal, units, (), choices=(choice,))
+
+    context_split = WholeScopeHierarchyProposal(
+        "scope-synthetic",
+        proposal.beat_groups,
+        tuple(
+            ProposedMajorCluster(
+                f"cluster-context-{index}",
+                (beat_key,),
+                0.9,
+                "Incorrectly split choice context.",
+            )
+            for index, beat_key in enumerate(beat_keys)
+        ),
+    )
+    with pytest.raises(ValueError, match="splits a required choice cluster"):
+        validate_whole_scope_hierarchy(
+            context_split,
+            units,
+            (),
+            (choice,),
+            (choice_lock,),
+        )
 
 
 def test_stable_ids_ignore_temporary_proposal_keys() -> None:
