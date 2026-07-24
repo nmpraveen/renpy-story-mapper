@@ -254,6 +254,32 @@ This correction narrows the meaning of terminal uncertainty without hiding it, g
 weakening authority. The lifecycle moved through `Semantic review` and returns to `In progress`
 with `PASS`; fresh zero-submit preparation may proceed.
 
+## 2026-07-24 invalid-beat repair correction
+
+Exact v7 manifest `consent_0ef74a1324d245a21acfb2c5` executed while valid, used one initial call
+plus one repair, and failed closed with `invalid_beat_group`. It recorded 482,745 input tokens and
+29,299 output tokens but created no hierarchy, logical record, publication, or Stage E activity.
+Source, archive, and accepted-baseline fingerprints remained unchanged. Result artifact SHA-256 is
+`FF2682149438490CD5035C79057DAC4C67E4F78AC5469C5A7554C863F900D532`.
+
+The v2 JSON schema deliberately cannot use provider-unsupported `uniqueItems`. Python correctly
+rejects a beat whose typed `ProposedBeatGroup` invariants fail, but repair policy v5 had guidance
+only for `uncertain_membership`; an `invalid_beat_group` therefore received only generic repair
+text. This is a repair-instruction defect, not authority to weaken validation or change topology.
+
+The failing-first regression proves the old repair envelope omitted the necessary invariant. The
+correction preserves prompt v4 and adds prompt v5; it advances the consent-bound repair policy to
+v6. Both initial and repair guidance now explicitly require unique IDs inside every
+`ordered_unit_ids` array; exact beat fields; trimmed and bounded proposal keys, reasons, and
+warnings; numeric confidence between zero and one; and at most one unique warning. Valid locked
+groups remain byte-for-byte immutable, and Python continues to reject every invalid group.
+
+The focused M15.1/product set passes 108/108; Ruff, strict mypy over 115 source files, JSON parsing,
+and diff checks pass. This correction does not change the done condition, privacy scope, provider
+profile, call ceiling, output schema, topology authority, or Stage E gate. The lifecycle moved
+through `Revise` and `Semantic review`; the repeated gate decision is `PASS`, pending independent
+exact-head review before another fresh preparation.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the

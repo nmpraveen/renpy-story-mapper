@@ -1,9 +1,8 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: In progress after Stage H v6 failed closed with `uncertain_membership`; lifecycle returned
-through `Revise`, ambiguity-threshold correction `b81dbad` has repeated semantic `PASS`, and
-independent exact-head rereview passed `dc5a631` with no P0-P2. Fresh zero-submit Stage H
-preparation is next.
+Status: Semantic review after Stage H v7 failed closed with `invalid_beat_group`; lifecycle
+returned through `Revise`, and the failing-first prompt-v5/repair-policy-v6 correction has repeated
+semantic `PASS`. Independent exact-head review is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -143,7 +142,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V6 manifest `consent_19347f6e215c44d3bb8ae6ca` used two calls and failed closed with `uncertain_membership`: 482,652 input tokens, 31,690 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Artifact SHA-256 is `320E1324B438AF93526B62F18417872E38E11DDDC6B82DFEBF40C623945DF9DC`. Commit `b81dbad` advances prompt v4/repair policy v5, directs ordinary ambiguity to confidence/warnings or conservative singleton beats, reserves uncertainty for missing evidence or structural impossibility, and leaves Python rejection unchanged. First review `0862082` passed runtime semantics but found two P2 identity/lifecycle evidence defects. Those are corrected, and a direct regression proves prompt changes job/cache/consent identity while repair-policy-only changes manifest identity. Independent rereview passed exact head `dc5a631` with no P0-P2. Expanded 108/108, the exact-head 1,500-test functional suite, isolated M06 benchmark, Ruff, and strict mypy pass; repeated semantic review remains `PASS`. Fresh zero-submit preparation is next. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V7 exact manifest `consent_0ef74a1324d245a21acfb2c5` used two calls and failed closed with `invalid_beat_group`: 482,745 input tokens, 29,299 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Result artifact SHA-256 is `FF2682149438490CD5035C79057DAC4C67E4F78AC5469C5A7554C863F900D532`. Failing-first correction advances prompt v5/repair policy v6 with explicit unique-ID and exact beat-field repair constraints without weakening Python rejection. Focused 108/108, Ruff, strict mypy, JSON parsing, and diff checks pass; repeated semantic review is `PASS`. Independent exact-head review is next. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |

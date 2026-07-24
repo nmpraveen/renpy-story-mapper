@@ -218,7 +218,7 @@ def test_stage_h_projects_complete_story_authority_without_durable_text(
             }
             for lock in hard_locks
         ]
-        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v4")
+        assert WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION.endswith("-v5")
 
         evidence_ids = tuple(
             item["evidence_id"]

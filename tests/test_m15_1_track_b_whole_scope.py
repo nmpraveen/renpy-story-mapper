@@ -602,7 +602,10 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v4"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v5"
+    prompt = json.dumps(envelope).lower()
+    assert "each ordered_unit_ids array must contain unique unit ids" in prompt
+    assert "trimmed" in prompt
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
 
 
@@ -648,7 +651,7 @@ def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
     assert "major_clusters" in lock_policy
     assert "Do not return the internal lock keys" in lock_policy
     assert envelope["request"]["repair_guidance_version"] == (
-        "m15-whole-scope-targeted-repair-v5"
+        "m15-whole-scope-targeted-repair-v6"
     )
 
 
@@ -728,7 +731,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
         )
     current_job = preparation.job
     prior_prompt_job = replace(
-        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v3"
+        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v4"
     )
     profile = _profile()
     assert prior_prompt_job.job_id != current_job.job_id
@@ -759,7 +762,7 @@ def test_prompt_and_repair_policy_change_their_exact_owned_identities(
 
     prior_policy_consent = replace(
         current_consent,
-        repair_policy_version="m15-whole-scope-targeted-repair-v4",
+        repair_policy_version="m15-whole-scope-targeted-repair-v5",
     )
     assert prior_policy_consent.manifest_id != current_consent.manifest_id
     assert prior_policy_consent.job_ids == current_consent.job_ids
@@ -1606,7 +1609,10 @@ def test_stage_e_input_projection_fails_closed_before_prompt_serialization(
 
 def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Path) -> None:
     invalid = _hierarchy_output()
-    cast(list[dict[str, object]], invalid["beat_groups"])[1]["ordered_unit_ids"] = ["unit-a"]
+    cast(list[dict[str, object]], invalid["beat_groups"])[1]["ordered_unit_ids"] = [
+        "unit-b",
+        "unit-b",
+    ]
     with Project.create(tmp_path / "targeted-hierarchy-repair.rsmproj") as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
         preparation = _prepare_hierarchy(service)
@@ -1633,6 +1639,10 @@ def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Pa
         lock_policy.lower()
     )
     assert "into beat_groups exactly once with the same proposal_key" in lock_policy
+    guidance = " ".join(envelope["request"]["repair_guidance"])
+    assert "Each ordered_unit_ids array must contain unique unit IDs" in guidance
+    assert "trimmed" in guidance
+    assert "between 0 and 1" in guidance
 
 
 def test_targeted_repair_maps_nonempty_locked_cluster_into_complete_output(

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress after ambiguity-threshold correction review)
+Updated: 2026-07-24 (M15.1 in semantic review for invalid-beat repair correction)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -229,7 +229,22 @@ Updated: 2026-07-24 (M15.1 In progress after ambiguity-threshold correction revi
   regression proved prompt-version changes alter consent job IDs and identity hashes while a
   repair-policy-only change remains manifest-only. The exact-head functional suite passed 1,500
   tests with five expected opt-in skips; the isolated M06 benchmark, Ruff, and strict mypy over
-  115 source files also passed. Fresh zero-submit Stage H preparation is next.
+  115 source files also passed. That checkpoint was superseded by the v7 run below.
+- Stage H v7 execution and invalid-beat repair correction: zero-submit preparation from the
+  unchanged accepted baseline produced exact manifest `consent_0ef74a1324d245a21acfb2c5`, build
+  `whole_scope_build_957fb7bf9cb9320865df6387`, prompt hash `dbc80380...2094`, and input hash
+  `01e88432...5ae7`. Preparation recorded zero provider constructions/calls/reservations/tokens;
+  the 645,042-byte envelope fit and all protected fingerprints remained unchanged. Preparation
+  artifact SHA-256 is `25909495CE551C80A3651EEF19119C5BB980E26DE6E40EE01CA5C81B029F356B`.
+  The exact valid manifest consumed two calls, 482,745 input tokens, and 29,299 output tokens, then
+  failed closed with `invalid_beat_group`. It created no hierarchy, logical record, publication,
+  or Stage E activity; protected fingerprints remained unchanged. Result artifact SHA-256 is
+  `FF2682149438490CD5035C79057DAC4C67E4F78AC5469C5A7554C863F900D532`. The lifecycle returned
+  through `Revise`. Failing-first correction advances prompt v5 and consent-bound repair policy
+  v6 with explicit per-group unique-ID, trimmed-field, length, confidence, warning, and exact-field
+  constraints while leaving Python rejection unchanged. Focused 108/108, Ruff, strict mypy over
+  115 source files, JSON parsing, and diff checks pass. Repeated semantic review is `PASS`; an
+  independent exact-head review is required before another fresh zero-submit preparation.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
