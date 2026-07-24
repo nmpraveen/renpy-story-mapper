@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 02 early semantic review passed; shared freeze next)
+Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,13 +13,17 @@ Updated: 2026-07-24 (Phase 02 early semantic review passed; shared freeze next)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: `Ready`; semantic decision `PASS`. The user started the approved Phase 02 coordinator
+- Status: `In progress`; semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded
   correction reconciled lifecycle authority and specifies deterministic branch-event lineage,
   self-contained V2 transports with a transitive dependency gate, and deliberate local-only
   execution. The same reviewer rereviewed corrected exact head `4d32f08` and returned `PASS` with
-  no unresolved P0-P2. Shared contract/failing-first work may begin. Stage H V12 remains a failed
+  no unresolved P0-P2. Shared contract/failing-first freeze `e72fe41` defines versioned records,
+  schema, Track A/Track B function signatures, and transitive architecture enforcement. Its five
+  contract tests pass; seven Track A and six Track B tests fail only at their explicit
+  `NotImplementedError` seams with no collection error. Dependency-ready Track work may begin.
+  Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
   and left protected inputs unchanged. Phase 01 and its local-model supplement remain accepted

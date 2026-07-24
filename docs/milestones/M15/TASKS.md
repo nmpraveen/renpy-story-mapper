@@ -5,7 +5,7 @@ Integration branch: `codex/m15-msday1-narrative-map`
 Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), draft and
 unmerged.
 
-Lifecycle: `Ready`
+Lifecycle: `In progress`
 
 | Task | Owner | Dependencies | Affected area | Status / evidence |
 |---|---|---|---|---|
@@ -14,7 +14,7 @@ Lifecycle: `Ready`
 | Freeze simple V2 design | Coordinator | Contract | `PHASE_02_DESIGN.md` | Complete: new package boundary, lower-level authority, compact records, overlay, partial behavior, provider states, seams, and forbidden Stage H/E dependencies recorded |
 | Create native Phase 02 goal | Coordinator | Locked contract | Goal service / project state | Complete: active goal/task `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the contract done condition |
 | Early contract review | Visible read-only task `019f967d-8800-79e2-9dea-5f2412f6eecf` | Locked contract and design | Docs and read-only source discovery | Complete: `REVISE` at `df75532` with four P1s/no P0-P2; one bounded correction; same-task rereview `PASS` at `4d32f08` with no unresolved P0-P2 |
-| Shared contracts and failing-first tests | Coordinator | Early reviewer `PASS` | `story_map_v2` seams/tests | Pending |
+| Shared contracts and failing-first tests | Coordinator | Early reviewer `PASS` | `story_map_v2` seams/tests | Complete at `e72fe41`: mapper schema, versioned records, Track A/B signatures, transitive forbidden-dependency gate; five contract tests pass; seven Track A and six Track B tests fail only at explicit stubs; Ruff and strict mypy pass |
 | Track A implementation and exact-head review | Separate visible Track A coordinator | Shared freeze | Provider-neutral V2 core | Pending |
 | Track B implementation and exact-head review | Separate visible Track B coordinator | Shared freeze | Execution/fallback policy | Pending |
 | Integration and provider-free verification | Coordinator | Reviewed Track A/B commits | Integrated package/tests | Pending |

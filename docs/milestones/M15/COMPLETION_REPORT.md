@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Ready
+Status: In progress
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -30,8 +30,11 @@ Early reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` returned `REVISE` on 
 authority, undefined branch-event lineage/anchors, an unimplementable provider import boundary,
 and the missing deliberate local-only state. The single permitted bounded contract correction
 reconciled those points. The same reviewer rereviewed exact corrected head `4d32f08` and returned
-`PASS` with no unresolved P0-P2. The milestone is `Ready`; shared contract/failing-first work may
-begin.
+`PASS` with no unresolved P0-P2. Shared freeze `e72fe41` adds versioned records/schema, exact
+Track A/Track B seams, generalized fixtures, and the transitive architecture gate. Five contract
+tests pass; seven Track A and six Track B tests fail only at the intended explicit stubs with no
+collection error. Ruff and strict mypy pass. The milestone is `In progress`; dependency-ready
+Track implementation may begin.
 
 No product code, private provider call, push, or PR mutation has occurred in Phase 02 yet.
 
@@ -119,7 +122,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Ready | Contract, goal, preflight, one bounded early-review correction, and same-task `PASS` are recorded. Shared contracts/failing-first work is next; private calls, push, and PR mutation remain paused. |
+| Phase 02 core rewrite | In progress | Contract, goal, preflight, bounded early-review correction/`PASS`, and shared freeze `e72fe41` are recorded. Track A/B implementation is next; private calls, push, and PR mutation remain paused. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
