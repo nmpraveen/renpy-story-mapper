@@ -343,7 +343,8 @@ unlocks only `major_clusters`, and gives exact inclusive-range merge guidance. P
 the complete authority validation and fails closed; no output is normalized or silently accepted.
 Provider-free verification passes 130/130 combined hierarchy/product tests plus Ruff and strict
 mypy over 115 source files. The lifecycle returns to `Semantic review`; the repeated semantic gate
-is `PASS`, pending independent exact-head rereview.
+is `PASS`. Independent exact-head rereview passed `725d44f` with no P0-P2, and the exact-head full
+suite passed 1,505 tests with five expected opt-in skips. Fresh V10 zero-submit preparation is next.
 
 ## Gate decision
 

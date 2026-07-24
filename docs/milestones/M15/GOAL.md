@@ -5,7 +5,8 @@ Status: Repeated `Semantic review` after Stage H v9 failed closed with
 publication, or Stage E exists. The prompt-v9/repair-policy-v10/product-v5 correction introduces a
 typed `choice_cluster_split` repair path that retains valid beats and replaces only clusters;
 provider-free verification passes 130/130 combined tests and the semantic gate is `PASS`;
-independent exact-head rereview is next.
+independent exact-head rereview passed `725d44f` with no P0-P2; the exact-head full suite passed
+1,505 tests with five expected opt-in skips. Fresh V10 zero-submit preparation is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and

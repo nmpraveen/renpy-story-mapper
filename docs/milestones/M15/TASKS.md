@@ -10,7 +10,8 @@ Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26),
 
 Lifecycle: repeated `Semantic review` after Stage H v9 failed closed with
 `hierarchy_authority_invalid`. The typed choice-cluster-only repair correction passes 130/130
-combined provider-free tests and semantic `PASS`; independent exact-head rereview is next.
+combined provider-free tests and semantic `PASS`; independent exact-head rereview passed `725d44f`
+with no P0-P2 and the full suite passed 1,505 tests with five expected skips. V10 preparation is next.
 
 | Task | Owner | Dependencies | Status | Evidence / next gate |
 |---|---|---|---|---|
