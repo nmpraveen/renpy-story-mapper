@@ -30,6 +30,13 @@ record the loaded model/API identity and local settings, apply the same blind ru
 v3, preserve source/archive immutability, and keep all artifacts outside Git. P2/P3, 16k/24k
 extensions, product work, Phase 02, push, PR mutation, and milestone completion remain excluded.
 
+Supplement result: complete at exactly four calls with no retry/fallback. All four outputs parsed
+and satisfied the frozen schema. Checker v3 passed medium, large, and full; small was blocked by
+literal surrounding quotation marks on all four captions. Weighted results are 97.05 blocked,
+96.35 eligible, 97.10 eligible, and 95.85 eligible for small through full. Source/archive hashes
+remained unchanged. This makes the local model useful for draft mapping but does not supersede the
+hosted Phase 01 recommendation or authorize any later phase.
+
 ## Active Phase 01 done condition
 
 Phase 01 is done only when a bounded, identity-verified Luna/Terra/Sol High-reasoning experiment

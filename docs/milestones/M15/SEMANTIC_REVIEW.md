@@ -98,6 +98,14 @@ scope, validate against the frozen schema/checker v3, score with the same rubric
 separate outside-Git ledger/report. No external network endpoint, retry, P2/P3 role call, context
 extension, game execution, tracked product code, Phase 02, push, or PR mutation is authorized.
 
+Result: **PASS for the bounded execution, with one blocked context result.** Exactly four calls
+completed without retry or fallback. Every response parsed and satisfied the frozen schema.
+Checker v3 passed medium, large, and full; small was mechanically blocked because all four captions
+included literal surrounding quotation marks. Same-rubric weighted scores were 97.05 blocked,
+96.35 eligible, 97.10 eligible, and 95.85 eligible. Protected source/archive fingerprints matched
+before and after. The evidence supports Qwen as a good local draft mapper, especially at large
+context, but does not overturn the frozen hosted-model recommendation or authorize later work.
+
 ## Historical Stage H/Stage E review result
 
 The observable M15.1 done condition remains unchanged: the supported product must produce a compact,

@@ -18,11 +18,15 @@ alternative evidence. Hardened independent rereview passed with P0/P1/P2 all zer
 ready for user review, while screenshot/model approval remains pending; no Phase 02 or product
 implementation is authorized.
 
-The user's 2026-07-24 follow-up authorizes a separate localhost-only LM Studio supplement: one P1
-mapper call at each frozen small/medium/large/full Day 1 scope using the exact installed Qwen model,
-with a four-call ceiling, no retry/fallback, unchanged source/archive, outside-Git evidence, and no
-P2/P3, context extension, product work, Phase 02, push, or PR mutation. The original 20-call package
-and its PASS remain immutable historical evidence.
+The user's 2026-07-24 follow-up authorized and completed a separate localhost-only LM Studio
+supplement: one P1 mapper call at each frozen small/medium/large/full Day 1 scope using the exact
+installed Qwen model, with a four-call ceiling, no retry/fallback, unchanged source/archive, and
+outside-Git evidence. All four calls succeeded and were schema-valid; checker v3 passed medium,
+large, and full, while small was blocked because literal surrounding quotation marks made all four
+captions inexact. Weighted scores were 97.05 blocked, 96.35 eligible, 97.10 eligible, and 95.85
+eligible. The result is useful local-draft evidence but does not supersede the Phase 01 hosted-model
+recommendation. The original 20-call package and its PASS remain immutable historical evidence; no
+P2/P3, context extension, product work, Phase 02, push, or PR mutation was authorized or performed.
 
 Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
 uncertainty correction passed independent exact-head review. Its
