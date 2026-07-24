@@ -238,6 +238,14 @@ required supplied evidence is missing or no placement—including a singleton—
 structural constraints; Python still rejects it unchanged. Focused M15.1/product tests pass
 107/107; Ruff and strict mypy pass.
 
+The first exact-head review of `0862082` returned `FAIL` on two P2 lifecycle-evidence defects while
+passing the runtime semantics: the gate conclusion failed to distinguish prompt-driven
+job/cache/consent invalidation from repair-policy-only consent-manifest invalidation, and the
+completion prose still ended at v5. Both are corrected. A direct identity regression now proves
+prompt v4 changes job/cache identity while repair policy v5 changes manifest identity without
+changing job identity or entering the cache key. The expanded M15.1/product set passes 108/108;
+Ruff and strict mypy remain clean. Exact-head rereview is required before fresh preparation.
+
 This correction narrows the meaning of terminal uncertainty without hiding it, guessing, or
 weakening authority. The lifecycle moved through `Semantic review` and returns to `In progress`
 with `PASS`, pending independent exact-head review before another fresh preparation.
@@ -248,8 +256,9 @@ The observable done condition remains unchanged. The corrected Stage H projectio
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
 repair, and proves every legal repair envelope remains below its sterile ceiling. The repair-policy
-identity change invalidates the exhausted manifest and all older consent paths; successful-result
-cache identity is unchanged. The implementation remains
+prompt v4 identity change invalidates prior job, cache, and consent-job identity. Repair policy v5
+additionally invalidates prior consent-manifest identity but does not independently enter the
+successful-result cache key. The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no

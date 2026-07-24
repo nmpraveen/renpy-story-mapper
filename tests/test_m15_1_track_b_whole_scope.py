@@ -719,6 +719,36 @@ def test_truthful_uncertainty_after_repair_remains_terminal(
     assert status is not None and status.hierarchy_state == "failed"
 
 
+def test_prompt_and_repair_policy_change_their_exact_owned_identities(
+    tmp_path: Path,
+) -> None:
+    with Project.create(tmp_path / "whole-scope-identity-ownership.rsmproj") as project:
+        preparation = _prepare_hierarchy(
+            NarrativeMapService(NarrativeMapRepository(project))
+        )
+    current_job = preparation.job
+    prior_prompt_job = replace(
+        current_job, prompt_version="m15-whole-scope-hierarchy-prompt-v3"
+    )
+    profile = _profile()
+    assert prior_prompt_job.job_id != current_job.job_id
+    assert NarrativeMapRepository.cache_key(
+        prior_prompt_job, profile
+    ) != NarrativeMapRepository.cache_key(current_job, profile)
+    assert "repair_policy_version" not in NarrativeMapRepository.cache_identity(
+        current_job, profile
+    )
+
+    current_consent = preparation.granted_consent()
+    prior_policy_consent = replace(
+        current_consent,
+        repair_policy_version="m15-whole-scope-targeted-repair-v4",
+    )
+    assert prior_policy_consent.manifest_id != current_consent.manifest_id
+    assert prior_policy_consent.job_ids == current_consent.job_ids
+    assert prior_policy_consent.job_identity_hash == current_consent.job_identity_hash
+
+
 def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:
     unit_ids = tuple(f"fine_unit_{index:024x}" for index in range(732))
     evidence_ids = tuple(f"evidence_{index:024x}" for index in range(732))
