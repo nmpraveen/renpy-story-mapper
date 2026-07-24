@@ -24,6 +24,13 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   vertical overview with visible branches and selectable witness paths; obtain independent review;
   then stop for user judgment. Maximum 20 planned and 23 total provider submissions. No product
   rewrite, push, PR mutation, merge, M14, second PR, new milestone, or M15.1 completion.
+- Phase 01 task topology: Calibration Preparation task
+  `019f95b2-8214-7592-8c56-c10e28a7de5d` is active in separate worktree
+  `C:/Users/prave/.codex/worktrees/c5ba/Renpy` from exact lifecycle commit `d5df3dd`. It uses
+  `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
+  unavailable/unverified. It is provider-free and may write only ignored Phase 01 artifacts.
+  Blind Matrix Reviewer, Vertical Prototype, and Final Phase 01 Reviewer tasks remain undispatched
+  until their dependencies freeze.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
