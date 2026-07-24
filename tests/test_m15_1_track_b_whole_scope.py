@@ -1495,6 +1495,9 @@ def test_stage_h_input_projection_fails_closed_before_preparation(
             {"lane_id": "lane-altered"}
         ),
         lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
+            {"progression_id": "progression:altered"}
+        ),
+        lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
             {"call_occurrence_id": "call-altered"}
         ),
         lambda payload: cast(list[dict[str, object]], payload["units"])[0].update(
