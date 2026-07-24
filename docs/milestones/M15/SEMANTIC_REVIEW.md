@@ -85,6 +85,19 @@ policy implies many more calls. The same independent Sol/High reviewer recompute
 package and returned `PASS` with P0/P1/P2 all zero. Phase 01 is ready for user review; user
 screenshot approval remains pending.
 
+### Local LM Studio four-context supplement
+
+Decision: **PASS for this narrow experiment; overarching M15.1 remains REVISE.**
+
+The user explicitly requested the installed local
+`qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive` model receive the same small, medium, large, and
+full Day 1 mapper inputs. This is a bounded read-only calibration extension, not product
+implementation or a change to the frozen 20-call Codex experiment. The coordinator may start the
+localhost-only LM Studio server, load the exact model without fallback, make one call per frozen P1
+scope, validate against the frozen schema/checker v3, score with the same rubric, and write a
+separate outside-Git ledger/report. No external network endpoint, retry, P2/P3 role call, context
+extension, game execution, tracked product code, Phase 02, push, or PR mutation is authorized.
+
 ## Historical Stage H/Stage E review result
 
 The observable M15.1 done condition remains unchanged: the supported product must produce a compact,

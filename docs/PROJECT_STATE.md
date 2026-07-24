@@ -49,6 +49,11 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   independent Sol/High reviewer recomputed checker v3, all 18 mutations, all 12 path cells, and the
   full evidence/containment package and returned `PASS` with P0/P1/P2 all zero. Phase 01 is ready
   for user review; screenshots and the model/context choice still require actual user approval.
+- The user then authorized one local LM Studio supplement: exactly four P1 mapper calls on the
+  already-frozen small/medium/large/full inputs using installed model
+  `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`. It has a separate four-call ceiling and ledger,
+  localhost-only transport, no retry/fallback, and no P2/P3 or extensions. The original 20-call
+  PASS package remains frozen. Product work, Phase 02, push, and PR mutation remain stopped.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required

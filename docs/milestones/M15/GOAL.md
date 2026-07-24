@@ -21,6 +21,15 @@ v3 with 18 adversarial mutations rejected and no selection change. Terra's 16k/2
 results are retained as alternative evidence. Hardened independent rereview passed with P0/P1/P2
 all zero. Phase 01 is ready for user review; user screenshot/model approval remains required.
 
+User-approved local-model supplement (2026-07-24): run exactly four additional localhost-only P1
+mapper evaluations against the already-frozen small, medium, large, and full Day 1 inputs using
+LM Studio model `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`. This supplement has its own
+four-call ceiling and ledger; it does not change, reopen, or count against the completed 20-call
+Luna/Terra/Sol experiment. Use the exact frozen P1 prompt/schema/story inputs, no fallback or retry,
+record the loaded model/API identity and local settings, apply the same blind rubric and checker
+v3, preserve source/archive immutability, and keep all artifacts outside Git. P2/P3, 16k/24k
+extensions, product work, Phase 02, push, PR mutation, and milestone completion remain excluded.
+
 ## Active Phase 01 done condition
 
 Phase 01 is done only when a bounded, identity-verified Luna/Terra/Sol High-reasoning experiment
