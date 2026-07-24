@@ -23,7 +23,8 @@ Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
   at most two additional Stage H calls. V4 then used both calls and failed closed with
   `uncertain_membership`, creating no hierarchy or publication. The lifecycle returned through
   `Revise`; failing-first prompt/repair correction `70f60eb` now has repeated semantic `PASS` and
-  awaits independent exact-head review before a fresh zero-submit manifest. The user's latest
+  passed independent exact-head rereview at `e33b773` with no P0-P2. Fresh zero-submit preparation
+  is next. The user's latest
   standing authorization removes routine per-manifest approval pauses while exact identity,
   freshness, privacy, fingerprint, and resource-limit audits remain mandatory. Stage E remains
   impossible until Stage H freezes.
