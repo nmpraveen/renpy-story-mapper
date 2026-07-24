@@ -1,14 +1,88 @@
-# M15 - M15.1 semantic Story Map correction
+# M15 - M15.1 Story Map V2 rewrite calibration
 
-Status: Repeated `Semantic review` after Stage H v11 exhausted both slots and failed closed with
-`uncertain_membership`. No hierarchy, publication, or Stage E exists. The compact repair completed,
-proving the retransmission correction. Prompt v11/repair policy v12/product v7 and immutable
-successor response schema v4 encode the Python-proven prepared-input invariant: every unit has exact
-evidence and a conservative singleton placement is structurally available, so provider transport
-must return `uncertain_unit_ids: []`. Local validation still rejects nonempty uncertainty from fake
-or historical responses. Focused verification passes 132/132; repeated semantic review is `PASS`,
-and independent exact-head review passed `6d99fd4` with no P0-P2. Fresh V12 zero-submit preparation
-is next.
+Status: Revise
+
+Lifecycle correction: Stage H V12 completed as a failed historical attempt with
+`hierarchy_not_representable` after two provider calls. It produced no hierarchy, logical record,
+or publication. The user rejected Stage H/Stage E as the supported future semantic architecture
+and approved a clean Story Map V2 rewrite direction. The prior semantic `PASS` is revoked for
+future work. Historical implementation and evidence remain readable below but do not authorize
+product implementation.
+
+Current authorization: Phase 01 calibration and vertical proof only. Phase 02 product
+implementation, broad product refactoring, PR mutation, M14 work, and milestone completion are not
+authorized.
+
+## Active Phase 01 done condition
+
+Phase 01 is done only when a bounded, identity-verified Luna/Terra/Sol High-reasoning experiment
+measures useful context size and model-role quality for private Day 1 story mapping; blind scoring
+and deterministic path-critical checks support a practical quality/cost recommendation; a local
+disposable whole-Day-1 vertical prototype demonstrates chronological sections, visible branches,
+and at least five selectable witness paths; privacy, source/archive immutability, call ceilings,
+and PR non-mutation are verified; an independent final reviewer finds no material flaw; and the
+artifacts are presented for user review without beginning Phase 02.
+
+## Active Phase 01 deliverables
+
+- Four coherent nested Day 1 packets plus compact deterministic mechanics digests.
+- Frozen generic P1 mapper, P2 synthesizer, and P3 auditor prompts and strict transport schemas.
+- A 12-cell P1 model/context matrix and identical-input P2/P3 role comparisons, with no more than
+  20 planned calls and 23 total provider submissions including permitted no-response replacements.
+- Identity-redacted blind scoring, deterministic path-critical checks, complete call accounting,
+  and a threshold-then-cost role recommendation.
+- A disposable local Day 1 HTML/JSON vertical prototype, representative witness paths, and
+  100%/200% screenshots, all outside tracked product code.
+- A Phase 01 report, matrix, manifests, fingerprints, recommendation, and independent final review
+  stored outside Git.
+
+## Active Phase 01 acceptance criteria
+
+1. Lifecycle records V12 failure, rejection of Stage H/Stage E, `Revise`, and Phase 01-only scope.
+2. Comparable cells use identical prompt/schema versions and byte-equivalent story input.
+3. Luna, Terra, and Sol run at High across four P1 context sizes, or an exact unavailable identity
+   is recorded without fallback.
+4. Luna, Terra, and Sol receive identical frozen P2 and P3 inputs.
+5. Planned calls do not exceed 20 and total submissions do not exceed 23.
+6. Every call records identity, settings, input/output size, tokens, time, hashes, and status.
+7. Outputs are scored blind and checked independently for path-critical facts.
+8. The recommendation selects the cheapest eligible model per role and explains material
+   quality/cost tradeoffs without inventing pricing.
+9. A normal context target and largest validated context are stated without untested extrapolation.
+10. The local prototype shows the whole Day 1 overview, branches/rejoins, and at least five
+    selectable witness paths.
+11. Source/archive bytes and timestamps remain unchanged; no game code executes; private material
+    remains outside Git.
+12. An independent final reviewer finds no material experiment, recommendation, privacy, or
+    prototype defect.
+13. The user receives direct links to important artifacts and is asked to review the prototype and
+    model recommendation.
+14. No Phase 02 implementation, product rewrite, push, merge, new milestone, second PR, M14 work,
+    or false M15.1 completion occurs.
+
+## Active Phase 01 exclusions
+
+- No tracked product-code rewrite, Stage H/Stage E deletion, legacy-data migration, or future
+  compatibility decision.
+- No game, Ren'Py, creator-code, runtime-tracing, full-game, M14, hosted-service, or distribution
+  work.
+- No private evaluation oracle, external-model comparison material, old provider responses,
+  screenshots, unrelated files, secrets, or game assets in provider input or Git.
+- No model/reasoning/fast-mode fallback, semantic retry, call-ceiling expansion, push, PR mutation,
+  PR merge, second PR, or new milestone.
+
+## Active Phase 01 evidence and handoff rules
+
+- Keep exact prompts, packets, raw responses, evaluation material, prototype, screenshots, and
+  ledgers only in one ignored timestamped Phase 01 output directory.
+- The coordinator performs every private story-provider call and owns consent, identity checks,
+  accounting, integration-branch lifecycle documentation, artifact freeze, and final report.
+- Visible preparation, blind-review, prototype, and final-review tasks use `gpt-5.6-sol` with High
+  reasoning. Their API exposes no fast-mode selector, so fast mode is recorded unavailable and
+  unverified.
+- Keep any native goal untouched during this experimental phase. Stop after Phase 01 user handoff.
+
+## Rejected historical Stage H/Stage E contract
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -29,7 +103,7 @@ Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26),
 open and unmerged until the corrected contract is genuinely ready and the user separately chooses
 whether to merge it.
 
-## Done condition
+### Historical done condition
 
 M15.1 is done only when the exact private Day 1 project produces, through the supported product
 workflow, a compact chronological Prologue/Day 1 Story Map that matches the meaning of the private
@@ -43,7 +117,7 @@ preserve deterministic authority and private-input immutability, pass independen
 review and the final Windows Release gate, and be present on the exact passing pushed head of the
 existing ready-but-unmerged PR #26 only after the user approves the actual final-head screenshots.
 
-## Deliverables
+### Historical deliverables
 
 - Versioned fine narrative-unit, exhaustive adjacent-gap compatibility, whole-scope hierarchy
   proposal, deterministic validation/compilation/assembly, temporary-choice composition, batched
@@ -66,7 +140,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
   package, independent-review, and user visual-approval evidence.
 - One corrected existing PR #26, left open and unmerged; no second PR and no M14/full-game work.
 
-## Acceptance criteria
+### Historical acceptance criteria
 
 1. Fine narrative units are versioned and authority-bound; each contains exactly one story-facing
    atom/turn plus only generically proven technical context, exact IDs/locators, structural anchors,
@@ -143,7 +217,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
     package gate, lifecycle evidence, exact pushed-head GitHub checks, and existing unmerged PR #26
     all pass with no unresolved P0-P2.
 
-## Required evidence
+### Historical required evidence
 
 | Criteria | Required proof | Current result |
 |---|---|---|
@@ -155,7 +229,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | 19 | Pre/post source/archive fingerprints, provider request-envelope/file-access audit, staged/private-content scans, compatibility bytes and no-execution counters | Preflight and both exhausted Stage H runs preserve source/archive hashes. The live omission audit is SHA-256 `4CE78DCA1E5674B47BA44145BDAB39D016A526546E33F245554927093E6E1B6D`; corrected provider-free evidence is `6F22E9C70FB27047A9D9159B7BAC9896A6FB37CE395DF259ACD374A78375FFFF`. Source/archive/accepted-baseline fingerprints remain unchanged; diff/privacy/frozen checks pass and synthetic acceptance records zero provider calls/game execution. Final corrected live before/after proof remains pending. |
 | 20 | Track handoffs/reviews, integrated diff audit, user screenshot approval, one final Release, completion report, exact pushed-head CI, PR #26 state | Track handoffs, exact-head reviews, and corrected provider-free integrated diff audit complete with no unresolved P0-P2 at `5d782ce`; screenshot approval, Release, push/checks, and PR readiness remain pending. Current PR result remains historical Changes Requested. |
 
-## Exclusions
+### Historical exclusions
 
 - No full-game processing or claim that full-game semantic quality is validated.
 - No M14 dynamic adapters, runtime tracing, Ren'Py/game/creator execution, installer, hosted service,
@@ -170,7 +244,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 - No replacement integration branch, second M15 PR, new milestone, PR merge, M14 start, destructive
   cleanup, or unrelated refactor. Bounded worker and reviewer branches/worktrees are allowed.
 
-## Handoff rules
+### Historical handoff rules
 
 - The coordinator owns contract decisions, task creation/monitoring, ordered integration, private
   evaluation, exact-manifest audits, evidence, PR #26, and the single active native goal.

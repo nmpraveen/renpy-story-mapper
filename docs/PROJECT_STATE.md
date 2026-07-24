@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 passed repeated semantic review for Stage H v11 correction)
+Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,7 +13,18 @@ Updated: 2026-07-24 (M15.1 passed repeated semantic review for Stage H v11 corre
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. The native goal resumed on 2026-07-24. Live Stage H proved
+- Status: Revise. Stage H V12 completed as a failed historical attempt with
+  `hierarchy_not_representable` after two calls, 484,092 input tokens, 33,752 output tokens, and
+  618,327 ms. It produced no hierarchy, logical record, or publication and left protected inputs
+  unchanged. The user rejected Stage H/Stage E for future supported work and approved Story Map V2
+  Phase 01 calibration and vertical proof only. Product implementation remains stopped; Phase 02
+  is unapproved.
+- Active Phase 01: empirically compare Luna/Terra/Sol at High for mapping, synthesis, and audit;
+  identify a practical context target and role configuration; build a disposable local whole-Day-1
+  vertical overview with visible branches and selectable witness paths; obtain independent review;
+  then stop for user judgment. Maximum 20 planned and 23 total provider submissions. No product
+  rewrite, push, PR mutation, merge, M14, second PR, new milestone, or M15.1 completion.
+- Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
   speaker, source, and structural ownership context. Approved manifest
@@ -46,7 +57,9 @@ Updated: 2026-07-24 (M15.1 passed repeated semantic review for Stage H v11 corre
   fundamental density/section-count failure, choice-after-consequence ordering, factual summary
   errors, and promotion of technical/generic material. Oracle comparison and browser acceptance
   remain paused.
-- Revised semantic gate: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) for the v11 uncertainty
+- Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md). The Stage H/Stage E
+  `PASS` is revoked for future work; the bounded Phase 01 experiment may proceed without broad
+  product implementation. Historical v11 review evidence follows: the v11 uncertainty
   correction; independent exact-head review passed `6d99fd4` with no P0-P2. The earlier whole-scope
   `PASS` after transition commit `b5d08f5` is
   historical because its implementation audit missed
@@ -54,11 +67,11 @@ Updated: 2026-07-24 (M15.1 passed repeated semantic review for Stage H v11 corre
   `c768b19c8d9364db8f1987cb420e69ac0c2e535d` is also historical. The corrected exact-head review
   passed at `a7997b1`; the equivalent full chain is integrated through `a7cdf9f` and passed fresh
   coordinator gates.
-- Native Codex goal: the user removed the stale goal and explicitly requested a new one on
-  2026-07-23. Active goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` now binds the unchanged
-  observable outcome to whole-scope Stage H/Stage E production, exact deterministic validation,
-  separate consents, blind reviews, visual approval, Release, and PR #26 readiness. It remains
-  active through implementation, live acceptance, visual approval, Release, and PR readiness.
+- Native Codex goal: tracked history records goal/task
+  `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` for the rejected whole-scope Stage H/Stage E objective.
+  Phase 01 preflight found no active native goal in the current coordinator service. Per the
+  approved Phase 01 plan, the coordinator will not create, replace, complete, or claim to resume a
+  goal during this experimental phase.
 - Interrupted-state recovery: integration HEAD `1c66cc3312e2af322f405c161df47a495cce617f`,
   branch/upstream divergence 48 ahead and zero behind, 13 modified tracked files, and two v4
   resources were verified. The v4 SHA-256 values matched the supplied checkpoint. The supplied

@@ -2,8 +2,14 @@
 
 Last revised: 2026-07-24
 
-Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is in repeated `Semantic review` after the v11 evidence-complete
+Status: M01 through M13 are complete and merged. M15.1 is the single active Story Map correction
+inside M15 and is in `Revise`. Stage H V12 failed with `hierarchy_not_representable` after two
+calls and produced no hierarchy, logical record, or publication. The user rejected Stage H/Stage E
+for future supported work and approved Story Map V2 Phase 01 calibration and vertical proof only.
+Phase 02 product implementation is unapproved; the same integration branch and open unmerged PR
+#26 continue. The prior semantic `PASS` is revoked for future work.
+
+Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
 uncertainty correction passed independent exact-head review. Its
 prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
@@ -1187,7 +1193,20 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: In progress after the failed v4 Stage H uncertainty run returned through `Revise`, a
+Status: Revise. Stage H V12 failed terminally with `hierarchy_not_representable`; the user rejected
+Stage H/Stage E as the future supported semantic architecture and approved only Story Map V2
+Phase 01 calibration and a disposable vertical proof. The prior Stage H/Stage E semantic `PASS` is
+revoked for future work. Phase 02 product implementation, broad refactoring, PR mutation, merge,
+M14, and milestone completion are unapproved or excluded.
+
+Current product direction: a practical private story guide with a readable chronological
+whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
+paths, and endings; selectable entry-to-target witness paths; and short approximate summaries.
+Static analysis remains authoritative for path-critical facts. Exact prose replay, exhaustive line
+ownership, claim-level evidence allocation, formal proof, and publication-grade precision are not
+product requirements.
+
+Historical Stage H/E status: In progress after the failed v4 Stage H uncertainty run returned through `Revise`, a
 failing-first prompt/repair correction, and repeated semantic `PASS`. The 2026-07-21 adjacent-gap-only `PASS`
 remains revoked. The first whole-scope implementation also returned to `Revise` after live Stage H
 proved that its request sent IDs without the evidence and structural context required for semantic
@@ -1200,7 +1219,20 @@ Objective: produce a compact chronological Story Map whose visible language expl
 meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
 effect, terminal, unresolved record, and evidence locator.
 
-Locked boundaries:
+Active Phase 01 boundaries:
+
+- Measure coherent raw-script context quality across approximately 2.5k, 5k, 8k, and full Day 1,
+  and compare Luna/Terra/Sol High separately for mapping, synthesis, and audit.
+- Use at most 20 planned and 23 total submissions; explicitly select and verify model, High
+  reasoning, and disabled fast mode without fallback.
+- Keep the original source/archive read-only; never execute game, Ren'Py, or creator code; keep
+  packets, responses, evaluation material, and prototype outside Git.
+- Build only a disposable local HTML/JSON vertical proof with no remote assets or tracked product
+  changes; verify source immutability, privacy, zero remote requests on open, and PR non-mutation.
+- End with blind scoring, deterministic path checks, an independent final review, a Phase 01 report,
+  and user review. Do not write or begin Phase 02.
+
+Rejected historical Stage H/E boundaries:
 
 - Keep versioned fine narrative units and one stable candidate for every legal adjacent gap as an
   internal exhaustive representation. Hard chapter/day, lane, call-occurrence, loop,
@@ -1334,6 +1366,21 @@ and unresolved items.
 - Do not implement future-milestone features inside the active milestone.
 
 ## 11. Current next action
+
+Execute Story Map V2 Phase 01 only: freeze the starting state and reconciled `Revise` lifecycle;
+prepare coherent Day 1 packets, mechanics digests, and frozen generic prompts without provider
+calls; run the capped Luna/Terra/Sol High matrix with exact identity/settings/accounting; score it
+blind with deterministic path-critical checks; select the cheapest eligible role configuration;
+build and capture a disposable local whole-Day-1 vertical prototype with five representative
+witness paths; verify privacy, source/archive immutability, call ceilings, zero remote requests on
+open, and PR #26 non-mutation; obtain a separate independent final review; then present the report,
+matrix, prototype, screenshots, and recommendation for user judgment.
+
+Do not implement Phase 02, broadly change tracked product code, delete historical Stage H/Stage E
+systems, push, mutate or merge PR #26, start M14, create a second PR or milestone, or claim M15.1
+complete.
+
+### Rejected historical next action
 
 M15.1 is the single active correction inside M15. Its native goal remains active. Exact Stage H
 manifest `consent_5181073c41933f07c2ccc887` executed while valid, exhausted its initial plus one

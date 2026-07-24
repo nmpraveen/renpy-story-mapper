@@ -1,6 +1,6 @@
 # M15.1 semantic Story Map correction report
 
-Status: In progress
+Status: Revise
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -9,6 +9,22 @@ Integration branch: `codex/m15-msday1-narrative-map`
 Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open and unmerged.
 
 ## Current outcome
+
+Stage H V12 is a completed failed historical attempt. It made two provider calls, used 484,092
+input and 33,752 output tokens over 618,327 ms, and failed with
+`hierarchy_not_representable`. It produced no hierarchy, logical record, or publication; source,
+archive, and accepted baseline remained unchanged. The local sanitized result artifact SHA-256 is
+`08d3c3e2aab81c10b2256dd12e37a36fe2191d8ffeb14c92c4fadd68fc836686`.
+
+The user rejected Stage H/Stage E as the future supported semantic workflow and approved a Story
+Map V2 direction: a readable chronological whole-story overview, visible choices/branches/
+requirements/effects/rejoins/endings, selectable entry-to-target witness paths, and short
+approximate summaries. The lifecycle is `Revise`; the prior semantic `PASS` is revoked for future
+work.
+
+Only Phase 01 calibration and a disposable vertical proof are active. Phase 02 product
+implementation, broad product-code changes, push, PR mutation, merge, M14, and M15.1 completion
+remain unapproved or excluded. The native goal is left untouched during this experiment.
 
 The user rejected the prior M15 Story Map because it presented a wide generic engineering graph
 rather than a compact human-readable narrative. The previous `PR ready` status is revoked. M15.1 is
@@ -63,7 +79,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Branch and PR identity | Complete | Local and remote branch head matched the correction base; PR #26 was open, non-draft, mergeable, and unmerged at preflight |
 | Private-input preflight | Complete | Source and archive SHA-256, size, and timestamps matched the private manifest; private materials remain ignored and unstaged |
 | Revised contract | Complete | `GOAL.md` defines fine semantic units, exhaustive boundaries, deterministic hierarchy, two-stage live production, compact vertical UI, and corrected acceptance gates |
-| Revised semantic gate | Complete | Current v11 correction is `PASS`; independent exact-head review passed `6d99fd4` with no P0-P2. The 2026-07-21 pass remains historical. |
+| Revised semantic gate | Revise | Stage H/Stage E `PASS` is revoked for future work; the bounded Phase 01 experiment may proceed without product implementation |
 | Replacement native goal | Complete | Goal `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` is active with the exact revised done condition and remains active through genuine PR readiness |
 | Shared failing-first freeze | Complete | Exact head `c768b19c8d9364db8f1987cb420e69ac0c2e535d`; 14 passing contract/workflow checks, Ruff, strict mypy, and 7 expected track-owned failures |
 | Tracks A/B/C and exact-head reviews | Complete | Track A reviewed head `09062370`; Track B final supported product-path head `ca048973`; Track C final compatibility head `61a3eef`; all required exact-head reviews passed with no unresolved P0-P2 |
@@ -72,7 +88,8 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
 | Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
 | Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
-| Current whole-scope Stage H | Evidence-complete uncertainty correction review | V11 exhausted both slots and failed closed with `uncertain_membership`, recording 483,973 input and 5,015 output tokens. No hierarchy/publication exists and protected fingerprints are unchanged. Result SHA-256 is `0F36D04F16370FB45F69400E413DA73E48648609EC11F5DB77DE31286CC44703`. The compact repair completed. Prompt v11/policy v12/product v7/schema v4 require empty provider uncertainty because preparation proves exact evidence for every unit and singleton placement remains available; local validation remains fail-closed. |
+| Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
+| Story Map V2 Phase 01 | In progress | Starting-state freeze complete; lifecycle documentation reconciliation and calibration preparation are next; zero Phase 01 provider submissions so far |
 | Current whole-scope Stage E | Pending | Cannot prepare or execute until a frozen Stage H hierarchy passes blind membership review. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |

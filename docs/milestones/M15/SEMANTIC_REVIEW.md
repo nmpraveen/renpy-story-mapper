@@ -4,12 +4,68 @@ Date: 2026-07-24
 
 Architectural correction base: `1c66cc3312e2af322f405c161df47a495cce617f`
 
-Prior decision: 2026-07-21 `PASS`, revoked because it made adjacent-gap classification the primary
-AI semantic task.
+Prior decision: Stage H/Stage E `PASS`, revoked for future work after V12 failure and the user's
+Story Map V2 rewrite decision.
 
-Decision: PASS
+Decision: REVISE
 
-## Review result
+## Current Phase 01 review result
+
+V12 is terminally failed with `hierarchy_not_representable` after two calls, 484,092 input tokens,
+33,752 output tokens, and 618,327 ms. It created no hierarchy, logical record, or publication and
+left source, archive, and accepted baseline unchanged. The user rejected Stage H/Stage E as the
+future supported semantic workflow and approved a practical Story Map V2 direction centered on a
+whole-story chronological overview, visible choices and branch outcomes, and selectable
+entry-to-target witness paths.
+
+The existing Stage H/Stage E contract is therefore not semantically authorized for further broad
+implementation. Phase 01 is a bounded calibration and disposable vertical-proof experiment, not a
+product rewrite. It may perform read-only discovery, prepare private local artifacts, run the
+explicitly authorized capped Luna/Terra/Sol matrix, and build a local prototype outside tracked
+product code. Phase 02 remains unapproved.
+
+### Phase 01 authority and boundaries
+
+- `docs/MASTER_PLAN.md` remains permanent product-scope authority: static analysis owns topology,
+  choices, requirements, effects, destinations, source evidence, and route solving.
+- The user-approved Phase 01 plan owns the bounded experiment, exact model identities, High
+  reasoning, fast-off experiment setting, private Day 1 scope, maximum 20 planned/23 total calls,
+  visible task topology, local artifact requirements, and stop condition.
+- Existing safe ingestion, Ren'Py parsing, deterministic mechanics, source fingerprints, isolated
+  provider execution, cancellation/privacy boundaries, route solving, and exact source navigation
+  may be reused read-only.
+- Stage H/Stage E, fine atom/evidence allocation, exhaustive adjacent-gap voting, hierarchy locks,
+  exact prose replay, current M15 persistence, and the wide engineering-oriented UI must not be
+  deleted or broadly refactored in Phase 01.
+- Private evaluation material, old provider responses, external comparison material, screenshots,
+  unrelated files, secrets, and game assets must not enter provider input or Git.
+
+### Phase 01 evidence map
+
+| Active criterion | Required evidence |
+|---|---|
+| 1 | Reconciled tracked lifecycle documents and a local V12 audit |
+| 2-4 | Frozen prompt/schema hashes, input manifests, byte measurements, and matrix ledger |
+| 5-6 | Append-only submission ledger and per-call identity/usage/status records |
+| 7 | Identity-redacted blind scores plus deterministic mechanics/path checks |
+| 8-9 | Threshold/cost comparison and bounded context recommendation |
+| 10 | Local HTML/JSON prototype and 100%/200% captures for five representative paths |
+| 11 | Before/after fingerprints, process/network audit, Git/index privacy scan |
+| 12 | Separate visible read-only final-review verdict |
+| 13-14 | Final linked user handoff and verified stop/PR state |
+
+### Unresolved product decisions
+
+- Phase 01 must determine the normal context target, largest validated context, mapper,
+  synthesizer, auditor value, and whether the simplified vertical concept is useful enough to
+  justify Phase 02.
+- Detailed Phase 02 architecture, persistence compatibility, legacy retirement, and product-code
+  changes require later user review and approval.
+
+The current product contract therefore requires revision, while the bounded Phase 01 experiment
+is safe and observable without inventing Phase 02 scope.
+
+## Historical Stage H/Stage E review result
 
 The observable M15.1 done condition remains unchanged: the supported product must produce a compact,
 chronological, evidence-linked Prologue/Day 1 Story Map while M10/M11 retain topology and evidence
@@ -387,27 +443,10 @@ exact-head review passed `6d99fd4` with no P0-P2.
 
 ## Gate decision
 
-The observable done condition remains unchanged. The corrected Stage H projection now supplies the
-semantic evidence and complete bounded structural context required by criterion 3, binds it to one
-typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 remains
-current. Prompt v11, response schema v4, and product identity v7 invalidate prior job, cache, and
-consent-job identity while immutable response schemas v2 and v3 are preserved; repair policy v12
-additionally invalidates prior consent-manifest identity but does not independently enter the
-successful-result cache key.
-The implementation remains
-subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
-`a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
-P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
-P0-P2.
+The Stage H/Stage E semantic `PASS` is revoked for future work. Broad product implementation must
+stop until a later user-approved Story Map V2 contract resolves the product architecture. The
+approved Phase 01 experiment may proceed because it is bounded, read-only with respect to product
+code and original inputs, has explicit provider/privacy/call limits, and ends in user review rather
+than product implementation.
 
-The semantic gate is `PASS` in repeated `Semantic review`. Independent exact-head review passed
-`6d99fd4` with no P0-P2. V11 manifest
-`consent_195336f83e426fb222fecc19` is exhausted and cannot be reused. Another fresh Stage H
-preparation may proceed only after a fresh zero-submit identity/fingerprint audit. The user's standing
-authorization permits the coordinator to execute that fresh bounded manifest without another
-routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
-verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its
-own fresh exact manifest under the same audit discipline.
-
-PASS
+REVISE
