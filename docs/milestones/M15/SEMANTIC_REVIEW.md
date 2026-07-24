@@ -244,11 +244,15 @@ job/cache/consent invalidation from repair-policy-only consent-manifest invalida
 completion prose still ended at v5. Both are corrected. A direct identity regression now proves
 prompt v4 changes job/cache identity while repair policy v5 changes manifest identity without
 changing job identity or entering the cache key. The expanded M15.1/product set passes 108/108;
-Ruff and strict mypy remain clean. Exact-head rereview is required before fresh preparation.
+Ruff and strict mypy remain clean. Independent rereview passed exact head `dc5a631` with no P0-P2
+after directly confirming prompt-version changes alter consent job IDs, per-job identity hashes,
+and aggregate job identity while a repair-policy-only change preserves those job identities. The
+exact-head functional suite passed 1,500 tests with five expected opt-in skips; the isolated M06
+benchmark passed, as did Ruff and strict mypy over 115 source files.
 
 This correction narrows the meaning of terminal uncertainty without hiding it, guessing, or
 weakening authority. The lifecycle moved through `Semantic review` and returns to `In progress`
-with `PASS`, pending independent exact-head review before another fresh preparation.
+with `PASS`; fresh zero-submit preparation may proceed.
 
 ## Gate decision
 

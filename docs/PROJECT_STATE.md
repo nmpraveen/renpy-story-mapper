@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at ambiguity-threshold correction review)
+Updated: 2026-07-24 (M15.1 In progress after ambiguity-threshold correction review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -224,8 +224,12 @@ Updated: 2026-07-24 (M15.1 In progress at ambiguity-threshold correction review)
   terminal uncertainty. Commit `b81dbad` advances hierarchy prompt v4 and repair policy v5: normal
   ambiguity must use confidence/warnings or a conservative singleton beat, while nonempty
   `uncertain_unit_ids` remains reserved for missing evidence or structural impossibility and is
-  still rejected by Python. Focused 107/107, Ruff, and strict mypy pass; repeated semantic review is
-  `PASS`, with independent exact-head review next.
+  still rejected by Python. Focused 108/108, Ruff, and strict mypy pass; repeated semantic review is
+  `PASS`. Independent rereview passed exact head `dc5a631` with no P0-P2 after the direct identity
+  regression proved prompt-version changes alter consent job IDs and identity hashes while a
+  repair-policy-only change remains manifest-only. The exact-head functional suite passed 1,500
+  tests with five expected opt-in skips; the isolated M06 benchmark, Ruff, and strict mypy over
+  115 source files also passed. Fresh zero-submit Stage H preparation is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.
