@@ -65,10 +65,12 @@ Updated: 2026-07-24 (Phase 01 accepted; Phase 02 handoff prepared; lifecycle `Re
   run; it must not auto-start/load/download LM Studio/model, handle unrelated failures by fallback,
   or let AI own exact mechanics.
 
-- Git/PR checkpoint: the local integration branch is 133 commits ahead of PR #26's historical
+- Git/PR checkpoint: the local integration branch is 135 commits ahead of PR #26's historical
   remote failing-first head. The unpushed stack includes the rejected Stage H/E implementation, so
-  it is intentionally not pushed before a replacement exists. PR #26 is draft/not ready and must
-  remain open and unmerged through the later phases.
+  it is intentionally not pushed before a replacement exists. On 2026-07-24 PR #26 was converted
+  to draft and retitled `M15.1: Story Map V2 rewrite (in progress)` with an explicit do-not-merge
+  status body. Verified remote head remains `bc9a38c`; the historical failed check was not rerun.
+  The PR must remain open and unmerged through the later phases.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required

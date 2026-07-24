@@ -57,11 +57,12 @@ only one clean candidate. It does not prove that selective review can never help
 
 ## Git and milestone decision
 
-PR #26 must not be merged. Its remote head is a historical failing-first checkpoint and is 133
+PR #26 must not be merged. Its remote head is a historical failing-first checkpoint and was 133
 commits behind the local integration head. Pushing now would publish a very large stack containing
 the rejected Stage H/Stage E implementation before its replacement exists. Keep those commits
-local and auditable, mark the existing PR draft, and update it only after Phase 02 has an integrated
-accepted replacement and passing exact-head checks.
+local and auditable. PR #26 was converted to draft and given an explicit rewrite-in-progress body;
+update its remote head only after Phase 02 has an integrated accepted replacement and passing
+exact-head checks.
 
 The detailed next-task prompt is
 [`M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`](M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md).
