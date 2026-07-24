@@ -327,24 +327,42 @@ and Stage E gate are unchanged. The lifecycle remains in repeated `Semantic revi
 Independent exact-head rereview passed `19258ba` with no P0-P2. The exact-head full suite passed
 1,503 tests with five expected opt-in skips; both isolated M06 scale checks and static gates passed.
 
+## Stage H v9 typed-repair revision
+
+Exact manifest `consent_8f0c4d16185f61f8d2e194ee` executed while valid and exhausted its two
+calls: 483,853 input tokens and 33,824 output tokens. It failed closed with
+`hierarchy_authority_invalid`; no hierarchy, logical records, publication, or Stage E exists, and
+all protected fingerprints remain unchanged. Result artifact SHA-256 is
+`4F59C6756C62536FEA238654283A76A80F57080D0F6BA962C4F09481E5878272`.
+
+The postmortem identified a repair-architecture defect rather than permission to weaken authority:
+all non-representability authority failures shared one generic code, which unlocked every valid
+beat and cluster before the repair call. Prompt v9, repair policy v10, and product identity v5 add
+a typed `choice_cluster_split` finding. That path preserves every schema-valid beat byte-for-byte,
+unlocks only `major_clusters`, and gives exact inclusive-range merge guidance. Python still performs
+the complete authority validation and fails closed; no output is normalized or silently accepted.
+Provider-free verification passes 130/130 combined hierarchy/product tests plus Ruff and strict
+mypy over 115 source files. The lifecycle returns to `Semantic review`; the repeated semantic gate
+is `PASS`, pending independent exact-head rereview.
+
 ## Gate decision
 
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 and
-prompt v8 invalidate prior job, cache, and consent-job identity. Repair policy v9 additionally
-invalidates prior consent-manifest identity but does not independently enter the successful-result cache key.
+repair, and proves every legal repair envelope remains below its sterile ceiling. Input v5 remains
+current. Prompt v9 and product identity v5 invalidate prior job, cache, and consent-job identity;
+repair policy v10 additionally invalidates prior consent-manifest identity but does not
+independently enter the successful-result cache key.
 The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
 P0-P2. The new lock-policy correction passed independent exact-head review at `1adfe2d` with no
 P0-P2.
 
-The semantic gate is `PASS`. V8 manifest `consent_3c1c64df0020fdb6f6733561` is exhausted and cannot
-be reused. The input-v5/prompt-v8/repair-policy-v9 correction changes exact input/prompt/job/cache/
-consent and repair-manifest identity. Another fresh Stage H preparation is forbidden until
-independent exact-head review passes. The user's standing
+The semantic gate is `PASS` in repeated `Semantic review`. V9 manifest
+`consent_8f0c4d16185f61f8d2e194ee` is exhausted and cannot be reused. Another fresh Stage H
+preparation is forbidden until independent exact-head rereview completes. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its

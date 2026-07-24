@@ -271,7 +271,18 @@ Updated: 2026-07-24 (M15.1 in semantic review for assembler-context projection)
   exact private canonical payload is 643,032 bytes under the 660,000-byte typed-payload ceiling.
   Repeated semantic review is `PASS`; independent exact-head rereview passed `19258ba` with no
   P0-P2. The exact-head full suite passed 1,503 tests with five expected opt-in skips; both isolated
-  M06 scale checks and static gates passed. Fresh zero-submit preparation is next.
+  M06 scale checks and static gates passed.
+- Stage H v9 execution and typed-repair correction: exact manifest
+  `consent_8f0c4d16185f61f8d2e194ee` executed while valid, used two calls, 483,853 input tokens,
+  33,824 output tokens, and failed closed with `hierarchy_authority_invalid`. No hierarchy, logical
+  record, publication, or Stage E exists; protected fingerprints are unchanged. Result artifact
+  SHA-256 is `4F59C6756C62536FEA238654283A76A80F57080D0F6BA962C4F09481E5878272`.
+  Provider-free postmortem found the generic authority code discarded all schema-valid beats and
+  clusters before repair. Prompt v9, repair policy v10, and product identity v5 introduce typed
+  `choice_cluster_split`: valid beats remain locked byte-for-byte, only clusters are unlocked, and
+  merge guidance names exact inclusive choice ranges and precedence. Combined provider-free tests
+  pass 130/130; Ruff and strict mypy over 115 source files pass. Repeated semantic review is `PASS`;
+  independent exact-head rereview is next.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

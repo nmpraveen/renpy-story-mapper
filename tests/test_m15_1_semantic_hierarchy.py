@@ -24,6 +24,7 @@ from renpy_story_mapper.narrative_map import (
     validate_whole_scope_hierarchy,
 )
 from renpy_story_mapper.narrative_map.semantic_contracts import SemanticOutline
+from renpy_story_mapper.narrative_map.semantic_hierarchy import HierarchyAuthorityError
 from renpy_story_mapper.narrative_map.semantic_lifecycle import (
     whole_scope_hierarchy_input_payload,
 )
@@ -322,7 +323,9 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
             for index, beat_key in enumerate(beat_keys)
         ),
     )
-    with pytest.raises(ValueError, match="splits a required choice cluster"):
+    with pytest.raises(
+        HierarchyAuthorityError, match="splits a required choice cluster"
+    ) as captured:
         validate_whole_scope_hierarchy(
             context_split,
             units,
@@ -330,6 +333,7 @@ def test_choice_arm_and_rejoin_boundaries_round_trip_through_existing_assembler(
             (choice,),
             (choice_lock,),
         )
+    assert captured.value.code == "choice_cluster_split"
 
 
 def test_stable_ids_ignore_temporary_proposal_keys() -> None:

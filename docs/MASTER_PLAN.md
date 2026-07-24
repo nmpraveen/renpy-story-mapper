@@ -1361,6 +1361,10 @@ choice range endpoints into existing choice hard locks, gives them precedence ov
 and enforces them without weakening
 validation. Repeated semantic review is `PASS`; independent exact-head rereview passed `19258ba`
 with no P0-P2, and the full exact-head suite passed 1,503 tests with five expected opt-in skips.
+V9 manifest `consent_8f0c4d16185f61f8d2e194ee` then used two calls and failed closed with
+`hierarchy_authority_invalid`, creating no hierarchy/publication or Stage E state. The current
+prompt-v9/repair-policy-v10/product-v5 revision types choice-cluster-only failures, preserves valid
+beats byte-for-byte during repair, and unlocks only clusters; semantic rereview is pending.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before

@@ -53,7 +53,7 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v8"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v9"
 WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
@@ -61,7 +61,7 @@ MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v9"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v10"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -77,6 +77,15 @@ _SEMANTIC_REPAIR_GUIDANCE = {
     ),
 }
 _WHOLE_SCOPE_REPAIR_GUIDANCE = {
+    "choice_cluster_split": (
+        "The prior Stage H beat_groups are valid and locked byte-for-byte, but major_clusters "
+        "split at least one Python-owned choice range. Return those exact locked beat_groups and "
+        "replace major_clusters. For every choice_ownership hard lock, treat its one or two "
+        "unit_ids as inclusive endpoints in ordered_unit_ids and put every beat covering that "
+        "range in one major cluster. This choice rule overrides lane, progression_runs, "
+        "call_occurrence_path, and loop changes inside the range. Do not change beat membership, "
+        "beat proposal keys, unit order, or topology."
+    ),
     "invalid_beat_group": (
         "Replace every rejected beat group and return the complete Stage H envelope. Each "
         "ordered_unit_ids array must contain unique, nonempty, trimmed unit IDs, with no duplicate "
@@ -860,7 +869,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v8.json",
+            "whole_scope_hierarchy_v9.json",
             "whole_scope_hierarchy_v2.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (

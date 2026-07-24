@@ -1153,6 +1153,12 @@ def _whole_scope_hierarchy_lock(
         locked["__whole_scope_beat_groups__"] = []
         locked["__whole_scope_clusters__"] = []
         return locked
+    if "choice_cluster_split" in finding_codes:
+        locked["__whole_scope_beat_groups__"] = [
+            item.to_dict() for item in validation.valid_beat_groups
+        ]
+        locked["__whole_scope_clusters__"] = []
+        return locked
     locked["__whole_scope_beat_groups__"] = [
         item.to_dict() for item in validation.valid_beat_groups
     ]

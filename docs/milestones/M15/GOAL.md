@@ -1,9 +1,11 @@
 # M15 - M15.1 semantic Story Map correction
 
-Status: Semantic review after Stage H v8 failed closed with `hierarchy_not_representable`;
-lifecycle returned through `Revise`, and the corrected input-v5/prompt-v8/repair-policy-v9
-assembler-context and choice-ownership projection has repeated semantic `PASS`. Independent
-exact-head rereview passed `19258ba` with no P0-P2; fresh zero-submit Stage H preparation is next.
+Status: Repeated `Semantic review` after Stage H v9 failed closed with
+`hierarchy_authority_invalid`. No hierarchy,
+publication, or Stage E exists. The prompt-v9/repair-policy-v10/product-v5 correction introduces a
+typed `choice_cluster_split` repair path that retains valid beats and replaces only clusters;
+provider-free verification passes 130/130 combined tests and the semantic gate is `PASS`;
+independent exact-head rereview is next.
 
 Lifecycle correction: On 2026-07-21 the user rejected the prior M15 result and explicitly started
 the M15.1 correction cycle. M15.1 continues the existing M15 milestone, integration branch, and
@@ -143,7 +145,7 @@ existing ready-but-unmerged PR #26 only after the user approves the actual final
 | Criteria | Required proof | Current result |
 |---|---|---|
 | 1-6 | Versioned Stage H contracts, generalized split/choice/nesting/call/loop/lane/terminal fixtures, exact coverage/locks, hierarchy-to-gap compilation, stable IDs, ownership/topology/provenance | Complete provider-free. Shared freeze `cf30b5e`; Track A exact-head review passed at `1b5175bd`; reviewed Track A commits integrated as `d9a3f4d` and `10e7df4`. Frozen resources and shared seams remain byte-identical. Adjacent-only work is historical. |
-| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V8 exact manifest `consent_3c1c64df0020fdb6f6733561` used two calls and failed closed with `hierarchy_not_representable`: 482,977 input tokens, 32,287 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Result artifact SHA-256 is `6334E0837698FDE14013FC2BF200A3B62EAF2940E7EADC9B5A29DC110FCA385E`. Provider-free diagnosis found missing progression context; first review then found missing choice-owner/continuation precedence. Corrected input-v5/prompt-v8/repair-policy-v9 projects compact authority-bound progression runs and deduplicated choice-range hard locks, with exact Python enforcement and no topology invention. Its private payload is 643,032 bytes under the 660,000-byte ceiling. Focused 110/110, combined hierarchy 128/128, full exact-head 1,503, both M06 scale checks, Ruff, strict mypy, JSON parsing, and diff checks pass; repeated semantic review is `PASS`. Independent exact-head rereview passed `19258ba` with no P0-P2. Fresh zero-submit Stage H preparation is next. |
+| 7-13 | Stage H/Stage E API/service/browser flow, batched logical/transport provenance, fake-provider fault matrix, exact manifests, durable jobs/cache/accounting, four-call ceiling, reopen and zero-submit replay | V9 exact manifest `consent_8f0c4d16185f61f8d2e194ee` used two calls and failed closed with `hierarchy_authority_invalid`: 483,853 input tokens, 33,824 output tokens, no hierarchy/records/publication, no Stage E, and unchanged fingerprints. Result artifact SHA-256 is `4F59C6756C62536FEA238654283A76A80F57080D0F6BA962C4F09481E5878272`. Postmortem found that the generic authority code discarded all valid beats before repair. Prompt v9/repair policy v10/product v5 add a typed `choice_cluster_split` path that locks every valid beat byte-for-byte, unlocks only clusters, and gives exact merge guidance. Provider-free verification and repeated semantic review are in progress. |
 | 14-15 | Frozen generated visible order/map, isolated live-run artifacts, post-generation oracle comparison, density/choice/arm/rejoin assertions | Pending; prior visible-order export rejected |
 | 16-17 | Real Chrome 100%/200% assertions and required full-page/section/detail screenshots with human inspection | Pending; prior wide-world screenshots rejected |
 | 18 | Two-stage blind-then-oracle final reviewer report, frozen hash, exact element/evidence mapping, no P0-P2 | Pending; prior reviewer did not inspect private source/screenshots |

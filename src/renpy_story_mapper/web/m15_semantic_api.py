@@ -80,6 +80,7 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
     WholeScopeSemanticStage,
 )
 from renpy_story_mapper.narrative_map.semantic_hierarchy import (
+    HierarchyAuthorityError,
     HierarchyHardLock,
     HierarchyHardLockKind,
     ValidatedWholeScopeHierarchy,
@@ -104,7 +105,7 @@ from renpy_story_mapper.web.contracts import JsonValue
 
 M15_SEMANTIC_RESPONSE_SCHEMA: Final = "m15-semantic-production-v1"
 M15_SEMANTIC_CORRECTION_ID: Final = "m15.1-product-path-v1"
-M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v4"
+M15_WHOLE_SCOPE_CORRECTION_ID: Final = "m15.1-whole-scope-product-v5"
 M15_SEMANTIC_PRIVACY_SCOPE: Final = "story_evidence_only"
 M15_SEMANTIC_MODEL: Final = "gpt-5.6-sol"
 M15_SEMANTIC_REASONING: Final = "medium"
@@ -1129,6 +1130,11 @@ def _whole_scope_hierarchy_input(
             if beat.parent_cluster_id == choice.parent_cluster_id
             for unit_id in beat.ordered_unit_ids
         )
+        if required_unit_ids:
+            first = ordered_unit_ids.index(required_unit_ids[0])
+            last = ordered_unit_ids.index(required_unit_ids[-1])
+            if ordered_unit_ids[first : last + 1] != required_unit_ids:
+                raise ValueError("choice cluster authority is not one contiguous ordered range")
         projected_unit_ids = (
             ()
             if required_unit_ids in seen_required_sets
@@ -1188,6 +1194,8 @@ def _validate_hierarchy_for_current_authority(
             scope_id=scope_id,
             authority=authority,
         )
+    except HierarchyAuthorityError as exc:
+        return None, (ValidationFinding(exc.code, job.job_id),)
     except ValueError as exc:
         code = (
             "hierarchy_not_representable"

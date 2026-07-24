@@ -2313,7 +2313,12 @@ class WholeScopeSemanticLifecycle:
         manifest_id = raw.get(f"{prefix}_manifest_id")
         failure_codes = cast(list[object], raw.get("failure_codes", []))
         if state == "failed" and any(
-            code in {"hierarchy_authority_invalid", "hierarchy_not_representable"}
+            code
+            in {
+                "choice_cluster_split",
+                "hierarchy_authority_invalid",
+                "hierarchy_not_representable",
+            }
             for code in failure_codes
         ):
             return self.status_required()

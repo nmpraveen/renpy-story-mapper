@@ -39,6 +39,14 @@ from renpy_story_mapper.narrative_map.semantic_contracts import (
 _VALIDATION_SEAL = object()
 
 
+class HierarchyAuthorityError(ValueError):
+    """A sanitized typed authority failure safe to expose as repair guidance."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
+
+
 class HierarchyHardLockKind(StrEnum):
     """Supported Python-owned constraints supplied beside the Stage H prompt.
 
@@ -598,8 +606,9 @@ def _validate_hard_locks(
                         for unit_id in required_unit_ids
                     }
                 ) != 1:
-                    raise ValueError(
-                        "whole-scope hierarchy splits a required choice cluster"
+                    raise HierarchyAuthorityError(
+                        "choice_cluster_split",
+                        "whole-scope hierarchy splits a required choice cluster",
                     )
         elif lock.kind in {
             HierarchyHardLockKind.SCOPE_MARKER,
