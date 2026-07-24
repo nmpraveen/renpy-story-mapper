@@ -1586,6 +1586,52 @@ def test_targeted_repair_may_replace_only_rejected_hierarchy_groups(tmp_path: Pa
     assert "into beat_groups exactly once with the same proposal_key" in lock_policy
 
 
+def test_targeted_repair_maps_nonempty_locked_cluster_into_complete_output(
+    tmp_path: Path,
+) -> None:
+    invalid = _hierarchy_output()
+    locked_cluster = copy.deepcopy(cast(list[dict[str, object]], invalid["major_clusters"])[0])
+    locked_cluster["ordered_beat_keys"] = ["proposal-a"]
+    invalid["major_clusters"] = [locked_cluster]
+    repaired = _hierarchy_output()
+    repaired["major_clusters"] = [
+        copy.deepcopy(locked_cluster),
+        {
+            "proposal_key": "cluster-later",
+            "ordered_beat_keys": ["proposal-b"],
+            "confidence": 0.9,
+            "reason": "The second action forms the later synthetic period.",
+            "warnings": [],
+        },
+    ]
+    with Project.create(tmp_path / "targeted-cluster-repair.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([invalid, repaired])
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
+        )
+
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    repair_request = provider.requests[1]
+    assert repair_request.repair_semantics is not None
+    assert repair_request.repair_semantics["__whole_scope_clusters__"] == [
+        locked_cluster
+    ]
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    envelope = json.loads(_serialize_prompt(repair_request, prompt_name))
+    lock_policy = envelope["request"]["locked_semantics_policy"]
+    assert "copy every object in __whole_scope_clusters__ byte-for-byte" in (
+        lock_policy.lower()
+    )
+    assert "into major_clusters exactly once with the same proposal_key" in lock_policy
+
+
 def test_targeted_repair_may_replace_rejected_editorial_record(tmp_path: Path) -> None:
     with Project.create(tmp_path / "targeted-editorial-repair.rsmproj") as project:
         service = NarrativeMapService(NarrativeMapRepository(project))
@@ -1613,6 +1659,22 @@ def test_targeted_repair_may_replace_rejected_editorial_record(tmp_path: Path) -
 
     assert report.validated_job_ids == (preparation.job.job_id,)
     assert report.provider_calls == 2
+    repair_request = provider.requests[1]
+    assert repair_request.repair_semantics is not None
+    locked_records = repair_request.repair_semantics["__whole_scope_records__"]
+    assert isinstance(locked_records, list) and len(locked_records) == 2
+    assert all(
+        isinstance(item, dict) and set(item) == {"identity", "item"}
+        for item in locked_records
+    )
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    envelope = json.loads(_serialize_prompt(repair_request, prompt_name))
+    lock_policy = envelope["request"]["locked_semantics_policy"]
+    assert "copy each entry's item value from __whole_scope_records__ byte-for-byte" in (
+        lock_policy.lower()
+    )
+    assert "into records exactly once with the same subject_kind and subject_id" in lock_policy
+    assert "do not copy the identity/item wrapper" in lock_policy.lower()
 
 
 @pytest.mark.parametrize("stage", ("hierarchy", "editorial"))

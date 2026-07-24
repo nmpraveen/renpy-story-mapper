@@ -929,9 +929,10 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
                 "For Stage H, copy every object in __whole_scope_beat_groups__ byte-for-byte into "
                 "beat_groups exactly once with the same proposal_key, and copy every object in "
                 "__whole_scope_clusters__ byte-for-byte into major_clusters exactly once with the "
-                "same proposal_key. For Stage E, copy every item nested in "
+                "same proposal_key. For Stage E, copy each entry's item value from "
                 "__whole_scope_records__ byte-for-byte into records exactly once with the same "
-                "subject_kind and subject_id. Do not return the internal lock keys. Add or replace "
+                "subject_kind and subject_id; do not copy the identity/item wrapper. Do not return "
+                "the internal lock keys. Add or replace "
                 "only entries absent from these lock collections as required by repair_codes."
             )
             envelope["request"]["repair_guidance"] = [

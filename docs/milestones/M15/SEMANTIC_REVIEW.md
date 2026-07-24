@@ -198,8 +198,18 @@ byte-for-byte mapping from locked beat/cluster objects into `beat_groups`/`major
 Stage E the equivalent subject-identity mapping into `records`, prohibits returning internal lock
 keys, and permits changes only to entries absent from the lock collections. Python enforcement is
 unchanged and remains the authority. The consent-bound whole-scope repair policy advances to
-`m15-whole-scope-targeted-repair-v4`, invalidating every prior manifest/cache route. Focused
-M15.1/product tests pass 106/106; Ruff and strict mypy pass.
+`m15-whole-scope-targeted-repair-v4`, invalidating every prior consent-manifest route. Existing
+cache identity remains unchanged because only validated successful results may populate it. Focused
+M15.1/product tests initially passed 106/106; Ruff and strict mypy passed.
+
+The first exact-head review of `de7c5e7` returned `FAIL` with two P2 evidence gaps while confirming
+the runtime mapping and Python enforcement: nonempty locked clusters and Stage E record wrappers
+lacked direct serialized-prompt regressions, and this document incorrectly claimed the repair
+policy changed cache identity. The correction now proves a locked partial cluster is copied exactly
+while a new cluster repairs coverage, proves Stage E copies each wrapper's `item` value rather than
+the internal wrapper, and accurately limits the identity change to consent manifests. The expanded
+M15.1/product set passes 107/107; Ruff and strict mypy remain clean. Exact-head rereview is required
+before fresh preparation.
 
 This correction improves provider compliance without weakening safety, topology authority,
 privacy, or exact manifest controls. The lifecycle moved through `Semantic review` and returns to
