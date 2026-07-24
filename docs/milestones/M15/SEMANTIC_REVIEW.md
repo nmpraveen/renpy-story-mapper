@@ -142,9 +142,11 @@ invalidate the exhausted manifest and all older cache/consent paths. The impleme
 subordinate to M10/M11 authority, provider text remains transient, and independent review plus
 coordinator gates show no unresolved P0-P2.
 
-The semantic gate is `PASS`. Fresh zero-submit manifest
-`consent_0694aa9eeb81df6b0a0a36cb` is prepared, but a live Stage H call remains forbidden until the
-user separately approves both that exact manifest and exceeding four total Day 1 submissions.
+The semantic gate is `PASS`. The user explicitly approved exceeding four total Day 1 submissions
+with at most two additional Stage H calls. Expired v3 consent was not used. Fresh zero-submit
+manifest `consent_5181073c41933f07c2ccc887`, expiring `2026-07-24T14:25:53.093664Z`, is prepared
+with unchanged reviewed identities and zero provider construction/reservations/calls/tokens. A live
+Stage H call remains forbidden until the user separately approves that exact fresh manifest.
 Stage E remains unprepared and separately consent-gated.
 
 PASS

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-23 (M15.1 Blocked at corrected Stage H exact-consent gate)
+Updated: 2026-07-24 (M15.1 In progress at fresh corrected Stage H exact-consent gate)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,16 +13,17 @@ Updated: 2026-07-23 (M15.1 Blocked at corrected Stage H exact-consent gate)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: Blocked. The corrected Stage H exact-consent gate remains the blocker after a repeated
-  semantic `PASS`. Live Stage H proved that the prior shipped
+- Status: In progress. The native goal resumed on 2026-07-24 and the corrected Stage H
+  exact-consent gate remains the current step after a repeated semantic `PASS`. Live Stage H proved
+  that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
   speaker, source, and structural ownership context. Approved manifest
   `consent_c988d3b944a81c177303d32f` exhausted both calls without producing a hierarchy. The
   failing-first typed-authority and repair-bound correction is now integrated and independently
-  reviewed with no P0-P2. A new live call still requires a fresh exact manifest plus separate
-  explicit approval to exceed four total Day 1 submissions. The same approval blocker persisted
-  for three consecutive goal turns, so the native goal and lifecycle are recorded `Blocked` without
-  changing the semantic decision or completed provider-free evidence. Stage E remains unauthorized.
+  reviewed with no P0-P2. The user explicitly approved exceeding four total Day 1 submissions with
+  at most two additional Stage H calls. The expired v3 manifest was not used; a fresh exact v4
+  manifest is prepared provider-free and awaits its separate exact consent. Stage E remains
+  unauthorized.
   The prior
   `PR ready` result, product heads, screenshots, visible-order export, reviews, Release, and GitHub
   checks are historical rejected-baseline evidence only.
@@ -149,6 +150,21 @@ Updated: 2026-07-23 (M15.1 Blocked at corrected Stage H exact-consent gate)
   SHA-256 is `5F21BFF6D6B2B954521064F3A515C1ACFFC7CFB71D8740A23B9F121852D81789`.
   Transmission requires two separate explicit approvals: exceed four total Day 1 submissions and
   approve this exact manifest. Stage E remains unauthorized.
+- Fresh corrected Stage H v4 preparation: after the native goal resumed, the user explicitly
+  approved exceeding four total Day 1 submissions with at most two additional Stage H calls. The
+  expired v3 consent was not used. The unchanged accepted baseline was copied to isolated
+  `output/m15-1-whole-scope-acceptance-v4-20260724/msday1-working.rsmproj`; the shipped controller,
+  guarded by a provider factory that raises if constructed, prepared exact manifest
+  `consent_5181073c41933f07c2ccc887` for unchanged build
+  `whole_scope_build_c9f828ed30398aef1f2a2555`, expiring `2026-07-24T14:25:53.093664Z`.
+  Source, authority, correction, input, prompt, schema, provider, privacy, job, and resource-limit
+  identities exactly match the reviewed v3 preparation. Initial envelope is 644,547 bytes; durable
+  combined submissions, provider constructions, reservations, calls, tokens, logical records,
+  hierarchy, and publication remain zero/absent. Source/archive/accepted-baseline fingerprints are
+  unchanged. The working copy is 12,124,160 bytes at SHA-256
+  `2349fe6c6a9e7f0bace214b71990bb4db8bd78f480ba145dcc74aa707513aeee`; preparation artifact
+  SHA-256 is `5DD286EE293A67EC6567E99A2F439EDEEBB384ADFF0A18091C7B88F7B16A448C`.
+  Transmission remains forbidden until the user explicitly approves this exact fresh manifest.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

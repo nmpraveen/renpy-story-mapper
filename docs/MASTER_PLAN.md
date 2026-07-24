@@ -1,10 +1,10 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-23
+Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active semantic Story Map
-correction inside M15 and is blocked at the corrected Stage H exact-consent gate. Its prior
-PR-ready result was rejected, and on 2026-07-23 the lifecycle
+correction inside M15 and is in progress at the fresh corrected Stage H exact-consent gate. Its
+prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
 moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
 human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
 semantic `PASS`, but the live Stage H audit then proved that the request projection omitted the
@@ -1183,8 +1183,8 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Blocked at the corrected Stage H exact-consent gate after a repeated semantic `PASS`. The
-2026-07-21 adjacent-gap-only `PASS`
+Status: In progress at the fresh corrected Stage H exact-consent gate after a repeated semantic
+`PASS`. The 2026-07-21 adjacent-gap-only `PASS`
 remains revoked. The first whole-scope implementation also returned to `Revise` after live Stage H
 proved that its request sent IDs without the evidence and structural context required for semantic
 grouping. The corrected v2 input/response/prompt and v4 product identity now bind exact typed
@@ -1329,14 +1329,13 @@ and unresolved items.
 
 ## 11. Current next action
 
-M15.1 is the single active correction inside M15. Its current native goal is blocked at the
+M15.1 is the single active correction inside M15. Its native goal has resumed at the fresh
 corrected Stage H exact-consent gate and the
 semantic gate has a repeated `PASS` after the reviewed criterion-3 request correction. Fresh
 isolated zero-submit preparation produced exact Stage H manifest
-`consent_0694aa9eeb81df6b0a0a36cb`; it was presented together with a separate request for explicit
-approval to exceed four total Day 1 submissions. The same blocker persisted for three consecutive
-goal turns. If that manifest expires before approval, prepare and present a fresh zero-submit
-manifest. Only after both approvals may Stage H run; a
+`consent_5181073c41933f07c2ccc887`, expiring `2026-07-24T14:25:53.093664Z`. The user explicitly
+approved exceeding four total Day 1 submissions with at most two additional Stage H calls; only
+this fresh exact manifest consent remains pending. Only after that approval may Stage H run; a
 successful frozen hierarchy must then be reviewed blind before
 separately presenting Stage E for consent. After final blind/private review, obtain user approval
 of actual final-head screenshots and run one final Release/package/PR-head gate on existing open
