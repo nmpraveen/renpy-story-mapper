@@ -220,8 +220,9 @@ privacy, or exact manifest controls. The lifecycle moved through `Semantic revie
 The observable done condition remains unchanged. The corrected Stage H projection now supplies the
 semantic evidence and complete bounded structural context required by criterion 3, binds it to one
 typed authority seam before durable state or consent, preserves valid retained items exactly during
-repair, and proves every legal repair envelope remains below its sterile ceiling. Identity changes
-invalidate the exhausted manifest and all older cache/consent paths. The implementation remains
+repair, and proves every legal repair envelope remains below its sterile ceiling. The repair-policy
+identity change invalidates the exhausted manifest and all older consent paths; successful-result
+cache identity is unchanged. The implementation remains
 subordinate to M10/M11 authority and provider text remains transient. Predecessor correction head
 `a7997b1` and the uncertainty correction at `e33b773` passed their independent reviews with no
 P0-P2. The new lock-policy correction requires its own independent exact-head review.
