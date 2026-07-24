@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 01 accepted; Phase 02 handoff prepared; lifecycle `Revise`)
+Updated: 2026-07-24 (Phase 02 started; early semantic review pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,15 +13,26 @@ Updated: 2026-07-24 (Phase 01 accepted; Phase 02 handoff prepared; lifecycle `Re
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: In progress. The semantic decision remains `REVISE`. Stage H V12 completed as a failed historical attempt with
-  `hierarchy_not_representable` after two calls, 484,092 input tokens, 33,752 output tokens, and
-  618,327 ms. It produced no hierarchy, logical record, or publication and left protected inputs
-  unchanged. The user rejected Stage H/Stage E for future supported work and approved Story Map V2
-  Phase 01 calibration and vertical proof. Phase 01 and the local-model supplement are now complete;
-  the user declared the phase done and requested the next-phase prompt. Product implementation has
-  not started. The detailed Phase 02 handoff is
-  `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md` and must begin in a new coordinator
-  task with a fresh single active goal and early semantic review.
+- Status: `Semantic review`. The user started the approved Phase 02 coordinator handoff. The one
+  Phase 02 contract and simple V2 design are locked; broad product implementation is paused until
+  the separate visible Early Contract Reviewer returns `PASS`. Stage H V12 remains a failed
+  historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
+  33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
+  and left protected inputs unchanged. Phase 01 and its local-model supplement remain accepted
+  evidence for the new direction.
+- Phase 02 design: a bounded `src/renpy_story_mapper/story_map_v2/` package using coherent source
+  chunks, one compact mapper shape, Python-owned exact mechanics and stable target anchors,
+  chronological partial-capable assembly, and an opt-in refusal-only loopback fallback. The
+  supported path must not depend on Stage H/E, adjacent-gap voting, atom allocation, hierarchy
+  compilation, repair locks, or exact AI replay. See
+  [`PHASE_02_DESIGN.md`](milestones/M15/PHASE_02_DESIGN.md).
+- Phase 02 preflight: clean integration head
+  `f914908621efb6ccf1728e3028c6176f961e5a7e`; local branch 136 commits ahead of remote; PR #26
+  open/draft/unmerged at remote head `bc9a38c`; Phase 01 evidence package and recorded
+  source/archive fingerprints present.
+- Native Codex goal: active goal/task `019f9676-c357-7803-a891-f03782bbb8ee`, whose objective
+  exactly matches the Phase 02 done condition. It remains active through implementation,
+  integration, verification, private acceptance, final review, and the draft PR checkpoint.
 - Accepted Phase 01 outcome: the compact vertical whole-Day-1 overview, visible local choices, and
   selectable witness paths are the product direction. The frozen experiment remains exact at 20
   hosted submissions plus the separately authorized four local calls.

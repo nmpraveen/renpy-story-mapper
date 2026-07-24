@@ -3,13 +3,15 @@
 Last revised: 2026-07-24
 
 Status: M01 through M13 are complete and merged. M15.1 is the single active Story Map correction
-inside M15 and is in `Revise`. Stage H V12 failed with `hierarchy_not_representable` after two
+inside M15 and is in Phase 02 `Semantic review`. Stage H V12 failed with
+`hierarchy_not_representable` after two
 calls and produced no hierarchy, logical record, or publication. The user rejected Stage H/Stage E
 for future supported work and approved the Story Map V2 rewrite direction. Phase 01 calibration,
-the disposable vertical proof, and the local-model supplement are complete. The user declared Phase
-01 done and requested the Phase 02 prompt. Phase 02 implementation has not started; the same
-integration branch and open draft/unmerged PR #26 continue. The prior semantic `PASS` is revoked
-for future work.
+the disposable vertical proof, and the local-model supplement are complete. The user started the
+approved Phase 02 core rewrite, locked one simple V2 contract/design, and activated its exact
+native goal. Broad implementation waits for the separate early semantic reviewer. The same
+integration branch and open draft/unmerged PR #26 continue; the rejected Stage H/E `PASS` remains
+historical only.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra

@@ -1,61 +1,29 @@
-# M15.1 task ledger
-
-Original baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`
-
-Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
+# M15.1 Phase 02 task ledger
 
 Integration branch: `codex/m15-msday1-narrative-map`
 
-Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open and unmerged.
+Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), draft and
+unmerged.
 
-Lifecycle: `Revise`. Stage H V12 completed as a failed historical attempt with
-`hierarchy_not_representable`; the user rejected Stage H/Stage E for future supported work and
-approved the Story Map V2 direction. Phase 01 and its local-model supplement are complete. The user
-declared Phase 01 done and requested the Phase 02 prompt; implementation begins only in the new
-coordinator after its single early semantic review. The prior Stage H/E semantic `PASS` is revoked
-for future work.
+Lifecycle: `Semantic review`
 
-| Task | Owner | Dependencies | Status | Evidence / next gate |
+| Task | Owner | Dependencies | Affected area | Status / evidence |
 |---|---|---|---|---|
-| Phase 01 starting-state freeze | Phase 01 Coordinator | User-approved Phase 01 plan | Complete | Clean integration worktree at `8a2adfb`; PR #26 open/unmerged; V12 terminal failure verified; no old Stage H process; source/archive fingerprints recorded; zero provider submissions |
-| Phase 01 lifecycle reconciliation | Phase 01 Coordinator | Starting-state freeze and complete authority read | Complete | V12, `Revise`, Story Map V2 direction, Phase 01-only scope, revoked Stage H/Stage E `PASS`, and untouched native-goal state committed locally at `d5df3dd`; documentation only; not pushed |
-| Phase 01 calibration preparation | Visible task `019f95b2-8214-7592-8c56-c10e28a7de5d`; worktree `C:/Users/prave/.codex/worktrees/c5ba/Renpy` | Lifecycle reconciliation commit `d5df3dd` | Complete | Four nested packets at ~2.5k/5.3k/8.0k/10.7k, compact parser-derived mechanics, frozen P1/P2/P3 prompts/schemas, private evaluation sheet, blind/path tools; preparation manifest SHA-256 `78f08dce...fbbd`; verifier passed; zero provider/network/game/Git/PR actions; Sol/High requested and fast mode unavailable/unverified |
-| Phase 01 P1/P2/P3 matrix | Phase 01 Coordinator | Frozen preparation | Complete | Exactly 20 planned/total submissions: 12 P1, 3 P2, 3 P3, and Terra-only public-synthetic ~16k/~24k extensions; no semantic retry or transport replacement. All six P2/P3 cells and both extensions completed cleanly with tools disabled; extension path checks passed. P1 retained ten clean cells and quarantined two unauthorized local-read cells. |
-| Phase 01 blind matrix review | Visible task `019f95ce-57c2-7103-b416-8bb54592b79d`; worktree `C:/Users/prave/.codex/worktrees/2ed5/Renpy` | Frozen redacted P1 and role outputs at commit `d91fd3b` | Complete | P1 and role scores froze before coordinator unblinding; zero reviewer provider calls. P2 Terra scored 98.05, one point behind Sol and materially clearer than witness-free Luna. All P3 outputs were byte-identical correct passes and demonstrated no fix. Initial selection was Terra/Terra/no auditor; the final-review correction below supersedes only the mapper/context portion. |
-| Phase 01 disposable vertical prototype | Visible task `019f95e8-24cb-7be0-b19d-70339367330f`; worktree `C:/Users/prave/.codex/worktrees/c52f/Renpy` | Provisional Terra configuration at exact detached base `6a22c09` | Complete | Six-section local vertical overview, five selectable witness targets, 24/24 correspondence assertions, four 100%/200% captures, clean reflow, zero remote/provider calls, no tracked/product/PR action; manifest `786c7bb3...afa8` |
-| Phase 01 final independent review | Visible read-only task `019f95f8-f3f5-7081-a5be-e0aa00aee2ba`; worktree `C:/Users/prave/.codex/worktrees/edef/Renpy` | Frozen report/evidence at exact detached base `40c3bf0`; hardened lifecycle head `d2fe818` | Complete — PASS | First pass found one P1 and no P0/P2: exact non-story setup controls caused a false full-Luna path failure. Rereview caught a narrower arm-range equality hole in checker v2; provider-free checker v3 rejects 18 adversarial mutations while preserving the Luna/Terra/no-auditor, ~2.5k normal/~10.7k max Luna recommendation and Terra 16k/24k alternative evidence. The same Sol/High reviewer independently recomputed the hardened package and passed it with P0/P1/P2 all zero; fast mode unavailable/unverified; zero provider calls added. Phase 01 is ready for user review; screenshot/model approval remains pending. |
-| Phase 01 LM Studio four-context mapper supplement | Phase 01 Coordinator | User's explicit 2026-07-24 request; frozen Phase 01 P1 inputs and checker v3 | Complete | Exactly four localhost calls, no retry/fallback: all succeeded and were schema-valid. Checker v3 passed medium/large/full; small was blocked by four captions containing literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. No P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 01 acceptance audit and user transition | Current handoff coordinator plus three independent read-only audits | Frozen cloud/local/prototype evidence and live Git/PR inspection | Complete | Vertical concept accepted. Post-phase audit rejects ~2.5k as a proven Luna production cutoff and selects natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling for Phase 02. Cloud stays primary; local Qwen is opt-in/refusal-only; AI supplies story meaning while Python supplies exact mechanics. PR #26 converted to draft with a rewrite-in-progress body; rejected implementation stack remains intentionally unpushed. |
-| Phase 02 coordinator handoff | Current handoff coordinator | Accepted Phase 01 direction and fallback policy | Prepared — not started | `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`; one new visible coordinator must create the Phase 02 goal, run the early semantic gate, dispatch actual visible worktree tracks, integrate the simple V2 core, run bounded private acceptance, and stop before Phase 03. |
-| Original correction preflight | Coordinator | User instruction | Historical complete | Exact local/remote head and PR #26 verified; source/archive fingerprints matched; private paths remained ignored; unrelated untracked files preserved |
-| 2026-07-21 semantic gate and adjacent-only shared freeze | Coordinator | Original M15.1 plan | Historical complete | Prior `PASS` and shared head `c768b19`; superseded on 2026-07-23 because adjacent-gap votes were the primary AI task |
-| Historical Track A/B/C implementation and integration | Original visible tasks and reviewers | Adjacent-only shared freeze | Historical complete | Reviewed heads through integrated `4f6f740`; useful code remains auditable, but the architecture and evidence do not satisfy the revised production identity |
-| Historical provider/schema/recovery corrections | Coordinator plus independent reviewers | Original two-stage lifecycle | Historical complete | Compatibility resources and recovery protections remain useful; old boundary/summary identities are readable but stale |
-| Historical live boundary and summary stages | Coordinator | Historical exact consents | Historical complete | 94/94 boundaries, 161/161 summaries, 529 calls/reservations, and unchanged authority remain historical evidence only |
-| Historical blind Stage 1 | Separate visible reviewer | Historical live candidate | Changes requested | Exact `ac898b0` failed with one P0, three P1, and one P2 before oracle/mockup access; the original five findings were recovered verbatim from task history and retained outside Git |
-| Interrupted v4 safety recovery | Coordinator | Paused worktree | Complete | Base `1c66cc3`; 13 tracked plus two v4 files committed only from an explicit whitelist to local unpushed `codex/m15-1-interrupted-safety-20260723` at `9aa6b7c`; 455 insertions/143 deletions; prompt/schema SHA-256 matched; private scan found only a generic forbidden-reference phrase; protected untracked roots untouched. Supplied dirty hash did not match the current Git hash, so both values are retained as an audit discrepancy. |
-| Clean architectural worktree | Coordinator | Safety snapshot | Complete | Existing integration branch checked out clean at `1c66cc3` in `C:/Users/prave/.codex/worktrees/m15-1-revise-20260723/Renpy`; no replacement integration branch created |
-| Active native goal | Coordinator | User removed stale goal and explicitly requested a new one | Complete | Goal/task `019f8014-e8f9-7af3-a54f-8cc3a7e7149c` recreated on 2026-07-23 with the whole-scope Stage H/Stage E objective and remains active |
-| Whole-scope architecture contract reconciliation | Coordinator | Authority read and clean worktree | Complete | `Revise` transition committed at `b5d08f5`; adjacent-only rules replaced; repeated semantic review returned `PASS` on 2026-07-23 before product work |
-| Revised shared schemas/examples/failing-first freeze | Coordinator | Repeated semantic `PASS` | Complete | Versioned Stage H/Stage E contracts, provider-compatible schemas, sterile prompts, generalized choice-arm/scope-marker fixture, and seven deterministic failing-first seams frozen together. Shared/workflow checks: 19 passed; strict mypy and changed-scope Ruff passed; five JSON resources parsed; failing-first result: exactly seven expected failures and no collection error. |
-| Revised Track A - hierarchy compiler and deterministic validation | Visible task `019f8f26-df67-77a1-86f1-2000fe214e43` plus separate exact-head reviewer | Revised shared freeze | Complete | Final reviewed worker head `1b5175bd`; reviewer PASS with no P0-P2. Integrated commits `d9a3f4d` and `10e7df4`; no provider/API/UI/private oracle used. |
-| Revised Track B - batched provider lifecycle and persistence | Visible task `019f8f26-dec1-7032-9da5-127c20a6040f` plus separate exact-head reviewer | Revised shared freeze | Complete | Final reviewed Track B head `8cf32e9`; reviewer PASS. Integrated commits `cd4bdf4`, `5e714fe`, `d3c3e4e`, and `06dd49a`; no live call. The same bounded task later produced reviewed integration-boundary corrections. |
-| Revised Track C - compact projection and browser product | Visible task `019f8f26-dec1-7032-9da5-125cdf9a41da` plus fresh exact-head reviewer `019f8f4c-fc3e-71c3-8efa-36763ee8a065` | Revised shared freeze | Complete | Final reviewed head `34aef7c`; reviewer PASS with no P0-P2. Integrated commits `b54c6a2`, `2c2f986`, and `aa6b051`; real Chrome and private acceptance remain later gates. |
-| Revised integration and provider-free acceptance | Coordinator plus independent architecture reviewer `019f8f33-a13d-7d22-b0f3-d9ca407e60df` | Reviewed Tracks A/B/C | Complete | The original provider-free correction tree passed at `6a37903` and integrated through `4be510d`. After the exhausted live Stage H rejection exposed validator, legacy-migration, identity, and lost-CAS defects, bounded worker `019f8f26-dec1-7032-9da5-127c20a6040f` produced the additive chain `5fdc016`, `edf4388`, `2bd4f4d`, `c00738f`, `d32c6dd`, `7e20a27`. The same independent reviewer passed exact final head `7e20a27` with no P0-P2. The chain was cherry-picked as `83de774`, `5cd91ec`, `e6f8816`, `a4d0b63`, `d4b9d40`, `5d782ce`; integrated `src/` and `tests/` are identical to the reviewed tree. Coordinator rerun: 321 M15 passed/3 expected skips, 75 cross-web/API passed, 19 browser asset-contract tests passed, workflow contract passed, strict mypy 116 files, Ruff, dependency/JS/JSON, diff/privacy/frozen-resource checks, and 9 synthetic cases with zero provider calls/game execution. |
-| Stage H live hierarchy and blind membership review | Coordinator plus fresh independent reviewer | Historical Stage H/Stage E contract | Rejected historical path | V12 used two calls and failed closed with `hierarchy_not_representable`; 484,092 input tokens, 33,752 output tokens, 618,327 ms, no hierarchy/logical record/publication, unchanged protected inputs. The user rejected this architecture for future supported work. |
-| Historical Stage E live editorial batch | Coordinator | Rejected Stage H/Stage E architecture | Superseded | Do not execute; retained only as historical contract evidence |
-| Fresh final source-first then oracle review | Separate uncontaminated visible reviewer | Frozen revised candidate | Pending | Stage 1 must pass before oracle/mockups; same frozen candidate only for Stage 2 |
-| Real-browser and user visual acceptance | Coordinator | Reviewed final-head candidate | Pending | Required 100%/200% captures, layout/evidence assertions, and explicit user approval of actual screenshots |
-| Final Release and PR readiness | Coordinator | User visual approval | Pending | One final Windows Release/package gate, lifecycle/evidence reconciliation, private-content scan, push exact passing head, PR #26 checks; leave unmerged |
+| Phase 02 preflight | Coordinator | User starts Phase 02 handoff | Read-only repo/PR/evidence | Complete: clean required worktree at `f914908`; branch 136 commits ahead of remote; PR #26 open/draft/unmerged at `bc9a38c`; Phase 01 package and recorded source/archive fingerprints present |
+| Lock Phase 02 contract | Coordinator | Preflight | M15 lifecycle docs | Complete: one done condition, deliverables, 16 acceptance criteria, exclusions, evidence, provider ceilings, topology, and handoff rules recorded |
+| Freeze simple V2 design | Coordinator | Contract | `PHASE_02_DESIGN.md` | Complete: new package boundary, lower-level authority, compact records, overlay, partial behavior, provider states, seams, and forbidden Stage H/E dependencies recorded |
+| Create native Phase 02 goal | Coordinator | Locked contract | Goal service / project state | Complete: active goal/task `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the contract done condition |
+| Early contract review | Separate visible read-only reviewer | Locked contract and design | Docs and read-only source discovery | Pending; broad implementation paused until `PASS` |
+| Shared contracts and failing-first tests | Coordinator | Early reviewer `PASS` | `story_map_v2` seams/tests | Pending |
+| Track A implementation and exact-head review | Separate visible Track A coordinator | Shared freeze | Provider-neutral V2 core | Pending |
+| Track B implementation and exact-head review | Separate visible Track B coordinator | Shared freeze | Execution/fallback policy | Pending |
+| Integration and provider-free verification | Coordinator | Reviewed Track A/B commits | Integrated package/tests | Pending |
+| Private Day 1 acceptance | Coordinator | Provider-free integration pass | Outside-Git acceptance artifacts | Pending |
+| Final exact-head review | Separate visible read-only reviewer | Frozen integration head/artifacts | Full Phase 02 contract | Pending |
+| Lifecycle, commit, PR checkpoint | Coordinator | Final review pass | Docs/Git/PR #26 | Pending; PR must remain draft/unmerged |
 
-Historical note: the prior adjacent-gap and isolated-summary implementation, live records, reviews,
-and interrupted v4 attempt are preserved for audit and compatibility only. They are not current
-Stage H/Stage E acceptance proof and must not be relabeled or reused under the revised identity.
+Historical Stage H/E, adjacent-gap, atom/hierarchy, Phase 01, and prior review tasks remain readable
+in Git history and earlier M15 evidence. They are not active Phase 02 tasks or acceptance proof.
 
-All new visible tasks must use `gpt-5.6-sol` with High reasoning under current repository policy.
-The task surface has no fast-mode selector, so record fast mode unavailable/unverified. Every
-handoff must include exact base/head, branch/worktree, changed files, commands/results, assumptions,
-limitations, likely conflicts, reviewer findings, and remaining acceptance work.
-
-Required bounded worker and reviewer branches/worktrees are allowed. They must not replace
-`codex/m15-msday1-narrative-map`, create another PR, or create a new milestone.
+Every visible Phase 02 task uses `gpt-5.6-sol` with High reasoning. The task creation API has no
+fast-mode selector, so that setting is recorded unavailable/unverified.
