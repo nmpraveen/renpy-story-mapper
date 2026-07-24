@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
+Updated: 2026-07-24 (M15.1 In progress at exact Stage H v6 execution)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -202,6 +202,18 @@ Updated: 2026-07-24 (M15.1 In progress at fresh Stage H zero-submit preparation)
   bumps the exact repair-policy identity to v4. Expanded focused 107/107, Ruff, strict mypy, 1,499
   functional tests/five expected skips, and the isolated M06 benchmark pass. Repeated semantic and
   independent exact-head review are `PASS` at `1adfe2d`; fresh zero-submit preparation is next.
+- Fresh Stage H v6 preparation: the unchanged accepted baseline was copied to isolated
+  `output/m15-1-whole-scope-acceptance-v6-20260724/msday1-working.rsmproj`. Provider-forbidden
+  preparation produced exact manifest `consent_19347f6e215c44d3bb8ae6ca`, expiring
+  `2026-07-24T15:50:07.902526Z`, for build `whole_scope_build_f976f648d0f606eaa1b74c0b`. It binds
+  whole-scope repair policy v4, prompt hash
+  `2a6beda45fb9d17449d39e20d163e13708d4ae2f2215b748c50ab0800e3cd74e`, input hash
+  `8e3c4659a61ba0cd07ae57d90df41cb025974c4bc26b7a68e522cff6e149081a`, and unchanged source,
+  authority, schema, provider, privacy, and two-call/resource limits. The 644,718-byte initial
+  envelope fits; provider constructions/reservations/calls/tokens are zero; source/archive/accepted
+  baseline are unchanged. Preparation artifact SHA-256 is
+  `C3B568547C71C953E206A8E8C9F768E7ACF235CFFED27843B27369E98A4D360B`. Standing authorization
+  permits exact bounded execution without another routine pause.
 - Dispatch policy: every visible task uses `gpt-5.6-sol` with High reasoning. The creation surface
   has no fast-mode selector, so fast mode is unavailable/unverified. The live product acceptance
   profile remains separately locked to `gpt-5.6-sol`, Medium reasoning, fast mode off.

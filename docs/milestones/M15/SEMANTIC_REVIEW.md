@@ -231,7 +231,9 @@ P0-P2.
 
 The semantic gate is `PASS`. Manifest `consent_14655be0e14020371cdf104f` is exhausted and cannot be
 reused. Commit `b97fa47` changes the repair-policy identity, so another Stage H run requires a
-fresh zero-submit manifest audit. The user's standing
+fresh zero-submit manifest audit. That audit produced exact v6 manifest
+`consent_19347f6e215c44d3bb8ae6ca`, expiring `2026-07-24T15:50:07.902526Z`, with zero provider
+activity and unchanged protected fingerprints. The user's standing
 authorization permits the coordinator to execute that fresh bounded manifest without another
 routine approval pause once exact identity, unchanged fingerprints, privacy, and limits are
 verified and recorded. Stage E remains impossible until Stage H freezes and must still receive its

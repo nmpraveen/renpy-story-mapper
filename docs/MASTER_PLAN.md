@@ -1344,7 +1344,8 @@ exact-head rereview passed `e33b773` with no P0-P2. Fresh v5 manifest
 `semantic_reinterpretation`. Failing-first lock-policy correction `b97fa47` preserves Python's
 byte-for-byte enforcement while mapping whole-scope internal locks explicitly for the repair
 provider; repeated semantic review and exact-head review are `PASS`. Fresh zero-submit preparation
-is next.
+produced exact v6 manifest `consent_19347f6e215c44d3bb8ae6ca`; bounded execution is next under
+standing authorization.
 The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
 per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
 and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
