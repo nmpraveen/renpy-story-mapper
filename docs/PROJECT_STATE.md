@@ -39,8 +39,14 @@ Updated: 2026-07-24 (M15.1 Story Map V2 Phase 01; lifecycle `Revise`)
   `C:/Users/prave/.codex/worktrees/2ed5/Renpy` from exact commit `d91fd3b`, with model identities,
   provider metadata, path-check outcomes, and the private identity key withheld. It uses
   `gpt-5.6-sol` with High reasoning; the task API has no fast-mode selector, so that setting is
-  unavailable/unverified. Vertical Prototype and Final Phase 01 Reviewer remain undispatched
-  until their dependencies freeze.
+  unavailable/unverified. The same reviewer then froze the six-cell P2/P3 review with no blocker.
+  All three P3 models returned the same correct non-corrective `pass`; none demonstrated a fix.
+  The experiment closed at exactly 20 submissions with no retry/replacement. Terra passed cleanly
+  at the private full scope and at public-synthetic ~16k/~24k extensions; both extension path checks
+  passed. The provisional Phase 01 configuration is Terra High, fast off, for mapping and
+  synthesis, no default auditor, 16k normal raw-token target, and 24k public-synthetic validated
+  maximum with earlier branch-density splits. Vertical Prototype is ready to dispatch; Final
+  Phase 01 Reviewer remains undispatched until the prototype and report freeze.
 - Historical Stage H/E status: The native goal resumed on 2026-07-24. Live Stage H proved
   that the prior shipped
   request projected 732 unit IDs but zero of 741 available evidence records and omitted required
