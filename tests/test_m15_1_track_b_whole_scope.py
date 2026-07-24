@@ -602,8 +602,45 @@ def test_stage_h_sterile_fake_routes_the_exact_frozen_prompt_and_schema(tmp_path
     request = runner.requests[0]
     assert request.schema_path.name == "whole_scope_hierarchy_v2.schema.json"
     envelope = json.loads(request.stdin)
-    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v2"
+    assert envelope["version"] == "m15-whole-scope-hierarchy-prompt-v3"
     assert envelope["request"]["job"]["schema"] == M15_WHOLE_SCOPE_HIERARCHY_INPUT_SCHEMA
+
+
+def test_uncertain_membership_repair_is_explicit_and_never_silently_cleared(
+    tmp_path: Path,
+) -> None:
+    uncertain = _hierarchy_output()
+    uncertain["uncertain_unit_ids"] = ["unit-b"]
+    with Project.create(tmp_path / "uncertain-membership-repair.rsmproj") as project:
+        service = NarrativeMapService(NarrativeMapRepository(project))
+        preparation = _prepare_hierarchy(service)
+        consent = preparation.granted_consent()
+        service.confirm_whole_scope_consent(preparation, consent)
+        provider = _FakeProvider([uncertain, _hierarchy_output()])
+        report = service.start_whole_scope_hierarchy(
+            preparation,
+            provider=provider,
+            consent=consent,
+            authority_validator=_accept_synthetic_hierarchy_authority,
+        )
+
+    assert report.validated_job_ids == (preparation.job.job_id,)
+    assert report.provider_calls == 2
+    repair_request = provider.requests[1]
+    assert repair_request.repair_codes == ("uncertain_membership",)
+    assert repair_request.repair_semantics == {
+        "scope_id": preparation.scope_id,
+        "__whole_scope_beat_groups__": [],
+        "__whole_scope_clusters__": [],
+    }
+    prompt_name, _schema_name = _resource_names(preparation.job)
+    envelope = json.loads(_serialize_prompt(repair_request, prompt_name))
+    guidance = " ".join(envelope["request"]["repair_guidance"])
+    assert "uncertain_unit_ids must be []" in guidance
+    assert "Never clear uncertainty mechanically" in guidance
+    assert envelope["request"]["repair_guidance_version"] == (
+        "m15-whole-scope-targeted-repair-v3"
+    )
 
 
 def test_stage_h_worst_legal_retained_lock_keeps_repair_headroom() -> None:

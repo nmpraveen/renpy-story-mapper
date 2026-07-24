@@ -53,7 +53,7 @@ SEMANTIC_BOUNDARY_PROMPT_VERSION = "m15-semantic-boundary-prompt-v3"
 SEMANTIC_BOUNDARY_RESPONSE_SCHEMA = "m15-boundary-window-v3"
 SEMANTIC_SUMMARY_PROMPT_VERSION = "m15-semantic-summary-prompt-v3"
 SEMANTIC_SUMMARY_RESPONSE_SCHEMA = "m15-semantic-summary-v3"
-WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v2"
+WHOLE_SCOPE_HIERARCHY_PROMPT_VERSION = "m15-whole-scope-hierarchy-prompt-v3"
 WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_HIERARCHY_PROPOSAL_SCHEMA
 WHOLE_SCOPE_EDITORIAL_PROMPT_VERSION = "m15-whole-scope-editorial-prompt-v1"
 WHOLE_SCOPE_EDITORIAL_RESPONSE_SCHEMA = M15_WHOLE_SCOPE_EDITORIAL_BATCH_SCHEMA
@@ -61,7 +61,7 @@ MAXIMUM_INPUT_BYTES = 1_000_000
 MAXIMUM_OUTPUT_BYTES = 2_000_000
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
 SEMANTIC_REPAIR_POLICY_VERSION = "m15-semantic-repair-guidance-v2"
-WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v2"
+WHOLE_SCOPE_REPAIR_POLICY_VERSION = "m15-whole-scope-targeted-repair-v3"
 _SEMANTIC_REPAIR_GUIDANCE = {
     "invalid_title": (
         "The prior title failed strict validation. Replace only the title with a natural story "
@@ -74,6 +74,15 @@ _SEMANTIC_REPAIR_GUIDANCE = {
         "Replace only characters. Copy exact strings from request.job.known_characters, omit any "
         "name not in that list, include each supported name at most once, and return [] when none "
         "is supported. Never normalize or alias."
+    ),
+}
+_WHOLE_SCOPE_REPAIR_GUIDANCE = {
+    "uncertain_membership": (
+        "The prior Stage H proposal declared unresolved membership. An accepted proposal requires "
+        "uncertain_unit_ids must be [] only after you re-evaluate every listed uncertain unit "
+        "against the complete supplied evidence and hard constraints and can place it confidently. "
+        "Never clear uncertainty mechanically or guess. If any membership remains genuinely "
+        "uncertain, return those exact supplied unit IDs again so the run fails closed."
     ),
 }
 
@@ -816,7 +825,7 @@ def _resource_names(job: PreparedNarrativeJob) -> tuple[str, str]:
         ),
         ProviderJobKind.WHOLE_SCOPE_HIERARCHY: (
             WHOLE_SCOPE_HIERARCHY_RESPONSE_SCHEMA,
-            "whole_scope_hierarchy_v2.json",
+            "whole_scope_hierarchy_v3.json",
             "whole_scope_hierarchy_v2.schema.json",
         ),
         ProviderJobKind.WHOLE_SCOPE_EDITORIAL: (
@@ -919,6 +928,11 @@ def _serialize_prompt(request: NarrativeMapProviderRequest, resource_name: str) 
                 "Return the complete exact stage envelope. Preserve every valid locked item "
                 "byte-for-byte and repair only missing or invalid entries."
             ]
+            envelope["request"]["repair_guidance"].extend(
+                _WHOLE_SCOPE_REPAIR_GUIDANCE[code]
+                for code in request.repair_codes
+                if code in _WHOLE_SCOPE_REPAIR_GUIDANCE
+            )
     return json.dumps(
         envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
