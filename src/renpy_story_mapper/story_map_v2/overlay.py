@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
@@ -27,6 +27,7 @@ from renpy_story_mapper.story_map_v2.mapper_io import (
     MapperResponseValidationError,
     validate_mapper_response,
 )
+from renpy_story_mapper.story_map_v2.planner import mechanics_digest
 
 
 class MapperValidationError(ValueError):
@@ -57,13 +58,38 @@ def _chunk_authority(
         ) from exc
     if ordered_positions != tuple(sorted(ordered_positions)):
         raise MapperValidationError("chunk source spans are out of source order")
+    chunk_spans = tuple(scope.spans[index] for index in ordered_positions)
     choices = {choice.key: choice for choice in scope.choices}
     if len(chunk.choice_keys) != len(set(chunk.choice_keys)):
         raise MapperValidationError("chunk contains duplicate choice keys")
     for key in chunk.choice_keys:
         if key not in choices:
             raise MapperValidationError(f"chunk references unknown choice key {key!r}")
-    return tuple(scope.spans[index] for index in ordered_positions), choices, positions
+    expected_choice_keys = tuple(
+        dict.fromkeys(key for span in chunk_spans for key in span.choice_keys)
+    )
+    expected_raw_text = "".join(span.raw_text for span in chunk_spans)
+    expected_mechanics = mechanics_digest(scope, expected_choice_keys)
+    expected_hash = canonical_hash(
+        {
+            "source_identity": scope.source_identity,
+            "source_generation": scope.source_generation,
+            "canonical_hash": scope.canonical_hash,
+            "span_keys": list(chunk.span_keys),
+            "raw_text": expected_raw_text,
+            "mechanics": expected_mechanics,
+            "density": asdict(chunk.density),
+        }
+    )
+    if (
+        chunk.choice_keys != expected_choice_keys
+        or chunk.raw_text != expected_raw_text
+        or chunk.raw_tokens != sum(span.estimated_tokens for span in chunk_spans)
+        or chunk.mechanics != expected_mechanics
+        or chunk.packet_hash != expected_hash
+    ):
+        raise MapperValidationError("chunk packet does not match the current deterministic scope")
+    return chunk_spans, choices, positions
 
 
 def _arm(choice: ChoiceMechanic, order: int) -> ArmMechanic | None:

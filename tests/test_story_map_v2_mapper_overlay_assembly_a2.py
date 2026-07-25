@@ -189,7 +189,7 @@ def test_mapper_response_json_rejects_unknown_duplicate_type_range_and_missing_k
         deserialize_mapper_response(payload)
 
 
-def test_linear_overlay_retains_scope_text_exact_reachability_and_stable_title_free_anchor() -> None:
+def test_linear_overlay_retains_text_reachability_and_stable_title_free_anchor() -> None:
     fixture = scope((span("arrival", 1, 5, 100),))
     chunk = plan_chunks(fixture)[0]
     first_response = _event_response(title="Arrival")
@@ -208,11 +208,26 @@ def test_linear_overlay_retains_scope_text_exact_reachability_and_stable_title_f
         _event_response(title="A different generated title"),
         origin=ProviderOrigin.CLOUD,
     )
+    changed_fixture = replace(fixture, source_generation="generation-fixture-v2")
+    with pytest.raises(MapperValidationError, match="chunk packet"):
+        validate_and_overlay(
+            changed_fixture,
+            chunk,
+            first_response,
+            origin=ProviderOrigin.CLOUD,
+        )
+    changed_authority = validate_and_overlay(
+        changed_fixture,
+        plan_chunks(changed_fixture)[0],
+        first_response,
+        origin=ProviderOrigin.CLOUD,
+    )
 
     assert first.scope_title == "Opening"
     assert first.scope_overview == "The travelers arrive."
     assert first.events[0].reachability is Reachability.REACHABLE
     assert first.events[0].anchor.id == second.events[0].anchor.id
+    assert first.events[0].anchor.id != changed_authority.events[0].anchor.id
     assert first.events[0].anchor.canonical_node_id == "node:arrival"
     assert first.execution is execution
 
@@ -451,6 +466,32 @@ def test_overlay_rejects_invented_choice_arm_and_reverse_branch_order() -> None:
     for response in cases:
         with pytest.raises(MapperValidationError):
             validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+
+def test_setup_control_is_not_promoted_to_story_choice_or_branch_outcome() -> None:
+    setup = replace(choice(), story_choice=False)
+    fixture = scope(
+        (span("setup", 10, 10, 100, choice_keys=(CHOICE_KEY,)),),
+        choices=(setup,),
+    )
+    chunk = plan_chunks(fixture)[0]
+    event_only = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Setup", "A control is shown.", "scripts/day.rpy", 10, 10),),
+        (),
+    )
+
+    core = validate_and_overlay(fixture, chunk, event_only, origin=ProviderOrigin.CLOUD)
+
+    assert core.choices == ()
+    with pytest.raises(MapperValidationError, match="non-story"):
+        validate_and_overlay(
+            fixture,
+            chunk,
+            MapperResponse(None, None, (), (BranchSummary(CHOICE_KEY, 1, "Invented path"),)),
+            origin=ProviderOrigin.CLOUD,
+        )
 
 
 def test_mixed_span_reachability_becomes_honestly_unresolved_with_warning() -> None:
