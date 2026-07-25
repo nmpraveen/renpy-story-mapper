@@ -62,6 +62,10 @@ The chunk planner emits ordered `StoryChunk` records. A chunk contains contiguou
 its raw token estimate, density metrics, the exact canonical compact mechanics JSON transmitted
 with the raw story, mechanics keys present in the chunk, and a packet hash that binds both story
 and mechanics bytes.
+The zero-submit preview also retains a separately recomputable payload hash over the exact
+provider-facing `raw_text` and decoded mechanics object. Execution recomputes that hash before
+provider construction, so mutating either transmitted field while preserving a declared packet
+hash or chunk identity invalidates confirmation.
 It normally targets about 8,000 raw-story tokens, lowers the target near 5,000 for branch-heavy
 material, prefers source/scene boundaries, and treats a menu plus arms plus nearby proven rejoin as
 an indivisible cluster when that cluster fits under the 10,700-token ceiling. An indivisible

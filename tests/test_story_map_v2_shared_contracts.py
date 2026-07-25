@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,7 @@ def test_preview_confirmation_binds_mode_packets_and_settings() -> None:
         source_identity="source-v1",
         chunk_identities=(chunk.identity,),
         packet_hashes=(chunk.packet_hash,),
+        payload_hashes=(chunk.payload_hash,),
         transmitted_fields=("raw_text", "mechanics"),
         prompt_version="prompt-v1",
         mapper_schema="story-map-v2-mapper-v1",
@@ -71,6 +73,28 @@ def test_preview_confirmation_binds_mode_packets_and_settings() -> None:
     )
     assert preview.confirmation_hash != changed.confirmation_hash
     assert preview.confirmation_hash != changed_endpoint.confirmation_hash
+
+
+def test_preview_payload_hash_binds_exact_provider_facing_chunk_content() -> None:
+    chunk = StoryChunk(
+        index=1,
+        span_keys=("s1",),
+        choice_keys=(),
+        raw_text="1: original story",
+        mechanics='{"choices":[]}',
+        raw_tokens=3,
+        density=value_density(),
+        packet_hash="d" * 64,
+    )
+    changed_text = replace(chunk, raw_text="1: altered story")
+    changed_mechanics = replace(chunk, mechanics='{"choices":[{"key":"altered"}]}')
+
+    assert changed_text.packet_hash == chunk.packet_hash
+    assert changed_mechanics.packet_hash == chunk.packet_hash
+    assert changed_text.identity == chunk.identity
+    assert changed_mechanics.identity == chunk.identity
+    assert changed_text.payload_hash != chunk.payload_hash
+    assert changed_mechanics.payload_hash != chunk.payload_hash
 
 
 def test_default_limits_and_reachability_vocabulary_are_frozen() -> None:

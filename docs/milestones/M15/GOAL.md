@@ -29,8 +29,9 @@ draft PR #26 is updated to the passing Phase 02 checkpoint while remaining unmer
 - Small versioned mapper request/response contracts and generalized fixtures for linear, local
   rejoin, persistent split, nested menu, conditional arm, unresolved target, long scope, and
   refusal/fallback behavior.
-- A zero-submit run preview bound to source identity, packet bytes, transmitted fields, exact
-  Luna/High/fast-off identity, call ceilings, and the local-fallback choice.
+- A zero-submit run preview bound to source identity, packet identities, separately recomputable
+  provider-facing payload hashes, transmitted fields, exact Luna/High/fast-off identity, call
+  ceilings, and the local-fallback choice.
 - One private Day 1 acceptance core record plus a readable Markdown or minimal HTML developer
   preview, stored outside Git.
 - Provider-free test evidence, private acceptance accounting and immutability evidence,

@@ -235,6 +235,17 @@ class StoryChunk:
             }
         )
 
+    @property
+    def payload_hash(self) -> str:
+        """Bind provider-facing story content independently of its declared packet hash."""
+
+        return canonical_hash(
+            {
+                "raw_text": self.raw_text,
+                "mechanics": json.loads(self.mechanics),
+            }
+        )
+
 
 @dataclass(frozen=True)
 class MapperEvent:
@@ -358,6 +369,7 @@ class RunPreview:
     source_identity: str
     chunk_identities: tuple[str, ...]
     packet_hashes: tuple[str, ...]
+    payload_hashes: tuple[str, ...]
     transmitted_fields: tuple[str, ...]
     prompt_version: str
     mapper_schema: str
@@ -372,6 +384,14 @@ class RunPreview:
     privacy_exclusions: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        if not (
+            len(self.chunk_identities)
+            == len(self.packet_hashes)
+            == len(self.payload_hashes)
+        ):
+            raise ValueError(
+                "preview chunk identities, packet hashes, and payload hashes must align"
+            )
         if (self.local_model is None) != (self.local_endpoint is None):
             raise ValueError("local model and endpoint must be bound together")
         if self.local_model is not None:
