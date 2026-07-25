@@ -30,6 +30,11 @@ Updated: 2026-07-24 (Phase 02 blocked in verification after zero-submit transpor
   correction `8158764` fixes the first five issues; 290 combined tests and all static gates pass.
   Corrected preview `e50d659a...da5f0` is one coherent 9,390-token call with accepted four-choice/
   eight-arm mechanics, exact Luna/High/fast-off, and fallback disabled. It has not been executed.
+  Same-task rereview at exact clean head `da7ecfa` closed all five original provider-free findings
+  but returned `CHANGES_REQUIRED` with P0=0/P1=0/P2=1/P3=0: a schema-valid but overlay-invalid
+  response still loses execution provenance in the outside-Git runner before partial assembly. The
+  single permitted correction/rereview is exhausted; a second correction/rereview requires explicit
+  user authorization.
   No retry or second story run occurred. The milestone is `Blocked in Verification`; native goal
   `019f9676-c357-7803-a891-f03782bbb8ee` remains active and PR #26 remains draft/unmerged because
   provider-generated Day 1 coverage is unproven.

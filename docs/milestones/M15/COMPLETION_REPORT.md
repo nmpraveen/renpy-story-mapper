@@ -52,7 +52,17 @@ coherent 9,390-token packet, four choices/eight arms, accepted rejoin lines 165/
 accepted per-arm effect counts, exact Luna/High/fast-off, and disabled fallback. It is preview-only;
 no second live run was inferred or performed.
 
-The milestone remains blocked in `Verification` because the preserved historical partial core
+The same Final Integration Reviewer performed the single permitted rereview at exact clean head
+`da7ecfa`. It confirmed all five original provider-free findings closed, recomputed corrected
+confirmation/chunk/packet/payload identity, matched every private caption/rejoin/effect set to the
+frozen deterministic authority, and reran 290 relevant checks plus static/containment/fingerprint
+gates. Verdict remains `CHANGES_REQUIRED` with P0=0/P1=0/P2=1/P3=0: when a mapper response is
+schema-valid but fails `validate_and_overlay`, the outside-Git runner records a validation failure
+but supplies no failed `CoreChunk`, causing assembly to discard the exact execution provenance and
+emit an inaccurate no-result warning. The handoff's one bounded correction/rereview is exhausted;
+this second provider-free correction and another rereview require explicit user authorization.
+
+The milestone remains blocked in `Verification` because one provider-free P2 remains and the preserved historical partial core
 contains no provider-generated narrative events or outcomes and cannot prove recognizable Day 1
 coverage. The native goal stays active, PR #26 stays draft/unmerged, and no `PR ready` or completion
 claim is permitted.
