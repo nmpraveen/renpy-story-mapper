@@ -208,14 +208,15 @@ def test_refusal_fallback_reuses_byte_identical_confirmed_packet() -> None:
     )
     local = RecordingMapper(LOCAL_MAPPER_MODEL, [RESPONSE])
 
-    result = execute_chunks(
+    results = execute_chunks(
         preview,
         preview.confirmation_hash,
         chunks,
         cloud_factory=lambda: cloud,
         local_factory=lambda: local,
         cancelled=lambda: False,
-    )[0]
+    )
+    result = results[0]
 
     assert cloud.chunks[0] is local.chunks[0] is chunks[0]
     assert cloud.packets == local.packets == [serialize_chunk_packet(chunks[0])]
@@ -229,6 +230,12 @@ def test_refusal_fallback_reuses_byte_identical_confirmed_packet() -> None:
     assert result.sanitized_reason is None
     assert result.requested_model == result.resolved_model == LOCAL_MAPPER_MODEL
     assert result.reasoning is None and result.fast_mode is None
+    assert len(results.attempts) == 2
+    cloud_attempt, local_attempt = results.attempts
+    assert cloud_attempt.failure_kind is FailureKind.CONTENT_REFUSAL
+    assert cloud_attempt.requested_model == cloud_attempt.resolved_model == CLOUD_MAPPER_MODEL
+    assert cloud_attempt.input_tokens == 12 and cloud_attempt.output_tokens == 3
+    assert local_attempt is result
 
 
 def test_content_refusal_without_confirmed_fallback_remains_missing() -> None:
@@ -361,6 +368,43 @@ def test_local_only_constructs_zero_cloud_providers_and_submits_each_packet_once
     assert [result.origin for result in results] == [ProviderOrigin.LOCAL_ONLY] * 2
     assert all(result.requested_model == LOCAL_MAPPER_MODEL for result in results)
     assert all(result.resolved_model == LOCAL_MAPPER_MODEL for result in results)
+
+
+def test_local_only_cancellation_keeps_local_provenance_for_later_chunks() -> None:
+    preview, chunks = _preview(2, mode=ExecutionMode.LOCAL_ONLY)
+    local = RecordingMapper(
+        LOCAL_MAPPER_MODEL,
+        [ProviderFailure(FailureKind.CANCELLED, "cancelled"), RESPONSE],
+    )
+    results = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=None,
+        local_factory=lambda: local,
+        cancelled=lambda: False,
+    )
+    assert [result.status for result in results] == [ChunkStatus.CANCELLED] * 2
+    assert all(result.requested_model == LOCAL_MAPPER_MODEL for result in results)
+    assert all(result.resolved_model == LOCAL_MAPPER_MODEL for result in results)
+    assert all(result.reasoning is None and result.fast_mode is None for result in results)
+
+
+def test_local_content_refusal_remains_distinct() -> None:
+    preview, chunks = _preview(mode=ExecutionMode.LOCAL_ONLY)
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=None,
+        local_factory=lambda: RecordingMapper(
+            LOCAL_MAPPER_MODEL,
+            [ProviderFailure(FailureKind.CONTENT_REFUSAL, "private refusal")],
+        ),
+        cancelled=lambda: False,
+    )[0]
+    assert result.failure_kind is FailureKind.CONTENT_REFUSAL
+    assert result.sanitized_reason == "The local mapper declined this section."
 
 
 def test_completed_chunk_is_retained_and_boundary_cancellation_cancels_active_mapper() -> None:

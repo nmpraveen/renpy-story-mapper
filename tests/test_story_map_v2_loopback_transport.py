@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 from urllib.error import URLError
-from urllib.request import Request
+from urllib.request import ProxyHandler, Request
 
 import pytest
 
+from renpy_story_mapper.story_map_v2 import loopback_transport
 from renpy_story_mapper.story_map_v2.cloud_transport import serialize_chunk_packet
 from renpy_story_mapper.story_map_v2.contracts import (
     DensityMetrics,
@@ -108,6 +109,21 @@ def _completion(*, model: str = LOCAL_MAPPER_MODEL, content: object | None = Non
 def test_endpoint_is_strictly_plain_http_loopback_v1(endpoint: str) -> None:
     with pytest.raises(ValueError):
         LoopbackLmStudioTransport(endpoint=endpoint, opener=FakeOpener([]))
+
+
+def test_default_opener_explicitly_disables_environment_proxies(monkeypatch) -> None:
+    captured: list[object] = []
+
+    def fake_build_opener(*handlers):
+        captured.extend(handlers)
+        return FakeOpener([])
+
+    monkeypatch.setattr(loopback_transport, "build_opener", fake_build_opener)
+    LoopbackLmStudioTransport()
+
+    proxy_handlers = [handler for handler in captured if isinstance(handler, ProxyHandler)]
+    assert len(proxy_handlers) == 1
+    assert proxy_handlers[0].proxies == {}
 
 
 def test_exact_loaded_model_and_byte_identical_packet_are_verified_before_submission() -> None:

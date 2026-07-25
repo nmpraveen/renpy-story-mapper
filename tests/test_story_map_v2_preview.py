@@ -62,6 +62,7 @@ def test_preview_is_zero_submit_and_binds_ordered_packets_and_privacy() -> None:
     assert preview.source_identity == value.source_identity
     assert preview.chunk_identities == tuple(chunk.identity for chunk in chunks)
     assert preview.packet_hashes == tuple(chunk.packet_hash for chunk in chunks)
+    assert preview.payload_hashes == tuple(chunk.payload_hash for chunk in chunks)
     assert preview.transmitted_fields == ("raw_text", "mechanics")
     assert preview.prompt_version == MAPPER_PROMPT_VERSION
     assert preview.cloud_settings == ProviderSettings(CLOUD_MAPPER_MODEL, "high", False)
@@ -116,6 +117,41 @@ def test_confirmed_endpoint_mutation_fails_before_any_factory() -> None:
             changed,
             changed.confirmation_hash,
             chunks,
+            cloud_factory=lambda: constructed.append("cloud"),  # type: ignore[arg-type,return-value]
+            local_factory=lambda: constructed.append("local"),  # type: ignore[arg-type,return-value]
+            cancelled=lambda: False,
+        )
+    assert constructed == []
+
+
+@pytest.mark.parametrize(
+    "changed_chunk",
+    [
+        lambda chunk: replace(chunk, raw_text="changed provider-facing story"),
+        lambda chunk: replace(chunk, mechanics='{"choices":[{"key":"changed"}]}'),
+    ],
+)
+def test_provider_payload_mutation_with_unchanged_packet_hash_fails_before_factories(
+    changed_chunk,
+) -> None:
+    value, chunks = _fixture()
+    preview = prepare_preview(
+        value,
+        chunks,
+        mode=ExecutionMode.CLOUD_PRIMARY,
+        allow_local_fallback=False,
+    )
+    current_chunks = (changed_chunk(chunks[0]), chunks[1])
+    assert current_chunks[0].packet_hash == chunks[0].packet_hash
+    assert current_chunks[0].identity == chunks[0].identity
+    assert current_chunks[0].payload_hash != chunks[0].payload_hash
+    constructed: list[str] = []
+
+    with pytest.raises(ValueError, match="payload"):
+        execute_chunks(
+            preview,
+            preview.confirmation_hash,
+            current_chunks,
             cloud_factory=lambda: constructed.append("cloud"),  # type: ignore[arg-type,return-value]
             local_factory=lambda: constructed.append("local"),  # type: ignore[arg-type,return-value]
             cancelled=lambda: False,

@@ -15,7 +15,7 @@ from http.client import HTTPMessage
 from typing import IO, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from renpy_story_mapper.story_map_v2.contracts import (
     MAPPER_SCHEMA_VERSION,
@@ -87,7 +87,10 @@ class LoopbackLmStudioTransport:
             raise ValueError("The loopback timeout must be positive.")
         if maximum_response_bytes < 1:
             raise ValueError("The loopback response limit must be positive.")
-        self._opener: UrlOpener = opener or cast(UrlOpener, build_opener(_NoRedirect()))
+        self._opener: UrlOpener = opener or cast(
+            UrlOpener,
+            build_opener(ProxyHandler({}), _NoRedirect()),
+        )
         self._timeout_seconds = timeout_seconds
         self._maximum_response_bytes = maximum_response_bytes
         self._cancelled = threading.Event()
