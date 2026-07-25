@@ -1,12 +1,12 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 02 verification resumed by explicit user authorization)
+Updated: 2026-07-24 (Phase 02 blocked after the single authorized live run failed at transport)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Status: Verification.
+- Status: Blocked.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
@@ -40,10 +40,25 @@ Updated: 2026-07-24 (Phase 02 verification resumed by explicit user authorizatio
   relevant suite passes 294 tests plus all static gates: the reviewer's 291-test matrix plus three
   explicitly included `tests/test_m12_architecture.py` checks. Same-task exact-head rereview passed
   `211fd2e` with P0=0/P1=0/P2=0/P3=1 and granted clearance for exactly the one newly authorized
-  live run bound to confirmation `e50d659a...da5f0`. The milestone has resumed in
-  `Verification`; native goal `019f9676-c357-7803-a891-f03782bbb8ee` remains incomplete and PR #26
-  remains draft/unmerged because corrected-head review and provider-generated Day 1 coverage are
-  not yet proven.
+  live run bound to confirmation `e50d659a...da5f0`. The regenerated preview independently matched
+  one 9,390-token/755-span packet, exact four-choice/eight-arm mechanics, Luna/High/fast-off,
+  fallback disabled, protected fingerprints, and the authorized confirmation. That run was spent
+  exactly once and returned one conservatively counted cloud `transport` failure after 1,718 ms:
+  no response, resolved model, token usage, validation failure, retry, or fallback. The resulting
+  core is honestly partial at 0/1 completed chunks with the exact failed execution provenance,
+  correct deterministic mechanics, zero narrative events, and zero branch outcomes. Protected
+  source/archive/project fingerprints remain unchanged. Phase 02 is therefore `Blocked` at private
+  acceptance; native goal `019f9676-c357-7803-a891-f03782bbb8ee` remains incomplete and PR #26
+  remains draft/unmerged and unmodified. No further live attempt is authorized. Resumption requires
+  an explicit transport-policy/correction decision and separately previewed authorization.
+  Provider-free diagnostics show Codex CLI 0.144.0 logged in, bundled Luna/High support present,
+  and the sterile feature/config overrides parse; `codex doctor --json` exceeded the bounded local
+  diagnostic timeout. Because the live transport stores only a sanitized failure category, the
+  exact startup cause remains unproven.
+  The same Final Integration Reviewer audited the post-run package at exact product head `d4be3f9`
+  and returned `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, solely for absent provider-generated
+  coverage. Confirmation, one-attempt accounting, provenance, mechanics, containment, and
+  fingerprints passed independently; no new implementation defect was established.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded

@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 02 core rewrite
 
-Status: Verification (resumed by explicit user authorization)
+Status: Blocked (single authorized live run exhausted at sterile CLI transport)
 
 Authority: `docs/MASTER_PLAN.md` and
 `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.

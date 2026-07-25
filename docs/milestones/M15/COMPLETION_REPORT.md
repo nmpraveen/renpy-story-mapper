@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Verification (resumed by explicit user authorization)
+Status: Blocked (single authorized live run exhausted at sterile CLI transport)
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -79,11 +79,40 @@ explain the recorded 294 total. The reviewer also reproduced the runner's invali
 seven incoherent-input rejections, static isolation, containment, and unchanged protected
 fingerprints. No provider-free blocker remains.
 
-The milestone has resumed in `Verification`. The preserved historical partial core contains no
-provider-generated narrative events or outcomes and cannot prove recognizable Day 1 coverage.
-The native goal remains incomplete, PR #26 stays draft/unmerged, and no `PR ready` or completion
-claim is permitted before corrected-head review, the newly authorized live run, artifact audit,
-final review, and PR checkpoint pass.
+The coordinator regenerated the final zero-submit preview without submission and independently
+recomputed confirmation `e50d659a...da5f0`, one 9,390-token packet, 755 spans, four story choices,
+eight arms, exact Luna/High/fast-off identity, disabled fallback, and `raw_text` plus `mechanics`
+as the only transmitted fields. Source, archive, project-copy, and Phase 01 authority fingerprints
+matched before execution. The original failed-run files were copied into `historical-first-run`
+before the current artifact names were replaced.
+
+The single newly authorized live run was then spent exactly once. The ledger conservatively counts
+one cloud attempt. It returned a sanitized sterile-CLI `transport` failure after 1,718 ms with no
+response, resolved model, input/output usage, validation failure, retry, or local fallback. The
+current outside-Git core is therefore honestly `partial` with 0/1 completed chunks, zero narrative
+events, and zero branch outcomes. The missing chunk retains its exact cloud execution record and
+transport warning. Its deterministic mechanics still contain the exact four choices/eight arms,
+accepted rejoins 165/233/793/793, and accepted per-arm effects. Post-run source, archive, and
+project-copy fingerprints remain byte-for-byte identical to the preview.
+
+The milestone is now `Blocked` at private acceptance: provider-generated Day 1 narrative and
+event anchors do not exist, so recognizable coverage and final acceptance cannot be claimed. The
+native goal remains incomplete, PR #26 stays draft/unmerged and unmodified, and no `PR ready` or
+completion claim is permitted. No further live attempt is authorized; resumption requires an
+explicit transport-policy/correction decision followed by separately previewed authorization.
+Provider-free diagnosis confirms Codex CLI 0.144.0 is logged in, its bundled catalog includes
+`gpt-5.6-luna` with High reasoning support, and the transport's disabled feature/config overrides
+parse locally. `codex doctor --json` did not return before the bounded diagnostic timeout, while
+the transport intentionally retained only a sanitized failure category; the exact startup failure
+cause is therefore not proven and must not be guessed.
+The final lifecycle plus cloud-transport/provider-policy regression slice passes 40 tests on
+Python 3.12; `git diff --check` also passes.
+The same Final Integration Reviewer audited the post-run artifacts read-only at exact product head
+`d4be3f9` and returned `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0. Its sole finding is the known
+missing provider-generated coverage. It independently recomputed the confirmation, one-attempt
+accounting, execution provenance, exact mechanics, containment, and protected fingerprints and
+found no new implementation defect. The sanitized evidence cannot distinguish a transport-code,
+CLI-startup, configuration, or environment cause.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
 
