@@ -359,7 +359,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Area | Status | Evidence |
 |---|---|---|
 | Branch and PR identity | Complete | Clean local integration base `f914908`; branch intentionally 136 commits ahead of remote; PR #26 open/draft/unmerged at remote head `bc9a38c` |
-| Phase 01 private-input preflight | Historical complete | Recorded source and archive SHA-256, size, and timestamps matched; private materials remain outside Git. Fresh Phase 02 before/after proof is pending. |
+| Phase 01 private-input preflight | Complete for Phase 02 | Source, archive, project-copy, and Phase 01 authority bytes, SHA-256 values, and timestamps match the frozen preview and post-replay records; private materials remain outside Git with targeted local ignore protection. |
 | Phase 02 contract | Complete | `GOAL.md` defines the simple V2 core done condition, 16 criteria, exclusions, evidence, task topology, cloud/local ceilings, and one active goal |
 | Phase 02 semantic gate | PASS | Early review at `df75532` found four P1s/no P0-P2; one bounded correction; same-task rereview passed exact head `4d32f08` with no unresolved P0-P2 |
 | Phase 02 native goal | Active | Goal `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the current done condition and remains active through the draft PR checkpoint |
@@ -375,9 +375,9 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
 | Phase 02 core rewrite | Acceptance complete; final review/PR pending | Strict v2 preview/call and provider-free replay of the retained response produced a complete 1/1 cloud core: 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, unchanged protected fingerprints, and no retry/fallback/additional call. Overlay corrections through independently passed head `dee5714`; 160 V2 tests plus static gates pass. Final lifecycle exact-head/artifact review and draft unmerged PR #26 update remain. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
-| Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
-| Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
-| Final Release and exact PR head | Pending | Run once after visual approval; PR must remain open and unmerged |
+| Historical Stage H/E private comparison | Rejected historical path | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2. That candidate belongs to the rejected Stage H/E path and is not Phase 02 acceptance evidence or a current prerequisite. |
+| Real Chrome and user visual approval | Phase 03 exclusion | The compact browser, synthesis, screenshots, and visual approval belong to Phase 03 and are not required for the accepted Phase 02 developer core. |
+| Phase 02 final review and PR checkpoint | Pending | Run the exact-head product/artifact rereview after this lifecycle-only reconciliation, then push/update existing draft PR #26, verify checks, and keep it unmerged. |
 
 ## Rejected historical evidence
 
