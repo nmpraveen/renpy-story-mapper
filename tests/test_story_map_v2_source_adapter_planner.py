@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from renpy_story_mapper.canonical_graph import build_canonical_graph
-from renpy_story_mapper.canonical_graph_contract import CanonicalGraph, source_generation
+from renpy_story_mapper.canonical_graph_contract import (
+    CanonicalGraph,
+    ReachabilityStatus,
+    source_generation,
+)
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.graph import build_graph
 from renpy_story_mapper.parser import parse_script
@@ -61,6 +67,7 @@ def _span(
         raw_text=f"{start}: Story line {key}.\n",
         estimated_tokens=tokens,
         canonical_node_ids=(f"node:{key}",),
+        reachability=Reachability.REACHABLE,
         choice_keys=choice_keys,
         arm_lineage=lineage,
         natural_boundary_after=boundary,
@@ -233,6 +240,43 @@ def test_adapter_marks_dynamic_conditional_arm_honestly_unresolved() -> None:
     assert uncertain.condition == "compute_gate()"
     assert uncertain.reachability is Reachability.UNRESOLVED
     assert uncertain.unresolved_warnings
+
+
+def test_adapter_aggregates_exact_spine_reachability_and_retains_warnings() -> None:
+    graph = _authority(
+        '''label start:
+    "A spine moment."
+    return
+'''
+    )
+    baseline = adapt_story_scope(graph)
+    target = next(span for span in baseline.spans if span.start_line == 2)
+
+    def projected(status: ReachabilityStatus):
+        target_ids = set(target.canonical_node_ids)
+        changed = replace(
+            graph,
+            nodes=tuple(
+                replace(node, reachability=status) if node.id in target_ids else node
+                for node in graph.nodes
+            ),
+        )
+        return next(
+            span
+            for span in adapt_story_scope(changed).spans
+            if set(span.canonical_node_ids) == target_ids
+        )
+
+    reachable = projected(ReachabilityStatus.PROVEN_REACHABLE)
+    unreachable = projected(ReachabilityStatus.PROVEN_UNREACHABLE)
+    unresolved = projected(ReachabilityStatus.UNRESOLVED_DYNAMIC_BEHAVIOR)
+
+    assert reachable.reachability is Reachability.REACHABLE
+    assert reachable.unresolved_warnings == ()
+    assert unreachable.reachability is Reachability.UNREACHABLE
+    assert unreachable.unresolved_warnings == ()
+    assert unresolved.reachability is Reachability.UNRESOLVED
+    assert unresolved.unresolved_warnings
 
 
 def test_planner_long_linear_scope_prefers_last_boundary_below_target() -> None:

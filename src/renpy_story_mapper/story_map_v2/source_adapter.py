@@ -518,6 +518,7 @@ def _source_spans(
             choice.region.merge_node_id in node_ids for choice in choices
         )
         kinds = {item.node.kind for item in items}
+        reachability, unresolved_warnings = _span_reachability(items)
         natural = bool(boundary_nodes.intersection(node_ids)) or bool(
             kinds
             & {
@@ -545,6 +546,8 @@ def _source_spans(
                 raw_text=numbered,
                 estimated_tokens=_estimate_tokens(text),
                 canonical_node_ids=node_ids,
+                reachability=reachability,
+                unresolved_warnings=unresolved_warnings,
                 choice_keys=choice_keys,
                 arm_lineage=lineage,
                 natural_boundary_after=natural,
@@ -561,6 +564,30 @@ def _source_spans(
         )
     )
     return tuple(result)
+
+
+def _span_reachability(
+    items: Sequence[_LocatedNode],
+) -> tuple[Reachability, tuple[str, ...]]:
+    """Aggregate exact M10 statuses without turning mixed authority into certainty."""
+
+    statuses = tuple(item.node.reachability for item in items)
+    projected = tuple(_reachability(status) for status in statuses)
+    if projected and all(value is Reachability.REACHABLE for value in projected):
+        return Reachability.REACHABLE, ()
+    if projected and all(value is Reachability.UNREACHABLE for value in projected):
+        return Reachability.UNREACHABLE, ()
+    warnings = tuple(
+        dict.fromkeys(
+            f"canonical node {item.node.id} has unresolved reachability: "
+            f"{item.node.reachability.value}"
+            for item in items
+            if _reachability(item.node.reachability) is Reachability.UNRESOLVED
+        )
+    )
+    if not warnings:
+        warnings = ("covered canonical nodes have mixed reachability",)
+    return Reachability.UNRESOLVED, warnings
 
 
 def _span_lineage(
