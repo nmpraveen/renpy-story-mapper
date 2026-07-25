@@ -9,7 +9,7 @@ from enum import StrEnum
 
 STORY_MAP_V2_SCHEMA_VERSION = 1
 STORY_MAP_V2_SCHEMA = f"story-map-v2-core-v{STORY_MAP_V2_SCHEMA_VERSION}"
-MAPPER_SCHEMA_VERSION = "story-map-v2-mapper-v1"
+MAPPER_SCHEMA_VERSION = "story-map-v2-mapper-v2"
 PREVIEW_SCHEMA_VERSION = "story-map-v2-preview-v1"
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]

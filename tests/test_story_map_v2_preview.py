@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from renpy_story_mapper.story_map_v2.contracts import (
+    MAPPER_SCHEMA_VERSION,
     DensityMetrics,
     ExecutionMode,
     ProviderSettings,
@@ -65,6 +66,7 @@ def test_preview_is_zero_submit_and_binds_ordered_packets_and_privacy() -> None:
     assert preview.payload_hashes == tuple(chunk.payload_hash for chunk in chunks)
     assert preview.transmitted_fields == ("raw_text", "mechanics")
     assert preview.prompt_version == MAPPER_PROMPT_VERSION
+    assert preview.mapper_schema == MAPPER_SCHEMA_VERSION == "story-map-v2-mapper-v2"
     assert preview.cloud_settings == ProviderSettings(CLOUD_MAPPER_MODEL, "high", False)
     assert preview.maximum_hosted_planned == 6
     assert preview.maximum_hosted_absolute == 8
@@ -74,6 +76,30 @@ def test_preview_is_zero_submit_and_binds_ordered_packets_and_privacy() -> None:
     assert preview.allow_local_fallback is True
     assert preview.local_model == LOCAL_MAPPER_MODEL
     assert preview.local_endpoint == LOCAL_MAPPER_ENDPOINT
+
+
+def test_stale_mapper_schema_confirmation_fails_before_any_factory() -> None:
+    value, chunks = _fixture()
+    preview = prepare_preview(
+        value,
+        chunks,
+        mode=ExecutionMode.CLOUD_PRIMARY,
+        allow_local_fallback=False,
+    )
+    stale = replace(preview, mapper_schema="story-map-v2-mapper-v1")
+    constructed: list[str] = []
+
+    assert stale.confirmation_hash != preview.confirmation_hash
+    with pytest.raises(ValueError, match="mapper schema changed"):
+        execute_chunks(
+            stale,
+            stale.confirmation_hash,
+            chunks,
+            cloud_factory=lambda: constructed.append("cloud"),  # type: ignore[arg-type,return-value]
+            local_factory=lambda: constructed.append("local"),  # type: ignore[arg-type,return-value]
+            cancelled=lambda: False,
+        )
+    assert constructed == []
 
 
 def test_preview_binds_endpoint_in_confirmation_and_rejects_non_loopback() -> None:

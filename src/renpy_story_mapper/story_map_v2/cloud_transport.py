@@ -249,7 +249,7 @@ class CodexCliCloudTransport:
         maximum_output_bytes: int = DEFAULT_MAXIMUM_OUTPUT_BYTES,
     ) -> None:
         selected_schema = schema_path or (
-            Path(__file__).resolve().parent / "schemas" / "story_map_mapper_v1.schema.json"
+            Path(__file__).resolve().parent / "schemas" / "story_map_mapper_v2.schema.json"
         )
         selected_schema = selected_schema.resolve()
         if not selected_schema.is_file():

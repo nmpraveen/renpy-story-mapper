@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.story_map_v2 import cloud_transport
 from renpy_story_mapper.story_map_v2.cloud_transport import (
     CLOUD_FAST_MODE,
     CLOUD_REASONING,
@@ -16,6 +17,7 @@ from renpy_story_mapper.story_map_v2.cloud_transport import (
     build_sterile_command,
 )
 from renpy_story_mapper.story_map_v2.contracts import (
+    MAPPER_SCHEMA_VERSION,
     DensityMetrics,
     FailureKind,
     StoryChunk,
@@ -160,6 +162,7 @@ def test_transport_uses_stdin_temp_cwd_and_sanitized_accounting(tmp_path: Path) 
     assert not specs[0].cwd.exists()
     assert process.stdin is not None
     packet = json.loads(process.stdin)
+    assert packet["mapper_schema"] == MAPPER_SCHEMA_VERSION == "story-map-v2-mapper-v2"
     assert packet["raw_text"] == _chunk().raw_text
     assert packet["mechanics"] == json.loads(_chunk().mechanics)
     assert canonical_json(packet["mechanics"]) == _chunk().mechanics.encode()
@@ -175,12 +178,37 @@ def test_transport_uses_stdin_temp_cwd_and_sanitized_accounting(tmp_path: Path) 
     assert accounting.resolved_fast_mode is False
     assert accounting.response_hash == canonical_hash(asdict(response))
     assert "generalized story" not in repr(accounting)
+    schema_argument = specs[0].command[specs[0].command.index("--output-schema") + 1]
+    assert Path(schema_argument).name == "story_map_mapper_v2.schema.json"
 
 
 def test_schema_optional_scope_text_may_be_omitted(tmp_path: Path) -> None:
     payload = _response()
     del payload["scope_title"]
     del payload["scope_overview"]
+    process = FakeProcess(
+        _jsonl(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": json.dumps(payload)},
+            }
+        )
+    )
+    transport = CodexCliCloudTransport(
+        process_factory=lambda _spec: process,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+
+    response = transport.map_chunk(_chunk())
+
+    assert response.scope_title is None
+    assert response.scope_overview is None
+
+
+def test_schema_nullable_scope_text_is_accepted_explicitly(tmp_path: Path) -> None:
+    payload = _response()
+    payload["scope_title"] = None
+    payload["scope_overview"] = None
     process = FakeProcess(
         _jsonl(
             {
@@ -363,6 +391,34 @@ def test_nonzero_process_preserves_structured_failure_and_accounting(tmp_path: P
     assert transport.last_accounting.resolved_reasoning == CLOUD_REASONING
     assert transport.last_accounting.resolved_fast_mode is CLOUD_FAST_MODE
     assert "SECRET-STORY" not in repr(transport.last_accounting)
+
+
+def test_active_provider_schema_is_versioned_and_recursively_strict() -> None:
+    schema_path = (
+        Path(cloud_transport.__file__).resolve().parent
+        / "schemas"
+        / "story_map_mapper_v2.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    assert schema["$id"] == MAPPER_SCHEMA_VERSION == "story-map-v2-mapper-v2"
+
+    def assert_strict_objects(value: object, path: str = "$") -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "object":
+                properties = value.get("properties")
+                required = value.get("required")
+                assert isinstance(properties, dict), path
+                assert isinstance(required, list), path
+                assert set(required) == set(properties), path
+                assert value.get("additionalProperties") is False, path
+            for key, child in value.items():
+                assert_strict_objects(child, f"{path}/{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                assert_strict_objects(child, f"{path}/{index}")
+
+    assert_strict_objects(schema)
 
 
 @pytest.mark.parametrize(

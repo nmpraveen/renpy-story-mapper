@@ -10,6 +10,7 @@ import pytest
 from renpy_story_mapper.story_map_v2 import loopback_transport
 from renpy_story_mapper.story_map_v2.cloud_transport import serialize_chunk_packet
 from renpy_story_mapper.story_map_v2.contracts import (
+    MAPPER_SCHEMA_VERSION,
     DensityMetrics,
     FailureKind,
     StoryChunk,
@@ -143,6 +144,9 @@ def test_exact_loaded_model_and_byte_identical_packet_are_verified_before_submis
     submitted = json.loads(opener.requests[1].data or b"")
     packet = submitted["messages"][0]["content"].encode("utf-8")
     assert packet == serialize_chunk_packet(chunk)
+    assert json.loads(packet)["mapper_schema"] == MAPPER_SCHEMA_VERSION == (
+        "story-map-v2-mapper-v2"
+    )
     assert submitted["model"] == LOCAL_MAPPER_MODEL
     assert transport.input_hash == hashlib.sha256(packet).hexdigest()
     assert transport.input_tokens == 91 and transport.output_tokens == 22
