@@ -145,8 +145,15 @@ def test_nested_branch_event_anchor_comes_only_from_python_lineage() -> None:
 
 
 def test_partial_assembly_preserves_complete_chunk_and_missing_mechanics() -> None:
-    fixture = scope((span("a", 1, 9, 100), span("b", 10, 19, 100)))
+    fixture = scope(
+        (
+            span("a", 1, 9, 6_000, boundary=True),
+            span("b", 10, 19, 6_000, boundary=True),
+        )
+    )
     planned = plan_chunks(fixture)
+    assert len(planned) == 2
+    assert planned[0].identity != planned[-1].identity
     chunks = (
         CoreChunk(planned[0].identity, ChunkStatus.COMPLETE, ProviderOrigin.CLOUD, (), ()),
         CoreChunk(planned[-1].identity, ChunkStatus.MISSING, ProviderOrigin.MISSING, (), ()),

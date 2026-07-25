@@ -142,9 +142,10 @@ cancel requested --> cancel active provider, retain completed chunks, submit no 
 
 The preview binds source, packet plan and hashes, prompt/schema, exact
 `gpt-5.6-luna`/High/fast-off settings, call ceilings, transmitted field names, privacy exclusions,
-and execution mode/fallback choice. Any change requires a new preview and confirmation. Providers
+execution mode/fallback choice, and—when either local mode is enabled—the explicit exact loopback
+endpoint/model pair. Any change requires a new preview and confirmation. Providers
 are constructed only after confirmation. A `local_only` preview binds the same source, packets,
-prompt/schema, transmitted fields, privacy exclusions, exact loopback endpoint/model, and local
+prompt/schema, transmitted fields, privacy exclusions, exact loopback endpoint/model fields, and local
 call ceiling; it records zero planned/actual hosted submissions and never constructs the cloud
 provider. Both local origins use the same packet bytes and record elapsed time, response hash,
 usage when available, status, and sanitized reason.

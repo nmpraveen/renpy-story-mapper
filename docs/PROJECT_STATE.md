@@ -32,8 +32,10 @@ Updated: 2026-07-24 (Phase 02 implementation tracks active; reachability seam co
   deterministic anchors. A final provenance audit adds requested/resolved model, reasoning,
   fast-mode, usage, elapsed, response-hash, and sanitized failure fields to the execution record
   retained by each core chunk. Nine shared contract tests plus Ruff, strict mypy, and whitespace
-  pass. Tracks resume from these corrected seams without guessing authority or discarding required
-  input, output, or provenance.
+  pass. Track B then identified that the preview bound the local model but not its configurable
+  loopback endpoint; the final narrow correction adds that explicit field to the confirmation hash.
+  Tracks resume from these corrected seams without guessing authority or discarding required input,
+  output, provenance, or destination identity.
   Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication

@@ -59,13 +59,18 @@ def test_preview_confirmation_binds_mode_packets_and_settings() -> None:
         cloud_settings=ProviderSettings(),
         allow_local_fallback=True,
         local_model="local-model",
+        local_endpoint="http://127.0.0.1:1234/v1",
         maximum_hosted_planned=6,
         maximum_hosted_absolute=8,
         maximum_local=1,
         privacy_exclusions=("secrets", "evaluation material"),
     )
     changed = RunPreview(**{**preview.__dict__, "allow_local_fallback": False})
+    changed_endpoint = RunPreview(
+        **{**preview.__dict__, "local_endpoint": "http://127.0.0.1:5678/v1"}
+    )
     assert preview.confirmation_hash != changed.confirmation_hash
+    assert preview.confirmation_hash != changed_endpoint.confirmation_hash
 
 
 def test_default_limits_and_reachability_vocabulary_are_frozen() -> None:

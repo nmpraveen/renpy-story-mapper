@@ -365,10 +365,19 @@ class RunPreview:
     cloud_settings: ProviderSettings | None
     allow_local_fallback: bool
     local_model: str | None
+    local_endpoint: str | None
     maximum_hosted_planned: int
     maximum_hosted_absolute: int
     maximum_local: int
     privacy_exclusions: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (self.local_model is None) != (self.local_endpoint is None):
+            raise ValueError("local model and endpoint must be bound together")
+        if self.local_model is not None:
+            _text(self.local_model, "local model")
+        if self.local_endpoint is not None:
+            _text(self.local_endpoint, "local endpoint")
 
     @property
     def confirmation_hash(self) -> str:

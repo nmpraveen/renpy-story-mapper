@@ -54,6 +54,16 @@ The execution record now carries model, reasoning, and fast-mode identity and is
 on its core chunk alongside timing, hashes, usage, and sanitized failure state. Nine shared contract
 tests and the same static gates pass.
 
+Track B's pre-review seam audit found that the local model was confirmation-bound but the
+configurable loopback endpoint was not. The coordinator selected an explicit `RunPreview`
+`local_endpoint` field rather than a hidden fixed-port rule; the model/endpoint pair is now part of
+the confirmation hash for both refusal fallback and deliberate local-only previews.
+
+A2's strict assembly audit also exposed a frozen-test defect: two tiny spans correctly planned as
+one chunk, after which the test supplied the same chunk identity twice. The coordinator corrected
+only that generalized fixture to use two 6,000-token natural-boundary spans and assert distinct
+identities. Duplicate chunk identities remain rejected.
+
 Provider-neutral product implementation is in progress. No private provider call, push, or PR
 mutation has occurred in Phase 02 yet.
 
