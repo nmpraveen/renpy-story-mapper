@@ -16,15 +16,23 @@ Updated: 2026-07-24 (Phase 02 blocked in verification after zero-submit transpor
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
 - Current Phase 02 verification checkpoint: Track A reviewed exact head `319d13e9` and Track B
   reviewed exact head `ca9cd4a`; both returned `PASS` with no unresolved P0-P2. The integrated
-  implementation and generalized private-preflight correction are frozen at `cbbe3ef`; 287
+  implementation and generalized private-preflight correction were frozen at `cbbe3ef`; 287
   Story Map V2/relevant M10-M12/workflow tests plus Ruff, strict mypy, import isolation, and
   whitespace pass. Zero-submit confirmation `2d6b67f...72fa98` bound the unchanged private
   identities to two source-ordered chunks (9,376-token maximum), exact Luna/High/fast-off,
   fallback disabled, and four story choices/eight arms. The one authorized execution returned two
   sanitized sterile-CLI transport failures before any hosted submission (`hosted_attempts=0`) and
-  preserved an honest 0/2 partial core. No retry or second story run occurred. The milestone is
-  `Blocked in Verification`; native goal `019f9676-c357-7803-a891-f03782bbb8ee` remains active and
-  PR #26 remains draft/unmerged because provider-generated Day 1 coverage is unproven.
+  preserved a 0/2 partial core. Final reviewer task `019f96fb-96eb-7120-b121-7815a2584a9c`
+  returned `CHANGES_REQUIRED` at `1121e15` with P0=0/P1=3/P2=3/P3=0: the core had wrong physical
+  rejoins and inherited nested effects, cloud attempt accounting undercounted both invocations,
+  failed provenance was dropped, the plan contained a 14-token first packet, the exact-head
+  lifecycle test failed, and provider-generated coverage was absent. The one bounded provider-free
+  correction `8158764` fixes the first five issues; 290 combined tests and all static gates pass.
+  Corrected preview `e50d659a...da5f0` is one coherent 9,390-token call with accepted four-choice/
+  eight-arm mechanics, exact Luna/High/fast-off, and fallback disabled. It has not been executed.
+  No retry or second story run occurred. The milestone is `Blocked in Verification`; native goal
+  `019f9676-c357-7803-a891-f03782bbb8ee` remains active and PR #26 remains draft/unmerged because
+  provider-generated Day 1 coverage is unproven.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded

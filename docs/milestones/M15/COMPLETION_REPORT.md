@@ -32,11 +32,30 @@ any hosted submission: the ledger records two missing results, `hosted_attempts=
 no resolved model, and no validation failure. Per contract, there was no semantic retry, local
 fallback, or second story run.
 
-The outside-Git `story-map-v2-core.json` and Markdown preview are therefore honestly `partial` with
-0/2 completed chunks. They preserve the exact four story choices, eight arms, effects, and known
-rejoins, but contain no provider-generated narrative events or outcomes and cannot prove the
-required recognizable Day 1 coverage. The milestone remains blocked in `Verification`; the native
-goal stays active, PR #26 stays draft/unmerged, and no `PR ready` or completion claim is permitted.
+The outside-Git `story-map-v2-core.json` and Markdown preview are therefore `partial` with 0/2
+completed chunks. Final Integration Reviewer task `019f96fb-96eb-7120-b121-7815a2584a9c`
+reviewed exact head `1121e15` and returned `CHANGES_REQUIRED`: P0=0, P1=3, P2=3, P3=0. Besides
+the acknowledged missing provider result, it proved the artifact used synthetic menu evidence for
+rejoin lines, copied nested-choice effects into a parent arm, undercounted both launched cloud
+attempts as zero, dropped failed execution provenance from the core, split a 14-token setup packet,
+and lacked the lifecycle status syntax required by an exact-head workflow test.
+
+The single bounded provider-free correction `8158764` resolves those five implementation/evidence
+findings. Proven synthetic merge nodes now follow reachable merge chains to their physical
+continuation; nested-choice physical ownership excludes child-only effects from parent mechanics;
+attempted cloud/local origins survive failures and cancellation; callers can retain failed
+execution records in partial chunks; and boundaries below half the applicable target no longer
+split a tiny prelude from one fitting corridor. The corrected combined suite passes 290 tests in
+2.36 seconds plus Ruff, strict mypy, import isolation, and whitespace. Corrected zero-submit
+confirmation `e50d659a712a180569fd15087a451ca80a285a26a1e5a5483570b1ccc74da5f0` binds one
+coherent 9,390-token packet, four choices/eight arms, accepted rejoin lines 165/233/793/793,
+accepted per-arm effect counts, exact Luna/High/fast-off, and disabled fallback. It is preview-only;
+no second live run was inferred or performed.
+
+The milestone remains blocked in `Verification` because the preserved historical partial core
+contains no provider-generated narrative events or outcomes and cannot prove recognizable Day 1
+coverage. The native goal stays active, PR #26 stays draft/unmerged, and no `PR ready` or completion
+claim is permitted.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
 
@@ -183,7 +202,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Blocked in Verification | Track A/B exact-head reviews passed; integrated head `cbbe3ef` passes 287 focused/relevant tests plus static gates. Zero-submit preview passed with exact 2-call plan and 4-choice/8-arm mechanics, but the one authorized execution made zero hosted submissions after two sterile CLI transport failures and preserved an honest 0/2 partial core. No retry occurred; provider-generated coverage and final review/PR readiness remain incomplete. |
+| Phase 02 core rewrite | Blocked in Verification | Track A/B exact-head reviews passed. Final review at `1121e15` requested changes with P0=0/P1=3/P2=3/P3=0; bounded provider-free correction `8158764` passes 290 focused/relevant tests plus static gates and produces corrected one-call preview `e50d659a...da5f0`. The one authorized execution remains a historical 0/2 transport-failure artifact whose old accounting could not prove submission state; no retry occurred. Provider-generated coverage, corrected-head rereview, and PR readiness remain incomplete. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
