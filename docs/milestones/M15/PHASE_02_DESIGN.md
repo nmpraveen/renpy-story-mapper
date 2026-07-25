@@ -97,17 +97,22 @@ hash, usage when reported, elapsed time, failure classification, and sanitized t
 
 ## Validation and mechanics overlay
 
-Python validates that event ranges are ordered, nonempty, inside the chunk, and source-ordered; a
-branch summary must reference a real deterministic choice key and arm ordinal. Invalid mapper text
-does not alter authority.
+Python validates that event ranges are nonempty, bounded by the chunk, and source-ordered. Because
+the compact packet intentionally omits technical Ren'Py lines, an approximate range may bridge
+those omitted lines; Python intersects it with retained story spans and records that normalization.
+When two otherwise ordered rough ranges overlap, their boundary is deterministically partitioned
+at the later event's start. Equal or reverse starts remain invalid. A branch summary must reference
+a real deterministic choice key and arm ordinal. Summaries for deterministic setup/hint controls
+are ignored rather than promoted to story outcomes. Invalid mapper text does not alter authority.
 
 Before accepting an event, Python projects its source range to the current ordered source spans and
 canonical node IDs, then derives each story-facing node's complete outer-to-inner arm lineage from
 M10/M11 choice ownership. An event is branch-specific only when every covered story-facing node
-has one identical nonempty lineage. A range that crosses sibling arms, mixes a branch arm with its
-post-rejoin continuation, or otherwise contains incompatible lineages is rejected as an ambiguous
-AI event; exact mechanics remain in the partial core. A shared/spine event may cover only nodes
-with no arm lineage or one Python-proven shared continuation. The mapper never supplies or chooses
+has one identical nonempty lineage. A rough event that describes a whole choice cluster may cover
+sibling arms or an arm and its post-rejoin continuation; Python anchors that event only at the
+longest common proven lineage prefix, marks reachability unresolved, and records the mixed-lineage
+normalization. It never guesses one sibling's lineage or destination. A shared/spine event uses an
+empty common prefix or one Python-proven shared continuation. The mapper never supplies or chooses
 lineage. Per-arm branch summaries obtain their lineage exclusively from the referenced deterministic
 choice key and arm ordinal, including any Python-owned nested parent lineage.
 

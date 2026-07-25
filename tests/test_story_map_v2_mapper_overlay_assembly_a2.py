@@ -290,15 +290,44 @@ def test_overlay_rejects_mismatched_execution_provenance(
         )
 
 
-def test_overlay_rejects_unknown_path_range_gap_and_out_of_order_events() -> None:
+def test_overlay_accepts_omitted_technical_gaps_but_rejects_unknown_and_out_of_order() -> None:
     fixture = scope((span("first", 1, 5, 100), span("second", 10, 15, 100)))
     chunk = plan_chunks(fixture)[0]
+    gap_response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Gap", "Crosses omitted lines", "scripts/day.rpy", 1, 10),),
+        (),
+    )
+
+    core = validate_and_overlay(
+        fixture, chunk, gap_response, origin=ProviderOrigin.CLOUD
+    )
+
+    assert core.events[0].start_line == 1
+    assert core.events[0].end_line == 10
+    assert any("omitted technical" in warning for warning in core.events[0].warnings)
+
+    clipped = validate_and_overlay(
+        fixture,
+        chunk,
+        MapperResponse(
+            None,
+            None,
+            (MapperEvent("Clip", "Ends on technical lines", "scripts/day.rpy", 1, 9),),
+            (),
+        ),
+        origin=ProviderOrigin.CLOUD,
+    )
+    assert (clipped.events[0].start_line, clipped.events[0].end_line) == (1, 5)
+    assert any("omitted technical" in warning for warning in clipped.events[0].warnings)
+
     cases = (
         MapperResponse(None, None, (MapperEvent("X", "X", "other.rpy", 1, 1),), ()),
         MapperResponse(
             None,
             None,
-            (MapperEvent("Gap", "Crosses omitted lines", "scripts/day.rpy", 1, 10),),
+            (MapperEvent("Outside", "Outside", "scripts/day.rpy", 1, 16),),
             (),
         ),
         MapperResponse(
@@ -317,7 +346,7 @@ def test_overlay_rejects_unknown_path_range_gap_and_out_of_order_events() -> Non
             validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
 
 
-def test_overlay_rejects_cross_sibling_and_arm_to_post_rejoin_ranges() -> None:
+def test_overlay_maps_mixed_lineage_clusters_to_common_proven_prefix() -> None:
     fixture = _choice_scope()
     chunk = plan_chunks(fixture)[0]
     cross_siblings = MapperResponse(
@@ -326,8 +355,17 @@ def test_overlay_rejects_cross_sibling_and_arm_to_post_rejoin_ranges() -> None:
         (MapperEvent("Both", "Both routes", "scripts/day.rpy", 11, 29),),
         (),
     )
-    with pytest.raises(MapperValidationError, match="lineage"):
-        validate_and_overlay(fixture, chunk, cross_siblings, origin=ProviderOrigin.CLOUD)
+    sibling_core = validate_and_overlay(
+        fixture, chunk, cross_siblings, origin=ProviderOrigin.CLOUD
+    )
+
+    assert sibling_core.events[0].anchor.arm_lineage == ()
+    assert sibling_core.events[0].anchor.destination_id is None
+    assert sibling_core.events[0].reachability is Reachability.UNRESOLVED
+    assert any(
+        "multiple deterministic lineages" in warning
+        for warning in sibling_core.events[0].warnings
+    )
 
     base = choice()
     arms = (
@@ -357,8 +395,53 @@ def test_overlay_rejects_cross_sibling_and_arm_to_post_rejoin_ranges() -> None:
         (MapperEvent("Ambiguous", "Arm and rejoin", "scripts/day.rpy", 11, 35),),
         (),
     )
-    with pytest.raises(MapperValidationError, match="lineage"):
-        validate_and_overlay(local_scope, local_chunk, arm_to_rejoin, origin=ProviderOrigin.CLOUD)
+    rejoin_core = validate_and_overlay(
+        local_scope, local_chunk, arm_to_rejoin, origin=ProviderOrigin.CLOUD
+    )
+
+    assert rejoin_core.events[0].anchor.arm_lineage == ()
+    assert rejoin_core.events[0].reachability is Reachability.UNRESOLVED
+    assert any(
+        "multiple deterministic lineages" in warning
+        for warning in rejoin_core.events[0].warnings
+    )
+
+
+def test_overlay_partitions_ordered_overlapping_rough_ranges_at_next_event() -> None:
+    fixture = scope((span("scene", 1, 20, 100),))
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (
+            MapperEvent("Broad", "First rough event.", "scripts/day.rpy", 1, 15),
+            MapperEvent("Nested", "Second rough event.", "scripts/day.rpy", 10, 20),
+        ),
+        (),
+    )
+
+    core = validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+    assert [(event.start_line, event.end_line) for event in core.events] == [(1, 9), (10, 20)]
+    assert any("partitioned" in warning for warning in core.events[0].warnings)
+
+
+def test_overlay_rejects_duplicate_or_reverse_rough_event_starts() -> None:
+    fixture = scope((span("scene", 1, 20, 100),))
+    chunk = plan_chunks(fixture)[0]
+
+    for starts in ((1, 1), (10, 5)):
+        response = MapperResponse(
+            None,
+            None,
+            tuple(
+                MapperEvent(str(index), "Event.", "scripts/day.rpy", start, 20)
+                for index, start in enumerate(starts)
+            ),
+            (),
+        )
+        with pytest.raises(MapperValidationError, match="source order"):
+            validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
 
 
 def test_proven_shared_rejoin_is_a_spine_event_with_python_span_status() -> None:
@@ -685,13 +768,16 @@ def test_setup_control_is_not_promoted_to_story_choice_or_branch_outcome() -> No
     core = validate_and_overlay(fixture, chunk, event_only, origin=ProviderOrigin.CLOUD)
 
     assert core.choices == ()
-    with pytest.raises(MapperValidationError, match="non-story"):
-        validate_and_overlay(
-            fixture,
-            chunk,
-            MapperResponse(None, None, (), (BranchSummary(CHOICE_KEY, 1, "Invented path"),)),
-            origin=ProviderOrigin.CLOUD,
-        )
+    filtered = validate_and_overlay(
+        fixture,
+        chunk,
+        MapperResponse(None, None, (), (BranchSummary(CHOICE_KEY, 1, "Invented path"),)),
+        origin=ProviderOrigin.CLOUD,
+    )
+
+    assert filtered.choices == ()
+    assert filtered.branch_outcomes == ()
+    assert filtered.status is ChunkStatus.PARTIAL
 
 
 def test_mixed_span_reachability_becomes_honestly_unresolved_with_warning() -> None:

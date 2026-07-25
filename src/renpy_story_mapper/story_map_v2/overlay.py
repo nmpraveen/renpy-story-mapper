@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
@@ -198,6 +198,10 @@ def _cover_range(
         raise MapperValidationError(
             f"mapper event references path {event.relative_path!r} outside the exact chunk"
         )
+    path_start = min(span.start_line for span in same_path)
+    path_end = max(span.end_line for span in same_path)
+    if event.start_line < path_start or event.end_line > path_end:
+        raise MapperValidationError("mapper event range extends outside the exact chunk spans")
     intersecting = [
         span
         for span in same_path
@@ -205,16 +209,6 @@ def _cover_range(
     ]
     if not intersecting:
         raise MapperValidationError("mapper event range is outside the exact chunk spans")
-
-    covered_through = event.start_line - 1
-    for span in sorted(intersecting, key=lambda item: (item.start_line, item.end_line, item.key)):
-        clipped_start = max(event.start_line, span.start_line)
-        clipped_end = min(event.end_line, span.end_line)
-        if clipped_start > covered_through + 1:
-            raise MapperValidationError("mapper event range crosses a gap outside chunk spans")
-        covered_through = max(covered_through, clipped_end)
-    if covered_through < event.end_line:
-        raise MapperValidationError("mapper event range extends outside the exact chunk spans")
 
     return tuple(
         _SpanSlice(
@@ -233,13 +227,66 @@ def _cover_range(
     )
 
 
-def _single_lineage(slices: tuple[_SpanSlice, ...]) -> tuple[ArmLineageStep, ...]:
-    lineages = {item.lineage for item in slices}
-    if len(lineages) != 1:
-        raise MapperValidationError(
-            "mapper event range has incompatible arm lineage across siblings or a rejoin"
+def _common_lineage(
+    slices: tuple[_SpanSlice, ...],
+) -> tuple[tuple[ArmLineageStep, ...], bool]:
+    lineages = tuple(dict.fromkeys(item.lineage for item in slices))
+    common = lineages[0]
+    for lineage in lineages[1:]:
+        shared = 0
+        for left, right in zip(common, lineage, strict=False):
+            if left != right:
+                break
+            shared += 1
+        common = common[:shared]
+    return common, len(lineages) > 1
+
+
+def _range_warnings(
+    original: MapperEvent,
+    event: MapperEvent,
+    slices: tuple[_SpanSlice, ...],
+) -> tuple[str, ...]:
+    warnings: list[str] = []
+    ordered = sorted(slices, key=lambda item: (item.start_line, item.end_line, item.scope_index))
+    retained_start = ordered[0].start_line
+    retained_end = max(item.end_line for item in ordered)
+    covered_through = ordered[0].end_line
+    has_gap = retained_start != event.start_line or retained_end != event.end_line
+    for item in ordered[1:]:
+        if item.start_line > covered_through + 1:
+            has_gap = True
+        covered_through = max(covered_through, item.end_line)
+    if has_gap:
+        warnings.append(
+            "Mapper range included omitted technical lines; exact authority is limited to "
+            "retained story spans."
         )
-    return next(iter(lineages))
+    if event.end_line != original.end_line:
+        warnings.append(
+            "Overlapping rough mapper ranges were deterministically partitioned at the next "
+            "event start."
+        )
+    return tuple(warnings)
+
+
+def _partition_events(
+    events: tuple[MapperEvent, ...],
+) -> tuple[tuple[MapperEvent, MapperEvent], ...]:
+    partitioned: list[tuple[MapperEvent, MapperEvent]] = []
+    for index, original in enumerate(events):
+        event = original
+        if index + 1 < len(events):
+            following = events[index + 1]
+            if following.relative_path == event.relative_path:
+                if following.start_line <= event.start_line:
+                    raise MapperValidationError(
+                        "mapper events are not in chronological source order"
+                    )
+                if following.start_line <= event.end_line:
+                    event = replace(event, end_line=following.start_line - 1)
+        partitioned.append((original, event))
+    return tuple(partitioned)
 
 
 def _first_node(slices: tuple[_SpanSlice, ...]) -> tuple[str, int, int]:
@@ -263,6 +310,9 @@ def _event_authority(
     slices: tuple[_SpanSlice, ...],
     mechanic: ArmMechanic | None,
     mapper_warning: str | None,
+    overlay_warnings: tuple[str, ...],
+    *,
+    mixed_lineage: bool,
 ) -> tuple[Reachability, tuple[str, ...]]:
     statuses = [item.span.reachability for item in slices]
     warnings = [warning for item in slices for warning in item.span.unresolved_warnings]
@@ -271,7 +321,14 @@ def _event_authority(
         warnings.extend(mechanic.unresolved_warnings)
     if mapper_warning is not None:
         warnings.append(mapper_warning)
-    if statuses and all(status is statuses[0] for status in statuses):
+    warnings.extend(overlay_warnings)
+    if mixed_lineage:
+        reachability = Reachability.UNRESOLVED
+        warnings.append(
+            "Mapper event covers multiple deterministic lineages; the anchor uses only their "
+            "common proven prefix."
+        )
+    elif statuses and all(status is statuses[0] for status in statuses):
         reachability = statuses[0]
     else:
         reachability = Reachability.UNRESOLVED
@@ -313,20 +370,27 @@ def _anchor(
 
 def _core_event(
     scope: StoryScope,
+    original: MapperEvent,
     event: MapperEvent,
     slices: tuple[_SpanSlice, ...],
     choices: dict[str, ChoiceMechanic],
 ) -> CoreEvent:
-    lineage = _single_lineage(slices)
+    lineage, mixed_lineage = _common_lineage(slices)
     mechanic = _lineage_mechanic(lineage, choices)
     canonical_node_id, first_line, _scope_index = _first_node(slices)
-    reachability, warnings = _event_authority(slices, mechanic, event.warning)
+    reachability, warnings = _event_authority(
+        slices,
+        mechanic,
+        event.warning,
+        _range_warnings(original, event, slices),
+        mixed_lineage=mixed_lineage,
+    )
     return CoreEvent(
         title=event.title,
         summary=event.summary,
         relative_path=event.relative_path,
-        start_line=event.start_line,
-        end_line=event.end_line,
+        start_line=min(item.start_line for item in slices),
+        end_line=max(item.end_line for item in slices),
         characters=event.characters,
         warnings=warnings,
         anchor=_anchor(
@@ -453,7 +517,7 @@ def validate_and_overlay(
 
     events: list[CoreEvent] = []
     previous_end: tuple[int, int] | None = None
-    for event in response.events:
+    for original, event in _partition_events(response.events):
         slices = _cover_range(chunk_spans, positions, choices, event)
         first = min((item.scope_index, item.start_line) for item in slices)
         last = max((item.scope_index, item.end_line) for item in slices)
@@ -462,7 +526,7 @@ def validate_and_overlay(
                 "mapper events overlap or are out of chronological source order"
             )
         previous_end = last
-        events.append(_core_event(scope, event, slices, choices))
+        events.append(_core_event(scope, original, event, slices, choices))
 
     outcomes: list[CoreBranchOutcome] = []
     previous_branch: tuple[int, int] | None = None
@@ -473,9 +537,7 @@ def validate_and_overlay(
                 f"branch summary references unknown chunk choice {summary.choice_key!r}"
             )
         if not choice.story_choice:
-            raise MapperValidationError(
-                f"branch summary references non-story choice {summary.choice_key!r}"
-            )
+            continue
         mechanic = _arm(choice, summary.arm_order)
         if mechanic is None:
             raise MapperValidationError(

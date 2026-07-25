@@ -11,6 +11,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     MapperEvent,
     MapperResponse,
     ProviderOrigin,
+    Reachability,
 )
 from renpy_story_mapper.story_map_v2.overlay import MapperValidationError, validate_and_overlay
 from renpy_story_mapper.story_map_v2.planner import ChunkPlanningError, plan_chunks
@@ -91,7 +92,7 @@ def test_overlay_rejects_invented_choice_keys() -> None:
         validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
 
 
-def test_overlay_rejects_cross_arm_event_and_uses_python_caption() -> None:
+def test_overlay_uses_common_lineage_for_cross_arm_event_and_python_caption() -> None:
     fixture = choice()
     spans = (
         span(
@@ -118,10 +119,13 @@ def test_overlay_rejects_cross_arm_event_and_uses_python_caption() -> None:
         (BranchSummary(CHOICE_KEY, 1, 'The mapper writes "Take the ridge".'),),
     )
     planned = plan_chunks(scope(spans, choices=(fixture,)))[0]
-    with pytest.raises(MapperValidationError, match="lineage"):
-        validate_and_overlay(
-            scope(spans, choices=(fixture,)), planned, mapped, origin=ProviderOrigin.CLOUD
-        )
+    core = validate_and_overlay(
+        scope(spans, choices=(fixture,)), planned, mapped, origin=ProviderOrigin.CLOUD
+    )
+
+    assert core.events[0].anchor.arm_lineage == ()
+    assert core.events[0].reachability is Reachability.UNRESOLVED
+    assert core.branch_outcomes[0].caption == "Take the ridge"
 
 
 def test_nested_branch_event_anchor_comes_only_from_python_lineage() -> None:
