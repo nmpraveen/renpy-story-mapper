@@ -6,7 +6,7 @@ Updated: 2026-07-25 (Phase 02 complete and PR ready)
 
 ## Current contract
 
-- Status: `PR ready` (Phase 02 bounded done condition achieved; PR remains unmerged).
+- Status: PR ready.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
