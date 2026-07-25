@@ -321,11 +321,13 @@ def test_planner_branch_density_uses_lower_target_and_binds_mechanics_digest() -
     assert max(chunk.raw_tokens for chunk in chunks) <= ChunkProfile().branch_target_tokens
     first_packet = next(chunk for chunk in chunks if first_key in chunk.choice_keys)
     digest = mechanics_digest(scope, first_packet.choice_keys)
+    assert first_packet.mechanics == digest
     assert '"caption":"Option 1"' in digest
     changed = _scope(spans, (_choice(first_key, 10), second_choice))
     changed_packet = next(
         chunk for chunk in plan_chunks(changed) if first_key in chunk.choice_keys
     )
+    assert changed_packet.mechanics != first_packet.mechanics
     assert changed_packet.packet_hash != first_packet.packet_hash
 
 

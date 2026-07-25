@@ -224,6 +224,7 @@ def _story_chunk(scope: StoryScope, spans: Sequence[SourceSpan], index: int) -> 
         span_keys=tuple(span.key for span in spans),
         choice_keys=choice_keys,
         raw_text=raw_text,
+        mechanics=digest,
         raw_tokens=sum(span.estimated_tokens for span in spans),
         density=density,
         packet_hash=packet_hash,
