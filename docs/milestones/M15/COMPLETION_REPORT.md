@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Blocked
+Status: Verification (resumed by standing 2026-07-25 authorization through the Phase 02 done condition)
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -180,6 +180,24 @@ explicit approval for the bounded versioned provider-schema correction and, only
 free gates, independent exact-head rereview, and a freshly bound zero-submit preview, a separate
 live attempt.
 The native goal remains active and PR #26 remains draft, unmerged, and unmodified.
+
+The user then granted standing final authorization for every bounded correction, exact-head
+review, fresh zero-submit preview, private acceptance execution, artifact audit, and PR #26 update
+needed to reach the unchanged Phase 02 done condition without further authorization pauses. This
+does not relax the contract: each provider execution still requires its own freshly bound preview
+after provider-free verification and review, obeys six planned/eight absolute hosted ceilings,
+permits no semantic retry or auditor, and cannot merge PR #26.
+
+Versioned strict-schema correction `720615d` preserves immutable v1 and adds
+`story_map_mapper_v2.schema.json`. V2 requires all four root properties while retaining nullable
+`scope_title` and `scope_overview`; the active schema identity/path, cloud and loopback packets,
+preview confirmation, and fail-closed confirmation validation now bind v2. Five failing-first
+cases proved the missing resource, stale cloud/loopback packet identity, stale preview identity,
+unchanged confirmation, and old output-schema path; explicit-null parsing also passes. The broad
+provider-free M10-M12/V2/workflow matrix passes 396 tests with one expected opt-in real-browser
+skip in 31.24 seconds. Ruff, strict mypy over all ten V2 modules, both schema JSON parses,
+whitespace, and byte-identical v1 preservation pass. No provider call or preview regeneration
+occurred. Verification now requires a clean exact-head reviewer `PASS` before a fresh v2 preview.
 
 ### Earlier Phase 02 implementation log (superseded by the snapshot above)
 

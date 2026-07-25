@@ -1,12 +1,12 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (Phase 02 blocked at strict provider-schema acceptance)
+Updated: 2026-07-25 (Phase 02 verification resumed under standing authorization)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Status: Blocked.
+- Status: Verification.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
@@ -94,6 +94,18 @@ Updated: 2026-07-25 (Phase 02 blocked at strict provider-schema acceptance)
   #26 remains draft/unmerged/unmodified. Resumption requires explicit approval for that bounded
   versioned provider-schema correction and, only after provider-free gates, independent exact-head
   review, and a fresh zero-submit preview, a separately authorized live attempt.
+  The user then granted standing final authorization for all bounded corrections, reviews, fresh
+  previews, acceptance executions, artifact audits, and the draft PR #26 update needed to reach
+  the unchanged Phase 02 done condition without further authorization pauses. Contract ceilings,
+  no-semantic-retry/no-auditor policy, per-preview confirmation, privacy rules, and the unmerged PR
+  condition remain binding. Versioned correction `720615d` preserves immutable v1, adds strict v2
+  with all four root fields required and nullable scope text, and advances the active schema
+  identity/path so cloud/loopback packets and preview confirmation change together. Five failing-
+  first cases plus explicit-null coverage pass. The broad provider-free M10-M12/V2/workflow matrix
+  passes 396 tests with one expected real-browser skip; Ruff, strict mypy over ten V2 modules,
+  schema parsing, whitespace, and v1 immutability pass. No provider call or preview regeneration
+  occurred. Verification awaits independent exact-head clearance before generating the fresh v2-
+  bound preview.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded

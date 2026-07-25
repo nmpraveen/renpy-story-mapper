@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 02 core rewrite
 
-Status: Blocked
+Status: Verification (resumed by standing 2026-07-25 authorization through the Phase 02 done condition)
 
 Authority: `docs/MASTER_PLAN.md` and
 `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.
@@ -132,9 +132,11 @@ acceptance remains cloud-primary and does not run local-only merely to spend the
 
 The separately approved 2026-07-25 additional attempt was spent exactly once against its freshly
 regenerated preview and is not reusable. It failed `invalid_response` before producing a mapper
-result. No retry, replacement, fallback, or further live execution is authorized. Resumption
-requires an explicit versioned provider-schema correction decision and a separate zero-submit
-authorization after provider-free verification and independent exact-head review.
+result. The user then granted standing final authorization for all bounded corrections, reviews,
+fresh previews, and acceptance executions required to reach this exact Phase 02 done condition,
+without further authorization pauses. Each execution must still be separately bound to a fresh
+zero-submit preview after provider-free verification and exact-head review, obey the six-planned/
+eight-absolute ceilings, retain no semantic retry or auditor, and keep PR #26 unmerged.
 
 ## Historical note
 
