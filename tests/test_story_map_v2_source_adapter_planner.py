@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
+import pytest
+
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import (
     CanonicalGraph,
@@ -280,6 +282,50 @@ label second_setup:
     $ configured = 2
     return
 """
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is False
+    assert len({arm.rejoin_node_id for arm in choice.arms}) == 1
+    assert choice.arms[0].rejoin_node_id is not None
+
+
+@pytest.mark.parametrize(
+    ("first_wrapper", "second_wrapper", "shared_label", "first_caption", "second_caption"),
+    (
+        ("first_setup", "second_setup", "common_story", "Configure A", "Configure B"),
+        ("alpha_route", "omega_route", "meeting_point", "Choose left", "Choose right"),
+    ),
+)
+def test_adapter_deduplicates_shared_story_beyond_setup_call_wrappers(
+    first_wrapper: str,
+    second_wrapper: str,
+    shared_label: str,
+    first_caption: str,
+    second_caption: str,
+) -> None:
+    graph = _authority(
+        f'''label start:
+    menu:
+        "{first_caption}":
+            call {first_wrapper}
+        "{second_caption}":
+            call {second_wrapper}
+    return
+
+label {first_wrapper}:
+    $ configured = 1
+    jump {shared_label}
+
+label {second_wrapper}:
+    $ configured = 2
+    jump {shared_label}
+
+label {shared_label}:
+    "A shared story moment."
+    return
+'''
     )
 
     choice = adapt_story_scope(graph).choices[0]

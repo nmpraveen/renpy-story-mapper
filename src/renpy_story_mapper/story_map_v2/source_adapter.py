@@ -527,17 +527,22 @@ def _narrative_call_targets(
         if edge.kind == "call_enter" and _reachability(edge.reachability) is Reachability.REACHABLE
     }
     return tuple(
-        sorted(target for target in targets if _target_has_story_content(target, nodes, outgoing))
+        sorted(
+            story_node_id
+            for target in targets
+            for story_node_id in _target_story_content_ids(target, nodes, outgoing)
+        )
     )
 
 
-def _target_has_story_content(
+def _target_story_content_ids(
     target_id: str,
     nodes: Mapping[str, CanonicalNode],
     outgoing: Mapping[str, Sequence[CanonicalEdge]],
-) -> bool:
+) -> frozenset[str]:
     pending = [target_id]
     visited: set[str] = set()
+    story_nodes: set[str] = set()
     while pending:
         node_id = pending.pop()
         if node_id in visited:
@@ -550,13 +555,13 @@ def _target_has_story_content(
             node.attributes.get("source_kind") == "statement"
             and _reachability(node.reachability) is Reachability.REACHABLE
         ):
-            return True
+            story_nodes.add(node_id)
         pending.extend(
             edge.target_id
             for edge in outgoing.get(node_id, ())
             if _reachability(edge.reachability) is Reachability.REACHABLE
         )
-    return False
+    return frozenset(story_nodes)
 
 
 def _source_order_key(scene_model: SceneModel | None):  # type: ignore[no-untyped-def]
