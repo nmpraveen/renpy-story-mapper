@@ -28,8 +28,12 @@ Updated: 2026-07-25 (Phase 02 private core accepted; final review and PR checkpo
   honest reachability/warnings, and non-null scope title/overview. Validation failures are zero;
   source/archive/project fingerprints remain unchanged. Active artifact hashes are ledger
   `087494e4...43edd`, summary `4eff2c54...31d1f`, core JSON `8ec7c9f5...3c8b3`, and core Markdown
-  `4d90eec5...60700`. Final lifecycle reconciliation, exact-head/artifact review, and updating draft
-  unmerged PR #26 remain.
+  `4d90eec5...60700`. Final review passed `c79e508` with P0-P3 all zero and PR #26 was updated at
+  that head. GitHub run `30160608222` then reported 1,660 passed/one old M06.5 2-second polling
+  timeout plus six latest-Ruff union-order findings; every other release gate passed. Reviewed
+  correction `d94a13e` makes the test deadline a bounded monotonic 30 seconds and mechanically
+  reorders the six unions. The expanded relevant matrix passes 405 tests/one expected skip; full
+  Ruff and strict mypy over 125 source files pass. Re-push and the exact final PR check remain.
 - Earlier Phase 02 verification checkpoint (superseded): Track A reviewed exact head `319d13e9` and Track B
   reviewed exact head `ca9cd4a`; both returned `PASS` with no unresolved P0-P2. The integrated
   implementation and generalized private-preflight correction were frozen at `cbbe3ef`; 287

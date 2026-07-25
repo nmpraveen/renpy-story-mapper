@@ -41,6 +41,18 @@ evidence `66734d15...33b3`. The original overlay-rejection package is preserved 
 `historical-v2-overlay-rejection`; earlier v1 and transport/schema attempts remain in their own
 historical directories. Final lifecycle review and the draft unmerged PR #26 update remain.
 
+Final independent review passed exact clean head `c79e508` with P0-P3 all zero, and draft PR #26
+was pushed/updated at that head. GitHub run `30160608222` completed the full release workflow:
+1,660 tests passed, but one old M06.5 project-operation poll exceeded its hard-coded 2-second
+deadline on the runner; latest CI Ruff also reported six union-member-order style findings. Strict
+mypy over 125 source files, dependencies, JavaScript syntax, whitespace, sdist/wheel build, wheel
+install, and isolated wheel import all passed. Reviewed correction `d94a13e` changes no product or
+artifact semantics: it reorders those six type unions and replaces the machine-speed-sensitive
+test cap with a monotonic bounded 30-second deadline. The affected test passes three consecutive
+runs; the expanded relevant matrix passes 405 tests with one expected opt-in browser skip, full
+Ruff and strict mypy pass, and independent review returned P0-P3 all zero. Exact PR recheck remains
+before genuine PR-ready lifecycle closure.
+
 ### Earlier verification history
 
 Track A reviewed exact head `319d13e99fe1eed99b3e6cbc51695d6ca7d37e26` and Track B reviewed
