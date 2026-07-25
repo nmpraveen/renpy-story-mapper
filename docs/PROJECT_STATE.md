@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (Phase 02 verification resumed under standing authorization)
+Updated: 2026-07-25 (Phase 02 private core accepted; final review and PR checkpoint pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,7 +14,23 @@ Updated: 2026-07-25 (Phase 02 verification resumed under standing authorization)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Current Phase 02 verification checkpoint: Track A reviewed exact head `319d13e9` and Track B
+- Current Phase 02 verification checkpoint: strict schema v2 was independently cleared at
+  `f42f476`, then fresh confirmation `69154c8e...b592f` authorized one 9,390-token/755-span
+  Luna/High/fast-off call. That call completed in 54,344 ms with response hash
+  `33d3c871...fb76`, 44,435 input tokens, 2,819 output tokens, 12 events, 12 supplied branch
+  summaries, and no retry/fallback. Provider evidence exposed deterministic rough-range seams;
+  corrections `574cbeb`, `b62ba6d`, and `dee5714` now intersect omitted technical gaps, partition
+  ordered overlap, conservatively anchor mixed-lineage clusters, validate filtered setup arms, and
+  use exact span lineage to disambiguate overlapping deterministic arm intervals. Independent
+  exact-head rereview passed `dee5714` with no P0-P2 and cleared provider-free replay. The retained
+  response then reassembled without another provider call into a complete 1/1 cloud core with 12
+  chronological events, four exact story choices, eight unique branch outcomes, all 20 anchors,
+  honest reachability/warnings, and non-null scope title/overview. Validation failures are zero;
+  source/archive/project fingerprints remain unchanged. Active artifact hashes are ledger
+  `087494e4...43edd`, summary `4eff2c54...31d1f`, core JSON `8ec7c9f5...3c8b3`, and core Markdown
+  `4d90eec5...60700`. Final lifecycle reconciliation, exact-head/artifact review, and updating draft
+  unmerged PR #26 remain.
+- Earlier Phase 02 verification checkpoint (superseded): Track A reviewed exact head `319d13e9` and Track B
   reviewed exact head `ca9cd4a`; both returned `PASS` with no unresolved P0-P2. The integrated
   implementation and generalized private-preflight correction were frozen at `cbbe3ef`; 287
   Story Map V2/relevant M10-M12/workflow tests plus Ruff, strict mypy, import isolation, and

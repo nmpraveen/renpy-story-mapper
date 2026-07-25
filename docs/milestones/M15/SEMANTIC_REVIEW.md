@@ -116,3 +116,8 @@ deterministic control arm can contain a shorter sibling interval; in that case t
 source-span lineage selects the matching interval candidate, while missing or contradictory span
 lineage remains invalid. The amended seam requires exact-head correctness review before the
 retained response can be reassembled.
+
+Exact-head independent rereview passed `dee5714f20310e7734d4a8140261239b444973c2` with no
+P0-P2 and explicitly cleared provider-free replay of the retained response.
+
+PASS

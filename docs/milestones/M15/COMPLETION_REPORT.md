@@ -12,6 +12,37 @@ Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26),
 
 ### Current verification snapshot
 
+The current accepted checkpoint supersedes the historical failures below. Strict schema v2 was
+independently cleared at `f42f476`; fresh zero-submit confirmation `69154c8e...b592f` bound one
+9,390-token/755-span packet, four story choices/eight arms, exact Luna/High/fast-off, disabled
+fallback, and only `raw_text` plus `mechanics`. Its one hosted call completed in 54,344 ms with
+response hash `33d3c871...fb76`, 44,435 input tokens, 2,819 output tokens, 12 events, 12 supplied
+branch summaries, and non-null scope title/overview. There was no retry, fallback, or auditor.
+
+The initial deterministic overlay correctly retained the completed execution but rejected broad
+rough ranges. Generalized corrections `574cbeb`, `b62ba6d`, and `dee5714` now intersect omitted
+technical gaps, partition an ordered overlap at the next event, use only the common proven lineage
+prefix for mixed clusters with unresolved status/warnings, validate setup arm ordinals before
+filtering non-story controls, and let exact `SourceSpan.arm_lineage` disambiguate overlapping
+deterministic arm intervals only when it matches a candidate. Independent exact-head reviews found
+no unresolved P0-P2 and explicitly cleared provider-free replay at `dee5714`.
+
+Replay reused the retained response and added zero provider calls. The active core is `complete`
+at 1/1 with 12 chronological non-overlapping narrative events, four exact story choices, eight
+unique branch outcomes, 12 event anchors, eight outcome anchors, non-null title/overview, honest
+reachability/warnings, and zero validation failures. All eight branch outcomes are reachable; 11
+broad events are conservatively unresolved and one is reachable. No placeholder prose was found;
+minimum event-title/event-summary/outcome-summary lengths are 19/187/103 characters. Source,
+archive, and project-copy fingerprints match the pre-call package exactly.
+
+Active outside-Git SHA-256 values are execution ledger `087494e4...43edd`, acceptance summary
+`4eff2c54...31d1f`, core JSON `8ec7c9f5...3c8b3`, core Markdown `4d90eec5...60700`, and replay
+evidence `66734d15...33b3`. The original overlay-rejection package is preserved under
+`historical-v2-overlay-rejection`; earlier v1 and transport/schema attempts remain in their own
+historical directories. Final lifecycle review and the draft unmerged PR #26 update remain.
+
+### Earlier verification history
+
 Track A reviewed exact head `319d13e99fe1eed99b3e6cbc51695d6ca7d37e26` and Track B reviewed
 exact head `ca9cd4afd0f27d7926ed5d246f3aa738267816ac`; both reviewers returned `PASS` with
 no unresolved P0-P2. The integrated provider-neutral and execution implementation is present
@@ -342,7 +373,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Blocked | Track A/B and provider-free transport-correction exact-head reviews passed. The fresh one-call Luna preview was executed exactly once and terminated `invalid_response` after 2,125 ms, leaving an honest 0/1 partial core. Post-run reviewer verdict is `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, for a concrete strict-schema mismatch: two nullable root properties are not required. Accounting, provenance, mechanics, containment, and fingerprints pass; provider-generated coverage, a versioned schema correction, new review/authorization, final acceptance, and PR readiness remain incomplete. |
+| Phase 02 core rewrite | Acceptance complete; final review/PR pending | Strict v2 preview/call and provider-free replay of the retained response produced a complete 1/1 cloud core: 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, unchanged protected fingerprints, and no retry/fallback/additional call. Overlay corrections through independently passed head `dee5714`; 160 V2 tests plus static gates pass. Final lifecycle exact-head/artifact review and draft unmerged PR #26 update remain. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
@@ -360,14 +391,12 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 
 ## Current limitations
 
-- The one authorized Phase 02 execution stopped at the sterile CLI transport boundary before any
-  hosted submission. Its 0/2 partial core preserves deterministic mechanics but cannot satisfy the
-  provider-generated narrative and recognizable Day 1 coverage criteria. A further live run would
-  require an explicit contract/authorization decision; none was inferred or performed.
-
-- Rejected Stage H/E implementation is integrated locally in historical commits but no supported
-  replacement core exists yet. The existing PR remains intentionally behind until Phase 02 creates
-  the replacement and exact-head checks pass.
+- The accepted Phase 02 core is an outside-Git developer artifact for Phase 03; it is not yet the
+  final compact browser/synthesis product. Broad events conservatively remain unresolved when
+  deterministic authority is mixed or dynamic.
+- Rejected Stage H/E implementation remains in historical commits for compatibility, but the
+  supported replacement V2 core now exists. PR #26 remains behind until final exact-head checks and
+  lifecycle reconciliation are pushed.
 - Historical boundary/summary production is complete only for its superseded identity. Stage H/E
   is rejected for future supported work; all private artifacts remain ignored and unstaged.
 - Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
