@@ -39,11 +39,14 @@ Track implementation may begin.
 Track A's exact-authority audit then found that the frozen `SourceSpan` contract could not carry
 non-choice canonical reachability or unresolved warnings into the overlay. A2 independently found
 that accepted mapper branch summaries and optional scope title/overview had no core storage field.
-Failing-first shared tests reproduced both gaps. The coordinator-owned correction requires
-Python-owned span reachability/warnings and adds a typed, deterministically anchored branch-outcome
-record plus per-chunk/assembled scope text. Seven shared contract tests, Ruff, strict mypy, and
-whitespace pass. No guessed reachable default is used and validated provider meaning is no longer
-discarded. Track A may resume against this corrected seam; A2's old WIP is not integration-ready.
+Packet review also found that the compact mechanics digest affected the packet hash but could not
+be carried by `StoryChunk`, leaving the transport only opaque choice keys. Failing-first shared
+tests reproduced all three gaps. The coordinator-owned correction requires Python-owned span
+reachability/warnings and canonical compact mechanics JSON, and adds a typed, deterministically
+anchored branch-outcome record plus per-chunk/assembled scope text. Eight shared contract tests,
+Ruff, strict mypy, and whitespace pass. No guessed reachable default is used and required provider
+input/output is no longer discarded. Track A may resume against this corrected seam; A2's old WIP
+is not integration-ready.
 
 Provider-neutral product implementation is in progress. No private provider call, push, or PR
 mutation has occurred in Phase 02 yet.

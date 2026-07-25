@@ -61,6 +61,7 @@ def fixture_chunks(count: int = 1):
             span_keys=(item.key,),
             choice_keys=(),
             raw_text=item.raw_text,
+            mechanics='{"choices":[]}',
             raw_tokens=item.estimated_tokens,
             density=DensityMetrics(),
             packet_hash=canonical_hash({"span_key": item.key, "raw_text": item.raw_text}),

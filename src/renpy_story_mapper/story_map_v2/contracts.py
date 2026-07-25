@@ -204,6 +204,7 @@ class StoryChunk:
     span_keys: tuple[str, ...]
     choice_keys: tuple[str, ...]
     raw_text: str
+    mechanics: str
     raw_tokens: int
     density: DensityMetrics
     packet_hash: str
@@ -211,6 +212,16 @@ class StoryChunk:
     def __post_init__(self) -> None:
         if self.index < 1 or not self.span_keys or self.raw_tokens < 0:
             raise ValueError("chunk identity, spans, and tokens are required")
+        _text(self.mechanics, "chunk mechanics")
+        try:
+            decoded_mechanics = json.loads(self.mechanics)
+        except json.JSONDecodeError as exc:
+            raise ValueError("chunk mechanics must be canonical JSON") from exc
+        if (
+            not isinstance(decoded_mechanics, dict)
+            or canonical_json(decoded_mechanics).decode() != self.mechanics
+        ):
+            raise ValueError("chunk mechanics must be one canonical JSON object")
         _text(self.packet_hash, "packet hash")
 
     @property

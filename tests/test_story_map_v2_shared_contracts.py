@@ -36,7 +36,16 @@ def test_contracts_reject_non_contiguous_authoritative_arm_order() -> None:
 
 
 def test_preview_confirmation_binds_mode_packets_and_settings() -> None:
-    chunk = StoryChunk(1, ("s1",), (), "1: story", 2, value_density(), "b" * 64)
+    chunk = StoryChunk(
+        index=1,
+        span_keys=("s1",),
+        choice_keys=(),
+        raw_text="1: story",
+        mechanics='{"choices":[]}',
+        raw_tokens=2,
+        density=value_density(),
+        packet_hash="b" * 64,
+    )
     preview = RunPreview(
         schema="story-map-v2-preview-v1",
         source_identity="source-v1",
@@ -80,6 +89,21 @@ def test_source_span_carries_python_owned_reachability_and_warnings() -> None:
 
     assert value.reachability is Reachability.UNRESOLVED
     assert value.unresolved_warnings == ("dynamic target",)
+
+
+def test_story_chunk_retains_the_exact_compact_mechanics_packet() -> None:
+    value = StoryChunk(
+        index=1,
+        span_keys=("s1",),
+        choice_keys=("scripts/day.rpy:10",),
+        raw_text="1: story",
+        mechanics='{"choices":[{"key":"scripts/day.rpy:10"}]}',
+        raw_tokens=2,
+        density=value_density(),
+        packet_hash="c" * 64,
+    )
+
+    assert value.mechanics == '{"choices":[{"key":"scripts/day.rpy:10"}]}'
 
 
 def test_core_chunk_retains_mapper_scope_text_and_python_anchored_branch_outcome() -> None:

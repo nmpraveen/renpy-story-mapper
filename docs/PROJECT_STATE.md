@@ -25,10 +25,12 @@ Updated: 2026-07-24 (Phase 02 implementation tracks active; reachability seam co
   `NotImplementedError` seams with no collection error. During A1's exact-authority audit, the
   frozen `SourceSpan` seam proved unable to carry non-choice canonical reachability into the
   overlay. A2 independently found that validated mapper branch summaries and scope text had no
-  durable core field. Coordinator-owned failing-first corrections now require Python-owned span
-  reachability/warnings and retain branch outcomes plus optional scope text in the core with exact
-  deterministic anchors. Seven shared contract tests plus Ruff, strict mypy, and whitespace pass.
-  Track A resumes from that corrected seam without guessing authority or discarding provider text.
+  durable core field. Packet review also proved `StoryChunk` retained only mechanics keys while its
+  hash referenced a compact digest that could not be transmitted. Coordinator-owned failing-first
+  corrections now require Python-owned span reachability/warnings, canonical compact mechanics
+  JSON in every chunk, and branch outcomes plus optional scope text in the core with exact
+  deterministic anchors. Eight shared contract tests plus Ruff, strict mypy, and whitespace pass.
+  Tracks resume from these corrected seams without guessing authority or discarding required text.
   Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
