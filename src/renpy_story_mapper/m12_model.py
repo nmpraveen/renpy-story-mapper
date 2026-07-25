@@ -19,7 +19,7 @@ M12_ROUTE_SCHEMA = f"m12-route-result-v{M12_ROUTE_SCHEMA_VERSION}"
 M12_SOLVER_VERSION = "m12-static-solver-v1"
 M12_LIMIT_PROFILE_VERSION = "m12-limits-v1"
 
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 type StateScalar = str | int | float | bool | None
 
 

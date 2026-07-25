@@ -1,44 +1,34 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-18 (M13 corrective PR merged; milestone complete)
+Updated: 2026-07-25 (M15.1 Phase 02 complete; Phase 03 handoff prepared)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M13 - Optional AI narrative layer (complete; no successor activated).
-- Contract: [`docs/milestones/M13/GOAL.md`](milestones/M13/GOAL.md).
-- Baseline: merged corrective PR #24 commit `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`.
-- Integration branch: `main`; post-merge records are prepared on `codex/m13-post-merge-closeout`.
+- Active milestone: M15.1 semantic Story Map correction inside M15 (between phases; Phase 03 has
+  not started).
+- Contract: completed Phase 02 contract [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Delivery base: `origin/main` at `a447a4eefbd7c093bdb2767e62a393805af068ac` before the clean
+  Phase 01/02 transfer.
+- Delivery branch: `codex/m15-phase01-phase02-clean`; full historical branch
+  `codex/m15-msday1-narrative-map` and PR #26 are preserved as backup, not the merge vehicle.
 - Status: Complete.
-- Completion state: product and independent review gates pass; exact final-head GitHub Release run
-  `29632577820` passed at `9e7d387025ed29fdd1c7a43442db4dffda3db0ad`; PR #24 merged into
-  `main` as `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` on 2026-07-18.
-- Correction scope: on 2026-07-17 the user authorized one final bounded correction cycle on
-  existing PR #23 for exactly eight potential defects: cross-phase cumulative usage, retry subtype
-  ceilings, durable submit reservations, pre-execution browser retry identity, transmission-aware
-  failure accounting, alternative-route M12 authority, sensitive-key aliases, and all-citation
-  Detail/Evidence navigation.
-- Semantic review: [`PASS`](milestones/M13/SEMANTIC_REVIEW.md) on 2026-07-16.
-- Native Codex goal: Phase Coordinator task/goal
-  `019f7308-a9a6-7562-a422-ab09c1ec077f` owned the bounded post-merge correction objective through
-  the authorized merge. After merge, native goal lookup reports no active goal record, so no active
-  native M13 goal remains. Historical task/goal
-  `019f7264-0e92-7e33-a372-ee81de102ab8` owned the prior PR-readiness reconciliation. Historical
-  task/goal `019f71a0-efcf-78a3-a0b2-bbe972903c75`
-  stopped at the final-review P1; task/goal `019f7048-93db-7383-a869-fc4c78939994`
-  reached its prior authorized done condition at its exact head; task/goal
-  `019f6ce8-55e7-76a2-9f64-202d00ebb9a5` remains stopped.
-- Pull request: [PR #23](https://github.com/nmpraveen/renpy-story-mapper/pull/23) is merged at
-  `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its prior reconciled live evidence commit
-  `d5fdcaa3a0a15db05f232171754216093cadd026` and unbounded-validation head
-  `7bf54042639a781313cf6c924e09a0ee023a86f2` were pushed and remotely verified before the prior
-  lifecycle closeout. Product/evidence head
-  `120a4ec22214182f3b6ab80ac3ce112e6c46d371` was pushed and remotely verified before merge;
-  at that time PR #23 was open, non-draft, mergeable, and `CLEAN`, with no configured status
-  checks. Corrective [PR #24](https://github.com/nmpraveen/renpy-story-mapper/pull/24) merged from
-  final head `9e7d387025ed29fdd1c7a43442db4dffda3db0ad` into `main` as
-  `3fff4762ce3e46174723e2adf35c2f7db19f2b2e` at 2026-07-18T11:12:47Z.
+- Completion state: the accepted private Phase 02 core is complete at 1/1 with 12 chronological
+  events, four exact story choices, eight branch outcomes, 20 anchors, and zero validation
+  failures. Source/archive/project fingerprints are unchanged. Independent final review returned
+  P0-P3 all zero. Exact full-history checkpoint `a42e8a0` passed GitHub run `30163111942`.
+- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md).
+- Native Codex goal: Phase 02 Coordinator task/goal
+  `019f9676-c357-7803-a891-f03782bbb8ee` completed its exact done condition. No Phase 03 goal
+  exists until the user starts the new handoff.
+- Private evidence:
+  `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
+- Next action: after the clean delivery merges and local `main` is synchronized, start
+  [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md) in one
+  new Phase 03 Coordinator task. Phase 03 uses its own branch and PR.
+
+## M13 historical lifecycle
 
 The user authorized one bounded provider-free post-merge M13 correction on 2026-07-17. The exact
 merged baseline and `origin/main` match, and the merge commit tree exactly matches PR #23's

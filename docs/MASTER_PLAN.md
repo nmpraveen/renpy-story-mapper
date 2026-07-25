@@ -1,8 +1,56 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-18
+Last revised: 2026-07-25
 
-Status: M01 through M13 are complete and merged. M13 implementation PR #23 merged at
+Status: M01 through M13 are complete and merged. M15.1 remains the current product correction
+inside M15. Phase 01 calibration/prototyping and the bounded Phase 02 Story Map V2 core are
+complete. Phase 02 produced a validated complete 1/1 private core with 12 chronological events,
+four exact story choices, eight branch outcomes, 20 stable anchors, honest reachability, retained
+provenance, and unchanged protected fingerprints. Independent review found no P0-P3, and exact
+full-history checkpoint `a42e8a0` passed GitHub run `30163111942`. The rejected Stage H/Stage E
+implementation and PR #26 remain historical delivery records only; clean Phase 01/02 delivery
+contains the accepted files without that rejected product stack. Phase 03 is the next
+phase and is not active until the user starts its dedicated handoff.
+
+Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
+review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
+synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna context. Rereview
+caught a narrower setup-arm range-equality hole, now hardened by checker v3 with 18 adversarial
+mutations rejected and no selection change. Terra's 16k/24k public-synthetic passes remain
+alternative evidence. Hardened independent rereview passed with P0/P1/P2 all zero. Phase 01 is
+accepted for its visual/product direction. A fresh acceptance audit found that the report's ~2.5k
+normal Luna rule is not an established context limit because the scopes contain different story
+material, each cell was sampled once, and Luna passed the complete ~10.7k private Day 1. Phase 02
+will begin with natural ~8k corridors, split branch-heavy material nearer ~5k, retain ~10.7k as the
+tested ceiling, and measure actual workflow economics. Luna remains the initial low-cost mapper,
+Terra remains the later whole-story synthesizer and balanced mapper alternative, and no always-on
+auditor is planned.
+
+The user's 2026-07-24 follow-up authorized and completed a separate localhost-only LM Studio
+supplement: one P1 mapper call at each frozen small/medium/large/full Day 1 scope using the exact
+installed Qwen model, with a four-call ceiling, no retry/fallback, unchanged source/archive, and
+outside-Git evidence. All four calls succeeded and were schema-valid; checker v3 passed medium,
+large, and full, while small was blocked because literal surrounding quotation marks made all four
+captions inexact. Weighted scores were 97.05 blocked, 96.35 eligible, 97.10 eligible, and 95.85
+eligible. The result supports an opt-in loopback mapper fallback for explicit cloud content/safety
+refusals or deliberate local/private runs. Cloud stays primary; fallback never auto-installs,
+starts, loads, censors, or enters retry cascades, and Python owns exact mechanics. The original
+20-call package and its PASS remain immutable historical evidence.
+
+Historical Stage H/E status: M15.1 was in repeated `Semantic review` after the v11 evidence-complete
+uncertainty correction passed independent exact-head review. Its
+prior PR-ready result was rejected, and on 2026-07-23 the lifecycle
+moved through `Revise` because the adjacent-gap-only primary AI task did not produce a coherent
+human outline. The reconciled whole-scope hierarchy/editorial contract received a repeated
+semantic `PASS`, but the live Stage H audit then proved that the request projection omitted the
+required story evidence and structural context. A failing-first typed-authority and repair-bound
+correction passed independent exact-head review and coordinator gates. A later v4 live run failed
+closed on `uncertain_membership`; prompt/repair correction `70f60eb` passed exact-head rereview at
+`e33b773`. V5 then failed closed on `semantic_reinterpretation`; lock-policy correction `b97fa47`
+has repeated semantic `PASS` and passed exact-head review at `1adfe2d` with no P0-P2. The active native goal, existing
+integration branch, and open PR #26 continue.
+M14 remains deferred. M13
+implementation PR #23 merged at
 `d37fe236d576eea553fb7aef9ecc2c5b6c2e0c5a`. Its bounded post-merge cumulative-resource correction
 is integrated at `a71d5888d55d0d5a19ddb84efd522dccdcbe282d`. Provider-free
 failing-first tests, 97 focused tests, Track A/Track B/final Track C reviews, and the single local
@@ -11,7 +59,7 @@ Track C found the final checkpoint-integrity P1, while the exact corrected head 
 focused matrix and independent rereviews. Exact final PR head `9e7d387` passed CI run
 `29632577820`, and corrective PR #24 merged as
 `3fff4762ce3e46174723e2adf35c2f7db19f2b2e`. Prior browser, live/replay, private-scale, and
-Release results remain historical evidence only for their named heads. M14 remains deferred.
+Release results remain historical evidence only for their named heads.
 
 ## 1. Product goal
 
@@ -185,8 +233,8 @@ than present them as proven facts.
 - Effects appear on the event or path that causes them.
 - Numeric deltas use compact badges such as `Love +1` or `Money -10`.
 - Boolean or categorical changes use badges such as `Dating = true` or `Job = Company Z`.
-- Important changes may be promoted to Levels 1 or 2; all extracted changes remain available at
-  Level 3.
+- Important changes may be promoted to the Route Map; all extracted changes remain available in
+  Detail and Evidence.
 - The same underlying variable may have a user-editable display name and category.
 
 ## 6. Technical architecture
@@ -1171,6 +1219,114 @@ to deterministic authority.
 M14 owns dynamic framework adapters and optional runtime tracing. It is deferred indefinitely for
 now and is not part of M10-M13 implementation work.
 
+### M15 - M15.1 semantic Story Map correction
+
+Status: Phase 01 and Phase 02 are complete; semantic decision and final review `PASS`. Stage H V12
+failed terminally with `hierarchy_not_representable`, and the user rejected Stage H/Stage E as the
+future supported semantic architecture. The accepted Story Map V2 core is complete at 1/1 with 12
+chronological events, four exact story choices, eight branch outcomes, 20 stable anchors, retained
+execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
+returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
+`30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
+excludes the rejected implementation. Phase 03 is next under its own branch, contract, goal, and
+PR; it has not started.
+
+Current product direction: a practical private story guide with a readable chronological
+whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
+paths, and endings; selectable entry-to-target witness paths; and short approximate summaries.
+Static analysis remains authoritative for path-critical facts. Exact prose replay, exhaustive line
+ownership, claim-level evidence allocation, formal proof, and publication-grade precision are not
+product requirements.
+
+Historical Stage H/E status: In progress after the failed v4 Stage H uncertainty run returned through `Revise`, a
+failing-first prompt/repair correction, and repeated semantic `PASS`. The 2026-07-21 adjacent-gap-only `PASS`
+remains revoked. The first whole-scope implementation also returned to `Revise` after live Stage H
+proved that its request sent IDs without the evidence and structural context required for semantic
+grouping. The corrected v2 input/response/prompt and v4 product identity now bind exact typed
+authority and bound every legal retained repair below the sterile input ceiling. The active native
+goal, existing integration branch, and PR #26 continue; the earlier M15 PR-ready claim, wide
+generic graph, and supporting evidence remain a rejected historical baseline.
+
+Objective: produce a compact chronological Story Map whose visible language explains narrative
+meaning to a non-technical reader while M10 continues to own every edge, choice, arm, rejoin, gate,
+effect, terminal, unresolved record, and evidence locator.
+
+Completed Phase 02 boundaries:
+
+- Build one new simple V2 core package using coherent source chunks, a compact mapper response,
+  Python-owned mechanics/anchors, chronological partial-capable assembly, and no supported Stage
+  H/E, adjacent-gap, atom-allocation, hierarchy, repair-lock, or exact-replay dependency.
+- Use exact Luna/High/fast-off for one cloud-primary private Day 1 acceptance run with at most six
+  planned/eight absolute hosted submissions, no semantic retry, and no default auditor.
+- Permit only an explicitly previewed refusal fallback or deliberate local-only run against the
+  exact already-loaded loopback Qwen mapper; never auto-start/load/download a model or cascade for
+  unrelated failures.
+- Keep original source/archive read-only, private artifacts outside Git, and no game/Ren'Py/creator
+  execution. End Phase 02 after provider-free checks, private acceptance, an independent exact-head
+  review, lifecycle evidence, and a passing draft PR #26 checkpoint.
+
+Historical completed Phase 01 boundaries:
+
+- Measure coherent raw-script context quality across approximately 2.5k, 5k, 8k, and full Day 1,
+  and compare Luna/Terra/Sol High separately for mapping, synthesis, and audit.
+- Use at most 20 planned and 23 total submissions; explicitly select and verify model, High
+  reasoning, and disabled fast mode without fallback.
+- Keep the original source/archive read-only; never execute game, Ren'Py, or creator code; keep
+  packets, responses, evaluation material, and prototype outside Git.
+- Build only a disposable local HTML/JSON vertical proof with no remote assets or tracked product
+  changes; verify source immutability, privacy, zero remote requests on open, and PR non-mutation.
+- End with blind scoring, deterministic path checks, an independent final review, a Phase 01 report,
+  and user review. Do not write or begin Phase 02.
+
+Rejected historical Stage H/E boundaries:
+
+- Keep versioned fine narrative units and one stable candidate for every legal adjacent gap as an
+  internal exhaustive representation. Hard chapter/day, lane, call-occurrence, loop,
+  terminal/unresolved, split, arm, and proven-rejoin locks cannot be crossed.
+- Stage H gives AI one coherent bounded day/chapter scope whenever it fits and permits it to group
+  only existing authority-bound fine-unit IDs into ordered proposed beats and major sections.
+  The request must include the criterion-3 evidence, speakers, source IDs/locators, sequence,
+  structural anchors, deterministic ownership, and hard locks needed to interpret those IDs.
+  Temporary proposal keys, reasons, confidence, warnings, and uncertain-unit references are
+  non-authoritative. Stage H cannot return titles, summaries, coordinates, topology, choices,
+  requirements, effects, locators, or invented authority IDs.
+- Python proves exact coverage, order, contiguity, ownership, and every hard lock; rejects foreign,
+  missing, duplicate, crossing, structurally illegal, or uncertain membership; derives stable IDs
+  from authority plus validated membership; compiles the proposal into the exhaustive adjacent-gap
+  decisions; and feeds those decisions through the existing deterministic assembler.
+- After hierarchy freezes, Stage E may batch one logical record per existing beat, major cluster,
+  and meaningful choice. It may return action-focused titles, beginning-to-end summaries,
+  characters, presentation roles, warnings, and claims citing only existing evidence IDs. Python
+  validates each record independently and persists one-to-one logical provenance even when one
+  transport call carries many records.
+- Stage H preview/consent/run and Stage E preview/consent/run are separate durable stages with exact
+  expiring manifests, jobs, cache, accounting, cancellation, recovery, atomic publication, reopen,
+  and zero-submit unchanged replay. Day 1 expects one successful call per stage and normally allows
+  no more than four provider submissions total. The user's 2026-07-24 standing authorization
+  covers the additional exact bounded manifests needed to finish M15.1 without relaxing their
+  individual call ceilings or identity/privacy/freshness audits.
+- Temporary choices remain local to their parent section, with ordered exact-caption arms, nested
+  ownership, compact proven rejoins, and exactly-once continuation. M10/M11 authority and all
+  M12/M13 compatibility surfaces remain preserved.
+- Narrative mode uses normal-flow semantic HTML in a bounded vertical column, not a world canvas.
+  It must remain readable at 100% and 200%, keep connectors local, avoid horizontal page scroll and
+  fit-all shrink, and map every interactive item to matching Detail/Evidence.
+- The exact private Day 1 fixture is the first acceptance target. Private source, oracle, handoff,
+  mockups, derived prose, and images never enter Git or provider input; original inputs remain
+  read-only and no game, creator, or Ren'Py execution occurs.
+- Use one coordinator, three separate visible Track A/B/C tasks/worktrees with bounded worker
+  branches and independent exact-head reviewer branches/worktrees, plus a separate final reviewer
+  that freezes a source-first result before comparing the same candidate with private references.
+- Correct the existing integration branch and PR #26 only; bounded worker and reviewer branches are
+  allowed, but no replacement integration branch, second PR, or new milestone may be created.
+  Require explicit user approval of actual final-head 100%/200% screenshots, then one final Windows
+  Release/package gate and exact passing pushed-head checks. Leave the PR open and unmerged.
+
+M15.1 itself is not complete yet. Phase 03 must deliver the whole-story synthesis and compact
+path-aware browser, Phase 04 must address full-game scaling/persistence/recovery, and Phase 05 must
+retire or isolate the rejected workflow and close final product acceptance. Historical Stage H/E
+criteria and PR #26 are not prerequisites for the supported Story Map V2 path.
+
 ## 8. Product completion definition
 
 After M05, the planned product is complete when the user can:
@@ -1202,7 +1358,10 @@ integration, Windows verification, completion reports, and milestone infographic
   exclusions, and return contract.
 - Record every worker in `docs/milestones/<milestone-id>/TASKS.md`.
 - Inspect actual diffs and evidence; a worker saying "done" is not proof.
-- Integrate on one milestone branch and use one PR per milestone.
+- Integrate on one milestone branch and normally use one PR per milestone. A user-approved
+  multi-phase correction may instead merge each accepted phase through its own clean PR so later
+  phases start from updated `main`; keep only one active phase contract and one integration PR at
+  a time.
 - Never merge a PR without explicit user approval.
 - Do not begin the next milestone until the current milestone has passed Windows acceptance,
   documentation, native infographic generation, and user review.
@@ -1257,7 +1416,65 @@ and unresolved items.
 
 ## 11. Current next action
 
-M13 is `Complete`. Corrective PR #24 merged into `main` as
-`3fff4762ce3e46174723e2adf35c2f7db19f2b2e` after exact final-head Release CI passed. Do not
-perform another provider/live transmission or begin M14 without separate user approval. M14
-remains deferred and no roadmap successor is active.
+After the clean Phase 01/02 delivery is merged and local `main` is synchronized, start one new
+user-visible Phase 03 Coordinator task with `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`. It must
+create one active Phase 03 goal, run the single early semantic-review gate, and coordinate separate
+visible worktree tracks for whole-story synthesis/storage, the compact vertical browser, and
+witness-path/Detail-Evidence navigation.
+
+The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
+mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
+or begin Phase 04/05 or M14. Phase 03 ends with its own reviewed, passing PR open and unmerged for
+explicit user approval.
+
+### Rejected historical next action
+
+In the rejected historical plan, M15.1 was the single active correction inside M15 and its native
+goal remained active. Exact Stage H
+manifest `consent_5181073c41933f07c2ccc887` executed while valid, exhausted its initial plus one
+repair, and failed closed with `uncertain_membership` without publishing a hierarchy. Commit
+`70f60eb` corrects the contradictory prompt/repair policy with new consent identity while
+preserving truthful fail-closed uncertainty; repeated semantic review is `PASS`, and independent
+exact-head rereview passed `e33b773` with no P0-P2. Fresh v5 manifest
+`consent_14655be0e14020371cdf104f` then failed closed after two calls with
+`semantic_reinterpretation`. Failing-first lock-policy correction `b97fa47` preserves Python's
+byte-for-byte enforcement while mapping whole-scope internal locks explicitly for the repair
+provider; repeated semantic review and exact-head review are `PASS`. V6 then failed closed with
+`uncertain_membership`; ambiguity-threshold correction `b81dbad` preserves Python rejection while
+directing ordinary editorial ambiguity to confidence/warnings or singleton beats, and independent
+rereview passed `dc5a631` with no P0-P2. V7 manifest `consent_0ef74a1324d245a21acfb2c5` then used
+two calls and failed closed with `invalid_beat_group`, producing no hierarchy/publication or Stage E
+activity. The failing-first prompt-v5/repair-policy-v6 correction explicitly covers every typed beat
+invariant omitted from generic repair guidance without weakening Python rejection. Repeated semantic
+review is `PASS`; independent exact-head rereview passed `6ab84ab` with no P0-P2. V8 exact manifest
+`consent_3c1c64df0020fdb6f6733561` then used two calls and failed closed with
+`hierarchy_not_representable`, producing no hierarchy/publication or Stage E activity. Provider-free
+diagnosis proved that all 732 Day 1 units carry three assembler progression states with two
+transitions, but Stage H did not project `progression_id`. First review then found that context
+splits alone conflict with choice-owned parent/arm/rejoin clustering. The corrected input-v5/
+prompt-v8/repair-policy-v9 path projects compact authority-bound progression runs and inclusive
+choice range endpoints into existing choice hard locks, gives them precedence over context splits,
+and enforces them without weakening
+validation. Repeated semantic review is `PASS`; independent exact-head rereview passed `19258ba`
+with no P0-P2, and the full exact-head suite passed 1,503 tests with five expected opt-in skips.
+V9 manifest `consent_8f0c4d16185f61f8d2e194ee` then used two calls and failed closed with
+`hierarchy_authority_invalid`, creating no hierarchy/publication or Stage E state. The current
+prompt-v9/repair-policy-v10/product-v5 revision types choice-cluster-only failures, preserves valid
+beats byte-for-byte during repair, and unlocks only clusters. V10 then exhausted both slots: its
+first response completed, but the cluster-only repair timed out while retransmitting 732 locked
+beats. Prompt v10/repair policy v11/product v6 permit only that repair to return an empty beat list
+and rehydrate exact validated locked beats locally. V11 proved the compact repair completes, then
+failed closed because the provider returned nonempty uncertainty despite exact evidence for every
+unit and an always-available conservative singleton placement. Prompt v11/repair policy v12/
+product v7/response schema v4 bind those Python-proven preparation invariants and require empty
+uncertainty at provider transport; local fake/historical validation remains fail-closed. Focused
+tests pass 132/132; repeated semantic review is `PASS`, and independent exact-head review passed
+`6d99fd4` with no P0-P2.
+The user granted standing authorization for all remaining M15.1 gates and bounded runs, so routine
+per-manifest approval pauses are removed while exact freshness, identity, privacy, fingerprint,
+and resource-limit audits remain mandatory. A successful frozen hierarchy must then be reviewed blind before
+separately presenting Stage E for consent. After final blind/private review, obtain user approval
+of actual final-head screenshots and run one final Release/package/PR-head gate on existing open
+unmerged PR #26. Do not exceed each exact manifest's bounded call limit, create a replacement
+integration branch or second PR, expand to full-game scope, begin
+M14, merge the PR, or commit private evaluation material.
