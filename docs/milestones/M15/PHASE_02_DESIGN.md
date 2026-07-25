@@ -182,14 +182,15 @@ unloads it.
 
 - Natural boundary, branch-density, rejoin-cluster, oversized-cluster tests prove chunk policy.
 - Linear, local rejoin, persistent, nested, cross-arm, conditional, and unresolved fixtures prove
-  mechanics overlay and branch-lineage rejection without private hard-coding.
+  mechanics overlay, exact branch lineage, and conservative common-prefix normalization without
+  private hard-coding.
 - Range/order and invented choice/arm cases prove mapper validation.
 - Fake all-cloud, refusal/fallback enabled, refusal/fallback disabled, deliberate local-only, local
   unavailable/identity mismatch, timeout, rate limit, bad JSON, cancellation, and partial assembly
   cases prove execution policy.
-- Exact-caption quotation, setup-control filtering, stable nested target, ambiguous cross-arm
-  rejection, and transitive dependency/import tests prove the Python/AI and architecture
-  boundaries.
+- Exact-caption quotation, validated setup-control filtering, stable nested target, conservative
+  cross-arm common-prefix anchoring, and transitive dependency/import tests prove the Python/AI
+  and architecture boundaries.
 - Relevant M10/M11/M12, ingestion, privacy/isolation, source-navigation, and package-import
   regressions protect lower-level authority.
 

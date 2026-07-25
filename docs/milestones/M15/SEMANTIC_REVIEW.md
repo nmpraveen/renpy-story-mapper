@@ -88,8 +88,8 @@ Visible reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed exact clea
 4. the provider transition diagram omitted the approved deliberate `local_only` mode.
 
 This was the one permitted bounded correction. `MASTER_PLAN.md` and the goal assumption are
-reconciled. `PHASE_02_DESIGN.md` now defines deterministic arm-lineage binding, ambiguous-range
-rejection, exact anchor/status inputs, self-contained V2 cloud/loopback transports with a
+reconciled. The reviewed design at that head defined deterministic arm-lineage binding,
+ambiguous-range rejection, exact anchor/status inputs, self-contained V2 cloud/loopback transports with a
 transitive dependency gate, and a fully previewed local-only path.
 
 The same visible reviewer rereviewed exact corrected head
@@ -99,3 +99,17 @@ were clean, and the simple design still excludes every rejected architecture and
 scope. Shared contract/failing-first work and dependency-ready Track dispatch may now begin.
 
 PASS
+
+## Provider-evidenced overlay seam amendment
+
+The first schema-valid v2 live response proved that the compact story-only packet and the original
+strict range rule were incompatible: approximate events legitimately bridged omitted technical
+lines, described whole choice clusters, and contained one ordered overlap. Under the user's
+standing final authorization, correction `574cbeb` amended only this seam. Python now intersects
+rough ranges with retained story spans, partitions an ordered overlap at the later start, and maps
+mixed-lineage clusters only to their longest common proven lineage prefix with unresolved status
+and an explicit warning. It still rejects unknown paths, out-of-bounds ranges, equal/reverse event
+starts, invented choice keys or arm ordinals, and never selects a sibling destination. Validated
+setup-control summaries are filtered rather than promoted. This empirical amendment does not add a
+new architecture or provider call and requires its own exact-head correctness review before the
+retained response can be reassembled.

@@ -536,14 +536,14 @@ def validate_and_overlay(
             raise MapperValidationError(
                 f"branch summary references unknown chunk choice {summary.choice_key!r}"
             )
-        if not choice.story_choice:
-            continue
         mechanic = _arm(choice, summary.arm_order)
         if mechanic is None:
             raise MapperValidationError(
                 f"branch summary references unknown arm {summary.arm_order} "
                 f"for choice {summary.choice_key!r}"
             )
+        if not choice.story_choice:
+            continue
         order = (_choice_position(choice, chunk_spans, positions), mechanic.order)
         if previous_branch is not None and order <= previous_branch:
             raise MapperValidationError("branch summaries are out of deterministic source order")

@@ -779,6 +779,19 @@ def test_setup_control_is_not_promoted_to_story_choice_or_branch_outcome() -> No
     assert filtered.branch_outcomes == ()
     assert filtered.status is ChunkStatus.PARTIAL
 
+    with pytest.raises(MapperValidationError, match="unknown arm 999"):
+        validate_and_overlay(
+            fixture,
+            chunk,
+            MapperResponse(
+                None,
+                None,
+                (),
+                (BranchSummary(CHOICE_KEY, 999, "Invalid setup arm"),),
+            ),
+            origin=ProviderOrigin.CLOUD,
+        )
+
 
 def test_mixed_span_reachability_becomes_honestly_unresolved_with_warning() -> None:
     fixture = scope(
