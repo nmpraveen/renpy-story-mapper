@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: In progress
+Status: Blocked in Verification
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -9,6 +9,38 @@ Integration branch: `codex/m15-msday1-narrative-map`
 Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), open and unmerged.
 
 ## Current Phase 02 outcome
+
+### Current verification snapshot
+
+Track A reviewed exact head `319d13e99fe1eed99b3e6cbc51695d6ca7d37e26` and Track B reviewed
+exact head `ca9cd4afd0f27d7926ed5d246f3aa738267816ac`; both reviewers returned `PASS` with
+no unresolved P0-P2. The integrated provider-neutral and execution implementation is present
+through `609813b`. Private zero-submit diagnosis then produced generalized adapter correction
+`cbbe3ef`: unresolved external selectors remain non-story, quoted Ren'Py story statements are
+distinguished from executable statements, and physical path/line order remains authoritative when
+M11 omits a canonical node. The combined Story Map V2 plus relevant M10/M11/M12/workflow suite
+passed 287 tests in 2.92 seconds. Ruff, strict mypy over the complete V2 package, the transitive
+forbidden-import gate, and whitespace passed.
+
+The final zero-submit preview bound confirmation hash
+`2d6b67f7425b43a84ba913078b36ecf8205aa3f97fcfe68ceceaa65b8f72fa98` to the unchanged
+private input identities, two source-ordered chunks, a 9,376-token maximum chunk, exact
+`gpt-5.6-luna` / High / fast-off settings, `raw_text` plus `mechanics` only, disabled local
+fallback, and exactly four story choices/eight arms. The one authorized execution ran once with
+that exact confirmation. Both sterile CLI processes returned sanitized transport failures before
+any hosted submission: the ledger records two missing results, `hosted_attempts=0`, no token usage,
+no resolved model, and no validation failure. Per contract, there was no semantic retry, local
+fallback, or second story run.
+
+The outside-Git `story-map-v2-core.json` and Markdown preview are therefore honestly `partial` with
+0/2 completed chunks. They preserve the exact four story choices, eight arms, effects, and known
+rejoins, but contain no provider-generated narrative events or outcomes and cannot prove the
+required recognizable Day 1 coverage. The milestone remains blocked in `Verification`; the native
+goal stays active, PR #26 stays draft/unmerged, and no `PR ready` or completion claim is permitted.
+The frozen private evidence directory is
+`C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
+
+### Earlier Phase 02 implementation log (superseded by the snapshot above)
 
 The user started the approved Phase 02 coordinator handoff. Preflight passed: the designated
 integration worktree is clean at `f914908621efb6ccf1728e3028c6176f961e5a7e` on
@@ -151,7 +183,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | In progress | Contract, goal, preflight, bounded early-review correction/`PASS`, and shared freeze `e72fe41` are recorded. Track A/B implementation is next; private calls, push, and PR mutation remain paused. |
+| Phase 02 core rewrite | Blocked in Verification | Track A/B exact-head reviews passed; integrated head `cbbe3ef` passes 287 focused/relevant tests plus static gates. Zero-submit preview passed with exact 2-call plan and 4-choice/8-arm mechanics, but the one authorized execution made zero hosted submissions after two sterile CLI transport failures and preserved an honest 0/2 partial core. No retry occurred; provider-generated coverage and final review/PR readiness remain incomplete. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |
@@ -168,6 +200,11 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
   only; they are not M15.1 acceptance evidence.
 
 ## Current limitations
+
+- The one authorized Phase 02 execution stopped at the sterile CLI transport boundary before any
+  hosted submission. Its 0/2 partial core preserves deterministic mechanics but cannot satisfy the
+  provider-generated narrative and recognizable Day 1 coverage criteria. A further live run would
+  require an explicit contract/authorization decision; none was inferred or performed.
 
 - Rejected Stage H/E implementation is integrated locally in historical commits but no supported
   replacement core exists yet. The existing PR remains intentionally behind until Phase 02 creates

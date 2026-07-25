@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 02 core rewrite
 
-Status: In progress
+Status: Blocked in Verification
 
 Authority: `docs/MASTER_PLAN.md` and
 `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.
