@@ -82,7 +82,7 @@ EXPECTED_SETUP_END_LINE = 26
 EXPECTED_PROLOGUE_START_RANGE = (27, 51)
 BLOCKED_TITLES = {"start", "clean", "module ending", "technical merge"}
 
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 type NodeSpec = tuple[str, AtomKind, CanonicalNodeKind, str, str, dict[str, object]]
 type EdgeSpec = tuple[str, str, str, str, bool, dict[str, object]]
 type RegionSpec = tuple[str, str, str, str | None, tuple[str, ...], dict[str, object]]

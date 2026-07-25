@@ -12,7 +12,7 @@ STORY_MAP_V2_SCHEMA = f"story-map-v2-core-v{STORY_MAP_V2_SCHEMA_VERSION}"
 MAPPER_SCHEMA_VERSION = "story-map-v2-mapper-v2"
 PREVIEW_SCHEMA_VERSION = "story-map-v2-preview-v1"
 
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 
 
 def canonical_json(value: object) -> bytes:

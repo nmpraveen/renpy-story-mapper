@@ -20,7 +20,7 @@ M11_BOUNDARY_RULE_VERSION = "m11-boundary-rules-v2"
 MAX_BOUNDARY_REASON_LENGTH = 500
 MAX_PROVENANCE_REFERENCES = 100_000
 
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 
 class AtomKind(StrEnum):
     DIALOGUE = "dialogue"
