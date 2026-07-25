@@ -345,22 +345,22 @@ class CodexCliCloudTransport:
                         self._active = None
                 if process.poll() is None:
                     _stop_process(process)
-        if process.returncode != 0:
-            raise _classify_process_failure(stderr)
         try:
             response, metadata = _parse_jsonl(stdout)
         except ProviderFailure as exc:
-            self._observed_model = exc.resolved_model
-            self._observed_reasoning = exc.resolved_reasoning
-            self._observed_fast_mode = exc.resolved_fast_mode
-            self._input_tokens = exc.input_tokens
-            self._output_tokens = exc.output_tokens
-            self._last_accounting = self._accounting(
-                packet,
-                response_hash=None,
-                started=started,
-            )
-            raise
+            failure = exc
+            if process.returncode != 0 and not (
+                exc.kind is FailureKind.IDENTITY or _has_structured_failure_or_action(stdout)
+            ):
+                failure = _classify_process_failure(stderr)
+            self._record_failure(failure, packet=packet, started=started)
+            if failure is exc:
+                raise
+            raise failure from exc
+        if process.returncode != 0:
+            failure = _classify_process_failure(stderr)
+            self._record_failure(failure, packet=packet, started=started)
+            raise failure
         if len(metadata.models) == 1:
             self._observed_model = next(iter(metadata.models))
         if len(metadata.reasonings) == 1:
@@ -385,6 +385,18 @@ class CodexCliCloudTransport:
             started=started,
         )
         return response
+
+    def _record_failure(self, failure: ProviderFailure, *, packet: bytes, started: float) -> None:
+        self._observed_model = failure.resolved_model
+        self._observed_reasoning = failure.resolved_reasoning
+        self._observed_fast_mode = failure.resolved_fast_mode
+        self._input_tokens = failure.input_tokens
+        self._output_tokens = failure.output_tokens
+        self._last_accounting = self._accounting(
+            packet,
+            response_hash=None,
+            started=started,
+        )
 
     def _accounting(
         self,
@@ -557,6 +569,25 @@ def _parse_jsonl(raw: bytes) -> tuple[MapperResponse, _RuntimeMetadata]:
             output_tokens=output_tokens,
         ),
     )
+
+
+def _has_structured_failure_or_action(raw: bytes) -> bool:
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return False
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            event: object = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if _contains_forbidden_action(event):
+            return True
+        if isinstance(event, dict) and event.get("type") in {"error", "turn.failed"}:
+            return True
+    return False
 
 
 def _extract_payload(event: object) -> object | None:
@@ -754,6 +785,49 @@ def _classify_failure_text(category: str) -> ProviderFailure:
         for marker in ("unauthorized", "authentication", "not logged in", "login required", "401")
     ):
         return ProviderFailure(FailureKind.AUTHENTICATION, "Cloud authentication failed.")
+    if any(
+        marker in category
+        for marker in (
+            "output schema is invalid",
+            "output schema rejected",
+            "invalid output schema",
+            "unsupported output schema",
+            "schema for response_format",
+            "invalid_json_schema",
+            "json schema is invalid",
+            "json schema rejected",
+        )
+    ):
+        return ProviderFailure(
+            FailureKind.INVALID_RESPONSE, "The cloud mapper output schema was rejected."
+        )
+    runtime_setting_rejected = (
+        "model_reasoning_effort" in category
+        and any(
+            marker in category for marker in ("invalid value", "unknown variant", "unsupported")
+        )
+    ) or (
+        "fast_mode" in category
+        and any(
+            marker in category
+            for marker in ("unknown feature", "unrecognized feature", "feature not found")
+        )
+    )
+    if runtime_setting_rejected or any(
+        marker in category
+        for marker in (
+            "configuration error",
+            "configuration is invalid",
+            "invalid configuration",
+            "unknown config key",
+            "unknown configuration key",
+            "unsupported config",
+            "failed to parse config",
+        )
+    ):
+        return ProviderFailure(
+            FailureKind.IDENTITY, "The cloud mapper runtime configuration was rejected."
+        )
     if any(marker in category for marker in ("timed out", "timeout")):
         return ProviderFailure(FailureKind.TIMEOUT, "The cloud mapper timed out.")
     if any(

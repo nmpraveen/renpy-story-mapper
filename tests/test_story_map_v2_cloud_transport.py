@@ -328,6 +328,68 @@ def test_explicit_structured_content_refusal_is_distinct(tmp_path: Path) -> None
     assert transport.last_accounting.resolved_fast_mode is CLOUD_FAST_MODE
 
 
+def test_nonzero_process_preserves_structured_failure_and_accounting(tmp_path: Path) -> None:
+    process = FakeProcess(
+        _jsonl(
+            {
+                "type": "turn.failed",
+                "model": CLOUD_MAPPER_MODEL,
+                "reasoning_effort": CLOUD_REASONING,
+                "fast_mode": CLOUD_FAST_MODE,
+                "usage": {"input_tokens": 321, "output_tokens": 6},
+                "error": {
+                    "code": "content_policy_violation",
+                    "message": "SECRET-STORY provider detail",
+                },
+            }
+        ),
+        stderr=b"process failed SECRET-STORY raw text",
+        returncode=1,
+    )
+    transport = CodexCliCloudTransport(
+        process_factory=lambda _spec: process,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+
+    with pytest.raises(ProviderFailure) as failure:
+        transport.map_chunk(_chunk())
+
+    assert failure.value.kind is FailureKind.CONTENT_REFUSAL
+    assert "SECRET-STORY" not in str(failure.value)
+    assert transport.last_accounting is not None
+    assert transport.last_accounting.input_tokens == 321
+    assert transport.last_accounting.output_tokens == 6
+    assert transport.last_accounting.resolved_model == CLOUD_MAPPER_MODEL
+    assert transport.last_accounting.resolved_reasoning == CLOUD_REASONING
+    assert transport.last_accounting.resolved_fast_mode is CLOUD_FAST_MODE
+    assert "SECRET-STORY" not in repr(transport.last_accounting)
+
+
+@pytest.mark.parametrize(
+    ("stderr", "expected"),
+    [
+        (b"output schema rejected SECRET-STORY", FailureKind.INVALID_RESPONSE),
+        (b"unknown config key SECRET-STORY", FailureKind.IDENTITY),
+    ],
+)
+def test_nonzero_local_runtime_rejections_are_distinct_and_sanitized(
+    tmp_path: Path, stderr: bytes, expected: FailureKind
+) -> None:
+    process = FakeProcess(b"", stderr=stderr, returncode=1)
+    transport = CodexCliCloudTransport(
+        process_factory=lambda _spec: process,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+
+    with pytest.raises(ProviderFailure) as failure:
+        transport.map_chunk(_chunk())
+
+    assert failure.value.kind is expected
+    assert "SECRET-STORY" not in str(failure.value)
+    assert transport.last_accounting is not None
+    assert transport.last_accounting.response_hash is None
+
+
 @pytest.mark.parametrize(
     "metadata",
     [
