@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Blocked in Verification
+Status: Verification (resumed by explicit user authorization)
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -52,7 +52,7 @@ coherent 9,390-token packet, four choices/eight arms, accepted rejoin lines 165/
 accepted per-arm effect counts, exact Luna/High/fast-off, and disabled fallback. It is preview-only;
 no second live run was inferred or performed.
 
-The same Final Integration Reviewer performed the single permitted rereview at exact clean head
+The same Final Integration Reviewer performed the first corrected-head rereview at exact clean head
 `da7ecfa`. It confirmed all five original provider-free findings closed, recomputed corrected
 confirmation/chunk/packet/payload identity, matched every private caption/rejoin/effect set to the
 frozen deterministic authority, and reran 290 relevant checks plus static/containment/fingerprint
@@ -60,12 +60,23 @@ gates. Verdict remains `CHANGES_REQUIRED` with P0=0/P1=0/P2=1/P3=0: when a mappe
 schema-valid but fails `validate_and_overlay`, the outside-Git runner records a validation failure
 but supplies no failed `CoreChunk`, causing assembly to discard the exact execution provenance and
 emit an inaccurate no-result warning. The handoff's one bounded correction/rereview is exhausted;
-this second provider-free correction and another rereview require explicit user authorization.
+this second provider-free correction and another rereview required explicit user authorization.
 
-The milestone remains blocked in `Verification` because one provider-free P2 remains and the preserved historical partial core
-contains no provider-generated narrative events or outcomes and cannot prove recognizable Day 1
-coverage. The native goal stays active, PR #26 stays draft/unmerged, and no `PR ready` or completion
-claim is permitted.
+The user approved both on 2026-07-24: one second provider-free correction/rereview and, only after
+reviewer clearance, exactly one new live acceptance run. Correction `4b1b74d` adds an explicit
+invalid-mapper partial constructor: the core chunk becomes `partial` while retaining the untouched
+completed execution record and response that failed deterministic overlay. The outside-Git runner
+now uses this seam for `MapperValidationError`. A provider-free out-of-range-event probe produces
+one partial core chunk with `execution.status=complete` and one validation failure. The expanded
+relevant suite passes 294 tests in 3.07 seconds; Ruff, strict mypy over all ten V2 modules, import
+isolation, whitespace, and runner compilation pass. Same-task rereview is required before the new
+live authorization can be spent.
+
+The milestone has resumed in `Verification`. The preserved historical partial core contains no
+provider-generated narrative events or outcomes and cannot prove recognizable Day 1 coverage.
+The native goal remains incomplete, PR #26 stays draft/unmerged, and no `PR ready` or completion
+claim is permitted before corrected-head review, the newly authorized live run, artifact audit,
+final review, and PR checkpoint pass.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
 

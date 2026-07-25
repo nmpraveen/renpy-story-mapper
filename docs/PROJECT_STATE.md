@@ -1,12 +1,12 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 02 blocked in verification after zero-submit transport stop)
+Updated: 2026-07-24 (Phase 02 verification resumed by explicit user authorization)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Status: Blocked.
+- Status: Verification.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
@@ -33,11 +33,14 @@ Updated: 2026-07-24 (Phase 02 blocked in verification after zero-submit transpor
   Same-task rereview at exact clean head `da7ecfa` closed all five original provider-free findings
   but returned `CHANGES_REQUIRED` with P0=0/P1=0/P2=1/P3=0: a schema-valid but overlay-invalid
   response still loses execution provenance in the outside-Git runner before partial assembly. The
-  single permitted correction/rereview is exhausted; a second correction/rereview requires explicit
-  user authorization.
-  No retry or second story run occurred. The milestone is `Blocked in Verification`; native goal
-  `019f9676-c357-7803-a891-f03782bbb8ee` remains active and PR #26 remains draft/unmerged because
-  provider-generated Day 1 coverage is unproven.
+  first correction/rereview found one remaining provider-free P2. The user explicitly authorized a
+  second provider-free correction/rereview and one new live run only after reviewer clearance.
+  Correction `4b1b74d` now preserves the untouched completed execution record when deterministic
+  overlay rejects a schema-valid mapper response; its provider-free probe passes. The expanded
+  relevant suite passes 294 tests plus all static gates. The milestone has resumed in
+  `Verification`; native goal `019f9676-c357-7803-a891-f03782bbb8ee` remains incomplete and PR #26
+  remains draft/unmerged because corrected-head review and provider-generated Day 1 coverage are
+  not yet proven.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded
