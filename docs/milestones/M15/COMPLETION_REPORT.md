@@ -48,6 +48,12 @@ Ruff, strict mypy, and whitespace pass. No guessed reachable default is used and
 input/output is no longer discarded. Track A may resume against this corrected seam; A2's old WIP
 is not integration-ready.
 
+The coordinator's provenance audit then proved that `ChunkExecutionResult` and `CoreChunk` retained
+origin and usage but not the exact requested/resolved model settings required by the contract.
+The execution record now carries model, reasoning, and fast-mode identity and is retained directly
+on its core chunk alongside timing, hashes, usage, and sanitized failure state. Nine shared contract
+tests and the same static gates pass.
+
 Provider-neutral product implementation is in progress. No private provider call, push, or PR
 mutation has occurred in Phase 02 yet.
 

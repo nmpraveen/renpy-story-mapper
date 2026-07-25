@@ -7,6 +7,7 @@ import pytest
 
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
+    ChunkExecutionResult,
     ChunkProfile,
     ChunkStatus,
     CoreBranchOutcome,
@@ -147,6 +148,38 @@ def test_core_chunk_retains_mapper_scope_text_and_python_anchored_branch_outcome
     )
     assert core.title == "A difficult route"
     assert core.overview == "The group decides how to proceed."
+
+
+def test_core_chunk_retains_exact_per_chunk_provider_provenance() -> None:
+    execution = ChunkExecutionResult(
+        chunk_identity="chunk-1",
+        origin=ProviderOrigin.CLOUD,
+        status=ChunkStatus.COMPLETE,
+        response=None,
+        failure_kind=None,
+        elapsed_ms=25,
+        response_hash="d" * 64,
+        sanitized_reason=None,
+        input_tokens=120,
+        output_tokens=30,
+        requested_model="gpt-5.6-luna",
+        resolved_model="gpt-5.6-luna",
+        reasoning="high",
+        fast_mode=False,
+    )
+    chunk = CoreChunk(
+        chunk_identity="chunk-1",
+        status=ChunkStatus.COMPLETE,
+        origin=ProviderOrigin.CLOUD,
+        events=(),
+        choices=(),
+        execution=execution,
+    )
+
+    assert chunk.execution == execution
+    assert chunk.execution.resolved_model == "gpt-5.6-luna"
+    assert chunk.execution.reasoning == "high"
+    assert chunk.execution.fast_mode is False
 
 
 def test_story_map_v2_has_no_transitive_historical_semantic_dependency() -> None:

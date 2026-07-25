@@ -315,6 +315,7 @@ class CoreChunk:
     branch_outcomes: tuple[CoreBranchOutcome, ...] = ()
     scope_title: str | None = None
     scope_overview: str | None = None
+    execution: ChunkExecutionResult | None = None
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -386,3 +387,24 @@ class ChunkExecutionResult:
     sanitized_reason: str | None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    requested_model: str | None = None
+    resolved_model: str | None = None
+    reasoning: str | None = None
+    fast_mode: bool | None = None
+
+    def __post_init__(self) -> None:
+        _text(self.chunk_identity, "chunk identity")
+        if self.elapsed_ms < 0:
+            raise ValueError("elapsed milliseconds cannot be negative")
+        for value, label in (
+            (self.requested_model, "requested model"),
+            (self.resolved_model, "resolved model"),
+            (self.reasoning, "reasoning"),
+        ):
+            if value is not None:
+                _text(value, label)
+        for token_count in (self.input_tokens, self.output_tokens):
+            if token_count is not None and (
+                isinstance(token_count, bool) or token_count < 0
+            ):
+                raise ValueError("token accounting cannot be negative")

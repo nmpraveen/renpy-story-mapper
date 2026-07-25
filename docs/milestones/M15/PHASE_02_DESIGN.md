@@ -87,7 +87,9 @@ The validated core retains optional mapper scope title/overview text on the cont
 on the assembled core. Each accepted branch summary becomes a `CoreBranchOutcome` containing the
 AI-written outcome meaning plus the Python-owned choice key, arm ordinal, exact caption, stable
 anchor, reachability, and unresolved warnings. The compact core therefore does not discard the
-provider contribution it validated.
+provider contribution it validated. Every core chunk also retains its exact execution record:
+cloud/local/missing origin, requested and resolved model, reasoning/fast-mode identity, response
+hash, usage when reported, elapsed time, failure classification, and sanitized terminal reason.
 
 ## Validation and mechanics overlay
 

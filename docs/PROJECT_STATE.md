@@ -29,8 +29,11 @@ Updated: 2026-07-24 (Phase 02 implementation tracks active; reachability seam co
   hash referenced a compact digest that could not be transmitted. Coordinator-owned failing-first
   corrections now require Python-owned span reachability/warnings, canonical compact mechanics
   JSON in every chunk, and branch outcomes plus optional scope text in the core with exact
-  deterministic anchors. Eight shared contract tests plus Ruff, strict mypy, and whitespace pass.
-  Tracks resume from these corrected seams without guessing authority or discarding required text.
+  deterministic anchors. A final provenance audit adds requested/resolved model, reasoning,
+  fast-mode, usage, elapsed, response-hash, and sanitized failure fields to the execution record
+  retained by each core chunk. Nine shared contract tests plus Ruff, strict mypy, and whitespace
+  pass. Tracks resume from these corrected seams without guessing authority or discarding required
+  input, output, or provenance.
   Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
