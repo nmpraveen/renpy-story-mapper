@@ -274,7 +274,7 @@ def _choice_regions(
                     line=line,
                     arms=tuple(mechanics),
                     parent_lineage=parent_lineage,
-                    story_choice=_is_story_choice(member_sets, nodes, mechanics),
+                    story_choice=_is_story_choice(member_sets, nodes, edges, mechanics),
                 ),
             )
         )
@@ -487,6 +487,7 @@ def _reachability(value: ReachabilityStatus) -> Reachability:
 def _is_story_choice(
     arm_members: Sequence[frozenset[str]],
     nodes: Mapping[str, CanonicalNode],
+    edges: Mapping[str, CanonicalEdge],
     arms: Sequence[ArmMechanic],
 ) -> bool:
     """Require canonical story or route authority, not captions or arm-count guesses."""
@@ -502,9 +503,60 @@ def _is_story_choice(
         return True
     rejoin_ids = {arm.rejoin_node_id for arm in arms}
     has_shared_local_rejoin = len(rejoin_ids) == 1 and None not in rejoin_ids
-    return not has_shared_local_rejoin and bool(
-        source_kinds.intersection({"jump", "call", "return"})
+    if not has_shared_local_rejoin:
+        return bool(source_kinds.intersection({"jump", "call", "return"}))
+    narrative_call_targets = tuple(
+        _narrative_call_targets(members, nodes, edges) for members in arm_members
     )
+    return all(narrative_call_targets) and len(set(narrative_call_targets)) > 1
+
+
+def _narrative_call_targets(
+    member_ids: frozenset[str],
+    nodes: Mapping[str, CanonicalNode],
+    edges: Mapping[str, CanonicalEdge],
+) -> tuple[str, ...]:
+    outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    for edge in edges.values():
+        outgoing[edge.source_id].append(edge)
+    targets = {
+        edge.target_id
+        for node_id in member_ids
+        if (node := nodes.get(node_id)) is not None and node.attributes.get("source_kind") == "call"
+        for edge in outgoing.get(node_id, ())
+        if edge.kind == "call_enter" and _reachability(edge.reachability) is Reachability.REACHABLE
+    }
+    return tuple(
+        sorted(target for target in targets if _target_has_story_content(target, nodes, outgoing))
+    )
+
+
+def _target_has_story_content(
+    target_id: str,
+    nodes: Mapping[str, CanonicalNode],
+    outgoing: Mapping[str, Sequence[CanonicalEdge]],
+) -> bool:
+    pending = [target_id]
+    visited: set[str] = set()
+    while pending:
+        node_id = pending.pop()
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+        node = nodes.get(node_id)
+        if node is None:
+            continue
+        if (
+            node.attributes.get("source_kind") == "statement"
+            and _reachability(node.reachability) is Reachability.REACHABLE
+        ):
+            return True
+        pending.extend(
+            edge.target_id
+            for edge in outgoing.get(node_id, ())
+            if _reachability(edge.reachability) is Reachability.REACHABLE
+        )
+    return False
 
 
 def _source_order_key(scene_model: SceneModel | None):  # type: ignore[no-untyped-def]

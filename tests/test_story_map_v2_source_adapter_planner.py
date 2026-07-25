@@ -234,6 +234,61 @@ label configured:
     assert choice.arms[0].rejoin_node_id is not None
 
 
+def test_adapter_marks_distinct_narrative_call_detours_as_story_choice() -> None:
+    graph = _authority(
+        """label start:
+    menu:
+        "Visit the first scene":
+            call first_scene
+        "Visit the second scene":
+            call second_scene
+    "Together again."
+    return
+
+label first_scene:
+    "A first story moment."
+    return
+
+label second_scene:
+    "A second story moment."
+    return
+"""
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is True
+    assert len({arm.rejoin_node_id for arm in choice.arms}) == 1
+    assert choice.arms[0].rejoin_node_id is not None
+
+
+def test_adapter_keeps_distinct_setup_only_call_detours_non_story() -> None:
+    graph = _authority(
+        """label start:
+    menu:
+        "Use first setup":
+            call first_setup
+        "Use second setup":
+            call second_setup
+    return
+
+label first_setup:
+    $ configured = 1
+    return
+
+label second_setup:
+    $ configured = 2
+    return
+"""
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is False
+    assert len({arm.rejoin_node_id for arm in choice.arms}) == 1
+    assert choice.arms[0].rejoin_node_id is not None
+
+
 def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
     graph = _authority(
         """label start:
