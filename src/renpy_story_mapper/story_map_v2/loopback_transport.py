@@ -95,6 +95,7 @@ class LoopbackLmStudioTransport:
         self._input_tokens: int | None = None
         self._output_tokens: int | None = None
         self._input_hash: str | None = None
+        self._observed_model: str | None = None
 
     @property
     def resolved_model(self) -> str:
@@ -114,12 +115,19 @@ class LoopbackLmStudioTransport:
     def input_hash(self) -> str | None:
         return self._input_hash
 
+    @property
+    def observed_model(self) -> str | None:
+        """Return only identity observed from discovery or the current response."""
+
+        return self._observed_model
+
     def map_chunk(self, chunk: StoryChunk) -> MapperResponse:
         """Verify the loaded model and submit the exact shared serialized packet once."""
 
         self._input_tokens = None
         self._output_tokens = None
         self._input_hash = None
+        self._observed_model = None
         self._raise_if_cancelled()
         self._verify_loaded_model()
         self._raise_if_cancelled()
@@ -137,6 +145,8 @@ class LoopbackLmStudioTransport:
         )
         raw = self._request("POST", "/v1/chat/completions", body=request_body)
         value = _decode_json(raw, "The local mapper returned malformed JSON.")
+        if isinstance(value, dict) and isinstance(value.get("model"), str):
+            self._observed_model = value["model"]
         response, input_tokens, output_tokens = _parse_completion(value)
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
@@ -162,6 +172,8 @@ class LoopbackLmStudioTransport:
             for item in value["data"]
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         }
+        if len(identifiers) == 1:
+            self._observed_model = next(iter(identifiers))
         if LOCAL_MAPPER_MODEL not in identifiers:
             raise ProviderFailure(
                 FailureKind.IDENTITY, "The required local mapper model is not already loaded."
@@ -256,7 +268,7 @@ def _serialize_chunk_packet(chunk: StoryChunk) -> bytes:
             "chunk_identity": chunk.identity,
             "packet_hash": chunk.packet_hash,
             "raw_text": chunk.raw_text,
-            "mechanics": {"choice_keys": list(chunk.choice_keys)},
+            "mechanics": json.loads(chunk.mechanics),
         }
     )
 

@@ -20,6 +20,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     FailureKind,
     StoryChunk,
     canonical_hash,
+    canonical_json,
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
     CLOUD_MAPPER_MODEL,
@@ -33,6 +34,7 @@ def _chunk() -> StoryChunk:
         span_keys=("span:one",),
         choice_keys=("choice:one",),
         raw_text="1: A generalized story line.\n",
+        mechanics='{"choices":[{"key":"choice:one"}]}',
         raw_tokens=8,
         density=DensityMetrics(menus=1, arms=2),
         packet_hash=canonical_hash({"packet": "one"}),
@@ -159,7 +161,8 @@ def test_transport_uses_stdin_temp_cwd_and_sanitized_accounting(tmp_path: Path) 
     assert process.stdin is not None
     packet = json.loads(process.stdin)
     assert packet["raw_text"] == _chunk().raw_text
-    assert packet["mechanics"] == {"choice_keys": ["choice:one"]}
+    assert packet["mechanics"] == json.loads(_chunk().mechanics)
+    assert canonical_json(packet["mechanics"]) == _chunk().mechanics.encode()
     assert packet["packet_hash"] == _chunk().packet_hash
     assert transport.input_tokens == 80
     assert transport.output_tokens == 30
@@ -193,6 +196,28 @@ def test_schema_optional_scope_text_may_be_omitted(tmp_path: Path) -> None:
 
     assert response.scope_title is None
     assert response.scope_overview is None
+
+
+def test_missing_runtime_model_metadata_remains_honestly_unresolved(tmp_path: Path) -> None:
+    process = FakeProcess(
+        _jsonl(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": json.dumps(_response())},
+            }
+        )
+    )
+    transport = CodexCliCloudTransport(
+        process_factory=lambda _spec: process,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+
+    transport.map_chunk(_chunk())
+
+    assert transport.observed_model is None
+    assert transport.last_accounting is not None
+    assert transport.last_accounting.requested_model == CLOUD_MAPPER_MODEL
+    assert transport.last_accounting.resolved_model is None
 
 
 @pytest.mark.parametrize(
@@ -231,6 +256,8 @@ def test_reported_identity_substitution_fails_closed(
         transport.map_chunk(_chunk())
 
     assert raised.value.kind is expected
+    if "model" in metadata:
+        assert transport.observed_model == metadata["model"]
 
 
 def test_forbidden_action_and_stderr_are_sanitized(tmp_path: Path) -> None:

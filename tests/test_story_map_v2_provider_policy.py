@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import replace
 
@@ -16,6 +17,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     StoryChunk,
     StoryScope,
     canonical_hash,
+    canonical_json,
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
     CLOUD_MAPPER_MODEL,
@@ -77,6 +79,12 @@ class BlockingMapper(RecordingMapper):
         self.release.set()
 
 
+class UnresolvedIdentityMapper(RecordingMapper):
+    @property
+    def observed_model(self) -> None:
+        return None
+
+
 def _fixture(count: int = 1) -> tuple[StoryScope, tuple[StoryChunk, ...]]:
     spans = tuple(
         span(f"span-{index}", 10 * index + 1, 10 * index + 8, 100, boundary=True)
@@ -88,6 +96,7 @@ def _fixture(count: int = 1) -> tuple[StoryScope, tuple[StoryChunk, ...]]:
             span_keys=(item.key,),
             choice_keys=(),
             raw_text=item.raw_text,
+            mechanics='{"choices":[]}',
             raw_tokens=item.estimated_tokens,
             density=DensityMetrics(),
             packet_hash=canonical_hash({"span": item.key, "raw_text": item.raw_text}),
@@ -118,6 +127,76 @@ def _preview(
     )
 
 
+def test_all_cloud_success_records_exact_requested_and_observed_identity() -> None:
+    preview, chunks = _preview(fallback=False)
+    cloud = RecordingMapper(CLOUD_MAPPER_MODEL, [RESPONSE])
+
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: cloud,
+        local_factory=None,
+        cancelled=lambda: False,
+    )[0]
+
+    assert result.origin is ProviderOrigin.CLOUD
+    assert result.requested_model == result.resolved_model == CLOUD_MAPPER_MODEL
+    assert result.reasoning == "high" and result.fast_mode is False
+
+
+def test_cloud_failure_before_construction_keeps_resolved_identity_unknown() -> None:
+    preview, chunks = _preview(fallback=False)
+
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=None,
+        local_factory=None,
+        cancelled=lambda: False,
+    )[0]
+
+    assert result.failure_kind is FailureKind.TRANSPORT
+    assert result.requested_model == CLOUD_MAPPER_MODEL
+    assert result.resolved_model is None
+    assert result.reasoning == "high" and result.fast_mode is False
+
+
+def test_cloud_success_without_observed_runtime_identity_keeps_resolved_none() -> None:
+    preview, chunks = _preview(fallback=False)
+    cloud = UnresolvedIdentityMapper(CLOUD_MAPPER_MODEL, [RESPONSE])
+
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: cloud,
+        local_factory=None,
+        cancelled=lambda: False,
+    )[0]
+
+    assert result.requested_model == CLOUD_MAPPER_MODEL
+    assert result.resolved_model is None
+
+
+def test_cloud_factory_identity_mismatch_records_observed_substitute() -> None:
+    preview, chunks = _preview(fallback=False)
+
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: RecordingMapper("substitute", [RESPONSE]),
+        local_factory=None,
+        cancelled=lambda: False,
+    )[0]
+
+    assert result.failure_kind is FailureKind.IDENTITY
+    assert result.requested_model == CLOUD_MAPPER_MODEL
+    assert result.resolved_model == "substitute"
+
+
 def test_refusal_fallback_reuses_byte_identical_confirmed_packet() -> None:
     preview, chunks = _preview()
     cloud = RecordingMapper(
@@ -137,11 +216,16 @@ def test_refusal_fallback_reuses_byte_identical_confirmed_packet() -> None:
 
     assert cloud.chunks[0] is local.chunks[0] is chunks[0]
     assert cloud.packets == local.packets == [serialize_chunk_packet(chunks[0])]
+    packet = json.loads(cloud.packets[0])
+    assert canonical_json(packet["mechanics"]) == chunks[0].mechanics.encode()
+    assert packet["packet_hash"] == preview.packet_hashes[0] == chunks[0].packet_hash
     assert result.chunk_identity == chunks[0].identity
     assert result.origin is ProviderOrigin.LOCAL_FALLBACK
     assert result.status is ChunkStatus.COMPLETE
     assert result.input_tokens == 12 and result.output_tokens == 3
     assert result.sanitized_reason is None
+    assert result.requested_model == result.resolved_model == LOCAL_MAPPER_MODEL
+    assert result.reasoning is None and result.fast_mode is None
 
 
 def test_content_refusal_without_confirmed_fallback_remains_missing() -> None:
@@ -161,6 +245,8 @@ def test_content_refusal_without_confirmed_fallback_remains_missing() -> None:
     assert local_constructed == []
     assert result.origin is ProviderOrigin.MISSING
     assert result.failure_kind is FailureKind.CONTENT_REFUSAL
+    assert result.requested_model == result.resolved_model == CLOUD_MAPPER_MODEL
+    assert result.reasoning == "high" and result.fast_mode is False
     assert "private refusal text" not in (result.sanitized_reason or "")
 
 
@@ -194,13 +280,23 @@ def test_every_non_refusal_cloud_failure_never_constructs_local(kind: FailureKin
 
 
 @pytest.mark.parametrize(
-    ("factory", "expected"),
+    ("factory", "expected", "expected_resolved"),
     [
-        (lambda: (_ for _ in ()).throw(OSError("private endpoint")), FailureKind.LOCAL_UNAVAILABLE),
-        (lambda: RecordingMapper("wrong-model", [RESPONSE]), FailureKind.IDENTITY),
+        (
+            lambda: (_ for _ in ()).throw(OSError("private endpoint")),
+            FailureKind.LOCAL_UNAVAILABLE,
+            None,
+        ),
+        (
+            lambda: RecordingMapper("wrong-model", [RESPONSE]),
+            FailureKind.IDENTITY,
+            "wrong-model",
+        ),
     ],
 )
-def test_local_unavailable_or_mismatched_model_is_honestly_missing(factory, expected) -> None:
+def test_local_unavailable_or_mismatched_model_is_honestly_missing(
+    factory, expected, expected_resolved
+) -> None:
     preview, chunks = _preview()
     result = execute_chunks(
         preview,
@@ -216,6 +312,9 @@ def test_local_unavailable_or_mismatched_model_is_honestly_missing(factory, expe
     assert result.status is ChunkStatus.MISSING
     assert result.origin is ProviderOrigin.MISSING
     assert result.failure_kind is expected
+    assert result.requested_model == LOCAL_MAPPER_MODEL
+    assert result.resolved_model == expected_resolved
+    assert result.reasoning is None and result.fast_mode is None
 
 
 def test_local_only_constructs_zero_cloud_providers_and_submits_each_packet_once() -> None:
@@ -234,6 +333,8 @@ def test_local_only_constructs_zero_cloud_providers_and_submits_each_packet_once
     assert preview.maximum_hosted_planned == preview.maximum_hosted_absolute == 0
     assert local.packets == [serialize_chunk_packet(chunk) for chunk in chunks]
     assert [result.origin for result in results] == [ProviderOrigin.LOCAL_ONLY] * 2
+    assert all(result.requested_model == LOCAL_MAPPER_MODEL for result in results)
+    assert all(result.resolved_model == LOCAL_MAPPER_MODEL for result in results)
 
 
 def test_completed_chunk_is_retained_and_boundary_cancellation_cancels_active_mapper() -> None:

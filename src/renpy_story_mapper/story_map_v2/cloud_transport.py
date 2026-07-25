@@ -113,7 +113,7 @@ class ProcessSpec:
 @dataclass(frozen=True)
 class CloudAccounting:
     requested_model: str
-    resolved_model: str
+    resolved_model: str | None
     reasoning: str
     fast_mode: bool
     input_hash: str
@@ -227,9 +227,7 @@ def serialize_chunk_packet(chunk: StoryChunk) -> bytes:
             "chunk_identity": chunk.identity,
             "packet_hash": chunk.packet_hash,
             "raw_text": chunk.raw_text,
-            "mechanics": {
-                "choice_keys": list(chunk.choice_keys),
-            },
+            "mechanics": json.loads(chunk.mechanics),
         }
     )
 
@@ -270,6 +268,7 @@ class CodexCliCloudTransport:
         self._active: Process | None = None
         self._resolved_executable: str | None = None
         self._last_accounting: CloudAccounting | None = None
+        self._observed_model: str | None = None
         self._input_tokens: int | None = None
         self._output_tokens: int | None = None
 
@@ -291,6 +290,12 @@ class CodexCliCloudTransport:
     def last_accounting(self) -> CloudAccounting | None:
         return self._last_accounting
 
+    @property
+    def observed_model(self) -> str | None:
+        """Return only model identity actually emitted by the current provider call."""
+
+        return self._observed_model
+
     def cancel(self) -> None:
         self._cancelled.set()
         with self._lock:
@@ -300,6 +305,7 @@ class CodexCliCloudTransport:
 
     def map_chunk(self, chunk: StoryChunk) -> MapperResponse:
         self._last_accounting = None
+        self._observed_model = None
         self._input_tokens = None
         self._output_tokens = None
         if self._cancelled.is_set():
@@ -336,13 +342,15 @@ class CodexCliCloudTransport:
         if process.returncode != 0:
             raise _classify_process_failure(stderr)
         response, metadata = _parse_jsonl(stdout)
+        if len(metadata.models) == 1:
+            self._observed_model = next(iter(metadata.models))
         _verify_runtime_identity(metadata)
         self._input_tokens = metadata.input_tokens
         self._output_tokens = metadata.output_tokens
         response_hash = canonical_hash(asdict(response))
         self._last_accounting = CloudAccounting(
             requested_model=CLOUD_MAPPER_MODEL,
-            resolved_model=CLOUD_MAPPER_MODEL,
+            resolved_model=self._observed_model,
             reasoning=CLOUD_REASONING,
             fast_mode=CLOUD_FAST_MODE,
             input_hash=hashlib.sha256(packet).hexdigest(),

@@ -24,6 +24,7 @@ def _chunk() -> StoryChunk:
         span_keys=("span:one",),
         choice_keys=("choice:one",),
         raw_text='scripts/story.rpy:10 narrator "Hello"',
+        mechanics='{"choices":[{"key":"choice:one"}]}',
         raw_tokens=12,
         density=DensityMetrics(menus=1, arms=2),
         packet_hash=canonical_hash({"packet": "one"}),

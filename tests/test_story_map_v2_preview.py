@@ -35,6 +35,7 @@ def _fixture() -> tuple[StoryScope, tuple[StoryChunk, ...]]:
             span_keys=(item.key,),
             choice_keys=(),
             raw_text=item.raw_text,
+            mechanics='{"choices":[]}',
             raw_tokens=item.estimated_tokens,
             density=DensityMetrics(),
             packet_hash=canonical_hash({"span": item.key, "raw_text": item.raw_text}),
