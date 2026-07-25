@@ -27,7 +27,7 @@ from renpy_story_mapper.story_map_v2.mapper_io import (
     MapperResponseValidationError,
     validate_mapper_response,
 )
-from renpy_story_mapper.story_map_v2.planner import mechanics_digest
+from renpy_story_mapper.story_map_v2.planner import mechanics_digest, render_chunk_raw_text
 
 
 class MapperValidationError(ValueError):
@@ -68,7 +68,7 @@ def _chunk_authority(
     expected_choice_keys = tuple(
         dict.fromkeys(key for span in chunk_spans for key in span.choice_keys)
     )
-    expected_raw_text = "".join(span.raw_text for span in chunk_spans)
+    expected_raw_text = render_chunk_raw_text(chunk_spans)
     expected_mechanics = mechanics_digest(scope, expected_choice_keys)
     expected_hash = canonical_hash(
         {
@@ -96,9 +96,7 @@ def _arm(choice: ChoiceMechanic, order: int) -> ArmMechanic | None:
     return next((item for item in choice.arms if item.order == order), None)
 
 
-def _is_prefix(
-    prefix: tuple[ArmLineageStep, ...], value: tuple[ArmLineageStep, ...]
-) -> bool:
+def _is_prefix(prefix: tuple[ArmLineageStep, ...], value: tuple[ArmLineageStep, ...]) -> bool:
     return len(prefix) <= len(value) and value[: len(prefix)] == prefix
 
 
@@ -106,13 +104,20 @@ def _validate_lineage(
     lineage: tuple[ArmLineageStep, ...], choices: dict[str, ChoiceMechanic]
 ) -> None:
     seen: set[str] = set()
+    declared_external_ancestors = {
+        step for choice in choices.values() for step in choice.parent_lineage
+    }
     for index, step in enumerate(lineage):
         if step.choice_key in seen:
             raise MapperValidationError("authoritative arm lineage repeats a choice key")
         seen.add(step.choice_key)
         choice = choices.get(step.choice_key)
         if choice is None:
-            continue
+            if step in declared_external_ancestors:
+                continue
+            raise MapperValidationError(
+                f"authoritative arm lineage references unknown choice {step.choice_key!r}"
+            )
         if _arm(choice, step.arm_order) is None:
             raise MapperValidationError(
                 f"arm lineage references unknown arm {step.arm_order} for {step.choice_key!r}"
@@ -168,7 +173,17 @@ def _effective_lineage(
     else:
         lineage = span.arm_lineage
     if span.shared_continuation and lineage:
-        raise MapperValidationError("shared continuation cannot retain branch arm lineage")
+        for key in span.choice_keys:
+            choice = choices.get(key)
+            if choice is None:
+                continue
+            rejoin_lines = {
+                mechanic.rejoin_line
+                for mechanic in choice.arms
+                if mechanic.rejoin_node_id is not None and mechanic.rejoin_line is not None
+            }
+            if rejoin_lines and start_line >= min(rejoin_lines):
+                lineage = choice.parent_lineage
     return lineage
 
 
@@ -282,8 +297,7 @@ def _anchor(
         "relative_path": relative_path,
         "line": line,
         "arm_lineage": [
-            {"choice_key": step.choice_key, "arm_order": step.arm_order}
-            for step in lineage
+            {"choice_key": step.choice_key, "arm_order": step.arm_order} for step in lineage
         ],
         "destination_id": destination_id,
     }
@@ -411,6 +425,8 @@ def _validate_execution(
         raise MapperValidationError("execution origin does not match the overlaid chunk")
     if execution.status is not status:
         raise MapperValidationError("execution status does not match the overlaid chunk")
+    if status is ChunkStatus.COMPLETE and execution.response is None:
+        raise MapperValidationError("complete execution must retain the overlaid mapper response")
     if execution.response is not None and execution.response != response:
         raise MapperValidationError(
             "execution mapper response does not match the overlaid response"
@@ -482,9 +498,7 @@ def validate_and_overlay(
             )
         )
 
-    exact_choices = tuple(
-        choices[key] for key in chunk.choice_keys if choices[key].story_choice
-    )
+    exact_choices = tuple(choices[key] for key in chunk.choice_keys if choices[key].story_choice)
     has_narrative = bool(events or outcomes)
     status = ChunkStatus.COMPLETE if has_narrative else ChunkStatus.PARTIAL
     if execution is not None:

@@ -113,6 +113,33 @@ def test_mapper_request_serializes_exact_line_numbered_story_and_canonical_mecha
     assert payload["mechanics"]["choices"][0]["arms"][0]["caption"] == "Take the ridge"
 
 
+def test_mapper_request_qualifies_duplicate_line_numbers_with_exact_source_paths() -> None:
+    first = span("first", 1, 1, 100)
+    second = replace(span("second", 1, 1, 100), relative_path="scripts/other.rpy")
+    fixture = scope((first, second))
+    chunk = plan_chunks(fixture)[0]
+
+    payload = json.loads(serialize_mapper_request(chunk))
+    assert '@@SOURCE {"end_line":1,"path":"scripts/day.rpy","start_line":1}' in chunk.raw_text
+    assert '@@SOURCE {"end_line":1,"path":"scripts/other.rpy","start_line":1}' in chunk.raw_text
+    assert payload["raw_text"] == chunk.raw_text
+
+    response = MapperResponse(
+        None,
+        None,
+        (
+            MapperEvent("First", "First file.", "scripts/day.rpy", 1, 1),
+            MapperEvent("Second", "Second file.", "scripts/other.rpy", 1, 1),
+        ),
+        (),
+    )
+    core = validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+    assert tuple(item.relative_path for item in core.events) == (
+        "scripts/day.rpy",
+        "scripts/other.rpy",
+    )
+
+
 def test_mapper_request_rejects_non_numbered_text_and_mismatched_mechanics_keys() -> None:
     fixture = _choice_scope()
     chunk = plan_chunks(fixture)[0]
@@ -326,9 +353,7 @@ def test_overlay_rejects_cross_sibling_and_arm_to_post_rejoin_ranges() -> None:
         (),
     )
     with pytest.raises(MapperValidationError, match="lineage"):
-        validate_and_overlay(
-            local_scope, local_chunk, arm_to_rejoin, origin=ProviderOrigin.CLOUD
-        )
+        validate_and_overlay(local_scope, local_chunk, arm_to_rejoin, origin=ProviderOrigin.CLOUD)
 
 
 def test_proven_shared_rejoin_is_a_spine_event_with_python_span_status() -> None:
@@ -350,6 +375,7 @@ def test_proven_shared_rejoin_is_a_spine_event_with_python_span_status() -> None
 
 def test_nested_branch_outcome_uses_full_python_lineage_caption_and_destination() -> None:
     outer = ArmLineageStep("scripts/day.rpy:5", 2)
+    outer_choice = replace(choice(key=outer.choice_key), line=5)
     nested_choice = choice(parent=(outer,))
     lineage = (outer, ArmLineageStep(CHOICE_KEY, 1))
     fixture = scope(
@@ -363,7 +389,7 @@ def test_nested_branch_outcome_uses_full_python_lineage_caption_and_destination(
                 choice_keys=(CHOICE_KEY,),
             ),
         ),
-        choices=(nested_choice,),
+        choices=(outer_choice, nested_choice),
     )
     chunk = plan_chunks(fixture)[0]
     response = MapperResponse(
@@ -379,6 +405,93 @@ def test_nested_branch_outcome_uses_full_python_lineage_caption_and_destination(
     assert core.branch_outcomes[0].caption == "Take the ridge"
     assert core.branch_outcomes[0].anchor.arm_lineage == lineage
     assert core.branch_outcomes[0].anchor.destination_id == "node:ridge"
+
+
+def test_nested_shared_rejoin_drops_only_inner_lineage_step() -> None:
+    outer_key = "scripts/day.rpy:5"
+    outer_step = ArmLineageStep(outer_key, 1)
+    outer_choice = replace(
+        choice(key=outer_key),
+        line=5,
+        arms=(
+            replace(choice(key=outer_key).arms[0], start_line=6, end_line=70, rejoin_line=80),
+            replace(choice(key=outer_key).arms[1], start_line=71, end_line=79, rejoin_line=80),
+        ),
+    )
+    inner_choice = choice(parent=(outer_step,))
+    fixture = scope(
+        (
+            span(
+                "inner-rejoin",
+                40,
+                45,
+                100,
+                lineage=(outer_step,),
+                choice_keys=(outer_key, CHOICE_KEY),
+                shared=True,
+            ),
+        ),
+        choices=(outer_choice, inner_choice),
+    )
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Inner rejoin", "The inner routes reunite.", "scripts/day.rpy", 40, 45),),
+        (),
+    )
+
+    core = validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+    assert core.events[0].anchor.arm_lineage == (outer_step,)
+
+
+def test_overlay_rejects_unknown_choice_in_authoritative_lineage() -> None:
+    fixture = scope(
+        (
+            span(
+                "unknown-lineage",
+                1,
+                5,
+                100,
+                lineage=(ArmLineageStep("scripts/day.rpy:unknown", 1),),
+            ),
+        )
+    )
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Unknown", "Unknown lineage.", "scripts/day.rpy", 1, 5),),
+        (),
+    )
+
+    with pytest.raises(MapperValidationError, match="unknown choice"):
+        validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+
+def test_complete_overlay_requires_exact_execution_response() -> None:
+    fixture = scope((span("only", 1, 5, 100),))
+    chunk = plan_chunks(fixture)[0]
+    response = _event_response()
+    execution = _execution(chunk, response)
+
+    with pytest.raises(MapperValidationError, match="must retain"):
+        validate_and_overlay(
+            fixture,
+            chunk,
+            response,
+            origin=ProviderOrigin.CLOUD,
+            execution=replace(execution, response=None),
+        )
+    with pytest.raises(MapperValidationError, match="does not match"):
+        validate_and_overlay(
+            fixture,
+            chunk,
+            response,
+            origin=ProviderOrigin.CLOUD,
+            execution=replace(execution, response=MapperResponse(None, None, (), ())),
+        )
 
 
 def test_conditional_persistent_unresolved_branch_keeps_exact_python_mechanics() -> None:

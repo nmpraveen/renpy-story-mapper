@@ -54,8 +54,9 @@ class _Unit:
 def mechanics_digest(scope: StoryScope, choice_keys: Iterable[str]) -> str:
     """Return the compact deterministic mechanics packet for the selected choices."""
 
-    selected = set(choice_keys)
-    choices = [choice for choice in scope.choices if choice.key in selected]
+    ordered_keys = tuple(choice_keys)
+    choices_by_key = {choice.key: choice for choice in scope.choices}
+    choices = [choices_by_key[key] for key in ordered_keys if key in choices_by_key]
     value = {
         "choices": [
             {
@@ -130,9 +131,7 @@ def _choice_intervals(scope: StoryScope) -> tuple[tuple[int, int], ...]:
     result: list[tuple[int, int]] = []
     for choice in scope.choices:
         indices = [
-            index
-            for index, span in enumerate(scope.spans)
-            if _span_in_choice_cluster(span, choice)
+            index for index, span in enumerate(scope.spans) if _span_in_choice_cluster(span, choice)
         ]
         if indices:
             result.append((min(indices), max(indices)))
@@ -147,8 +146,9 @@ def _span_in_choice_cluster(span: SourceSpan, choice: ChoiceMechanic) -> bool:
     if has_local_rejoin and choice.key in span.choice_keys:
         return True
     if not has_local_rejoin:
-        anchor_lines = {choice.line, *(arm.start_line for arm in choice.arms)}
-        return any(span.start_line <= line <= span.end_line for line in anchor_lines)
+        first_line = min(choice.line, *(arm.start_line for arm in choice.arms))
+        last_line = max(arm.end_line for arm in choice.arms)
+        return span.start_line <= last_line and span.end_line >= first_line
     last_line = max(
         (
             arm.rejoin_line
@@ -205,7 +205,7 @@ def _choose_end(
 
 def _story_chunk(scope: StoryScope, spans: Sequence[SourceSpan], index: int) -> StoryChunk:
     choice_keys = tuple(dict.fromkeys(key for span in spans for key in span.choice_keys))
-    raw_text = "".join(span.raw_text for span in spans)
+    raw_text = render_chunk_raw_text(spans)
     density = _density(scope, choice_keys, spans)
     digest = mechanics_digest(scope, choice_keys)
     packet_hash = canonical_hash(
@@ -228,6 +228,27 @@ def _story_chunk(scope: StoryScope, spans: Sequence[SourceSpan], index: int) -> 
         raw_tokens=sum(span.estimated_tokens for span in spans),
         density=density,
         packet_hash=packet_hash,
+    )
+
+
+def render_chunk_raw_text(spans: Sequence[SourceSpan]) -> str:
+    """Render exact story text with deterministic, non-story source-path context."""
+
+    return "".join(
+        "@@SOURCE "
+        + json.dumps(
+            {
+                "end_line": span.end_line,
+                "path": span.relative_path,
+                "start_line": span.start_line,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+        + span.raw_text
+        for span in spans
     )
 
 

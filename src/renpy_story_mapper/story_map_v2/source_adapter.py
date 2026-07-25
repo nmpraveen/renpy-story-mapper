@@ -164,9 +164,7 @@ def _source_location(source: Mapping[str, object]) -> tuple[str, int, int] | Non
     start_value = source.get("start")
     end_value = source.get("end")
     start = (
-        start_value.get("line")
-        if isinstance(start_value, Mapping)
-        else source.get("start_line")
+        start_value.get("line") if isinstance(start_value, Mapping) else source.get("start_line")
     )
     end = end_value.get("line") if isinstance(end_value, Mapping) else source.get("end_line")
     if not _positive_int(start):
@@ -198,23 +196,23 @@ def _choice_regions(
     depth_by_region = {
         region.id: _region_depth(region, origin_to_region) for region in graph.regions
     }
+    children_by_region: dict[str, list[CanonicalRegion]] = defaultdict(list)
+    for candidate in graph.regions:
+        parent_origin = candidate.attributes.get("parent_region_id")
+        parent = origin_to_region.get(parent_origin) if isinstance(parent_origin, str) else None
+        if parent is not None:
+            children_by_region[parent.id].append(candidate)
     provisional: list[tuple[CanonicalRegion, str, str, int, tuple[Mapping[str, object], ...]]] = []
     for region in graph.regions:
         split = nodes.get(region.split_node_id)
         split_location = located_by_node.get(region.split_node_id)
-        if (
-            split is None
-            or split_location is None
-            or split.attributes.get("source_kind") != "menu"
-        ):
+        if split is None or split_location is None or split.attributes.get("source_kind") != "menu":
             continue
         raw_arms = region.attributes.get("arms")
         if not isinstance(raw_arms, Sequence) or isinstance(raw_arms, (str, bytes)):
             continue
         arms = tuple(
-            item
-            for item in raw_arms
-            if isinstance(item, Mapping) and _is_displayed_menu_arm(item)
+            item for item in raw_arms if isinstance(item, Mapping) and _is_displayed_menu_arm(item)
         )
         if not arms:
             continue
@@ -222,6 +220,13 @@ def _choice_regions(
         provisional.append((region, key, split_location.path, split_location.start_line, arms))
 
     key_by_region = {region.id: key for region, key, _path, _line, _arms in provisional}
+    arm_members_by_region = {
+        region.id: tuple(
+            _expanded_arm_members(region, raw_arm, children_by_region)
+            for raw_arm in sorted(raw_arms, key=lambda item: _required_ordinal(item, "ordinal"))
+        )
+        for region, _key, _path, _line, raw_arms in provisional
+    }
     result: list[_ChoiceRegion] = []
     for region, key, path, line, raw_arms in provisional:
         parent_lineage = _lineage_for_node(
@@ -229,24 +234,23 @@ def _choice_regions(
             provisional,
             key_by_region,
             depth_by_region,
+            arm_members_by_region,
         )
         mechanics: list[ArmMechanic] = []
-        member_sets: list[frozenset[str]] = []
-        for expected_order, raw_arm in enumerate(
-            sorted(raw_arms, key=lambda item: _required_ordinal(item, "ordinal")), start=1
+        member_sets = arm_members_by_region[region.id]
+        for expected_order, (raw_arm, member_ids) in enumerate(
+            zip(
+                sorted(raw_arms, key=lambda item: _required_ordinal(item, "ordinal")),
+                member_sets,
+                strict=True,
+            ),
+            start=1,
         ):
-            member_ids = frozenset(
-                {
-                    *_string_sequence(raw_arm.get("member_node_ids")),
-                    _required_text(raw_arm, "entry_node_id"),
-                }
-            )
-            member_sets.append(member_ids)
             mechanics.append(
                 _arm_mechanic(
-                    graph,
                     region,
                     raw_arm,
+                    member_ids,
                     expected_order,
                     nodes,
                     edges,
@@ -263,14 +267,14 @@ def _choice_regions(
                 line=line,
                 depth=depth_by_region[region.id],
                 parent_origin_id=parent_origin if isinstance(parent_origin, str) else None,
-                arm_members=tuple(member_sets),
+                arm_members=member_sets,
                 mechanic=ChoiceMechanic(
                     key=key,
                     relative_path=path,
                     line=line,
                     arms=tuple(mechanics),
                     parent_lineage=parent_lineage,
-                    story_choice=_is_story_choice(mechanics),
+                    story_choice=_is_story_choice(member_sets, nodes),
                 ),
             )
         )
@@ -280,6 +284,47 @@ def _choice_regions(
 def _is_displayed_menu_arm(arm: Mapping[str, object]) -> bool:
     predicate = arm.get("predicate")
     return isinstance(predicate, Mapping) and predicate.get("kind") == "menu_choice"
+
+
+def _expanded_arm_members(
+    region: CanonicalRegion,
+    raw_arm: Mapping[str, object],
+    children_by_region: Mapping[str, Sequence[CanonicalRegion]],
+) -> frozenset[str]:
+    members = {
+        *_string_sequence(raw_arm.get("member_node_ids")),
+        _required_text(raw_arm, "entry_node_id"),
+    }
+
+    def include_descendants(parent: CanonicalRegion) -> None:
+        for child in children_by_region.get(parent.id, ()):
+            child_members = _region_member_ids(child)
+            if not members.intersection(child_members):
+                continue
+            members.update(child_members)
+            include_descendants(child)
+
+    include_descendants(region)
+    return frozenset(members)
+
+
+def _region_member_ids(region: CanonicalRegion) -> set[str]:
+    members = {
+        region.split_node_id,
+        *_string_sequence(region.attributes.get("member_node_ids")),
+    }
+    if region.merge_node_id is not None:
+        members.add(region.merge_node_id)
+    raw_arms = region.attributes.get("arms")
+    if isinstance(raw_arms, Sequence) and not isinstance(raw_arms, (str, bytes)):
+        for raw_arm in raw_arms:
+            if not isinstance(raw_arm, Mapping):
+                continue
+            members.update(_string_sequence(raw_arm.get("member_node_ids")))
+            entry = raw_arm.get("entry_node_id")
+            if isinstance(entry, str) and entry:
+                members.add(entry)
+    return members
 
 
 def _region_depth(
@@ -301,21 +346,14 @@ def _region_depth(
 
 def _lineage_for_node(
     node_id: str,
-    choices: Sequence[
-        tuple[CanonicalRegion, str, str, int, tuple[Mapping[str, object], ...]]
-    ],
+    choices: Sequence[tuple[CanonicalRegion, str, str, int, tuple[Mapping[str, object], ...]]],
     key_by_region: Mapping[str, str],
     depth_by_region: Mapping[str, int],
+    arm_members_by_region: Mapping[str, tuple[frozenset[str], ...]],
 ) -> tuple[ArmLineageStep, ...]:
     steps: list[tuple[int, ArmLineageStep]] = []
-    for region, _key, _path, _line, raw_arms in choices:
-        for ordinal, raw_arm in enumerate(
-            sorted(raw_arms, key=lambda item: _required_ordinal(item, "ordinal")), start=1
-        ):
-            members = {
-                *_string_sequence(raw_arm.get("member_node_ids")),
-                _required_text(raw_arm, "entry_node_id"),
-            }
+    for region, _key, _path, _line, _raw_arms in choices:
+        for ordinal, members in enumerate(arm_members_by_region[region.id], start=1):
             if node_id in members:
                 steps.append(
                     (
@@ -328,16 +366,15 @@ def _lineage_for_node(
 
 
 def _arm_mechanic(
-    graph: CanonicalGraph,
     region: CanonicalRegion,
     raw_arm: Mapping[str, object],
+    member_ids: frozenset[str],
     order: int,
     nodes: Mapping[str, CanonicalNode],
     edges: Mapping[str, CanonicalEdge],
     facts: Mapping[str, object],
     located_by_node: Mapping[str, _LocatedNode],
 ) -> ArmMechanic:
-    del graph
     entry_id = _required_text(raw_arm, "entry_node_id")
     edge_id = _required_text(raw_arm, "edge_id")
     entry = nodes[entry_id]
@@ -345,10 +382,6 @@ def _arm_mechanic(
     entry_location = located_by_node.get(entry_id)
     if entry_location is None:
         raise SourceAdaptationError(f"choice arm {entry_id} lacks physical source evidence")
-    member_ids = {
-        *_string_sequence(raw_arm.get("member_node_ids")),
-        entry_id,
-    }
     locations = [located_by_node[item] for item in member_ids if item in located_by_node]
     same_path = [item for item in locations if item.path == entry_location.path]
     end_line = max((item.end_line for item in same_path), default=entry_location.end_line)
@@ -424,9 +457,7 @@ def _condition(value: object) -> str | None:
         if not isinstance(item, str) or not item.strip():
             continue
         rendered.append(
-            f"not ({item.strip()})"
-            if condition.get("polarity") == "negative"
-            else item.strip()
+            f"not ({item.strip()})" if condition.get("polarity") == "negative" else item.strip()
         )
     return " and ".join(rendered) or None
 
@@ -453,9 +484,18 @@ def _reachability(value: ReachabilityStatus) -> Reachability:
     return Reachability.UNRESOLVED
 
 
-def _is_story_choice(arms: Sequence[ArmMechanic]) -> bool:
-    reachable = sum(arm.reachability is not Reachability.UNREACHABLE for arm in arms)
-    return reachable >= 2 or any(arm.condition is not None for arm in arms)
+def _is_story_choice(
+    arm_members: Sequence[frozenset[str]], nodes: Mapping[str, CanonicalNode]
+) -> bool:
+    """Require canonical story or route authority, not captions or arm-count guesses."""
+
+    story_source_kinds = {"statement", "jump", "call", "return"}
+    return any(
+        node is not None and node.attributes.get("source_kind") in story_source_kinds
+        for members in arm_members
+        for node_id in members
+        for node in (nodes.get(node_id),)
+    )
 
 
 def _source_order_key(scene_model: SceneModel | None):  # type: ignore[no-untyped-def]
@@ -514,9 +554,7 @@ def _source_spans(
         node_ids = tuple(sorted({item.node.id for item in items}))
         lineage = _span_lineage(node_ids, choices)
         choice_keys = _span_choice_keys(node_ids, choices)
-        shared = any(
-            choice.region.merge_node_id in node_ids for choice in choices
-        )
+        shared = any(choice.region.merge_node_id in node_ids for choice in choices)
         kinds = {item.node.kind for item in items}
         reachability, unresolved_warnings = _span_reachability(items)
         natural = bool(boundary_nodes.intersection(node_ids)) or bool(
@@ -528,15 +566,18 @@ def _source_spans(
             }
         )
         numbered = _line_numbered(text, start)
-        key = "span_" + canonical_hash(
-            {
-                "source_generation": source_generation,
-                "path": path,
-                "start": start,
-                "end": end,
-                "canonical_node_ids": node_ids,
-            }
-        )[:20]
+        key = (
+            "span_"
+            + canonical_hash(
+                {
+                    "source_generation": source_generation,
+                    "path": path,
+                    "start": start,
+                    "end": end,
+                    "canonical_node_ids": node_ids,
+                }
+            )[:20]
+        )
         result.append(
             SourceSpan(
                 key=key,

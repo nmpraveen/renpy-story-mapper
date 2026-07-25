@@ -17,6 +17,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
 
 MAPPER_PROMPT_VERSION = "story-map-v2-mapper-prompt-v1"
 _LINE_NUMBERED = re.compile(r"^\d+:(?:\s|$)")
+_SOURCE_HEADER = re.compile(r"^@@SOURCE (\{.*\})$")
 
 
 class MapperSerializationError(ValueError):
@@ -65,9 +66,7 @@ def serialize_mapper_request(
 
     if not prompt_version or prompt_version != prompt_version.strip():
         raise MapperSerializationError("prompt version must be a non-empty trimmed string")
-    lines = chunk.raw_text.splitlines()
-    if not lines or any(_LINE_NUMBERED.match(line) is None for line in lines):
-        raise MapperSerializationError("chunk raw text must contain only line-numbered story text")
+    _validate_source_text(chunk.raw_text)
     return canonical_json(
         {
             "schema": MAPPER_SCHEMA_VERSION,
@@ -78,6 +77,50 @@ def serialize_mapper_request(
             "mechanics": _decoded_mechanics(chunk),
         }
     )
+
+
+def _validate_source_text(raw_text: str) -> None:
+    lines = raw_text.splitlines()
+    if not lines:
+        raise MapperSerializationError("chunk raw text must contain source-qualified story text")
+    in_segment = False
+    segment_has_story = False
+    saw_header = False
+    for line in lines:
+        header = _SOURCE_HEADER.match(line)
+        if header is not None:
+            if in_segment and not segment_has_story:
+                raise MapperSerializationError(
+                    "chunk source header must be followed by line-numbered story text"
+                )
+            try:
+                value = json.loads(header.group(1))
+            except json.JSONDecodeError as exc:
+                raise MapperSerializationError("chunk source header is invalid JSON") from exc
+            if (
+                type(value) is not dict
+                or set(value) != {"path", "start_line", "end_line"}
+                or type(value["path"]) is not str
+                or not value["path"]
+                or type(value["start_line"]) is not int
+                or type(value["end_line"]) is not int
+                or value["start_line"] < 1
+                or value["end_line"] < value["start_line"]
+            ):
+                raise MapperSerializationError("chunk source header has an invalid path or range")
+            saw_header = True
+            in_segment = True
+            segment_has_story = False
+            continue
+        if _LINE_NUMBERED.match(line) is None or not in_segment:
+            raise MapperSerializationError(
+                "chunk raw text must contain source headers and line-numbered story text"
+            )
+        segment_has_story = True
+    if not saw_header or not segment_has_story:
+        raise MapperSerializationError(
+            "chunk source header must be followed by line-numbered story text"
+        )
 
 
 def _object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -273,9 +316,7 @@ def deserialize_mapper_response(payload: bytes | str) -> MapperResponse:
             BranchSummary(
                 choice_key=_string(summary["choice_key"], f"{path}.choice_key"),
                 arm_order=_positive_integer(summary["arm_order"], f"{path}.arm_order"),
-                outcome_summary=_string(
-                    summary["outcome_summary"], f"{path}.outcome_summary"
-                ),
+                outcome_summary=_string(summary["outcome_summary"], f"{path}.outcome_summary"),
             )
         )
 

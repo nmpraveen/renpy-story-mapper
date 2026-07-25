@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 from renpy_story_mapper.canonical_graph import build_canonical_graph
@@ -36,9 +37,7 @@ def _authority(source: str) -> CanonicalGraph:
     graph = build_graph([module])
     semantic = build_semantic_story(graph)
     state = extract_state([module])
-    control = analyze_control_flow(
-        graph, semantic, state.requirements, state.effects
-    ).to_dict()
+    control = analyze_control_flow(graph, semantic, state.requirements, state.effects).to_dict()
     route = project_route_map(control, semantic, state.requirements, state.effects)
     return build_canonical_graph(
         graph,
@@ -112,19 +111,17 @@ def _choice(
     )
 
 
-def _scope(
-    spans: tuple[SourceSpan, ...], choices: tuple[ChoiceMechanic, ...] = ()
-) -> StoryScope:
+def _scope(spans: tuple[SourceSpan, ...], choices: tuple[ChoiceMechanic, ...] = ()) -> StoryScope:
     return StoryScope("source", "generation", "a" * 64, spans, choices)
 
 
 def test_adapter_projects_linear_source_identity_order_and_stable_keys() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     "First moment."
     "Second moment."
     return
-'''
+"""
     )
 
     first = adapt_story_scope(graph)
@@ -143,7 +140,7 @@ def test_adapter_projects_linear_source_identity_order_and_stable_keys() -> None
 
 def test_adapter_projects_exact_conditional_choice_effects_and_local_rejoin() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     menu:
         "Offer help" if ready:
             $ trust += 1
@@ -151,7 +148,7 @@ def test_adapter_projects_exact_conditional_choice_effects_and_local_rejoin() ->
             $ trust -= 1
     "Together again."
     return
-'''
+"""
     )
 
     scope = adapt_story_scope(graph, source_identity="synthetic-local-rejoin")
@@ -168,9 +165,55 @@ def test_adapter_projects_exact_conditional_choice_effects_and_local_rejoin() ->
     assert any(span.shared_continuation for span in scope.spans if choice.key in span.choice_keys)
 
 
+def test_adapter_includes_conditional_descendant_effects_and_lineage_in_menu_arm() -> None:
+    graph = _authority(
+        """label start:
+    menu:
+        "Help":
+            if ready:
+                $ trust += 1
+        "Leave":
+            pass
+    "Together again."
+    return
+"""
+    )
+
+    scope = adapt_story_scope(graph)
+    choice = next(item for item in scope.choices if item.line == 2)
+    help_arm = choice.arms[0]
+    effect_span = next(item for item in scope.spans if "trust += 1" in item.raw_text)
+
+    assert help_arm.effects == ("trust += 1",)
+    assert effect_span.arm_lineage == (ArmLineageStep(choice.key, 1),)
+
+
+def test_adapter_keeps_setup_and_conditional_hint_controls_non_story() -> None:
+    for source in (
+        """label start:
+    menu:
+        "Enable Hints":
+            $ hints = True
+        "Disable Hints":
+            $ hints = False
+    return
+""",
+        """label start:
+    menu:
+        "Enable Hints" if can_configure:
+            $ hints = True
+        "Leave Hints Alone":
+            pass
+    return
+""",
+    ):
+        choice = adapt_story_scope(_authority(source)).choices[0]
+        assert choice.story_choice is False
+
+
 def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     menu:
         "Enter":
             menu:
@@ -182,7 +225,7 @@ def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
             "Quiet path."
     "Afterward."
     return
-'''
+"""
     )
 
     scope = adapt_story_scope(graph)
@@ -199,7 +242,7 @@ def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
 
 def test_adapter_keeps_persistent_terminal_arms_without_false_rejoin() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     menu:
         "North":
             jump north_end
@@ -213,7 +256,7 @@ label north_end:
 label south_end:
     "South ending."
     return
-'''
+"""
     )
 
     choice = adapt_story_scope(graph).choices[0]
@@ -224,14 +267,14 @@ label south_end:
 
 def test_adapter_marks_dynamic_conditional_arm_honestly_unresolved() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     menu:
         "Attempt" if compute_gate():
             "Uncertain route."
         "Decline":
             "Known route."
     return
-'''
+"""
     )
 
     choice = adapt_story_scope(graph).choices[0]
@@ -244,10 +287,10 @@ def test_adapter_marks_dynamic_conditional_arm_honestly_unresolved() -> None:
 
 def test_adapter_aggregates_exact_spine_reachability_and_retains_warnings() -> None:
     graph = _authority(
-        '''label start:
+        """label start:
     "A spine moment."
     return
-'''
+"""
     )
     baseline = adapt_story_scope(graph)
     target = next(span for span in baseline.spans if span.start_line == 2)
@@ -286,7 +329,72 @@ def test_planner_long_linear_scope_prefers_last_boundary_below_target() -> None:
 
     assert [chunk.raw_tokens for chunk in chunks] == [8_000, 4_000]
     assert chunks[0].span_keys == tuple(f"linear-{index}" for index in range(1, 5))
-    assert chunks[0].raw_text.startswith("1: Story line linear-1.")
+    assert chunks[0].raw_text.startswith(
+        '@@SOURCE {"end_line":1,"path":"story/day.rpy","start_line":1}\n1: Story line linear-1.'
+    )
+
+
+def test_planner_mechanics_follow_exact_first_span_choice_order() -> None:
+    outer_key = "story/day.rpy:2"
+    later_key = "story/day.rpy:40"
+    nested_key = "story/day.rpy:11"
+    outer_step = ArmLineageStep(outer_key, 1)
+    choices = (
+        _choice(outer_key, 2),
+        _choice(nested_key, 11, parent=(outer_step,)),
+        _choice(later_key, 40),
+    )
+    spans = (
+        _span("outer", 2, 100, choice_keys=(outer_key,)),
+        _span(
+            "nested",
+            11,
+            100,
+            choice_keys=(nested_key,),
+            lineage=(*choices[1].parent_lineage, ArmLineageStep(nested_key, 1)),
+        ),
+        _span("later", 40, 100, choice_keys=(later_key,)),
+    )
+
+    chunk = plan_chunks(_scope(spans, choices))[0]
+    keys = tuple(item["key"] for item in json.loads(chunk.mechanics)["choices"])
+
+    assert keys == chunk.choice_keys == (outer_key, nested_key, later_key)
+
+
+def test_planner_keeps_full_fitting_persistent_arm_ranges_indivisible() -> None:
+    key = "story/day.rpy:10"
+    mechanic = _choice(key, 10, rejoin=None)
+    mechanic = replace(
+        mechanic,
+        arms=(
+            replace(mechanic.arms[0], start_line=11, end_line=30),
+            replace(mechanic.arms[1], start_line=31, end_line=50),
+        ),
+    )
+    spans = (
+        _span("menu", 10, 1_000, choice_keys=(key,)),
+        _span(
+            "north-middle",
+            20,
+            4_500,
+            choice_keys=(key,),
+            lineage=(ArmLineageStep(key, 1),),
+        ),
+        _span(
+            "south-middle",
+            40,
+            4_500,
+            choice_keys=(key,),
+            lineage=(ArmLineageStep(key, 2),),
+        ),
+    )
+
+    chunks = plan_chunks(_scope(spans, (mechanic,)))
+
+    assert len(chunks) == 1
+    assert chunks[0].raw_tokens == 10_000
+    assert chunks[0].span_keys == ("menu", "north-middle", "south-middle")
 
 
 def test_planner_branch_density_uses_lower_target_and_binds_mechanics_digest() -> None:
@@ -324,9 +432,7 @@ def test_planner_branch_density_uses_lower_target_and_binds_mechanics_digest() -
     assert first_packet.mechanics == digest
     assert '"caption":"Option 1"' in digest
     changed = _scope(spans, (_choice(first_key, 10), second_choice))
-    changed_packet = next(
-        chunk for chunk in plan_chunks(changed) if first_key in chunk.choice_keys
-    )
+    changed_packet = next(chunk for chunk in plan_chunks(changed) if first_key in chunk.choice_keys)
     assert changed_packet.mechanics != first_packet.mechanics
     assert changed_packet.packet_hash != first_packet.packet_hash
 
