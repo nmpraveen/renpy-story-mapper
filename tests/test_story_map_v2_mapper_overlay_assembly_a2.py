@@ -407,6 +407,42 @@ def test_overlay_maps_mixed_lineage_clusters_to_common_proven_prefix() -> None:
     )
 
 
+def test_declared_span_lineage_disambiguates_overlapping_authoritative_arm_ranges() -> None:
+    base = choice()
+    overlapping = replace(
+        base,
+        arms=(
+            replace(base.arms[0], start_line=5, end_line=100),
+            replace(base.arms[1], start_line=8, end_line=10),
+        ),
+    )
+    fixture = scope(
+        (
+            span(
+                "short-arm",
+                8,
+                8,
+                100,
+                lineage=(ArmLineageStep(CHOICE_KEY, 2),),
+                choice_keys=(CHOICE_KEY,),
+            ),
+        ),
+        choices=(overlapping,),
+    )
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Short arm", "The short arm.", "scripts/day.rpy", 8, 8),),
+        (),
+    )
+
+    core = validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+    assert core.events[0].anchor.arm_lineage == (ArmLineageStep(CHOICE_KEY, 2),)
+    assert core.events[0].anchor.destination_id == base.arms[1].destination_id
+
+
 def test_overlay_partitions_ordered_overlapping_rough_ranges_at_next_event() -> None:
     fixture = scope((span("scene", 1, 20, 100),))
     chunk = plan_chunks(fixture)[0]

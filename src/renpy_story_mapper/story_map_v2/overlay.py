@@ -162,14 +162,17 @@ def _effective_lineage(
             )
 
     if candidates:
-        deepest = max(candidates, key=len)
-        if not all(_is_prefix(candidate, deepest) for candidate in candidates):
-            raise MapperValidationError("source range has incompatible nested arm lineage")
-        if span.arm_lineage and span.arm_lineage != deepest:
-            raise MapperValidationError(
-                "source span lineage disagrees with deterministic choice ownership"
-            )
-        lineage = span.arm_lineage or deepest
+        if span.arm_lineage:
+            if span.arm_lineage not in candidates:
+                raise MapperValidationError(
+                    "source span lineage disagrees with deterministic choice ownership"
+                )
+            lineage = span.arm_lineage
+        else:
+            deepest = max(candidates, key=len)
+            if not all(_is_prefix(candidate, deepest) for candidate in candidates):
+                raise MapperValidationError("source range has incompatible nested arm lineage")
+            lineage = deepest
     else:
         lineage = span.arm_lineage
     if span.shared_continuation and lineage:

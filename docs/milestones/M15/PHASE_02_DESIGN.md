@@ -116,6 +116,11 @@ empty common prefix or one Python-proven shared continuation. The mapper never s
 lineage. Per-arm branch summaries obtain their lineage exclusively from the referenced deterministic
 choice key and arm ordinal, including any Python-owned nested parent lineage.
 
+When deterministic arm intervals overlap (for example, a long default/control arm containing a
+short alternate arm), the Python-owned `SourceSpan.arm_lineage` disambiguates the covered node only
+when that declared lineage is one of the interval candidates. A missing or contradictory declared
+lineage remains invalid; provider text never resolves the overlap.
+
 The overlay always replaces any mapper rendering of path-critical fields with deterministic data:
 exact captions, arm order, conditions, effects, destinations, rejoins, reachability, unresolved
 status, and source navigation. AI punctuation or quoting around a caption is ignored. Setup/hint

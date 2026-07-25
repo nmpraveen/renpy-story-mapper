@@ -111,5 +111,8 @@ mixed-lineage clusters only to their longest common proven lineage prefix with u
 and an explicit warning. It still rejects unknown paths, out-of-bounds ranges, equal/reverse event
 starts, invented choice keys or arm ordinals, and never selects a sibling destination. Validated
 setup-control summaries are filtered rather than promoted. This empirical amendment does not add a
-new architecture or provider call and requires its own exact-head correctness review before the
+new architecture or provider call. Provider-free replay additionally proved that a long
+deterministic control arm can contain a shorter sibling interval; in that case the Python-owned
+source-span lineage selects the matching interval candidate, while missing or contradictory span
+lineage remains invalid. The amended seam requires exact-head correctness review before the
 retained response can be reassembled.
