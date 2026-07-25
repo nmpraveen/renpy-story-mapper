@@ -104,19 +104,19 @@ def _validate_lineage(
     lineage: tuple[ArmLineageStep, ...], choices: dict[str, ChoiceMechanic]
 ) -> None:
     seen: set[str] = set()
-    declared_external_ancestors = {
-        step for choice in choices.values() for step in choice.parent_lineage
-    }
+    declared_parent_lineages = tuple(choice.parent_lineage for choice in choices.values())
     for index, step in enumerate(lineage):
         if step.choice_key in seen:
             raise MapperValidationError("authoritative arm lineage repeats a choice key")
         seen.add(step.choice_key)
         choice = choices.get(step.choice_key)
         if choice is None:
-            if step in declared_external_ancestors:
+            prefix = lineage[: index + 1]
+            if any(parent[: len(prefix)] == prefix for parent in declared_parent_lineages):
                 continue
             raise MapperValidationError(
-                f"authoritative arm lineage references unknown choice {step.choice_key!r}"
+                "authoritative arm lineage is not a complete outer-to-inner prefix; "
+                f"unknown choice {step.choice_key!r}"
             )
         if _arm(choice, step.arm_order) is None:
             raise MapperValidationError(

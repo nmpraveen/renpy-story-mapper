@@ -211,6 +211,29 @@ def test_adapter_keeps_setup_and_conditional_hint_controls_non_story() -> None:
         assert choice.story_choice is False
 
 
+def test_adapter_keeps_shared_continuation_setup_jumps_non_story() -> None:
+    graph = _authority(
+        """label start:
+    menu:
+        "Enable Hints":
+            $ hints = True
+            jump configured
+        "Disable Hints":
+            $ hints = False
+            jump configured
+
+label configured:
+    return
+"""
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is False
+    assert len({arm.rejoin_node_id for arm in choice.arms}) == 1
+    assert choice.arms[0].rejoin_node_id is not None
+
+
 def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
     graph = _authority(
         """label start:
@@ -261,8 +284,26 @@ label south_end:
 
     choice = adapt_story_scope(graph).choices[0]
 
+    assert choice.story_choice is True
     assert all(arm.rejoin_node_id is None for arm in choice.arms)
     assert all(arm.rejoin_line is None for arm in choice.arms)
+
+
+def test_adapter_preserves_terminal_story_choice_without_local_rejoin() -> None:
+    graph = _authority(
+        """label start:
+    menu:
+        "Stay":
+            return
+        "Leave":
+            return
+"""
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is True
+    assert all(arm.rejoin_node_id is None for arm in choice.arms)
 
 
 def test_adapter_marks_dynamic_conditional_arm_honestly_unresolved() -> None:

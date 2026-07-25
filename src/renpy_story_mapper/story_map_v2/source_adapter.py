@@ -274,7 +274,7 @@ def _choice_regions(
                     line=line,
                     arms=tuple(mechanics),
                     parent_lineage=parent_lineage,
-                    story_choice=_is_story_choice(member_sets, nodes),
+                    story_choice=_is_story_choice(member_sets, nodes, mechanics),
                 ),
             )
         )
@@ -485,16 +485,25 @@ def _reachability(value: ReachabilityStatus) -> Reachability:
 
 
 def _is_story_choice(
-    arm_members: Sequence[frozenset[str]], nodes: Mapping[str, CanonicalNode]
+    arm_members: Sequence[frozenset[str]],
+    nodes: Mapping[str, CanonicalNode],
+    arms: Sequence[ArmMechanic],
 ) -> bool:
     """Require canonical story or route authority, not captions or arm-count guesses."""
 
-    story_source_kinds = {"statement", "jump", "call", "return"}
-    return any(
-        node is not None and node.attributes.get("source_kind") in story_source_kinds
+    source_kinds = {
+        node.attributes.get("source_kind")
         for members in arm_members
         for node_id in members
         for node in (nodes.get(node_id),)
+        if node is not None
+    }
+    if "statement" in source_kinds:
+        return True
+    rejoin_ids = {arm.rejoin_node_id for arm in arms}
+    has_shared_local_rejoin = len(rejoin_ids) == 1 and None not in rejoin_ids
+    return not has_shared_local_rejoin and bool(
+        source_kinds.intersection({"jump", "call", "return"})
     )
 
 

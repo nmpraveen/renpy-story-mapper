@@ -470,6 +470,88 @@ def test_overlay_rejects_unknown_choice_in_authoritative_lineage() -> None:
         validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
 
 
+@pytest.mark.parametrize(
+    "lineage",
+    (
+        (ArmLineageStep("scripts/day.rpy:middle", 2),),
+        (
+            ArmLineageStep("scripts/day.rpy:middle", 2),
+            ArmLineageStep("scripts/day.rpy:outer", 1),
+        ),
+        (
+            ArmLineageStep("scripts/day.rpy:outer", 1),
+            ArmLineageStep(CHOICE_KEY, 1),
+        ),
+        (
+            ArmLineageStep("scripts/day.rpy:outer", 1),
+            ArmLineageStep("scripts/day.rpy:outer", 1),
+        ),
+    ),
+)
+def test_overlay_rejects_incomplete_or_disordered_declared_parent_lineage(
+    lineage: tuple[ArmLineageStep, ...],
+) -> None:
+    outer = ArmLineageStep("scripts/day.rpy:outer", 1)
+    middle = ArmLineageStep("scripts/day.rpy:middle", 2)
+    nested = choice(parent=(outer, middle))
+    fixture = scope(
+        (
+            span(
+                "incomplete-prefix",
+                1,
+                5,
+                100,
+                lineage=lineage,
+            ),
+        ),
+        choices=(nested,),
+    )
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Suffix", "Incomplete ancestry.", "scripts/day.rpy", 1, 5),),
+        (),
+    )
+
+    with pytest.raises(MapperValidationError, match=r"outer-to-inner|repeats"):
+        validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+
+@pytest.mark.parametrize(
+    "lineage",
+    (
+        (),
+        (ArmLineageStep("scripts/day.rpy:outer", 1),),
+        (
+            ArmLineageStep("scripts/day.rpy:outer", 1),
+            ArmLineageStep("scripts/day.rpy:middle", 2),
+        ),
+    ),
+)
+def test_overlay_accepts_ordered_declared_external_parent_prefixes(
+    lineage: tuple[ArmLineageStep, ...],
+) -> None:
+    outer = ArmLineageStep("scripts/day.rpy:outer", 1)
+    middle = ArmLineageStep("scripts/day.rpy:middle", 2)
+    nested = choice(parent=(outer, middle))
+    fixture = scope(
+        (span("valid-prefix", 1, 5, 100, lineage=lineage),),
+        choices=(nested,),
+    )
+    chunk = plan_chunks(fixture)[0]
+    response = MapperResponse(
+        None,
+        None,
+        (MapperEvent("Prefix", "Valid ancestry.", "scripts/day.rpy", 1, 5),),
+        (),
+    )
+
+    core = validate_and_overlay(fixture, chunk, response, origin=ProviderOrigin.CLOUD)
+
+    assert core.events[0].anchor.arm_lineage == lineage
+
+
 def test_complete_overlay_requires_exact_execution_response() -> None:
     fixture = scope((span("only", 1, 5, 100),))
     chunk = plan_chunks(fixture)[0]
