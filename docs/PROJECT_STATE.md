@@ -37,7 +37,10 @@ Updated: 2026-07-24 (Phase 02 verification resumed by explicit user authorizatio
   second provider-free correction/rereview and one new live run only after reviewer clearance.
   Correction `4b1b74d` now preserves the untouched completed execution record when deterministic
   overlay rejects a schema-valid mapper response; its provider-free probe passes. The expanded
-  relevant suite passes 294 tests plus all static gates. The milestone has resumed in
+  relevant suite passes 294 tests plus all static gates: the reviewer's 291-test matrix plus three
+  explicitly included `tests/test_m12_architecture.py` checks. Same-task exact-head rereview passed
+  `211fd2e` with P0=0/P1=0/P2=0/P3=1 and granted clearance for exactly the one newly authorized
+  live run bound to confirmation `e50d659a...da5f0`. The milestone has resumed in
   `Verification`; native goal `019f9676-c357-7803-a891-f03782bbb8ee` remains incomplete and PR #26
   remains draft/unmerged because corrected-head review and provider-generated Day 1 coverage are
   not yet proven.
