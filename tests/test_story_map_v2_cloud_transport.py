@@ -294,6 +294,10 @@ def test_explicit_structured_content_refusal_is_distinct(tmp_path: Path) -> None
         _jsonl(
             {
                 "type": "turn.failed",
+                "model": CLOUD_MAPPER_MODEL,
+                "reasoning_effort": CLOUD_REASONING,
+                "fast_mode": CLOUD_FAST_MODE,
+                "usage": {"input_tokens": 123, "output_tokens": 4},
                 "error": {
                     "code": "content_policy_violation",
                     "message": "SECRET-STORY provider detail",
@@ -311,6 +315,13 @@ def test_explicit_structured_content_refusal_is_distinct(tmp_path: Path) -> None
 
     assert refusal.value.kind is FailureKind.CONTENT_REFUSAL
     assert "SECRET-STORY" not in str(refusal.value)
+    assert transport.input_tokens == 123
+    assert transport.output_tokens == 4
+    assert transport.observed_model == CLOUD_MAPPER_MODEL
+    assert transport.last_accounting is not None
+    assert transport.last_accounting.response_hash is None
+    assert transport.last_accounting.input_tokens == 123
+    assert transport.last_accounting.output_tokens == 4
 
 
 class SlowProcess(FakeProcess):

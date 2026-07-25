@@ -117,7 +117,7 @@ class CloudAccounting:
     reasoning: str
     fast_mode: bool
     input_hash: str
-    response_hash: str
+    response_hash: str | None
     input_tokens: int | None
     output_tokens: int | None
     elapsed_ms: int
@@ -341,14 +341,47 @@ class CodexCliCloudTransport:
                     _stop_process(process)
         if process.returncode != 0:
             raise _classify_process_failure(stderr)
-        response, metadata = _parse_jsonl(stdout)
+        try:
+            response, metadata = _parse_jsonl(stdout)
+        except ProviderFailure as exc:
+            self._observed_model = exc.resolved_model
+            self._input_tokens = exc.input_tokens
+            self._output_tokens = exc.output_tokens
+            self._last_accounting = self._accounting(
+                packet,
+                response_hash=None,
+                started=started,
+            )
+            raise
         if len(metadata.models) == 1:
             self._observed_model = next(iter(metadata.models))
-        _verify_runtime_identity(metadata)
         self._input_tokens = metadata.input_tokens
         self._output_tokens = metadata.output_tokens
+        try:
+            _verify_runtime_identity(metadata)
+        except ProviderFailure:
+            self._last_accounting = self._accounting(
+                packet,
+                response_hash=None,
+                started=started,
+            )
+            raise
         response_hash = canonical_hash(asdict(response))
-        self._last_accounting = CloudAccounting(
+        self._last_accounting = self._accounting(
+            packet,
+            response_hash=response_hash,
+            started=started,
+        )
+        return response
+
+    def _accounting(
+        self,
+        packet: bytes,
+        *,
+        response_hash: str | None,
+        started: float,
+    ) -> CloudAccounting:
+        return CloudAccounting(
             requested_model=CLOUD_MAPPER_MODEL,
             resolved_model=self._observed_model,
             reasoning=CLOUD_REASONING,
@@ -359,7 +392,6 @@ class CodexCliCloudTransport:
             output_tokens=self._output_tokens,
             elapsed_ms=round((time.monotonic() - started) * 1000),
         )
-        return response
 
     def _communicate(self, process: Process, packet: bytes) -> tuple[bytes, bytes]:
         deadline = time.monotonic() + self._timeout_seconds
@@ -449,8 +481,6 @@ def _parse_jsonl(raw: bytes) -> tuple[MapperResponse, _RuntimeMetadata]:
             raise ProviderFailure(
                 FailureKind.INVALID_RESPONSE, "The cloud mapper attempted a forbidden action."
             )
-        if isinstance(event, dict) and event.get("type") in {"error", "turn.failed"}:
-            raise _classify_structured_failure(event)
         model = event.get("model") if isinstance(event, dict) else None
         if model is not None:
             if not isinstance(model, str) or not model:
@@ -472,6 +502,12 @@ def _parse_jsonl(raw: bytes) -> tuple[MapperResponse, _RuntimeMetadata]:
                 reported_input, reported_output = _parse_usage(usage)
                 input_tokens = reported_input if reported_input is not None else input_tokens
                 output_tokens = reported_output if reported_output is not None else output_tokens
+            if event.get("type") in {"error", "turn.failed"}:
+                failure = _classify_structured_failure(event)
+                failure.input_tokens = input_tokens
+                failure.output_tokens = output_tokens
+                failure.resolved_model = next(iter(models)) if len(models) == 1 else None
+                raise failure
         candidate = _extract_payload(event)
         if candidate is not None:
             final_payload = candidate

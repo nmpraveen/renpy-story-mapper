@@ -260,6 +260,56 @@ def test_content_refusal_without_confirmed_fallback_remains_missing() -> None:
     assert "private refusal text" not in (result.sanitized_reason or "")
 
 
+def test_cancellation_after_cloud_refusal_prevents_local_fallback_submission() -> None:
+    preview, chunks = _preview()
+    cloud = RecordingMapper(
+        CLOUD_MAPPER_MODEL,
+        [ProviderFailure(FailureKind.CONTENT_REFUSAL, "refused")],
+    )
+    local_constructed: list[bool] = []
+    results = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: cloud,
+        local_factory=lambda: local_constructed.append(True),  # type: ignore[arg-type,func-returns-value]
+        cancelled=lambda: bool(cloud.chunks),
+    )
+    assert local_constructed == []
+    assert results[0].status is ChunkStatus.CANCELLED
+    assert len(results.attempts) == 1
+    assert results.attempts[0].failure_kind is FailureKind.CONTENT_REFUSAL
+
+
+def test_cancellation_at_local_submission_boundary_makes_zero_local_calls() -> None:
+    preview, chunks = _preview(2)
+    cloud = RecordingMapper(
+        CLOUD_MAPPER_MODEL,
+        [ProviderFailure(FailureKind.CONTENT_REFUSAL, "refused"), RESPONSE],
+    )
+    local = RecordingMapper(LOCAL_MAPPER_MODEL, [RESPONSE])
+    boundary_cancelled = False
+
+    def local_factory() -> RecordingMapper:
+        nonlocal boundary_cancelled
+        boundary_cancelled = True
+        return local
+
+    results = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: cloud,
+        local_factory=local_factory,
+        cancelled=lambda: boundary_cancelled,
+    )
+    assert local.chunks == []
+    assert local.cancelled is True
+    assert [result.status for result in results] == [ChunkStatus.CANCELLED] * 2
+    assert len(results.attempts) == 1
+    assert results.attempts[0].failure_kind is FailureKind.CONTENT_REFUSAL
+
+
 @pytest.mark.parametrize(
     "kind",
     [

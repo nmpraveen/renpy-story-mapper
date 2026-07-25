@@ -46,9 +46,20 @@ PRIVACY_EXCLUSIONS = (
 
 
 class ProviderFailure(RuntimeError):
-    def __init__(self, kind: FailureKind, reason: str) -> None:
+    def __init__(
+        self,
+        kind: FailureKind,
+        reason: str,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        resolved_model: str | None = None,
+    ) -> None:
         super().__init__(reason)
         self.kind = kind
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.resolved_model = resolved_model
 
 
 class ChunkMapper(Protocol):
@@ -255,10 +266,37 @@ def execute_chunks(
             )
             attempts.append(cloud_attempt)
             if exc.kind is FailureKind.CONTENT_REFUSAL and preview.allow_local_fallback:
+                if cancelled():
+                    _cancel_mapper(cloud)
+                    results.append(
+                        _cancelled_result(
+                            chunk,
+                            elapsed_ms=elapsed_ms,
+                            resolved_model=_observed_model(cloud),
+                        )
+                    )
+                    results.extend(
+                        _cancelled_result(item) for item in chunks[offset + 1 :]
+                    )
+                    break
                 if local is None and local_failure is None:
                     local, local_failure, local_resolved_model = _construct_local(
                         local_factory, preview.local_endpoint
                     )
+                if cancelled():
+                    _cancel_mapper(local)
+                    _cancel_mapper(cloud)
+                    results.append(
+                        _cancelled_result(
+                            chunk,
+                            elapsed_ms=elapsed_ms,
+                            resolved_model=_observed_model(cloud),
+                        )
+                    )
+                    results.extend(
+                        _cancelled_result(item) for item in chunks[offset + 1 :]
+                    )
+                    break
                 if local is None:
                     assert local_failure is not None
                     results.append(
