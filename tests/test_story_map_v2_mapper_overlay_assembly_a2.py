@@ -5,7 +5,11 @@ from dataclasses import replace
 
 import pytest
 
-from renpy_story_mapper.story_map_v2.assembly import CoreAssemblyError, assemble_core
+from renpy_story_mapper.story_map_v2.assembly import (
+    CoreAssemblyError,
+    assemble_core,
+    invalid_mapper_core_chunk,
+)
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
     ArmMechanic,
@@ -771,6 +775,29 @@ def test_assembly_retains_supplied_failed_execution_provenance() -> None:
     assert core.status is ChunkStatus.PARTIAL
     assert core.chunks[0].execution is execution
     assert core.chunks[0].origin is ProviderOrigin.CLOUD
+
+
+def test_invalid_mapper_response_retains_completed_execution_in_partial_core() -> None:
+    fixture = _choice_scope()
+    planned = plan_chunks(fixture)[0]
+    response = _event_response()
+    execution = _execution(planned, response)
+
+    invalid = invalid_mapper_core_chunk(
+        planned,
+        execution,
+        "Mapper response failed deterministic validation.",
+    )
+    core = assemble_core(fixture, (invalid,))
+
+    assert core.status is ChunkStatus.PARTIAL
+    assert core.chunks[0].status is ChunkStatus.PARTIAL
+    assert core.chunks[0].execution is execution
+    assert core.chunks[0].execution.response is response
+    assert core.chunks[0].choices == fixture.choices
+    assert core.chunks[0].warnings == (
+        "Mapper response failed deterministic validation.",
+    )
 
 
 def test_assembly_combines_scope_text_in_chunk_order_when_all_chunks_complete() -> None:

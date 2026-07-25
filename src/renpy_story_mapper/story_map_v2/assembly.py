@@ -7,6 +7,7 @@ from dataclasses import replace
 from renpy_story_mapper.story_map_v2.contracts import (
     STORY_MAP_V2_SCHEMA,
     ChoiceMechanic,
+    ChunkExecutionResult,
     ChunkStatus,
     CoreChunk,
     ProviderOrigin,
@@ -41,8 +42,40 @@ def _validate_execution(chunk: CoreChunk) -> None:
         raise CoreAssemblyError("chunk execution identity does not match its core chunk")
     if execution.origin is not chunk.origin:
         raise CoreAssemblyError("chunk execution origin does not match its core chunk")
-    if execution.status is not chunk.status:
+    expected_execution_status = (
+        ChunkStatus.COMPLETE if chunk.status is ChunkStatus.PARTIAL else chunk.status
+    )
+    if execution.status is not expected_execution_status:
         raise CoreAssemblyError("chunk execution status does not match its core chunk")
+
+
+def invalid_mapper_core_chunk(
+    planned: StoryChunk,
+    execution: ChunkExecutionResult,
+    warning: str,
+) -> CoreChunk:
+    """Preserve a completed provider execution whose response failed deterministic overlay."""
+
+    if execution.chunk_identity != planned.identity:
+        raise CoreAssemblyError("invalid mapper execution identity does not match its chunk")
+    if (
+        execution.status is not ChunkStatus.COMPLETE
+        or execution.origin is ProviderOrigin.MISSING
+        or execution.response is None
+        or execution.failure_kind is not None
+    ):
+        raise CoreAssemblyError("invalid mapper partial requires one completed provider execution")
+    if not warning or warning != warning.strip():
+        raise CoreAssemblyError("invalid mapper partial requires one trimmed warning")
+    return CoreChunk(
+        chunk_identity=planned.identity,
+        status=ChunkStatus.PARTIAL,
+        origin=execution.origin,
+        events=(),
+        choices=(),
+        execution=execution,
+        warnings=(warning,),
+    )
 
 
 def _normalize_chunk(
