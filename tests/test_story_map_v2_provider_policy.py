@@ -21,6 +21,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
     CLOUD_MAPPER_MODEL,
+    LOCAL_MAPPER_ENDPOINT,
     LOCAL_MAPPER_MODEL,
     ProviderFailure,
     execute_chunks,
@@ -36,8 +37,10 @@ class RecordingMapper:
         self,
         model: str,
         outcomes: list[MapperResponse | BaseException],
+        endpoint: str = LOCAL_MAPPER_ENDPOINT,
     ) -> None:
         self.model = model
+        self.endpoint = endpoint
         self.outcomes = outcomes
         self.chunks: list[StoryChunk] = []
         self.packets: list[bytes] = []
@@ -315,6 +318,29 @@ def test_local_unavailable_or_mismatched_model_is_honestly_missing(
     assert result.requested_model == LOCAL_MAPPER_MODEL
     assert result.resolved_model == expected_resolved
     assert result.reasoning is None and result.fast_mode is None
+
+
+def test_local_endpoint_mismatch_fails_before_submission() -> None:
+    preview, chunks = _preview()
+    local = RecordingMapper(
+        LOCAL_MAPPER_MODEL,
+        [RESPONSE],
+        endpoint="http://localhost:1234/v1",
+    )
+    result = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: RecordingMapper(
+            CLOUD_MAPPER_MODEL,
+            [ProviderFailure(FailureKind.CONTENT_REFUSAL, "refused")],
+        ),
+        local_factory=lambda: local,
+        cancelled=lambda: False,
+    )[0]
+    assert local.chunks == []
+    assert result.failure_kind is FailureKind.IDENTITY
+    assert result.requested_model == result.resolved_model == LOCAL_MAPPER_MODEL
 
 
 def test_local_only_constructs_zero_cloud_providers_and_submits_each_packet_once() -> None:

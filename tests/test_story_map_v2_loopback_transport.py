@@ -101,23 +101,25 @@ def _completion(*, model: str = LOCAL_MAPPER_MODEL, content: object | None = Non
         "http://example.com:1234",
         "http://[::1]:1234",
         "http://user@localhost:1234",
-        "http://localhost:1234/v1",
+        "http://localhost:1234",
+        "http://localhost:1234/v1/",
     ],
 )
-def test_endpoint_is_strictly_plain_http_ipv4_or_localhost_origin(endpoint: str) -> None:
+def test_endpoint_is_strictly_plain_http_loopback_v1(endpoint: str) -> None:
     with pytest.raises(ValueError):
         LoopbackLmStudioTransport(endpoint=endpoint, opener=FakeOpener([]))
 
 
 def test_exact_loaded_model_and_byte_identical_packet_are_verified_before_submission() -> None:
-    endpoint = "http://127.0.0.1:1234"
+    endpoint = "http://127.0.0.1:1234/v1"
     opener = FakeOpener(
         [
-            FakeResponse(_models(LOCAL_MAPPER_MODEL), f"{endpoint}/v1/models"),
-            FakeResponse(_completion(), f"{endpoint}/v1/chat/completions"),
+            FakeResponse(_models(LOCAL_MAPPER_MODEL), f"{endpoint}/models"),
+            FakeResponse(_completion(), f"{endpoint}/chat/completions"),
         ]
     )
     transport = LoopbackLmStudioTransport(endpoint=endpoint, opener=opener)
+    assert transport.endpoint == endpoint
     chunk = _chunk()
     response = transport.map_chunk(chunk)
 
@@ -132,8 +134,8 @@ def test_exact_loaded_model_and_byte_identical_packet_are_verified_before_submis
 
 
 def test_model_mismatch_fails_before_any_submission() -> None:
-    endpoint = "http://localhost:1234"
-    opener = FakeOpener([FakeResponse(_models("another-model"), f"{endpoint}/v1/models")])
+    endpoint = "http://localhost:1234/v1"
+    opener = FakeOpener([FakeResponse(_models("another-model"), f"{endpoint}/models")])
     transport = LoopbackLmStudioTransport(endpoint=endpoint, opener=opener)
     with pytest.raises(ProviderFailure) as raised:
         transport.map_chunk(_chunk())
@@ -165,13 +167,13 @@ def test_unavailable_loopback_is_sanitized_and_never_retried() -> None:
 def test_invalid_or_identity_mismatched_response_is_honest_missing_input(
     second: object, expected: FailureKind
 ) -> None:
-    endpoint = "http://127.0.0.1:1234"
+    endpoint = "http://127.0.0.1:1234/v1"
     opener = FakeOpener(
         [
-            FakeResponse(_models(LOCAL_MAPPER_MODEL), f"{endpoint}/v1/models"),
+            FakeResponse(_models(LOCAL_MAPPER_MODEL), f"{endpoint}/models"),
             FakeResponse(
                 second,
-                f"{endpoint}/v1/chat/completions",
+                f"{endpoint}/chat/completions",
                 raw=isinstance(second, bytes),
             ),
         ]

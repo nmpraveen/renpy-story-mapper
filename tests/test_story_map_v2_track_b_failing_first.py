@@ -11,6 +11,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     canonical_hash,
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
+    LOCAL_MAPPER_ENDPOINT,
     LOCAL_MAPPER_MODEL,
     ProviderFailure,
     execute_chunks,
@@ -27,6 +28,7 @@ class FakeMapper:
         calls: list[str],
     ) -> None:
         self._model = model
+        self.endpoint = LOCAL_MAPPER_ENDPOINT
         self._outcomes = outcomes
         self.calls = calls
         self.cancelled = False
@@ -91,6 +93,7 @@ def test_preview_binds_exact_cloud_identity_limits_and_fields() -> None:
     assert preview.maximum_hosted_planned == 6
     assert preview.maximum_hosted_absolute == 8
     assert set(preview.transmitted_fields) == {"raw_text", "mechanics"}
+    assert preview.local_endpoint == LOCAL_MAPPER_ENDPOINT
 
 
 def test_all_cloud_success_constructs_cloud_only_after_confirmation() -> None:

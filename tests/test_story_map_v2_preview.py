@@ -14,6 +14,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
     CLOUD_MAPPER_MODEL,
+    LOCAL_MAPPER_ENDPOINT,
     LOCAL_MAPPER_MODEL,
     MAPPER_PROMPT_VERSION,
     PRIVACY_EXCLUSIONS,
@@ -70,6 +71,56 @@ def test_preview_is_zero_submit_and_binds_ordered_packets_and_privacy() -> None:
     assert preview.privacy_exclusions == PRIVACY_EXCLUSIONS
     assert preview.mode is ExecutionMode.CLOUD_PRIMARY
     assert preview.allow_local_fallback is True
+    assert preview.local_model == LOCAL_MAPPER_MODEL
+    assert preview.local_endpoint == LOCAL_MAPPER_ENDPOINT
+
+
+def test_preview_binds_endpoint_in_confirmation_and_rejects_non_loopback() -> None:
+    value, chunks = _fixture()
+    preview = prepare_preview(
+        value,
+        chunks,
+        mode=ExecutionMode.LOCAL_ONLY,
+        allow_local_fallback=False,
+        local_endpoint="http://localhost:1234/v1",
+    )
+    assert preview.local_endpoint == "http://localhost:1234/v1"
+    assert replace(preview, local_endpoint=LOCAL_MAPPER_ENDPOINT).confirmation_hash != (
+        preview.confirmation_hash
+    )
+
+    for endpoint in ("https://127.0.0.1:1234/v1", "http://example.com:1234/v1"):
+        with pytest.raises(ValueError, match="loopback"):
+            prepare_preview(
+                value,
+                chunks,
+                mode=ExecutionMode.LOCAL_ONLY,
+                allow_local_fallback=False,
+                local_endpoint=endpoint,
+            )
+
+
+def test_confirmed_endpoint_mutation_fails_before_any_factory() -> None:
+    value, chunks = _fixture()
+    preview = prepare_preview(
+        value,
+        chunks,
+        mode=ExecutionMode.LOCAL_ONLY,
+        allow_local_fallback=False,
+    )
+    changed = replace(preview, local_endpoint="http://example.com:1234/v1")
+    constructed: list[str] = []
+
+    with pytest.raises(ValueError, match="loopback"):
+        execute_chunks(
+            changed,
+            changed.confirmation_hash,
+            chunks,
+            cloud_factory=lambda: constructed.append("cloud"),  # type: ignore[arg-type,return-value]
+            local_factory=lambda: constructed.append("local"),  # type: ignore[arg-type,return-value]
+            cancelled=lambda: False,
+        )
+    assert constructed == []
 
 
 @pytest.mark.parametrize("mutation", ["confirmation", "chunks", "settings"])

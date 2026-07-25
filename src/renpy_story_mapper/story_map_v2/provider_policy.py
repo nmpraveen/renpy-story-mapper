@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from renpy_story_mapper.story_map_v2.contracts import (
     MAPPER_SCHEMA_VERSION,
@@ -27,6 +28,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
 )
 
 LOCAL_MAPPER_MODEL = "qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive"
+LOCAL_MAPPER_ENDPOINT = "http://127.0.0.1:1234/v1"
 CLOUD_MAPPER_MODEL = "gpt-5.6-luna"
 MAPPER_PROMPT_VERSION = "story-map-v2-mapper-prompt-v1"
 MAXIMUM_HOSTED_PLANNED = 6
@@ -69,6 +71,7 @@ def prepare_preview(
     mode: ExecutionMode,
     allow_local_fallback: bool,
     local_model: str | None = None,
+    local_endpoint: str | None = None,
 ) -> RunPreview:
     """Create a zero-submit preview whose hash binds every executable input. Track B owns it."""
 
@@ -82,10 +85,14 @@ def prepare_preview(
             selected_local_model = local_model or LOCAL_MAPPER_MODEL
             if selected_local_model != LOCAL_MAPPER_MODEL:
                 raise ValueError("Local fallback is locked to the approved mapper model.")
-        elif local_model is not None:
-            raise ValueError("A local model requires an enabled local fallback choice.")
+            selected_local_endpoint = _normalize_local_endpoint(
+                local_endpoint or LOCAL_MAPPER_ENDPOINT
+            )
+        elif local_model is not None or local_endpoint is not None:
+            raise ValueError("A local model and endpoint require enabled local fallback.")
         else:
             selected_local_model = None
+            selected_local_endpoint = None
         cloud_settings: ProviderSettings | None = ProviderSettings(
             model=CLOUD_MAPPER_MODEL,
             reasoning="high",
@@ -100,6 +107,9 @@ def prepare_preview(
         selected_local_model = local_model or LOCAL_MAPPER_MODEL
         if selected_local_model != LOCAL_MAPPER_MODEL:
             raise ValueError("Local-only execution is locked to the approved mapper model.")
+        selected_local_endpoint = _normalize_local_endpoint(
+            local_endpoint or LOCAL_MAPPER_ENDPOINT
+        )
         cloud_settings = None
         maximum_hosted_planned = 0
         maximum_hosted_absolute = 0
@@ -119,6 +129,7 @@ def prepare_preview(
         cloud_settings=cloud_settings,
         allow_local_fallback=allow_local_fallback,
         local_model=selected_local_model,
+        local_endpoint=selected_local_endpoint,
         maximum_hosted_planned=maximum_hosted_planned,
         maximum_hosted_absolute=maximum_hosted_absolute,
         maximum_local=maximum_local,
@@ -139,7 +150,12 @@ def execute_chunks(
 
     _validate_confirmation(preview, confirmed_hash, chunks)
     if preview.mode is ExecutionMode.LOCAL_ONLY:
-        return _execute_local_only(chunks, local_factory=local_factory, cancelled=cancelled)
+        return _execute_local_only(
+            chunks,
+            local_factory=local_factory,
+            expected_endpoint=preview.local_endpoint,
+            cancelled=cancelled,
+        )
     if cancelled():
         return tuple(_cancelled_result(chunk) for chunk in chunks)
     if cloud_factory is None:
@@ -201,7 +217,9 @@ def execute_chunks(
                 break
             if exc.kind is FailureKind.CONTENT_REFUSAL and preview.allow_local_fallback:
                 if local is None and local_failure is None:
-                    local, local_failure, local_resolved_model = _construct_local(local_factory)
+                    local, local_failure, local_resolved_model = _construct_local(
+                        local_factory, preview.local_endpoint
+                    )
                 if local is None:
                     assert local_failure is not None
                     results.append(
@@ -281,13 +299,14 @@ def _execute_local_only(
     chunks: tuple[StoryChunk, ...],
     *,
     local_factory: MapperFactory | None,
+    expected_endpoint: str | None,
     cancelled: Cancelled,
 ) -> tuple[ChunkExecutionResult, ...]:
     """Execute a deliberate local-only plan while constructing no cloud provider."""
 
     if cancelled():
         return tuple(_cancelled_result(chunk, local=True) for chunk in chunks)
-    local, failure, resolved_model = _construct_local(local_factory)
+    local, failure, resolved_model = _construct_local(local_factory, expected_endpoint)
     if local is None:
         assert failure is not None
         return tuple(
@@ -330,6 +349,7 @@ def _execute_local_only(
 
 def _construct_local(
     local_factory: MapperFactory | None,
+    expected_endpoint: str | None,
 ) -> tuple[ChunkMapper | None, FailureKind | None, str | None]:
     if local_factory is None:
         return None, FailureKind.LOCAL_UNAVAILABLE, None
@@ -351,6 +371,8 @@ def _construct_local(
             FailureKind.IDENTITY,
             resolved_model if isinstance(resolved_model, str) else None,
         )
+    if expected_endpoint is None or _mapper_endpoint(local) != expected_endpoint:
+        return None, FailureKind.IDENTITY, _observed_model(local)
     return local, None, _observed_model(local)
 
 
@@ -469,6 +491,29 @@ def _validate_ordered_chunks(chunks: tuple[StoryChunk, ...]) -> None:
         raise ValueError("Story chunk identities must be unique.")
 
 
+def _normalize_local_endpoint(endpoint: str) -> str:
+    if not isinstance(endpoint, str) or not endpoint:
+        raise ValueError("The local endpoint must be an explicit loopback URL.")
+    parsed = urlsplit(endpoint)
+    if (
+        parsed.scheme.casefold() != "http"
+        or parsed.hostname is None
+        or parsed.hostname.casefold() not in {"127.0.0.1", "localhost"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path != "/v1"
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("The local endpoint must be a loopback-only HTTP /v1 URL.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("The local endpoint port is invalid.") from exc
+    host = parsed.hostname.casefold()
+    return f"http://{host}{f':{port}' if port is not None else ''}/v1"
+
+
 def _validate_confirmation(
     preview: RunPreview,
     confirmed_hash: str,
@@ -509,20 +554,33 @@ def _validate_confirmation(
         expected_local = len(chunks) if preview.allow_local_fallback else 0
         if preview.maximum_local != expected_local:
             raise ValueError("The confirmed local-call ceiling changed.")
-        if preview.allow_local_fallback != (preview.local_model == LOCAL_MAPPER_MODEL):
-            raise ValueError("The confirmed local fallback choice or model changed.")
+        if preview.allow_local_fallback:
+            _validate_local_binding(preview)
+        elif preview.local_model is not None or preview.local_endpoint is not None:
+            raise ValueError("The confirmed local fallback binding changed.")
     elif preview.mode is ExecutionMode.LOCAL_ONLY:
         if (
             preview.cloud_settings is not None
             or preview.maximum_hosted_planned != 0
             or preview.maximum_hosted_absolute != 0
             or preview.allow_local_fallback
-            or preview.local_model != LOCAL_MAPPER_MODEL
             or preview.maximum_local != len(chunks)
         ):
             raise ValueError("The confirmed local-only settings changed.")
+        _validate_local_binding(preview)
     else:  # pragma: no cover - StrEnum exhaustiveness guard
         raise ValueError("The confirmed execution mode is unsupported.")
+
+
+def _validate_local_binding(preview: RunPreview) -> None:
+    if preview.local_model != LOCAL_MAPPER_MODEL or preview.local_endpoint is None:
+        raise ValueError("The confirmed local model or endpoint changed.")
+    try:
+        endpoint = _normalize_local_endpoint(preview.local_endpoint)
+    except ValueError:
+        raise ValueError("The confirmed local endpoint is not loopback-only.") from None
+    if endpoint != preview.local_endpoint:
+        raise ValueError("The confirmed local endpoint is not canonical.")
 
 
 def _optional_usage(mapper: ChunkMapper, name: str) -> int | None:
@@ -541,6 +599,14 @@ def _observed_model(mapper: ChunkMapper) -> str | None:
         return observed if isinstance(observed, str) and observed else None
     resolved = getattr(mapper, "resolved_model", None)
     return resolved if isinstance(resolved, str) and resolved else None
+
+
+def _mapper_endpoint(mapper: ChunkMapper) -> str | None:
+    try:
+        endpoint = getattr(mapper, "endpoint", None)
+    except Exception:
+        return None
+    return endpoint if isinstance(endpoint, str) and endpoint else None
 
 
 def _failure_result(

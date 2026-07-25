@@ -27,12 +27,13 @@ from renpy_story_mapper.story_map_v2.contracts import (
     canonical_json,
 )
 from renpy_story_mapper.story_map_v2.provider_policy import (
+    LOCAL_MAPPER_ENDPOINT,
     LOCAL_MAPPER_MODEL,
     MAPPER_PROMPT_VERSION,
     ProviderFailure,
 )
 
-DEFAULT_LOOPBACK_ENDPOINT = "http://127.0.0.1:1234"
+DEFAULT_LOOPBACK_ENDPOINT = LOCAL_MAPPER_ENDPOINT
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAXIMUM_RESPONSE_BYTES = 2_000_000
 _STATIC_TASK = (
@@ -104,6 +105,12 @@ class LoopbackLmStudioTransport:
         return LOCAL_MAPPER_MODEL
 
     @property
+    def endpoint(self) -> str:
+        """Return the exact caller-visible endpoint bound into the confirmed preview."""
+
+        return self._endpoint
+
+    @property
     def input_tokens(self) -> int | None:
         return self._input_tokens
 
@@ -143,7 +150,7 @@ class LoopbackLmStudioTransport:
                 "temperature": 0,
             }
         )
-        raw = self._request("POST", "/v1/chat/completions", body=request_body)
+        raw = self._request("POST", "/chat/completions", body=request_body)
         value = _decode_json(raw, "The local mapper returned malformed JSON.")
         if isinstance(value, dict) and isinstance(value.get("model"), str):
             self._observed_model = value["model"]
@@ -161,7 +168,7 @@ class LoopbackLmStudioTransport:
                 response.close()
 
     def _verify_loaded_model(self) -> None:
-        raw = self._request("GET", "/v1/models")
+        raw = self._request("GET", "/models")
         value = _decode_json(raw, "The local mapper model inventory was invalid.")
         if not isinstance(value, dict) or not isinstance(value.get("data"), list):
             raise ProviderFailure(
@@ -247,14 +254,14 @@ class LoopbackLmStudioTransport:
 
 def _normalize_loopback_endpoint(endpoint: str) -> str:
     parsed = _validate_loopback_url(endpoint)
-    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
-        raise ValueError("The LM Studio endpoint must be an origin without a path or query.")
+    if parsed.path != "/v1" or parsed.query or parsed.fragment:
+        raise ValueError("The LM Studio endpoint must be an explicit loopback /v1 URL.")
     host = cast(str, parsed.hostname).casefold()
     try:
         port = parsed.port
     except ValueError as exc:
         raise ValueError("The LM Studio endpoint port is invalid.") from exc
-    return f"http://{host}{f':{port}' if port is not None else ''}"
+    return f"http://{host}{f':{port}' if port is not None else ''}/v1"
 
 
 def _serialize_chunk_packet(chunk: StoryChunk) -> bytes:
