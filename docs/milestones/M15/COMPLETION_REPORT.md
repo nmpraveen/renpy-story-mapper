@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Blocked (single authorized live run exhausted at sterile CLI transport)
+Status: Verification (resumed by explicit 2026-07-25 transport-correction authorization)
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -113,6 +113,18 @@ missing provider-generated coverage. It independently recomputed the confirmatio
 accounting, execution provenance, exact mechanics, containment, and protected fingerprints and
 found no new implementation defect. The sanitized evidence cannot distinguish a transport-code,
 CLI-startup, configuration, or environment cause.
+
+On 2026-07-25 the user explicitly approved a bounded provider-free transport-diagnostics
+correction and, only after independent rereview plus a newly bound zero-submit preview, one
+additional live attempt. Correction `0f0acfc` closes the evidenced diagnostic gap shared with the
+otherwise-proven M13 runner: a nonzero Codex exit no longer bypasses structured `error` or
+`turn.failed` JSONL. Structured failures now retain sanitized resolved identity and token metadata;
+forbidden actions remain fail-closed; raw stderr/private text is never retained; and local output-
+schema/runtime-configuration rejections remain distinct from generic transport. Three new
+failing-first cases pass. The complete V2 plus relevant M10-M12/workflow matrix passes 297 tests in
+3.63 seconds; Ruff, strict mypy over all ten V2 modules, and whitespace pass. No provider call,
+preview regeneration, PR mutation, or retry occurred. Verification now pauses for exact-head
+independent clearance before regenerating the private preview or spending the one new attempt.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
 
