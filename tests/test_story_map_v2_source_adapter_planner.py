@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 
 import pytest
+from tests.m15_test_support import linear_authority
 
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import (
@@ -13,6 +14,7 @@ from renpy_story_mapper.canonical_graph_contract import (
 )
 from renpy_story_mapper.control_flow import analyze_control_flow
 from renpy_story_mapper.graph import build_graph
+from renpy_story_mapper.m11_scene_model import AtomKind
 from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.semantic import build_semantic_story
@@ -140,6 +142,19 @@ def test_adapter_projects_linear_source_identity_order_and_stable_keys() -> None
     assert all(span.raw_text.startswith(f"{span.start_line}: ") for span in first.spans)
 
 
+def test_adapter_keeps_unknown_m11_nodes_in_physical_source_order() -> None:
+    graph, scene_model = linear_authority((AtomKind.NARRATION, AtomKind.NARRATION))
+    partial_model = replace(
+        scene_model,
+        atoms=scene_model.atoms[1:],
+        scenes=(replace(scene_model.scenes[0], atom_ids=(scene_model.atoms[1].id,)),),
+    )
+
+    scope = adapt_story_scope(graph, scene_model=partial_model)
+
+    assert [span.start_line for span in scope.spans] == [1, 2]
+
+
 def test_adapter_projects_exact_conditional_choice_effects_and_local_rejoin() -> None:
     graph = _authority(
         """label start:
@@ -211,6 +226,39 @@ def test_adapter_keeps_setup_and_conditional_hint_controls_non_story() -> None:
     ):
         choice = adapt_story_scope(_authority(source)).choices[0]
         assert choice.story_choice is False
+
+
+def test_adapter_filters_executable_confirmation_statement_as_setup() -> None:
+    graph = _authority(
+        '''label start:
+    menu:
+        "Continue":
+            pass
+        "Exit":
+            MainMenu(confirm=False)()
+    "Shared story begins."
+    return
+'''
+    )
+
+    assert adapt_story_scope(graph).choices[0].story_choice is False
+
+
+def test_adapter_conservatively_filters_unresolved_external_selector() -> None:
+    graph = _authority(
+        '''label start:
+    menu:
+        "Use bundled story":
+            jump bundled
+        "Use external story":
+            jump unavailable_external
+label bundled:
+    "Bundled story begins."
+    return
+'''
+    )
+
+    assert adapt_story_scope(graph).choices[0].story_choice is False
 
 
 def test_adapter_keeps_shared_continuation_setup_jumps_non_story() -> None:
