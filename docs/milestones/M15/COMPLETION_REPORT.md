@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Verification (resumed by explicit 2026-07-25 transport-correction authorization)
+Status: Blocked
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -143,6 +143,43 @@ unchanged; the new file and before/after fingerprint audit prove regeneration ra
 reuse. Exactly one live attempt is now eligible and remains unspent at this checkpoint.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
+
+The one newly authorized live attempt was spent exactly once against that fresh preview. It made
+one conservatively counted cloud attempt, ran for 2,125 ms, and terminated `invalid_response` with
+sanitized reason `The cloud mapper returned an invalid response.` It returned no response,
+response hash, resolved model, or input/output usage. No retry, replacement, semantic repair, or
+local fallback occurred. The current core is an honest 0/1 `partial`: its missing chunk retains the
+exact failed cloud execution record and deterministic four-choice/eight-arm mechanics, while
+provider-generated narrative events and branch outcomes remain absent. The execution ledger,
+acceptance summary, core JSON, and core Markdown SHA-256 values are respectively
+`59fab114...5538`, `6bec8b8d...a161`, `6a3b90b6...fc6b3`, and `17d9dc9f...e8c8`.
+
+Coordinator recomputation matches the preview confirmation, packet identity, 9,390 raw tokens,
+755 spans, Luna/High/fast-off settings, disabled fallback, six planned/eight absolute ceilings,
+and only `raw_text` plus `mechanics` as transmitted fields. The source, archive, and project-copy
+fingerprints remain exactly `14aa44ed...88a6`, `053abb13...303`, and `a551e451...9679`; their
+bytes also match the acceptance summary. Private inputs and output remain outside Git.
+
+The newly exposed blocker is concrete and provider-facing. Root schema
+`story_map_mapper_v1.schema.json` declares nullable `scope_title` and `scope_overview` properties
+but lists only `events` and `branch_summaries` in `required`. The
+[OpenAI Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs)
+requires every object property to be required and represents optional values as required nullable
+fields. This mismatch explains the structured `invalid_response` boundary without proving that no
+later defect exists. The same Final Integration Reviewer audited exact product head `e862427` and
+the outside-Git package read-only and returned `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, solely
+for this provider-facing defect. The smallest provider-free correction is a versioned successor
+schema that requires all four root fields, with a new bound schema version/path so confirmation
+changes; a recursive gate must enforce `required == properties` plus `additionalProperties: false`
+for every object, and explicit-null coverage must prove the optional scope semantics. Tolerant
+omitted-field parsing may remain only as backward-compatible parser behavior.
+
+Phase 02 is `Blocked` at private acceptance. The authorized attempt is fully spent. No further
+provider call, preview reuse, PR mutation, or completion claim is permitted. Resumption requires
+explicit approval for the bounded versioned provider-schema correction and, only after provider-
+free gates, independent exact-head rereview, and a freshly bound zero-submit preview, a separate
+live attempt.
+The native goal remains active and PR #26 remains draft, unmerged, and unmodified.
 
 ### Earlier Phase 02 implementation log (superseded by the snapshot above)
 
@@ -287,7 +324,7 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Verification | Track A/B exact-head reviews passed. Final provider-free rereview passed exact head `211fd2e` with P0/P1/P2 all zero; correction `4b1b74d` and 294 coordinator checks plus static/containment/fingerprint gates pass. One coherent 9,390-token Luna preview is cleared for exactly one newly authorized run. The historical 0/2 artifact remains failed evidence; provider-generated coverage, live artifact audit, final acceptance review, and PR readiness remain incomplete. |
+| Phase 02 core rewrite | Blocked | Track A/B and provider-free transport-correction exact-head reviews passed. The fresh one-call Luna preview was executed exactly once and terminated `invalid_response` after 2,125 ms, leaving an honest 0/1 partial core. Post-run reviewer verdict is `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, for a concrete strict-schema mismatch: two nullable root properties are not required. Accounting, provenance, mechanics, containment, and fingerprints pass; provider-generated coverage, a versioned schema correction, new review/authorization, final acceptance, and PR readiness remain incomplete. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Final reviewer and private comparison | Changes requested | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2 without opening oracle/mockups. A corrected candidate must receive a fresh blind Stage 1 freeze before Stage 2. |
 | Real Chrome and user visual approval | Pending | Actual final-head 100%/200% screenshots must be approved by the user |

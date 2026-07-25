@@ -1,12 +1,12 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (Phase 02 verification resumed by explicit transport-correction authorization)
+Updated: 2026-07-25 (Phase 02 blocked at strict provider-schema acceptance)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Status: Verification.
+- Status: Blocked.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
@@ -75,7 +75,25 @@ Updated: 2026-07-25 (Phase 02 verification resumed by explicit transport-correct
   `raw_text` plus `mechanics`, and unchanged protected fingerprints. File SHA-256 is
   `e654513c...396c1f`; stable confirmation remains `e50d659a...da5f0` because every bound input is
   unchanged. The prior failed package is preserved under `historical-second-run`. The one newly
-  authorized live attempt is eligible and remains unspent.
+  authorized live attempt was spent exactly once. It made one conservatively counted cloud attempt
+  over 2,125 ms and terminated `invalid_response` with no response, response hash, resolved model,
+  token usage, retry, replacement, or fallback. The resulting core is honestly partial at 0/1,
+  retains the exact failed execution provenance and deterministic four-choice/eight-arm mechanics,
+  and contains no provider-generated narrative events or branch outcomes. Source, archive, and
+  project-copy fingerprints remain byte-for-byte exact. The attempt is not reusable.
+  Provider-schema audit establishes the next blocker: root schema
+  `story_map_mapper_v1.schema.json` defines nullable `scope_title` and `scope_overview` properties
+  but omits them from `required`, contrary to the strict Structured Outputs subset that requires
+  every property and uses nullable types for optional values. The same Final Integration Reviewer
+  audited product head `e862427` and the outside-Git package read-only and returned
+  `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, solely for this concrete provider-facing defect; it
+  found no additional accounting, provenance, privacy, containment, or fingerprint failure. The
+  required correction is a versioned successor schema with a new bound version/path, all four root
+  properties required, a recursive strict-schema gate, and explicit-null coverage; tolerant
+  omitted-field parsing may remain for backward compatibility. The native goal remains active; PR
+  #26 remains draft/unmerged/unmodified. Resumption requires explicit approval for that bounded
+  versioned provider-schema correction and, only after provider-free gates, independent exact-head
+  review, and a fresh zero-submit preview, a separately authorized live attempt.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded

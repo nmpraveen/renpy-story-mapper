@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 02 core rewrite
 
-Status: Verification (resumed by explicit 2026-07-25 transport-correction authorization)
+Status: Blocked
 
 Authority: `docs/MASTER_PLAN.md` and
 `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.
@@ -129,6 +129,12 @@ Local submission is allowed only for an actual hosted content/safety refusal whe
 enabled fallback and the exact already-loaded loopback model is verified, or through a separately
 previewed user-selected `local_only` run that records zero hosted submissions. The Phase 02 private
 acceptance remains cloud-primary and does not run local-only merely to spend the option.
+
+The separately approved 2026-07-25 additional attempt was spent exactly once against its freshly
+regenerated preview and is not reusable. It failed `invalid_response` before producing a mapper
+result. No retry, replacement, fallback, or further live execution is authorized. Resumption
+requires an explicit versioned provider-schema correction decision and a separate zero-submit
+authorization after provider-free verification and independent exact-head review.
 
 ## Historical note
 
