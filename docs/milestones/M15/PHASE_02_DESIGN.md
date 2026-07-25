@@ -52,7 +52,8 @@ The source adapter emits one `StoryScope` containing:
 
 - exact source identity and authority hashes;
 - ordered `SourceSpan` records with relative path, physical line range, line-numbered raw text,
-  label/scene boundary hints, and a stable source anchor;
+  label/scene boundary hints, a stable source anchor, and Python-owned reachability plus retained
+  unresolved warnings for the covered canonical nodes;
 - `ChoiceMechanic` records keyed by source choice location, with exact ordered arms, conditions,
   proven/possible effects, destination/rejoin facts, reachability, and unresolved warnings;
 - compact density counts for menus, arms, conditions, transfers, and unresolved behavior.
@@ -79,6 +80,12 @@ The mapper response is deliberately small:
 
 It contains no atom membership, evidence allocation, exact line coverage requirement, graph
 coordinates, hierarchy levels, claim objects, repair locks, or stable AI prose hashes.
+
+The validated core retains optional mapper scope title/overview text on the contributing chunk and
+on the assembled core. Each accepted branch summary becomes a `CoreBranchOutcome` containing the
+AI-written outcome meaning plus the Python-owned choice key, arm ordinal, exact caption, stable
+anchor, reachability, and unresolved warnings. The compact core therefore does not discard the
+provider contribution it validated.
 
 ## Validation and mechanics overlay
 

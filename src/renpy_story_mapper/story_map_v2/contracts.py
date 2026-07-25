@@ -85,6 +85,8 @@ class SourceSpan:
     raw_text: str
     estimated_tokens: int
     canonical_node_ids: tuple[str, ...]
+    reachability: Reachability
+    unresolved_warnings: tuple[str, ...] = ()
     choice_keys: tuple[str, ...] = ()
     arm_lineage: tuple[ArmLineageStep, ...] = ()
     natural_boundary_after: bool = False
@@ -99,6 +101,8 @@ class SourceSpan:
             raise ValueError("estimated tokens cannot be negative")
         if len(self.canonical_node_ids) != len(set(self.canonical_node_ids)):
             raise ValueError("canonical node IDs must be unique")
+        for warning in self.unresolved_warnings:
+            _text(warning, "unresolved warning")
 
 
 @dataclass(frozen=True)
@@ -271,13 +275,45 @@ class CoreEvent:
 
 
 @dataclass(frozen=True)
+class CoreBranchOutcome:
+    choice_key: str
+    arm_order: int
+    caption: str
+    summary: str
+    anchor: EventAnchor
+    reachability: Reachability
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _text(self.choice_key, "choice key")
+        if self.arm_order < 1:
+            raise ValueError("arm order must be positive")
+        _text(self.caption, "branch caption")
+        _text(self.summary, "branch summary")
+        for warning in self.warnings:
+            _text(warning, "branch warning")
+
+
+@dataclass(frozen=True)
 class CoreChunk:
     chunk_identity: str
     status: ChunkStatus
     origin: ProviderOrigin
     events: tuple[CoreEvent, ...]
     choices: tuple[ChoiceMechanic, ...]
+    branch_outcomes: tuple[CoreBranchOutcome, ...] = ()
+    scope_title: str | None = None
+    scope_overview: str | None = None
     warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _text(self.chunk_identity, "chunk identity")
+        for value, label in (
+            (self.scope_title, "scope title"),
+            (self.scope_overview, "scope overview"),
+        ):
+            if value is not None:
+                _text(value, label)
 
 
 @dataclass(frozen=True)
@@ -286,6 +322,15 @@ class StoryMapCore:
     source_identity: str
     status: ChunkStatus
     chunks: tuple[CoreChunk, ...]
+    title: str | None = None
+    overview: str | None = None
+
+    def __post_init__(self) -> None:
+        _text(self.schema, "core schema")
+        _text(self.source_identity, "source identity")
+        for value, label in ((self.title, "core title"), (self.overview, "core overview")):
+            if value is not None:
+                _text(value, label)
 
 
 @dataclass(frozen=True)

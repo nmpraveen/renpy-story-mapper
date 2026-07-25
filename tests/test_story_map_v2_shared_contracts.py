@@ -8,14 +8,20 @@ import pytest
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
     ChunkProfile,
+    ChunkStatus,
+    CoreBranchOutcome,
+    CoreChunk,
+    EventAnchor,
     ExecutionMode,
+    ProviderOrigin,
     ProviderSettings,
     Reachability,
     RunPreview,
     StoryChunk,
+    StoryMapCore,
     canonical_hash,
 )
-from story_map_v2_fixtures import arm, choice
+from story_map_v2_fixtures import arm, choice, span
 
 
 def test_contracts_reject_non_contiguous_authoritative_arm_order() -> None:
@@ -60,6 +66,63 @@ def test_default_limits_and_reachability_vocabulary_are_frozen() -> None:
         Reachability.UNRESOLVED,
     )
     assert ArmLineageStep("choice:1", 1) < ArmLineageStep("choice:1", 2)
+
+
+def test_source_span_carries_python_owned_reachability_and_warnings() -> None:
+    value = span(
+        "dynamic",
+        20,
+        24,
+        100,
+        reachability=Reachability.UNRESOLVED,
+        warnings=("dynamic target",),
+    )
+
+    assert value.reachability is Reachability.UNRESOLVED
+    assert value.unresolved_warnings == ("dynamic target",)
+
+
+def test_core_chunk_retains_mapper_scope_text_and_python_anchored_branch_outcome() -> None:
+    anchor = EventAnchor(
+        id="anchor-1",
+        canonical_node_id="node:ridge",
+        relative_path="scripts/day.rpy",
+        line=11,
+        arm_lineage=(ArmLineageStep("scripts/day.rpy:10", 1),),
+        destination_id="node:ridge",
+    )
+    outcome = CoreBranchOutcome(
+        choice_key="scripts/day.rpy:10",
+        arm_order=1,
+        caption="Take the ridge",
+        summary="They choose the difficult route.",
+        anchor=anchor,
+        reachability=Reachability.REACHABLE,
+    )
+    chunk = CoreChunk(
+        chunk_identity="chunk-1",
+        status=ChunkStatus.COMPLETE,
+        origin=ProviderOrigin.CLOUD,
+        events=(),
+        choices=(),
+        branch_outcomes=(outcome,),
+        scope_title="A difficult route",
+        scope_overview="The group decides how to proceed.",
+    )
+
+    assert chunk.branch_outcomes == (outcome,)
+    assert chunk.scope_title == "A difficult route"
+    assert chunk.scope_overview == "The group decides how to proceed."
+    core = StoryMapCore(
+        schema="story-map-v2-core-v1",
+        source_identity="source-1",
+        status=ChunkStatus.COMPLETE,
+        chunks=(chunk,),
+        title=chunk.scope_title,
+        overview=chunk.scope_overview,
+    )
+    assert core.title == "A difficult route"
+    assert core.overview == "The group decides how to proceed."
 
 
 def test_story_map_v2_has_no_transitive_historical_semantic_dependency() -> None:

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
+Updated: 2026-07-24 (Phase 02 implementation tracks active; reachability seam corrected)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,7 +13,7 @@ Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
   on the integration branch remote, and on open PR #26 at correction preflight.
 - Integration branch: `codex/m15-msday1-narrative-map`; existing
   [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26) remains open and unmerged.
-- Status: `In progress`; semantic decision `PASS`. The user started the approved Phase 02 coordinator
+- Status: In progress. Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded
   correction reconciled lifecycle authority and specifies deterministic branch-event lineage,
@@ -21,8 +21,14 @@ Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
   execution. The same reviewer rereviewed corrected exact head `4d32f08` and returned `PASS` with
   no unresolved P0-P2. Shared contract/failing-first freeze `e72fe41` defines versioned records,
   schema, Track A/Track B function signatures, and transitive architecture enforcement. Its five
-  contract tests pass; seven Track A and six Track B tests fail only at their explicit
-  `NotImplementedError` seams with no collection error. Dependency-ready Track work may begin.
+  original contract tests passed; seven Track A and six Track B tests failed only at their explicit
+  `NotImplementedError` seams with no collection error. During A1's exact-authority audit, the
+  frozen `SourceSpan` seam proved unable to carry non-choice canonical reachability into the
+  overlay. A2 independently found that validated mapper branch summaries and scope text had no
+  durable core field. Coordinator-owned failing-first corrections now require Python-owned span
+  reachability/warnings and retain branch outcomes plus optional scope text in the core with exact
+  deterministic anchors. Seven shared contract tests plus Ruff, strict mypy, and whitespace pass.
+  Track A resumes from that corrected seam without guessing authority or discarding provider text.
   Stage H V12 remains a failed
   historical attempt with `hierarchy_not_representable` after two calls, 484,092 input tokens,
   33,752 output tokens, and 618,327 ms. It produced no hierarchy, logical record, or publication
@@ -47,6 +53,8 @@ Updated: 2026-07-24 (Phase 02 shared freeze complete; Track A/B ready)
 - Native Codex goal: active goal/task `019f9676-c357-7803-a891-f03782bbb8ee`, whose objective
   exactly matches the Phase 02 done condition. It remains active through implementation,
   integration, verification, private acceptance, final review, and the draft PR checkpoint.
+- Revised semantic gate: [`REVISE`](milestones/M15/SEMANTIC_REVIEW.md) records the historical
+  Stage H/E supersession; the current Phase 02 semantic decision is the later recorded `PASS`.
 - Accepted Phase 01 outcome: the compact vertical whole-Day-1 overview, visible local choices, and
   selectable witness paths are the product direction. The frozen experiment remains exact at 20
   hosted submissions plus the separately authorized four local calls.

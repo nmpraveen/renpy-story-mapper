@@ -61,6 +61,8 @@ def span(
     choice_keys: tuple[str, ...] = (),
     boundary: bool = False,
     shared: bool = False,
+    reachability: Reachability = Reachability.REACHABLE,
+    warnings: tuple[str, ...] = (),
 ) -> SourceSpan:
     return SourceSpan(
         key=key,
@@ -70,6 +72,8 @@ def span(
         raw_text=f"{start}: synthetic story\n",
         estimated_tokens=tokens,
         canonical_node_ids=(f"node:{key}",),
+        reachability=reachability,
+        unresolved_warnings=warnings,
         choice_keys=choice_keys,
         arm_lineage=lineage,
         natural_boundary_after=boundary,
