@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hmac
+import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict
 from typing import Protocol
 
@@ -133,17 +135,11 @@ def execute_chunks(
     local_factory: MapperFactory | None,
     cancelled: Cancelled,
 ) -> tuple[ChunkExecutionResult, ...]:
-    """Execute the confirmed cloud-primary portion of the Track B policy.
-
-    B1 deliberately leaves two narrow seams for B2: deliberate ``local_only`` execution and the
-    transition from an explicit cloud content refusal to the already-confirmed local mapper.  This
-    function never constructs ``local_factory``; until B2 fills that transition, a refusal remains
-    an honest missing result with ``FailureKind.CONTENT_REFUSAL``.
-    """
+    """Execute one exact confirmed plan without retry, substitution, or provider cascade."""
 
     _validate_confirmation(preview, confirmed_hash, chunks)
     if preview.mode is ExecutionMode.LOCAL_ONLY:
-        raise NotImplementedError("B2 owns deliberate local-only execution.")
+        return _execute_local_only(chunks, local_factory=local_factory, cancelled=cancelled)
     if cancelled():
         return tuple(_cancelled_result(chunk) for chunk in chunks)
     if cloud_factory is None:
@@ -167,19 +163,55 @@ def execute_chunks(
         return tuple(_failure_result(chunk, FailureKind.IDENTITY, elapsed_ms=0) for chunk in chunks)
 
     results: list[ChunkExecutionResult] = []
+    local: ChunkMapper | None = None
+    local_failure: FailureKind | None = None
     for offset, chunk in enumerate(chunks):
         if cancelled():
+            _cancel_mapper(cloud)
+            _cancel_mapper(local)
             results.extend(_cancelled_result(item) for item in chunks[offset:])
             break
         started = time.monotonic()
         try:
-            response = cloud.map_chunk(chunk)
+            stop_monitor, monitor = _start_cancellation_monitor(cloud, cancelled)
+            try:
+                response = cloud.map_chunk(chunk)
+            finally:
+                _stop_cancellation_monitor(stop_monitor, monitor)
         except ProviderFailure as exc:
             elapsed_ms = round((time.monotonic() - started) * 1000)
             if exc.kind is FailureKind.CANCELLED:
+                _cancel_mapper(cloud)
                 results.append(_cancelled_result(chunk, elapsed_ms=elapsed_ms))
                 results.extend(_cancelled_result(item) for item in chunks[offset + 1 :])
                 break
+            if exc.kind is FailureKind.CONTENT_REFUSAL and preview.allow_local_fallback:
+                if local is None and local_failure is None:
+                    local, local_failure = _construct_local(local_factory)
+                if local is None:
+                    assert local_failure is not None
+                    results.append(
+                        _failure_result(
+                            chunk,
+                            local_failure,
+                            elapsed_ms=elapsed_ms,
+                            local=True,
+                        )
+                    )
+                    continue
+                local_result = _submit_local(
+                    chunk,
+                    local,
+                    origin=ProviderOrigin.LOCAL_FALLBACK,
+                    cancelled=cancelled,
+                )
+                results.append(local_result)
+                if local_result.failure_kind is FailureKind.CANCELLED:
+                    _cancel_mapper(local)
+                    _cancel_mapper(cloud)
+                    results.extend(_cancelled_result(item) for item in chunks[offset + 1 :])
+                    break
+                continue
             results.append(_failure_result(chunk, exc.kind, elapsed_ms=elapsed_ms))
             if exc.kind is FailureKind.IDENTITY:
                 results.extend(
@@ -187,8 +219,6 @@ def execute_chunks(
                     for item in chunks[offset + 1 :]
                 )
                 break
-            # B2 replaces only the CONTENT_REFUSAL + confirmed opt-in branch here with an
-            # identical-packet local submission.  No local provider is constructed by B1.
         except Exception:
             results.append(
                 _failure_result(
@@ -213,6 +243,158 @@ def execute_chunks(
                 )
             )
     return tuple(results)
+
+
+def _execute_local_only(
+    chunks: tuple[StoryChunk, ...],
+    *,
+    local_factory: MapperFactory | None,
+    cancelled: Cancelled,
+) -> tuple[ChunkExecutionResult, ...]:
+    """Execute a deliberate local-only plan while constructing no cloud provider."""
+
+    if cancelled():
+        return tuple(_cancelled_result(chunk) for chunk in chunks)
+    local, failure = _construct_local(local_factory)
+    if local is None:
+        assert failure is not None
+        return tuple(_failure_result(chunk, failure, elapsed_ms=0, local=True) for chunk in chunks)
+
+    results: list[ChunkExecutionResult] = []
+    for offset, chunk in enumerate(chunks):
+        if cancelled():
+            _cancel_mapper(local)
+            results.extend(_cancelled_result(item) for item in chunks[offset:])
+            break
+        result = _submit_local(
+            chunk,
+            local,
+            origin=ProviderOrigin.LOCAL_ONLY,
+            cancelled=cancelled,
+        )
+        results.append(result)
+        if result.failure_kind is FailureKind.CANCELLED:
+            _cancel_mapper(local)
+            results.extend(_cancelled_result(item) for item in chunks[offset + 1 :])
+            break
+    return tuple(results)
+
+
+def _construct_local(
+    local_factory: MapperFactory | None,
+) -> tuple[ChunkMapper | None, FailureKind | None]:
+    if local_factory is None:
+        return None, FailureKind.LOCAL_UNAVAILABLE
+    try:
+        local = local_factory()
+    except ProviderFailure as exc:
+        return None, _local_failure_kind(exc.kind)
+    except Exception:
+        return None, FailureKind.LOCAL_UNAVAILABLE
+    try:
+        resolved_model = local.resolved_model
+    except ProviderFailure as exc:
+        return None, _local_failure_kind(exc.kind)
+    except Exception:
+        return None, FailureKind.LOCAL_UNAVAILABLE
+    if resolved_model != LOCAL_MAPPER_MODEL:
+        return None, FailureKind.IDENTITY
+    return local, None
+
+
+def _submit_local(
+    chunk: StoryChunk,
+    local: ChunkMapper,
+    *,
+    origin: ProviderOrigin,
+    cancelled: Cancelled,
+) -> ChunkExecutionResult:
+    """Submit the unchanged confirmed StoryChunk exactly once to the local mapper."""
+
+    started = time.monotonic()
+    try:
+        stop_monitor, monitor = _start_cancellation_monitor(local, cancelled)
+        try:
+            response = local.map_chunk(chunk)
+        finally:
+            _stop_cancellation_monitor(stop_monitor, monitor)
+    except ProviderFailure as exc:
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        if exc.kind is FailureKind.CANCELLED:
+            return _cancelled_result(chunk, elapsed_ms=elapsed_ms, local=True)
+        return _failure_result(
+            chunk,
+            _local_failure_kind(exc.kind),
+            elapsed_ms=elapsed_ms,
+            local=True,
+        )
+    except Exception:
+        return _failure_result(
+            chunk,
+            FailureKind.LOCAL_UNAVAILABLE,
+            elapsed_ms=round((time.monotonic() - started) * 1000),
+            local=True,
+        )
+    return ChunkExecutionResult(
+        chunk_identity=chunk.identity,
+        origin=origin,
+        status=ChunkStatus.COMPLETE,
+        response=response,
+        failure_kind=None,
+        elapsed_ms=max(0, round((time.monotonic() - started) * 1000)),
+        response_hash=canonical_hash(asdict(response)),
+        sanitized_reason=None,
+        input_tokens=_optional_usage(local, "input_tokens"),
+        output_tokens=_optional_usage(local, "output_tokens"),
+    )
+
+
+def _local_failure_kind(kind: FailureKind) -> FailureKind:
+    if kind in {
+        FailureKind.TIMEOUT,
+        FailureKind.RATE_LIMIT,
+        FailureKind.AUTHENTICATION,
+        FailureKind.TRANSPORT,
+        FailureKind.INVALID_RESPONSE,
+        FailureKind.IDENTITY,
+        FailureKind.CANCELLED,
+        FailureKind.LOCAL_UNAVAILABLE,
+    }:
+        return kind
+    return FailureKind.INVALID_RESPONSE
+
+
+def _cancel_mapper(mapper: ChunkMapper | None) -> None:
+    if mapper is None:
+        return
+    with suppress(Exception):
+        mapper.cancel()
+
+
+def _start_cancellation_monitor(
+    mapper: ChunkMapper,
+    cancelled: Cancelled,
+) -> tuple[threading.Event, threading.Thread]:
+    stop = threading.Event()
+
+    def monitor() -> None:
+        while not stop.wait(0.01):
+            try:
+                requested = cancelled()
+            except Exception:
+                requested = True
+            if requested:
+                _cancel_mapper(mapper)
+                return
+
+    thread = threading.Thread(target=monitor, name="story-map-v2-cancel", daemon=True)
+    thread.start()
+    return stop, thread
+
+
+def _stop_cancellation_monitor(stop: threading.Event, thread: threading.Thread) -> None:
+    stop.set()
+    thread.join(timeout=0.1)
 
 
 def _validate_ordered_chunks(chunks: tuple[StoryChunk, ...]) -> None:
@@ -290,6 +472,7 @@ def _failure_result(
     kind: FailureKind,
     *,
     elapsed_ms: int,
+    local: bool = False,
 ) -> ChunkExecutionResult:
     return ChunkExecutionResult(
         chunk_identity=chunk.identity,
@@ -299,11 +482,13 @@ def _failure_result(
         failure_kind=kind,
         elapsed_ms=max(0, elapsed_ms),
         response_hash=None,
-        sanitized_reason=_SANITIZED_REASONS[kind],
+        sanitized_reason=(_LOCAL_SANITIZED_REASONS if local else _SANITIZED_REASONS)[kind],
     )
 
 
-def _cancelled_result(chunk: StoryChunk, *, elapsed_ms: int = 0) -> ChunkExecutionResult:
+def _cancelled_result(
+    chunk: StoryChunk, *, elapsed_ms: int = 0, local: bool = False
+) -> ChunkExecutionResult:
     return ChunkExecutionResult(
         chunk_identity=chunk.identity,
         origin=ProviderOrigin.MISSING,
@@ -312,7 +497,9 @@ def _cancelled_result(chunk: StoryChunk, *, elapsed_ms: int = 0) -> ChunkExecuti
         failure_kind=FailureKind.CANCELLED,
         elapsed_ms=max(0, elapsed_ms),
         response_hash=None,
-        sanitized_reason=_SANITIZED_REASONS[FailureKind.CANCELLED],
+        sanitized_reason=(
+            _LOCAL_SANITIZED_REASONS if local else _SANITIZED_REASONS
+        )[FailureKind.CANCELLED],
     )
 
 
@@ -325,5 +512,17 @@ _SANITIZED_REASONS = {
     FailureKind.INVALID_RESPONSE: "The cloud mapper returned an invalid response.",
     FailureKind.IDENTITY: "The cloud mapper identity or settings did not match.",
     FailureKind.CANCELLED: "Cloud mapping was cancelled.",
+    FailureKind.LOCAL_UNAVAILABLE: "The confirmed local mapper is unavailable.",
+}
+
+_LOCAL_SANITIZED_REASONS = {
+    FailureKind.CONTENT_REFUSAL: "The local mapper declined this section.",
+    FailureKind.TIMEOUT: "The local mapper timed out.",
+    FailureKind.RATE_LIMIT: "The local mapper is rate limited.",
+    FailureKind.AUTHENTICATION: "Local mapper authentication failed.",
+    FailureKind.TRANSPORT: "The local mapper transport failed.",
+    FailureKind.INVALID_RESPONSE: "The local mapper returned an invalid response.",
+    FailureKind.IDENTITY: "The confirmed local mapper model did not match.",
+    FailureKind.CANCELLED: "Local mapping was cancelled.",
     FailureKind.LOCAL_UNAVAILABLE: "The confirmed local mapper is unavailable.",
 }
