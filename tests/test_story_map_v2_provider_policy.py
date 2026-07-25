@@ -88,6 +88,12 @@ class UnresolvedIdentityMapper(RecordingMapper):
         return None
 
 
+class FailedRuntimeIdentityMapper(RecordingMapper):
+    @property
+    def observed_model(self) -> str:
+        return "substitute"
+
+
 def _fixture(count: int = 1) -> tuple[StoryScope, tuple[StoryChunk, ...]]:
     spans = tuple(
         span(f"span-{index}", 10 * index + 1, 10 * index + 8, 100, boundary=True)
@@ -337,6 +343,31 @@ def test_every_non_refusal_cloud_failure_never_constructs_local(kind: FailureKin
     assert results[0].origin is ProviderOrigin.MISSING
     assert results[0].failure_kind is kind
     assert "sensitive" not in (results[0].sanitized_reason or "")
+
+
+def test_failed_runtime_identity_accounting_never_constructs_local() -> None:
+    preview, chunks = _preview()
+    cloud = FailedRuntimeIdentityMapper(
+        CLOUD_MAPPER_MODEL,
+        [ProviderFailure(FailureKind.IDENTITY, "SECRET-STORY provider detail")],
+    )
+    local_constructed: list[bool] = []
+    results = execute_chunks(
+        preview,
+        preview.confirmation_hash,
+        chunks,
+        cloud_factory=lambda: cloud,
+        local_factory=lambda: local_constructed.append(True),  # type: ignore[arg-type,func-returns-value]
+        cancelled=lambda: False,
+    )
+    assert local_constructed == []
+    assert cloud.chunks == [chunks[0]]
+    assert len(results.attempts) == 1
+    attempt = results.attempts[0]
+    assert attempt.failure_kind is FailureKind.IDENTITY
+    assert attempt.resolved_model == "substitute"
+    assert attempt.input_tokens == 12 and attempt.output_tokens == 3
+    assert "SECRET-STORY" not in (attempt.sanitized_reason or "")
 
 
 @pytest.mark.parametrize(

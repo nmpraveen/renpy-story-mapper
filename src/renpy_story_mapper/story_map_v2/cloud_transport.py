@@ -116,6 +116,8 @@ class CloudAccounting:
     resolved_model: str | None
     reasoning: str
     fast_mode: bool
+    resolved_reasoning: str | None
+    resolved_fast_mode: bool | None
     input_hash: str
     response_hash: str | None
     input_tokens: int | None
@@ -269,6 +271,8 @@ class CodexCliCloudTransport:
         self._resolved_executable: str | None = None
         self._last_accounting: CloudAccounting | None = None
         self._observed_model: str | None = None
+        self._observed_reasoning: str | None = None
+        self._observed_fast_mode: bool | None = None
         self._input_tokens: int | None = None
         self._output_tokens: int | None = None
 
@@ -306,6 +310,8 @@ class CodexCliCloudTransport:
     def map_chunk(self, chunk: StoryChunk) -> MapperResponse:
         self._last_accounting = None
         self._observed_model = None
+        self._observed_reasoning = None
+        self._observed_fast_mode = None
         self._input_tokens = None
         self._output_tokens = None
         if self._cancelled.is_set():
@@ -345,6 +351,8 @@ class CodexCliCloudTransport:
             response, metadata = _parse_jsonl(stdout)
         except ProviderFailure as exc:
             self._observed_model = exc.resolved_model
+            self._observed_reasoning = exc.resolved_reasoning
+            self._observed_fast_mode = exc.resolved_fast_mode
             self._input_tokens = exc.input_tokens
             self._output_tokens = exc.output_tokens
             self._last_accounting = self._accounting(
@@ -355,6 +363,10 @@ class CodexCliCloudTransport:
             raise
         if len(metadata.models) == 1:
             self._observed_model = next(iter(metadata.models))
+        if len(metadata.reasonings) == 1:
+            self._observed_reasoning = next(iter(metadata.reasonings))
+        if len(metadata.fast_modes) == 1:
+            self._observed_fast_mode = next(iter(metadata.fast_modes))
         self._input_tokens = metadata.input_tokens
         self._output_tokens = metadata.output_tokens
         try:
@@ -386,6 +398,8 @@ class CodexCliCloudTransport:
             resolved_model=self._observed_model,
             reasoning=CLOUD_REASONING,
             fast_mode=CLOUD_FAST_MODE,
+            resolved_reasoning=self._observed_reasoning,
+            resolved_fast_mode=self._observed_fast_mode,
             input_hash=hashlib.sha256(packet).hexdigest(),
             response_hash=response_hash,
             input_tokens=self._input_tokens,
@@ -503,10 +517,28 @@ def _parse_jsonl(raw: bytes) -> tuple[MapperResponse, _RuntimeMetadata]:
                 input_tokens = reported_input if reported_input is not None else input_tokens
                 output_tokens = reported_output if reported_output is not None else output_tokens
             if event.get("type") in {"error", "turn.failed"}:
-                failure = _classify_structured_failure(event)
+                metadata = _RuntimeMetadata(
+                    models=frozenset(models),
+                    reasonings=frozenset(reasonings),
+                    fast_modes=frozenset(fast_modes),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+                try:
+                    _verify_runtime_identity(metadata)
+                except ProviderFailure as exc:
+                    failure = exc
+                else:
+                    failure = _classify_structured_failure(event)
                 failure.input_tokens = input_tokens
                 failure.output_tokens = output_tokens
                 failure.resolved_model = next(iter(models)) if len(models) == 1 else None
+                failure.resolved_reasoning = (
+                    next(iter(reasonings)) if len(reasonings) == 1 else None
+                )
+                failure.resolved_fast_mode = (
+                    next(iter(fast_modes)) if len(fast_modes) == 1 else None
+                )
                 raise failure
         candidate = _extract_payload(event)
         if candidate is not None:

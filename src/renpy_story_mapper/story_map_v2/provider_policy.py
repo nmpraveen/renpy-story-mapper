@@ -54,12 +54,16 @@ class ProviderFailure(RuntimeError):
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         resolved_model: str | None = None,
+        resolved_reasoning: str | None = None,
+        resolved_fast_mode: bool | None = None,
     ) -> None:
         super().__init__(reason)
         self.kind = kind
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.resolved_model = resolved_model
+        self.resolved_reasoning = resolved_reasoning
+        self.resolved_fast_mode = resolved_fast_mode
 
 
 class ChunkMapper(Protocol):

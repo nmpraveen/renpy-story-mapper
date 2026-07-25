@@ -171,6 +171,8 @@ def test_transport_uses_stdin_temp_cwd_and_sanitized_accounting(tmp_path: Path) 
     assert accounting.requested_model == accounting.resolved_model == CLOUD_MAPPER_MODEL
     assert accounting.reasoning == "high"
     assert accounting.fast_mode is False
+    assert accounting.resolved_reasoning == "high"
+    assert accounting.resolved_fast_mode is False
     assert accounting.response_hash == canonical_hash(asdict(response))
     assert "generalized story" not in repr(accounting)
 
@@ -322,6 +324,51 @@ def test_explicit_structured_content_refusal_is_distinct(tmp_path: Path) -> None
     assert transport.last_accounting.response_hash is None
     assert transport.last_accounting.input_tokens == 123
     assert transport.last_accounting.output_tokens == 4
+    assert transport.last_accounting.resolved_reasoning == CLOUD_REASONING
+    assert transport.last_accounting.resolved_fast_mode is CLOUD_FAST_MODE
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"model": "substitute"},
+        {"reasoning_effort": "medium"},
+        {"fast_mode": True},
+    ],
+)
+def test_failed_event_identity_mismatch_overrides_refusal_and_blocks_fallback(
+    tmp_path: Path, metadata: dict[str, object]
+) -> None:
+    event: dict[str, object] = {
+        "type": "turn.failed",
+        "model": CLOUD_MAPPER_MODEL,
+        "reasoning_effort": CLOUD_REASONING,
+        "fast_mode": CLOUD_FAST_MODE,
+        "usage": {"input_tokens": 123, "output_tokens": 4},
+        "error": {
+            "code": "content_policy_violation",
+            "message": "SECRET-STORY provider identity detail",
+        },
+    }
+    event.update(metadata)
+    process = FakeProcess(_jsonl(event))
+    transport = CodexCliCloudTransport(
+        process_factory=lambda _spec: process,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+
+    with pytest.raises(ProviderFailure) as failure:
+        transport.map_chunk(_chunk())
+
+    assert failure.value.kind is FailureKind.IDENTITY
+    assert "SECRET-STORY" not in str(failure.value)
+    assert transport.last_accounting is not None
+    assert transport.last_accounting.input_tokens == 123
+    assert transport.last_accounting.output_tokens == 4
+    assert transport.last_accounting.resolved_model == event["model"]
+    assert transport.last_accounting.resolved_reasoning == event["reasoning_effort"]
+    assert transport.last_accounting.resolved_fast_mode is event["fast_mode"]
+    assert "SECRET-STORY" not in repr(transport.last_accounting)
 
 
 class SlowProcess(FakeProcess):
