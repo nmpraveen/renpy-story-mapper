@@ -508,7 +508,7 @@ def _is_story_choice(
     narrative_call_targets = tuple(
         _narrative_call_targets(members, nodes, edges) for members in arm_members
     )
-    return all(narrative_call_targets) and len(set(narrative_call_targets)) > 1
+    return any(narrative_call_targets) and len(set(narrative_call_targets)) > 1
 
 
 def _narrative_call_targets(

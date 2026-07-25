@@ -292,6 +292,46 @@ label second_setup:
 
 
 @pytest.mark.parametrize(
+    ("narrative_label", "setup_label", "narrative_caption", "setup_caption"),
+    (
+        ("narrative_scene", "setup_only", "Watch the scene", "Configure only"),
+        ("amber_path", "violet_path", "Choose amber", "Choose violet"),
+    ),
+)
+def test_adapter_marks_mixed_narrative_and_setup_call_detours_as_story_choice(
+    narrative_label: str,
+    setup_label: str,
+    narrative_caption: str,
+    setup_caption: str,
+) -> None:
+    graph = _authority(
+        f'''label start:
+    menu:
+        "{narrative_caption}":
+            call {narrative_label}
+        "{setup_caption}":
+            call {setup_label}
+    "Shared continuation."
+    return
+
+label {narrative_label}:
+    "An arm-exclusive story moment."
+    return
+
+label {setup_label}:
+    $ configured = True
+    return
+'''
+    )
+
+    choice = adapt_story_scope(graph).choices[0]
+
+    assert choice.story_choice is True
+    assert len({arm.rejoin_node_id for arm in choice.arms}) == 1
+    assert choice.arms[0].rejoin_node_id is not None
+
+
+@pytest.mark.parametrize(
     ("first_wrapper", "second_wrapper", "shared_label", "first_caption", "second_caption"),
     (
         ("first_setup", "second_setup", "common_story", "Configure A", "Configure B"),
