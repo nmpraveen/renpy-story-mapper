@@ -5,7 +5,7 @@ Integration branch: `codex/m15-msday1-narrative-map`
 Pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26), draft and
 unmerged.
 
-Lifecycle: `Verification`
+Lifecycle: `PR ready`
 
 | Task | Owner | Dependencies | Affected area | Status / evidence |
 |---|---|---|---|---|
@@ -25,8 +25,8 @@ Lifecycle: `Verification`
 | Private Day 1 acceptance | Coordinator | Provider-free integration pass and fresh exact-head reviewer clearance | Outside-Git acceptance artifacts | Complete: fresh v2 confirmation `69154c8e...b592f` produced one hosted Luna/High/fast-off response in 54,344 ms with 12 events/12 summaries and no retry/fallback. After reviewed deterministic overlay corrections through `dee5714`, provider-free replay of retained response `33d3c871...fb76` yielded a complete 1/1 core with 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, and unchanged protected fingerprints. Historical failures are preserved outside Git. |
 | Provider-evidenced overlay correction | Coordinator plus independent read-only reviewer `/root/overlay_review` | Retained schema-valid v2 response | `overlay.py`, generalized tests, design/review authority | Complete through `dee5714`: omitted technical gaps, ordered overlap, mixed-lineage common-prefix anchoring, filtered setup-arm validation, and overlapping deterministic interval ownership are generalized and fail closed. Exact-head rereview passed with P0=0/P1=0/P2=0; 160 V2 tests, Ruff, and strict mypy pass. |
 | Final CI compatibility correction | Coordinator plus independent read-only reviewer `/root/overlay_review` | GitHub run `30160608222` | Six type-union spellings and one M06.5 integration-test deadline | Complete at reviewed `d94a13e`: 1,660 CI tests passed and one old integration poll exceeded its 2-second cap; latest Ruff also found six union-order-only violations. The test now uses a bounded monotonic 30-second deadline and unions are mechanically reordered. Three repeated focused runs, 405 relevant tests/one expected skip, full Ruff, strict mypy over 125 files, and diff checks pass; reviewer returned P0-P3 all zero. No product/artifact semantics changed. |
-| Final exact-head review | Separate visible read-only reviewer | Frozen integration head/artifacts | Full Phase 02 contract | Pending once lifecycle reconciliation is committed; prior exact-head overlay rereview passed `dee5714` with no P0-P2 and explicitly cleared provider-free replay. |
-| Lifecycle, commit, PR checkpoint | Coordinator | Final review pass | Docs/Git/PR #26 | In Verification. Acceptance artifacts and final review are complete; push reviewed CI correction, verify the exact PR check, record genuine PR-ready state, and keep draft PR #26 unmerged before completing the native goal. |
+| Final exact-head review | Separate visible read-only reviewer `/root/overlay_review` | Frozen integration head/artifacts | Full Phase 02 contract | Complete: exact head `c79e508` plus active private artifacts passed with P0-P3 all zero; lifecycle-only reconciliation closed its two findings. CI-only correction `d94a13e` was separately reviewed with P0-P3 all zero and did not change acceptance artifacts. |
+| Lifecycle, commit, PR checkpoint | Coordinator | Final review pass | Docs/Git/PR #26 | Complete (`PR ready`): draft PR #26 points to passing checkpoint `791bef9`; GitHub run `30161655412` succeeded, merge state is clean, and the PR remains open/draft/unmerged. The native goal service may now record completion. |
 
 Historical Stage H/E, adjacent-gap, atom/hierarchy, Phase 01, and prior review tasks remain readable
 in Git history and earlier M15 evidence. They are not active Phase 02 tasks or acceptance proof.

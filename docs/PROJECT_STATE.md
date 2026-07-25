@@ -1,12 +1,12 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (Phase 02 private core accepted; final review and PR checkpoint pending)
+Updated: 2026-07-25 (Phase 02 complete and PR ready)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Status: Verification.
+- Status: `PR ready` (Phase 02 bounded done condition achieved; PR remains unmerged).
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.
@@ -33,7 +33,9 @@ Updated: 2026-07-25 (Phase 02 private core accepted; final review and PR checkpo
   timeout plus six latest-Ruff union-order findings; every other release gate passed. Reviewed
   correction `d94a13e` makes the test deadline a bounded monotonic 30 seconds and mechanically
   reorders the six unions. The expanded relevant matrix passes 405 tests/one expected skip; full
-  Ruff and strict mypy over 125 source files pass. Re-push and the exact final PR check remain.
+  Ruff and strict mypy over 125 source files pass. Draft PR #26 now points to passing checkpoint
+  `791bef9`; GitHub run `30161655412` completed successfully, merge state is clean, and the PR
+  remains open, draft, and unmerged. Phase 02 is complete and PR ready; Phase 03 remains separate.
 - Earlier Phase 02 verification checkpoint (superseded): Track A reviewed exact head `319d13e9` and Track B
   reviewed exact head `ca9cd4a`; both returned `PASS` with no unresolved P0-P2. The integrated
   implementation and generalized private-preflight correction were frozen at `cbbe3ef`; 287

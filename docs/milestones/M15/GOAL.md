@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 02 core rewrite
 
-Status: Verification (resumed by standing 2026-07-25 authorization through the Phase 02 done condition)
+Status: Complete (`PR ready`; PR remains draft and unmerged)
 
 Authority: `docs/MASTER_PLAN.md` and
 `docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.

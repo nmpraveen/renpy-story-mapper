@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 02 report
 
-Status: Verification (resumed by standing 2026-07-25 authorization through the Phase 02 done condition)
+Status: Complete (`PR ready`; PR remains draft and unmerged)
 
 Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
 
@@ -39,7 +39,7 @@ Active outside-Git SHA-256 values are execution ledger `087494e4...43edd`, accep
 `4eff2c54...31d1f`, core JSON `8ec7c9f5...3c8b3`, core Markdown `4d90eec5...60700`, and replay
 evidence `66734d15...33b3`. The original overlay-rejection package is preserved under
 `historical-v2-overlay-rejection`; earlier v1 and transport/schema attempts remain in their own
-historical directories. Final lifecycle review and the draft unmerged PR #26 update remain.
+historical directories.
 
 Final independent review passed exact clean head `c79e508` with P0-P3 all zero, and draft PR #26
 was pushed/updated at that head. GitHub run `30160608222` completed the full release workflow:
@@ -52,6 +52,12 @@ test cap with a monotonic bounded 30-second deadline. The affected test passes t
 runs; the expanded relevant matrix passes 405 tests with one expected opt-in browser skip, full
 Ruff and strict mypy pass, and independent review returned P0-P3 all zero. Exact PR recheck remains
 before genuine PR-ready lifecycle closure.
+
+The reviewed correction and lifecycle evidence were pushed as checkpoint `791bef9`. GitHub run
+`30161655412` completed successfully: the deterministic release validation, setup, checkout, and
+whitespace steps all passed. PR #26 reports a clean merge state and remains open, draft, and
+unmerged. Phase 02 is therefore genuinely `PR ready`; the native goal service may record
+completion without starting Phase 03 or merging the PR.
 
 ### Earlier verification history
 
@@ -370,11 +376,11 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 
 | Area | Status | Evidence |
 |---|---|---|
-| Branch and PR identity | Complete | Clean local integration base `f914908`; branch intentionally 136 commits ahead of remote; PR #26 open/draft/unmerged at remote head `bc9a38c` |
+| Branch and PR identity | Complete | Draft PR #26 is open/unmerged at passing checkpoint `791bef9`; GitHub run `30161655412` succeeded and merge state is clean. |
 | Phase 01 private-input preflight | Complete for Phase 02 | Source, archive, project-copy, and Phase 01 authority bytes, SHA-256 values, and timestamps match the frozen preview and post-replay records; private materials remain outside Git with targeted local ignore protection. |
 | Phase 02 contract | Complete | `GOAL.md` defines the simple V2 core done condition, 16 criteria, exclusions, evidence, task topology, cloud/local ceilings, and one active goal |
 | Phase 02 semantic gate | PASS | Early review at `df75532` found four P1s/no P0-P2; one bounded correction; same-task rereview passed exact head `4d32f08` with no unresolved P0-P2 |
-| Phase 02 native goal | Active | Goal `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the current done condition and remains active through the draft PR checkpoint |
+| Phase 02 native goal | Ready to complete | Goal `019f9676-c357-7803-a891-f03782bbb8ee` exactly matches the achieved done condition; the passing draft PR checkpoint permits the goal service to record completion. |
 | Historical shared failing-first freeze | Historical complete | Rejected Stage H/E exact head `c768b19`; not current Phase 02 acceptance evidence |
 | Tracks A/B/C and exact-head reviews | Complete | Track A reviewed head `09062370`; Track B final supported product-path head `ca048973`; Track C final compatibility head `61a3eef`; all required exact-head reviews passed with no unresolved P0-P2 |
 | Integrated fake-provider acceptance | Complete | Local integration head `4f6f740`; 174 M15 passed/2 expected opt-in skips, 169 compatibility passed, both enabled Chrome suites 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, whitespace, and private-reference diff scan passed |
@@ -385,11 +391,11 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 | Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
 | Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
 | Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Acceptance complete; final review/PR pending | Strict v2 preview/call and provider-free replay of the retained response produced a complete 1/1 cloud core: 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, unchanged protected fingerprints, and no retry/fallback/additional call. Overlay corrections through independently passed head `dee5714`; 160 V2 tests plus static gates pass. Final lifecycle exact-head/artifact review and draft unmerged PR #26 update remain. |
+| Phase 02 core rewrite | Complete (`PR ready`) | Strict v2 preview/call and provider-free replay of the retained response produced a complete 1/1 cloud core: 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, unchanged protected fingerprints, and no retry/fallback/additional call. Final review passed with P0-P3 all zero; checkpoint `791bef9` passed GitHub run `30161655412`. |
 | Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
 | Historical Stage H/E private comparison | Rejected historical path | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2. That candidate belongs to the rejected Stage H/E path and is not Phase 02 acceptance evidence or a current prerequisite. |
 | Real Chrome and user visual approval | Phase 03 exclusion | The compact browser, synthesis, screenshots, and visual approval belong to Phase 03 and are not required for the accepted Phase 02 developer core. |
-| Phase 02 final review and PR checkpoint | Pending | Run the exact-head product/artifact rereview after this lifecycle-only reconciliation, then push/update existing draft PR #26, verify checks, and keep it unmerged. |
+| Phase 02 final review and PR checkpoint | Complete | Product/artifact and CI-correction reviews passed with P0-P3 all zero; GitHub run `30161655412` passed at checkpoint `791bef9`; PR #26 remains open/draft/unmerged with clean merge state. |
 
 ## Rejected historical evidence
 
@@ -416,5 +422,5 @@ pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H prepara
 - The visible task surface can set model and reasoning but exposes no fast-mode selector; that
   setting must remain unavailable/unverified for task dispatch.
 
-This report must be updated with commands, exact heads, artifacts, reviews, live accounting,
-immutability proof, user approval, Release results, and exact GitHub checks as M15.1 progresses.
+Phase 02 lifecycle evidence is complete. Phase 03 must start under its own explicit contract; this
+report does not authorize browser/synthesis work or merging PR #26.
