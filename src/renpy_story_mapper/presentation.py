@@ -804,7 +804,7 @@ class PresentationService:
         self._update_override(node_id, hidden=hidden)
 
     def _update_override(
-        self, node_id: str, *, display_name: str | None | object = ..., hidden: bool | object = ...
+        self, node_id: str, *, display_name: str | object | None = ..., hidden: bool | object = ...
     ) -> None:
         connection = self._project._require_open()
         node = connection.execute(

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "story-map-v2-mapper-v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope_title", "scope_overview", "events", "branch_summaries"],
+  "properties": {
+    "scope_title": {"type": ["string", "null"]},
+    "scope_overview": {"type": ["string", "null"]},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "summary", "relative_path", "start_line", "end_line", "characters", "warning"],
+        "properties": {
+          "title": {"type": "string"},
+          "summary": {"type": "string"},
+          "relative_path": {"type": "string"},
+          "start_line": {"type": "integer", "minimum": 1},
+          "end_line": {"type": "integer", "minimum": 1},
+          "characters": {"type": "array", "items": {"type": "string"}},
+          "warning": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "branch_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["choice_key", "arm_order", "outcome_summary"],
+        "properties": {
+          "choice_key": {"type": "string"},
+          "arm_order": {"type": "integer", "minimum": 1},
+          "outcome_summary": {"type": "string"}
+        }
+      }
+    }
+  }
+}

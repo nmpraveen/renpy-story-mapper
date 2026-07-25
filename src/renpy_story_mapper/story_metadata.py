@@ -386,7 +386,7 @@ def _literal_string(value: ast.expr) -> str | None:
     return None
 
 
-def _scalar(value: ast.expr | None) -> str | int | float | bool | None | object:
+def _scalar(value: ast.expr | None) -> str | int | float | bool | object | None:
     if isinstance(value, ast.Constant) and type(value.value) in {str, int, float, bool, type(None)}:
         if isinstance(value.value, float) and not math.isfinite(value.value):
             return _NOT_LITERAL

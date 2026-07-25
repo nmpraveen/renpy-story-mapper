@@ -1,0 +1,56 @@
+"""Simple Story Map V2 core contracts.
+
+The package is intentionally independent of the rejected M15 narrative-map stack.
+"""
+
+from renpy_story_mapper.story_map_v2.contracts import (
+    ArmLineageStep,
+    ArmMechanic,
+    BranchSummary,
+    ChunkExecutionResult,
+    ChunkProfile,
+    ChunkStatus,
+    CoreBranchOutcome,
+    CoreChunk,
+    CoreEvent,
+    DensityMetrics,
+    EventAnchor,
+    ExecutionMode,
+    FailureKind,
+    MapperEvent,
+    MapperResponse,
+    ProviderOrigin,
+    ProviderSettings,
+    Reachability,
+    RunPreview,
+    SourceSpan,
+    StoryChunk,
+    StoryMapCore,
+    StoryScope,
+)
+
+__all__ = [
+    "ArmLineageStep",
+    "ArmMechanic",
+    "BranchSummary",
+    "ChunkExecutionResult",
+    "ChunkProfile",
+    "ChunkStatus",
+    "CoreBranchOutcome",
+    "CoreChunk",
+    "CoreEvent",
+    "DensityMetrics",
+    "EventAnchor",
+    "ExecutionMode",
+    "FailureKind",
+    "MapperEvent",
+    "MapperResponse",
+    "ProviderOrigin",
+    "ProviderSettings",
+    "Reachability",
+    "RunPreview",
+    "SourceSpan",
+    "StoryChunk",
+    "StoryMapCore",
+    "StoryScope",
+]

@@ -69,7 +69,8 @@ def _request(
 
 
 def _wait_for_task(server: LocalWebServer) -> dict[str, Any]:
-    for _ in range(200):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
         status, progress = _request(server, "GET", "/api/v1/analysis/progress")
         assert status == 200
         if progress["state"] != "running":
