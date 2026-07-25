@@ -68,6 +68,14 @@ Updated: 2026-07-25 (Phase 02 verification resumed by explicit transport-correct
   strict mypy over ten V2 modules, and whitespace also pass. No provider call, preview regeneration,
   retry, or PR mutation occurred. The native goal is active; Verification now awaits independent
   exact-head clearance before the newly authorized attempt may be spent.
+  The same reviewer passed exact clean head `e22d91f` with P0=0/P1=0/P2=0/P3=0 and explicitly
+  cleared preview regeneration plus exactly one new attempt. Fresh outside-Git preview
+  `newly-authorized-zero-submit-preview.json` independently recomputes one 9,390-token/755-span
+  packet, exact four-choice/eight-arm mechanics, Luna/High/fast-off, disabled fallback, only
+  `raw_text` plus `mechanics`, and unchanged protected fingerprints. File SHA-256 is
+  `e654513c...396c1f`; stable confirmation remains `e50d659a...da5f0` because every bound input is
+  unchanged. The prior failed package is preserved under `historical-second-run`. The one newly
+  authorized live attempt is eligible and remains unspent.
 - Earlier Phase 02 implementation state (superseded): Semantic decision `PASS`. The user started the approved Phase 02 coordinator
   handoff. Visible Early Contract Reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed
   exact clean head `df75532` and returned four P1s with no P0/P2. The one permitted bounded

@@ -125,6 +125,22 @@ failing-first cases pass. The complete V2 plus relevant M10-M12/workflow matrix 
 3.63 seconds; Ruff, strict mypy over all ten V2 modules, and whitespace pass. No provider call,
 preview regeneration, PR mutation, or retry occurred. Verification now pauses for exact-head
 independent clearance before regenerating the private preview or spending the one new attempt.
+
+The same Final Integration Reviewer returned `PASS` on exact clean head `e22d91f` with
+P0=0/P1=0/P2=0/P3=0. Its provider-free evidence includes 294 relevant tests plus three dedicated
+M12 architecture checks, eight refusal/non-refusal fallback checks, direct nonzero-exit precedence
+and privacy probes, Ruff, strict mypy, isolation, containment, and whitespace. It granted clearance
+to regenerate a new preview and then spend exactly the one newly authorized attempt.
+
+The coordinator preserved the current failed artifact set under `historical-second-run` and
+regenerated `newly-authorized-zero-submit-preview.json` without a provider call. Independent
+recomputation confirms one 9,390-token/755-span packet, four choices/eight arms, exact
+Luna/High/fast-off, disabled fallback, six planned/eight absolute ceilings, only `raw_text` plus
+`mechanics`, and unchanged source/archive/project/Phase 01 fingerprints. The preview file SHA-256
+is `e654513c911cf22bedd82aa8dcfe59c054669845304ec8f73d195cc456396c1f`. Its confirmation remains
+`e50d659a...da5f0` because every confirmation-bound source, packet, model, and policy field is
+unchanged; the new file and before/after fingerprint audit prove regeneration rather than old-file
+reuse. Exactly one live attempt is now eligible and remains unspent at this checkpoint.
 The frozen private evidence directory is
 `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
 
