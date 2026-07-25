@@ -172,7 +172,7 @@ def test_timeout_and_bad_json_never_trigger_local_fallback() -> None:
             ),
             cancelled=never_cancelled,
         )
-        assert results[0].origin is ProviderOrigin.MISSING
+        assert results[0].origin is ProviderOrigin.CLOUD
         assert results[0].failure_kind is kind
     assert local_constructed == []
 

@@ -247,11 +247,40 @@ def _choice_regions(
             ),
             start=1,
         ):
+            nested_choice_ids = {
+                node_id
+                for candidate, _key, _path, _line, _arms in provisional
+                if candidate.id != region.id and candidate.split_node_id in member_ids
+                for node_id in _region_member_ids(candidate)
+            }
+            for candidate, _key, candidate_path, candidate_line, _arms in provisional:
+                if candidate.id == region.id or candidate.split_node_id not in member_ids:
+                    continue
+                nested_locations = [
+                    located_by_node[node_id]
+                    for node_id in _region_member_ids(candidate)
+                    if node_id in located_by_node
+                    and located_by_node[node_id].path == candidate_path
+                ]
+                nested_end = max(
+                    (location.end_line for location in nested_locations),
+                    default=candidate_line,
+                )
+                nested_choice_ids.update(
+                    node_id
+                    for node_id in member_ids
+                    if node_id in located_by_node
+                    and located_by_node[node_id].path == candidate_path
+                    and candidate_line
+                    <= located_by_node[node_id].start_line
+                    <= nested_end
+                )
             mechanics.append(
                 _arm_mechanic(
                     region,
                     raw_arm,
                     member_ids,
+                    member_ids.difference(nested_choice_ids),
                     expected_order,
                     nodes,
                     edges,
@@ -376,6 +405,7 @@ def _arm_mechanic(
     region: CanonicalRegion,
     raw_arm: Mapping[str, object],
     member_ids: frozenset[str],
+    effect_member_ids: frozenset[str],
     order: int,
     nodes: Mapping[str, CanonicalNode],
     edges: Mapping[str, CanonicalEdge],
@@ -392,14 +422,22 @@ def _arm_mechanic(
     locations = [located_by_node[item] for item in member_ids if item in located_by_node]
     same_path = [item for item in locations if item.path == entry_location.path]
     end_line = max((item.end_line for item in same_path), default=entry_location.end_line)
-    rejoin_node_id, rejoin_line = _proven_rejoin(region, located_by_node)
+    rejoin_node_id, rejoin_line = _proven_rejoin(
+        region,
+        nodes,
+        edges,
+        located_by_node,
+    )
     fact_ids: set[str] = set()
-    for node_id in member_ids:
+    for node_id in effect_member_ids:
         node = nodes.get(node_id)
         if node is not None:
             fact_ids.update(_string_sequence(node.attributes.get("fact_ids")))
     for candidate in edges.values():
-        if candidate.source_id in member_ids or candidate.target_id in member_ids:
+        if (
+            candidate.source_id in effect_member_ids
+            and candidate.target_id in effect_member_ids
+        ):
             fact_ids.update(_string_sequence(candidate.attributes.get("effect_ids")))
     effects: list[str] = []
     warnings: list[str] = []
@@ -471,12 +509,51 @@ def _condition(value: object) -> str | None:
 
 def _proven_rejoin(
     region: CanonicalRegion,
+    nodes: Mapping[str, CanonicalNode],
+    edges: Mapping[str, CanonicalEdge],
     located_by_node: Mapping[str, _LocatedNode],
 ) -> tuple[str | None, int | None]:
     if region.merge_node_id is None or region.kind not in _PROVEN_REJOIN_KINDS:
         return None, None
-    location = located_by_node.get(region.merge_node_id)
-    return region.merge_node_id, location.start_line if location is not None else None
+    merge_id = region.merge_node_id
+    merge_node = nodes.get(merge_id)
+    merge_location = located_by_node.get(merge_id)
+    if merge_node is None:
+        return merge_id, merge_location.start_line if merge_location is not None else None
+    if merge_node.attributes.get("source_kind") != "merge":
+        return merge_id, merge_location.start_line if merge_location is not None else None
+
+    outgoing: dict[str, list[CanonicalEdge]] = defaultdict(list)
+    for edge in edges.values():
+        if edge.resolved and _reachability(edge.reachability) is Reachability.REACHABLE:
+            outgoing[edge.source_id].append(edge)
+    pending = [merge_id]
+    visited: set[str] = set()
+    while pending:
+        next_pending: list[str] = []
+        candidates: list[_LocatedNode] = []
+        for node_id in pending:
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            for edge in outgoing.get(node_id, ()):
+                target = nodes.get(edge.target_id)
+                if target is None or edge.target_id in visited:
+                    continue
+                if target.attributes.get("source_kind") == "merge":
+                    next_pending.append(edge.target_id)
+                    continue
+                location = located_by_node.get(edge.target_id)
+                if location is not None:
+                    candidates.append(location)
+        if candidates:
+            first = min(
+                candidates,
+                key=lambda item: (item.path, item.start_line, item.end_line, item.node.id),
+            )
+            return merge_id, first.start_line
+        pending = next_pending
+    return merge_id, merge_location.start_line if merge_location is not None else None
 
 
 def _reachability(value: ReachabilityStatus) -> Reachability:

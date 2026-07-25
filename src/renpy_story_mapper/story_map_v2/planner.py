@@ -191,7 +191,12 @@ def _choose_end(
     target = profile.target_tokens
     if any(item[3].branch_weight >= profile.branch_weight_threshold for item in possible):
         target = profile.branch_target_tokens
-    before = [item for item in possible if item[1] <= target and item[2]]
+    minimum_useful_boundary = max(1, target // 2)
+    before = [
+        item
+        for item in possible
+        if minimum_useful_boundary <= item[1] <= target and item[2]
+    ]
     if before:
         return before[-1][0]
     after = [item for item in possible if item[1] > target and item[2]]

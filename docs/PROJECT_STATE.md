@@ -6,6 +6,7 @@ Updated: 2026-07-24 (Phase 02 blocked in verification after zero-submit transpor
 
 ## Current contract
 
+- Status: Blocked.
 - Active milestone: M15.1 semantic Story Map correction inside M15.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
 - Original M15 baseline: `a447a4eefbd7c093bdb2767e62a393805af068ac`.

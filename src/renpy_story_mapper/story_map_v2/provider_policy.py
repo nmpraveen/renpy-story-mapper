@@ -251,6 +251,7 @@ def execute_chunks(
                 _cancel_mapper(cloud)
                 cloud_attempt = _cancelled_result(
                     chunk,
+                    origin=ProviderOrigin.CLOUD,
                     elapsed_ms=elapsed_ms,
                     resolved_model=_observed_model(cloud),
                     input_tokens=_optional_usage(cloud, "input_tokens"),
@@ -263,6 +264,7 @@ def execute_chunks(
             cloud_attempt = _failure_result(
                 chunk,
                 exc.kind,
+                origin=ProviderOrigin.CLOUD,
                 elapsed_ms=elapsed_ms,
                 resolved_model=_observed_model(cloud),
                 input_tokens=_optional_usage(cloud, "input_tokens"),
@@ -343,6 +345,7 @@ def execute_chunks(
             cloud_attempt = _failure_result(
                 chunk,
                 FailureKind.TRANSPORT,
+                origin=ProviderOrigin.CLOUD,
                 elapsed_ms=round((time.monotonic() - started) * 1000),
                 resolved_model=_observed_model(cloud),
                 input_tokens=_optional_usage(cloud, "input_tokens"),
@@ -488,6 +491,7 @@ def _submit_local(
         if exc.kind is FailureKind.CANCELLED:
             return _cancelled_result(
                 chunk,
+                origin=origin,
                 elapsed_ms=elapsed_ms,
                 local=True,
                 resolved_model=_observed_model(local),
@@ -497,6 +501,7 @@ def _submit_local(
         return _failure_result(
             chunk,
             _local_failure_kind(exc.kind),
+            origin=origin,
             elapsed_ms=elapsed_ms,
             local=True,
             resolved_model=_observed_model(local),
@@ -507,6 +512,7 @@ def _submit_local(
         return _failure_result(
             chunk,
             FailureKind.LOCAL_UNAVAILABLE,
+            origin=origin,
             elapsed_ms=round((time.monotonic() - started) * 1000),
             local=True,
             resolved_model=_observed_model(local),
@@ -714,6 +720,7 @@ def _failure_result(
     kind: FailureKind,
     *,
     elapsed_ms: int,
+    origin: ProviderOrigin = ProviderOrigin.MISSING,
     local: bool = False,
     resolved_model: str | None = None,
     input_tokens: int | None = None,
@@ -721,7 +728,7 @@ def _failure_result(
 ) -> ChunkExecutionResult:
     return ChunkExecutionResult(
         chunk_identity=chunk.identity,
-        origin=ProviderOrigin.MISSING,
+        origin=origin,
         status=ChunkStatus.MISSING,
         response=None,
         failure_kind=kind,
@@ -741,6 +748,7 @@ def _cancelled_result(
     chunk: StoryChunk,
     *,
     elapsed_ms: int = 0,
+    origin: ProviderOrigin = ProviderOrigin.MISSING,
     local: bool = False,
     resolved_model: str | None = None,
     input_tokens: int | None = None,
@@ -748,7 +756,7 @@ def _cancelled_result(
 ) -> ChunkExecutionResult:
     return ChunkExecutionResult(
         chunk_identity=chunk.identity,
-        origin=ProviderOrigin.MISSING,
+        origin=origin,
         status=ChunkStatus.CANCELLED,
         response=None,
         failure_kind=FailureKind.CANCELLED,

@@ -13,6 +13,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     ChunkExecutionResult,
     ChunkStatus,
     CoreChunk,
+    FailureKind,
     MapperEvent,
     MapperResponse,
     ProviderOrigin,
@@ -741,6 +742,35 @@ def test_assembly_fills_missing_chunk_preserves_complete_provenance_and_scope_te
     assert core.chunks[1].origin is ProviderOrigin.MISSING
     assert core.title == "Opening"
     assert core.overview == "The travelers arrive."
+
+
+def test_assembly_retains_supplied_failed_execution_provenance() -> None:
+    fixture = scope((span("only", 1, 5, 100),))
+    planned = plan_chunks(fixture)[0]
+    response = _event_response()
+    execution = replace(
+        _execution(planned, response),
+        status=ChunkStatus.MISSING,
+        response=None,
+        failure_kind=FailureKind.TRANSPORT,
+        response_hash=None,
+        sanitized_reason="The cloud mapper transport failed.",
+    )
+    failed = CoreChunk(
+        planned.identity,
+        ChunkStatus.MISSING,
+        ProviderOrigin.CLOUD,
+        (),
+        (),
+        execution=execution,
+        warnings=("The cloud mapper transport failed.",),
+    )
+
+    core = assemble_core(fixture, (failed,))
+
+    assert core.status is ChunkStatus.PARTIAL
+    assert core.chunks[0].execution is execution
+    assert core.chunks[0].origin is ProviderOrigin.CLOUD
 
 
 def test_assembly_combines_scope_text_in_chunk_order_when_all_chunks_complete() -> None:

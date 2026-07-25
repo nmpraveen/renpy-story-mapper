@@ -178,6 +178,7 @@ def test_adapter_projects_exact_conditional_choice_effects_and_local_rejoin() ->
     assert choice.arms[0].effects == ("trust += 1",)
     assert choice.arms[1].effects == ("trust -= 1",)
     assert {arm.rejoin_node_id for arm in choice.arms} != {None}
+    assert {arm.rejoin_line for arm in choice.arms} == {7}
     assert all(arm.destination_id is not None for arm in choice.arms)
     assert any(span.shared_continuation for span in scope.spans if choice.key in span.choice_keys)
 
@@ -452,6 +453,32 @@ def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
     )
 
 
+def test_adapter_does_not_copy_nested_arm_effects_to_parent_arm() -> None:
+    graph = _authority(
+        '''label start:
+    menu:
+        "Explore":
+            menu:
+                "High path":
+                    $ route = 1
+                "Low path":
+                    $ route = 2
+        "Leave":
+            pass
+    "Together again."
+    return
+'''
+    )
+
+    scope = adapt_story_scope(graph)
+    outer = next(choice for choice in scope.choices if choice.line == 2)
+    nested = next(choice for choice in scope.choices if choice.line == 4)
+
+    assert outer.arms[0].effects == ()
+    assert nested.arms[0].effects == ("route = 1",)
+    assert nested.arms[1].effects == ("route = 2",)
+
+
 def test_adapter_keeps_persistent_terminal_arms_without_false_rejoin() -> None:
     graph = _authority(
         """label start:
@@ -562,6 +589,20 @@ def test_planner_long_linear_scope_prefers_last_boundary_below_target() -> None:
     assert chunks[0].raw_text.startswith(
         '@@SOURCE {"end_line":1,"path":"story/day.rpy","start_line":1}\n1: Story line linear-1.'
     )
+
+
+def test_planner_does_not_split_a_tiny_prelude_from_one_fitting_corridor() -> None:
+    fixture = _scope(
+        (
+            _span("setup-prelude", 1, 14),
+            _span("whole-story", 2, 9_376, boundary=False),
+        )
+    )
+
+    chunks = plan_chunks(fixture)
+
+    assert len(chunks) == 1
+    assert chunks[0].raw_tokens == 9_390
 
 
 def test_planner_mechanics_follow_exact_first_span_choice_order() -> None:

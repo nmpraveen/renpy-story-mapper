@@ -259,7 +259,7 @@ def test_content_refusal_without_confirmed_fallback_remains_missing() -> None:
         cancelled=lambda: False,
     )[0]
     assert local_constructed == []
-    assert result.origin is ProviderOrigin.MISSING
+    assert result.origin is ProviderOrigin.CLOUD
     assert result.failure_kind is FailureKind.CONTENT_REFUSAL
     assert result.requested_model == result.resolved_model == CLOUD_MAPPER_MODEL
     assert result.reasoning == "high" and result.fast_mode is False
@@ -340,7 +340,7 @@ def test_every_non_refusal_cloud_failure_never_constructs_local(kind: FailureKin
         cancelled=lambda: False,
     )
     assert local_constructed == []
-    assert results[0].origin is ProviderOrigin.MISSING
+    assert results[0].origin is ProviderOrigin.CLOUD
     assert results[0].failure_kind is kind
     assert "sensitive" not in (results[0].sanitized_reason or "")
 
