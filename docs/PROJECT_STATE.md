@@ -98,8 +98,18 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   object that CDP serializes as falsey; a diagnostic run proved the exact expected M10 control and
   `record_id` were rendered. The untouched historical harness is excluded, as previously frozen,
   rather than counted as Track B/C product evidence.
-- Next action: create and inspect the exact zero-submit private synthesis preview. Only after it is
-  valid may the coordinator spend the single authorized sterile Terra call.
+- The first private zero-submit preview safely exposed one accepted-core lineage projection gap
+  before provider construction: an external non-story ancestor was not part of the transmitted
+  story-choice alias set. Existing Track A worker corrected only that projection at `5926a00`; the
+  same independent reviewer returned exact-head `PASS`, P0=P1=P2=P3=0. It was integrated
+  byte-equivalently as `83d1a4f`; 241 V2 tests plus Ruff, strict mypy, and whitespace pass. No
+  provider construction, attempt, or call occurred during the failed preview or correction loop.
+- A successful zero-submit preview at product head `83d1a4f` binds request `d4d44735...`,
+  confirmation `cd367171...`, approved schema `4febec35...`, 9,322 payload bytes, exact 12/4/8
+  counts, Terra/High/fast-off, and an absolute one-call ceiling with zero calls. It will be rebuilt
+  after this lifecycle commit; execution remains prohibited unless every binding is identical.
+- Next action: rebuild and inspect the zero-submit preview on the clean lifecycle head, then spend
+  the single authorized sterile Terra call once with no retry or substitution.
 
 ## M13 historical lifecycle
 

@@ -124,6 +124,22 @@ packaged JavaScript files pass `node --check`; 33 browser-asset/privacy/import-i
 the synthesis schema and both frozen fixtures parse; deterministic manifest tests pass; whitespace
 is clean; no private output path is tracked; and the tracked worktree is clean.
 
+The initial private zero-submit preview stopped before provider construction because the accepted
+core contains an external non-story ancestor in choice lineage that is intentionally absent from
+the transmitted story-choice set. The existing Track A worker added the smallest generalized
+filter and tests at `5926a00`; the same independent reviewer returned `PASS`, P0=P1=P2=P3=0, after
+52 focused, 212 regression, Ruff, strict mypy, deterministic preview/privacy, and diff gates. The
+coordinator integrated it byte-equivalently as `83d1a4f` and passed 241 V2 tests with the three
+opt-in Chrome cases separately green. No private artifact was exposed to the worker/reviewer and
+no provider was constructed or called.
+
+The corrected zero-submit preview at product head `83d1a4f` binds confirmation
+`cd3671714f215b38dac38320237a499ab07a238a4c79a7b17808678efee5ea9a`, request payload
+`d4d44735d647fe5851eb5494db90409c10ef83eac35df9ac7364804428fd6a04`, approved schema
+`4febec35bc987cd8e273465ffbe69176cac02e8577690185fd84fa383b727bcc`, 9,322 bytes, exact 12/4/8
+counts, Terra/High/fast-off, and maximum one call. Preview accounting is zero constructions, zero
+attempts, and zero calls. It must be rebuilt unchanged after this lifecycle commit before execution.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
@@ -175,7 +191,8 @@ is clean; no private output path is tracked; and the tracked worktree is clean.
 | Track B final independent rereview | Pass | Exact head `47f0cacf3e6d6d84281403c38061265ebaee722b`: P0=P1=P2=P3=0; all earlier findings closed |
 | Track C final independent rereview | Pass | Exact head `fb0f2ecd207848248e674f9c76af7a3d505019fb`: P0=P1=P2=P3=0; focused, topology, architecture, loopback, static, and fixture gates green |
 | Track B/C integration | Pass | Reviewed chains integrated through `a8e0ddf`; every track-owned path is byte-equivalent to its reviewed exact head and the shared API fixture blob matches |
-| Integrated Story Map V2 matrix | Pass | 239 passed/3 opt-in browser skips; all three skipped profiles pass in their dedicated final-byte Chrome run |
+| Integrated Story Map V2 matrix | Pass | 241 passed/3 opt-in browser skips after reviewed private-preview correction; all three skipped profiles pass in their dedicated final-byte Chrome run |
+| Private zero-submit preview | Pass before execution | Corrected product head `83d1a4f`; request `d4d44735...`; confirmation `cd367171...`; schema `4febec35...`; 9,322 bytes; Terra/High/fast-off; max one; zero constructions/attempts/calls |
 | Integrated adjacent matrix | Pass | 317 passed/2 hardware deselected across bounded M10-M13 storage/API/navigation/route/privacy surfaces |
 | Integrated browser compatibility | Pass with separately recorded historical harness defect | Final Story Browser 3/3 and M12 Chrome pass; M13 exact control/record render was proven despite its legacy falsey-element wait timeout |
 | Integrated static/privacy gate | Pass | Ruff; strict mypy 108 files; JS syntax 4 files; 33 asset/privacy/import tests; JSON/schema/manifest/whitespace/containment clean |
