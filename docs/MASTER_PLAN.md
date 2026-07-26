@@ -13,8 +13,9 @@ contains the accepted files without that rejected product stack. The user starte
 2026-07-25 under its dedicated branch, contract, native goal, and PR workflow. Its one authorized
 Terra synthesis failed closed on unverifiable provider identity and is terminal with no retry;
 deterministic fallback, private path/detail/reopen acceptance, and 100%/200% real-browser capture
-now pass at product head `cff2388`. Explicit screenshot approval, final independent integrated-head
-review, the open unmerged PR, and exact pushed-head GitHub checks remain pending.
+now pass at final reviewed product head `8e6de6f`. Independent final cross-track review passes with
+P0=P1=P2=0 and one nonblocking compact-witness P3. Explicit screenshot approval, the open unmerged
+PR, and exact pushed-head GitHub checks remain pending.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1235,8 +1236,9 @@ returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitH
 excludes the rejected implementation. Phase 03 is in Verification on
 `codex/m15-phase03-story-browser` under its own contract and active goal. The one-call synthesis
 ceiling is spent after fail-closed identity verification; complete deterministic fallback and
-private browser/path/reopen evidence pass at `cff2388`. User screenshot approval, final review, and
-the future open unmerged PR remain outstanding.
+private browser/path/reopen evidence pass at final reviewed product head `8e6de6f`. The final
+cross-track reviewer returned `PASS` with P0=P1=P2=0 and one nonblocking compact-witness P3. User
+screenshot approval and the future open unmerged PR and pushed-head checks remain outstanding.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1428,13 +1430,17 @@ Coordinator has integrated separately reviewed synthesis/storage, compact vertic
 witness-path/Detail-Evidence tracks plus their bounded corrections. The sole Terra attempt failed
 closed on unverifiable identity and cannot be retried; complete deterministic fallback is the
 accepted rendering. Provider-free, private map/path/detail/reopen, and final real-Chrome 100%/200%
-capture gates pass at product head `cff2388` with all private artifacts outside Git.
+capture gates pass at final reviewed product head `8e6de6f` with all private artifacts outside
+Git. Initial final review at `60b0441` found two P2 browser integration races/contracts and one P3;
+the bounded correction was integrated byte-equivalently at `8e6de6f`, the same Track B reviewer
+passed that exact head, and the same final reviewer returned `PASS`, P0=P1=P2=0/P3=1. A fresh
+private browser recapture at `8e6de6f` reproduced the previously presented report and four PNGs
+byte-for-byte with zero provider activity.
 
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
 or begin Phase 04/05 or M14. The immediate gate is explicit user approval of the captured private
-screenshots, followed by one final independent integrated-head review, the single open unmerged
-Phase 03 PR, and exact pushed-head GitHub checks.
+screenshots, followed by the single open unmerged Phase 03 PR and exact pushed-head GitHub checks.
 
 ### Rejected historical next action
 

@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 private fallback/browser acceptance complete; screenshot
-approval and final review pending)
+Updated: 2026-07-26 (M15.1 Phase 03 final local review passes; screenshot approval, PR, and
+pushed-head checks pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -21,8 +21,9 @@ approval and final review pending)
 - Native Codex goal: active Phase 03 Coordinator goal/task
   `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition. All three
   tracks and bounded post-integration corrections are independently reviewed and integrated;
-  private fallback/path/reopen and real-browser acceptance pass. The goal remains active through
-  user screenshot approval, final integrated review, PR creation, and exact pushed-head checks.
+  private fallback/path/reopen and real-browser acceptance pass, and the final cross-track review
+  passes at exact product head `8e6de6f`. The goal remains active through user screenshot
+  approval, PR creation, and exact pushed-head checks.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -30,8 +31,7 @@ approval and final review pending)
   full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
-- Pull request: none; Phase 03 will use one new open unmerged PR after user screenshot approval and
-  final integrated review.
+- Pull request: none; Phase 03 will use one new open unmerged PR after user screenshot approval.
 - Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
   `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
   fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
@@ -122,19 +122,32 @@ approval and final review pending)
   `ba953754...` -> `253fba0`/`5760eb3`, and path-panel wrapping `834246b3...` -> `cff2388`.
   Rejected predecessor `53c1494` remained out because its broad `ValueError` catch could mask
   stale authority.
-- Current product head is `cff2388303e4b26b78468152c9d42fc267d066f0`. Outside-Git private
+- Initial final cross-track review used visible read-only task
+  `019f9d58-0eec-77f0-9049-61f8d5ba6e81`, worktree
+  `C:/Users/prave/.codex/worktrees/4397/Renpy`, explicit `gpt-5.6-sol` High, with task fast mode
+  unavailable/unverified. At exact candidate `60b0441` it returned `FAIL / CHANGES REQUIRED`,
+  P0=0/P1=0/P2=2/P3=1: a stale Detail response could overwrite the newer selection, and the
+  browser contract rejected a valid identical continuation binding reused in separate root choice
+  trees. The P3 concerns compact witness presentation and is nonblocking.
+- The existing Track B worker corrected only those two P2s at exact head
+  `8e6de6f395494b006d5eec5387c17a3b1c6654a1`. The existing Track B reviewer passed that exact
+  head with P0=P1=P2=0/P3=1 after focused, six-profile Chrome, full family, adjacent, adversarial,
+  static, asset, fixture, and privacy gates. The correction was fast-forward integrated exactly.
+  The same final cross-track reviewer then returned exact-head `PASS` at `8e6de6f` with
+  P0=P1=P2=0/P3=1 after 275 Story Map tests, 92 adjacent tests, static gates, 20/20 adversarial
+  mutations, artifact-hash verification, and containment review.
+- Current final reviewed product head is `8e6de6f395494b006d5eec5387c17a3b1c6654a1`. Outside-Git private
   acceptance report SHA `a42202b7...` passes with 12 events, four choices, eight arms, four known
   rejoins, all 24 Detail/source targets available, 23 paths available and one honestly unresolved,
   all five target classes proven, zero-call reopen, unchanged protected inputs, and unchanged
   terminal ledger. Working project SHA is `0bd02eb8...`.
 - Outside-Git real-Chrome report SHA `df3c721f...` passes at 100%/200% with zero overflow,
   clipping, overlap, mojibake, remote requests, browser errors, or new provider activity; focus and
-  selection return pass. Four clean candidate overview/deep-path screenshots were captured and
-  presented outside Git.
-- Next action: obtain explicit user approval of the candidate screenshots, then freeze the exact
-  integrated head for one independent final cross-track review. Only after a no-P0-P2 verdict may
-  the coordinator push, open the single unmerged Phase 03 PR, and require exact pushed-head GitHub
-  checks.
+  selection return pass. A fresh recapture at exact reviewed product head `8e6de6f` reproduced the
+  report and all four previously presented overview/deep-path PNGs byte-for-byte, with unchanged
+  protected inputs and terminal one-call ledger.
+- Next action: obtain explicit user approval of the candidate screenshots, then push, open the
+  single unmerged Phase 03 PR, and require exact pushed-head GitHub checks.
 
 ## M13 historical lifecycle
 
