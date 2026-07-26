@@ -1,0 +1,37 @@
+{
+  "schema": "story-map-v2-reader-contract-v2",
+  "extends": "story-map-v2-reader-contract-v1",
+  "base_fixture": "tests/fixtures/story_map_v2/phase04_reader_contract_v1.json",
+  "delta": {
+    "locate_location_required_field": "branch_id",
+    "page_cursor_binding": "branch_id_when_non_null_else_section_id"
+  },
+  "examples": {
+    "branch_location": {
+      "schema": "story-map-v2-reader-contract-v2",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "selection_id": "arm:a",
+      "location": {
+        "section_id": "section:prologue",
+        "branch_id": "choice:first",
+        "page_cursor": null,
+        "shell_id": "shell:branch:a",
+        "item_id": "arm:a"
+      }
+    },
+    "section_location": {
+      "schema": "story-map-v2-reader-contract-v2",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "selection_id": "event:intro",
+      "location": {
+        "section_id": "section:prologue",
+        "branch_id": null,
+        "page_cursor": null,
+        "shell_id": "shell:prologue",
+        "item_id": "event:intro"
+      }
+    }
+  }
+}

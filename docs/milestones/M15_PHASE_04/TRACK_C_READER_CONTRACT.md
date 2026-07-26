@@ -1,6 +1,6 @@
 # Phase 04 Track C/D reader contract
 
-Status: Frozen integration contract v1
+Status: Frozen integration contract v1; preserved base of additive v2
 
 Schema/version: `story-map-v2-reader-contract-v1`
 
@@ -14,6 +14,14 @@ This is the small frozen seam between Track C's Python assembly/read APIs and Tr
 It is additive to the accepted Phase 03 `map`, `path`, and `detail` endpoints. Python remains the
 only authority for topology, mechanics, membership, ordering, route ownership, path witnesses,
 selection location, cursor validity, revisions, and `NEW` state.
+
+The v1 contract remains immutable. Preparatory D1 review proved that its locate envelope cannot
+route an unloaded branch item because opaque `shell_id` and `item_id` values do not identify the
+`branch-page` resource. The additive v2 extension is authoritative for implementation:
+
+- `docs/milestones/M15_PHASE_04/TRACK_C_READER_CONTRACT_V2.md`
+- `src/renpy_story_mapper/story_map_v2/schemas/story_map_reader_contract_v2.schema.json`
+- `tests/fixtures/story_map_v2/phase04_reader_contract_v2.json`
 
 ## Routes
 
