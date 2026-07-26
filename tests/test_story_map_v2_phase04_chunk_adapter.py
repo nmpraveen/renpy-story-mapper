@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import asdict, replace
+import json
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,12 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
     atomic_group_identity,
 )
 from renpy_story_mapper.story_map_v2.phase04_chunk_plan import plan_story_chunks
+from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
+    FrozenPlanMismatch,
+    deserialize_story_chunk_plan,
+    serialize_chunk_request,
+    serialize_story_chunk_plan,
+)
 from renpy_story_mapper.story_map_v2.source_adapter import adapt_story_scope
 from renpy_story_mapper.story_map_v2.story_plan import (
     StoryPlacement,
@@ -117,7 +124,9 @@ def test_adapter_freezes_exact_a1_placements_groups_scopes_and_mechanics() -> No
     source_spans = {span.key: span for span in source.spans}
     story_placements = {placement.id: placement for placement in story_plan.placements}
     for scope in projection.scopes:
-        current_group_key: tuple[str, str, tuple[str, ...]] | None = None
+        current_group_key: (
+            tuple[str, str, tuple[str, ...], tuple[tuple[str, int], ...]] | None
+        ) = None
         group_ordinal = 0
         for placement in scope.placements:
             authority = story_placements[placement.placement_id]
@@ -126,6 +135,10 @@ def test_adapter_freezes_exact_a1_placements_groups_scopes_and_mechanics() -> No
                 authority.scene_id,
                 authority.context_scene_id,
                 authority.occurrence_path,
+                tuple(
+                    (step.choice_key, step.arm_order)
+                    for step in authority.arm_lineage
+                ),
             )
             if group_key != current_group_key:
                 group_ordinal += 1
@@ -297,3 +310,141 @@ def test_oversized_multispan_atomic_group_uses_whole_group_structural_fallback()
     )
     assert fallback.atomic_group_ids == (target_group_id,)
     assert fallback.placement_ids == target_ids
+
+
+def test_same_scene_local_arm_runs_split_before_safe_material_can_fallback() -> None:
+    source, story_plan = _planned()
+    placements_by_id = {item.id: item for item in story_plan.placements}
+    scene_runs: list[tuple[StoryPlacement, ...]] = []
+    for scope in story_plan.scopes:
+        current: list[StoryPlacement] = []
+        current_key: tuple[str, str, tuple[str, ...]] | None = None
+        for placement_id in scope.placement_ids:
+            placement = placements_by_id[placement_id]
+            key = (
+                placement.scene_id,
+                placement.context_scene_id,
+                placement.occurrence_path,
+            )
+            if current and key != current_key:
+                scene_runs.append(tuple(current))
+                current = []
+            current.append(placement)
+            current_key = key
+        if current:
+            scene_runs.append(tuple(current))
+    target = next(
+        run
+        for run in scene_runs
+        if len(run) == 4
+        and len({item.arm_lineage for item in run}) == 2
+        and all(item.arm_lineage for item in run)
+    )
+    target_span_keys = {item.span_key for item in target}
+    oversized_source = replace(
+        source,
+        spans=tuple(
+            replace(span, estimated_tokens=3_000)
+            if span.key in target_span_keys
+            else span
+            for span in source.spans
+        ),
+    )
+    exact_plan = replace(
+        story_plan,
+        source_scope_identity=canonical_hash(asdict(oversized_source)),
+    )
+
+    projection = adapt_chunk_planning_projection(exact_plan, oversized_source)
+    chunk_plan = plan_story_chunks(projection)
+    target_ids = tuple(item.id for item in target)
+    adapted = tuple(
+        placement
+        for scope in projection.scopes
+        for placement in scope.placements
+        if placement.placement_id in set(target_ids)
+    )
+    target_group_ids = tuple(dict.fromkeys(item.atomic_group_id for item in adapted))
+
+    assert len(target_group_ids) == 2
+    assert [
+        tuple(
+            placement.placement_id
+            for placement in adapted
+            if placement.atomic_group_id == group_id
+        )
+        for group_id in target_group_ids
+    ] == [target_ids[:2], target_ids[2:]]
+    assert all(
+        sum(item.raw_tokens for item in adapted if item.atomic_group_id == group_id)
+        < chunk_plan.maximum_request_tokens
+        for group_id in target_group_ids
+    )
+    target_chunks = tuple(
+        chunk
+        for chunk in chunk_plan.chunks
+        if set(chunk.atomic_group_ids) & set(target_group_ids)
+    )
+    assert target_chunks
+    assert all(not chunk.structural_fallback_only for chunk in target_chunks)
+    assert tuple(
+        placement_id
+        for chunk in target_chunks
+        for placement_id in chunk.placement_ids
+    ) == target_ids
+    assert chunk_plan.covered_placement_ids == _expected_placement_ids(exact_plan)
+
+    choice_key = target[-1].arm_lineage[-1].choice_key
+    frozen_parents = tuple(
+        parent for parent in chunk_plan.choice_parents if parent.choice_key == choice_key
+    )
+    assert len(frozen_parents) == 1
+    source_choice = next(choice for choice in oversized_source.choices if choice.key == choice_key)
+    assert frozen_parents[0].canonical_mechanics == canonical_json(
+        asdict(source_choice)
+    ).decode("utf-8")
+
+
+def test_atomic_group_drift_fails_closed_on_deserialize_and_request_rebuild() -> None:
+    source, story_plan = _planned()
+    projection = adapt_chunk_planning_projection(story_plan, source)
+    chunk_plan = plan_story_chunks(projection)
+    payload = json.loads(serialize_story_chunk_plan(chunk_plan))
+    group_a = next(group for group in payload["atomic_groups"] if len(group["placement_ids"]) > 1)
+    group_a_index = payload["atomic_groups"].index(group_a)
+    group_b = payload["atomic_groups"][group_a_index + 1]
+    moved_id = group_a["placement_ids"].pop()
+    group_b["placement_ids"].insert(0, moved_id)
+    with pytest.raises(ValueError, match="StoryChunkPlan identity"):
+        deserialize_story_chunk_plan(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        )
+
+    frozen_groups = {group.id: group for group in chunk_plan.atomic_groups}
+    chunk = next(
+        item
+        for item in chunk_plan.chunks
+        if not item.structural_fallback_only
+        and len(item.atomic_group_ids) > 1
+        and len(frozen_groups[item.atomic_group_ids[0]].placement_ids) > 1
+    )
+    first_group = frozen_groups[chunk.atomic_group_ids[0]]
+    second_group_id = chunk.atomic_group_ids[1]
+    drifted_placement_id = first_group.placement_ids[-1]
+    drifted_projection = replace(
+        projection,
+        scopes=tuple(
+            replace(
+                scope,
+                placements=tuple(
+                    replace(placement, atomic_group_id=second_group_id)
+                    if placement.placement_id == drifted_placement_id
+                    else placement
+                    for placement in scope.placements
+                ),
+            )
+            for scope in projection.scopes
+        ),
+    )
+    with pytest.raises(FrozenPlanMismatch, match="atomic group membership"):
+        serialize_chunk_request(chunk_plan, chunk.chunk_id, drifted_projection)
