@@ -15,7 +15,9 @@ checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and
   `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
 - Integration branch: `codex/m15-phase04-full-game`.
 - Status: In progress.
-- Merge state: Phase 03 PR #28 and closeout PR #29 are merged; no Phase 04 PR exists yet.
+- Merge state: Phase 03 PR #28 and closeout PR #29 are merged. Draft Phase 04
+  [PR #30](https://github.com/nmpraveen/renpy-story-mapper/pull/30) is open against `main` and
+  intentionally unmerged.
 - Semantic review: repeated exact-head `PASS` at corrected checkpoint
   `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2` in
   [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md). The document preserves the
@@ -30,6 +32,16 @@ checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and
   full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
+- Phase 04 Track A Coordinator: visible task `019fa00d-1e55-79e0-95b0-c88f8fd89919`, worktree
+  `C:/Users/prave/.codex/worktrees/6321/Renpy`, dispatched from exact integration checkpoint
+  `9e5088ea54dcd227e933fb14884d408596ff979b` with explicit `gpt-5.6-sol` High. It must create
+  separate visible A1, A2, and exact-head reviewer tasks before implementing the occurrence-aware
+  plan and frozen chunking scope.
+- Phase 04 Track B Coordinator: visible task `019fa00d-1e77-7fd3-93d5-ee9761a5f662`, worktree
+  `C:/Users/prave/.codex/worktrees/bcc8/Renpy`, dispatched from the same exact checkpoint with
+  explicit `gpt-5.6-sol` High. It must create separate visible B1, B2, and exact-head reviewer
+  tasks before implementing schema-v7 durability and the provider workflow. Both coordinators
+  report fast-mode selection as unavailable/unverified.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was

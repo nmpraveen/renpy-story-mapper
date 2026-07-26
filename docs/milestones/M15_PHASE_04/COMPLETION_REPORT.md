@@ -4,14 +4,16 @@ Status: In progress
 
 Integration commit: Pending
 
-Pull request: Pending
+Pull request: [#30](https://github.com/nmpraveen/renpy-story-mapper/pull/30), draft, open and
+unmerged
 
 ## Outcome
 
 The bounded contract passed its repeated exact-head semantic gate at corrected checkpoint
 `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`. Native goal
 `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749` is active; product implementation is beginning under the
-approved track boundaries.
+approved track boundaries. Track A task `019fa00d-1e55-79e0-95b0-c88f8fd89919` and Track B task
+`019fa00d-1e77-7fd3-93d5-ee9761a5f662` are active in separate worktrees.
 
 ## Acceptance evidence
 
@@ -41,8 +43,8 @@ approved track boundaries.
 
 ## Remaining limitations
 
-- Native-goal creation, all implementation, verification, private acceptance, screenshot approval,
-  and PR work remain.
+- Track implementation and reviews, integration, verification, private acceptance, screenshot
+  approval, and final PR-readiness work remain.
 
 Complete the native Codex goal only when `PR genuinely ready` is `Yes` and the rows above contain
 durable evidence.
