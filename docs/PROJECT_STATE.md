@@ -2,8 +2,8 @@
 
 Updated: 2026-07-26 (M15.1 Phase 04 Tracks A and B passed exact-head review and PR CI and are
 integrated at `24e6ea8`; their product seam is frozen, repository-wide CI acceleration and
-Tracks C/D are the next parallel work, the native goal remains active, and the lifecycle is
-`In progress`)
+Tracks C/D are running in parallel against reader-contract checkpoint `cea5cf0`, the native goal
+remains active, and the lifecycle is `In progress`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -75,6 +75,29 @@ Tracks C/D are the next parallel work, the native goal remains active, and the l
   exception. Current action: freeze and independently review that correction while Tracks C and D
   proceed from the frozen A/B product seam, then make C/D consume the accepted workflow before
   their exact pushed-head gates.
+- Phase 04 Track C Coordinator: visible task `019fa0bd-d099-7453-94ba-35ba6c2aaab9`, worktree
+  `C:/Users/prave/.codex/worktrees/b98c/Renpy`, branch `codex/m15-p4-track-c`, dispatched from
+  exact integration head `e73abf35c76283fe69aa7172ef999464995f2fe7` with explicit
+  `gpt-5.6-sol` High; fast-mode selection is unavailable/unverified. The smallest C/D read seam is
+  frozen at `cea5cf03145a2395be6571f9f8a91c7a6020c504` as
+  `story-map-v2-reader-contract-v1`, with its schema, public synthetic fixture, revision/cursor
+  rules, bounded page shells, locate/search/path/detail/view-state envelopes, and typed stale 409
+  recorded in `TRACK_C_READER_CONTRACT.md`. Track D consumed it before production assumptions and
+  reported no reader-schema delta.
+- Phase 04 Track C workers: C1 semantic assembly/publication is visible task
+  `019fa0c3-689c-7151-82bc-410d7959c992` in
+  `C:/Users/prave/.codex/worktrees/bf83/Renpy`; C2 scalable reader/API is visible task
+  `019fa0c3-689c-7151-82bc-40cbed4c2045` in
+  `C:/Users/prave/.codex/worktrees/6314/Renpy`. Independent exact-head reviewer task
+  `019fa0c3-689c-7151-82bc-40eea50f1d48` is isolated in
+  `C:/Users/prave/.codex/worktrees/425a/Renpy` and may prepare a matrix only until the coordinator
+  freezes one integrated head. Every task uses explicit `gpt-5.6-sol` High; fast mode is
+  unavailable/unverified. C1/C2 use provider fakes only and may not access private source.
+- The reader contract deliberately does not invent browser mutation routes for Track B's
+  Prepare/approval/cancel/resume/job-specific indeterminate retry service. D1 identified this
+  separate command-routing gap without changing reader v1; the exact requested envelope was sent
+  to the Phase Coordinator and Track B coordinator for an ownership-correct frozen seam. Track D
+  keeps those controls unavailable until bootstrap advertises that separate contract.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was
