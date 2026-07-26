@@ -50,6 +50,12 @@ and diff hygiene. Independent visible reviewer `019f9ca6-cb8b-7503-afc0-9e4c51cd
 `C:/Users/prave/.codex/worktrees/6915/Renpy` is reviewing that exact head; no Track C commit is
 integrated yet. Track B remains in progress.
 
+Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED` with
+P0=0, P1=0, P2=3, P3=0. Focused tests passed 16; the adjacent matrix passed 172 and failed the
+unchanged transitive import-isolation test once. The remaining P2s are missing selection-ID echo in
+forged-selection HTTP 404 JSON and a non-authoritative six-state fixture filename. A bounded new
+worker commit and same-reviewer rereview are in progress; the rejected head remains unintegrated.
+
 Track B then froze clean exact head `2069eab3a1f0a018724106f94634e1292072e358` after the final
 bytes passed its focused/static/schema/lint gate, real Chrome at desktop 100%, effective 200%, and
 390px narrow, 63 adjacent tests, 107-file mypy, asset integrity, and diff hygiene. Independent
@@ -102,7 +108,7 @@ separately, not counted as Track B evidence. No Track B commit is integrated yet
 | Track A final independent rereview | Pass | Exact worker head `2319092`: P0=P1=P2=P3=0; 50 focused, 210 V2/import, 82 storage/web/M10-M12, Ruff, strict mypy, schema binding, whitespace |
 | Track A integration | Pass | Reviewed commits integrated byte-equivalently through `50bdc08`; coordinator CPython 3.12 focused set 50 passed |
 | Track B/C dispatch | In progress | Visible tasks `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` and `019f9c8d-cfa8-76c1-9111-7600e1180d35`, exact base `4827b06`, explicit `gpt-5.6-sol` High, non-overlapping scopes |
-| Track C worker final gate | Pass pending review | Exact head `13876361039ab120c7ef4d6765ae74c9f572647d`; 75 tests, Ruff, strict mypy, JSON/hash/diff hygiene; reviewer task `019f9ca6-cb8b-7503-afc0-9e4c51cd0946` in progress |
+| Track C initial worker gate | Rejected by review | Exact head `1387636`; reviewer P0=0/P1=0/P2=3/P3=0; focused 16 passed, adjacent 172 passed/1 failed; correction/rereview pending |
 | Track B worker final gate | Pass pending review | Exact head `2069eab3a1f0a018724106f94634e1292072e358`; final-byte Chrome three-profile matrix and static/adjacent/mypy/asset gates green; reviewer task `019f9ca9-ab9e-77c0-a2f1-0426f9472084` in progress |
 
 ## Review findings
