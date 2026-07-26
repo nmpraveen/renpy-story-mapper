@@ -331,6 +331,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 | Visual refinement final cross-track rereview | Pass | Same final reviewer at exact lifecycle head `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1`: P0=P1=P2=P3=0; 16 focused, 269 V2, 137 adjacent, exact maximum-bound Chrome, asset/identity/privacy/containment; inherited compact-witness P3 closed |
 | Replacement private real-Chrome acceptance | Pass | Report SHA `75143227693ed14a8e93ccdd29578c564c12c59156c1f6d79d2dc31e7f53042f`; four replacement PNGs captured at 100%/200%; zero remote/provider activity, protected inputs and terminal ledger unchanged |
 | Final local release validation | Pass | Approval head `f56f238`: 1,420 deterministic tests passed/16 hardware deselected; Ruff, strict mypy 109, pip check, 4/4 JS, whitespace, isolated sdist/wheel build, wheel install, isolated import and packaged browser assets passed |
+| First pushed-head GitHub check | Bounded timing failure | Run `30210504223` at `73cc758`: 1,418 tests and every non-pytest Release gate passed; two historical M13 fake-provider tests remained `running` after fixed 500 x 10 ms polling on a heavily loaded Windows runner |
+| CI polling correction | Local Release pass; review/check pending | Three historical fake-provider polling loops now use a bounded 30-second monotonic deadline consistent with existing tests; all three affected regressions passed three consecutive local runs (9/9), then full Release passed 1,420 tests/16 hardware deselected plus every static/package gate; no product/provider code changed |
 | Integrated adjacent matrix | Pass | 317 passed/2 hardware deselected across bounded M10-M13 storage/API/navigation/route/privacy surfaces |
 | Integrated browser compatibility | Pass with separately recorded historical harness defect | Final Story Browser 3/3 and M12 Chrome pass; M13 exact control/record render was proven despite its legacy falsey-element wait timeout |
 | Integrated static/privacy gate | Pass | Ruff; strict mypy 108 files; JS syntax 4 files; 33 asset/privacy/import tests; JSON/schema/manifest/whitespace/containment clean |
@@ -347,7 +349,9 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
   passes with P0=P1=P2=P3=0; the inherited P3 is closed.
 - Replacement 100%/200% captures pass and the user explicitly approved them with “looks better
   proceed.” Prior candidates remain archived outside Git.
-- Push/PR creation and exact pushed-head GitHub checks have not yet occurred.
+- PR #28 is open, non-draft, and unmerged. Its first exact-head GitHub run is recorded above; the
+  bounded timing correction still requires exact-head review, push, and a passing replacement
+  exact-head run.
 - The same screenshot-approval condition remained unanswered for three consecutive goal turns.
   The approval picker returned no selection and the required Pushover input-needed notification
   was sent, so the milestone is blocked without any remote mutation.
@@ -359,8 +363,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 
 - Integrated diff reviewed against contract and exclusions: Yes; final cross-track PASS at exact
   lifecycle head `8d8aecf`, P0=P1=P2=P3=0
-- Required checks passed: Local provider-free/private/browser gates pass; exact pushed-head GitHub
-  checks pending
+- Required checks passed: Local provider-free/private/browser and post-correction full Release
+  gates pass; exact-head rereview and replacement exact pushed-head GitHub check pending
 - Blocking findings resolved or explicitly accepted: Yes; no unresolved P0-P3 in the amended
   exact-head review
 - User approved final-head screenshots: Yes
@@ -376,8 +380,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
   and all 24 Detail/source-navigation targets are available.
 - The prior compact-witness P3 is closed: mechanics render first and the complete ordered scene
   sequence remains available under collapsed `Analysis notes`.
-- Replacement 100%/200% screenshots are explicitly approved. PR, pushed-head GitHub checks, and
-  PR-ready lifecycle transition remain outstanding.
+- Replacement 100%/200% screenshots are explicitly approved and PR #28 is open/unmerged. The
+  bounded CI polling correction and replacement pushed-head check remain before PR-ready status.
 - Fast-mode selection is unavailable in the visible task creation API and will be recorded as
   unavailable/unverified for task dispatch. Exact live Terra fast-off identity remains mandatory.
 

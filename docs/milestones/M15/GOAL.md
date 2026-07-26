@@ -110,8 +110,8 @@ routes, reachability, and source locations.
 | 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for automated/capture evidence: exact product `eecaf59`, final lifecycle review `8d8aecf`, browser report `75143227...`; 16 focused cases, 100%/200% captures, no overflow/clipping/overlap/mojibake/remote/provider activity, protected inputs and ledger unchanged |
 | 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
 | 15 | User approval in the Phase 03 Coordinator task | Pass: user reviewed the replacement 100%/200% overview/deep-path captures and replied “looks better proceed” |
-| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Local final cross-track review PASS at lifecycle head `8d8aecf`, P0=P1=P2=P3=0; exact pushed PR-head GitHub run pending |
-| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Evidence is current through final review, replacement capture, and explicit screenshot approval; push, open PR, and exact pushed-head checks remain |
+| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Product/lifecycle review PASS at `8d8aecf`, P0=P1=P2=P3=0. First pushed-head run `30210504223` exposed only a bounded fixed-polling CI test defect; post-correction Release passes 1,420 tests and all static/package gates; exact-head review and GitHub run pending |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Evidence is current through PR #28 open/non-draft/unmerged, first GitHub result, and post-correction full Release; exact-head review/push/check remain |
 | 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
 No planned command or screenshot is passing evidence until its observed result and exact head are

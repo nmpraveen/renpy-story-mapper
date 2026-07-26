@@ -541,11 +541,13 @@ def test_m13_reopen_restores_exact_retry_request_and_reuses_only_compatible_cons
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
+        deadline = time.monotonic() + 30
+        while True:
             status = api.dispatch("POST", "/api/v1/m13/status", {})
             if status["state"] not in {"running", "cancelling"}:
                 break
-            time.sleep(0.01)
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
         assert status["state"] in {"failed", "hard_limit", "partial"}
         assert provider.requests
         api.close()
@@ -618,11 +620,13 @@ def test_m13_retry_start_preserves_prior_cumulative_usage_before_execution(
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
+        deadline = time.monotonic() + 30
+        while True:
             status = api.dispatch("POST", "/api/v1/m13/status", {})
             if status["state"] not in {"running", "cancelling"}:
                 break
-            time.sleep(0.01)
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
         assert status["retry_available"] is True
         api.close()
 
@@ -713,11 +717,13 @@ def test_m13_browser_retry_identity_is_durable_before_interrupted_execution_retu
             "/api/v1/m13/start",
             {"preparation_id": prepared["preparation_id"], "confirm_cloud": True},
         )
-        for _attempt in range(500):
+        deadline = time.monotonic() + 30
+        while True:
             status = api.dispatch("POST", "/api/v1/m13/status", {})
             if status["state"] not in {"running", "cancelling"}:
                 break
-            time.sleep(0.01)
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
 
         assert status["state"] == "failed"
         assert status["retry_available"] is True

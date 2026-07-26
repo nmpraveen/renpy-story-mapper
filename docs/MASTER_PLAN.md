@@ -21,7 +21,12 @@ scenes retained under Analysis notes, responsive desktop/narrow arms, restrained
 compact 200% masthead. The correction is integrated at product head `eecaf59`; exact lifecycle
 head `8d8aecf` passed final cross-track review with P0=P1=P2=P3=0, and replacement 100%/200%
 captures pass with zero provider activity. The user explicitly approved the replacement screenshots
-with “looks better proceed.” The open unmerged PR and exact pushed-head GitHub checks remain pending.
+with “looks better proceed.” Phase 03 PR #28 is open, non-draft, and unmerged. Its first exact-head
+GitHub run `30210504223` exposed only a bounded CI timing defect in three historical fake-provider
+tests: fixed five-second polling expired under a 31-minute Windows suite. Product, Phase 03,
+static, package, and asset gates passed. The test harness now uses the repository's bounded
+monotonic-deadline pattern. The full post-correction local Release passes all 1,420 deterministic
+tests and every static/package gate; exact-head rereview and replacement GitHub validation remain.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra

@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 replacement screenshots explicitly approved; final release,
-open PR, and exact pushed-head checks pending)
+Updated: 2026-07-26 (M15.1 Phase 03 replacement screenshots approved; PR #28 open and unmerged;
+bounded CI timing correction under final verification)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -30,7 +30,8 @@ open PR, and exact pushed-head checks pending)
   full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
-- Pull request: none; Phase 03 will use one new open unmerged PR after user screenshot approval.
+- Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), open, non-draft,
+  and unmerged from `codex/m15-phase03-story-browser` to `main`.
 - Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
   `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
   fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
@@ -170,8 +171,18 @@ open PR, and exact pushed-head checks pending)
   with 16 hardware-sensitive tests deselected, Ruff and strict mypy over 109 source files passed,
   dependencies and four JavaScript files passed, and isolated sdist/wheel build, wheel install,
   isolated import, packaged assets, and whitespace checks passed.
-- Current action: push/open the single unmerged Phase 03 PR and require the exact pushed-head
-  GitHub check before marking PR ready.
+- First pushed-head GitHub result: run
+  [`30210504223`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30210504223)
+  failed only because three historical fake-provider tests used fixed 500 x 10 ms polling while
+  the hosted Windows suite was heavily loaded. The other 1,418 tests plus Ruff, strict mypy,
+  dependency, JavaScript, whitespace, package build/install/import, and asset gates passed.
+  The bounded test-only correction replaces those fixed caps with a 30-second monotonic deadline;
+  its three affected regressions pass three consecutive local runs.
+- Post-correction local Release: pass; 1,420 deterministic tests passed with 16 hardware-sensitive
+  tests deselected, plus Ruff, strict mypy over 109 source files, dependencies, four JavaScript
+  files, whitespace, isolated sdist/wheel build, wheel install, isolated import, and packaged assets.
+- Current action: complete exact-head independent review and the replacement pushed-head GitHub
+  check before marking PR #28 ready.
 
 ## M13 historical lifecycle
 
