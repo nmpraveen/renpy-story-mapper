@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -33,6 +34,7 @@ SYNTHESIS_MODEL = "gpt-5.6-terra"
 SYNTHESIS_REASONING = "high"
 SYNTHESIS_FAST_MODE = False
 PROVIDER_IDENTITY = "openai-codex-cli-synthesis-v1"
+_APPROVED_SCHEMA_SHA256 = "4febec35bc987cd8e273465ffbe69176cac02e8577690185fd84fa383b727bcc"
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAXIMUM_INPUT_BYTES = 2_000_000
 DEFAULT_MAXIMUM_OUTPUT_BYTES = 2_000_000
@@ -139,25 +141,17 @@ class CodexCliSynthesisProvider:
         self,
         *,
         executable: str = "codex",
-        schema_path: Path | None = None,
         process_factory: ProcessFactory = _default_process_factory,
         executable_resolver: ExecutableResolver = discover_native_codex,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         maximum_input_bytes: int = DEFAULT_MAXIMUM_INPUT_BYTES,
         maximum_output_bytes: int = DEFAULT_MAXIMUM_OUTPUT_BYTES,
     ) -> None:
-        selected_schema = schema_path or (
-            Path(__file__).resolve().parent / "schemas" / "story_map_synthesis_v1.schema.json"
-        )
-        selected_schema = selected_schema.resolve()
-        if not selected_schema.is_file():
-            raise ValueError("The Story Map V2 synthesis schema is unavailable.")
         if timeout_seconds <= 0:
             raise ValueError("The synthesis timeout must be positive.")
         if maximum_input_bytes <= 0 or maximum_output_bytes <= 0:
             raise ValueError("Synthesis byte limits must be positive.")
         self._executable = executable
-        self._schema_path = selected_schema
         self._process_factory = process_factory
         self._executable_resolver = executable_resolver
         self._timeout_seconds = timeout_seconds
@@ -182,7 +176,24 @@ class CodexCliSynthesisProvider:
                 call_count=0,
                 started=started,
             ) from None
-        if canonical_json(response_schema) != canonical_json(bundled_response_schema()):
+        try:
+            approved_schema = canonical_json(bundled_response_schema())
+        except (OSError, RuntimeError, ValueError):
+            raise _failure(
+                SynthesisFailureKind.INVALID_RESPONSE,
+                "The approved synthesis output schema is unavailable.",
+                call_count=0,
+                started=started,
+            ) from None
+        if hashlib.sha256(approved_schema).hexdigest() != _APPROVED_SCHEMA_SHA256:
+            raise _failure(
+                SynthesisFailureKind.INVALID_RESPONSE,
+                "The approved synthesis output schema identity is invalid.",
+                call_count=0,
+                started=started,
+            )
+        provider_schema = canonical_json(response_schema)
+        if provider_schema != approved_schema:
             raise _failure(
                 SynthesisFailureKind.INVALID_RESPONSE,
                 "The synthesis output schema identity is invalid.",
@@ -208,9 +219,20 @@ class CodexCliSynthesisProvider:
                 call_count=0,
                 started=started,
             )
-        command = build_synthesis_command(executable, self._schema_path)
         with tempfile.TemporaryDirectory(prefix="renpy-story-map-v2-synthesis-") as directory:
-            spec = ProcessSpec(command=command, cwd=Path(directory).resolve())
+            cwd = Path(directory).resolve()
+            schema_path = cwd / "story_map_synthesis_v1.schema.json"
+            try:
+                schema_path.write_bytes(approved_schema)
+            except OSError:
+                raise _failure(
+                    SynthesisFailureKind.TRANSPORT,
+                    "The synthesis schema could not be materialized.",
+                    call_count=0,
+                    started=started,
+                ) from None
+            command = build_synthesis_command(executable, schema_path)
+            spec = ProcessSpec(command=command, cwd=cwd)
             try:
                 process = self._process_factory(spec)
             except Exception:

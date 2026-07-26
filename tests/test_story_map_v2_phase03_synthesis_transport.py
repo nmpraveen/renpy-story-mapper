@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.story_map_v2 import synthesis_transport
+from renpy_story_mapper.story_map_v2.contracts import canonical_json
 from renpy_story_mapper.story_map_v2.phase03_contracts import SynthesisFailureKind
 from renpy_story_mapper.story_map_v2.synthesis import (
     SynthesisProviderFailure,
@@ -129,7 +131,11 @@ def _provider(
         if specs is not None:
             specs.append(spec)
         assert spec.cwd.is_dir()
-        assert list(spec.cwd.iterdir()) == []
+        files = list(spec.cwd.iterdir())
+        assert len(files) == 1
+        assert files[0].name == "story_map_synthesis_v1.schema.json"
+        assert files[0].read_bytes() == canonical_json(response_schema())
+        assert spec.command[spec.command.index("--output-schema") + 1] == str(files[0])
         return process
 
     return CodexCliSynthesisProvider(
@@ -483,6 +489,61 @@ def test_preflight_and_process_io_are_bounded_without_hidden_processes(
         )
     assert output_limit.value.kind is SynthesisFailureKind.INVALID_RESPONSE
     assert output_limit.value.call_count == starts == 1
+
+
+def test_foreign_configured_schema_file_fails_before_process_construction(
+    tmp_path: Path,
+) -> None:
+    foreign_schema = tmp_path / "foreign.schema.json"
+    foreign_schema.write_text("{}", encoding="utf-8")
+    starts = 0
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        nonlocal starts
+        starts += 1
+        return FakeProcess(_success_output())
+
+    with pytest.raises(TypeError, match="schema_path"):
+        CodexCliSynthesisProvider(
+            schema_path=foreign_schema,  # type: ignore[call-arg]
+            process_factory=factory,
+            executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+        )
+    assert starts == 0
+
+
+def test_semantically_stale_bundled_schema_fails_before_process_construction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale_schema = json.loads(json.dumps(response_schema()))
+    properties = stale_schema["properties"]
+    assert isinstance(properties, dict)
+    story_title = properties["story_title"]
+    assert isinstance(story_title, dict)
+    story_title["maxLength"] = 159
+    monkeypatch.setattr(synthesis_transport, "bundled_response_schema", lambda: stale_schema)
+    starts = 0
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        nonlocal starts
+        starts += 1
+        return FakeProcess(_success_output())
+
+    provider = CodexCliSynthesisProvider(
+        process_factory=factory,
+        executable_resolver=lambda _value: str((tmp_path / "codex.exe").resolve()),
+    )
+    request, preview = _request_and_preview()
+    with pytest.raises(SynthesisProviderFailure) as failure:
+        provider.synthesize(
+            serialize_synthesis_request(request),
+            response_schema=stale_schema,
+            settings=preview.settings,
+        )
+
+    assert failure.value.kind is SynthesisFailureKind.INVALID_RESPONSE
+    assert failure.value.call_count == starts == 0
 
 
 def test_relative_or_non_native_executable_resolution_fails_before_process_start(
