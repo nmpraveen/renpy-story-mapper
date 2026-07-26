@@ -40,19 +40,32 @@ FAULT_AFTER_GENERATION_PUBLICATION: Final = "generation_publication.after"
 _DIGEST_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_ABSOLUTE_RE: Final = re.compile(r"(?:^|[\s\"'])[a-zA-Z]:[\\/]")
 _UNC_RE: Final = re.compile(r"(?:^|[\s\"'])\\\\[^\\]")
+_POSIX_ABSOLUTE_RE: Final = re.compile(r"(?:^|[\s\"'])/(?!/)[^\s]")
 _FORBIDDEN_KEYS: Final = frozenset(
     {
         "prompt",
         "promptbytes",
+        "prompttext",
+        "promptpayload",
         "rawprompt",
+        "rawresponse",
+        "responsebytes",
+        "responsepayload",
         "rawrequest",
         "requestbytes",
+        "requestpayload",
+        "requestbody",
         "rawsource",
         "sourcebytes",
+        "sourcepacket",
+        "sourcepayload",
+        "sourcecontent",
         "providerstderr",
         "stderr",
         "credential",
         "credentials",
+        "apicredential",
+        "apicredentials",
         "password",
         "secret",
         "accesstoken",
@@ -211,7 +224,7 @@ class RetryApprovalDescriptor:
 class RetryApprovalRecord:
     descriptor: RetryApprovalDescriptor
     created_utc: str
-    consumed_utc: str
+    consumed_utc: str | None
 
 
 @dataclass(frozen=True)
@@ -236,6 +249,8 @@ class AttemptAccounting:
     def __post_init__(self) -> None:
         if min(self.calls, self.input_tokens, self.output_tokens, self.elapsed_ms) < 0:
             raise ValueError("attempt accounting cannot be negative")
+        if self.calls not in {0, 1}:
+            raise ValueError("attempt calls must be zero or one")
 
 
 @dataclass(frozen=True)
@@ -904,7 +919,7 @@ class SqliteStoryMapV2Repository:
                 return RetryApprovalRecord(
                     approval,
                     str(existing["created_utc"]),
-                    str(existing["consumed_utc"]),
+                    _optional_text(existing["consumed_utc"]),
                 )
             job_row = self._connection.execute(
                 """SELECT jobs.run_id, jobs.status, runs.cancel_requested
@@ -933,7 +948,7 @@ class SqliteStoryMapV2Repository:
                 """INSERT INTO story_map_v2_retry_approvals(
                     retry_approval_id, job_id, attempt_ordinal, approval_json,
                     approval_identity, created_utc, consumed_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL)""",
                 (
                     approval.retry_approval_id,
                     approval.job_id,
@@ -941,12 +956,11 @@ class SqliteStoryMapV2Repository:
                     approval_bytes,
                     approval.approval_identity,
                     timestamp,
-                    timestamp,
                 ),
             )
             self._connection.execute(
                 """UPDATE story_map_v2_jobs
-                   SET status = 'pending', updated_utc = ? WHERE job_id = ?""",
+                   SET status = 'pending', resolution = NULL, updated_utc = ? WHERE job_id = ?""",
                 (timestamp, approval.job_id),
             )
             self._connection.execute(
@@ -954,7 +968,7 @@ class SqliteStoryMapV2Repository:
                    SET status = 'running', updated_utc = ? WHERE run_id = ?""",
                 (timestamp, str(job_row["run_id"])),
             )
-        return RetryApprovalRecord(approval, timestamp, timestamp)
+        return RetryApprovalRecord(approval, timestamp, None)
 
     def load_retry_approval(
         self,
@@ -981,7 +995,7 @@ class SqliteStoryMapV2Repository:
         return RetryApprovalRecord(
             descriptor,
             str(row["created_utc"]),
-            str(row["consumed_utc"]),
+            _optional_text(row["consumed_utc"]),
         )
 
     def get_run(self, run_id: str) -> RunRecord | None:
@@ -1220,8 +1234,15 @@ class SqliteStoryMapV2Repository:
                 timestamp,
                 (JobStatus.CLAIMED, JobStatus.RETURNED, JobStatus.VALIDATED),
             )
+            if bool(row["cancel_requested"]):
+                raise LeaseConflictError("run was cancelled before attempt reservation")
             ordinal = int(row["next_attempt_ordinal"])
-            self._validate_attempt_policy_locked(claim.descriptor.job_id, ordinal, metadata)
+            self._validate_attempt_policy_locked(
+                claim.descriptor.job_id,
+                ordinal,
+                metadata,
+                timestamp,
+            )
             if JobStatus(str(row["status"])) is not JobStatus.CLAIMED:
                 active_row = self._connection.execute(
                     """SELECT COUNT(*) FROM story_map_v2_jobs
@@ -1281,7 +1302,9 @@ class SqliteStoryMapV2Repository:
     ) -> None:
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
-            self._assert_claim_locked(claim, timestamp, (JobStatus.RESERVED,))
+            row = self._assert_claim_locked(claim, timestamp, (JobStatus.RESERVED,))
+            if bool(row["cancel_requested"]):
+                raise LeaseConflictError("run was cancelled before transmission")
             cursor = self._connection.execute(
                 """UPDATE story_map_v2_attempts
                    SET status = 'transmitting', transmission_disposition = 'indeterminate',
@@ -1312,6 +1335,13 @@ class SqliteStoryMapV2Repository:
     ) -> AttemptRecord:
         if disposition is TransmissionDisposition.NOT_STARTED:
             raise ValueError("completed attempt needs a transmission disposition")
+        if disposition is TransmissionDisposition.TRANSMITTED and accounting.calls != 1:
+            raise ValueError("transmitted attempt must account for one call")
+        if (
+            disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
+            and accounting.calls != 0
+        ):
+            raise ValueError("definite non-transmission must account for zero calls")
         if response_identity is not None:
             _digest(response_identity, "response_identity")
         if (
@@ -1320,10 +1350,11 @@ class SqliteStoryMapV2Repository:
             and failure_kind is None
         ):
             raise ValueError("transmitted failure requires a failure_kind")
-        if disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED and (
-            accounting.calls != 0 or response_identity is not None
+        if (
+            disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
+            and response_identity is not None
         ):
-            raise ValueError("definite non-transmission cannot include a call or response")
+            raise ValueError("definite non-transmission cannot include a response")
         failure = None if sanitized_failure is None else _sanitized_failure(sanitized_failure)
         if failure_kind is not None:
             _identifier(failure_kind, "failure_kind")
@@ -1369,11 +1400,32 @@ class SqliteStoryMapV2Repository:
             )
             if cursor.rowcount != 1:
                 raise LeaseConflictError("attempt is no longer completable")
-            self._connection.execute(
-                """UPDATE story_map_v2_jobs SET status = 'returned', updated_utc = ?
-                   WHERE job_id = ? AND lease_token = ?""",
-                (timestamp, claim.descriptor.job_id, claim.lease_token),
-            )
+            if disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
+                job_status = JobStatus.PENDING
+            elif disposition is TransmissionDisposition.INDETERMINATE:
+                job_status = JobStatus.INDETERMINATE
+            else:
+                job_status = JobStatus.RETURNED
+            if job_status in {JobStatus.PENDING, JobStatus.INDETERMINATE}:
+                self._connection.execute(
+                    """UPDATE story_map_v2_jobs
+                       SET status = ?, lease_owner = NULL, lease_token = NULL,
+                           lease_expires_utc = NULL, updated_utc = ?
+                       WHERE job_id = ? AND lease_token = ?""",
+                    (
+                        job_status,
+                        timestamp,
+                        claim.descriptor.job_id,
+                        claim.lease_token,
+                    ),
+                )
+                self._refresh_run_state_locked(claim.descriptor.run_id, timestamp)
+            else:
+                self._connection.execute(
+                    """UPDATE story_map_v2_jobs SET status = 'returned', updated_utc = ?
+                       WHERE job_id = ? AND lease_token = ?""",
+                    (timestamp, claim.descriptor.job_id, claim.lease_token),
+                )
             row = self._connection.execute(
                 "SELECT * FROM story_map_v2_attempts WHERE attempt_id = ?",
                 (attempt.attempt_id,),
@@ -1609,7 +1661,12 @@ class SqliteStoryMapV2Repository:
             if row is None:
                 raise StoryMapV2RepositoryError("unknown job_id")
             status = JobStatus(str(row["status"]))
-            allowed = {JobStatus.RETURNED, JobStatus.VALIDATED, JobStatus.CACHE_STORED}
+            allowed = {
+                JobStatus.RETURNED,
+                JobStatus.VALIDATED,
+                JobStatus.CACHE_STORED,
+                JobStatus.INDETERMINATE,
+            }
             if (
                 status
                 in {
@@ -1622,6 +1679,10 @@ class SqliteStoryMapV2Repository:
                 return _job_record(row)
             if status not in allowed:
                 raise StoryMapV2RepositoryError("job is not ready for finalization")
+            if status is JobStatus.INDETERMINATE and resolution is not JobResolution.INDETERMINATE:
+                raise StoryMapV2RepositoryError(
+                    "indeterminate job requires indeterminate finalization"
+                )
             if resolution is JobResolution.ACCEPTED and status is not JobStatus.CACHE_STORED:
                 raise StoryMapV2RepositoryError("accepted job must store its validated cache first")
             if resolution is JobResolution.INDETERMINATE:
@@ -1852,6 +1913,8 @@ class SqliteStoryMapV2Repository:
     ) -> None:
         if disposition is TransmissionDisposition.NOT_STARTED:
             raise ValueError("a finalized failure needs an explicit transmission disposition")
+        if disposition is TransmissionDisposition.TRANSMITTED and accounting.calls != 1:
+            raise ValueError("transmitted attempt must account for one call")
         if (
             disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
             and accounting.calls != 0
@@ -2004,6 +2067,18 @@ class SqliteStoryMapV2Repository:
         descriptor_identity = hashlib.sha256(descriptor_bytes).hexdigest()
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
+            run = self._connection.execute(
+                """SELECT plan_id, authority_identity FROM story_map_v2_runs
+                   WHERE run_id = ?""",
+                (generation.run_id,),
+            ).fetchone()
+            if run is None or (
+                str(run["plan_id"]),
+                str(run["authority_identity"]),
+            ) != (generation.plan_id, generation.authority_identity):
+                raise StoryMapV2RepositoryError(
+                    "generation run identity does not match its plan and authority"
+                )
             existing = self._connection.execute(
                 "SELECT * FROM story_map_v2_generations WHERE generation_id = ?",
                 (generation.generation_id,),
@@ -2304,9 +2379,11 @@ class SqliteStoryMapV2Repository:
 
     def _recover_expired_leases_locked(self, timestamp: str) -> int:
         rows = self._connection.execute(
-            """SELECT job_id, run_id, status FROM story_map_v2_jobs
-               WHERE status IN ('claimed','reserved','submitting')
-                 AND lease_expires_utc <= ? ORDER BY job_id""",
+            """SELECT jobs.job_id, jobs.run_id, jobs.status, runs.cancel_requested
+               FROM story_map_v2_jobs AS jobs
+               JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+               WHERE jobs.status IN ('claimed','reserved','submitting')
+                 AND jobs.lease_expires_utc <= ? ORDER BY jobs.job_id""",
             (timestamp,),
         ).fetchall()
         for row in rows:
@@ -2317,12 +2394,16 @@ class SqliteStoryMapV2Repository:
                    WHERE job_id = ? ORDER BY ordinal DESC LIMIT 1""",
                 (job_id,),
             ).fetchone()
-            uncertain = status in {JobStatus.RESERVED, JobStatus.SUBMITTING}
-            if attempt is not None and str(attempt["status"]) in {
-                AttemptStatus.RESERVED,
-                AttemptStatus.TRANSMITTING,
-            }:
-                uncertain = True
+            transmitting = status is JobStatus.SUBMITTING or (
+                attempt is not None
+                and AttemptStatus(str(attempt["status"])) is AttemptStatus.TRANSMITTING
+            )
+            reserved_not_sent = (
+                status is JobStatus.RESERVED
+                and attempt is not None
+                and AttemptStatus(str(attempt["status"])) is AttemptStatus.RESERVED
+            )
+            if transmitting and attempt is not None:
                 self._connection.execute(
                     """UPDATE story_map_v2_attempts
                        SET status = 'indeterminate',
@@ -2332,7 +2413,24 @@ class SqliteStoryMapV2Repository:
                        WHERE attempt_id = ?""",
                     (timestamp, str(attempt["attempt_id"])),
                 )
-            next_status = JobStatus.INDETERMINATE if uncertain else JobStatus.PENDING
+            elif reserved_not_sent:
+                self._connection.execute(
+                    """UPDATE story_map_v2_attempts
+                       SET status = 'not_transmitted',
+                           transmission_disposition = 'definitely_not_transmitted',
+                           finalized_utc = ?, calls = 0, input_tokens = 0,
+                           output_tokens = 0, elapsed_ms = 0,
+                           failure_kind = 'lease_expired_before_transmission',
+                           sanitized_failure = 'lease_expired_before_transmission'
+                       WHERE attempt_id = ?""",
+                    (timestamp, str(attempt["attempt_id"])),
+                )
+            if transmitting:
+                next_status = JobStatus.INDETERMINATE
+            elif bool(row["cancel_requested"]):
+                next_status = JobStatus.CANCELLED
+            else:
+                next_status = JobStatus.PENDING
             self._connection.execute(
                 """UPDATE story_map_v2_jobs
                    SET status = ?, lease_owner = NULL, lease_token = NULL,
@@ -2414,9 +2512,11 @@ class SqliteStoryMapV2Repository:
         job_id: str,
         ordinal: int,
         metadata: AttemptReservationMetadata,
+        timestamp: str,
     ) -> None:
         rows = self._connection.execute(
-            """SELECT ordinal, call_kind FROM story_map_v2_attempts
+            """SELECT attempt_id, ordinal, call_kind, status, transmission_disposition
+               FROM story_map_v2_attempts
                WHERE job_id = ? ORDER BY ordinal""",
             (job_id,),
         ).fetchall()
@@ -2424,28 +2524,47 @@ class SqliteStoryMapV2Repository:
             if rows or metadata.call_kind != ContinuationKind.MAPPING:
                 raise StoryMapV2RepositoryError("first attempt must be the mapping call")
             return
-        if ordinal > 1 and metadata.call_kind == ContinuationKind.MAPPING:
-            previous = self._connection.execute(
-                """SELECT ordinal, status, call_kind FROM story_map_v2_attempts
-                   WHERE job_id = ? ORDER BY ordinal DESC LIMIT 1""",
-                (job_id,),
-            ).fetchone()
-            approval = self._connection.execute(
-                """SELECT 1 FROM story_map_v2_retry_approvals
-                   WHERE job_id = ? AND attempt_ordinal = ?""",
-                (job_id, ordinal - 1),
-            ).fetchone()
-            if (
-                previous is None
-                or int(previous["ordinal"]) != ordinal - 1
-                or str(previous["call_kind"]) != ContinuationKind.MAPPING
-                or str(previous["status"]) != AttemptStatus.INDETERMINATE
-                or approval is None
-            ):
+        if not rows or int(rows[-1]["ordinal"]) != ordinal - 1:
+            raise StoryMapV2RepositoryError("attempt ordinal does not follow the latest attempt")
+        previous = rows[-1]
+        previous_kind = str(previous["call_kind"])
+        previous_status = AttemptStatus(str(previous["status"]))
+        previous_disposition = TransmissionDisposition(str(previous["transmission_disposition"]))
+        if previous_disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
+            if metadata.call_kind != previous_kind:
                 raise StoryMapV2RepositoryError(
-                    "mapping retry requires the exact prior indeterminate retry approval"
+                    "definite non-transmission retry requires the same call kind"
                 )
             return
+        if (
+            previous_status is AttemptStatus.INDETERMINATE
+            or previous_disposition is TransmissionDisposition.INDETERMINATE
+        ):
+            if metadata.call_kind != previous_kind:
+                raise StoryMapV2RepositoryError(
+                    "indeterminate retry approval permits only the same call kind"
+                )
+            approval = self._connection.execute(
+                """SELECT retry_approval_id FROM story_map_v2_retry_approvals
+                   WHERE job_id = ? AND attempt_ordinal = ? AND consumed_utc IS NULL""",
+                (job_id, ordinal - 1),
+            ).fetchone()
+            if approval is None:
+                raise StoryMapV2RepositoryError(
+                    "retry requires the exact unconsumed prior indeterminate approval"
+                )
+            consumed = self._connection.execute(
+                """UPDATE story_map_v2_retry_approvals SET consumed_utc = ?
+                   WHERE retry_approval_id = ? AND consumed_utc IS NULL""",
+                (timestamp, str(approval["retry_approval_id"])),
+            )
+            if consumed.rowcount != 1:
+                raise StoryMapV2RepositoryError("retry approval was already consumed")
+            return
+        if metadata.call_kind == ContinuationKind.MAPPING:
+            raise StoryMapV2RepositoryError(
+                "mapping retry requires non-transmission or indeterminate approval"
+            )
         if metadata.call_kind in {
             ContinuationKind.REPLACEMENT_REVIEW,
             ContinuationKind.REFUSAL_FALLBACK,
@@ -2453,9 +2572,15 @@ class SqliteStoryMapV2Repository:
             if any(
                 str(row["call_kind"])
                 in {ContinuationKind.REPLACEMENT_REVIEW, ContinuationKind.REFUSAL_FALLBACK}
+                and (
+                    str(row["transmission_disposition"]) == TransmissionDisposition.TRANSMITTED
+                    or str(row["status"]) == AttemptStatus.RETURNED
+                )
                 for row in rows
             ):
-                raise StoryMapV2RepositoryError("review or fallback is limited to one attempt")
+                raise StoryMapV2RepositoryError(
+                    "review or fallback is limited to one transmitted attempt"
+                )
             job = self._connection.execute(
                 """SELECT continuation_kind, continuation_attempt_id
                    FROM story_map_v2_jobs WHERE job_id = ?""",
@@ -2468,13 +2593,7 @@ class SqliteStoryMapV2Repository:
                 raise StoryMapV2RepositoryError("job has no approved continuation marker")
             if metadata.call_kind != str(job["continuation_kind"]):
                 raise StoryMapV2RepositoryError("attempt call kind does not match continuation")
-            if not rows or str(job["continuation_attempt_id"]) != str(
-                self._connection.execute(
-                    """SELECT attempt_id FROM story_map_v2_attempts
-                       WHERE job_id = ? ORDER BY ordinal DESC LIMIT 1""",
-                    (job_id,),
-                ).fetchone()[0]
-            ):
+            if str(job["continuation_attempt_id"]) != str(previous["attempt_id"]):
                 raise StoryMapV2RepositoryError("continuation does not bind the latest attempt")
             return
         raise StoryMapV2RepositoryError("attempt call kind is not authorized")
@@ -2575,10 +2694,25 @@ class SqliteStoryMapV2Repository:
 
     def _require_generation_locked(self, generation_id: str) -> sqlite3.Row:
         row = self._connection.execute(
-            "SELECT * FROM story_map_v2_generations WHERE generation_id = ?", (generation_id,)
+            """SELECT generations.*, runs.plan_id AS run_plan_id,
+                      runs.authority_identity AS run_authority_identity
+               FROM story_map_v2_generations AS generations
+               JOIN story_map_v2_runs AS runs ON runs.run_id = generations.run_id
+               WHERE generations.generation_id = ?""",
+            (generation_id,),
         ).fetchone()
         if row is None:
             raise StoryMapV2RepositoryError("unknown generation_id")
+        if (
+            str(row["plan_id"]),
+            str(row["authority_identity"]),
+        ) != (
+            str(row["run_plan_id"]),
+            str(row["run_authority_identity"]),
+        ):
+            raise PublicationConflictError(
+                "generation run identity does not match its plan and authority"
+            )
         return cast(sqlite3.Row, row)
 
     def _pointers_locked(self) -> GenerationPointers:
@@ -2726,7 +2860,13 @@ def _validate_private_content(value: object, label: str) -> None:
             if not isinstance(key, str):
                 raise TypeError(f"{label} object keys must be strings")
             normalized = re.sub(r"[^a-z0-9]", "", key.lower())
-            if normalized in _FORBIDDEN_KEYS:
+            if (
+                normalized in _FORBIDDEN_KEYS
+                or normalized.startswith(
+                    ("rawresponse", "rawrequest", "rawprompt", "sourcepacket", "providerstderr")
+                )
+                or normalized.endswith(("credential", "credentials"))
+            ):
                 raise ValueError(f"{label} contains forbidden durable field {key!r}")
             _validate_private_content(item, label)
         return
@@ -2743,6 +2883,7 @@ def _reject_absolute_path(value: str, label: str) -> None:
     if (
         _WINDOWS_ABSOLUTE_RE.search(value) is not None
         or _UNC_RE.search(value) is not None
+        or _POSIX_ABSOLUTE_RE.search(value) is not None
         or stripped.startswith("/")
     ):
         raise ValueError(f"{label} cannot contain an absolute path")
