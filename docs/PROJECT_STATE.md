@@ -44,10 +44,17 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
   `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
   `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python
-  path/detail/source navigation and focused tests and is in progress.
-- Next action: receive clean exact-head Track B/C handoffs, dispatch one separate independent
-  exact-head reviewer for each, and integrate only reviewed commits. No provider/private action
-  occurs before all integrated provider-free gates pass.
+  path/detail/source navigation and focused tests. It completed clean exact head
+  `13876361039ab120c7ef4d6765ae74c9f572647d` after a final post-edit provider-free gate of 75
+  tests, Ruff, strict mypy, JSON/hash checks, and diff hygiene.
+- Track C reviewer: visible read-only task `019f9ca6-cb8b-7503-afc0-9e4c51cd0946`, worktree
+  `C:/Users/prave/.codex/worktrees/6915/Renpy`, explicit `gpt-5.6-sol` High, reviewing exact head
+  `13876361039ab120c7ef4d6765ae74c9f572647d`; in progress with P0-P3 accounting required.
+- Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
+  continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
+  broaden product scope.
+- Next action: finish Track B and both independent exact-head reviews, then integrate only reviewed
+  commits. No provider/private action occurs before all integrated provider-free gates pass.
 
 ## M13 historical lifecycle
 
