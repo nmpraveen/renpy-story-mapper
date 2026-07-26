@@ -20,8 +20,8 @@ hierarchy, numbered existing-event timeline, concise mechanics-first witness wit
 scenes retained under Analysis notes, responsive desktop/narrow arms, restrained accents, and a
 compact 200% masthead. The correction is integrated at product head `eecaf59`; exact lifecycle
 head `8d8aecf` passed final cross-track review with P0=P1=P2=P3=0, and replacement 100%/200%
-captures pass with zero provider activity. Explicit screenshot approval, the open unmerged PR, and
-exact pushed-head GitHub checks remain pending.
+captures pass with zero provider activity. The user explicitly approved the replacement screenshots
+with “looks better proceed.” The open unmerged PR and exact pushed-head GitHub checks remain pending.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1461,8 +1461,9 @@ one-call ledger are unchanged, and no new provider construction, attempt, or cal
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
 or begin Phase 04/05 or M14. The amended semantic `PASS` and renewed native goal are complete. The
-immediate gate is explicit user approval of the replacement private 100%/200% screenshots,
-followed by the single open unmerged Phase 03 PR and exact pushed-head GitHub checks.
+replacement private 100%/200% screenshots are explicitly approved. The immediate gate is the
+exact final release validation, followed by the single open unmerged Phase 03 PR and exact
+pushed-head GitHub checks.
 
 ### Rejected historical next action
 

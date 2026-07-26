@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 visual refinement verified; replacement screenshot approval
-pending under the renewed exact native goal)
+Updated: 2026-07-26 (M15.1 Phase 03 replacement screenshots explicitly approved; final release,
+open PR, and exact pushed-head checks pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -164,8 +164,11 @@ pending under the renewed exact native goal)
   activity; focus and selection return pass, protected inputs and ledger are unchanged. The four
   replacement PNGs are captured outside Git; prior candidates are archived under
   `output/m15-story-map-v2-phase-03-20260726-011613/pre-refinement-8e6de6f/`.
-- Current action: obtain explicit user approval of the replacement screenshots, then push/open the
-  single unmerged Phase 03 PR and require exact pushed-head GitHub checks.
+- User screenshot approval: complete. The user reviewed the replacement 100%/200% overview and
+  deep-path captures and replied “looks better proceed.”
+- Current action: refresh the local dev/build dependency used by the exact release validator, rerun
+  `scripts/validate.ps1 -Tier Release -NoTimeout` on final bytes, then push/open the single unmerged
+  Phase 03 PR and require the exact pushed-head GitHub check.
 
 ## M13 historical lifecycle
 

@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Verification (replacement final-reviewed screenshots captured; explicit approval pending)
+Status: Verification (replacement screenshots explicitly approved; release/PR checks pending)
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -238,7 +238,7 @@ P3 is closed. Replacement private 100%/200% capture passed with browser report S
 zero provider activity, and unchanged protected inputs and terminal ledger. Explicit user approval
 remains pending.
 
-Candidate screenshot artifacts (outside Git; approval pending):
+Approved screenshot artifacts (outside Git):
 
 - `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-overview-100.png`, SHA-256
   `56eaa001d78f2855c9314f7b701a81e4c9e458d549498144fe5e0cddfbfb5836`.
@@ -286,9 +286,9 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 | 12 | Pass | Working project SHA `0bd02eb8...`; private reopen preserves map/path/detail and adds zero constructions, attempts, or calls |
 | 13 | Pass for automated/capture evidence | Final product `eecaf59`, exact lifecycle review `8d8aecf`, 16 focused Chrome cases, replacement report SHA `75143227...`, and four 100%/200% captures; no overflow/clipping/overlap/mojibake/remote/provider activity |
 | 14 | Pass | Protected fingerprints and ledger unchanged; zero remote browser requests; privacy/import/containment gates pass; artifacts remain outside Git |
-| 15 | Pending | Replacement final-reviewed-head screenshots are captured and presented; explicit user approval is required |
+| 15 | Pass | User reviewed the replacement final-reviewed-head 100%/200% overview/deep-path captures and replied “looks better proceed” |
 | 16 | Local review pass; pushed check pending | Final cross-track review PASS at exact lifecycle head `8d8aecf`, P0=P1=P2=P3=0; exact pushed PR-head GitHub checks remain |
-| 17 | Pending | Evidence is current through final review and replacement capture; explicit screenshot approval, push, open PR, and exact-head checks remain |
+| 17 | Pending | Evidence is current through final review, replacement capture, and explicit screenshot approval; push, open PR, and exact-head checks remain |
 | 18 | Pass | Exclusion/diff audits show no Phase 04/05, M14, scheduler/recovery, legacy-retirement, installer, dynamic-tracing, or historical Stage H/E scope |
 
 ## Validation
@@ -344,8 +344,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 - Prior final independent cross-track review passed at exact product head `8e6de6f` with one
   compact-witness presentation P3. The approved refinement is now integrated and independently
   passes with P0=P1=P2=P3=0; the inherited P3 is closed.
-- Replacement 100%/200% captures pass and are presented; explicit user approval is pending. Prior
-  candidates remain archived outside Git.
+- Replacement 100%/200% captures pass and the user explicitly approved them with “looks better
+  proceed.” Prior candidates remain archived outside Git.
 - Push/PR creation and exact pushed-head GitHub checks have not yet occurred.
 - The same screenshot-approval condition remained unanswered for three consecutive goal turns.
   The approval picker returned no selection and the required Pushover input-needed notification
@@ -362,7 +362,7 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
   checks pending
 - Blocking findings resolved or explicitly accepted: Yes; no unresolved P0-P3 in the amended
   exact-head review
-- User approved final-head screenshots: No
+- User approved final-head screenshots: Yes
 - PR genuinely ready: No
 
 ## Remaining limitations
@@ -375,8 +375,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
   and all 24 Detail/source-navigation targets are available.
 - The prior compact-witness P3 is closed: mechanics render first and the complete ordered scene
   sequence remains available under collapsed `Analysis notes`.
-- Replacement 100%/200% screenshots await explicit user approval. PR, pushed-head GitHub checks,
-  and PR-ready lifecycle transition remain outstanding.
+- Replacement 100%/200% screenshots are explicitly approved. PR, pushed-head GitHub checks, and
+  PR-ready lifecycle transition remain outstanding.
 - Fast-mode selection is unavailable in the visible task creation API and will be recorded as
   unavailable/unverified for task dispatch. Exact live Terra fast-off identity remains mandatory.
 
