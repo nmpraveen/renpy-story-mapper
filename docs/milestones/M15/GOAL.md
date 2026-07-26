@@ -1,163 +1,166 @@
-# M15.1 - Story Map V2 Phase 02 core rewrite
+# M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: Complete (Phase 02 done condition achieved)
+Status: PR ready
 
-Authority: `docs/MASTER_PLAN.md` and
-`docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`.
+Scope authority: `docs/MASTER_PLAN.md`, M15, and
+`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
 
-Historical integration branch: `codex/m15-msday1-narrative-map`
+Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
-Historical pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26).
+Integration branch: `codex/m15-phase03-story-browser`
 
-## Closure record
-
-The native Phase 02 goal completed at exact full-history head `a42e8a0`. Independent review found
-no P0-P3 and GitHub run `30163111942` passed on that exact head. The complete private core contains
-12 chronological events, four exact story choices, eight branch outcomes, and 20 stable anchors
-with zero validation failures and unchanged protected inputs.
-
-The contract below intentionally records the state required when Phase 02 completed: PR #26 was
-open, draft, and unmerged. After completion, the user approved clean delivery from `main` so the
-accepted Phase 01/02 files can merge without the rejected Stage H/E implementation history. That
-delivery decision does not rewrite the achieved Phase 02 done condition.
+Pull request: Not created
 
 ## Done condition
 
-Phase 02 is done only when the exact private Day 1 scope has been processed once through a new,
-simple Story Map V2 pipeline into a validated provider-generated core record containing
-source-ordered chunks, useful narrative events and branch outcomes, Python-owned exact choices and
-path mechanics, stable target anchors, honest reachability/unresolved status, and per-chunk
-provenance; the implementation has no supported dependency on rejected Stage H/E architecture;
-the bounded cloud/local execution and privacy rules are proven; focused checks and an independent
-exact-head review pass with no unresolved P0-P2; lifecycle evidence is complete; and the existing
-draft PR #26 is updated to the passing Phase 02 checkpoint while remaining unmerged.
+Phase 03 is done only when the exact accepted private Day 1 core opens through the supported local
+website as a compact chronological story map with an optional validated whole-story synthesis,
+all accepted events and exact local choice mechanics, selectable entry-to-target witness paths,
+exact Detail/Evidence and source navigation, durable project reopen without another mapper or
+synthesis call, and complete provider-free fallback whose primary view has a compact nonduplicated
+hero, existing accepted events presented as a numbered chronological timeline without new semantic
+grouping, restrained section and nesting accents, two-column desktop arms that stack at narrow or
+effective-200% width, a concise mechanics-first witness with the complete raw scene list retained
+under Analysis notes, and a compact readable masthead at 100% and 200%; final-head private
+screenshots are explicitly approved, independent review has no unresolved P0-P2, focused and exact
+pushed-head GitHub checks pass, lifecycle evidence is complete, and one Phase 03 PR is open and
+unmerged for explicit user approval.
+
+## Objective
+
+Turn the accepted Phase 02 Story Map V2 core into the primary private story-guide page: a readable
+whole-story overview with broad chronological sections, locally nested exact choices, compact
+route-to-target witnesses, and direct Detail/Evidence and source traversal. AI may only compress
+and group existing story-facing anchors; Python remains authoritative for mechanics, chronology,
+routes, reachability, and source locations.
 
 ## Deliverables
 
-- A bounded `src/renpy_story_mapper/story_map_v2/` package with source/mechanics adaptation,
-  coherent chunk planning, mapper contracts, validation/mechanics overlay, chronological assembly,
-  stable target anchors, and an in-process provider policy.
-- Small versioned mapper request/response contracts and generalized fixtures for linear, local
-  rejoin, persistent split, nested menu, conditional arm, unresolved target, long scope, and
-  refusal/fallback behavior.
-- A zero-submit run preview bound to source identity, packet identities, separately recomputable
-  provider-facing payload hashes, transmitted fields, exact Luna/High/fast-off identity, call
-  ceilings, and the local-fallback choice.
-- One private Day 1 acceptance core record plus a readable Markdown or minimal HTML developer
-  preview, stored outside Git.
-- Provider-free test evidence, private acceptance accounting and immutability evidence,
-  independent review, implementation commit, lifecycle report, and an updated draft PR #26.
+- Versioned provider-neutral synthesis request/response, validation, deterministic omission
+  placement, and complete unavailable/invalid fallback over existing Phase 02 event anchors.
+- One zero-submit preview and at most one exact Terra/High/fast-off private synthesis execution,
+  with no retry, auditor, mapper rerun, local fallback, or model substitution.
+- Minimal project-bound storage for one current accepted core and zero or one validated synthesis,
+  stale-identity rejection, and reopen without provider construction.
+- Read-only Story Map V2 map, path, and detail/source API seams over existing project, M12 route,
+  and source-navigation authority.
+- A semantic, bounded-width, normal-flow editorial browser with a compact nonduplicated hero,
+  numbered existing-event timeline, restrained accents, desktop two-column/narrow stacked arms,
+  concise mechanics-first path display, raw scenes under Analysis notes, exact mechanic badges,
+  local/nested choices and rejoins, and preserved scroll/selection context.
+- Generalized synthetic fixtures and focused synthesis, persistence, API, browser, path,
+  navigation, privacy, import-isolation, responsive, and fallback tests.
+- Private final-head acceptance artifacts and screenshots outside Git, independent track and final
+  reviews, complete lifecycle evidence, and one passing open unmerged Phase 03 PR.
 
 ## Acceptance criteria
 
-1. Exactly one active M15.1 contract and one native Codex goal describe this Phase 02 rewrite.
-2. A separate visible early reviewer passes the simple V2 design before broad product work.
-3. The supported V2 path does not import or call Stage H/E, adjacent-gap voting, fine-atom
-   allocation, hierarchy compilation, repair locks, or exact AI prose replay.
-4. Chunks prefer natural boundaries, normally target about 8,000 raw-story tokens, split
-   branch-heavy material nearer 5,000, preserve a menu/arms/local-rejoin cluster when it fits, and
-   never exceed the approximately 10,700-token validated ceiling in private acceptance.
-5. AI supplies rough event and branch-outcome meaning; Python alone supplies exact captions, arm
-   order, conditions, effects, rejoins, destinations, reachability, and route facts.
-6. Generalized tests cover linear, rejoin, persistent, nested, conditional, unresolved,
-   oversized, and refusal/fallback cases without private story names, wording, or exact counts.
-7. Cloud mapping resolves exact `gpt-5.6-luna`, High reasoning, and fast mode off with no silent
-   provider, model, reasoning, or fast-mode substitution.
-8. Local fallback is opt-in, explicit-content-refusal-only, loopback-only, same-packet,
-   exact-model-bound, visible in provenance, and never used for timeout, rate limit,
-   authentication, transport, schema, cancellation, ordinary quality, or identity failure.
-9. A missing or invalid summary yields an honest partial core while preserving completed chunks
-   and deterministic mechanics.
-10. The private run uses no more than six planned and eight absolute hosted submissions, no
-    semantic retry, no default auditor, and complete per-call accounting.
-11. The private core is chronological and recognizably covers the accepted Day 1 story; all four
-    story choices, eight exact arms, relevant effects, and known rejoins are mechanically correct.
-12. Every visible event and branch-specific event has a stable authority/source-derived target
-    anchor plus an honest reachable or unresolved status suitable for Phase 03.
-13. Source/archive bytes, hashes, and timestamps remain unchanged; no game, Ren'Py, or creator
-    code runs; private packets, responses, and acceptance output remain outside Git.
-14. Focused regression checks pass and the independent exact-head reviewer reports no P0-P2.
-15. Lifecycle documents, implementation commit, direct local artifact links, and the existing
-    draft PR #26 checkpoint are complete; PR #26 remains unmerged.
-16. Phase 03 browser/synthesis, Phase 04 scaling/recovery, Phase 05 retirement, M14, a new PR, and
-    false M15.1 completion do not occur.
+1. Work starts from clean merged Phase 01/02 `main` at `e81523f`, not historical PR #26.
+2. Exactly one active Phase 03 contract and one native Codex goal own only this phase.
+3. The single early semantic review records `PASS` before broad product implementation.
+4. Separate user-visible Track A, Track B, and Track C tasks/worktrees and independent exact-head
+   reviewers are used, followed by one independent final cross-track review.
+5. AI performs only broad narrative synthesis over existing accepted event anchors and cannot
+   alter exact mechanics, chronology, routes, reachability, or source navigation.
+6. Python alone owns exact choice/arm placement and order, conditions, effects, destinations,
+   rejoins, chronology, route witnesses, reachability, warnings, and evidence/source locators.
+7. A successful synthesis contains five to seven readable chronological sections and represents
+   all 12 accepted events once; deterministic fallback represents all 12 once in complete
+   chronological order without a fixed section-count requirement.
+8. All four exact choices, all eight exact arms, and all four known rejoins render in the correct
+   local context, including the nested choice under only its reachable parent arm.
+9. Every accepted event and arm is selectable, reaches exact Detail/Evidence and source
+   navigation, and supports an honest M12-backed entry-to-target witness; the early linear,
+   post-rejoin, alternate-arm, deepest nested outcome, and Day 2 boundary classes are proven.
+10. The deterministic fallback remains complete and usable when synthesis is absent, invalid,
+    refused, timed out, or unavailable.
+11. The one exact Terra/High/fast-off call is preview-bound, identity-verified, exactly accounted,
+    and never retried, audited, mapped again, locally substituted, or sent expanded fields.
+12. Project reopen reuses the stored accepted core and optional synthesis and adds zero provider
+    constructions, attempts, or calls; stale records are rejected after authority identity change.
+13. The Story Map V2 page is readable at browser zoom 100% and 200% with no page-level horizontal
+    overflow, overlap, clipped text, microscopic fit-all scaling, or fixed-width branch sprawl;
+    its fallback hero is compact and not duplicated by a wrapper section, existing accepted events
+    form a numbered chronological timeline without invented grouping, restrained accents preserve
+    local/nested ownership, arms use two columns only when desktop width safely permits and stack at
+    narrow/effective-200% width, the primary witness shows bounded story-significant mechanics while
+    the complete raw scene sequence remains available under Analysis notes, the masthead stays
+    compact, and keyboard focus, selection, and return-to-selected behavior remain visible.
+14. Private source, accepted core, provider payload/response, derived private records, and
+    screenshots remain outside Git; source/archive/project fingerprints remain unchanged; no
+    game, Ren'Py, or creator code runs; the browser makes no remote asset request.
+15. The user explicitly approves private screenshots captured from the actual final reviewed head.
+16. Independent final review reports no unresolved P0-P2 and the exact pushed PR-head GitHub
+    checks pass.
+17. Lifecycle evidence, exact commits and checks, direct local artifact links, private acceptance
+    accounting, and PR state are complete; the single Phase 03 PR remains open and unmerged.
+18. Phase 04, Phase 05, M14, full-game scaling, durable job scheduling/recovery, legacy retirement,
+    installer work, dynamic tracing, and historical Stage H/E do not begin or become dependencies.
 
-## Exclusions
+## Required evidence
 
-- No final compact browser, whole-story Terra synthesis, interactive path highlighting, or visual
-  approval; those belong to Phase 03.
-- No full-game durable scheduling, cross-process recovery, or scaling claims; those belong to
-  Phase 04.
-- No removal, migration, or compatibility decision for rejected Stage H/E code or records; those
-  belong to Phase 05.
-- No default auditor, semantic repair loop, prompt cascade, exact-prose reproducibility, atom or
-  claim allocation, new hierarchy layer, AI-authored topology, or AI-authored exact mechanics.
-- No automatic LM Studio/model installation, download, server start, load, unload, provider
-  cascade, or censored/rephrased retry.
-- No Terra or Sol live Phase 02 story call, M14, game execution, runtime tracing, installer,
-  distribution, second PR, PR merge, rebase, reset, force-push, or destructive history cleanup.
+| Criterion | Evidence required | Result / durable location |
+|---|---|---|
+| 1 | Fetch result, exact local/remote baseline, tracked-clean status, supported V2 files | Preflight recorded in `COMPLETION_REPORT.md` |
+| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Renewed exact done-condition goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` is active; amended semantic `PASS` and all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
+| 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pass: reviewed implementation and generalized gates; the sole synthesis failed closed on unverifiable identity, and deterministic fallback covers all 12 events once in chronological order (`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json`) |
+| 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
+| 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
+| 12 | Storage identity/stale/reopen tests and private zero-new-call reopen result | Pass: project `0bd02eb8...`; reopen map/path/detail succeeded with zero new provider constructions, attempts, or calls |
+| 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for automated/capture evidence: exact product `eecaf59`, final lifecycle review `8d8aecf`, browser report `75143227...`; 16 focused cases, 100%/200% captures, no overflow/clipping/overlap/mojibake/remote/provider activity, protected inputs and ledger unchanged |
+| 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
+| 15 | User approval in the Phase 03 Coordinator task | Pass: user reviewed the replacement 100%/200% overview/deep-path captures and replied “looks better proceed” |
+| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Pass: product/lifecycle review `8d8aecf` and CI-only correction review `3cde906` both report P0=P1=P2=P3=0; exact reviewed correction head passed GitHub run `30212233098` |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pass: evidence is current through exact review/check head `3cde906`; PR #28 is clean, open, non-draft, and unmerged; direct private artifact links and exclusions are recorded. This lifecycle-only head's check rollup is authoritative before native-goal closure |
+| 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
-## Evidence requirements
-
-| Criteria | Required evidence |
-|---|---|
-| 1-2 | Goal service result, lifecycle pointers, design note, visible early-review task and verdict |
-| 3-6 | Dependency/import check, versioned contracts, generalized fixtures, failing-first record, focused test results |
-| 7-10 | Preview/confirmation identity hashes, fake-provider matrix, call ledger, cancellation and fallback results |
-| 11-13 | Private core/preview, mechanics audit, target-anchor audit, before/after fingerprints and containment scan |
-| 14 | Focused and relevant regression commands plus independent final-review verdict |
-| 15-16 | Completion report, exact integration head/commit, PR #26 state/checks, exclusions audit |
-
-No planned check is evidence until its command and observed result are recorded.
-
-## Task topology and handoff rules
-
-- The Phase 02 Coordinator owns the goal, contract, shared seams, integration, private consent,
-  live execution, evidence, Git, and final report.
-- The Early Contract Reviewer is a separate visible read-only task and must pass before broad
-  product changes. At most one bounded design correction and rereview is allowed.
-- Track A is a separate visible coordinator/worktree owning the provider-neutral source adapter,
-  chunk planner, mapper schema, validator/overlay, assembler, tests, and its exact-head review.
-- Track B is a separate visible coordinator/worktree owning preview/confirmation, cloud execution,
-  error classification, refusal-only LM Studio fallback, accounting/cancellation, tests, and its
-  exact-head review.
-- The Final Integration Reviewer is a separate visible read-only task inspecting the exact
-  integrated head and private acceptance artifacts.
-- Every visible task explicitly uses `gpt-5.6-sol` with High reasoning. The creation API exposes no
-  fast-mode field, so fast mode is recorded unavailable/unverified rather than claimed disabled.
-- Worker handoffs include exact base/head, branch/worktree, changed files, commands/results,
-  assumptions, known defects, conflicts, review findings, and remaining acceptance work.
-- Only the coordinator integrates, performs private provider calls, pushes the existing branch,
-  or changes PR state. Keep the goal active until every Phase 02 acceptance criterion is complete.
+No planned command or screenshot is passing evidence until its observed result and exact head are
+recorded.
 
 ## Provider authorization
 
-One exact private Day 1 cloud-primary acceptance run is authorized only after a zero-submit preview
-verifies the source identity, exact packet plan, transmitted fields, Luna/High/fast-off identity,
-and fallback choice. The run permits at most six planned hosted calls and eight total only for
-confirmed no-response transport replacements. It permits no semantic retry and no auditor.
-Local submission is allowed only for an actual hosted content/safety refusal when the preview
-enabled fallback and the exact already-loaded loopback model is verified, or through a separately
-previewed user-selected `local_only` run that records zero hosted submissions. The Phase 02 private
-acceptance remains cloud-primary and does not run local-only merely to spend the option.
+This handoff authorizes one private whole-story synthesis submission only after provider-free gates
+and a zero-submit preview bind the accepted core identity, story-facing fields, payload hash,
+prompt/schema identity, exact `gpt-5.6-terra` model, High reasoning, disabled fast mode, and an
+absolute one-call ceiling. The request contains only existing event anchors/titles/summaries/
+characters/order, branch-outcome anchors/summaries, and compact Python-owned mechanics needed to
+understand consequences. It excludes raw Ren'Py, source paths when opaque anchors suffice, private
+oracle/reference material, historical provider answers, screenshots, secrets, unrelated files,
+and game assets.
 
-The separately approved 2026-07-25 additional attempt was spent exactly once against its freshly
-regenerated preview and is not reusable. It failed `invalid_response` before producing a mapper
-result. The user then granted standing final authorization for all bounded corrections, reviews,
-fresh previews, and acceptance executions required to reach this exact Phase 02 done condition,
-without further authorization pauses. Each execution must still be separately bound to a fresh
-zero-submit preview after provider-free verification and exact-head review, obey the six-planned/
-eight-absolute ceilings, retain no semantic retry or auditor, and keep PR #26 unmerged.
+There is no semantic retry, transport replacement, auditor, mapper rerun, local fallback, or model
+substitution. If identity cannot be verified or Terra refuses, times out, fails transport, or
+returns invalid output, the call is recorded as spent and the deterministic fallback is accepted
+for product rendering.
 
-The subsequent standing-authorized strict-v2 preview bound confirmation `69154c8e...b592f` and
-was spent exactly once. Its one hosted Luna/High/fast-off call returned a complete response; no
-retry, fallback, auditor, or additional provider call occurred. After independently reviewed
-deterministic overlay corrections, the same retained response was reassembled provider-free into
-the accepted complete core. No further Phase 02 provider execution is required or authorized by
-the accepted evidence.
+## Exclusions
 
-## Historical note
+- No Phase 04/05, M14, full-game scheduling, durable retry queue, crash recovery, cross-process
+  execution engine, legacy migration/retirement, packaging, installer, distribution, or dynamic
+  tracing.
+- No Stage H/E, adjacent-gap voting, fine atoms, hierarchy compiler, semantic repair locks,
+  claim/evidence allocation, exact-prose replay, AI topology, or second semantic-boundary system.
+- No world canvas, wide engineering graph, fixed-width branch sprawl, technical IDs as primary
+  story content, repeated continuation cards, or a third user-visible semantic level.
+- No provider/model/reasoning/fast-mode/scope/transmitted-field/call-ceiling change without new
+  explicit user approval.
+- No private artifact, response, screenshot, story wording, private name, source path, or game
+  asset committed to Git; tracked fixtures remain generalized and synthetic.
+- No PR #26 reuse, direct push to `main`, PR merge, destructive history cleanup, or protected
+  private-input mutation.
 
-Stage H/E and the earlier adjacent-gap/atom/hierarchy attempts are rejected historical work. Their
-commits and prior evidence remain readable in repository history and the preceding M15 lifecycle
-record, but they are not implementation authority or acceptance evidence for this Phase 02 core.
+## Handoff rules
+
+- The Phase 03 Coordinator alone owns the native goal, active contract, shared seams, integration
+  branch, private provider call, private acceptance, lifecycle authority, push, and PR state.
+- Each Track A/B/C handoff must state exact base and head commits, branch/worktree, changed files,
+  commands and results, assumptions, known defects, conflicts, review findings, and remaining
+  acceptance work. Each track uses its own independent exact-head reviewer.
+- The final cross-track reviewer receives the exact integrated candidate, private result summary,
+  and final-head screenshots. Any product/rendering correction requires exact-head rereview and
+  screenshot recapture where affected.
+- Keep lifecycle at `Integration` until reviewed worker commits are actually integrated, and keep
+  the native goal active through verification, user screenshot approval, final review, PR
+  creation, and exact pushed-head checks.
+- Complete the native goal only when the Phase 03 PR is genuinely ready and remains open and
+  unmerged for explicit user approval.

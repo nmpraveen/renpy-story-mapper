@@ -41,6 +41,7 @@ PAYLOAD_COLLECTIONS: Final = frozenset(
         "m13_claim_edges",
         "m13_artifacts",
         "m13_cache",
+        "story_map_v2",
         "diagnostics",
         "unresolved",
         "gates",

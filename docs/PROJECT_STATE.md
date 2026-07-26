@@ -1,32 +1,195 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (M15.1 Phase 02 complete; Phase 03 handoff prepared)
+Updated: 2026-07-26 (M15.1 Phase 03 PR ready; PR #28 open and unmerged; final lifecycle-only
+head remains subject to its authoritative GitHub check before native-goal closure)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M15.1 semantic Story Map correction inside M15 (between phases; Phase 03 has
-  not started).
-- Contract: completed Phase 02 contract [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Delivery base: `origin/main` at `a447a4eefbd7c093bdb2767e62a393805af068ac` before the clean
-  Phase 01/02 transfer.
-- Delivery branch: `codex/m15-phase01-phase02-clean`; full historical branch
-  `codex/m15-msday1-narrative-map` and PR #26 are preserved as backup, not the merge vehicle.
-- Status: Complete.
-- Completion state: the accepted private Phase 02 core is complete at 1/1 with 12 chronological
-  events, four exact story choices, eight branch outcomes, 20 anchors, and zero validation
-  failures. Source/archive/project fingerprints are unchanged. Independent final review returned
-  P0-P3 all zero. Exact full-history checkpoint `a42e8a0` passed GitHub run `30163111942`.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md).
-- Native Codex goal: Phase 02 Coordinator task/goal
-  `019f9676-c357-7803-a891-f03782bbb8ee` completed its exact done condition. No Phase 03 goal
-  exists until the user starts the new handoff.
-- Private evidence:
+- Active milestone: M15.1 semantic Story Map correction inside M15; Phase 03 whole-story
+  synthesis and path-aware browser.
+- Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Active handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
+- Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
+  `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
+- Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
+  `codex/m15-msday1-narrative-map` remain backup only.
+- Status: PR ready.
+- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
+  presentation-only refinement before product edits.
+- Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
+- Native Codex goal: after the user removed the prior goal instance and authorized an updated
+  self-goal, renewed Phase 03 goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` was created from the
+  amended exact done condition and is active through replacement review, screenshot approval,
+  pushed-head checks, and open-unmerged-PR readiness.
+- Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
-- Next action: after the clean delivery merges and local `main` is synchronized, start
-  [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md) in one
-  new Phase 03 Coordinator task. Phase 03 uses its own branch and PR.
+  The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
+  failures, and matching source/archive/project hash, size, and timestamp. Exact Phase 02
+  full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
+- Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
+  reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
+- Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), open, non-draft,
+  and unmerged from `codex/m15-phase03-story-browser` to `main`.
+- Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
+  `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
+  fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
+  `4f6e3a6` and produced rejected review head `420dbb7`.
+- Track A reviewer: visible task `019f9c67-af1c-7812-a471-1f6a98572f1c`, worktree
+  `C:/Users/prave/.codex/worktrees/8255/Renpy`, initially returned `FAIL` at `420dbb7` with two
+  P1s and one P3, then found one schema-file binding P2 at corrected head `62a0234`. The same
+  reviewer returned final `PASS` at exact head `2319092` with P0=P1=P2=P3=0.
+- Track A integration: reviewed worker commits `420dbb7`, `62a0234`, and `2319092` were
+  cherry-picked byte-equivalently as `e4b497f`, `1dcc63e`, and `50bdc08`. Coordinator CPython
+  3.12 focused verification passed 50 tests; the integration branch is clean apart from preserved
+  untracked user/private paths.
+- Track B browser: visible task `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6`, worktree
+  `C:/Users/prave/.codex/worktrees/9ea6/Renpy`, dispatched with explicit `gpt-5.6-sol` High from
+  exact frozen checkpoint `4827b06` (Track A product seam through `50bdc08`). It owns only the
+  static browser and focused tests. It completed clean exact head
+  `2069eab3a1f0a018724106f94634e1292072e358` after a fresh final-byte gate covering focused/static/
+  schema/lint, the desktop 100%/effective-200%/390px Chrome matrix, 63 adjacent tests, 107-file
+  mypy, asset integrity, and diff hygiene. One accidentally enabled out-of-scope M13 hardware
+  smoke timed out on its pre-existing selector and is excluded from Track B evidence.
+- Track B reviewer: visible read-only task `019f9ca9-ab9e-77c0-a2f1-0426f9472084`, worktree
+  `C:/Users/prave/.codex/worktrees/4f7b/Renpy`, explicit `gpt-5.6-sol` High, returned `FAIL /
+  CHANGES REQUIRED` at exact head `2069eab3a1f0a018724106f94634e1292072e358`, P0=0, P1=0,
+  P2=5, P3=0. Findings require the exact shared fixture identity, strict deeply bounded map records,
+  preserved/restorable path context, visible authoritative reachability/item warnings, and honest
+  unassociated witness groups. Corrected clean head `81313d7b2b86bf12c3236659f259c24f129dd00c`
+  passes 10 focused/three-profile Chrome, the exact 131 pass/2 opt-in skip adjacent matrix,
+  adversarial contracts, 107-file mypy, Ruff/JS/fixture/asset/diff gates. Rereview of that head
+  closed all five original findings but returned `FAIL /
+  CHANGES REQUIRED`, P0=0, P1=0, P2=1, P3=0 because closing the path panel did not invalidate an
+  in-flight response, which could reopen it. The worker then made only the bounded token/
+  delayed-response regression correction. Final clean head
+  `47f0cacf3e6d6d84281403c38061265ebaee722b` closes delayed success/error races across all three
+  Chrome profiles and passes the full 10 focused, 131 pass/2 intended skip adjacent, adversarial,
+  static, mypy, asset, fixture, and diff gate. The same reviewer returned exact-head `PASS` with
+  P0=P1=P2=P3=0 after independently repeating the full bounded gate.
+- Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
+  `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
+  `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python
+  path/detail/source navigation and focused tests. It completed clean exact head
+  `13876361039ab120c7ef4d6765ae74c9f572647d` after a final post-edit provider-free gate of 75
+  tests, Ruff, strict mypy, JSON/hash checks, and diff hygiene.
+- Track C reviewer: visible read-only task `019f9ca6-cb8b-7503-afc0-9e4c51cd0946`, worktree
+  `C:/Users/prave/.codex/worktrees/6915/Renpy`, explicit `gpt-5.6-sol` High, returned `FAIL /
+  CHANGES REQUIRED` at exact head `13876361039ab120c7ef4d6765ae74c9f572647d`, updated to P0=0,
+  P1=1, P2=3, P3=0 after reproducing backward continuation resolution through control-only
+  merge/label topology. The P2s require an echoed selection ID in forged-selection HTTP 404 JSON,
+  removal of a type-only runtime import that breaks V2 import isolation, and use of the exact
+  centrally frozen six-state fixture filename. The worker corrected the P1 with three end-to-end
+  continuation/path/detail topology fixtures. Corrected clean head
+  `fb0f2ecd207848248e674f9c76af7a3d505019fb` passes the worker's
+  final provider-free gate of 22 focused, 7 targeted, 192 adjacent, Ruff, strict mypy, JSON/blob/
+  diff/privacy checks. The same reviewer returned exact-head `PASS` with P0=P1=P2=P3=0 after
+  independently passing 22 focused, 7 finding-specific, 192 bounded, three architecture, and 16
+  loopback tests plus static gates. A premature partial cherry-pick `c046d8c` was immediately
+  reverted by `f325d07`; after both reviews passed, the complete reviewed Track C chain was
+  integrated byte-equivalently as `3161261` and `659d612`.
+- Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
+  continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
+  broaden product scope.
+- Track B's complete reviewed chain was integrated byte-equivalently as `472129b`, `a3eb8fa`, and
+  `a8e0ddf`. The shared six-state fixture has blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`
+  in both reviewed heads and the integration tree.
+- Integrated provider-free verification at `f70ca88` passes: 239 Story Map V2 tests (three opt-in
+  browser cases separately pass), 317 bounded M10-M13/storage/API/navigation/privacy tests (two
+  hardware tests deselected), all three final Story Browser Chrome profiles, M12 real Chrome, 33
+  browser-asset/privacy/import tests, Ruff, strict mypy over 108 source files, four JavaScript
+  syntax checks, JSON/schema/fixture parsing, manifest integrity, whitespace, and tracked-clean
+  containment. The old M13 hardware harness still times out because it waits on a DOM element
+  object that CDP serializes as falsey; a diagnostic run proved the exact expected M10 control and
+  `record_id` were rendered. The untouched historical harness is excluded, as previously frozen,
+  rather than counted as Track B/C product evidence.
+- The first private zero-submit preview safely exposed one accepted-core lineage projection gap
+  before provider construction: an external non-story ancestor was not part of the transmitted
+  story-choice alias set. Existing Track A worker corrected only that projection at `5926a00`; the
+  same independent reviewer returned exact-head `PASS`, P0=P1=P2=P3=0. It was integrated
+  byte-equivalently as `83d1a4f`; 241 V2 tests plus Ruff, strict mypy, and whitespace pass. No
+  provider construction, attempt, or call occurred during the failed preview or correction loop.
+- The successful zero-submit preview bound request `d4d44735...`, confirmation `cd367171...`,
+  approved schema `4febec35...`, 9,322 payload bytes, exact 12/4/8 counts, Terra/High/fast-off, and
+  an absolute one-call ceiling. Its identical rebuild was executed once. Exactly one provider
+  construction, submit attempt, and call occurred; identity could not be verified, so execution
+  failed closed and the ledger entered terminal `completed_no_retry`. No retry, substitute,
+  auditor, mapper rerun, or second provider action occurred.
+- Subsequent generalized corrections all passed same-reviewer exact-head rereview with
+  P0=P1=P2=P3=0 before byte-equivalent integration: presentation lineage `75b1484` -> `b61ab8e`,
+  role-qualified public selection IDs `497ccf76...` -> `5565244`, typed target-entry failure
+  `ba953754...` -> `253fba0`/`5760eb3`, and path-panel wrapping `834246b3...` -> `cff2388`.
+  Rejected predecessor `53c1494` remained out because its broad `ValueError` catch could mask
+  stale authority.
+- Initial final cross-track review used visible read-only task
+  `019f9d58-0eec-77f0-9049-61f8d5ba6e81`, worktree
+  `C:/Users/prave/.codex/worktrees/4397/Renpy`, explicit `gpt-5.6-sol` High, with task fast mode
+  unavailable/unverified. At exact candidate `60b0441` it returned `FAIL / CHANGES REQUIRED`,
+  P0=0/P1=0/P2=2/P3=1: a stale Detail response could overwrite the newer selection, and the
+  browser contract rejected a valid identical continuation binding reused in separate root choice
+  trees. The P3 concerns compact witness presentation and is nonblocking.
+- The existing Track B worker corrected only those two P2s at exact head
+  `8e6de6f395494b006d5eec5387c17a3b1c6654a1`. The existing Track B reviewer passed that exact
+  head with P0=P1=P2=0/P3=1 after focused, six-profile Chrome, full family, adjacent, adversarial,
+  static, asset, fixture, and privacy gates. The correction was fast-forward integrated exactly.
+  The same final cross-track reviewer then returned exact-head `PASS` at `8e6de6f` with
+  P0=P1=P2=0/P3=1 after 275 Story Map tests, 92 adjacent tests, static gates, 20/20 adversarial
+  mutations, artifact-hash verification, and containment review.
+- Prior reviewed product head is `8e6de6f395494b006d5eec5387c17a3b1c6654a1`. Outside-Git private
+  acceptance report SHA `a42202b7...` passes with 12 events, four choices, eight arms, four known
+  rejoins, all 24 Detail/source targets available, 23 paths available and one honestly unresolved,
+  all five target classes proven, zero-call reopen, unchanged protected inputs, and unchanged
+  terminal ledger. Working project SHA is `0bd02eb8...`.
+- Outside-Git real-Chrome report SHA `df3c721f...` passes at 100%/200% with zero overflow,
+  clipping, overlap, mojibake, remote requests, browser errors, or new provider activity; focus and
+  selection return pass. A fresh recapture at exact reviewed product head `8e6de6f` reproduced the
+  report and all four previously presented overview/deep-path PNGs byte-for-byte, with unchanged
+  protected inputs and terminal one-call ledger.
+- The user did not approve the prior screenshots. Their comparison with the accepted Phase 01
+  direction instead approved one bounded browser refinement: compact nonduplicated fallback hero,
+  numbered presentation of existing accepted events without new semantic grouping, restrained
+  accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
+  Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
+  authorized.
+- Same Track B reviewer passed corrected exact head `848dce0c06300fb90722ba00a2d69bcd8268793c`
+  with P0=P1=P2=P3=0. The reviewed product/test blobs were integrated byte-equivalently through
+  `eecaf590f608d62d74b32c4af2b5a665d681bee5`; integrated provider-free gates pass with 16
+  real-Chrome focused tests, 269 Story Map V2 passes, 136 adjacent passes, and clean static gates.
+- Same final cross-track reviewer passed exact lifecycle head
+  `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1` with P0=P1=P2=P3=0 after 16 focused, 269 Story Map
+  V2, 137 adjacent, maximum-bound browser, static, identity, privacy, and containment checks. The
+  inherited compact-witness P3 is closed.
+- Replacement private browser report SHA `75143227693ed14a8e93ccdd29578c564c12c59156c1f6d79d2dc31e7f53042f`
+  passes 100%/200% with zero overflow, clipping, overlap, mojibake, remote requests, or new provider
+  activity; focus and selection return pass, protected inputs and ledger are unchanged. The four
+  replacement PNGs are captured outside Git; prior candidates are archived under
+  `output/m15-story-map-v2-phase-03-20260726-011613/pre-refinement-8e6de6f/`.
+- User screenshot approval: complete. The user reviewed the replacement 100%/200% overview and
+  deep-path captures and replied “looks better proceed.”
+- Final local release validation: pass on approval head `f56f238`; 1,420 deterministic tests passed
+  with 16 hardware-sensitive tests deselected, Ruff and strict mypy over 109 source files passed,
+  dependencies and four JavaScript files passed, and isolated sdist/wheel build, wheel install,
+  isolated import, packaged assets, and whitespace checks passed.
+- First pushed-head GitHub result: run
+  [`30210504223`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30210504223)
+  failed only because three historical fake-provider tests used fixed 500 x 10 ms polling while
+  the hosted Windows suite was heavily loaded. The other 1,418 tests plus Ruff, strict mypy,
+  dependency, JavaScript, whitespace, package build/install/import, and asset gates passed.
+  The bounded test-only correction replaces those fixed caps with a 30-second monotonic deadline;
+  its three affected regressions pass three consecutive local runs.
+- Post-correction local Release: pass; 1,420 deterministic tests passed with 16 hardware-sensitive
+  tests deselected, plus Ruff, strict mypy over 109 source files, dependencies, four JavaScript
+  files, whitespace, isolated sdist/wheel build, wheel install, isolated import, and packaged assets.
+- Post-correction independent review: exact head `3cde906febba265ab8b4d13798bf4444e6d704ba`
+  passed with P0=P1=P2=P3=0; the reviewer confirmed the diff is test/lifecycle-only and reran the
+  three affected tests, workflow contracts, Ruff, and diff checks.
+- Replacement pushed-head GitHub check: run
+  [`30212233098`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30212233098)
+  passed at exact reviewed head `3cde906`; PR #28 was `CLEAN`, open, non-draft, and unmerged.
+- Current action: require the authoritative GitHub check on this final lifecycle-only head, then
+  complete the native goal without another repository mutation. Leave PR #28 open and unmerged
+  for explicit user approval.
 
 ## M13 historical lifecycle
 

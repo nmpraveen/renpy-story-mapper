@@ -38,7 +38,11 @@ from renpy_story_mapper.m07_workflow import (
 from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
-from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.m12_service import (
+    M12PreparedSolve,
+    M12RouteService,
+    load_m12_authority,
+)
 from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
 from renpy_story_mapper.narrative.contracts import (
@@ -96,6 +100,25 @@ from renpy_story_mapper.project import (
     open_project,
     refresh_ingested_project,
 )
+from renpy_story_mapper.story_map_v2.contracts import StoryMapCore
+from renpy_story_mapper.story_map_v2.navigation import (
+    DETAIL_SCHEMA,
+    PATH_SCHEMA,
+    StoryMapNavigator,
+    StoryNavigationAuthorityUnavailableError,
+    UnknownStorySelectionError,
+    require_current_selection,
+    unresolved_navigation_page,
+)
+from renpy_story_mapper.story_map_v2.persistence import (
+    StoryMapV2PersistenceError,
+    load_story_map_v2_for_current_project,
+)
+from renpy_story_mapper.story_map_v2.phase03_contracts import StoryMapReadModel
+from renpy_story_mapper.story_map_v2.presentation import (
+    project_story_map,
+    unavailable_story_map,
+)
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
     M07_PREPARE_REQUEST_FIELDS,
@@ -124,6 +147,9 @@ from renpy_story_mapper.web.contracts import (
     M13_PROVIDER_SETTING_FIELDS,
     M13_SNAPSHOT_REQUEST_FIELDS,
     M13_START_REQUEST_FIELDS,
+    STORY_MAP_V2_API_ROUTES,
+    STORY_MAP_V2_MAP_REQUEST_FIELDS,
+    STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -188,11 +214,33 @@ LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
 
 
 class ApiProblem(Exception):
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        message: str,
+        *,
+        selection_id: str | None = None,
+    ) -> None:
         super().__init__(message)
+        if selection_id is not None and (not selection_id or len(selection_id) > 512):
+            raise ValueError("API error selection ID must be a non-empty bounded string")
         self.status = status
         self.code = code
         self.message = message
+        self.selection_id = selection_id
+
+
+def _story_map_navigator(
+    project: Project,
+    core: StoryMapCore,
+    page: StoryMapReadModel,
+) -> StoryMapNavigator[M12PreparedSolve]:
+    try:
+        authority = load_m12_authority(project)
+    except (storage.ProjectStorageError, ValueError) as exc:
+        raise StoryNavigationAuthorityUnavailableError from exc
+    return StoryMapNavigator(authority, M12RouteService(project), core, page)
 
 
 class DialogAdapter(Protocol):
@@ -405,6 +453,7 @@ class ProjectApi:
                     "m11": dict(M11_API_ROUTES),
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
+                    "story_map_v2": dict(STORY_MAP_V2_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -461,6 +510,84 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if method == "POST" and path == STORY_MAP_V2_API_ROUTES["map"]:
+            exact_fields(body, allowed=STORY_MAP_V2_MAP_REQUEST_FIELDS)
+            try:
+                with Project.open(self._project()) as opened_project:
+                    stored = load_story_map_v2_for_current_project(opened_project)
+                    if stored is None:
+                        story_map_v2_page = unavailable_story_map()
+                    else:
+                        projected_page = project_story_map(stored.core, stored.synthesis)
+                        try:
+                            story_map_v2_page = _story_map_navigator(
+                                opened_project,
+                                stored.core,
+                                projected_page,
+                            ).bound_page()
+                        except StoryNavigationAuthorityUnavailableError:
+                            story_map_v2_page = unresolved_navigation_page(projected_page)
+            except (
+                StoryMapV2PersistenceError,
+                StoryNavigationAuthorityUnavailableError,
+                storage.ProjectStorageError,
+                ValueError,
+            ):
+                story_map_v2_page = unavailable_story_map()
+            return json_value(story_map_v2_page)
+        if method == "POST" and path == STORY_MAP_V2_API_ROUTES["path"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
+                required=STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
+            )
+            selection_id = require_string(body, "selection_id", maximum=512)
+            try:
+                with Project.open(self._project()) as opened_project:
+                    stored = load_story_map_v2_for_current_project(opened_project)
+                    if stored is None:
+                        return {
+                            "schema": PATH_SCHEMA,
+                            "semantic_level": "route_map",
+                            "status": "unavailable",
+                            "selection_id": selection_id,
+                            "reason": "Story Map V2 is unavailable for the current project.",
+                        }
+                    require_current_selection(stored.core, selection_id)
+                    navigator = _story_map_navigator(
+                        opened_project,
+                        stored.core,
+                        project_story_map(stored.core, stored.synthesis),
+                    )
+                    return json_value(navigator.path(selection_id))
+            except UnknownStorySelectionError as exc:
+                raise ApiProblem(
+                    404,
+                    "story_map_v2_selection_not_found",
+                    "The Story Map V2 selection is unavailable.",
+                    selection_id=selection_id,
+                ) from exc
+            except (
+                StoryMapV2PersistenceError,
+                StoryNavigationAuthorityUnavailableError,
+                storage.ProjectStorageError,
+                ValueError,
+            ):
+                return {
+                    "schema": PATH_SCHEMA,
+                    "semantic_level": "route_map",
+                    "status": "unavailable",
+                    "selection_id": selection_id,
+                    "reason": "Story Map V2 is stale or unavailable for the current project.",
+                }
+        if method == "POST" and path == STORY_MAP_V2_API_ROUTES["detail"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
+                required=STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
+            )
+            selection_id = require_string(body, "selection_id", maximum=512)
+            return json_value(self._story_map_v2_detail(selection_id))
         if method == "POST" and path == M08_API_ROUTES["ai_story_map"]:
             exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
             return json_value(self._m08_ai_story_page(body))
@@ -2249,6 +2376,126 @@ class ProjectApi:
         self._m13_preview = None
         self._m13_active_provider = None
         self._m13_result = None
+
+    def _story_map_v2_detail(self, selection_id: str) -> dict[str, object]:
+        try:
+            with Project.open(self._project()) as opened_project:
+                stored = load_story_map_v2_for_current_project(opened_project)
+                if stored is None:
+                    return {
+                        "schema": DETAIL_SCHEMA,
+                        "semantic_level": "detail_evidence",
+                        "status": "unavailable",
+                        "selection_id": selection_id,
+                        "reason": "Story Map V2 is unavailable for the current project.",
+                    }
+                require_current_selection(stored.core, selection_id)
+                navigator = _story_map_navigator(
+                    opened_project,
+                    stored.core,
+                    project_story_map(stored.core, stored.synthesis),
+                )
+                binding = navigator.binding(selection_id)
+                source_navigation = navigator.source_navigation(selection_id)
+        except UnknownStorySelectionError as exc:
+            raise ApiProblem(
+                404,
+                "story_map_v2_selection_not_found",
+                "The Story Map V2 selection is unavailable.",
+                selection_id=selection_id,
+            ) from exc
+        except (
+            StoryMapV2PersistenceError,
+            StoryNavigationAuthorityUnavailableError,
+            storage.ProjectStorageError,
+            ValueError,
+        ):
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unavailable",
+                "selection_id": selection_id,
+                "reason": "Story Map V2 is stale or unavailable for the current project.",
+            }
+
+        if binding.destination_kind == "unresolved":
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "No unique current deterministic detail target matches this selection.",
+            }
+        try:
+            detail_service_kind, detail_service_id = navigator.detail_service_target(
+                selection_id
+            )
+        except (KeyError, ValueError):
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "The current deterministic detail target is unresolved.",
+            }
+        try:
+            if detail_service_kind == "m10_canonical":
+                projection, canonical, analysis_state, projection_reason = self._m10_payloads()
+                detail = inspection_detail(
+                    projection,
+                    canonical,
+                    analysis_state,
+                    view="canonical",
+                    element_id=detail_service_id,
+                    projection_unavailable_reason=projection_reason,
+                )
+            else:
+                scene_model_value, presentation, canonical, generation, canonical_hash, reason = (
+                    self._m11_payloads(include_canonical=True)
+                )
+                detail = scene_detail(
+                    scene_model_value,
+                    presentation,
+                    canonical,
+                    current_source_generation=generation,
+                    current_canonical_hash=canonical_hash,
+                    element_id=detail_service_id,
+                )
+                if detail.get("status") == "unavailable":
+                    detail["reason"] = reason or detail.get("reason")
+        except KeyError:
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "The current deterministic detail target is unresolved.",
+            }
+        if detail.get("status") != "available":
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "The current deterministic detail target is unresolved.",
+            }
+        return {
+            "schema": DETAIL_SCHEMA,
+            "semantic_level": "detail_evidence",
+            "status": "available",
+            "selection_id": selection_id,
+            "binding": binding,
+            "source_navigation": source_navigation,
+            "detail": detail,
+        }
 
     def _m08_ai_story_page(self, body: dict[str, JsonValue]) -> dict[str, object]:
         node_offset = bounded_int(body, "node_offset", default=0, minimum=0, maximum=2_000_000)

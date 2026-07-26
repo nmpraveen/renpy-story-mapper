@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-25
+Last revised: 2026-07-26
 
 Status: M01 through M13 are complete and merged. M15.1 remains the current product correction
 inside M15. Phase 01 calibration/prototyping and the bounded Phase 02 Story Map V2 core are
@@ -9,8 +9,27 @@ four exact story choices, eight branch outcomes, 20 stable anchors, honest reach
 provenance, and unchanged protected fingerprints. Independent review found no P0-P3, and exact
 full-history checkpoint `a42e8a0` passed GitHub run `30163111942`. The rejected Stage H/Stage E
 implementation and PR #26 remain historical delivery records only; clean Phase 01/02 delivery
-contains the accepted files without that rejected product stack. Phase 03 is the next
-phase and is not active until the user starts its dedicated handoff.
+contains the accepted files without that rejected product stack. The user started Phase 03 on
+2026-07-25 under its dedicated branch, contract, native goal, and PR workflow. Its one authorized
+Terra synthesis failed closed on unverifiable provider identity and is terminal with no retry;
+deterministic fallback, private path/detail/reopen acceptance, and 100%/200% real-browser capture
+passed at reviewed product head `8e6de6f`. Independent final cross-track review passed with
+P0=P1=P2=0 and one compact-witness P3. After comparing those captures with the accepted Phase 01
+visual direction, the user approved a bounded provider-free browser refinement: compact fallback
+hierarchy, numbered existing-event timeline, concise mechanics-first witness with complete raw
+scenes retained under Analysis notes, responsive desktop/narrow arms, restrained accents, and a
+compact 200% masthead. The correction is integrated at product head `eecaf59`; exact lifecycle
+head `8d8aecf` passed final cross-track review with P0=P1=P2=P3=0, and replacement 100%/200%
+captures pass with zero provider activity. The user explicitly approved the replacement screenshots
+with “looks better proceed.” Phase 03 PR #28 is open, non-draft, and unmerged. Its first exact-head
+GitHub run `30210504223` exposed only a bounded CI timing defect in three historical fake-provider
+tests: fixed five-second polling expired under a 31-minute Windows suite. Product, Phase 03,
+static, package, and asset gates passed. The test harness now uses the repository's bounded
+monotonic-deadline pattern. The full post-correction local Release passes all 1,420 deterministic
+tests and every static/package gate. Exact correction head `3cde906` passed independent review
+with P0=P1=P2=P3=0 and GitHub run `30212233098`; PR #28 is clean, open, non-draft, and unmerged.
+Phase 03 is PR ready, subject only to the required exact-head check on this lifecycle-only record;
+that final result is authoritative in PR #28's check rollup and does not require another Git commit.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1228,8 +1247,14 @@ chronological events, four exact story choices, eight branch outcomes, 20 stable
 execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
 returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
 `30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
-excludes the rejected implementation. Phase 03 is next under its own branch, contract, goal, and
-PR; it has not started.
+excludes the rejected implementation. Phase 03 is in progress on
+`codex/m15-phase03-story-browser` under its amended contract and renewed exact done-condition native
+goal. The one-call synthesis
+ceiling is spent after fail-closed identity verification; complete deterministic fallback and
+private browser/path/reopen evidence passed at reviewed product head `8e6de6f`. That candidate is
+historical pre-refinement evidence. The reviewed refinement is integrated through product head
+`eecaf59`, replacement browser acceptance passes, and only user screenshot approval, the future
+open unmerged PR, and pushed-head checks remain outstanding.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1414,18 +1439,39 @@ and unresolved items.
 - Do not weaken deterministic evidence or safety boundaries to make a cleaner picture.
 - Do not implement future-milestone features inside the active milestone.
 
-## 11. Current next action
+## 11. Current action
 
-After the clean Phase 01/02 delivery is merged and local `main` is synchronized, start one new
-user-visible Phase 03 Coordinator task with `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`. It must
-create one active Phase 03 goal, run the single early semantic-review gate, and coordinate separate
-visible worktree tracks for whole-story synthesis/storage, the compact vertical browser, and
-witness-path/Detail-Evidence navigation.
+The clean Phase 01/02 delivery is merged and local `main` is synchronized. The Phase 03
+Coordinator has integrated separately reviewed synthesis/storage, compact vertical browser, and
+witness-path/Detail-Evidence tracks plus their bounded corrections. The sole Terra attempt failed
+closed on unverifiable identity and cannot be retried; complete deterministic fallback is the
+accepted rendering. Provider-free, private map/path/detail/reopen, and final real-Chrome 100%/200%
+capture gates pass at final reviewed product head `8e6de6f` with all private artifacts outside
+Git. Initial final review at `60b0441` found two P2 browser integration races/contracts and one P3;
+the bounded correction was integrated byte-equivalently at `8e6de6f`, the same Track B reviewer
+passed that exact head, and the same final reviewer returned `PASS`, P0=P1=P2=0/P3=1. A fresh
+private browser recapture at `8e6de6f` reproduced the previously presented report and four PNGs
+byte-for-byte with zero provider activity.
+
+The user then compared those captures with the accepted Phase 01 prototype, approved a bounded
+presentation correction, removed the prior native goal, and authorized a renewed self-goal. The
+correction is limited to a compact nonduplicated fallback hero, numbered presentation of existing
+accepted events without new semantic grouping, restrained section/nesting accents, two-column
+desktop arms that stack at narrow/effective-200% width, a mechanics-first witness with the full raw
+scene sequence retained under Analysis notes, and a compact responsive masthead. The one provider
+call remains terminal and no server/API/navigation/private authority changes are permitted.
+
+The corrected Track B head `848dce0` and exact integrated lifecycle head `8d8aecf` passed their
+independent reviews with P0=P1=P2=P3=0. Integrated provider-free gates and replacement private
+100%/200% capture pass; the browser report is `75143227...`, protected inputs and the terminal
+one-call ledger are unchanged, and no new provider construction, attempt, or call occurred.
 
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
-or begin Phase 04/05 or M14. Phase 03 ends with its own reviewed, passing PR open and unmerged for
-explicit user approval.
+or begin Phase 04/05 or M14. The amended semantic `PASS` and renewed native goal are complete. The
+replacement private 100%/200% screenshots are explicitly approved. The immediate gate is the
+exact final release validation, followed by the single open unmerged Phase 03 PR and exact
+pushed-head GitHub checks.
 
 ### Rejected historical next action
 

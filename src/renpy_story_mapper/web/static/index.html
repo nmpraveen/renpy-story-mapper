@@ -38,6 +38,50 @@
 
       <section id="workspaceView" class="workspace" hidden aria-label="Story workspace">
         <section id="routeMapView" class="route-map-view" data-level="route_map" aria-labelledby="mapTitle">
+          <section id="storyBrowser" class="story-browser" hidden aria-labelledby="storyTitle">
+            <header class="story-hero">
+              <div class="story-hero-copy">
+                <p id="storyKicker" class="eyebrow">Story guide</p>
+                <h1 id="storyTitle">The story</h1>
+                <p id="storyOverview" class="story-overview"></p>
+              </div>
+              <div class="story-hero-meta">
+                <span id="storyMapStatus" class="status-badge">Chronological map</span>
+                <button id="openCompatibilityMap" class="quiet-button" type="button">Technical view</button>
+              </div>
+            </header>
+
+            <div class="story-reader-shell">
+              <article id="storyGuide" class="story-guide" aria-label="Chronological story">
+                <nav id="storySectionIndex" class="story-section-index" aria-label="Story sections"></nav>
+                <div id="storySections" class="story-sections"></div>
+                <details id="storyAnalysisNotes" class="story-analysis-notes">
+                  <summary>Analysis notes</summary>
+                  <div id="storyAnalysisNotesList"></div>
+                </details>
+              </article>
+
+              <aside id="storyPathPanel" class="story-path-panel" hidden aria-labelledby="storyPathTitle">
+                <div class="story-path-heading">
+                  <div><p class="eyebrow">Witness path</p><h2 id="storyPathTitle">Reach this moment</h2></div>
+                  <div class="story-path-actions"><button id="closeStoryPath" class="quiet-button" type="button">Close path</button><button id="returnToStorySelection" class="quiet-button" type="button">Return to selected</button></div>
+                </div>
+                <p id="storyPathSummary" class="story-path-summary" role="status" aria-live="polite"></p>
+                <section id="storyPathChoicesGroup" class="story-witness-group" hidden><h3>Visible choices</h3><ul id="storyPathChoices"></ul></section>
+                <section id="storyPathRequirementsGroup" class="story-witness-group" hidden><h3>Requirements</h3><ul id="storyPathRequirements"></ul></section>
+                <section id="storyPathEffectsGroup" class="story-witness-group" hidden><h3>Effects</h3><ul id="storyPathEffects"></ul></section>
+                <h3 class="story-witness-title">Instructions</h3>
+                <ol id="storyPathSteps" class="story-path-steps"></ol>
+                <section id="storyPathUncertaintyGroup" class="story-witness-group story-path-warnings" hidden><h3>Uncertainty</h3><div id="storyPathWarnings"></div></section>
+                <details id="storyPathAnalysisNotes" class="story-path-analysis-notes" hidden>
+                  <summary>Analysis notes</summary>
+                  <section id="storyPathScenesGroup" class="story-witness-group" hidden><h3>Scene sequence</h3><ul id="storyPathScenes"></ul></section>
+                </details>
+                <button id="storyDetailAction" class="secondary-button" type="button">Detail / Evidence</button>
+              </aside>
+            </div>
+          </section>
+
           <div class="commandbar">
             <div><p id="mapEyebrow" class="eyebrow">AI Story Map</p><h1 id="mapTitle">The story at a glance</h1></div>
             <div class="view-switch" role="group" aria-label="Compare map presentations"><button id="sceneMapButton" class="switch-button" type="button" aria-pressed="true">Scenes</button><button id="aiMapButton" class="switch-button" type="button" aria-pressed="false">AI Story Map</button><button id="inspectionMapButton" class="switch-button" type="button" aria-pressed="false">Inspection</button><button id="canonicalMapButton" class="switch-button" type="button" aria-pressed="false">Canonical</button><button id="technicalMapButton" class="switch-button" type="button" aria-pressed="false">M07 Structure</button></div>

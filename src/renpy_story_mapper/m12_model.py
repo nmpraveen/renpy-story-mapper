@@ -32,6 +32,10 @@ class DestinationKind(StrEnum):
     REPEATABLE_EVENT = "repeatable_event"
 
 
+class M12TargetUnresolvableError(ValueError):
+    """A current supported target has no verified deterministic route entry."""
+
+
 class InitialValueKind(StrEnum):
     KNOWN = "known_initial_value"
     ENTRY_PRECONDITION = "entry_precondition"

@@ -1,123 +1,142 @@
-# M15.1 Phase 02 semantic review
+# M15.1 Phase 03 semantic review
 
-Date: 2026-07-24
+Date: 2026-07-25
 
-Integration base: `f914908621efb6ccf1728e3028c6176f961e5a7e`
+Baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Decision: PASS
 
-## Requirement verification
+## Requirements
 
-The active contract is the Phase 02 objective approved in
-`docs/handoffs/M15_PHASE_02_STORY_MAP_V2_CORE_REWRITE.md`. It preserves the master plan's static
-authority for connectivity, choices, requirements, effects, source evidence, and routes while
-allowing AI to write approximate event and branch-outcome meaning.
+| Requirement / exclusion | Authority | Interpretation | Verified |
+|---|---|---|---|
+| Compact whole-story browser over the accepted Phase 02 core | Master plan M15; handoff done condition | Consume the exact accepted core; do not remap or reconstruct story boundaries | Yes |
+| AI synthesis is broad compression only | Master plan M15; handoff AI contract | Existing anchors may be grouped/titled/summarized; mechanics and topology are immutable Python inputs | Yes |
+| Complete chronological success and fallback | Handoff criteria 7 and 10 | Successful synthesis has 5-7 sections; omitted anchors are placed deterministically; invalid/unavailable synthesis falls back to all events once | Yes |
+| Exact local mechanics and nesting | Handoff criteria 6 and 8 | Choices/arms/conditions/effects/destinations/rejoins come from the accepted core; parent lineage alone owns nested placement | Yes |
+| M12-backed path and existing Detail/Evidence/source navigation | Master plan two-level map; handoff path behavior | Story anchors bind to current deterministic targets; unresolved paths expose known prefix without invented connectivity | Yes |
+| Minimal durable project integration | Handoff minimal integration | Reuse generic project payload transactions; store one current core and zero/one synthesis keyed to source/authority identity; reject stale records | Yes |
+| Normal-flow responsive story page | Master plan route map; handoff browser behavior | Story Map V2 is primary; bounded semantic HTML, local stacked arms, preserved selection/context, no third level | Yes |
+| User-approved visual refinement | 2026-07-26 screenshot comparison and explicit correction request | Improve only browser hierarchy and responsive presentation: compact nonduplicated fallback hero, numbered existing-event timeline, restrained accents, desktop two-column/narrow stacked arms, mechanics-first witness with the full raw scene list in Analysis notes, and compact masthead; do not invent grouping or mechanics | Yes |
+| One bounded exact Terra call | Handoff provider authorization | One preview-bound Terra/High/fast-off submission, no retry/auditor/mapper/local/model substitution | Yes |
+| Privacy, safety, and outside-Git private artifacts | Master plan non-negotiables; handoff criteria 14 | No raw Ren'Py resend, code execution, private fixture/text in Git, protected mutation, or remote browser assets | Yes |
+| Separate visible tracks and independent reviews | Handoff required topology | Track A first for shared seams; Tracks B/C may run in parallel afterward; each and final candidate require exact-head review | Yes |
+| Future scope and rejected architecture excluded | Master plan M14/M15; handoff criteria 18 | No Phase 04/05, M14, scheduler/recovery, migration/retirement, installer, Stage H/E, hierarchy/compiler/repair system | Yes |
 
-The proposed design is frozen in `PHASE_02_DESIGN.md`. It is a new bounded
-`story_map_v2` package and is materially simpler than the rejected Stage H/E pipeline: contiguous
-source chunks, one compact mapper response, a Python mechanics overlay, and one chronological core
-record. It contains no new product level, AI topology authority, atom/evidence allocation,
-hierarchy compiler, repair protocol, exact-prose replay, browser, or durable full-game scheduler.
+## Architecture boundaries
 
-## Architecture authority and boundaries
+- Authority and invariants:
+  - The accepted Phase 02 `StoryMapCore`, 12 event anchors, eight outcome anchors, and
+    `ChoiceMechanic` records are immutable story/mechanics input.
+  - M10 remains authoritative for canonical nodes, edges, facts, evidence, source locations, and
+    deterministic reachability. M11 may provide existing scene/occurrence context. M12 alone solves
+    entry-to-target paths. Existing inspection/scene APIs own Detail/Evidence and qualified source
+    navigation.
+  - Synthesis identity is prose-independent and binds the accepted core/source/authority identity,
+    versioned request fields, prompt/schema, provider settings, and payload hash.
+- Components allowed to change:
+  - `src/renpy_story_mapper/story_map_v2/` for Phase 03 contracts, synthesis, storage, projection,
+    and path/detail adapters.
+  - `src/renpy_story_mapper/web/contracts.py` and `web/api.py` for bounded read-only V2 endpoints.
+  - `src/renpy_story_mapper/web/static/` for the primary semantic Story Map V2 page and local API
+    client/validation.
+  - Generalized `tests/test_story_map_v2_phase03_*.py` and synthetic fixtures.
+  - M15 lifecycle/design records and private outside-Git acceptance tooling/artifacts.
+- Components that must not change:
+  - Historical Stage H/E packages (`narrative_map`, `organization`, `narrative`) as a dependency
+    or implementation base; Phase 02 mapper meaning/overlay/planner behavior; M10/M11/M12 solver
+    semantics; source ingestion/execution safety; private source/archive/project bytes.
+  - Legacy maps may remain for compatibility but are not the default Story Map V2 page.
+- External, privacy, safety, or platform boundaries:
+  - Windows CPython 3.12 remains authority. Browser assets are local and loopback-only. No game,
+    creator, screen, or Ren'Py Python executes.
+  - The one cloud payload contains only approved story-facing core fields and mechanics digest.
+    Private artifacts, response, screenshots, and source paths remain outside Git.
+  - Task creation can select `gpt-5.6-sol` and High reasoning but exposes no fast-mode selector;
+    task fast mode is unavailable/unverified. Live Terra identity is verified separately.
 
-- M10 canonical records own exact nodes, edges, regions, facts, source evidence, and reachability.
-- Existing M11 scene/lane/choice ownership may be consumed only as already-derived structural
-  context; it is not exposed to the mapper as atoms or membership work.
-- M12 owns route-to-target status where a route is requested.
-- Current safe ingestion, project/storage, provider isolation, cancellation, and source navigation
-  may be reused.
-- The supported V2 path must not import `narrative_map`, `narrative`, or `organization`; historical
-  Stage H/E code and records do not change in Phase 02.
-- Private evaluation material, external AI outputs/images, historical responses, screenshots,
-  unrelated files, secrets, and game assets are excluded from Git and mapper packets.
+## Expected files and tests
 
-## Expected files and checks
+| Area | Expected files / components | Focused and regression checks |
+|---|---|---|
+| Shared Phase 03 contracts | `story_map_v2/phase03_contracts.py`, synthesis schema, package exports | Exact keys/types, anchor identity, chronological order, no duplicates/foreign IDs, 5-7 success sections |
+| Synthesis and fallback | `story_map_v2/synthesis.py`, provider preview/transport adapter | Omission placement, empty/reverse/unknown rejection, unavailable/invalid complete fallback, payload-field privacy, one-call ceiling |
+| Project storage | `story_map_v2/persistence.py` using existing generic payload transactions | Core/synthesis round trip, authority/hash binding, stale rejection, reopen with zero provider construction |
+| Browser projection | `story_map_v2/presentation.py` | All events once, local/nested choice ownership, exact arm order/mechanics/rejoins, collapsed notes, no raw technical IDs as story content |
+| Path and evidence | `story_map_v2/navigation.py` over M12 and current detail/source adapters | Five target classes, unresolved prefix, exact anchor/target binding, event/arm detail and qualified source links |
+| API | `web/contracts.py`, `web/api.py` | Read-only map/path/detail routes, bounded validation, stale/unavailable behavior, bootstrap route exposure |
+| Browser | `web/static/index.html`, `app.js`, `api.js`, `contract.js`, `styles.css`, manifest/docs as needed | Primary V2 load, selection/context preservation, keyboard focus, stacked arms, 100%/200% no horizontal overflow, no remote requests |
+| Approved visual refinement | `web/static/app.js`, `styles.css`, asset manifest, Track B synthetic/browser tests | Fallback hero deduplication; numbered existing events; exact two-column breakpoint and 200% stack; bounded mechanics-first witness plus complete raw-scenes disclosure; compact masthead; no changed API/server/projection semantics |
+| Architecture/privacy | V2 import gate and diff scan | No Stage H/E dependency, no private strings/files, no source execution, local assets only |
+| Integration/static | Existing relevant M10-M12/source-navigation tests, Ruff, strict mypy, JS syntax, JSON/schema, whitespace | Focused plus relevant regressions before private preview; exact pushed-head workflow is repository-wide gate |
 
-- New: `src/renpy_story_mapper/story_map_v2/` records, source adapter, chunk planner, mapper
-  serialization/validation, mechanics overlay, assembler, provider policy, and minimal export.
-- New: focused `tests/test_story_map_v2_*.py` plus generalized synthetic fixtures/resources.
-- Current lifecycle documents are updated; historical product code is not deleted or repurposed.
-- Focused checks cover chunk boundaries/limits, mapper range/key validation, deterministic overlay,
-  stable anchors, partial assembly, cloud/refusal/fallback states, cancellation, and architecture
-  imports.
-- Relevant M10/M11/M12, provider privacy/isolation, source navigation, and package import checks
-  run after integration.
-- Private acceptance proves exact Luna identity/settings, six/eight call ceilings, chronology,
-  four choices/eight arms, target anchors, immutability, and containment.
+## Acceptance evidence plan
 
-## Acceptance evidence map
+| Criterion | Proof required | Command or artifact |
+|---|---|---|
+| 1 | Exact fetched baseline and tracked-clean state | Recorded preflight output |
+| 2-4 | Active goal/contract, gate, visible tasks/worktrees/reviewers | Goal result, task IDs, commits, reviewer verdicts |
+| 5-7 | Synthesis boundary and complete success/fallback | Schema/validation tests and private count report |
+| 8-10 | Exact/nested mechanics, rejoins, complete fallback | Generalized projection/browser tests and private audit |
+| 11 | Exact preview/provider identity/one call | Outside-Git preview, hashes, execution ledger |
+| 12 | Durable reopen and stale rejection | Persistence tests and private zero-call reopen report |
+| 13 | Responsive/selection accessibility | Browser harness at 100%/200% and screenshots |
+| 14 | Privacy/immutability/no remote or execution | Fingerprint audit, containment/import/network checks |
+| 15 | Explicit user approval | Coordinator task response |
+| 16 | No final P0-P2 and exact-head checks | Final reviewer verdict and GitHub run |
+| 17-18 | Complete lifecycle/PR/exclusions | Completion report, exact commit/PR state, diff audit |
 
-| Criteria | Evidence |
-|---|---|
-| 1 | Goal service result and lifecycle pointers |
-| 2 | Separate visible early-review task verdict |
-| 3 | Dependency/import test and integrated diff review |
-| 4 | Planner tests plus private packet ledger/token counts |
-| 5-6 | Generalized overlay/fixture tests and schema tests |
-| 7-10 | Exact preview/confirmation, fake-provider matrix, call ledger |
-| 11-13 | Private core/preview, mechanics audit, anchors, before/after fingerprints |
-| 14 | Focused/regression results and final exact-head review |
-| 15-16 | Completion report, implementation commit, PR/check state, exclusions audit |
+## Assumptions and conflicts
 
-## Assumptions and resolved conflicts
+- The user request to implement the dedicated handoff explicitly starts approved Phase 03 and
+  authorizes its one narrowly defined private synthesis call after the required preview/gates.
+- Local and remote `main` exactly match clean Phase 01/02 merge `e81523f`; untracked `.playwright-
+  cli/`, prior handoffs, `output/`, and `tmp/` are preserved user/private content and do not make
+  the tracked baseline dirty.
+- The accepted package exists at the handoff path. Its core is complete 1/1 with 12 events, four
+  choices, eight outcomes, zero validation failures, and matching source/archive/project hash,
+  size, and nanosecond mtime.
+- The existing generic project payload store is sufficient for the phase's minimal persistence;
+  a new scheduler, retry queue, or database migration is neither required nor allowed.
+- Event and branch anchors already contain canonical node/destination information. Track C must
+  fail honestly when no exact M12 destination binding exists rather than manufacture a target.
+- The handoff requires user-visible Codex worktrees. The available task API supports model and
+  High reasoning but no fast-mode selector; this limitation is recorded rather than treated as a
+  contract relaxation.
+- No authority conflict remains after updating the active M15 lifecycle pointer from completed
+  Phase 02 to this Phase 03 contract.
 
-- The current coordinator is the new Phase 02 coordinator requested by the handoff.
-- The existing integration worktree is clean at the required branch and may be used directly; no
-  replacement integration branch is created.
-- Local history being 136 commits ahead of the remote is expected rejected-history preservation,
-  not permission to push before acceptance.
-- Native goal/task `019f9676-c357-7803-a891-f03782bbb8ee` is active and exactly matches the Phase
-  02 done condition.
-- The task-creation API can set model and High reasoning but exposes no fast-mode field; fast mode
-  will be recorded unavailable/unverified for visible tasks.
-- Live product identity remains exact Luna/High/fast-off and must be verified independently before
-  private transmission; visible Codex task settings do not establish live provider identity.
+## Approved visual-refinement amendment
 
-## Early review result and bounded correction
+- On 2026-07-26 the user compared the exact `8e6de6f` captures with the accepted Phase 01 visual
+  direction, approved the six bounded refinements, removed the prior native goal, and explicitly
+  authorized an updated self-goal and continued implementation.
+- The amendment changes presentation only. Existing section/event/choice/arm/continuation records,
+  selection IDs, path/detail envelopes, M12 authority, source navigation, persistence, and the
+  terminal one-call ledger remain unchanged.
+- The deterministic fallback may visually promote each existing accepted event as a numbered
+  chronological timeline item and may omit a duplicate wrapper heading. It may not infer or create
+  new story sections, merge/split events, rewrite story prose, or copy private prototype text.
+- The primary witness may select already returned story-significant steps, choices, requirements,
+  effects, target context, and warnings for concise display. The complete ordered raw scene list
+  remains available in the same path panel under Analysis notes; no route evidence is discarded.
+- Desktop arms may use two columns only at a tested width where nested ownership and continuation
+  geometry remain contained. Narrow and effective-200% layouts stack in deterministic DOM order.
+- The masthead correction is responsive presentation only and must not remove accessible names,
+  keyboard access, required project identity, or existing actions.
+- Track B owns the bounded static-browser correction and synthetic/real-browser regressions. The
+  same Track B reviewer and final cross-track reviewer must rereview exact committed/integrated
+  heads before replacement private screenshots can be approved.
+- No provider construction/call, private-artifact access by worker/reviewer, API/server/navigation
+  change, Stage H/E work, Phase 04/05, M14, or second semantic-boundary system is permitted.
 
-Visible reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` reviewed exact clean head
-`df755325edf2a679a3c0c372c9c350d9c37b989d` and returned `REVISE` with no P0/P2 and four P1s:
+## Gate decision
 
-1. the detailed M15 master-plan section and the semantic-review goal assumption contradicted the
-   active Phase 02 state;
-2. branch-specific mapper events lacked a Python-owned canonical/arm-lineage binding and exact
-   anchor/reachability rule;
-3. the no-import rule did not name an implementable cloud/local transport seam or transitive
-   dependency check; and
-4. the provider transition diagram omitted the approved deliberate `local_only` mode.
-
-This was the one permitted bounded correction. `MASTER_PLAN.md` and the goal assumption are
-reconciled. The reviewed design at that head defined deterministic arm-lineage binding,
-ambiguous-range rejection, exact anchor/status inputs, self-contained V2 cloud/loopback transports with a
-transitive dependency gate, and a fully previewed local-only path.
-
-The same visible reviewer rereviewed exact corrected head
-`4d32f0879f3b2b8e7f498d0f8428fd3d81177195` and returned `PASS` with no unresolved P0-P2. It
-confirmed all four P1s closed, the bounded correction introduced no new P0-P2, the worktree/diff
-were clean, and the simple design still excludes every rejected architecture and later-phase
-scope. Shared contract/failing-first work and dependency-ready Track dispatch may now begin.
-
-PASS
-
-## Provider-evidenced overlay seam amendment
-
-The first schema-valid v2 live response proved that the compact story-only packet and the original
-strict range rule were incompatible: approximate events legitimately bridged omitted technical
-lines, described whole choice clusters, and contained one ordered overlap. Under the user's
-standing final authorization, correction `574cbeb` amended only this seam. Python now intersects
-rough ranges with retained story spans, partitions an ordered overlap at the later start, and maps
-mixed-lineage clusters only to their longest common proven lineage prefix with unresolved status
-and an explicit warning. It still rejects unknown paths, out-of-bounds ranges, equal/reverse event
-starts, invented choice keys or arm ordinals, and never selects a sibling destination. Validated
-setup-control summaries are filtered rather than promoted. This empirical amendment does not add a
-new architecture or provider call. Provider-free replay additionally proved that a long
-deterministic control arm can contain a shorter sibling interval; in that case the Python-owned
-source-span lineage selects the matching interval candidate, while missing or contradictory span
-lineage remains invalid. The amended seam requires exact-head correctness review before the
-retained response can be reassembled.
-
-Exact-head independent rereview passed `dee5714f20310e7734d4a8140261239b444973c2` with no
-P0-P2 and explicitly cleared provider-free replay of the retained response.
+The amended approved scope has one observable done condition, the accepted input and protected
+boundaries are verified, and the presentation-only changes consume existing authority without a
+new semantic compiler, server seam, or provider action. Expected browser/static/private checks can
+prove every refined criterion, and no unresolved scope or architecture decision requires user
+input. The bounded refinement may start only after the matching renewed native goal is created and
+recorded.
 
 PASS

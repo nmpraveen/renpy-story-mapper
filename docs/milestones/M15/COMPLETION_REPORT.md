@@ -1,436 +1,394 @@
-# M15.1 Story Map V2 Phase 02 report
+# M15.1 Story Map V2 Phase 03 report
 
-Status: Complete
+Status: Verification (replacement screenshots explicitly approved; release/PR checks pending)
 
-Correction base: `55ae57406cfb07a3c088d0dfd7c3b7e04ca9a719`
+Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
-Historical integration branch: `codex/m15-msday1-narrative-map`
+Integration branch: `codex/m15-phase03-story-browser`
 
-Historical pull request: [PR #26](https://github.com/nmpraveen/renpy-story-mapper/pull/26).
+Integration commit: `eecaf590f608d62d74b32c4af2b5a665d681bee5` (final reviewed product head;
+lifecycle-only evidence commits follow)
 
-## Clean delivery scope
+Pull request: Not created
 
-The user approved a clean replacement PR from `origin/main` rather than merging PR #26's
-231-commit mixture of accepted and rejected work. The clean delivery contains the accepted Phase
-01/02 lifecycle and handoff records, `src/renpy_story_mapper/story_map_v2/`, its generalized tests,
-four mechanical Ruff union-order fixes, and the independently reviewed bounded M06.5 polling
-deadline. It excludes `narrative_map`, Stage H/E prompts/lifecycle, old M15 web/API/static changes,
-private artifacts, acceptance scripts tied to the rejected implementation, and its obsolete tests.
-PR #26's branch remains intact as historical backup.
+## Outcome
 
-## Current Phase 02 outcome
+Phase 03 is approved, preflight is complete, the shared design is frozen, and the single early
+semantic review passed before product edits. Visible Track A task
+`019f9c58-e638-71a0-b6a2-cb88b72f3d24` is implementing the shared synthesis/storage/projection/API
+seams from exact checkpoint `4f6e3a6` in `C:/Users/prave/.codex/worktrees/e7ca/Renpy`.
 
-### Current verification snapshot
+Track A produced initial clean head `420dbb7`, with 15 focused tests, 186 V2/storage tests, 71
+web/M10-M12 regressions, Ruff, strict mypy, schema parsing, and whitespace green. Independent
+visible reviewer `019f9c67-af1c-7812-a471-1f6a98572f1c` nevertheless returned `FAIL / CHANGES
+REQUIRED` at that exact head: P0=0, P1=2, P2=0, P3=1. Sterile adversarial probes proved that a
+stale optional synthesis removes the valid deterministic fallback and that forged successful
+provider provenance can be saved/reopened/rendered. The reviewer also found a tautological reopen
+ test. Coordinator inspection additionally required removing the known provider-incompatible
+ `uniqueItems` schema keyword and adding the real sterile Terra CLI adapter needed for the
+ authorized one-call acceptance.
 
-The current accepted checkpoint supersedes the historical failures below. Strict schema v2 was
-independently cleared at `f42f476`; fresh zero-submit confirmation `69154c8e...b592f` bound one
-9,390-token/755-span packet, four story choices/eight arms, exact Luna/High/fast-off, disabled
-fallback, and only `raw_text` plus `mechanics`. Its one hosted call completed in 54,344 ms with
-response hash `33d3c871...fb76`, 44,435 input tokens, 2,819 output tokens, 12 events, 12 supplied
-branch summaries, and non-null scope title/overview. There was no retry, fallback, or auditor.
+The bounded correction produced `62a0234`: both P1s and the P3 closed, durable provenance became
+exact, incompatible schema keywords were removed, and a hardened sterile production Terra adapter
+was added under the repository's validated CLI 0.144 identity policy. Rereview found one P2: a
+configurable schema path could differ from the preview-validated schema. Final worker head
+`2319092` removes that override and passes the exact canonical approved schema bytes through the
+one-use isolated process directory. The same reviewer returned final `PASS` with P0=P1=P2=P3=0.
+The coordinator integrated the three reviewed commits byte-equivalently as `e4b497f`, `1dcc63e`,
+and `50bdc08`; integrated CPython 3.12 focused verification passes 50 tests.
 
-The initial deterministic overlay correctly retained the completed execution but rejected broad
-rough ranges. Generalized corrections `574cbeb`, `b62ba6d`, and `dee5714` now intersect omitted
-technical gaps, partition an ordered overlap at the next event, use only the common proven lineage
-prefix for mixed clusters with unresolved status/warnings, validate setup arm ordinals before
-filtering non-story controls, and let exact `SourceSpan.arm_lineage` disambiguate overlapping
-deterministic arm intervals only when it matches a candidate. Independent exact-head reviews found
-no unresolved P0-P2 and explicitly cleared provider-free replay at `dee5714`.
+The shared seam was then frozen at integration checkpoint `4827b06`. Track B visible task
+`019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` in
+`C:/Users/prave/.codex/worktrees/9ea6/Renpy` and Track C visible task
+`019f9c8d-cfa8-76c1-9111-7600e1180d35` in
+`C:/Users/prave/.codex/worktrees/ee40/Renpy` were dispatched concurrently from that exact commit
+with explicit `gpt-5.6-sol` High settings. Their static-browser and Python-navigation ownership is
+non-overlapping. Neither has provider or private-artifact authority.
 
-Replay reused the retained response and added zero provider calls. The active core is `complete`
-at 1/1 with 12 chronological non-overlapping narrative events, four exact story choices, eight
-unique branch outcomes, 12 event anchors, eight outcome anchors, non-null title/overview, honest
-reachability/warnings, and zero validation failures. All eight branch outcomes are reachable; 11
-broad events are conservatively unresolved and one is reachable. No placeholder prose was found;
-minimum event-title/event-summary/outcome-summary lengths are 19/187/103 characters. Source,
-archive, and project-copy fingerprints match the pre-call package exactly.
+Track C then froze clean exact head `13876361039ab120c7ef4d6765ae74c9f572647d` after its final
+post-edit gate passed 75 tests, Ruff, strict mypy, both serialized contract fixtures/hash checks,
+and diff hygiene. Independent visible reviewer `019f9ca6-cb8b-7503-afc0-9e4c51cd0946` in
+`C:/Users/prave/.codex/worktrees/6915/Renpy` reviewed that exact head while both tracks were still
+unintegrated.
 
-Active outside-Git SHA-256 values are execution ledger `087494e4...43edd`, acceptance summary
-`4eff2c54...31d1f`, core JSON `8ec7c9f5...3c8b3`, core Markdown `4d90eec5...60700`, and replay
-evidence `66734d15...33b3`. The original overlay-rejection package is preserved under
-`historical-v2-overlay-rejection`; earlier v1 and transport/schema attempts remain in their own
-historical directories.
+Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED`, updated to
+P0=0, P1=1, P2=3, P3=0 after reproducing a backward continuation through control-only merge/label
+topology. Focused tests passed 16; the adjacent matrix passed 172 and failed the
+unchanged transitive import-isolation test once. The remaining P2s are missing selection-ID echo in
+forged-selection HTTP 404 JSON and a non-authoritative six-state fixture filename. A bounded new
+a bounded correction and same-reviewer rereview followed; the rejected head remained unintegrated.
 
-Final independent review passed exact clean head `c79e508` with P0-P3 all zero, and draft PR #26
-was pushed/updated at that head. GitHub run `30160608222` completed the full release workflow:
-1,660 tests passed, but one old M06.5 project-operation poll exceeded its hard-coded 2-second
-deadline on the runner; latest CI Ruff also reported six union-member-order style findings. Strict
-mypy over 125 source files, dependencies, JavaScript syntax, whitespace, sdist/wheel build, wheel
-install, and isolated wheel import all passed. Reviewed correction `d94a13e` changes no product or
-artifact semantics: it reorders those six type unions and replaces the machine-speed-sensitive
-test cap with a monotonic bounded 30-second deadline. The affected test passes three consecutive
-runs; the expanded relevant matrix passes 405 tests with one expected opt-in browser skip, full
-Ruff and strict mypy pass, and independent review returned P0-P3 all zero.
+The consolidated Track C correction is clean at exact head
+`fb0f2ecd207848248e674f9c76af7a3d505019fb`. Its final provider-free worker gate passed 22 focused,
+7 targeted HTTP/import/topology tests, 192 adjacent tests, Ruff, strict mypy, both JSON/blob checks,
+and diff/privacy hygiene. The same reviewer then rereviewed the exact corrected head.
 
-The reviewed correction and lifecycle evidence were pushed as checkpoint `791bef9`. GitHub run
-`30161655412` completed successfully: the deterministic release validation, setup, checkout, and
-whitespace steps all passed. PR #26 reports a clean merge state and remains open, draft, and
-unmerged. The final canonical status commit advanced the exact full-history head to `a42e8a0`;
-GitHub run `30163111942` passed on that head and the native Phase 02 goal completed. The user later
-approved clean delivery of only accepted Phase 01/02 files from `main`, while preserving PR #26
-and its branch as historical backup.
+The rereview returned `PASS` at exact Track C head `fb0f2ec`, P0=P1=P2=P3=0. Independent results
+were 22 focused, 7 finding-specific, 192 bounded, three supplemental architecture, and 16 loopback
+tests plus Ruff, strict mypy, fixtures, and diff hygiene. Track C was held until Track B passed. A
+partial first-commit cherry-pick (`c046d8c`) was immediately reverted by `f325d07` at that
+checkpoint; the complete corrected chain was integrated only after both reviews passed.
 
-### Earlier verification history
+Track B then froze clean exact head `2069eab3a1f0a018724106f94634e1292072e358` after the final
+bytes passed its focused/static/schema/lint gate, real Chrome at desktop 100%, effective 200%, and
+390px narrow, 63 adjacent tests, 107-file mypy, asset integrity, and diff hygiene. Independent
+visible reviewer `019f9ca9-ab9e-77c0-a2f1-0426f9472084` in
+`C:/Users/prave/.codex/worktrees/4f7b/Renpy` reviewed that exact head. One accidentally enabled
+out-of-scope M13 hardware smoke timed out on a pre-existing evidence selector and is recorded
+separately, not counted as Track B evidence.
 
-Track A reviewed exact head `319d13e99fe1eed99b3e6cbc51695d6ca7d37e26` and Track B reviewed
-exact head `ca9cd4afd0f27d7926ed5d246f3aa738267816ac`; both reviewers returned `PASS` with
-no unresolved P0-P2. The integrated provider-neutral and execution implementation is present
-through `609813b`. Private zero-submit diagnosis then produced generalized adapter correction
-`cbbe3ef`: unresolved external selectors remain non-story, quoted Ren'Py story statements are
-distinguished from executable statements, and physical path/line order remains authoritative when
-M11 omits a canonical node. The combined Story Map V2 plus relevant M10/M11/M12/workflow suite
-passed 287 tests in 2.92 seconds. Ruff, strict mypy over the complete V2 package, the transitive
-forbidden-import gate, and whitespace passed.
+Track B independent review at exact head `2069eab` returned `FAIL / CHANGES REQUIRED` with
+P0=0, P1=0, P2=5, P3=0. The P2s cover the shared fixture filename, deep/exact map bounds and
+non-empty unavailable reason, reversible path-panel context, missing authoritative reachability/
+item warnings, and browser-invented witness mechanic placement. A bounded worker correction, full
+three-profile Chrome/131-test adjacent gate, and same-reviewer rereview followed.
 
-The final zero-submit preview bound confirmation hash
-`2d6b67f7425b43a84ba913078b36ecf8205aa3f97fcfe68ceceaa65b8f72fa98` to the unchanged
-private input identities, two source-ordered chunks, a 9,376-token maximum chunk, exact
-`gpt-5.6-luna` / High / fast-off settings, `raw_text` plus `mechanics` only, disabled local
-fallback, and exactly four story choices/eight arms. The one authorized execution ran once with
-that exact confirmation. Both sterile CLI processes returned sanitized transport failures before
-any hosted submission: the ledger records two missing results, `hosted_attempts=0`, no token usage,
-no resolved model, and no validation failure. Per contract, there was no semantic retry, local
-fallback, or second story run.
+The consolidated Track B correction is clean at exact head
+`81313d7b2b86bf12c3236659f259c24f129dd00c`. Its final provider-free gate passed 10 focused tests
+with all three Chrome profiles, the exact 131 pass/2 intended opt-in skip adjacent matrix,
+adversarial deep-map/envelope contracts, 107-file mypy, Ruff, JavaScript syntax, corrected Track C
+fixture byte identity, asset integrity, mojibake, and diff hygiene. The same reviewer rereviewed
+that exact head.
 
-The outside-Git `story-map-v2-core.json` and Markdown preview are therefore `partial` with 0/2
-completed chunks. Final Integration Reviewer task `019f96fb-96eb-7120-b121-7815a2584a9c`
-reviewed exact head `1121e15` and returned `CHANGES_REQUIRED`: P0=0, P1=3, P2=3, P3=0. Besides
-the acknowledged missing provider result, it proved the artifact used synthetic menu evidence for
-rejoin lines, copied nested-choice effects into a parent arm, undercounted both launched cloud
-attempts as zero, dropped failed execution provenance from the core, split a 14-token setup packet,
-and lacked the lifecycle status syntax required by an exact-head workflow test.
+Rereview at exact Track B head `81313d7` closed all five original P2s but returned `FAIL / CHANGES
+REQUIRED`, P0=0, P1=0, P2=1, P3=0. A delayed in-flight path response can reopen the panel after the
+user closes it because Close does not invalidate the request token. A smallest token correction,
+delayed-response Chrome regression, full gate, and same-reviewer rereview followed.
 
-The single bounded provider-free correction `8158764` resolves those five implementation/evidence
-findings. Proven synthetic merge nodes now follow reachable merge chains to their physical
-continuation; nested-choice physical ownership excludes child-only effects from parent mechanics;
-attempted cloud/local origins survive failures and cancellation; callers can retain failed
-execution records in partial chunks; and boundaries below half the applicable target no longer
-split a tiny prelude from one fitting corridor. The corrected combined suite passes 290 tests in
-2.36 seconds plus Ruff, strict mypy, import isolation, and whitespace. Corrected zero-submit
-confirmation `e50d659a712a180569fd15087a451ca80a285a26a1e5a5483570b1ccc74da5f0` binds one
-coherent 9,390-token packet, four choices/eight arms, accepted rejoin lines 165/233/793/793,
-accepted per-arm effect counts, exact Luna/High/fast-off, and disabled fallback. It is preview-only;
-no second live run was inferred or performed.
+The final bounded Track B correction is clean at exact head
+`47f0cacf3e6d6d84281403c38061265ebaee722b`. Delayed success and delayed rejection now remain
+closed at desktop 100%, effective 200%, and 390px narrow while a subsequent request succeeds. The
+full final gate passed 10 focused, 131 adjacent with two intended opt-in skips, adversarial map/
+envelope probes, JavaScript/Ruff/107-file mypy, assets, shared fixture, mojibake, and diff hygiene.
+The same reviewer returned exact-head `PASS` with P0=P1=P2=P3=0 after independently repeating the
+three-profile Chrome, adjacent, adversarial contract, static, asset, fixture, and diff gates.
 
-The same Final Integration Reviewer performed the first corrected-head rereview at exact clean head
-`da7ecfa`. It confirmed all five original provider-free findings closed, recomputed corrected
-confirmation/chunk/packet/payload identity, matched every private caption/rejoin/effect set to the
-frozen deterministic authority, and reran 290 relevant checks plus static/containment/fingerprint
-gates. Verdict remains `CHANGES_REQUIRED` with P0=0/P1=0/P2=1/P3=0: when a mapper response is
-schema-valid but fails `validate_and_overlay`, the outside-Git runner records a validation failure
-but supplies no failed `CoreChunk`, causing assembly to discard the exact execution provenance and
-emit an inaccurate no-result warning. The handoff's one bounded correction/rereview is exhausted;
-this second provider-free correction and another rereview required explicit user authorization.
+After both exact-head reviews passed, the coordinator integrated the complete reviewed Track C
+chain as `3161261`/`659d612` and the complete reviewed Track B chain as
+`472129b`/`a3eb8fa`/`a8e0ddf`. Direct path-by-path comparisons against `fb0f2ecd...` and
+`47f0cacf...` pass with no differences. The shared six-state API fixture is byte-identical in both
+reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`.
 
-The user approved both on 2026-07-24: one second provider-free correction/rereview and, only after
-reviewer clearance, exactly one new live acceptance run. Correction `4b1b74d` adds an explicit
-invalid-mapper partial constructor: the core chunk becomes `partial` while retaining the untouched
-completed execution record and response that failed deterministic overlay. The outside-Git runner
-now uses this seam for `MapperValidationError`. A provider-free out-of-range-event probe produces
-one partial core chunk with `execution.status=complete` and one validation failure. The expanded
-relevant suite passes 294 tests in 3.07 seconds; Ruff, strict mypy over all ten V2 modules, import
-isolation, whitespace, and runner compilation pass. Same-task rereview is required before the new
-live authorization can be spent.
+Combined provider-free verification is complete at integration checkpoint `f70ca88`. The complete
+Story Map V2 family passes 239 tests with three opt-in Chrome cases skipped in that invocation;
+those three desktop 100%, effective 200%, and 390px profiles pass separately. The bounded adjacent
+M10-M13/storage/API/navigation/privacy matrix passes 317 tests with two hardware-sensitive browser
+cases deselected. M12 real Chrome passes. The historical M13 real-browser harness reaches its
+known citation-selector timeout, but a diagnostic run proves the exact expected M10 control and
+exact `record_id` are already in the DOM; the harness waits on a DOM element object rather than a
+boolean, and CDP serializes that object falsey. The diagnostic edit was fully removed and the
+historical harness remains byte-identical. This pre-existing harness defect is recorded separately
+and is not Track B/C product evidence.
 
-The same reviewer passed exact clean head `211fd2e` with P0=0/P1=0/P2=0/P3=1 and explicitly
-cleared the single newly authorized live run for confirmation `e50d659a...da5f0`. Its 291-test
-matrix plus the coordinator's separately included three `tests/test_m12_architecture.py` checks
-explain the recorded 294 total. The reviewer also reproduced the runner's invalid-overlay partial,
-seven incoherent-input rejections, static isolation, containment, and unchanged protected
-fingerprints. No provider-free blocker remains.
+Ruff passes across `src`, `tests`, and `scripts`; strict mypy passes all 108 source files; all four
+packaged JavaScript files pass `node --check`; 33 browser-asset/privacy/import-isolation tests pass;
+the synthesis schema and both frozen fixtures parse; deterministic manifest tests pass; whitespace
+is clean; no private output path is tracked; and the tracked worktree is clean.
 
-The coordinator regenerated the final zero-submit preview without submission and independently
-recomputed confirmation `e50d659a...da5f0`, one 9,390-token packet, 755 spans, four story choices,
-eight arms, exact Luna/High/fast-off identity, disabled fallback, and `raw_text` plus `mechanics`
-as the only transmitted fields. Source, archive, project-copy, and Phase 01 authority fingerprints
-matched before execution. The original failed-run files were copied into `historical-first-run`
-before the current artifact names were replaced.
+The initial private zero-submit preview stopped before provider construction because the accepted
+core contains an external non-story ancestor in choice lineage that is intentionally absent from
+the transmitted story-choice set. The existing Track A worker added the smallest generalized
+filter and tests at `5926a00`; the same independent reviewer returned `PASS`, P0=P1=P2=P3=0, after
+52 focused, 212 regression, Ruff, strict mypy, deterministic preview/privacy, and diff gates. The
+coordinator integrated it byte-equivalently as `83d1a4f` and passed 241 V2 tests with the three
+opt-in Chrome cases separately green. No private artifact was exposed to the worker/reviewer and
+no provider was constructed or called.
 
-The single newly authorized live run was then spent exactly once. The ledger conservatively counts
-one cloud attempt. It returned a sanitized sterile-CLI `transport` failure after 1,718 ms with no
-response, resolved model, input/output usage, validation failure, retry, or local fallback. The
-current outside-Git core is therefore honestly `partial` with 0/1 completed chunks, zero narrative
-events, and zero branch outcomes. The missing chunk retains its exact cloud execution record and
-transport warning. Its deterministic mechanics still contain the exact four choices/eight arms,
-accepted rejoins 165/233/793/793, and accepted per-arm effects. Post-run source, archive, and
-project-copy fingerprints remain byte-for-byte identical to the preview.
+The corrected zero-submit preview bound confirmation
+`cd3671714f215b38dac38320237a499ab07a238a4c79a7b17808678efee5ea9a`, request payload
+`d4d44735d647fe5851eb5494db90409c10ef83eac35df9ac7364804428fd6a04`, approved schema
+`4febec35bc987cd8e273465ffbe69176cac02e8577690185fd84fa383b727bcc`, 9,322 bytes, exact 12/4/8
+counts, Terra/High/fast-off, and maximum one call. The rebuilt preview was identical. The one
+authorized sterile execution then made exactly one provider construction, one submit attempt, and
+one call. It failed closed because provider identity could not be verified. The terminal ledger is
+`completed_no_retry`; no retry, model substitution, auditor, mapper rerun, expanded payload, or
+second provider action occurred. The ledger SHA-256 is
+`1607f22af7fd4a36dd2299d9917fea6a07336c6c9d9fd646428ace724620d851`.
 
-The milestone is now `Blocked` at private acceptance: provider-generated Day 1 narrative and
-event anchors do not exist, so recognizable coverage and final acceptance cannot be claimed. The
-native goal remains incomplete, PR #26 stays draft/unmerged and unmodified, and no `PR ready` or
-completion claim is permitted. No further live attempt is authorized; resumption requires an
-explicit transport-policy/correction decision followed by separately previewed authorization.
-Provider-free diagnosis confirms Codex CLI 0.144.0 is logged in, its bundled catalog includes
-`gpt-5.6-luna` with High reasoning support, and the transport's disabled feature/config overrides
-parse locally. `codex doctor --json` did not return before the bounded diagnostic timeout, while
-the transport intentionally retained only a sanitized failure category; the exact startup failure
-cause is therefore not proven and must not be guessed.
-The final lifecycle plus cloud-transport/provider-policy regression slice passes 40 tests on
-Python 3.12; `git diff --check` also passes.
-The same Final Integration Reviewer audited the post-run artifacts read-only at exact product head
-`d4be3f9` and returned `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0. Its sole finding is the known
-missing provider-generated coverage. It independently recomputed the confirmation, one-attempt
-accounting, execution provenance, exact mechanics, containment, and protected fingerprints and
-found no new implementation defect. The sanitized evidence cannot distinguish a transport-code,
-CLI-startup, configuration, or environment cause.
+Private acceptance continued only through the contract's deterministic fallback. Presentation
+lineage handling was first generalized at reviewed exact head `75b1484` and integrated as
+`b61ab8e`. A synthetic event/arm authority-ID collision then exposed a public-selection ambiguity;
+the existing Track C worker implemented stable role-qualified server-owned IDs at exact head
+`497ccf76aeb626b78ba0787c31c4cde53607b362`, and the same reviewer returned `PASS`,
+P0=P1=P2=P3=0, before byte-equivalent integration as `5565244`. Browser code never derives these
+IDs, same-role ambiguity still fails closed, reopen is stable, and forged IDs remain 404.
 
-On 2026-07-25 the user explicitly approved a bounded provider-free transport-diagnostics
-correction and, only after independent rereview plus a newly bound zero-submit preview, one
-additional live attempt. Correction `0f0acfc` closes the evidenced diagnostic gap shared with the
-otherwise-proven M13 runner: a nonzero Codex exit no longer bypasses structured `error` or
-`turn.failed` JSONL. Structured failures now retain sanitized resolved identity and token metadata;
-forbidden actions remain fail-closed; raw stderr/private text is never retained; and local output-
-schema/runtime-configuration rejections remain distinct from generic transport. Three new
-failing-first cases pass. The complete V2 plus relevant M10-M12/workflow matrix passes 297 tests in
-3.63 seconds; Ruff, strict mypy over all ten V2 modules, and whitespace pass. No provider call,
-preview regeneration, PR mutation, or retry occurred. Verification now pauses for exact-head
-independent clearance before regenerating the private preview or spending the one new attempt.
+Private path acceptance next exposed a selection-scoped target-entry failure. The first correction
+head `53c1494` was rejected because a broad `ValueError` catch could mask stale authority. The
+bounded replacement at exact head `ba9537542b2badff2fa75563fb233743209e40fe` introduced only
+`M12TargetUnresolvableError` for an existing exact target without a verified entry anchor. The same
+Track C reviewer returned `PASS`, P0=P1=P2=P3=0, and the correction was integrated through
+`253fba0` and `5760eb3`; stale/storage/authority failures still produce the global-unavailable
+contract.
 
-The same Final Integration Reviewer returned `PASS` on exact clean head `e22d91f` with
-P0=0/P1=0/P2=0/P3=0. Its provider-free evidence includes 294 relevant tests plus three dedicated
-M12 architecture checks, eight refusal/non-refusal fallback checks, direct nonzero-exit precedence
-and privacy probes, Ruff, strict mypy, isolation, containment, and whitespace. It granted clearance
-to regenerate a new preview and then spend exactly the one newly authorized attempt.
+The outside-Git private acceptance report
+`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json` has SHA-256
+`a42202b766a3dcbbea85d0ccf7dc1ab58e9663b4fed36f66d26fe2bc2219752a`. It passes with one
+fallback section, 12 events, four choices, eight arms, four known rejoins, and 20 event/arm
+selections. All 24 event/arm/continuation Detail and source-navigation targets are available; 23
+paths are available and one control-only first target is honestly unresolved. The early linear,
+post-rejoin, alternate-arm, deepest nested outcome, and Day 2 boundary target classes are all
+proven. Reopen preserves map/path/detail with zero new provider constructions, attempts, or calls.
+The accepted working project SHA-256 is
+`0bd02eb8c813dc2eb208d8ba306e732ba4cf740ff0cef5d96a788d5fdf6a6b6e`, and protected inputs and
+the terminal one-call ledger remain unchanged.
 
-The coordinator preserved the current failed artifact set under `historical-second-run` and
-regenerated `newly-authorized-zero-submit-preview.json` without a provider call. Independent
-recomputation confirms one 9,390-token/755-span packet, four choices/eight arms, exact
-Luna/High/fast-off, disabled fallback, six planned/eight absolute ceilings, only `raw_text` plus
-`mechanics`, and unchanged source/archive/project/Phase 01 fingerprints. The preview file SHA-256
-is `e654513c911cf22bedd82aa8dcfe59c054669845304ec8f73d195cc456396c1f`. Its confirmation remains
-`e50d659a...da5f0` because every confirmation-bound source, packet, model, and policy field is
-unchanged; the new file and before/after fingerprint audit prove regeneration rather than old-file
-reuse. Exactly one live attempt is now eligible and remains unspent at this checkpoint.
-The frozen private evidence directory is
-`C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135`.
+Real-Chrome private rendering then exposed a 16-pixel path-panel descendant overflow. The existing
+Track B worker corrected only wrapping/containment at exact head
+`834246b3eade1096cb9d53041b91ed90767dff23`; the same reviewer returned `PASS`,
+P0=P1=P2=P3=0, after independent light/dark desktop, effective-200%, narrow, and maximum-content
+stress. The correction was integrated as product checkpoint `cff2388`. The final outside-Git
+browser report `browser-acceptance.json` has SHA-256
+`df3c721fc38c6d9e84f9f991a76a20f6bbf5737ada0394639a668c0e53d67a75` and records real Chrome,
+loopback-only serving, zero remote requests or browser errors, zero new provider activity, exact
+12/8/4 event/arm/continuation rendering, no document/story/path overflow, no clipping, overlap,
+nested-order failure, or mojibake, and passing selection-return/focus behavior at 100% and 200%.
+Four clean candidate screenshots were captured outside Git. Explicit user approval, one final
+independent integrated-head review, push/PR creation, and exact pushed-head GitHub checks remained
+pending at that checkpoint.
 
-The one newly authorized live attempt was spent exactly once against that fresh preview. It made
-one conservatively counted cloud attempt, ran for 2,125 ms, and terminated `invalid_response` with
-sanitized reason `The cloud mapper returned an invalid response.` It returned no response,
-response hash, resolved model, or input/output usage. No retry, replacement, semantic repair, or
-local fallback occurred. The current core is an honest 0/1 `partial`: its missing chunk retains the
-exact failed cloud execution record and deterministic four-choice/eight-arm mechanics, while
-provider-generated narrative events and branch outcomes remain absent. The execution ledger,
-acceptance summary, core JSON, and core Markdown SHA-256 values are respectively
-`59fab114...5538`, `6bec8b8d...a161`, `6a3b90b6...fc6b3`, and `17d9dc9f...e8c8`.
+The initial final cross-track review used visible read-only task
+`019f9d58-0eec-77f0-9049-61f8d5ba6e81` in
+`C:/Users/prave/.codex/worktrees/4397/Renpy` against exact candidate `60b0441`. It returned
+`FAIL / CHANGES REQUIRED`, P0=0/P1=0/P2=2/P3=1. The P2s were a stale asynchronous Detail response
+that could overwrite the current selection and a browser contract that rejected a valid identical
+continuation binding reused in separate root choice trees. The P3 concerns compact witness
+presentation after large scene-title lists and is accepted as nonblocking for this phase.
 
-Coordinator recomputation matches the preview confirmation, packet identity, 9,390 raw tokens,
-755 spans, Luna/High/fast-off settings, disabled fallback, six planned/eight absolute ceilings,
-and only `raw_text` plus `mechanics` as transmitted fields. The source, archive, and project-copy
-fingerprints remain exactly `14aa44ed...88a6`, `053abb13...303`, and `a551e451...9679`; their
-bytes also match the acceptance summary. Private inputs and output remain outside Git.
+The existing Track B worker corrected only the two P2s at exact head
+`8e6de6f395494b006d5eec5387c17a3b1c6654a1`. Dedicated detail tokens now invalidate stale work
+across every relevant navigation transition and render only for the current token/selection; the
+contract permits identical continuation bindings once per root choice tree while preserving
+global binding consistency and collision rejection. The existing Track B reviewer independently
+returned `PASS` at that exact head with P0=P1=P2=0/P3=1. The coordinator fast-forward integrated
+the reviewed commit exactly and passed all 13 focused Track B cases, including six Chrome profiles.
 
-The newly exposed blocker is concrete and provider-facing. Root schema
-`story_map_mapper_v1.schema.json` declares nullable `scope_title` and `scope_overview` properties
-but lists only `events` and `branch_summaries` in `required`. The
-[OpenAI Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs)
-requires every object property to be required and represents optional values as required nullable
-fields. This mismatch explains the structured `invalid_response` boundary without proving that no
-later defect exists. The same Final Integration Reviewer audited exact product head `e862427` and
-the outside-Git package read-only and returned `CHANGES_REQUIRED`, P0=0/P1=1/P2=0/P3=0, solely
-for this provider-facing defect. The smallest provider-free correction is a versioned successor
-schema that requires all four root fields, with a new bound schema version/path so confirmation
-changes; a recursive gate must enforce `required == properties` plus `additionalProperties: false`
-for every object, and explicit-null coverage must prove the optional scope semantics. Tolerant
-omitted-field parsing may remain only as backward-compatible parser behavior.
+A fresh private browser recapture at exact product head `8e6de6f` reproduced
+`browser-acceptance.json` and all four previously presented PNGs byte-for-byte, with zero provider
+activity and unchanged protected inputs. The same final cross-track reviewer then returned
+exact-head `PASS`, P0=P1=P2=0/P3=1. Independent evidence includes 275/275 Story Map tests with
+browser acceptance enabled, 92 adjacent tests, 20/20 adversarial mutations rejected, six Chrome
+profiles, Ruff, strict mypy over 109 source files, four JavaScript checks, asset/fixture/privacy/
+containment checks, and matching authorized private artifact hashes. Explicit user screenshot
+approval, push/PR creation, and exact pushed-head GitHub checks remain pending.
 
-Phase 02 is `Blocked` at private acceptance. The authorized attempt is fully spent. No further
-provider call, preview reuse, PR mutation, or completion claim is permitted. Resumption requires
-explicit approval for the bounded versioned provider-schema correction and, only after provider-
-free gates, independent exact-head rereview, and a freshly bound zero-submit preview, a separate
-live attempt.
-The native goal remains active and PR #26 remains draft, unmerged, and unmodified.
+The user then compared the exact `8e6de6f` captures with the accepted Phase 01 prototype and did
+not approve them as final. They approved a bounded provider-free visual correction: compact and
+deduplicated fallback hierarchy, numbered presentation of existing accepted events without new
+semantic grouping, restrained section/nesting accents, desktop two-column arms that stack at
+narrow/effective-200% width, a concise mechanics-first witness with the complete raw scene sequence
+retained under Analysis notes, and a compact responsive masthead. The user removed the prior native
+goal and explicitly authorized an updated self-goal and continued implementation. No provider
+retry, server/API/navigation change, private-artifact exposure, or new story semantics is included.
 
-The user then granted standing final authorization for every bounded correction, exact-head
-review, fresh zero-submit preview, private acceptance execution, artifact audit, and PR #26 update
-needed to reach the unchanged Phase 02 done condition without further authorization pauses. This
-does not relax the contract: each provider execution still requires its own freshly bound preview
-after provider-free verification and review, obeys six planned/eight absolute hosted ceilings,
-permits no semantic retry or auditor, and cannot merge PR #26.
+The bounded Track B correction first produced exact head `d858c999...` from amended lifecycle
+checkpoint `986b027`. The same reviewer rejected it with P0=0/P1=0/P2=1/P3=0 solely because
+contract-valid long arm captions were clipped instead of wrapped across all three browser profiles.
+A bounded CSS/test/manifest correction produced clean descendant
+`848dce0c06300fb90722ba00a2d69bcd8268793c`; its final worker gate passed 16 focused tests with nine
+Chrome cases, 269 Story Map V2 tests, 132 adjacent tests, and the static/privacy checks. The same
+reviewer then returned exact-head `PASS` at `848dce0...` with
+P0=P1=P2=P3=0. The reviewed product/test blobs were integrated byte-equivalently through
+`eecaf590f608d62d74b32c4af2b5a665d681bee5`. Coordinator reruns at the integrated head passed 16
+real-Chrome focused tests, 269 Story Map V2 tests with nine already-exercised opt-in skips, 136
+adjacent tests with two opt-in skips, four JS syntax checks, Ruff, strict mypy over 109 source files,
+workflow checks, and diff cleanliness. The same final cross-track reviewer passed exact lifecycle
+head `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1` with P0=P1=P2=P3=0; the inherited compact-witness
+P3 is closed. Replacement private 100%/200% capture passed with browser report SHA `75143227...`,
+zero provider activity, and unchanged protected inputs and terminal ledger. Explicit user approval
+remains pending.
 
-Versioned strict-schema correction `720615d` preserves immutable v1 and adds
-`story_map_mapper_v2.schema.json`. V2 requires all four root properties while retaining nullable
-`scope_title` and `scope_overview`; the active schema identity/path, cloud and loopback packets,
-preview confirmation, and fail-closed confirmation validation now bind v2. Five failing-first
-cases proved the missing resource, stale cloud/loopback packet identity, stale preview identity,
-unchanged confirmation, and old output-schema path; explicit-null parsing also passes. The broad
-provider-free M10-M12/V2/workflow matrix passes 396 tests with one expected opt-in real-browser
-skip in 31.24 seconds. Ruff, strict mypy over all ten V2 modules, both schema JSON parses,
-whitespace, and byte-identical v1 preservation pass. No provider call or preview regeneration
-occurred. Verification now requires a clean exact-head reviewer `PASS` before a fresh v2 preview.
+Approved screenshot artifacts (outside Git):
 
-### Earlier Phase 02 implementation log (superseded by the snapshot above)
+- `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-overview-100.png`, SHA-256
+  `56eaa001d78f2855c9314f7b701a81e4c9e458d549498144fe5e0cddfbfb5836`.
+- `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-deep-path-100.png`, SHA-256
+  `8003bcb328f37d7e6d78f1c29286fc705e37838b2641cc80d18185fd528a175c`.
+- `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-overview-200.png`, SHA-256
+  `91f5ce449d8224a9a5c7b2d81646dbf62dbca2b1b4d84e93dc0080d8f9202a36`.
+- `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-deep-path-200.png`, SHA-256
+  `7f41d9cc891e21120de18e4bfc2779618d26411460de2545eb465e1f0fcfce97`.
 
-The user started the approved Phase 02 coordinator handoff. Preflight passed: the designated
-integration worktree is clean at `f914908621efb6ccf1728e3028c6176f961e5a7e` on
-`codex/m15-msday1-narrative-map`; it is intentionally 136 commits ahead of the remote; PR #26 is
-open, draft, unmerged, and still points to historical remote head `bc9a38c`; the Phase 01 evidence
-package and recorded source/archive fingerprints are present.
+The superseded pre-refinement browser report and four PNGs are preserved outside Git under
+`output/m15-story-map-v2-phase-03-20260726-011613/pre-refinement-8e6de6f/`.
 
-The active contract now defines the bounded Story Map V2 core rewrite. The simple architecture is
-frozen in `PHASE_02_DESIGN.md`: a new package, coherent source chunks, a compact mapper response,
-Python-owned exact mechanics and anchors, chronological partial-capable assembly, and a strict
-cloud/refusal-only-loopback policy. Broad implementation is paused pending the required separate
-visible Early Contract Reviewer `PASS`.
+## Preflight evidence
 
-Native goal/task `019f9676-c357-7803-a891-f03782bbb8ee` is active with the exact contract done
-condition and remains active until the Phase 02 PR checkpoint is genuinely complete.
+- `git fetch --prune origin` completed.
+- Local `main` and `origin/main` both resolved to
+  `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`, the clean Phase 01/02 merge.
+- The tracked worktree was clean. Existing untracked `.playwright-cli/`, prior handoffs,
+  `output/`, and `tmp/` were preserved.
+- `src/renpy_story_mapper/story_map_v2/` and its focused tests exist on `main`.
+- Private package:
+  `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
+- `acceptance-summary.json` reports `complete`, 1/1 chunks, 12 events, four story choices, eight
+  branch outcomes, zero validation failures, and zero provider calls added by reassembly.
+- Protected source, archive, and project-copy records each match their recorded SHA-256, byte
+  length, and nanosecond modification time.
+- Package SHA-256 values: acceptance summary
+  `4eff2c54b1eccd65bdb92c996afc3cc6a755737230b626f1ed7c4a1d5f131d1f`, execution ledger
+  `087494e4289e86dd0d49e8ca39c43478c2b0d5cf73613903c467c1a5df943edd`, core JSON
+  `8ec7c9f5d2f3e4093029e9ece22777a9191c05a11a93dd8657ea81a42143c8b3`, and core Markdown
+  `4d90eec56fd24c99e920d03c523b7dbf3b80f61b652c458ff3e531b20dd60700`.
 
-Early reviewer task `019f967d-8800-79e2-9dea-5f2412f6eecf` returned `REVISE` on exact clean head
-`df755325edf2a679a3c0c372c9c350d9c37b989d`: no P0/P2 and four P1s covering stale lifecycle
-authority, undefined branch-event lineage/anchors, an unimplementable provider import boundary,
-and the missing deliberate local-only state. The single permitted bounded contract correction
-reconciled those points. The same reviewer rereviewed exact corrected head `4d32f08` and returned
-`PASS` with no unresolved P0-P2. Shared freeze `e72fe41` adds versioned records/schema, exact
-Track A/Track B seams, generalized fixtures, and the transitive architecture gate. Five contract
-tests pass; seven Track A and six Track B tests fail only at the intended explicit stubs with no
-collection error. Ruff and strict mypy pass. The milestone is `In progress`; dependency-ready
-Track implementation may begin.
+## Acceptance evidence
 
-Track A's exact-authority audit then found that the frozen `SourceSpan` contract could not carry
-non-choice canonical reachability or unresolved warnings into the overlay. A2 independently found
-that accepted mapper branch summaries and optional scope title/overview had no core storage field.
-Packet review also found that the compact mechanics digest affected the packet hash but could not
-be carried by `StoryChunk`, leaving the transport only opaque choice keys. Failing-first shared
-tests reproduced all three gaps. The coordinator-owned correction requires Python-owned span
-reachability/warnings and canonical compact mechanics JSON, and adds a typed, deterministically
-anchored branch-outcome record plus per-chunk/assembled scope text. Eight shared contract tests,
-Ruff, strict mypy, and whitespace pass. No guessed reachable default is used and required provider
-input/output is no longer discarded. Track A may resume against this corrected seam; A2's old WIP
-is not integration-ready.
-
-The coordinator's provenance audit then proved that `ChunkExecutionResult` and `CoreChunk` retained
-origin and usage but not the exact requested/resolved model settings required by the contract.
-The execution record now carries model, reasoning, and fast-mode identity and is retained directly
-on its core chunk alongside timing, hashes, usage, and sanitized failure state. Nine shared contract
-tests and the same static gates pass.
-
-Track B's pre-review seam audit found that the local model was confirmation-bound but the
-configurable loopback endpoint was not. The coordinator selected an explicit `RunPreview`
-`local_endpoint` field rather than a hidden fixed-port rule; the model/endpoint pair is now part of
-the confirmation hash for both refusal fallback and deliberate local-only previews.
-
-A2's strict assembly audit also exposed a frozen-test defect: two tiny spans correctly planned as
-one chunk, after which the test supplied the same chunk identity twice. The coordinator corrected
-only that generalized fixture to use two 6,000-token natural-boundary spans and assert distinct
-identities. Duplicate chunk identities remain rejected.
-
-Provider-neutral product implementation is in progress. No private provider call, push, or PR
-mutation has occurred in Phase 02 yet.
-
-## Historical outcome
-
-Stage H V12 is a completed failed historical attempt. It made two provider calls, used 484,092
-input and 33,752 output tokens over 618,327 ms, and failed with
-`hierarchy_not_representable`. It produced no hierarchy, logical record, or publication; source,
-archive, and accepted baseline remained unchanged. The local sanitized result artifact SHA-256 is
-`08d3c3e2aab81c10b2256dd12e37a36fe2191d8ffeb14c92c4fadd68fc836686`.
-
-The user rejected Stage H/Stage E as the future supported semantic workflow and approved a Story
-Map V2 direction: a readable chronological whole-story overview, visible choices/branches/
-requirements/effects/rejoins/endings, selectable entry-to-target witness paths, and short
-approximate summaries. The lifecycle is `Revise`; the prior semantic `PASS` is revoked for future
-work.
-
-Phase 01 calibration, the disposable vertical proof, and the separate local-model supplement are
-complete. The user declared Phase 01 done and requested the next-phase prompt. Phase 02 product
-implementation has not started; it must begin in a new coordinator with a single active goal and
-early semantic review. PR merge, Phase 03+, M14, and M15.1 completion remain excluded.
-
-The user rejected the prior M15 Story Map because it presented a wide generic engineering graph
-rather than a compact human-readable narrative. The previous `PR ready` status is revoked. M15.1 is
-a correction inside the same milestone, branch, and PR; it is not complete and no prior screenshot,
-visible-order export, review, provider-free map, Release run, or passing PR head satisfies the new
-contract. All boundary/summary workflow evidence below is historical compatibility evidence, not
-current whole-scope Stage H/Stage E acceptance.
-
-The earlier corrected implementation and supported boundary/summary path were integrated locally
-and independently reviewed. The first approved live boundary run failed safely with no validated jobs, exposing an
-unsupported response-schema keyword. Versioned successor schemas preserve old identities and local
-validation while removing that provider-incompatible keyword. Historical boundary and summary
-production completed, but the uncontaminated source-first final review failed at exact head `ac898b0` before
-oracle/mockup access. It found blocking reader-lineage, projection-density/chronology, and factual-
-summary defects. Those findings revoke the current verification claim; generalized correction and
-a fresh blind Stage 1 are required before private comparison, browser acceptance, user visual
-approval, or the final Release/PR gate.
-
-The current whole-scope correction is not complete. Stage H v4 manifest
-`consent_5181073c41933f07c2ccc887` exhausted one initial call plus one targeted repair and failed
-closed with `uncertain_membership`; it produced no hierarchy, logical records, or publication, and
-Stage E has not run. Source/archive/accepted-baseline fingerprints remained unchanged. Commit
-`70f60eb` adds a failing-first uncertainty regression, hierarchy prompt v3, and consent-bound repair
-policy v3 without weakening fail-closed behavior. Repeated semantic review is `PASS`; its first
-exact-head review found one P1/two P2 lifecycle-evidence corrections while passing the runtime
-design. Those findings and two suggested uncertainty regressions are corrected; exact-head
-rereview passed `e33b773` with no P0-P2. The expanded M15.1/product set passed 106 tests, the full
-functional repository suite passed 1,498 tests with five expected skips, and the deselected
-load-sensitive M06 benchmark passed separately at 1.97 seconds. V5 then failed closed after two
-calls with `semantic_reinterpretation`, and v6 failed closed after two calls with
-`uncertain_membership`; neither produced hierarchy/publication and Stage E remains untouched.
-Ambiguity-threshold correction `b81dbad` passed independent rereview at `dc5a631` with no P0-P2.
-V7 then failed closed after two calls with `invalid_beat_group`; no hierarchy/publication exists
-and Stage E remains untouched. The failing-first prompt-v5/repair-policy-v6 correction explicitly
-covers the typed beat invariants omitted from generic repair guidance while leaving Python
-rejection unchanged. Independent exact-head rereview passed `6ab84ab` with no P0-P2; the
-exact-head 1,500-test functional suite, isolated M06 benchmark, focused, and static gates pass.
-V8 then failed closed after two calls with `hierarchy_not_representable`; no hierarchy/publication
-exists and Stage E remains untouched. Provider-free diagnosis proved input v2 omitted the
-assembler's three-state/two-transition progression context. The first input-v3/prompt-v6/policy-v7
-correction then failed independent review because choice-owned parent/arms/rejoin clusters override
-normal context splits. Corrected input v5/prompt v8/policy v9 project compact exact progression
-runs and deduplicated authority-bound choice ranges on existing hard locks, state precedence, and
-enforce one cluster in Python. The private payload is 643,032 bytes under its 660,000-byte ceiling.
-Focused 110/110, combined 128/128, full exact-head 1,503, both M06 scale checks, and static gates
-pass. Independent rereview passed `19258ba` with no P0-P2; fresh Stage H preparation is next.
-
-## Evidence status
-
-| Area | Status | Evidence |
+| Criterion | Result | Evidence |
 |---|---|---|
-| Historical branch and PR identity | Complete | Full-history head `a42e8a0` passed GitHub run `30163111942`; PR #26 and its branch are preserved as historical backup while accepted files move through a clean delivery PR. |
-| Phase 01 private-input preflight | Complete for Phase 02 | Source, archive, project-copy, and Phase 01 authority bytes, SHA-256 values, and timestamps match the frozen preview and post-replay records; private materials remain outside Git with targeted local ignore protection. |
-| Phase 02 contract | Complete | `GOAL.md` defines the achieved simple V2 core done condition, 16 criteria, exclusions, evidence, task topology, and cloud/local ceilings. |
-| Phase 02 semantic gate | PASS | Early review at `df75532` found four P1s/no P0-P2; one bounded correction; same-task rereview passed exact head `4d32f08` with no unresolved P0-P2 |
-| Phase 02 native goal | Complete | Goal `019f9676-c357-7803-a891-f03782bbb8ee` exactly matched and achieved the Phase 02 done condition. |
-| Historical shared failing-first freeze | Historical complete | Rejected Stage H/E exact head `c768b19`; not current Phase 02 acceptance evidence |
-| Tracks A/B/C and exact-head reviews | Complete | Track A reviewed head `09062370`; Track B final supported product-path head `ca048973`; Track C final compatibility head `61a3eef`; all required exact-head reviews passed with no unresolved P0-P2 |
-| Integrated fake-provider acceptance | Complete | Local integration head `4f6f740`; 174 M15 passed/2 expected opt-in skips, 169 compatibility passed, both enabled Chrome suites 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, whitespace, and private-reference diff scan passed |
-| Provider-schema correction | Complete and independently reviewed | Four versioned successors preserve historical resources and remove only unsupported `uniqueItems`; all four current/stale routes and all eight delegated uniqueness sites have direct regression coverage. Independent re-review passed with no P0-P2. 184 M15 passed/2 expected opt-in skips, 169 compatibility passed, enabled Chrome 10 passed, Ruff, strict mypy over 114 files, JavaScript syntax, JSON parsing, whitespace, and four public Codex CLI 0.144.0 schema canaries passed. The optional exhaustive repository run exceeded 300 seconds without emitting a failure and is not counted as passed. |
-| Consent-duration/recovery correction | Complete and independently reviewed | Versioned-schema manifest `consent_7857c66fd76b25a58a6b4713` validated 59/94 windows with zero job errors before expiry; the authorized one-hour resume completed all 94 records. Product manifests now last one hour; terminal-record fingerprints and exact ledger snapshots recover calls/usage once across repeated and cross-process rotation. Same-stage overlap is blocked through expiry plus timeout, rotated runners cancel before later reservations, and advanced phases cannot regress. Independent re-review passed with no P0-P2. 196 M15 passed/2 expected opt-in skips, Ruff, strict mypy over 114 files, and whitespace pass. |
-| Historical live boundaries | Historical complete | Superseded checkpoint records 94/94 validated and frozen membership `049a327b…189b`. Checkpoint manifest/result SHA-256: `817889a6…bc29` / `d448ed96…ca66`. These records are not current Stage H proof. |
-| Historical live summaries | Historical complete | At superseded head `e925afd`, exact manifest `consent_710e992d5a0f47e3108351de` completed 161/161 with no errors and published `139c690e…c8f`. Manifest/result SHA-256: `28f8612d…be30` / `557745d7…32c`. Cumulative calls/reservations were 529/529; source/archive/authority rows were unchanged. These records remain readable compatibility evidence only and are not current Stage E proof. |
-| Current whole-scope Stage H | Rejected historical path | V12 failed `hierarchy_not_representable` after two calls with no hierarchy, logical record, or publication; protected fingerprints remained unchanged |
-| Story Map V2 Phase 01 | Complete and accepted as direction | Matrix closed at exactly 20 submissions with no retry/replacement. Provider-free checker corrections and hardened rereview passed with P0/P1/P2 all zero. The disposable six-section prototype passed 24/24 correspondence checks, five witness classes, 100%/200% browser acceptance, and zero remote/provider calls; manifest `786c7bb3...afa8`. The user declared the phase done. A fresh acceptance audit keeps Luna initial mapping/Terra later synthesis/no always-on auditor but does not adopt ~2.5k as a proven context limit; Phase 02 starts with natural ~8k corridors, branch-heavy ~5k splits, and ~10.7k ceiling. Exact end-to-end dollar preference remains unresolved. |
-| Phase 01 local LM Studio supplement | Complete | Exactly four localhost-only P1 calls completed with no retry/fallback. All outputs were schema-valid; checker v3 passed medium/large/full and blocked small because all four captions contained literal surrounding quotes. Scores: 97.05 blocked, 96.35 eligible, 97.10 eligible, 95.85 eligible. Source/archive unchanged; separate outside-Git ledger/report complete. The model is useful for local drafts but does not supersede the hosted recommendation. Original 20-call PASS package unchanged; no P2/P3, extensions, product code, Phase 02, push, or PR mutation. |
-| Phase 02 core rewrite | Complete | Strict v2 preview/call and provider-free replay of the retained response produced a complete 1/1 cloud core: 12 chronological events, four exact choices, eight unique outcomes, all anchors, zero validation failures, unchanged protected fingerprints, and no retry/fallback/additional call. Final review passed with P0-P3 all zero; exact full-history head `a42e8a0` passed GitHub run `30163111942`. |
-| Current whole-scope Stage E | Superseded historical path | Do not execute; Stage H/E is rejected for the supported future workflow. |
-| Historical Stage H/E private comparison | Rejected historical path | Uncontaminated Stage 1 froze `ac898b0` and returned one P0, three P1, and one P2. That candidate belongs to the rejected Stage H/E path and is not Phase 02 acceptance evidence or a current prerequisite. |
-| Real Chrome and user visual approval | Phase 03 exclusion | The compact browser, synthesis, screenshots, and visual approval belong to Phase 03 and are not required for the accepted Phase 02 developer core. |
-| Phase 02 final review and delivery decision | Complete | Product/artifact and CI-correction reviews passed with P0-P3 all zero; exact head `a42e8a0` passed GitHub run `30163111942`. The user approved a clean Phase 01/02 delivery PR rather than merging rejected history from PR #26. |
+| 1 | Pass | Exact baseline/fetch/preflight above |
+| 2 | Pass | Contract locked; active native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; all three visible tracks and separate exact-head reviewers are complete |
+| 3 | Pass | `SEMANTIC_REVIEW.md` ends `PASS` before product edits |
+| 4 | Pass | Separate visible A/B/C tracks and exact-head reviewers completed with final P0=P1=P2=P3=0 verdicts |
+| 5-7 | Pass | Reviewed synthesis/validation/fallback implementation; the sole provider call failed identity verification and complete chronological fallback represents all 12 accepted events once |
+| 8-10 | Pass | Private fallback acceptance SHA `a42202b7...`: 12 events, 4 choices, 8 arms, 4 known rejoins, all 24 Detail/source targets, five target classes, complete fallback and honest one-path unresolved status |
+| 11 | Pass | Exact preview hashes/settings above; terminal ledger SHA `1607f22a...` records 1 construction/attempt/call, failed identity, and `completed_no_retry` with no retry or substitution |
+| 12 | Pass | Working project SHA `0bd02eb8...`; private reopen preserves map/path/detail and adds zero constructions, attempts, or calls |
+| 13 | Pass for automated/capture evidence | Final product `eecaf59`, exact lifecycle review `8d8aecf`, 16 focused Chrome cases, replacement report SHA `75143227...`, and four 100%/200% captures; no overflow/clipping/overlap/mojibake/remote/provider activity |
+| 14 | Pass | Protected fingerprints and ledger unchanged; zero remote browser requests; privacy/import/containment gates pass; artifacts remain outside Git |
+| 15 | Pass | User reviewed the replacement final-reviewed-head 100%/200% overview/deep-path captures and replied “looks better proceed” |
+| 16 | Local review pass; pushed check pending | Final cross-track review PASS at exact lifecycle head `8d8aecf`, P0=P1=P2=P3=0; exact pushed PR-head GitHub checks remain |
+| 17 | Pending | Evidence is current through final review, replacement capture, and explicit screenshot approval; push, open PR, and exact-head checks remain |
+| 18 | Pass | Exclusion/diff audits show no Phase 04/05, M14, scheduler/recovery, legacy-retirement, installer, dynamic-tracing, or historical Stage H/E scope |
 
-## Rejected historical evidence
+## Validation
 
-- The provider-free result contained no qualifying live boundary or summary jobs/cache/provenance.
-- Its wide station/canvas presentation and technical labels failed the revised normal-flow,
-  density, narrative-language, local-choice, and responsive acceptance requirements.
-- Its prior reviews did not perform the required source-first then private-reference comparison of
-  the same frozen candidate.
-- Its screenshots and sanitized visible-order export remain local/committed historical artifacts
-  only; they are not M15.1 acceptance evidence.
+| Command / review | Result | Artifact or notes |
+|---|---|---|
+| `git fetch --prune origin` and exact ref comparison | Pass | Local and remote `main` both `e81523f` |
+| `git status --porcelain --untracked-files=no` | Pass | Zero tracked changes before lifecycle edits |
+| Phase 02 acceptance-summary structural audit | Pass | Complete 1/1; 12/4/8; zero failures |
+| Protected fingerprint/size/mtime recomputation | Pass | All three records match |
+| Early semantic review | Pass | `docs/milestones/M15/SEMANTIC_REVIEW.md` |
+| Native goal creation | Pass | Active goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matches the done condition |
+| Track A initial worker checks | Pass at rejected head | `420dbb7`: 15 focused, 186 V2/storage, 71 web/M10-M12, Ruff, strict mypy, schema parse, whitespace |
+| Track A independent review | Fail | Task `019f9c67-af1c-7812-a471-1f6a98572f1c`: P0=0/P1=2/P2=0/P3=1 at exact head `420dbb7` |
+| Track A final independent rereview | Pass | Exact worker head `2319092`: P0=P1=P2=P3=0; 50 focused, 210 V2/import, 82 storage/web/M10-M12, Ruff, strict mypy, schema binding, whitespace |
+| Track A integration | Pass | Reviewed commits integrated byte-equivalently through `50bdc08`; coordinator CPython 3.12 focused set 50 passed |
+| Track B/C dispatch | Pass | Visible tasks `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` and `019f9c8d-cfa8-76c1-9111-7600e1180d35`, exact base `4827b06`, explicit `gpt-5.6-sol` High, non-overlapping scopes |
+| Track C initial worker gate | Rejected historical head | Exact head `1387636`; reviewer P0=0/P1=1/P2=3/P3=0 after topology reproduction; all findings later closed at reviewed `fb0f2ecd...` |
+| Track B initial worker gate | Rejected historical head | Exact head `2069eab`; reviewer P0=0/P1=0/P2=5/P3=0; all findings and the later race P2 closed at reviewed `47f0cacf...` |
+| Track B final independent rereview | Pass | Exact head `47f0cacf3e6d6d84281403c38061265ebaee722b`: P0=P1=P2=P3=0; all earlier findings closed |
+| Track C final independent rereview | Pass | Exact head `fb0f2ecd207848248e674f9c76af7a3d505019fb`: P0=P1=P2=P3=0; focused, topology, architecture, loopback, static, and fixture gates green |
+| Track B/C integration | Pass | Reviewed chains integrated through `a8e0ddf`; every track-owned path is byte-equivalent to its reviewed exact head and the shared API fixture blob matches |
+| Integrated Story Map V2 matrix | Pass | 241 passed/3 opt-in browser skips after reviewed private-preview correction; all three skipped profiles pass in their dedicated final-byte Chrome run |
+| Private zero-submit preview | Pass | Request `d4d44735...`; confirmation `cd367171...`; schema `4febec35...`; 9,322 bytes; Terra/High/fast-off; max one; zero constructions/attempts/calls before execution; identical rebuild |
+| Sole private synthesis execution | Terminal failed closed | Exactly 1 construction/attempt/call; identity unverifiable; ledger state `completed_no_retry`, SHA `1607f22a...`; no retry/substitute/auditor/mapper rerun |
+| Presentation lineage correction review | Pass | Exact worker head `75b1484`, independent exact-head P0=P1=P2=P3=0; integrated as `b61ab8e` |
+| Public selection collision review | Pass | Exact worker head `497ccf76aeb626b78ba0787c31c4cde53607b362`, independent exact-head P0=P1=P2=P3=0; integrated as `5565244` |
+| Target-entry correction review | Pass after rejected predecessor | `53c1494` rejected for broad authority masking; exact replacement `ba9537542b2badff2fa75563fb233743209e40fe` passed P0=P1=P2=P3=0 and integrated through `5760eb3` |
+| Private fallback/path/reopen acceptance | Pass | Report SHA `a42202b7...`; exact 12/4/8 plus four rejoins; 24 Detail/source available; 23 Path available/1 honest unresolved; five target classes; reopen adds zero provider activity |
+| Path-panel overflow correction review | Pass | Exact Track B head `834246b3eade1096cb9d53041b91ed90767dff23`; independent P0=P1=P2=P3=0 with light/dark desktop/effective-200%/narrow/max-content stress; integrated as `cff2388` |
+| Final private real-Chrome acceptance | Pass | Browser report SHA `df3c721f...`; loopback only, zero remote/provider activity, no overflow/clipping/overlap/mojibake, focus/selection return pass; four candidate 100%/200% screenshots captured outside Git |
+| Initial final cross-track review | Fail at rejected candidate | Visible task `019f9d58-0eec-77f0-9049-61f8d5ba6e81` at exact `60b0441`: P0=0/P1=0/P2=2/P3=1; stale Detail response and cross-tree continuation contract findings routed back to Track B |
+| Final-review Track B correction | Pass | Exact worker head `8e6de6f395494b006d5eec5387c17a3b1c6654a1`; failing-first regressions, 13 focused/six Chrome, complete 269+6 browser family, 47 navigation/selection, 114 adjacent, Ruff, mypy 109, Node/assets/fixtures/privacy/diff green |
+| Final-review Track B rereview | Pass | Same Track B reviewer at exact `8e6de6f`: P0=P1=P2=0/P3=1; focused, six Chrome, complete family, adjacent, adversarial, static, asset, fixture, and privacy gates green |
+| Exact correction integration | Pass | `git merge --ff-only 8e6de6f...`; integration product head is byte-identical to the reviewed worker head; coordinator Track B gate 13/13 passed |
+| Final-head private recapture | Pass | Exact `8e6de6f`; browser report SHA remains `df3c721f...`; all four PNG hashes unchanged; zero provider activity and protected inputs unchanged |
+| Final cross-track exact-head rereview | Pass | Same visible final reviewer at exact `8e6de6f`: P0=P1=P2=0/P3=1; 275 Story Map, 92 adjacent, six Chrome, 20/20 adversarial mutations, Ruff, mypy 109, Node/assets/fixture/privacy/containment and authorized hashes green |
+| Visual refinement worker and same-role review | Pass after one rejected P2 | Initial `d858c999...` rejected only for long-title clipping; corrected `848dce0c06300fb90722ba00a2d69bcd8268793c` PASS, P0=P1=P2=P3=0; 16 focused/nine Chrome, 269 V2, adjacent, maximum-title and static/privacy gates |
+| Visual refinement integration | Pass | Reviewed product/test blobs integrated byte-equivalently through `eecaf590f608d62d74b32c4af2b5a665d681bee5`; coordinator 16 focused, 269 V2, 136 adjacent, JS/Ruff/mypy/workflow/diff gates green |
+| Visual refinement final cross-track rereview | Pass | Same final reviewer at exact lifecycle head `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1`: P0=P1=P2=P3=0; 16 focused, 269 V2, 137 adjacent, exact maximum-bound Chrome, asset/identity/privacy/containment; inherited compact-witness P3 closed |
+| Replacement private real-Chrome acceptance | Pass | Report SHA `75143227693ed14a8e93ccdd29578c564c12c59156c1f6d79d2dc31e7f53042f`; four replacement PNGs captured at 100%/200%; zero remote/provider activity, protected inputs and terminal ledger unchanged |
+| Final local release validation | Pass | Approval head `f56f238`: 1,420 deterministic tests passed/16 hardware deselected; Ruff, strict mypy 109, pip check, 4/4 JS, whitespace, isolated sdist/wheel build, wheel install, isolated import and packaged browser assets passed |
+| First pushed-head GitHub check | Bounded timing failure | Run `30210504223` at `73cc758`: 1,418 tests and every non-pytest Release gate passed; two historical M13 fake-provider tests remained `running` after fixed 500 x 10 ms polling on a heavily loaded Windows runner |
+| CI polling correction | Pass | Three historical fake-provider polling loops now use a bounded 30-second monotonic deadline consistent with existing tests; all three affected regressions passed three consecutive local runs (9/9), then full Release passed 1,420 tests/16 hardware deselected plus every static/package gate; no product/provider code changed |
+| CI polling correction review | Pass | Exact head `3cde906febba265ab8b4d13798bf4444e6d704ba`; independent P0=P1=P2=P3=0; focused tests, workflow contracts, Ruff, diff/scope, PR metadata, and failed-run accounting independently verified |
+| Replacement pushed-head GitHub check | Pass | Run `30212233098` passed at exact reviewed head `3cde906`; PR #28 was `CLEAN`, open, non-draft, and unmerged |
+| Integrated adjacent matrix | Pass | 317 passed/2 hardware deselected across bounded M10-M13 storage/API/navigation/route/privacy surfaces |
+| Integrated browser compatibility | Pass with separately recorded historical harness defect | Final Story Browser 3/3 and M12 Chrome pass; M13 exact control/record render was proven despite its legacy falsey-element wait timeout |
+| Integrated static/privacy gate | Pass | Ruff; strict mypy 108 files; JS syntax 4 files; 33 asset/privacy/import tests; JSON/schema/manifest/whitespace/containment clean |
 
-## Current limitations
+## Review findings
 
-- The accepted Phase 02 core is an outside-Git developer artifact for Phase 03; it is not yet the
-  final compact browser/synthesis product. Broad events conservatively remain unresolved when
-  deterministic authority is mixed or dynamic.
-- Rejected Stage H/E implementation remains on the preserved historical branch, while clean
-  delivery contains only the supported V2 core and accepted lifecycle records.
-- Historical boundary/summary production is complete only for its superseded identity. Stage H/E
-  is rejected for future supported work; all private artifacts remain ignored and unstaged.
-- Full-game semantic quality, M14 dynamic adapters, runtime tracing, game/creator execution,
-  installer/public distribution, and PR merge remain outside this correction.
-- The visible task surface can set model and reasoning but exposes no fast-mode selector; that
-  setting must remain unavailable/unverified for task dispatch.
+- No unresolved semantic-gate finding.
+- Tracks A/B/C and every bounded post-integration correction have passed their same-role exact-head
+  reviews with P0=P1=P2=P3=0 and were integrated byte-equivalently.
+- The one provider call is terminally spent after fail-closed identity verification; deterministic
+  fallback, private map/path/detail/reopen acceptance, and final real-Chrome capture pass.
+- Prior final independent cross-track review passed at exact product head `8e6de6f` with one
+  compact-witness presentation P3. The approved refinement is now integrated and independently
+  passes with P0=P1=P2=P3=0; the inherited P3 is closed.
+- Replacement 100%/200% captures pass and the user explicitly approved them with “looks better
+  proceed.” Prior candidates remain archived outside Git.
+- PR #28 is open, non-draft, and unmerged. Its first exact-head GitHub run is recorded above; the
+  bounded timing correction passed independent exact-head review and replacement GitHub run
+  `30212233098` at `3cde906`.
+- The same screenshot-approval condition remained unanswered for three consecutive goal turns.
+  The approval picker returned no selection and the required Pushover input-needed notification
+  was sent, so the milestone is blocked without any remote mutation.
+- That blocker is superseded: the user resumed, approved the bounded visual refinements, removed
+  the prior goal, and authorized an amended self-goal. The replacement exact head is reviewed and
+  recaptured; only explicit approval of the new screenshots remains at this gate.
 
-Phase 02 lifecycle evidence is complete. Phase 03 must start under its own explicit contract and
-dedicated handoff after the clean delivery is merged; this report does not start Phase 03.
+## Integration and PR state
+
+- Integrated diff reviewed against contract and exclusions: Yes; final cross-track PASS at exact
+  lifecycle head `8d8aecf`, P0=P1=P2=P3=0
+- Required checks passed: Yes; local provider-free/private/browser and post-correction full Release
+  pass, independent exact-head review is P0=P1=P2=P3=0, and replacement GitHub run `30212233098`
+  passes at exact reviewed head `3cde906`
+- Blocking findings resolved or explicitly accepted: Yes; no unresolved P0-P3 in the amended
+  exact-head review
+- User approved final-head screenshots: Yes
+- PR genuinely ready: Yes; PR #28 remains open, non-draft, clean, and unmerged. The required check
+  on this final lifecycle-only head is authoritative in the PR rollup before native-goal closure.
+
+## Remaining limitations
+
+- Track A/B/C product code and every bounded correction are integrated, independently reviewed,
+  provider-free verified, and privately accepted through deterministic fallback.
+- The sole synthesis submission failed closed because provider identity could not be verified. The
+  one-call ceiling is spent and no retry is permitted; fallback is the accepted rendered result.
+- One exact control-only first target remains honestly `unresolved`; all other 23 selectable paths
+  and all 24 Detail/source-navigation targets are available.
+- The prior compact-witness P3 is closed: mechanics render first and the complete ordered scene
+  sequence remains available under collapsed `Analysis notes`.
+- Replacement 100%/200% screenshots are explicitly approved. The bounded CI polling correction,
+  exact-head review, full Release, and replacement GitHub check pass; PR #28 is ready and remains
+  open/unmerged for explicit user approval.
+- Fast-mode selection is unavailable in the visible task creation API and will be recorded as
+  unavailable/unverified for task dispatch. Exact live Terra fast-off identity remains mandatory.
+
+Complete the native Codex goal only when `PR genuinely ready` is `Yes`, final screenshots are
+explicitly approved, and every acceptance row has durable evidence.

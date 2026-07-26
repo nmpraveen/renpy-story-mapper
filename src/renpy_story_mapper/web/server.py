@@ -133,7 +133,12 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
             body = self._read_json_body() if method != "GET" else {}
             result = self.server.api.dispatch(method, path, body)
         except ApiProblem as exc:
-            self._json_error(exc.status, exc.code, exc.message)
+            self._json_error(
+                exc.status,
+                exc.code,
+                exc.message,
+                selection_id=exc.selection_id,
+            )
             return
         except ValueError:
             self._json_error(HTTPStatus.BAD_REQUEST, "invalid_request", "The request is invalid.")
@@ -227,8 +232,20 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
             HTTPStatus.METHOD_NOT_ALLOWED, "method_not_allowed", "The method is not allowed."
         )
 
-    def _json_error(self, status: int, code: str, message: str) -> None:
-        self._write_json(status, {"error": {"code": code, "message": redact_message(message)}})
+    def _json_error(
+        self,
+        status: int,
+        code: str,
+        message: str,
+        *,
+        selection_id: str | None = None,
+    ) -> None:
+        body: dict[str, JsonValue] = {
+            "error": {"code": code, "message": redact_message(message)}
+        }
+        if selection_id is not None:
+            body["selection_id"] = selection_id
+        self._write_json(status, body)
 
     def _write_json(self, status: int, value: JsonValue) -> None:
         payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
