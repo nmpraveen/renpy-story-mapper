@@ -389,6 +389,8 @@ def _lineage_for_node(
 ) -> tuple[ArmLineageStep, ...]:
     steps: list[tuple[int, ArmLineageStep]] = []
     for region, _key, _path, _line, _raw_arms in choices:
+        if region.split_node_id == node_id:
+            continue
         for ordinal, members in enumerate(arm_members_by_region[region.id], start=1):
             if node_id in members:
                 steps.append(
@@ -398,7 +400,12 @@ def _lineage_for_node(
                     )
                 )
                 break
-    return tuple(step for _depth, step in sorted(steps, key=lambda item: (item[0], item[1])))
+    lineage = tuple(
+        step for _depth, step in sorted(steps, key=lambda item: (item[0], item[1]))
+    )
+    if len({step.choice_key for step in lineage}) != len(lineage):
+        raise SourceAdaptationError("choice parent lineage repeats a choice")
+    return lineage
 
 
 def _arm_mechanic(
