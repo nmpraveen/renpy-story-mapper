@@ -259,6 +259,7 @@ class StoryArmReadModel:
     warnings: tuple[str, ...]
     binding: NavigationBinding
     nested_choices: tuple[StoryChoiceReadModel, ...]
+    rejoin_binding: NavigationBinding | None = None
 
 
 @dataclass(frozen=True)
