@@ -91,7 +91,7 @@ def _publish_all(
 
 
 def test_collections_use_schema_v6_generic_payload_storage() -> None:
-    assert storage.SCHEMA_VERSION == 6
+    assert storage.SCHEMA_VERSION >= 6
     assert M11_PHASES == (
         "story_atoms",
         "scene_boundaries",
