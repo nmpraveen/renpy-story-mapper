@@ -13,9 +13,13 @@ contains the accepted files without that rejected product stack. The user starte
 2026-07-25 under its dedicated branch, contract, native goal, and PR workflow. Its one authorized
 Terra synthesis failed closed on unverifiable provider identity and is terminal with no retry;
 deterministic fallback, private path/detail/reopen acceptance, and 100%/200% real-browser capture
-now pass at final reviewed product head `8e6de6f`. Independent final cross-track review passes with
-P0=P1=P2=0 and one nonblocking compact-witness P3. Explicit screenshot approval, the open unmerged
-PR, and exact pushed-head GitHub checks remain pending.
+passed at reviewed product head `8e6de6f`. Independent final cross-track review passed with
+P0=P1=P2=0 and one compact-witness P3. After comparing those captures with the accepted Phase 01
+visual direction, the user approved a bounded provider-free browser refinement: compact fallback
+hierarchy, numbered existing-event timeline, concise mechanics-first witness with complete raw
+scenes retained under Analysis notes, responsive desktop/narrow arms, restrained accents, and a
+compact 200% masthead. Replacement screenshots, exact-head rereview, the open unmerged PR, and
+exact pushed-head GitHub checks remain pending.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1233,12 +1237,13 @@ chronological events, four exact story choices, eight branch outcomes, 20 stable
 execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
 returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
 `30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
-excludes the rejected implementation. Phase 03 is in Verification on
-`codex/m15-phase03-story-browser` under its own contract and active goal. The one-call synthesis
+excludes the rejected implementation. Phase 03 is returning through its single semantic gate on
+`codex/m15-phase03-story-browser` under its amended contract; the user removed the prior native
+goal and authorized a renewed exact done-condition goal before browser edits. The one-call synthesis
 ceiling is spent after fail-closed identity verification; complete deterministic fallback and
-private browser/path/reopen evidence pass at final reviewed product head `8e6de6f`. The final
-cross-track reviewer returned `PASS` with P0=P1=P2=0 and one nonblocking compact-witness P3. User
-screenshot approval and the future open unmerged PR and pushed-head checks remain outstanding.
+private browser/path/reopen evidence passed at reviewed product head `8e6de6f`. That candidate is
+now historical pre-refinement evidence; replacement browser acceptance, user screenshot approval,
+the future open unmerged PR, and pushed-head checks remain outstanding.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1437,10 +1442,20 @@ passed that exact head, and the same final reviewer returned `PASS`, P0=P1=P2=0/
 private browser recapture at `8e6de6f` reproduced the previously presented report and four PNGs
 byte-for-byte with zero provider activity.
 
+The user then compared those captures with the accepted Phase 01 prototype, approved a bounded
+presentation correction, removed the prior native goal, and authorized a renewed self-goal. The
+correction is limited to a compact nonduplicated fallback hero, numbered presentation of existing
+accepted events without new semantic grouping, restrained section/nesting accents, two-column
+desktop arms that stack at narrow/effective-200% width, a mechanics-first witness with the full raw
+scene sequence retained under Analysis notes, and a compact responsive masthead. The one provider
+call remains terminal and no server/API/navigation/private authority changes are permitted.
+
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
-or begin Phase 04/05 or M14. The immediate gate is explicit user approval of the captured private
-screenshots, followed by the single open unmerged Phase 03 PR and exact pushed-head GitHub checks.
+or begin Phase 04/05 or M14. The immediate gate is the amended semantic `PASS` and renewed native
+goal, followed by the bounded browser correction, same-role exact-head rereviews, replacement
+private 100%/200% screenshots, explicit user approval, the single open unmerged Phase 03 PR, and
+exact pushed-head GitHub checks.
 
 ### Rejected historical next action
 

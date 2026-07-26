@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: Blocked
+Status: Ready
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
@@ -17,9 +17,13 @@ Phase 03 is done only when the exact accepted private Day 1 core opens through t
 website as a compact chronological story map with an optional validated whole-story synthesis,
 all accepted events and exact local choice mechanics, selectable entry-to-target witness paths,
 exact Detail/Evidence and source navigation, durable project reopen without another mapper or
-synthesis call, complete provider-free fallback, readable 100% and 200% normal-flow rendering,
-approved final-head private screenshots, no unresolved independent-review P0-P2, passing focused
-and exact pushed-head GitHub checks, complete lifecycle evidence, and one Phase 03 PR open and
+synthesis call, and complete provider-free fallback whose primary view has a compact nonduplicated
+hero, existing accepted events presented as a numbered chronological timeline without new semantic
+grouping, restrained section and nesting accents, two-column desktop arms that stack at narrow or
+effective-200% width, a concise mechanics-first witness with the complete raw scene list retained
+under Analysis notes, and a compact readable masthead at 100% and 200%; final-head private
+screenshots are explicitly approved, independent review has no unresolved P0-P2, focused and exact
+pushed-head GitHub checks pass, lifecycle evidence is complete, and one Phase 03 PR is open and
 unmerged for explicit user approval.
 
 ## Objective
@@ -40,9 +44,10 @@ routes, reachability, and source locations.
   stale-identity rejection, and reopen without provider construction.
 - Read-only Story Map V2 map, path, and detail/source API seams over existing project, M12 route,
   and source-navigation authority.
-- A semantic, bounded-width, normal-flow browser whose primary cards are broad story sections,
-  with accepted events, local and nested choices, exact mechanic badges, rejoins, selection,
-  compact path display, analysis notes, and preserved scroll/selection context.
+- A semantic, bounded-width, normal-flow editorial browser with a compact nonduplicated hero,
+  numbered existing-event timeline, restrained accents, desktop two-column/narrow stacked arms,
+  concise mechanics-first path display, raw scenes under Analysis notes, exact mechanic badges,
+  local/nested choices and rejoins, and preserved scroll/selection context.
 - Generalized synthetic fixtures and focused synthesis, persistence, API, browser, path,
   navigation, privacy, import-isolation, responsive, and fallback tests.
 - Private final-head acceptance artifacts and screenshots outside Git, independent track and final
@@ -75,7 +80,12 @@ routes, reachability, and source locations.
     constructions, attempts, or calls; stale records are rejected after authority identity change.
 13. The Story Map V2 page is readable at browser zoom 100% and 200% with no page-level horizontal
     overflow, overlap, clipped text, microscopic fit-all scaling, or fixed-width branch sprawl;
-    keyboard focus, selection, and return-to-selected behavior remain visible.
+    its fallback hero is compact and not duplicated by a wrapper section, existing accepted events
+    form a numbered chronological timeline without invented grouping, restrained accents preserve
+    local/nested ownership, arms use two columns only when desktop width safely permits and stack at
+    narrow/effective-200% width, the primary witness shows bounded story-significant mechanics while
+    the complete raw scene sequence remains available under Analysis notes, the masthead stays
+    compact, and keyboard focus, selection, and return-to-selected behavior remain visible.
 14. Private source, accepted core, provider payload/response, derived private records, and
     screenshots remain outside Git; source/archive/project fingerprints remain unchanged; no
     game, Ren'Py, or creator code runs; the browser makes no remote asset request.
@@ -92,16 +102,16 @@ routes, reachability, and source locations.
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1 | Fetch result, exact local/remote baseline, tracked-clean status, supported V2 files | Preflight recorded in `COMPLETION_REPORT.md` |
-| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Pass: active goal `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; semantic `PASS`; all Track A/B/C worker and exact-head reviewer identities are recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
+| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Prior goal was removed by the user after visual comparison; amended semantic `PASS` is recorded and the renewed exact done-condition goal is pending creation; all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
 | 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pass: reviewed implementation and generalized gates; the sole synthesis failed closed on unverifiable identity, and deterministic fallback covers all 12 events once in chronological order (`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json`) |
 | 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
 | 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
 | 12 | Storage identity/stale/reopen tests and private zero-new-call reopen result | Pass: project `0bd02eb8...`; reopen map/path/detail succeeded with zero new provider constructions, attempts, or calls |
-| 13 | Automated overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for capture and automated evidence: browser report `df3c721f...`; four outside-Git 100%/200% overview/deep-path screenshots recaptured byte-identically at final reviewed product head `8e6de6f`; explicit approval is criterion 15 |
+| 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pending approved visual refinement, exact-head browser matrix, and replacement outside-Git screenshots; prior report `df3c721f...` at `8e6de6f` is historical pre-refinement evidence |
 | 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
 | 15 | User approval in the Phase 03 Coordinator task | Pending |
-| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Local final review pass at exact product head `8e6de6f`: P0=P1=P2=0/P3=1; exact pushed PR-head GitHub run pending |
-| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pending push, PR, and exact pushed-head checks; evidence records are current through final reviewed product head `8e6de6f` |
+| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Prior local final review passed at `8e6de6f`; amended visual candidate exact-head review and pushed PR-head GitHub run pending |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pending visual correction, replacement screenshots, final review, push, PR, and exact pushed-head checks; evidence records are current through prior reviewed product head `8e6de6f` |
 | 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
 No planned command or screenshot is passing evidence until its observed result and exact head are

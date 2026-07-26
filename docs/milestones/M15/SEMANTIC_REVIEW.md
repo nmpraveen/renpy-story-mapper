@@ -17,6 +17,7 @@ Decision: PASS
 | M12-backed path and existing Detail/Evidence/source navigation | Master plan two-level map; handoff path behavior | Story anchors bind to current deterministic targets; unresolved paths expose known prefix without invented connectivity | Yes |
 | Minimal durable project integration | Handoff minimal integration | Reuse generic project payload transactions; store one current core and zero/one synthesis keyed to source/authority identity; reject stale records | Yes |
 | Normal-flow responsive story page | Master plan route map; handoff browser behavior | Story Map V2 is primary; bounded semantic HTML, local stacked arms, preserved selection/context, no third level | Yes |
+| User-approved visual refinement | 2026-07-26 screenshot comparison and explicit correction request | Improve only browser hierarchy and responsive presentation: compact nonduplicated fallback hero, numbered existing-event timeline, restrained accents, desktop two-column/narrow stacked arms, mechanics-first witness with the full raw scene list in Analysis notes, and compact masthead; do not invent grouping or mechanics | Yes |
 | One bounded exact Terra call | Handoff provider authorization | One preview-bound Terra/High/fast-off submission, no retry/auditor/mapper/local/model substitution | Yes |
 | Privacy, safety, and outside-Git private artifacts | Master plan non-negotiables; handoff criteria 14 | No raw Ren'Py resend, code execution, private fixture/text in Git, protected mutation, or remote browser assets | Yes |
 | Separate visible tracks and independent reviews | Handoff required topology | Track A first for shared seams; Tracks B/C may run in parallel afterward; each and final candidate require exact-head review | Yes |
@@ -65,6 +66,7 @@ Decision: PASS
 | Path and evidence | `story_map_v2/navigation.py` over M12 and current detail/source adapters | Five target classes, unresolved prefix, exact anchor/target binding, event/arm detail and qualified source links |
 | API | `web/contracts.py`, `web/api.py` | Read-only map/path/detail routes, bounded validation, stale/unavailable behavior, bootstrap route exposure |
 | Browser | `web/static/index.html`, `app.js`, `api.js`, `contract.js`, `styles.css`, manifest/docs as needed | Primary V2 load, selection/context preservation, keyboard focus, stacked arms, 100%/200% no horizontal overflow, no remote requests |
+| Approved visual refinement | `web/static/app.js`, `styles.css`, asset manifest, Track B synthetic/browser tests | Fallback hero deduplication; numbered existing events; exact two-column breakpoint and 200% stack; bounded mechanics-first witness plus complete raw-scenes disclosure; compact masthead; no changed API/server/projection semantics |
 | Architecture/privacy | V2 import gate and diff scan | No Stage H/E dependency, no private strings/files, no source execution, local assets only |
 | Integration/static | Existing relevant M10-M12/source-navigation tests, Ruff, strict mypy, JS syntax, JSON/schema, whitespace | Focused plus relevant regressions before private preview; exact pushed-head workflow is repository-wide gate |
 
@@ -104,12 +106,37 @@ Decision: PASS
 - No authority conflict remains after updating the active M15 lifecycle pointer from completed
   Phase 02 to this Phase 03 contract.
 
+## Approved visual-refinement amendment
+
+- On 2026-07-26 the user compared the exact `8e6de6f` captures with the accepted Phase 01 visual
+  direction, approved the six bounded refinements, removed the prior native goal, and explicitly
+  authorized an updated self-goal and continued implementation.
+- The amendment changes presentation only. Existing section/event/choice/arm/continuation records,
+  selection IDs, path/detail envelopes, M12 authority, source navigation, persistence, and the
+  terminal one-call ledger remain unchanged.
+- The deterministic fallback may visually promote each existing accepted event as a numbered
+  chronological timeline item and may omit a duplicate wrapper heading. It may not infer or create
+  new story sections, merge/split events, rewrite story prose, or copy private prototype text.
+- The primary witness may select already returned story-significant steps, choices, requirements,
+  effects, target context, and warnings for concise display. The complete ordered raw scene list
+  remains available in the same path panel under Analysis notes; no route evidence is discarded.
+- Desktop arms may use two columns only at a tested width where nested ownership and continuation
+  geometry remain contained. Narrow and effective-200% layouts stack in deterministic DOM order.
+- The masthead correction is responsive presentation only and must not remove accessible names,
+  keyboard access, required project identity, or existing actions.
+- Track B owns the bounded static-browser correction and synthetic/real-browser regressions. The
+  same Track B reviewer and final cross-track reviewer must rereview exact committed/integrated
+  heads before replacement private screenshots can be approved.
+- No provider construction/call, private-artifact access by worker/reviewer, API/server/navigation
+  change, Stage H/E work, Phase 04/05, M14, or second semantic-boundary system is permitted.
+
 ## Gate decision
 
-The approved scope has one observable done condition, the accepted input and protected boundaries
-are verified, the shared seams assign deterministic and AI responsibilities without adding a new
-semantic compiler, expected files/checks can prove every criterion, and no unresolved scope or
-architecture decision requires user input. Broad implementation may start only after the matching
-native goal is created and recorded.
+The amended approved scope has one observable done condition, the accepted input and protected
+boundaries are verified, and the presentation-only changes consume existing authority without a
+new semantic compiler, server seam, or provider action. Expected browser/static/private checks can
+prove every refined criterion, and no unresolved scope or architecture decision requires user
+input. The bounded refinement may start only after the matching renewed native goal is created and
+recorded.
 
 PASS

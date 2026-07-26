@@ -1,13 +1,13 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Blocked (resume at Verification after explicit screenshot approval)
+Status: Ready (approved visual refinement; renewed native goal pending before product edits)
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Integration branch: `codex/m15-phase03-story-browser`
 
-Integration commit: `8e6de6f395494b006d5eec5387c17a3b1c6654a1` (final reviewed product head;
-lifecycle-only evidence updates may follow before push)
+Integration commit: `8e6de6f395494b006d5eec5387c17a3b1c6654a1` (prior reviewed product head;
+replacement visual candidate pending)
 
 Pull request: Not created
 
@@ -212,6 +212,15 @@ profiles, Ruff, strict mypy over 109 source files, four JavaScript checks, asset
 containment checks, and matching authorized private artifact hashes. Explicit user screenshot
 approval, push/PR creation, and exact pushed-head GitHub checks remain pending.
 
+The user then compared the exact `8e6de6f` captures with the accepted Phase 01 prototype and did
+not approve them as final. They approved a bounded provider-free visual correction: compact and
+deduplicated fallback hierarchy, numbered presentation of existing accepted events without new
+semantic grouping, restrained section/nesting accents, desktop two-column arms that stack at
+narrow/effective-200% width, a concise mechanics-first witness with the complete raw scene sequence
+retained under Analysis notes, and a compact responsive masthead. The user removed the prior native
+goal and explicitly authorized an updated self-goal and continued implementation. No provider
+retry, server/API/navigation change, private-artifact exposure, or new story semantics is included.
+
 Candidate screenshot artifacts (outside Git; approval pending):
 
 - `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-overview-100.png`, SHA-256
@@ -255,11 +264,11 @@ Candidate screenshot artifacts (outside Git; approval pending):
 | 8-10 | Pass | Private fallback acceptance SHA `a42202b7...`: 12 events, 4 choices, 8 arms, 4 known rejoins, all 24 Detail/source targets, five target classes, complete fallback and honest one-path unresolved status |
 | 11 | Pass | Exact preview hashes/settings above; terminal ledger SHA `1607f22a...` records 1 construction/attempt/call, failed identity, and `completed_no_retry` with no retry or substitution |
 | 12 | Pass | Working project SHA `0bd02eb8...`; private reopen preserves map/path/detail and adds zero constructions, attempts, or calls |
-| 13 | Pass for automated/capture evidence | Browser report SHA `df3c721f...`; 100%/200% overview/deep-path captures were reproduced byte-identically at final reviewed product head `8e6de6f`; explicit user approval is criterion 15 |
+| 13 | Pending replacement evidence | Prior browser report SHA `df3c721f...` and captures at `8e6de6f` are historical; approved hierarchy/witness/arms/masthead refinement, exact-head browser matrix, and replacement 100%/200% captures are pending |
 | 14 | Pass | Protected fingerprints and ledger unchanged; zero remote browser requests; privacy/import/containment gates pass; artifacts remain outside Git |
-| 15 | Pending | Candidate screenshots captured and presented; explicit user approval has not yet been received |
-| 16 | Local review pass; pushed check pending | Same final reviewer returned `PASS` at exact product head `8e6de6f`, P0=P1=P2=0/P3=1; exact pushed PR-head GitHub checks have not run |
-| 17 | Pending | This lifecycle report is current through final reviewed product head `8e6de6f`; push, open PR, and exact-head check evidence remain |
+| 15 | Pending | Prior screenshots were superseded by the approved refinement request; explicit approval is required on replacement final-reviewed-head captures |
+| 16 | Pending amended exact-head evidence | Prior final review passed at `8e6de6f`; same-role Track B and final cross-track rereviews plus exact pushed PR-head GitHub checks are pending for the replacement candidate |
+| 17 | Pending | This report is current through the approved visual-refinement contract amendment; renewed goal, correction, replacement screenshots, review, push, open PR, and exact-head checks remain |
 | 18 | Pass | Exclusion/diff audits show no Phase 04/05, M14, scheduler/recovery, legacy-retirement, installer, dynamic-tracing, or historical Stage H/E scope |
 
 ## Validation
@@ -308,21 +317,27 @@ Candidate screenshot artifacts (outside Git; approval pending):
   reviews with P0=P1=P2=P3=0 and were integrated byte-equivalently.
 - The one provider call is terminally spent after fail-closed identity verification; deterministic
   fallback, private map/path/detail/reopen acceptance, and final real-Chrome capture pass.
-- Final independent cross-track review passes at exact product head `8e6de6f` with no unresolved
-  P0-P2. One compact-witness presentation P3 remains accepted as nonblocking.
-- Candidate screenshots are captured and presented, but explicit user approval is still pending.
+- Prior final independent cross-track review passed at exact product head `8e6de6f` with no
+  unresolved P0-P2 and one compact-witness presentation P3; the approved refinement now targets
+  that P3 and the broader visual-quality gap.
+- Prior candidate screenshots were captured and presented but are superseded; replacement captures
+  and explicit user approval are pending.
 - Push/PR creation and exact pushed-head GitHub checks have not yet occurred.
 - The same screenshot-approval condition remained unanswered for three consecutive goal turns.
   The approval picker returned no selection and the required Pushover input-needed notification
   was sent, so the milestone is blocked without any remote mutation.
+- That blocker is superseded: the user resumed, approved the bounded visual refinements, removed
+  the prior goal, and authorized an amended self-goal. Prior screenshots and final review remain
+  historical evidence until the replacement exact head is reviewed and recaptured.
 
 ## Integration and PR state
 
-- Integrated diff reviewed against contract and exclusions: Yes; final cross-track exact-head
-  review passes at `8e6de6f`, P0=P1=P2=0/P3=1
+- Integrated diff reviewed against contract and exclusions: Prior head `8e6de6f` passed; amended
+  visual correction and exact-head review pending
 - Required checks passed: Local provider-free/private/browser gates pass; exact pushed-head GitHub
   checks pending
-- Blocking findings resolved or explicitly accepted: Yes; no unresolved P0-P2, one nonblocking P3
+- Blocking findings resolved or explicitly accepted: Prior head has no P0-P2; amended visual
+  candidate and rereview pending
 - User approved final-head screenshots: No
 - PR genuinely ready: No
 
@@ -336,8 +351,9 @@ Candidate screenshot artifacts (outside Git; approval pending):
   and all 24 Detail/source-navigation targets are available.
 - Final review's one P3 notes that a maximum-size witness may place up to 80 scene titles before
   mechanics; it is a compactness improvement, not a correctness, privacy, or accessibility blocker.
-- Candidate 100%/200% screenshots await explicit user approval. PR, pushed-head GitHub checks, and
-  PR-ready lifecycle transition remain outstanding.
+- Prior 100%/200% screenshots are superseded. The approved browser refinement, replacement
+  screenshots and approval, exact-head rereviews, PR, pushed-head GitHub checks, and PR-ready
+  lifecycle transition remain outstanding.
 - Fast-mode selection is unavailable in the visible task creation API and will be recorded as
   unavailable/unverified for task dispatch. Exact live Terra fast-off identity remains mandatory.
 
