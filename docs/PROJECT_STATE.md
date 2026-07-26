@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 visual refinement approved; amended semantic PASS and renewed
-native goal pending before browser edits)
+Updated: 2026-07-26 (M15.1 Phase 03 visual refinement in progress under amended semantic PASS and
+renewed exact native goal)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -15,14 +15,14 @@ native goal pending before browser edits)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: In progress. Product edits remain gated on recording the renewed exact native goal.
+- Status: In progress.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
   presentation-only refinement before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
-- Native Codex goal: the user removed prior goal/task
-  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` after comparing the `8e6de6f` captures with the Phase 01
-  prototype and explicitly authorized an updated self-goal. The renewed goal is pending creation
-  from the amended exact done condition; no product edit may start before it is recorded.
+- Native Codex goal: after the user removed the prior goal instance and authorized an updated
+  self-goal, renewed Phase 03 goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` was created from the
+  amended exact done condition and is active through replacement review, screenshot approval,
+  pushed-head checks, and open-unmerged-PR readiness.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation

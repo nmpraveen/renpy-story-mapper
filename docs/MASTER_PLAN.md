@@ -1237,9 +1237,9 @@ chronological events, four exact story choices, eight branch outcomes, 20 stable
 execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
 returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
 `30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
-excludes the rejected implementation. Phase 03 is returning through its single semantic gate on
-`codex/m15-phase03-story-browser` under its amended contract; the user removed the prior native
-goal and authorized a renewed exact done-condition goal before browser edits. The one-call synthesis
+excludes the rejected implementation. Phase 03 is in progress on
+`codex/m15-phase03-story-browser` under its amended contract and renewed exact done-condition native
+goal. The one-call synthesis
 ceiling is spent after fail-closed identity verification; complete deterministic fallback and
 private browser/path/reopen evidence passed at reviewed product head `8e6de6f`. That candidate is
 now historical pre-refinement evidence; replacement browser acceptance, user screenshot approval,
@@ -1452,8 +1452,8 @@ call remains terminal and no server/API/navigation/private authority changes are
 
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
-or begin Phase 04/05 or M14. The immediate gate is the amended semantic `PASS` and renewed native
-goal, followed by the bounded browser correction, same-role exact-head rereviews, replacement
+or begin Phase 04/05 or M14. The amended semantic `PASS` and renewed native goal are complete. The
+immediate gate is the bounded browser correction, same-role exact-head rereviews, replacement
 private 100%/200% screenshots, explicit user approval, the single open unmerged Phase 03 PR, and
 exact pushed-head GitHub checks.
 

@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Ready (approved visual refinement; renewed native goal pending before product edits)
+Status: In progress (approved visual refinement under renewed exact native goal)
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -268,7 +268,7 @@ Candidate screenshot artifacts (outside Git; approval pending):
 | 14 | Pass | Protected fingerprints and ledger unchanged; zero remote browser requests; privacy/import/containment gates pass; artifacts remain outside Git |
 | 15 | Pending | Prior screenshots were superseded by the approved refinement request; explicit approval is required on replacement final-reviewed-head captures |
 | 16 | Pending amended exact-head evidence | Prior final review passed at `8e6de6f`; same-role Track B and final cross-track rereviews plus exact pushed PR-head GitHub checks are pending for the replacement candidate |
-| 17 | Pending | This report is current through the approved visual-refinement contract amendment; renewed goal, correction, replacement screenshots, review, push, open PR, and exact-head checks remain |
+| 17 | Pending | Renewed exact goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` is active; correction, replacement screenshots, review, push, open PR, and exact-head checks remain |
 | 18 | Pass | Exclusion/diff audits show no Phase 04/05, M14, scheduler/recovery, legacy-retirement, installer, dynamic-tracing, or historical Stage H/E scope |
 
 ## Validation

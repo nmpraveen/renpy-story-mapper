@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: Ready
+Status: In progress
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
@@ -102,7 +102,7 @@ routes, reachability, and source locations.
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1 | Fetch result, exact local/remote baseline, tracked-clean status, supported V2 files | Preflight recorded in `COMPLETION_REPORT.md` |
-| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Prior goal was removed by the user after visual comparison; amended semantic `PASS` is recorded and the renewed exact done-condition goal is pending creation; all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
+| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Renewed exact done-condition goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` is active; amended semantic `PASS` and all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
 | 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pass: reviewed implementation and generalized gates; the sole synthesis failed closed on unverifiable identity, and deterministic fallback covers all 12 events once in chronological order (`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json`) |
 | 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
 | 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
