@@ -26,7 +26,10 @@ GitHub run `30210504223` exposed only a bounded CI timing defect in three histor
 tests: fixed five-second polling expired under a 31-minute Windows suite. Product, Phase 03,
 static, package, and asset gates passed. The test harness now uses the repository's bounded
 monotonic-deadline pattern. The full post-correction local Release passes all 1,420 deterministic
-tests and every static/package gate; exact-head rereview and replacement GitHub validation remain.
+tests and every static/package gate. Exact correction head `3cde906` passed independent review
+with P0=P1=P2=P3=0 and GitHub run `30212233098`; PR #28 is clean, open, non-draft, and unmerged.
+Phase 03 is PR ready, subject only to the required exact-head check on this lifecycle-only record;
+that final result is authoritative in PR #28's check rollup and does not require another Git commit.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra

@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 replacement screenshots approved; PR #28 open and unmerged;
-bounded CI timing correction under final verification)
+Updated: 2026-07-26 (M15.1 Phase 03 PR ready; PR #28 open and unmerged; final lifecycle-only
+head remains subject to its authoritative GitHub check before native-goal closure)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -15,7 +15,7 @@ bounded CI timing correction under final verification)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Verification.
+- Status: PR ready.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
   presentation-only refinement before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
@@ -181,8 +181,15 @@ bounded CI timing correction under final verification)
 - Post-correction local Release: pass; 1,420 deterministic tests passed with 16 hardware-sensitive
   tests deselected, plus Ruff, strict mypy over 109 source files, dependencies, four JavaScript
   files, whitespace, isolated sdist/wheel build, wheel install, isolated import, and packaged assets.
-- Current action: complete exact-head independent review and the replacement pushed-head GitHub
-  check before marking PR #28 ready.
+- Post-correction independent review: exact head `3cde906febba265ab8b4d13798bf4444e6d704ba`
+  passed with P0=P1=P2=P3=0; the reviewer confirmed the diff is test/lifecycle-only and reran the
+  three affected tests, workflow contracts, Ruff, and diff checks.
+- Replacement pushed-head GitHub check: run
+  [`30212233098`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30212233098)
+  passed at exact reviewed head `3cde906`; PR #28 was `CLEAN`, open, non-draft, and unmerged.
+- Current action: require the authoritative GitHub check on this final lifecycle-only head, then
+  complete the native goal without another repository mutation. Leave PR #28 open and unmerged
+  for explicit user approval.
 
 ## M13 historical lifecycle
 
