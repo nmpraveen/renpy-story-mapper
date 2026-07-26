@@ -244,7 +244,7 @@ def test_plan_coverage_has_no_omission_or_accidental_duplication() -> None:
     assert plan.placement_coverage_identity
     assert (len(plan.scopes), len(plan.placements), len(plan.loops)) == (3, 56, 1)
     assert plan.source_scope_identity == (
-        "a15df52d62844ea6ebdfb2c70430ed0304fbd94d474fea7f233188c127762f60"
+        "fac3f5d89047144fc740dc86347f1e6673b3a5bd3d2f828780685f0a8c9af784"
     )
     assert plan.source_coverage_identity == (
         "956f18b5d4876f94ec8da49ca71e24b104fff6f9cc9a20cb22dee53879433ef6"
@@ -253,7 +253,7 @@ def test_plan_coverage_has_no_omission_or_accidental_duplication() -> None:
         "6ace0b703271448342277ef83b2e0649c3d6de09c3d8fe47d749690f9a4f8297"
     )
     assert plan.identity == (
-        "c42dda548dfaf32a1fdf459e344e63f0b4a7e78fb311956b641d56fde8046ad3"
+        "003a636d524b727ca41244f01a2b6070c715fa8ad85d9a8d36b6d6b13d9d125d"
     )
     normalized = canonical_json(plan.normalized_dict())
     assert b"The story begins" not in normalized

@@ -32,6 +32,7 @@ from renpy_story_mapper.story_map_v2.contracts import (
     SourceSpan,
     StoryScope,
     canonical_hash,
+    canonical_json,
 )
 from renpy_story_mapper.story_map_v2.source_adapter import (
     SourceAdaptationError,
@@ -236,6 +237,13 @@ class StoryPlan:
                 raise ValueError(f"placement {placement.id} has an invalid occurrence role")
             if len(placement.loop_ids) != len(set(placement.loop_ids)):
                 raise ValueError(f"placement {placement.id} repeats a loop")
+            lineage_choice_keys = tuple(
+                step.choice_key for step in placement.arm_lineage
+            )
+            if len(lineage_choice_keys) != len(set(lineage_choice_keys)):
+                raise ValueError(
+                    f"placement {placement.id} repeats a choice in its arm lineage"
+                )
             if any(loop_id not in loops for loop_id in placement.loop_ids):
                 raise ValueError(f"placement {placement.id} has an unknown loop")
         for loop in self.loops:
@@ -296,12 +304,23 @@ def build_story_plan(
     graph.validate()
     scene_model.validate()
     _validate_binding(graph, scene_model)
-    source = source_scope or adapt_story_scope(
+    trusted_source = adapt_story_scope(
         graph,
-        source_identity=source_identity,
+        source_identity=(
+            source_identity
+            if source_identity is not None
+            else source_scope.source_identity if source_scope is not None else None
+        ),
         scene_model=scene_model,
     )
-    _validate_source_scope(graph, source, source_identity)
+    if source_scope is not None:
+        _validate_source_scope(
+            graph,
+            source_scope,
+            source_identity,
+            trusted_source,
+        )
+    source = trusted_source
 
     nodes = {item.id: item for item in graph.nodes}
     atoms = {item.id: item for item in scene_model.atoms}
@@ -482,6 +501,7 @@ def _validate_source_scope(
     graph: CanonicalGraph,
     source: StoryScope,
     source_identity: str | None,
+    trusted_source: StoryScope,
 ) -> None:
     if (
         source.source_generation != graph.source_generation
@@ -490,6 +510,10 @@ def _validate_source_scope(
         raise SourceAdaptationError("StoryScope does not match M10 authority")
     if source_identity is not None and source.source_identity != source_identity:
         raise SourceAdaptationError("StoryScope source identity does not match the request")
+    if canonical_json(asdict(source)) != canonical_json(asdict(trusted_source)):
+        raise SourceAdaptationError(
+            "StoryScope does not match the exact graph-derived StoryScope"
+        )
 
 
 def _scope_specs(
