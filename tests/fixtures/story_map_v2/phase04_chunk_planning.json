@@ -1,0 +1,50 @@
+{
+  "schema": "story-map-v2-phase04-public-chunk-fixture-v1",
+  "cases": {
+    "long_persistent_lane": {
+      "scope_id": "scope:persistent:ridge",
+      "parent_scope_id": "scope:spine",
+      "persistent_lane": true,
+      "branch_heavy": false,
+      "raw_tokens": [4000, 4000, 2500, 4000]
+    },
+    "local_nested_choices": {
+      "scope_id": "scope:local-choice",
+      "parent_scope_id": "scope:spine",
+      "persistent_lane": false,
+      "branch_heavy": true,
+      "raw_tokens": [2500, 2500, 2500, 2500],
+      "choice_keys": ["choice:root", "choice:nested"]
+    },
+    "persistent_choice": {
+      "scope_id": "scope:persistent-choice",
+      "parent_scope_id": "scope:spine",
+      "persistent_lane": true,
+      "branch_heavy": true,
+      "raw_tokens": [2500, 2500, 2500, 2500, 2500, 2500],
+      "choice_keys": ["choice:persistent"]
+    },
+    "oversized_material": {
+      "scope_id": "scope:oversized",
+      "parent_scope_id": null,
+      "persistent_lane": false,
+      "branch_heavy": false,
+      "raw_tokens": [4000, 4000, 4000, 4000, 2000]
+    },
+    "structural_edges": {
+      "scope_id": "scope:structural",
+      "parent_scope_id": null,
+      "persistent_lane": false,
+      "branch_heavy": true,
+      "raw_tokens": [1800, 1800, 1800],
+      "flags": ["loop", "ending", "unresolved_arm"]
+    },
+    "atomic_oversized": {
+      "scope_id": "scope:atomic-oversized",
+      "parent_scope_id": null,
+      "persistent_lane": false,
+      "branch_heavy": false,
+      "raw_tokens": [10700]
+    }
+  }
+}
