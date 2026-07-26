@@ -1,13 +1,16 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
+Updated: 2026-07-26 (M15.1 Phase 03 private fallback/browser acceptance complete; screenshot
+approval and final review pending)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M15.1 Story Map V2 Phase 03 whole-story synthesis and path-aware browser.
+- Active milestone: M15.1 semantic Story Map correction inside M15; Phase 03 whole-story
+  synthesis and path-aware browser.
 - Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Active handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
 - Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
@@ -16,16 +19,19 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
-  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; Track A
-  is reviewed and integrated, and Tracks B/C have both passed exact-head review and are integrated
-  byte-equivalently for combined provider-free verification.
+  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition. All three
+  tracks and bounded post-integration corrections are independently reviewed and integrated;
+  private fallback/path/reopen and real-browser acceptance pass. The goal remains active through
+  user screenshot approval, final integrated review, PR creation, and exact pushed-head checks.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
-  failures, and matching source/archive/project hash, size, and timestamp.
+  failures, and matching source/archive/project hash, size, and timestamp. Exact Phase 02
+  full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
-- Pull request: none; Phase 03 will use one new PR after integration and private acceptance.
+- Pull request: none; Phase 03 will use one new open unmerged PR after user screenshot approval and
+  final integrated review.
 - Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
   `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
   fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
@@ -104,12 +110,31 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   same independent reviewer returned exact-head `PASS`, P0=P1=P2=P3=0. It was integrated
   byte-equivalently as `83d1a4f`; 241 V2 tests plus Ruff, strict mypy, and whitespace pass. No
   provider construction, attempt, or call occurred during the failed preview or correction loop.
-- A successful zero-submit preview at product head `83d1a4f` binds request `d4d44735...`,
-  confirmation `cd367171...`, approved schema `4febec35...`, 9,322 payload bytes, exact 12/4/8
-  counts, Terra/High/fast-off, and an absolute one-call ceiling with zero calls. It will be rebuilt
-  after this lifecycle commit; execution remains prohibited unless every binding is identical.
-- Next action: rebuild and inspect the zero-submit preview on the clean lifecycle head, then spend
-  the single authorized sterile Terra call once with no retry or substitution.
+- The successful zero-submit preview bound request `d4d44735...`, confirmation `cd367171...`,
+  approved schema `4febec35...`, 9,322 payload bytes, exact 12/4/8 counts, Terra/High/fast-off, and
+  an absolute one-call ceiling. Its identical rebuild was executed once. Exactly one provider
+  construction, submit attempt, and call occurred; identity could not be verified, so execution
+  failed closed and the ledger entered terminal `completed_no_retry`. No retry, substitute,
+  auditor, mapper rerun, or second provider action occurred.
+- Subsequent generalized corrections all passed same-reviewer exact-head rereview with
+  P0=P1=P2=P3=0 before byte-equivalent integration: presentation lineage `75b1484` -> `b61ab8e`,
+  role-qualified public selection IDs `497ccf76...` -> `5565244`, typed target-entry failure
+  `ba953754...` -> `253fba0`/`5760eb3`, and path-panel wrapping `834246b3...` -> `cff2388`.
+  Rejected predecessor `53c1494` remained out because its broad `ValueError` catch could mask
+  stale authority.
+- Current product head is `cff2388303e4b26b78468152c9d42fc267d066f0`. Outside-Git private
+  acceptance report SHA `a42202b7...` passes with 12 events, four choices, eight arms, four known
+  rejoins, all 24 Detail/source targets available, 23 paths available and one honestly unresolved,
+  all five target classes proven, zero-call reopen, unchanged protected inputs, and unchanged
+  terminal ledger. Working project SHA is `0bd02eb8...`.
+- Outside-Git real-Chrome report SHA `df3c721f...` passes at 100%/200% with zero overflow,
+  clipping, overlap, mojibake, remote requests, browser errors, or new provider activity; focus and
+  selection return pass. Four clean candidate overview/deep-path screenshots were captured and
+  presented outside Git.
+- Next action: obtain explicit user approval of the candidate screenshots, then freeze the exact
+  integrated head for one independent final cross-track review. Only after a no-P0-P2 verdict may
+  the coordinator push, open the single unmerged Phase 03 PR, and require exact pushed-head GitHub
+  checks.
 
 ## M13 historical lifecycle
 

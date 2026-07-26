@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper - Windows Master Plan
 
-Last revised: 2026-07-25
+Last revised: 2026-07-26
 
 Status: M01 through M13 are complete and merged. M15.1 remains the current product correction
 inside M15. Phase 01 calibration/prototyping and the bounded Phase 02 Story Map V2 core are
@@ -10,7 +10,11 @@ provenance, and unchanged protected fingerprints. Independent review found no P0
 full-history checkpoint `a42e8a0` passed GitHub run `30163111942`. The rejected Stage H/Stage E
 implementation and PR #26 remain historical delivery records only; clean Phase 01/02 delivery
 contains the accepted files without that rejected product stack. The user started Phase 03 on
-2026-07-25 under its dedicated branch, contract, native goal, and PR workflow.
+2026-07-25 under its dedicated branch, contract, native goal, and PR workflow. Its one authorized
+Terra synthesis failed closed on unverifiable provider identity and is terminal with no retry;
+deterministic fallback, private path/detail/reopen acceptance, and 100%/200% real-browser capture
+now pass at product head `cff2388`. Explicit screenshot approval, final independent integrated-head
+review, the open unmerged PR, and exact pushed-head GitHub checks remain pending.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1228,8 +1232,11 @@ chronological events, four exact story choices, eight branch outcomes, 20 stable
 execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
 returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
 `30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
-excludes the rejected implementation. Phase 03 is active on
-`codex/m15-phase03-story-browser` under its own contract, goal, and future PR.
+excludes the rejected implementation. Phase 03 is in Verification on
+`codex/m15-phase03-story-browser` under its own contract and active goal. The one-call synthesis
+ceiling is spent after fail-closed identity verification; complete deterministic fallback and
+private browser/path/reopen evidence pass at `cff2388`. User screenshot approval, final review, and
+the future open unmerged PR remain outstanding.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1416,15 +1423,18 @@ and unresolved items.
 
 ## 11. Current action
 
-The clean Phase 01/02 delivery is merged and local `main` is synchronized. The user started the
-Phase 03 Coordinator with `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`; its active contract and
-single early semantic-review `PASS` coordinate separate visible worktree tracks for whole-story
-synthesis/storage, the compact vertical browser, and witness-path/Detail-Evidence navigation.
+The clean Phase 01/02 delivery is merged and local `main` is synchronized. The Phase 03
+Coordinator has integrated separately reviewed synthesis/storage, compact vertical browser, and
+witness-path/Detail-Evidence tracks plus their bounded corrections. The sole Terra attempt failed
+closed on unverifiable identity and cannot be retried; complete deterministic fallback is the
+accepted rendering. Provider-free, private map/path/detail/reopen, and final real-Chrome 100%/200%
+capture gates pass at product head `cff2388` with all private artifacts outside Git.
 
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
-or begin Phase 04/05 or M14. Phase 03 ends with its own reviewed, passing PR open and unmerged for
-explicit user approval.
+or begin Phase 04/05 or M14. The immediate gate is explicit user approval of the captured private
+screenshots, followed by one final independent integrated-head review, the single open unmerged
+Phase 03 PR, and exact pushed-head GitHub checks.
 
 ### Rejected historical next action
 

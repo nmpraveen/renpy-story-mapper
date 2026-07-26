@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: In progress
+Status: Verification
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
@@ -92,16 +92,17 @@ routes, reachability, and source locations.
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1 | Fetch result, exact local/remote baseline, tracked-clean status, supported V2 files | Preflight recorded in `COMPLETION_REPORT.md` |
-| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Pending |
-| 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pending |
-| 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pending |
-| 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pending |
-| 12 | Storage identity/stale/reopen tests and private zero-new-call reopen result | Pending |
-| 13 | Automated overflow/focus/selection checks and final-head 100%/200% screenshots | Pending |
-| 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pending |
+| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Pass: active goal `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; semantic `PASS`; all Track A/B/C worker and exact-head reviewer identities are recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
+| 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pass: reviewed implementation and generalized gates; the sole synthesis failed closed on unverifiable identity, and deterministic fallback covers all 12 events once in chronological order (`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json`) |
+| 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
+| 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
+| 12 | Storage identity/stale/reopen tests and private zero-new-call reopen result | Pass: project `0bd02eb8...`; reopen map/path/detail succeeded with zero new provider constructions, attempts, or calls |
+| 13 | Automated overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for capture and automated evidence: browser report `df3c721f...`; four outside-Git 100%/200% overview/deep-path screenshots captured at product head `cff2388`; explicit approval is criterion 15 |
+| 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
 | 15 | User approval in the Phase 03 Coordinator task | Pending |
 | 16 | Exact-head final review verdict and exact pushed-head GitHub run | Pending |
-| 17-18 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pending |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pending final review, push, PR, and exact pushed-head checks; evidence records are current through product head `cff2388` |
+| 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
 No planned command or screenshot is passing evidence until its observed result and exact head are
 recorded.
