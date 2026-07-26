@@ -4,7 +4,7 @@ Baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Integration branch: `codex/m15-phase03-story-browser`
 
-Lifecycle: `Ready`
+Lifecycle: `In progress`
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
@@ -12,7 +12,7 @@ Lifecycle: `Ready`
 | Lock contract and shared design | Phase 03 Coordinator | `GOAL.md`, `PHASE_03_DESIGN.md`, lifecycle records | Preflight | Complete | One Phase 03 done condition, 18 criteria, exclusions, provider ceiling, shared records/endpoints, ownership, and evidence plan |
 | Semantic review | Phase 03 Coordinator | Requirements, architecture, expected files/checks, evidence map | Locked contract/design | Complete | `SEMANTIC_REVIEW.md`: `PASS` before product edits |
 | Native Phase 03 goal | Phase 03 Coordinator | Goal service and project-state pointer | Locked observable done condition | Complete | Active goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matches the contract done condition and remains active through PR readiness |
-| Track A - synthesis/storage/API | Separate visible task/worktree | Versioned synthesis, validation/fallback, minimal core/synthesis storage, read-only base API, generalized tests | Goal active; semantic `PASS`; design freeze | Pending | Exact-head handoff and independent reviewer required |
+| Track A - synthesis/storage/API | Visible task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`; worktree `C:/Users/prave/.codex/worktrees/e7ca/Renpy` | Versioned synthesis, validation/fallback, minimal core/synthesis storage, read-only base API, generalized tests | Goal active; semantic `PASS`; design freeze `4f6e3a6` | In progress | Explicit `gpt-5.6-sol`/High; fast unavailable/unverified; exact-head handoff and independent reviewer required |
 | Track A independent review | Separate visible read-only task/worktree | Track A exact head and contract/exclusions | Track A frozen head | Pending | No unresolved P0-P2 required |
 | Track B - compact vertical browser | Separate visible task/worktree | Story Map V2 normal-flow page, responsive local branches, selection/context, generalized browser tests | Track A shared seam frozen | Pending | Exact-head handoff and independent reviewer required |
 | Track B independent review | Separate visible read-only task/worktree | Track B exact head, responsive/accessibility/browser contract | Track B frozen head | Pending | No unresolved P0-P2 required |

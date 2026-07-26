@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Ready
+Status: In progress
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -13,7 +13,9 @@ Pull request: Not created
 ## Outcome
 
 Phase 03 is approved, preflight is complete, the shared design is frozen, and the single early
-semantic review passed before product edits. Implementation has not started.
+semantic review passed before product edits. Visible Track A task
+`019f9c58-e638-71a0-b6a2-cb88b72f3d24` is implementing the shared synthesis/storage/projection/API
+seams from exact checkpoint `4f6e3a6` in `C:/Users/prave/.codex/worktrees/e7ca/Renpy`.
 
 ## Preflight evidence
 

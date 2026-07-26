@@ -12,7 +12,7 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Ready.
+- Status: In progress.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
@@ -25,8 +25,12 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
 - Pull request: none; Phase 03 will use one new PR after integration and private acceptance.
-- Next action: commit the locked contract/gate checkpoint and dispatch Track A for
-  synthesis/storage/API shared seams before Tracks B and C.
+- Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
+  `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
+  fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
+  `4f6e3a6`.
+- Next action: require Track A's exact clean implementation head and separate independent reviewer
+  `PASS` before integration and Track B/C dispatch.
 
 ## M13 historical lifecycle
 
