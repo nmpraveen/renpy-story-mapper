@@ -24,6 +24,7 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
     SynthesisStatus,
     ValidatedSynthesis,
 )
+from renpy_story_mapper.story_map_v2.selection_ids import PublicSelectionIds, project_selection_ids
 
 
 def unavailable_story_map() -> StoryMapReadModel:
@@ -61,14 +62,15 @@ def _all_outcomes(core: StoryMapCore) -> dict[tuple[str, int], CoreBranchOutcome
     return keyed
 
 
-def _event_binding(event: CoreEvent) -> NavigationBinding:
+def _event_binding(event: CoreEvent, selection_ids: PublicSelectionIds) -> NavigationBinding:
     target = event.anchor.destination_id or event.anchor.canonical_node_id
+    selection_id = selection_ids.public_id("event", event.anchor.id)
     return NavigationBinding(
-        event.anchor.id,
+        selection_id,
         "canonical_node",
         target,
         "story_map_v2_event",
-        event.anchor.id,
+        selection_id,
         SourceBinding(event.relative_path, event.start_line, event.end_line),
     )
 
@@ -79,6 +81,7 @@ def _choice_tree(
     children: Mapping[tuple[ArmLineageStep, ...], tuple[ChoiceMechanic, ...]],
     effective_lineages: Mapping[str, tuple[ArmLineageStep, ...]],
     outcomes: Mapping[tuple[str, int], CoreBranchOutcome],
+    selection_ids: PublicSelectionIds,
     ancestry: tuple[str, ...] = (),
 ) -> StoryChoiceReadModel:
     if choice.key in ancestry:
@@ -98,6 +101,7 @@ def _choice_tree(
                 children=children,
                 effective_lineages=effective_lineages,
                 outcomes=outcomes,
+                selection_ids=selection_ids,
                 ancestry=(*ancestry, choice.key),
             )
             for item in children.get(expected_lineage, ())
@@ -106,9 +110,10 @@ def _choice_tree(
             arm.destination_id or outcome.anchor.destination_id or outcome.anchor.canonical_node_id
         )
         source = SourceBinding(choice.relative_path, arm.start_line, arm.end_line)
+        selection_id = selection_ids.public_id("arm", outcome.anchor.id)
         arms.append(
             StoryArmReadModel(
-                outcome.anchor.id,
+                selection_id,
                 arm.caption,
                 outcome.summary,
                 arm.condition,
@@ -119,11 +124,11 @@ def _choice_tree(
                 outcome.reachability,
                 (*arm.unresolved_warnings, *outcome.warnings),
                 NavigationBinding(
-                    outcome.anchor.id,
+                    selection_id,
                     "canonical_node",
                     target,
                     "story_map_v2_arm",
-                    outcome.anchor.id,
+                    selection_id,
                     source,
                 ),
                 nested,
@@ -136,7 +141,10 @@ def _choice_tree(
     )
 
 
-def _project_events(core: StoryMapCore) -> dict[str, StoryEventReadModel]:
+def _project_events(
+    core: StoryMapCore,
+    selection_ids: PublicSelectionIds,
+) -> dict[str, StoryEventReadModel]:
     events = _all_events(core)
     choices = _all_choices(core)
     choice_by_key = {choice.key: choice for choice in choices}
@@ -190,17 +198,18 @@ def _project_events(core: StoryMapCore) -> dict[str, StoryEventReadModel]:
                 children=children,
                 effective_lineages=effective_lineages,
                 outcomes=outcomes,
+                selection_ids=selection_ids,
             )
             for choice in owners[event.anchor.id]
         )
         result[event.anchor.id] = StoryEventReadModel(
-            event.anchor.id,
+            selection_ids.public_id("event", event.anchor.id),
             event.title,
             event.summary,
             event.characters,
             event.reachability,
             event.warnings,
-            _event_binding(event),
+            _event_binding(event, selection_ids),
             projected_choices,
         )
     return result
@@ -224,8 +233,12 @@ def project_story_map(
 ) -> StoryMapReadModel:
     """Project events once in source order and overlay exact Python-owned mechanics."""
 
-    event_models = _project_events(core)
+    selection_ids = project_selection_ids(core)
+    event_models = _project_events(core, selection_ids)
     ordered_ids = tuple(event.anchor.id for event in _all_events(core))
+    ordered_public_ids = tuple(
+        selection_ids.public_id("event", event.anchor.id) for event in _all_events(core)
+    )
     accepted_synthesis, reason = _validated_synthesis(synthesis)
     sections: list[StorySectionReadModel] = []
     if accepted_synthesis is not None:
@@ -268,7 +281,7 @@ def project_story_map(
             )
         )
     flattened = tuple(event.selection_id for section in sections for event in section.events)
-    if flattened != ordered_ids:
+    if flattened != ordered_public_ids:
         raise ValueError("deterministic fallback does not cover accepted events exactly once")
     return StoryMapReadModel(
         STORY_PAGE_SCHEMA,

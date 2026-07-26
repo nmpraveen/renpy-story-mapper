@@ -7,7 +7,6 @@ locations.
 
 from __future__ import annotations
 
-import hashlib
 from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -16,7 +15,6 @@ from typing import Final, Protocol, TypeVar
 from renpy_story_mapper.canonical_graph_contract import CanonicalGraph, CanonicalNodeKind
 from renpy_story_mapper.m11_scene_model import SceneModel, StoryAtom
 from renpy_story_mapper.m12_model import DestinationKind
-from renpy_story_mapper.storage import canonical_json
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
     CoreBranchOutcome,
@@ -30,10 +28,13 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
     StoryEventReadModel,
     StoryMapReadModel,
 )
+from renpy_story_mapper.story_map_v2.selection_ids import (
+    continuation_selection_id,
+    project_selection_ids,
+)
 
 PATH_SCHEMA: Final = "story-map-v2-path-v1"
 DETAIL_SCHEMA: Final = "story-map-v2-detail-v1"
-BOUNDARY_SELECTION_SCHEMA: Final = "story_map_v2_continuation_v1"
 MAX_WITNESS_SCENES: Final = 80
 MAX_WITNESS_CHOICES: Final = 80
 MAX_WITNESS_REQUIREMENTS: Final = 80
@@ -102,19 +103,12 @@ class _Candidate:
     atom_ids: tuple[str, ...]
 
 
-def continuation_selection_id(path: str, node_id: str, line: int) -> str:
-    """Return the frozen server-owned continuation identity."""
-
-    payload = [BOUNDARY_SELECTION_SCHEMA, path, node_id, line]
-    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
-    return f"story-map-v2-continuation:{digest}"
-
-
 def _unique(values: Sequence[str | None]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(item for item in values if item))
 
 
 def _core_selections(core: StoryMapCore) -> dict[str, NavigationSelection]:
+    public_ids = project_selection_ids(core)
     outcomes: dict[tuple[str, int], CoreBranchOutcome] = {}
     selections: dict[str, NavigationSelection] = {}
     for chunk in core.chunks:
@@ -125,10 +119,11 @@ def _core_selections(core: StoryMapCore) -> dict[str, NavigationSelection]:
             outcomes[key] = outcome
         for event in chunk.events:
             anchor = event.anchor
-            if anchor.id in selections:
-                raise ValueError("Story Map V2 visible selection IDs collide")
-            selections[anchor.id] = NavigationSelection(
-                anchor.id,
+            selection_id = public_ids.public_id("event", anchor.id)
+            if selection_id in selections:
+                raise ValueError("Story Map V2 public selection IDs collide")
+            selections[selection_id] = NavigationSelection(
+                selection_id,
                 "event",
                 _unique((anchor.destination_id, anchor.canonical_node_id)),
                 SourceBinding(event.relative_path, event.start_line, event.end_line),
@@ -142,10 +137,11 @@ def _core_selections(core: StoryMapCore) -> dict[str, NavigationSelection]:
                 if stored_outcome is None:
                     raise ValueError("every visible choice arm requires one accepted outcome")
                 anchor = stored_outcome.anchor
-                if anchor.id in selections:
-                    raise ValueError("Story Map V2 visible selection IDs collide")
-                selections[anchor.id] = NavigationSelection(
-                    anchor.id,
+                selection_id = public_ids.public_id("arm", anchor.id)
+                if selection_id in selections:
+                    raise ValueError("Story Map V2 public selection IDs collide")
+                selections[selection_id] = NavigationSelection(
+                    selection_id,
                     "arm",
                     _unique(
                         (
@@ -166,7 +162,7 @@ def _core_selections(core: StoryMapCore) -> dict[str, NavigationSelection]:
                         arm.rejoin_line,
                     )
                     boundary = NavigationSelection(
-                        boundary_id,
+                        public_ids.public_id("boundary", boundary_id),
                         "boundary",
                         (arm.rejoin_node_id,),
                         SourceBinding(
@@ -176,14 +172,15 @@ def _core_selections(core: StoryMapCore) -> dict[str, NavigationSelection]:
                         ),
                         arm.rejoin_line,
                     )
-                    previous = selections.get(boundary_id)
+                    public_boundary_id = boundary.selection_id
+                    previous = selections.get(public_boundary_id)
                     if previous is not None:
                         if previous.role != "boundary" or previous != boundary:
                             raise ValueError(
                                 "a deterministic boundary selection collides with visible authority"
                             )
                     else:
-                        selections[boundary_id] = boundary
+                        selections[public_boundary_id] = boundary
     return selections
 
 

@@ -833,7 +833,7 @@ def test_compact_witness_truncation_is_ascii_and_mojibake_free() -> None:
     assert all(effect.endswith("...") for effect in unresolved["effects"])
 
 
-def test_duplicate_cross_role_visible_selection_id_is_rejected_before_overwrite(
+def test_duplicate_cross_role_visible_selection_id_is_role_qualified_before_projection(
     tmp_path: Path,
 ) -> None:
     from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
@@ -854,13 +854,18 @@ def test_duplicate_cross_role_visible_selection_id_is_rejected_before_overwrite(
             ),
         ),
     )
-    with Project.open(project_path) as project, pytest.raises(ValueError, match="collide"):
-        StoryMapNavigator(
+    with Project.open(project_path) as project:
+        page = StoryMapNavigator(
             load_m12_authority(project),
             M12RouteService(project),
             duplicate_core,
             project_story_map(duplicate_core, None),
-        )
+        ).bound_page()
+    event = page.sections[0].events[0]
+    arm = event.choices[0].arms[0]
+    assert event.selection_id.startswith("story-map-v2-selection:event:")
+    assert arm.selection_id.startswith("story-map-v2-selection:arm:")
+    assert event.selection_id != arm.selection_id
 
 
 def test_zero_match_rejoin_emits_null_binding(tmp_path: Path) -> None:
