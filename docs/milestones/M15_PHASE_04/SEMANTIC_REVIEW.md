@@ -2,11 +2,16 @@
 
 Date: 2026-07-26
 
-Baseline: exact contract checkpoint `2a7f728f2de2af78adee059b1cd95136eea8668e` for
-`codex/m15-phase04-full-game`; the independent review worktree was detached at that exact commit
-because the branch was checked out in the coordinator worktree.
+Initial review baseline: exact contract checkpoint
+`2a7f728f2de2af78adee059b1cd95136eea8668e` for `codex/m15-phase04-full-game`; the independent
+review worktree was detached at that exact commit because the branch was checked out in the
+coordinator worktree.
 
-Decision: REVISE
+Repeated review baseline: integrated corrected checkpoint
+`eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; the worktree was clean and detached at this exact
+commit before the repeated review.
+
+Decision: PASS
 
 ## Requirements
 
@@ -19,7 +24,7 @@ Decision: REVISE
 | 5. Zero-submit Prepare | Approved design; current `prepare_preview()` defers construction but has Phase 02 ceilings | Prepare must be deterministic and provider-free, and its frozen preview must bind authority, exact plan/request identities, cache-hit/pending work, Terra/High/fast-off, six slots, cloud/local disclosure, and finite mapping/review/rollup/fallback ceilings. Provider factories must be trapped in focused tests. | Yes |
 | 6. Exact approval, resume, and indeterminate retry | Approved design and criterion 6 | One approval covers the unchanged frozen run and all ordinary resume work. Authority, plan, transmitted request bytes, prompt/schema/adapter, provider/model/settings, or ceilings changing invalidates it. An indeterminate attempt is the only retry case requiring a new job-specific approval. | Yes |
 | 7. Six independent durable workers | Approved design; current V2 executor is sequential and non-durable | The Phase 04 V2-native scheduler may have at most six submitting claims globally across processes. Each job maps to one independent request; no batching, adaptive ramp, recursive provider split, automatic retry tree, or reused attempt ordinal is allowed. Durable reservation and lease/CAS state precede possible transmission. | Yes |
-| 8. Validation, one review, refusal-only loopback | Approved design; V2 mapper validation/overlay and transports | Python validates all results. Only a flagged cloud result may receive one Terra replacement-review call. A content refusal may receive one configured Qwen loopback mapping call only when that contingency was explicitly disclosed and approved in the unchanged frozen preview. Invalid local output falls back structurally and never returns to cloud. The baseline contract instead said “separately approved,” contradicting the locked one-approval policy; `GOAL.md` is corrected in this review. | Revised |
+| 8. Validation, one review, refusal-only loopback | Approved design; V2 mapper validation/overlay and transports | Python validates all results. Only a flagged cloud result may receive one Terra replacement-review call. A content refusal may receive one configured Qwen loopback mapping call only when that contingency was explicitly disclosed and approved in the unchanged frozen preview. Invalid local output falls back structurally and never returns to cloud. The integrated corrected contract now exactly matches the locked one-frozen-approval policy. | Yes |
 | 9. Provider prose never owns mechanics | Master-plan rules 3, 4, and 8; `overlay.py`, `assembly.py` | Every fresh or cached response is validated against and overlaid with current plan authority immediately before immutable publication. Provider-supplied mechanics are rejected or ignored, never trusted. | Yes |
 | 10. Cancellation, reopen, and uncertain transmission | Approved design; current project open/read and transport cancellation seams | Cancellation state commits before transport signalling, prevents new claims, and retains completed immutable work. Open/status/read construct no provider. A crash after durable submission reservation but before definite non-transmission becomes `indeterminate` and cannot auto-resubmit. | Yes |
 | 11. Exact cache identity and privacy | Approved design; generic canonical payload hashing; existing V2 request serializers | Cache identity binds exact transmitted request bytes plus prompt/schema/adapter, provider, requested/resolved fixed model identity, reasoning, fast mode, and cloud/local mode, while excluding run/lease routing. Production storage excludes source packets, rendered prompts, credentials, provider stderr, absolute private paths, and unsanitized errors. | Yes |
@@ -162,14 +167,14 @@ or the completion report. Private and screenshot artifacts remain outside Git.
 
 ## Assumptions and conflicts
 
-- Blocking conflict found and corrected: baseline criterion 8 required a “separately approved”
-  loopback call, while the approved design says one frozen approval covers the explicitly disclosed
-  fallback. This is a P1 contract/consent conflict because both approval flows cannot be true. The
-  criterion now matches the approved design; no product code changed. Under the delegated rule, a
-  contract contradiction requires `REVISE` even after the minimal correction, so a new exact
-  contract checkpoint and repeated independent decision are required before implementation.
-- P0/P1/P2 contract issues remaining after the correction: none identified. The repeat gate is a
-  lifecycle requirement, not an unresolved design question.
+- Historical conflict and resolution: the initial baseline criterion 8 required a “separately
+  approved” loopback call, while the approved design says one frozen approval covers the explicitly
+  disclosed fallback. The initial review classified this as a P1 contract/consent conflict,
+  corrected only that wording, and recorded `REVISE`. Integrated checkpoint `eb1d2672...` contains
+  the correction and no product-code change.
+- Repeated exact-head result: P0=0, P1=0, P2=0. No contract issue or unresolved scope decision
+  remains after comparing all 22 criteria, all exclusions, architecture boundaries, and evidence
+  paths with the approved design and unchanged repository seams.
 - The hard 10,700 ceiling is interpreted as the whole serialized request under a versioned
   conservative counter; 8k/5k remain approximate raw-story targets. Treating 10,700 as raw source
   alone would not satisfy criterion 4.
@@ -185,8 +190,9 @@ or the completion report. Private and screenshot artifacts remain outside Git.
   lifecycle is a usable seam but still needs v7-specific verification and failure tests.
 - “Section” is a presentation partition within Level 1 Route Map, not a third semantic level.
   Detail/Evidence remains the only Level 2 transition.
-- The current active native goal is intentionally absent. `PROJECT_STATE.md` requires the Phase
-  Coordinator to create it only after a later semantic `PASS`; this reviewer did not create one.
+- The native goal remains intentionally absent at this repeated gate. The Phase Coordinator must
+  create and record it after this `PASS` and before changing product code; this reviewer did not
+  create it.
 - The delegation identifies this task as `gpt-5.6-sol` with High reasoning. The task API exposes no
   fast-mode selector, so fast mode is unavailable/unverified and is not claimed disabled by
   repository prose.
@@ -194,7 +200,7 @@ or the completion report. Private and screenshot artifacts remain outside Git.
   and workflow files. The tracked `tests/private/` material and all outside-Git private paths were
   deliberately not opened.
 
-## Gate decision
+## Initial gate decision — `2a7f728f2de2af78adee059b1cd95136eea8668e`
 
 The approved architecture is otherwise bounded and implementable through verified M10/M11/M12,
 SQLite, V2, API, and browser seams, and every criterion/exclusion has an executable evidence path.
@@ -204,3 +210,17 @@ rule requires a revised checkpoint and repeated independent semantic decision. B
 implementation, native-goal creation, provider work, and private acceptance remain prohibited.
 
 REVISE
+
+## Repeated gate decision — `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`
+
+The integrated correction says the refusal-only loopback call is permitted only when the unchanged
+frozen preview explicitly disclosed and approved that contingency. This exactly matches the
+approved one-frozen-preview policy and remains consistent with the separate job-specific approval
+required for an indeterminate transmission retry. The corrected checkpoint is tree-equivalent to
+the prior reviewed correction, changes no product code, and leaves the complete 22-criterion,
+seven-exclusion, component, regression, integration, scale, private-acceptance, and Release
+evidence mapping valid. No P0-P2 contract issue or unresolved scope decision remains. The contract
+may move to `Ready`; product implementation remains gated on the Phase Coordinator creating and
+recording the native goal.
+
+PASS

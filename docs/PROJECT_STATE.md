@@ -1,8 +1,8 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 04 early semantic review recorded `REVISE`; one consent-language
-contradiction was corrected to the approved design; broad implementation and native goal remain
-prohibited pending a revised checkpoint and repeated independent decision)
+Updated: 2026-07-26 (M15.1 Phase 04 repeated exact-head semantic review passed at corrected
+checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; lifecycle is `Ready`; product work remains
+prohibited until the Phase Coordinator creates and records the native goal)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,15 +14,14 @@ prohibited pending a revised checkpoint and repeated independent decision)
 - Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge
   `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
 - Integration branch: `codex/m15-phase04-full-game`.
-- Status: Revise.
+- Status: Ready.
 - Merge state: Phase 03 PR #28 and closeout PR #29 are merged; no Phase 04 PR exists yet.
-- Semantic review: `REVISE` in
-  [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md). Baseline criterion 8 required
-  a separately approved loopback fallback while the approved design binds that explicitly
-  disclosed contingency into one frozen approval. The wording now matches the approved design;
-  a new exact contract checkpoint and repeated independent decision are required.
-- Native Codex goal: not created. Create it only after the contract receives semantic `PASS`, and
-  before product-code changes.
+- Semantic review: repeated exact-head `PASS` at corrected checkpoint
+  `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2` in
+  [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md). The document preserves the
+  initial `REVISE` and its corrected consent conflict; current P0=P1=P2=0.
+- Native Codex goal: not created. The Phase Coordinator must create and record it now, before any
+  product-code change or implementation dispatch.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -197,10 +196,10 @@ prohibited pending a revised checkpoint and repeated independent decision)
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merge tree exactly matches reviewed head
   `1dd55ff`. Local `main` and `origin/main` both resolve to `27035cb`; preserved untracked
   user/private paths remain untouched.
-- Current action: checkpoint the consent-language correction and repeat the independent Phase 04
-  semantic decision. Until `PASS`, allow read-only discovery, narrow experiments, and contract
-  edits only. Do not create the native goal or begin product code, provider work, private
-  acceptance, Phase 05, M14, or historical Stage H/E work.
+- Current action: the Phase Coordinator creates and records the exact Phase 04 native goal, then
+  advances to `In progress` before product-code changes and dispatches Track A/Track B from the
+  reviewed contract checkpoint. Provider work, private acceptance, Phase 05, M14, and historical
+  Stage H/E work remain unauthorized at `Ready`.
 
 ## M13 historical lifecycle
 
