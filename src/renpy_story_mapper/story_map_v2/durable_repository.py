@@ -2958,6 +2958,7 @@ def _validate_private_content(value: object, label: str) -> None:
                 or normalized.endswith(("credential", "credentials"))
             ):
                 raise ValueError(f"{label} contains forbidden durable field {key!r}")
+            _reject_absolute_path(key, f"{label} object key")
             _validate_private_content(item, label)
         return
     if isinstance(value, (list, tuple)):

@@ -63,6 +63,16 @@ SAFE_PATH_NEAR_MISSES = (
     "urn:example:story/path",
 )
 
+SAFE_MAPPING_KEYS = (
+    "See:https://example.test/assets/story.rpy",
+    "hash=sha256:abcdef0123456789/segment",
+    "scope_id=chapter/day",
+    "file:relative/story.rpy",
+    "drive-relative C:folder\\story.rpy",
+    "ordinary prose uses / as a separator",
+    "urn:example:story/path",
+)
+
 
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -1487,6 +1497,65 @@ def test_privacy_path_detection_persists_safe_prose_urls_hashes_and_identities(
     database_bytes = path.read_bytes()
     for safe_value in SAFE_PATH_NEAR_MISSES:
         assert storage.canonical_json({"summary": safe_value}) in database_bytes
+
+
+@pytest.mark.parametrize("embedded_path", COLON_DELIMITED_ABSOLUTE_PATHS)
+def test_privacy_rejects_absolute_paths_used_as_nested_mapping_keys(
+    tmp_path: Path,
+    embedded_path: str,
+) -> None:
+    path = tmp_path / "private-nested-key.rsmp"
+    with Project.create(path) as project:
+        repository = project.story_map_v2_repository()
+        preview = {"level_1": {"level_2": {embedded_path: "synthetic public value"}}}
+        with pytest.raises(ValueError, match="absolute path"):
+            repository.store_prepared_preview(
+                PreparedPreviewDescriptor(
+                    "private-nested-key-preview",
+                    "plan-1",
+                    digest("authority"),
+                    preview,
+                    hashlib.sha256(storage.canonical_json(preview)).hexdigest(),
+                ),
+                now=NOW,
+            )
+
+    marker = embedded_path.replace("\\", "/").rsplit("/", 1)[-1]
+    assert marker.encode("utf-8") not in path.read_bytes()
+
+
+def test_privacy_mapping_key_validation_is_recursive_and_preserves_safe_keys(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "safe-nested-keys.rsmp"
+    safe_nested = {key: {"status": "synthetic"} for key in SAFE_MAPPING_KEYS}
+    preview = {"level_1": {"level_2": safe_nested}}
+    descriptor = PreparedPreviewDescriptor(
+        "safe-nested-key-preview",
+        "plan-1",
+        digest("authority"),
+        preview,
+        hashlib.sha256(storage.canonical_json(preview)).hexdigest(),
+    )
+    with Project.create(path) as project:
+        repository = project.story_map_v2_repository()
+        repository.store_prepared_preview(descriptor, now=NOW)
+        loaded = repository.load_prepared_preview(descriptor.preview_id)
+        assert loaded is not None and loaded.descriptor.preview == preview
+
+    assert storage.canonical_json(preview) in path.read_bytes()
+
+
+def test_privacy_rejects_forbidden_semantic_keys_at_nested_depth() -> None:
+    preview = {"level_1": {"level_2": {"Raw Response": "PRIVATE_NESTED_KEY_MARKER"}}}
+    with pytest.raises(ValueError, match="forbidden durable field"):
+        PreparedPreviewDescriptor(
+            "private-semantic-nested-key-preview",
+            "plan-1",
+            digest("authority"),
+            preview,
+            hashlib.sha256(storage.canonical_json(preview)).hexdigest(),
+        )
 
 
 def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
