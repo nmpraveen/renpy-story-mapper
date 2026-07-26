@@ -1,8 +1,8 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 04 repeated exact-head semantic review passed at corrected
-checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and lifecycle is
-`In progress`)
+Updated: 2026-07-26 (M15.1 Phase 04 Track A passed exact-head review and PR CI, then merged into
+the integration branch at `b18ab4d`; Track B remains active, the native goal remains active, and
+the lifecycle is `In progress`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -39,6 +39,12 @@ checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and
   Worker A2 is task `019fa00e-c8e9-7422-bce8-adc0b692ff40` in
   `C:/Users/prave/.codex/worktrees/fe82/Renpy`; the independent reviewer is task
   `019fa00e-c967-7e71-a7e4-151e1cfcb498` in `C:/Users/prave/.codex/worktrees/ad4a/Renpy`.
+- Phase 04 Track A completion: exact pushed head
+  `c03222c329b23f05b574fc4c91b7e30a04d46fc1` passed independent review with
+  P0=P1=P2=P3=0 and GitHub deterministic checks in 18m49s. Track
+  [PR #31](https://github.com/nmpraveen/renpy-story-mapper/pull/31) merged normally into the
+  Phase 04 integration branch at `b18ab4d`; a post-merge focused gate passed 25 tests. Track A is
+  complete, while the A/B interface freeze remains pending Track B integration.
 - Phase 04 Track B Coordinator: visible task `019fa00d-1e77-7fd3-93d5-ee9761a5f662`, worktree
   `C:/Users/prave/.codex/worktrees/bcc8/Renpy`, dispatched from the same exact checkpoint with
   explicit `gpt-5.6-sol` High. Worker B1 is task `019fa00f-8e20-7382-8dc9-2c1ce5d39975` in
