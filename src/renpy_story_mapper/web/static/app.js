@@ -852,8 +852,21 @@ function appendStoryBadges(host, item) {
   const badges = element("div", "story-badges");
   if (item.condition) badges.append(storyBadge(item.condition, "condition"));
   for (const effect of item.effects || []) badges.append(storyBadge(effect, "effect"));
-  if (item.reachability === "unresolved") badges.append(storyBadge("Route unresolved", "warning"));
+  if (item.reachability) {
+    const labels = { reachable: "Reachable", unreachable: "Unreachable", unresolved: "Unresolved" };
+    const status = storyBadge(labels[item.reachability], "reachability story-reachability");
+    status.dataset.reachability = item.reachability; badges.append(status);
+  }
   if (badges.children.length) host.append(badges);
+}
+
+function appendStoryWarnings(host, warnings) {
+  if (!warnings?.length) return;
+  const details = element("details", "story-warnings");
+  details.append(element("summary", "", `${warnings.length} technical warning${warnings.length === 1 ? "" : "s"}`));
+  const list = element("ul");
+  for (const warning of warnings) list.append(element("li", "", warning));
+  details.append(list); host.append(details);
 }
 
 function storySelectionControl(item, kind) {
@@ -927,7 +940,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
     const head = element("div", "story-arm-head");
     head.append(storySelectionControl(arm, "story-arm"), storyDetailControl(arm));
-    armArticle.append(head); appendStoryBadges(armArticle, arm);
+    armArticle.append(head); appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings);
     (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
     appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
     arms.append(armArticle);
@@ -942,7 +955,7 @@ function renderStoryEvent(event) {
   const article = element("article", "story-event"); article.dataset.storySelectionId = event.selection_id;
   const head = element("div", "story-event-head");
   head.append(storySelectionControl(event, "story-event"), storyDetailControl(event));
-  article.append(head);
+  article.append(head); appendStoryBadges(article, event); appendStoryWarnings(article, event.warnings);
   if (event.characters?.length) {
     const characters = element("div", "story-characters");
     for (const character of event.characters) characters.append(element("span", "", character));
@@ -972,35 +985,46 @@ function renderStoryMapV2(page) {
   const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
   for (const note of page.analysis_notes || []) notes.append(element("p", "", note));
   $("#storyAnalysisNotes").hidden = !notes.children.length;
-  $("#storyPathPanel").hidden = true; $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren();
+  $("#storyPathPanel").hidden = true; clearStoryPathWitness();
   showStorySurface(true);
+}
+
+function renderStoryWitnessList(groupSelector, listSelector, values, renderValue = (value) => value) {
+  const group = $(groupSelector); const list = $(listSelector); list.replaceChildren();
+  for (const value of values || []) list.append(element("li", "", renderValue(value)));
+  group.hidden = !list.children.length;
+}
+
+function clearStoryPathWitness() {
+  for (const [groupSelector, listSelector] of [
+    ["#storyPathScenesGroup", "#storyPathScenes"],
+    ["#storyPathChoicesGroup", "#storyPathChoices"],
+    ["#storyPathRequirementsGroup", "#storyPathRequirements"],
+    ["#storyPathEffectsGroup", "#storyPathEffects"],
+  ]) renderStoryWitnessList(groupSelector, listSelector, []);
+  $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren(); $("#storyPathUncertaintyGroup").hidden = true;
 }
 
 function renderStoryPath(path) {
   state.storyPath = path; const item = state.storyItems.get(state.storySelectionId);
   $("#storyPathTitle").textContent = storyItemTitle(item || {});
   $("#storyPathSummary").textContent = path.explanation || path.reason || (path.status === "available" ? "Known route to this moment." : "The complete route is not proven.");
+  renderStoryWitnessList("#storyPathScenesGroup", "#storyPathScenes", path.witness?.scene_titles);
+  renderStoryWitnessList("#storyPathChoicesGroup", "#storyPathChoices", path.witness?.visible_choices);
+  renderStoryWitnessList("#storyPathRequirementsGroup", "#storyPathRequirements", path.witness?.requirements, (requirement) => requirement.expression);
+  renderStoryWitnessList("#storyPathEffectsGroup", "#storyPathEffects", path.witness?.effects);
   const steps = $("#storyPathSteps"); steps.replaceChildren();
   const instructions = path.witness?.instructions || [];
-  instructions.forEach((value, index) => {
+  instructions.forEach((value) => {
     const step = element("li", "story-path-step");
     step.append(element("strong", "", String(value.kind).replaceAll("_", " ")), element("span", "", value.text));
-    appendStoryBadges(step, {
-      condition: index === 0 ? (path.witness.requirements || []).map((requirement) => requirement.expression).join(" · ") : null,
-      effects: index === instructions.length - 1 ? path.witness.effects || [] : [],
-    });
     steps.append(step);
   });
   const warnings = $("#storyPathWarnings"); warnings.replaceChildren();
   for (const warning of path.witness?.uncertainty || []) warnings.append(element("p", "", warning));
+  $("#storyPathUncertaintyGroup").hidden = !warnings.children.length;
+  $("#storyDetailAction").disabled = false;
   $("#storyPathPanel").hidden = false;
-  const selected = $(`[data-story-selection-id="${CSS.escape(state.storySelectionId || "")}"][aria-selected="true"]`);
-  if (selected) {
-    selected.scrollIntoView({ block: "center", inline: "nearest" });
-    state.storySelectionScrollY = $("#storyBrowser").scrollTop;
-    state.storySelectionWindowY = window.scrollY;
-    state.storySelectionViewportTop = selected.getBoundingClientRect().top;
-  }
 }
 
 function activateStoryItem(item, control) {
@@ -1016,7 +1040,7 @@ function activateStoryItem(item, control) {
 async function selectStoryItem(item, control) {
   const selectionId = item.selection_id;
   activateStoryItem(item, control);
-  $("#storyPathPanel").hidden = false; $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Finding the known path…"; $("#storyPathSteps").replaceChildren();
+  clearStoryPathWitness(); $("#storyDetailAction").disabled = true; $("#storyPathPanel").hidden = false; $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Finding the known path…";
   const token = ++state.storyPathToken;
   try {
     const path = await api.storyMapV2Path(selectionId);
@@ -1056,6 +1080,11 @@ async function openStoryDetail(selectionId) {
     if (detail.status === "unavailable") { toast(detail.reason || "Detail and Evidence is unavailable"); return; }
     renderStoryDetail(detail);
   } catch (error) { toast(error.message); }
+}
+
+function closeStoryPath() {
+  $("#storyPathPanel").hidden = true;
+  returnToStorySelection(false);
 }
 
 function returnToStorySelection(scroll = true) {
@@ -1558,6 +1587,7 @@ function bind() {
   });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
   $("#backToRouteMap").addEventListener("click", () => { if (state.storyPage && state.storySelectionId) returnToStorySelection(false); else { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); } }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#closeStoryPath").addEventListener("click", closeStoryPath);
   $("#returnToStorySelection").addEventListener("click", () => returnToStorySelection(true));
   $("#storyDetailAction").addEventListener("click", () => { if (state.storySelectionId) openStoryDetail(state.storySelectionId); });
   $("#openCompatibilityMap").addEventListener("click", async () => { showStorySurface(false); const available = await resetRoutePaging(); await loadNarrative(); await loadNarrativeRunStatus(); if (available) renderMap(); await loadOrganization(); });

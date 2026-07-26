@@ -4,10 +4,10 @@
   "assets": {
     "API_CONTRACT.md": "be9f10f4167d250861b6c21bfb288c9647c243613485da7de3d5c1ca86405ae2",
     "api.js": "883b2e5e6084c3ff8881afe17fc317fde7f3cbcc447001e4f6d09d59769d95e3",
-    "app.js": "7c7ae13888196d8bdac87640524b5d071354827b445ca3b36299ca7561b2ebdc",
-    "contract.js": "06524b20eb9d299803299ff293efbf750c591bbaeac94e2b75e0219222f2afa2",
+    "app.js": "b9eb3c07b1d9c2230912b59482e0adebdb5902908f651800099080e44a1786f9",
+    "contract.js": "b91753e13f3e6db930b72faa0dceaaeefd0124f8995f85d96fb45ec0d2753654",
     "graph.js": "4fecfeddd9a0c584ffbb40c9df9b80ecda131672cf0bdd90902beb0b3278bc3d",
-    "index.html": "bfe1569938de6fc4756eedda914dc00d90ea772f6f1eb41bcebd622549cbadf7",
-    "styles.css": "c91b4c2da9bf5675f4879641f621f23f6b6d00133799abf157f97235a69b2f40"
+    "index.html": "d805c14a86f0032d457e4c0b3a2a1189c124d286683bb61044f1f958cd10bbcb",
+    "styles.css": "638c2831b993a59df4bbbabb9968932b65717f5744cbbbad8460cffa4a0b135a"
   }
 }

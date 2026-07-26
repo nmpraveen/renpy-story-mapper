@@ -144,6 +144,14 @@ button:disabled { cursor: default; opacity: .45; }
 .story-badge { max-width: 100%; border: 1px solid var(--rule); border-radius: 999px; padding: .15rem .5rem; overflow-wrap: anywhere; background: var(--sheet); color: var(--muted); font-size: 11px; }
 .story-badge.condition { border-color: #a46f29; color: color-mix(in srgb, #a46f29 85%, var(--ink)); }
 .story-badge.effect { border-color: #567457; color: color-mix(in srgb, #567457 85%, var(--ink)); }
+.story-reachability { font-weight: 700; }
+.story-reachability[data-reachability="reachable"]::before { content: "✓ "; }
+.story-reachability[data-reachability="unreachable"]::before { content: "× "; }
+.story-reachability[data-reachability="unresolved"]::before { content: "? "; }
+.story-warnings { margin: .55rem .25rem 0; color: var(--muted); font-size: 11px; }
+.story-warnings summary { cursor: pointer; }
+.story-warnings ul { margin: .35rem 0 0; padding-left: 1.15rem; }
+.story-warnings li { margin-top: .2rem; overflow-wrap: anywhere; }
 .story-continuation { display: flex; align-items: center; gap: .55rem; margin: .65rem 0 0; color: var(--muted); font-size: 12px; }
 .story-continuation::before, .story-continuation::after { height: 1px; flex: 1; background: var(--rule); content: ""; }
 .story-continuation-select { flex: 0 1 auto; min-width: 0; border: 0; background: transparent; padding: .35rem; color: var(--muted); text-align: left; }
@@ -156,7 +164,13 @@ button:disabled { cursor: default; opacity: .45; }
 .story-path-heading { display: grid; gap: .65rem; }
 .story-path-heading h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; }
 .story-path-heading .quiet-button { justify-self: start; padding-inline: 0; }
+.story-path-actions { display: flex; flex-wrap: wrap; gap: .35rem .75rem; }
 .story-path-summary { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.story-witness-group { margin-top: .75rem; border-top: 1px solid var(--rule); padding-top: .5rem; }
+.story-witness-group h3, .story-witness-title { margin: 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.story-witness-group ul { margin: .35rem 0 0; padding-left: 1.15rem; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.story-witness-group li { margin-top: .2rem; overflow-wrap: anywhere; }
+.story-witness-title { margin-top: .85rem; }
 .story-path-steps { margin: .85rem 0; padding-left: 1.4rem; }
 .story-path-step { border-bottom: 1px solid var(--rule); padding: .55rem 0 .65rem .2rem; }
 .story-path-step strong, .story-path-step span { display: block; }

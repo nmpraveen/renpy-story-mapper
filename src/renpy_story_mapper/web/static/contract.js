@@ -106,13 +106,20 @@ function readableStrings(value, label, maximum = 64) {
   return value;
 }
 
-function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map()) {
+function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map(), budget = { choices: 0, arms: 0 }) {
+  const CHOICE_KEYS = ["key", "source", "arms"];
+  const ARM_KEYS = ["selection_id", "caption", "outcome_summary", "condition", "effects", "destination_id", "rejoin_node_id", "rejoin_line", "reachability", "warnings", "binding", "rejoin_binding", "nested_choices"];
+  exactKeys(value, CHOICE_KEYS, "Story Map V2 choice");
   if (!object(value) || depth > 8) throw new TypeError("Invalid Story Map V2 choice nesting");
+  budget.choices += 1;
+  if (budget.choices > 512) throw new RangeError("Story Map V2 choice tree is too large");
   boundedText(value.key, "Story Map V2 choice key", 512);
   sourceBinding(value.source);
   if (!Array.isArray(value.arms) || !value.arms.length || value.arms.length > 32) throw new TypeError("Invalid Story Map V2 choice arms");
+  budget.arms += value.arms.length;
+  if (budget.arms > 4096) throw new RangeError("Story Map V2 arm tree is too large");
   value.arms.forEach((arm) => {
-    if (!object(arm)) throw new TypeError("Invalid Story Map V2 arm");
+    exactKeys(arm, ARM_KEYS, "Story Map V2 arm");
     boundedText(arm.selection_id, "Story Map V2 arm selection", 512);
     if (seenSelections.has(arm.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
     seenSelections.add(arm.selection_id);
@@ -138,12 +145,13 @@ function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Ma
       }
     }
     if (!Array.isArray(arm.nested_choices) || arm.nested_choices.length > 16) throw new TypeError("Invalid nested Story Map V2 choices");
-    arm.nested_choices.forEach((choice) => storyChoice(choice, seenSelections, depth + 1, rejoinSelections));
+    arm.nested_choices.forEach((choice) => storyChoice(choice, seenSelections, depth + 1, rejoinSelections, budget));
   });
   return value;
 }
 
 export function assertStoryMapV2(value) {
+  exactKeys(value, ["schema", "status", "reason", "title", "overview", "analysis_notes", "sections"], "Story Map V2 page");
   if (!object(value) || value.schema !== "story-map-v2-page-v1" || !["unavailable", "synthesized", "fallback"].includes(value.status)) throw new TypeError("Invalid Story Map V2 response");
   boundedText(value.title, "Story Map V2 title", 512);
   boundedText(value.overview, "Story Map V2 overview", 16384, { empty: true });
@@ -155,9 +163,9 @@ export function assertStoryMapV2(value) {
     return value;
   }
   if (!value.sections.length) throw new TypeError("Available Story Map V2 is empty");
-  const sectionIds = new Set(); const selections = new Set(); let eventCount = 0;
+  const sectionIds = new Set(); const selections = new Set(); let eventCount = 0; const treeBudget = { choices: 0, arms: 0 };
   for (const section of value.sections) {
-    if (!object(section)) throw new TypeError("Invalid Story Map V2 section");
+    exactKeys(section, ["id", "title", "summary", "events"], "Story Map V2 section");
     boundedText(section.id, "Story Map V2 section ID", 512);
     if (sectionIds.has(section.id)) throw new TypeError("Duplicate Story Map V2 section");
     sectionIds.add(section.id);
@@ -166,7 +174,7 @@ export function assertStoryMapV2(value) {
     if (!Array.isArray(section.events) || !section.events.length || eventCount + section.events.length > 512) throw new TypeError("Invalid Story Map V2 section events");
     eventCount += section.events.length;
     for (const event of section.events) {
-      if (!object(event)) throw new TypeError("Invalid Story Map V2 event");
+      exactKeys(event, ["selection_id", "title", "summary", "characters", "reachability", "warnings", "binding", "choices"], "Story Map V2 event");
       boundedText(event.selection_id, "Story Map V2 event selection", 512);
       if (selections.has(event.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
       selections.add(event.selection_id);
@@ -177,7 +185,7 @@ export function assertStoryMapV2(value) {
       if (!["reachable", "unreachable", "unresolved"].includes(event.reachability)) throw new TypeError("Invalid Story Map V2 event reachability");
       navigationBinding(event.binding, event.selection_id);
       if (!Array.isArray(event.choices) || event.choices.length > 32) throw new TypeError("Invalid Story Map V2 event choices");
-      event.choices.forEach((choice) => storyChoice(choice, selections));
+      event.choices.forEach((choice) => storyChoice(choice, selections, 0, new Map(), treeBudget));
     }
   }
   return value;
@@ -187,7 +195,7 @@ export function assertStoryMapV2Path(value, selectionId) {
   if (!object(value) || value.schema !== "story-map-v2-path-v1" || value.semantic_level !== "route_map" || value.selection_id !== selectionId) throw new TypeError("Invalid Story Map V2 path response");
   if (value.status === "unavailable") {
     exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "reason"], "Unavailable Story Map V2 path");
-    sizedString(value.reason, "Story Map V2 path reason", 1000);
+    sizedString(value.reason, "Story Map V2 path reason", 1000, true);
     return value;
   }
   exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "binding", "cached", "route_status", "complete", "explanation", "witness"], "Story Map V2 path");

@@ -21,7 +21,7 @@ STATIC = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
 CONTINUATION_FIXTURE = (
     ROOT / "tests" / "fixtures" / "story_map_v2_phase03_continuation_contract.json"
 )
-NAVIGATION_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2_phase03_navigation_envelopes.json"
+API_CONTRACT_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2_phase03_api_contract.json"
 
 
 def _text(name: str) -> str:
@@ -58,8 +58,8 @@ def _story_page() -> dict[str, object]:
                 "destination_id": "node-dawn",
                 "rejoin_node_id": "node-road",
                 "rejoin_line": 793,
-                "reachability": "reachable",
-                "warnings": [],
+                "reachability": "unresolved",
+                "warnings": ["A dynamic gate remains unresolved."],
                 "binding": binding("arm-nested-a", "story_map_v2_arm"),
                 "rejoin_binding": continuation_binding,
                 "nested_choices": [],
@@ -85,7 +85,7 @@ def _story_page() -> dict[str, object]:
                         "summary": "The travellers leave the village.",
                         "characters": ["Ari", "Mara"],
                         "reachability": "reachable",
-                        "warnings": [],
+                        "warnings": ["Source placement remains approximate."],
                         "binding": binding("event-departure", "story_map_v2_event"),
                         "choices": [
                             {
@@ -101,8 +101,10 @@ def _story_page() -> dict[str, object]:
                                         "destination_id": "node-bridge",
                                         "rejoin_node_id": None,
                                         "rejoin_line": None,
-                                        "reachability": "reachable",
-                                        "warnings": [],
+                                        "reachability": "unreachable",
+                                        "warnings": [
+                                            "This persistent route is not currently reachable."
+                                        ],
                                         "binding": binding("arm-bridge", "story_map_v2_arm"),
                                         "rejoin_binding": None,
                                         "nested_choices": [],
@@ -144,6 +146,11 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
         'id="storyBrowser"',
         'id="storyGuide"',
         'id="storyPathPanel"',
+        'id="closeStoryPath"',
+        'id="storyPathScenes"',
+        'id="storyPathChoices"',
+        'id="storyPathRequirements"',
+        'id="storyPathEffects"',
         'id="returnToStorySelection"',
         'id="storyAnalysisNotes"',
     ):
@@ -169,12 +176,51 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
       duplicate.sections[0].events[0].choices[0].arms[1].binding.selection_id = "arm-bridge";
       let duplicateRejected = false;
       try {{ assertStoryMapV2(duplicate); }} catch (_error) {{ duplicateRejected = true; }}
+      const mutations = [
+        value => {{ value.extra = true; }},
+        value => {{ delete value.overview; }},
+        value => {{ value.sections[0].extra = true; }},
+        value => {{ delete value.sections[0].summary; }},
+        value => {{ value.sections[0].events[0].extra = true; }},
+        value => {{ delete value.sections[0].events[0].title; }},
+        value => {{ value.sections[0].events[0].choices[0].extra = true; }},
+        value => {{ delete value.sections[0].events[0].choices[0].key; }},
+        value => {{ value.sections[0].events[0].choices[0].arms[1].extra = true; }},
+        value => {{ delete value.sections[0].events[0].choices[0].arms[1].caption; }},
+        value => {{ value.sections[0].events[0].binding.extra = true; }},
+        value => {{ delete value.sections[0].events[0].binding.target_id; }},
+        value => {{ value.sections[0].events[0].choices[0].source.extra = true; }},
+        value => {{ delete value.sections[0].events[0].choices[0].source.end_line; }},
+        value => {{ value.sections[0].events[0].choices[0].arms[1].rejoin_binding.extra = true; }},
+        value => {{ delete value.sections[0].events[0].choices[0].arms[1].rejoin_binding.detail_id; }},
+        value => {{ value.analysis_notes = new Array(1_000_001); }},
+        value => {{ value.sections[0].events[0].choices[0].arms = new Array(1_000_001); }},
+        value => {{ value.sections[0].events[0].summary = "x".repeat(8193); }},
+        value => {{
+          let owner = value.sections[0].events[0].choices[0].arms[1];
+          for (let depth = 0; depth < 10; depth += 1) {{
+            const child = structuredClone(valid.sections[0].events[0].choices[0].arms[1].nested_choices[0]);
+            child.key = `deep-${{depth}}`;
+            const childArm = child.arms[0]; childArm.selection_id = `deep-arm-${{depth}}`;
+            childArm.binding.selection_id = childArm.selection_id; childArm.binding.detail_id = childArm.selection_id;
+            childArm.rejoin_binding = null; childArm.rejoin_node_id = null; childArm.rejoin_line = null; childArm.nested_choices = [];
+            owner.nested_choices = [child]; owner = childArm;
+          }}
+        }},
+      ];
+      let adversarialRejected = 0;
+      for (const mutate of mutations) {{
+        const candidate = structuredClone(valid); mutate(candidate);
+        try {{ assertStoryMapV2(candidate); }} catch (_error) {{ adversarialRejected += 1; }}
+      }}
       process.stdout.write(JSON.stringify({{
         status: accepted.status,
         event: accepted.sections[0].events[0].selection_id,
         nested: accepted.sections[0].events[0].choices[0].arms[1].nested_choices[0].key,
         continuation: accepted.sections[0].events[0].choices[0].arms[1].rejoin_binding.selection_id,
         duplicateRejected,
+        adversarialRejected,
+        adversarialTotal: mutations.length,
       }}));
     """
     completed = subprocess.run(
@@ -190,13 +236,19 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
         "nested": "nested-choice",
         "continuation": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",
         "duplicateRejected": True,
+        "adversarialRejected": 20,
+        "adversarialTotal": 20,
     }
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
 def test_story_map_path_contract_is_exact_and_deeply_bounded() -> None:
     module_uri = (STATIC / "contract.js").as_uri()
-    envelope_contract = json.loads(NAVIGATION_FIXTURE.read_text(encoding="utf-8"))
+    assert API_CONTRACT_FIXTURE.is_file()
+    assert not (
+        ROOT / "tests" / "fixtures" / "story_map_v2_phase03_navigation_envelopes.json"
+    ).exists()
+    envelope_contract = json.loads(API_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
     page = _story_page()
     binding = page["sections"][0]["events"][0]["choices"][0]["arms"][1]["binding"]
     valid = {
@@ -297,7 +349,13 @@ def test_story_map_path_contract_is_exact_and_deeply_bounded() -> None:
       const unavailableWithDetail = structuredClone(detail);
       unavailableWithDetail.status = "unavailable";
       try {{ assertStoryMapV2Detail(unavailableWithDetail, "arm-tunnel"); }} catch (_error) {{ rejected += 1; }}
-      process.stdout.write(JSON.stringify({{ rejected, total: mutations.length + 1 }}));
+      const emptyReasons = [
+        {{schema: "story-map-v2-path-v1", semantic_level: "route_map", status: "unavailable", selection_id: "arm-tunnel", reason: ""}},
+        {{schema: "story-map-v2-detail-v1", semantic_level: "detail_evidence", status: "unavailable", selection_id: "arm-tunnel", reason: ""}},
+      ];
+      try {{ assertStoryMapV2Path(emptyReasons[0], "arm-tunnel"); }} catch (_error) {{ rejected += 1; }}
+      try {{ assertStoryMapV2Detail(emptyReasons[1], "arm-tunnel"); }} catch (_error) {{ rejected += 1; }}
+      process.stdout.write(JSON.stringify({{ rejected, total: mutations.length + 3 }}));
     """
     completed = subprocess.run(
         [shutil.which("node") or "node", "--input-type=module", "--eval", script],
@@ -306,7 +364,7 @@ def test_story_map_path_contract_is_exact_and_deeply_bounded() -> None:
         capture_output=True,
         encoding="utf-8",
     )
-    assert json.loads(completed.stdout) == {"rejected": 9, "total": 9}
+    assert json.loads(completed.stdout) == {"rejected": 11, "total": 11}
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
@@ -463,6 +521,9 @@ def test_story_browser_uses_exact_frozen_continuation_and_clean_utf8() -> None:
     assert "arm.rejoin_binding" in story_code
     assert "rejoin_binding.selection_id" in story_code
     assert "armPath" in story_code
+    assert "appendStoryWarnings" in story_code
+    assert "index === 0" not in story_code
+    assert "instructions.length - 1" not in story_code
     mojibake = (
         "\u00c3\u0192",
         "\u00c3\u201a",
@@ -591,7 +652,7 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                                 "evidence_ids": ["evidence-lantern"],
                             }
                         ],
-                        "effects": [],
+                        "effects": ["Patience +1"],
                         "uncertainty": [],
                         "instructions": [
                             {"ordinal": 1, "kind": "scene", "text": "Leave the village."},
@@ -681,6 +742,10 @@ def _browser_measurement(session: Any) -> dict[str, object]:
             continuations: document.querySelectorAll('.story-continuation').length,
             continuationTargets: document.querySelectorAll('[data-story-selection-id="story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"][aria-selected]').length,
             continuationInsideArm: document.querySelectorAll('.story-arm > .story-continuation').length,
+            reachability: [...document.querySelectorAll('.story-reachability')].map(node => node.textContent.trim()),
+            warningDetails: document.querySelectorAll('details.story-warnings').length,
+            warningsOpen: document.querySelectorAll('details.story-warnings[open]').length,
+            warningText: [...document.querySelectorAll('details.story-warnings')].map(node => node.textContent),
           };
         })()"""
     )
@@ -743,6 +808,10 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             assert measured["continuations"] == 1
             assert measured["continuationTargets"] == 1
             assert measured["continuationInsideArm"] == 1
+            assert set(measured["reachability"]) == {"Reachable", "Unreachable", "Unresolved"}
+            assert measured["warningDetails"] == 3
+            assert measured["warningsOpen"] == 0
+            assert any("dynamic gate" in text for text in measured["warningText"])
 
             session.evaluate(
                 "document.querySelector('.story-choice.nested .story-detail-button').scrollIntoView({block:'center'})"
@@ -770,11 +839,39 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             session.evaluate(
                 "document.querySelector('.story-choice.nested .story-arm-select').scrollIntoView({block:'center'})"
             )
+            path_before = session.evaluate(
+                "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top})"
+            )
             session.evaluate(
                 "document.querySelector('.story-choice.nested .story-arm-select').click()"
             )
             session.wait(
                 "!document.querySelector('#storyPathPanel').hidden && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2 && document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-selected') === 'true'"
+            )
+            witness = session.evaluate(
+                "({scenes:document.querySelector('#storyPathScenes').textContent, choices:document.querySelector('#storyPathChoices').textContent, requirements:document.querySelector('#storyPathRequirements').textContent, effects:document.querySelector('#storyPathEffects').textContent, steps:document.querySelector('#storyPathSteps').textContent})"
+            )
+            assert "Departure" in witness["scenes"] and "Tunnel" in witness["scenes"]
+            assert "Take the tunnel" in witness["choices"]
+            assert "lantern == true" in witness["requirements"]
+            assert "Patience +1" in witness["effects"]
+            assert "lantern == true" not in witness["steps"]
+            assert "Patience +1" not in witness["steps"]
+            session.evaluate("document.querySelector('#closeStoryPath').click()")
+            session.wait(
+                "document.querySelector('#storyPathPanel').hidden && document.activeElement?.dataset?.storySelectionId === 'arm-nested-a'"
+            )
+            path_restored = session.evaluate(
+                "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top})"
+            )
+            assert abs(path_restored["scrollTop"] - path_before["scrollTop"]) <= 2
+            assert abs(path_restored["windowY"] - path_before["windowY"]) <= 2
+            assert abs(path_restored["top"] - path_before["top"]) <= 2
+            session.evaluate(
+                "document.querySelector('.story-choice.nested .story-arm-select').click()"
+            )
+            session.wait(
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2"
             )
             before = session.evaluate(
                 "({scrollTop:document.querySelector('#storyBrowser').scrollTop, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top})"
