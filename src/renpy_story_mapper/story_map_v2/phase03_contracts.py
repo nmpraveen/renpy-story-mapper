@@ -197,6 +197,8 @@ class SynthesisExecutionResult:
     project_identity_hash: str
     request_payload_hash: str
     preview_confirmation_hash: str
+    prompt_version: str
+    response_schema: str
     status: SynthesisStatus
     synthesis: ValidatedSynthesis | None
     provider: str | None

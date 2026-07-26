@@ -67,6 +67,34 @@ class SynthesisRefusalError(RuntimeError):
     """A sterile provider explicitly refused the one allowed synthesis call."""
 
 
+class SynthesisProviderFailure(RuntimeError):
+    """Sanitized production-provider failure with exact submission accounting."""
+
+    def __init__(
+        self,
+        kind: SynthesisFailureKind,
+        reason: str,
+        *,
+        call_count: int,
+        provider: str | None = None,
+        resolved_model: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        elapsed_ms: int = 0,
+    ) -> None:
+        super().__init__(reason)
+        if call_count not in {0, 1}:
+            raise ValueError("provider failure call count must be zero or one")
+        self.kind = kind
+        self.reason = reason
+        self.call_count = call_count
+        self.provider = provider
+        self.resolved_model = resolved_model
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.elapsed_ms = elapsed_ms
+
+
 class SynthesisProvider(Protocol):
     def synthesize(
         self,
@@ -342,7 +370,71 @@ def response_schema() -> dict[str, object]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if type(value) is not dict or value.get("$id") != SYNTHESIS_RESPONSE_SCHEMA:
         raise RuntimeError("the bundled synthesis response schema has an invalid identity")
-    return cast(dict[str, object], value)
+    result = cast(dict[str, object], value)
+    validate_provider_schema(result)
+    return result
+
+
+_PROVIDER_SCHEMA_KEYWORDS = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+    }
+)
+
+
+def validate_provider_schema(schema: Mapping[str, object]) -> None:
+    """Require the recursively strict subset accepted by Codex Structured Outputs."""
+
+    def visit(value: object, path: str) -> None:
+        if not isinstance(value, Mapping):
+            raise ValueError(f"provider schema {path} must be an object")
+        unknown = set(value) - _PROVIDER_SCHEMA_KEYWORDS
+        if unknown:
+            raise ValueError(f"provider schema {path} contains an unsupported keyword")
+        schema_type = value.get("type")
+        if schema_type == "object":
+            properties = value.get("properties")
+            required = value.get("required")
+            if not isinstance(properties, Mapping) or not isinstance(required, list):
+                raise ValueError(f"provider schema {path} object fields are invalid")
+            if any(not isinstance(item, str) for item in required) or set(required) != set(
+                properties
+            ):
+                raise ValueError(
+                    f"provider schema {path} required fields must equal properties"
+                )
+            if value.get("additionalProperties") is not False:
+                raise ValueError(
+                    f"provider schema {path} must set additionalProperties to false"
+                )
+            for name, child in properties.items():
+                visit(child, f"{path}/properties/{name}")
+        elif schema_type == "array":
+            if "items" not in value:
+                raise ValueError(f"provider schema {path} array items are required")
+            visit(value["items"], f"{path}/items")
+        elif schema_type is not None and schema_type != "string":
+            raise ValueError(f"provider schema {path} has an unsupported type")
+        definitions = value.get("$defs")
+        if definitions is not None:
+            if not isinstance(definitions, Mapping):
+                raise ValueError(f"provider schema {path}/$defs must be an object")
+            for name, child in definitions.items():
+                visit(child, f"{path}/$defs/{name}")
+
+    visit(schema, "$")
 
 
 def build_synthesis_preview(request: SynthesisRequest) -> SynthesisPreview:
@@ -378,6 +470,8 @@ def _failure(
         request.project_identity_hash,
         preview.request_payload_hash,
         preview.confirmation_hash,
+        preview.prompt_version,
+        preview.response_schema,
         SynthesisStatus.FAILED,
         None,
         provider,
@@ -419,6 +513,19 @@ def execute_synthesis(
             payload,
             response_schema=response_schema(),
             settings=preview.settings,
+        )
+    except SynthesisProviderFailure as exc:
+        return _failure(
+            request,
+            preview,
+            exc.kind,
+            exc.reason,
+            provider=exc.provider,
+            resolved_model=exc.resolved_model,
+            call_count=exc.call_count,
+            input_tokens=exc.input_tokens,
+            output_tokens=exc.output_tokens,
+            elapsed_ms=exc.elapsed_ms,
         )
     except SynthesisRefusalError:
         return _failure(
@@ -521,6 +628,8 @@ def execute_synthesis(
         request.project_identity_hash,
         preview.request_payload_hash,
         preview.confirmation_hash,
+        preview.prompt_version,
+        preview.response_schema,
         SynthesisStatus.SUCCEEDED,
         synthesis,
         reply.provider,

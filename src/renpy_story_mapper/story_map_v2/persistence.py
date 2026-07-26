@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any, cast
@@ -28,7 +29,9 @@ from renpy_story_mapper.story_map_v2.contracts import (
 )
 from renpy_story_mapper.story_map_v2.phase03_contracts import (
     PROJECT_SCHEMA,
+    SYNTHESIS_PROMPT_VERSION,
     SYNTHESIS_RECORD_SCHEMA,
+    SYNTHESIS_RESPONSE_SCHEMA,
     StoryMapProjectEnvelope,
     StoryMapProjectIdentity,
     SynthesisExecutionResult,
@@ -41,6 +44,7 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
 
 COLLECTION = "story_map_v2"
 CURRENT_KEY = "current"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -356,6 +360,8 @@ def _synthesis(value: object) -> SynthesisExecutionResult | None:
         _string(item.get("project_identity_hash"), "synthesis.project_identity_hash"),
         _string(item.get("request_payload_hash"), "synthesis.request_payload_hash"),
         _string(item.get("preview_confirmation_hash"), "synthesis.preview_confirmation_hash"),
+        _string(item.get("prompt_version"), "synthesis.prompt_version"),
+        _string(item.get("response_schema"), "synthesis.response_schema"),
         SynthesisStatus(_string(item.get("status"), "synthesis.status")),
         validated,
         _optional_string(item.get("provider"), "synthesis.provider"),
@@ -376,49 +382,120 @@ def _synthesis(value: object) -> SynthesisExecutionResult | None:
     )
 
 
-def _validate_record(
-    identity: StoryMapProjectIdentity,
-    core: StoryMapCore,
-    synthesis: SynthesisExecutionResult | None,
-) -> None:
+def _validate_core(identity: StoryMapProjectIdentity, core: StoryMapCore) -> None:
     if core.schema != identity.core_schema or core.source_identity != identity.source_identity:
         raise StaleStoryMapV2Error("stored core identity does not match its project envelope")
     if canonical_hash(asdict(core)) != identity.core_hash:
         raise StaleStoryMapV2Error("stored core hash does not match its project envelope")
-    if synthesis is not None:
-        if synthesis.schema != SYNTHESIS_RECORD_SCHEMA:
-            raise StoryMapV2PersistenceError("stored synthesis schema is unsupported")
-        if synthesis.project_identity_hash != identity.identity_hash:
-            raise StaleStoryMapV2Error("stored synthesis identity is stale")
-        if synthesis.call_count not in {0, 1}:
-            raise StoryMapV2PersistenceError("stored synthesis exceeds the one-call ceiling")
-        if synthesis.status is SynthesisStatus.SUCCEEDED:
-            if synthesis.synthesis is None:
-                raise StoryMapV2PersistenceError("successful synthesis content is missing")
-            if not 5 <= len(synthesis.synthesis.ordered_sections) <= 7 or any(
-                not section.event_anchor_ids for section in synthesis.synthesis.ordered_sections
-            ):
-                raise StoryMapV2PersistenceError(
-                    "successful synthesis requires five to seven non-empty sections"
-                )
-            if (
-                synthesis.requested_model != "gpt-5.6-terra"
-                or synthesis.resolved_model != "gpt-5.6-terra"
-                or synthesis.reasoning != "high"
-                or synthesis.fast_mode
-                or synthesis.call_count != 1
-                or synthesis.failure_kind is not None
-            ):
-                raise StoryMapV2PersistenceError(
-                    "successful synthesis provider provenance is invalid"
-                )
-            from renpy_story_mapper.story_map_v2.presentation import project_story_map
 
-            project_story_map(core, synthesis)
-        if synthesis.status is SynthesisStatus.FAILED and synthesis.synthesis is not None:
-            raise StoryMapV2PersistenceError("failed synthesis cannot contain accepted prose")
-        if synthesis.status is SynthesisStatus.FAILED and synthesis.failure_kind is None:
-            raise StoryMapV2PersistenceError("failed synthesis requires a sanitized failure kind")
+
+def _validate_digest(value: str, label: str) -> None:
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise StoryMapV2PersistenceError(f"{label} must be a lowercase SHA-256 digest")
+
+
+def _validate_synthesis(
+    identity: StoryMapProjectIdentity,
+    core: StoryMapCore,
+    synthesis: SynthesisExecutionResult,
+) -> None:
+    if synthesis.schema != SYNTHESIS_RECORD_SCHEMA:
+        raise StoryMapV2PersistenceError("stored synthesis schema is unsupported")
+    if synthesis.project_identity_hash != identity.identity_hash:
+        raise StaleStoryMapV2Error("stored synthesis identity is stale")
+    _validate_digest(synthesis.request_payload_hash, "synthesis request payload hash")
+    _validate_digest(synthesis.preview_confirmation_hash, "synthesis preview confirmation hash")
+    if synthesis.prompt_version != SYNTHESIS_PROMPT_VERSION:
+        raise StoryMapV2PersistenceError("stored synthesis prompt version is unsupported")
+    if synthesis.response_schema != SYNTHESIS_RESPONSE_SCHEMA:
+        raise StoryMapV2PersistenceError("stored synthesis response schema is unsupported")
+    if type(synthesis.status) is not SynthesisStatus or (
+        synthesis.failure_kind is not None
+        and type(synthesis.failure_kind) is not SynthesisFailureKind
+    ):
+        raise StoryMapV2PersistenceError("stored synthesis status provenance is invalid")
+    from renpy_story_mapper.story_map_v2.synthesis import (
+        build_synthesis_preview,
+        build_synthesis_request,
+    )
+
+    expected_preview = build_synthesis_preview(build_synthesis_request(core, identity))
+    if (
+        synthesis.request_payload_hash != expected_preview.request_payload_hash
+        or synthesis.preview_confirmation_hash != expected_preview.confirmation_hash
+    ):
+        raise StoryMapV2PersistenceError("stored synthesis request binding is invalid")
+    if (
+        synthesis.requested_model != "gpt-5.6-terra"
+        or synthesis.reasoning != "high"
+        or synthesis.fast_mode is not False
+        or type(synthesis.call_count) is not int
+        or synthesis.call_count not in {0, 1}
+        or type(synthesis.elapsed_ms) is not int
+        or synthesis.elapsed_ms < 0
+        or any(
+            value is not None and (type(value) is not int or value < 0)
+            for value in (synthesis.input_tokens, synthesis.output_tokens)
+        )
+    ):
+        raise StoryMapV2PersistenceError("stored synthesis execution provenance is invalid")
+    if synthesis.status is SynthesisStatus.SUCCEEDED:
+        if synthesis.synthesis is None:
+            raise StoryMapV2PersistenceError("successful synthesis content is missing")
+        if (
+            not isinstance(synthesis.provider, str)
+            or not synthesis.provider
+            or synthesis.provider != synthesis.provider.strip()
+        ):
+            raise StoryMapV2PersistenceError("successful synthesis provider is missing")
+        if (
+            synthesis.resolved_model != "gpt-5.6-terra"
+            or synthesis.call_count != 1
+            or synthesis.failure_kind is not None
+            or synthesis.sanitized_reason is not None
+            or synthesis.input_tokens is None
+            or synthesis.output_tokens is None
+        ):
+            raise StoryMapV2PersistenceError("successful synthesis provider provenance is invalid")
+        if not 5 <= len(synthesis.synthesis.ordered_sections) <= 7 or any(
+            not section.event_anchor_ids for section in synthesis.synthesis.ordered_sections
+        ):
+            raise StoryMapV2PersistenceError(
+                "successful synthesis requires five to seven non-empty sections"
+            )
+        from renpy_story_mapper.story_map_v2.presentation import project_story_map
+
+        project_story_map(core, synthesis)
+        return
+    if synthesis.synthesis is not None:
+        raise StoryMapV2PersistenceError("failed synthesis cannot contain accepted prose")
+    if (
+        synthesis.failure_kind is None
+        or not isinstance(synthesis.sanitized_reason, str)
+        or not synthesis.sanitized_reason
+        or synthesis.sanitized_reason != synthesis.sanitized_reason.strip()
+    ):
+        raise StoryMapV2PersistenceError("failed synthesis requires sanitized failure provenance")
+    if synthesis.provider is not None and (
+        not isinstance(synthesis.provider, str)
+        or not synthesis.provider
+        or synthesis.provider != synthesis.provider.strip()
+    ):
+        raise StoryMapV2PersistenceError("failed synthesis provider provenance is invalid")
+    if synthesis.resolved_model not in {None, "gpt-5.6-terra"}:
+        raise StoryMapV2PersistenceError("failed synthesis model provenance is invalid")
+    if (synthesis.input_tokens is None) != (synthesis.output_tokens is None):
+        raise StoryMapV2PersistenceError("failed synthesis usage provenance is incomplete")
+    if synthesis.call_count == 0 and any(
+        value is not None
+        for value in (
+            synthesis.provider,
+            synthesis.resolved_model,
+            synthesis.input_tokens,
+            synthesis.output_tokens,
+        )
+    ):
+        raise StoryMapV2PersistenceError("unsubmitted synthesis cannot claim provider provenance")
 
 
 def _json_value(value: object) -> object:
@@ -439,7 +516,9 @@ def save_story_map_v2(
 ) -> None:
     """Atomically replace the single current core and optional synthesis envelope."""
 
-    _validate_record(identity, core, synthesis)
+    _validate_core(identity, core)
+    if synthesis is not None:
+        _validate_synthesis(identity, core, synthesis)
     value = {
         "schema": PROJECT_SCHEMA,
         "identity": _json_value(asdict(identity)),
@@ -463,11 +542,17 @@ def load_story_map_v2(
         raise StoryMapV2PersistenceError("stored Story Map V2 project schema is unsupported")
     identity = _identity(root.get("identity"))
     core = _core(root.get("core"))
-    synthesis = _synthesis(root.get("synthesis"))
     imported_at = _string(root.get("imported_at_utc"), "imported_at_utc")
-    _validate_record(identity, core, synthesis)
+    _validate_core(identity, core)
     if expected_identity is not None and identity != expected_identity:
         raise StaleStoryMapV2Error("stored Story Map V2 identity is stale")
+    synthesis: SynthesisExecutionResult | None
+    try:
+        synthesis = _synthesis(root.get("synthesis"))
+        if synthesis is not None:
+            _validate_synthesis(identity, core, synthesis)
+    except (StoryMapV2PersistenceError, ValueError):
+        synthesis = None
     return StoryMapProjectEnvelope(PROJECT_SCHEMA, identity, core, synthesis, imported_at)
 
 
