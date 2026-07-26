@@ -1,8 +1,13 @@
 # Phase 04 Track B/C rollup workflow seam
 
-Status: Frozen scalar integration contract v1
+Status: Rejected preliminary scalar integration contract v1; superseded by v2
 
-Version: `story-map-v2-rollup-workflow-v1`
+Version: `story-map-v2-rollup-workflow-v1` (historical)
+
+The effective contract is
+`docs/milestones/M15_PHASE_04/TRACK_C_ROLLUP_WORKFLOW_SEAM_V2.md`. This preliminary version is
+preserved because its assumption that exact derived child/request identities exist at Prepare was
+rejected after C1 completed the dependency analysis.
 
 This seam extends Track B's provider-neutral workflow without importing C1 semantic types. It
 freezes the provider-call taxonomy and preview ceilings needed for C1's predetermined section and
