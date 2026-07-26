@@ -46,6 +46,23 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
 
 NOW = datetime(2026, 7, 26, 20, 0, tzinfo=UTC)
 
+COLON_DELIMITED_ABSOLUTE_PATHS = (
+    "See:/opt/private/COLON_POSIX_MARKER.rpy",
+    "See:C:\\private\\COLON_WINDOWS_MARKER.rpy",
+    "See:\\\\private-server\\share\\COLON_UNC_MARKER.rpy",
+    "file:///opt/private/FILE_URI_MARKER.rpy",
+)
+
+SAFE_PATH_NEAR_MISSES = (
+    "See:https://example.test/assets/story.rpy",
+    "hash=sha256:abcdef0123456789/segment",
+    "scope_id=chapter/day",
+    "file:relative/story.rpy",
+    "drive-relative C:folder\\story.rpy",
+    "ordinary prose uses / as a separator",
+    "urn:example:story/path",
+)
+
 
 def digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -1433,6 +1450,45 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
             )
 
 
+@pytest.mark.parametrize("embedded_path", COLON_DELIMITED_ABSOLUTE_PATHS)
+def test_privacy_rejects_colon_delimited_and_file_uri_absolute_paths(
+    embedded_path: str,
+) -> None:
+    preview = {"summary": embedded_path}
+    with pytest.raises(ValueError, match="absolute path"):
+        PreparedPreviewDescriptor(
+            "colon-path-preview",
+            "plan-1",
+            digest("authority"),
+            preview,
+            hashlib.sha256(storage.canonical_json(preview)).hexdigest(),
+        )
+
+
+def test_privacy_path_detection_persists_safe_prose_urls_hashes_and_identities(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "privacy-near-misses.rsmp"
+    with Project.create(path) as project:
+        repository = project.story_map_v2_repository()
+        for index, safe_value in enumerate(SAFE_PATH_NEAR_MISSES):
+            preview = {"summary": safe_value}
+            descriptor = PreparedPreviewDescriptor(
+                f"safe-preview-{index}",
+                "plan-1",
+                digest("authority"),
+                preview,
+                hashlib.sha256(storage.canonical_json(preview)).hexdigest(),
+            )
+            repository.store_prepared_preview(descriptor, now=NOW)
+            loaded = repository.load_prepared_preview(descriptor.preview_id)
+            assert loaded is not None and loaded.descriptor.preview == preview
+
+    database_bytes = path.read_bytes()
+    for safe_value in SAFE_PATH_NEAR_MISSES:
+        assert storage.canonical_json({"summary": safe_value}) in database_bytes
+
+
 def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
     path = tmp_path / "privacy.rsmp"
     forbidden_marker = "PRIVATE_RAW_PROMPT_MARKER"
@@ -1451,6 +1507,7 @@ def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
         "See(/opt/private/PUNCTUATED_POSIX_MARKER.rpy)",
         "See=C:\\private\\PUNCTUATED_WINDOWS_MARKER.rpy",
         "See[\\\\private-server\\share\\PUNCTUATED_UNC_MARKER.rpy]",
+        *COLON_DELIMITED_ABSOLUTE_PATHS,
     )
     with Project.create(path) as project:
         repository = project.story_map_v2_repository()

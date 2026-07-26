@@ -38,9 +38,10 @@ FAULT_BEFORE_GENERATION_PUBLICATION: Final = "generation_publication.before"
 FAULT_AFTER_GENERATION_PUBLICATION: Final = "generation_publication.after"
 
 _DIGEST_RE: Final = re.compile(r"^[0-9a-f]{64}$")
-_WINDOWS_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])[a-zA-Z]:[\\/]")
-_UNC_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])\\\\[^\\\s]+\\")
-_POSIX_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])/(?!/)[^\s)\]}>;,]+")
+_WINDOWS_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9/\\])[a-zA-Z]:[\\/]")
+_UNC_RE: Final = re.compile(r"(?<![A-Za-z0-9/\\])\\\\[^\\\s]+\\")
+_POSIX_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9/\\])/(?!/)[^\s)\]}>;,]+")
+_FILE_URI_RE: Final = re.compile(r"(?i)(?<![A-Za-z0-9+.-])file:(?:/+|\\\\+)")
 _FORBIDDEN_KEYS: Final = frozenset(
     {
         "prompt",
@@ -2973,6 +2974,7 @@ def _reject_absolute_path(value: str, label: str) -> None:
         _WINDOWS_ABSOLUTE_RE.search(value) is not None
         or _UNC_RE.search(value) is not None
         or _POSIX_ABSOLUTE_RE.search(value) is not None
+        or _FILE_URI_RE.search(value) is not None
         or stripped.startswith("/")
     ):
         raise ValueError(f"{label} cannot contain an absolute path")
