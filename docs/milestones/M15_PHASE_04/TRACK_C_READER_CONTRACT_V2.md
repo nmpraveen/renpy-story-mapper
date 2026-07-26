@@ -29,4 +29,3 @@ All v1 routes, limits, envelopes, revision/cursor behavior, ownership, safety ru
 separate Track B mutation-routing boundary remain unchanged. Implementations advertise and return
 the v2 schema string once they implement this extension. The v1 files remain durable rejected-seam
 history rather than being rewritten.
-
