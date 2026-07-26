@@ -65,6 +65,12 @@ visible reviewer `019f9ca9-ab9e-77c0-a2f1-0426f9472084` in
 out-of-scope M13 hardware smoke timed out on a pre-existing evidence selector and is recorded
 separately, not counted as Track B evidence. No Track B commit is integrated yet.
 
+Track B independent review at exact head `2069eab` returned `FAIL / CHANGES REQUIRED` with
+P0=0, P1=0, P2=5, P3=0. The P2s cover the shared fixture filename, deep/exact map bounds and
+non-empty unavailable reason, reversible path-panel context, missing authoritative reachability/
+item warnings, and browser-invented witness mechanic placement. A bounded new worker commit, full
+three-profile Chrome/131-test adjacent gate, and same-reviewer rereview are in progress.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
@@ -110,7 +116,7 @@ separately, not counted as Track B evidence. No Track B commit is integrated yet
 | Track A integration | Pass | Reviewed commits integrated byte-equivalently through `50bdc08`; coordinator CPython 3.12 focused set 50 passed |
 | Track B/C dispatch | In progress | Visible tasks `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` and `019f9c8d-cfa8-76c1-9111-7600e1180d35`, exact base `4827b06`, explicit `gpt-5.6-sol` High, non-overlapping scopes |
 | Track C initial worker gate | Rejected by review | Exact head `1387636`; reviewer P0=0/P1=0/P2=3/P3=0; focused 16 passed, adjacent 172 passed/1 failed; correction/rereview pending |
-| Track B worker final gate | Pass pending review | Exact head `2069eab3a1f0a018724106f94634e1292072e358`; final-byte Chrome three-profile matrix and static/adjacent/mypy/asset gates green; reviewer task `019f9ca9-ab9e-77c0-a2f1-0426f9472084` in progress |
+| Track B initial worker gate | Rejected by review | Exact head `2069eab`; reviewer P0=0/P1=0/P2=5/P3=0; correction/full rerun/rereview pending |
 
 ## Review findings
 

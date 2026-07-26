@@ -46,9 +46,11 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   mypy, asset integrity, and diff hygiene. One accidentally enabled out-of-scope M13 hardware
   smoke timed out on its pre-existing selector and is excluded from Track B evidence.
 - Track B reviewer: visible read-only task `019f9ca9-ab9e-77c0-a2f1-0426f9472084`, worktree
-  `C:/Users/prave/.codex/worktrees/4f7b/Renpy`, explicit `gpt-5.6-sol` High, reviewing exact head
-  `2069eab3a1f0a018724106f94634e1292072e358`; in progress with P0-P3 and a fresh measured Chrome
-  matrix required.
+  `C:/Users/prave/.codex/worktrees/4f7b/Renpy`, explicit `gpt-5.6-sol` High, returned `FAIL /
+  CHANGES REQUIRED` at exact head `2069eab3a1f0a018724106f94634e1292072e358`, P0=0, P1=0,
+  P2=5, P3=0. Findings require the exact shared fixture identity, strict deeply bounded map records,
+  preserved/restorable path context, visible authoritative reachability/item warnings, and honest
+  unassociated witness groups. The worker is correcting them; the same reviewer will rereview.
 - Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
   `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
   `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python
