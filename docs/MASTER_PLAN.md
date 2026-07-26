@@ -9,8 +9,8 @@ four exact story choices, eight branch outcomes, 20 stable anchors, honest reach
 provenance, and unchanged protected fingerprints. Independent review found no P0-P3, and exact
 full-history checkpoint `a42e8a0` passed GitHub run `30163111942`. The rejected Stage H/Stage E
 implementation and PR #26 remain historical delivery records only; clean Phase 01/02 delivery
-contains the accepted files without that rejected product stack. Phase 03 is the next
-phase and is not active until the user starts its dedicated handoff.
+contains the accepted files without that rejected product stack. The user started Phase 03 on
+2026-07-25 under its dedicated branch, contract, native goal, and PR workflow.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1228,8 +1228,8 @@ chronological events, four exact story choices, eight branch outcomes, 20 stable
 execution provenance, and unchanged protected fingerprints. The final product/artifact reviewer
 returned P0-P3 all zero, and exact full-history checkpoint `a42e8a0` passed GitHub run
 `30163111942`. PR #26 and its branch are retained as historical backup; clean Phase 01/02 delivery
-excludes the rejected implementation. Phase 03 is next under its own branch, contract, goal, and
-PR; it has not started.
+excludes the rejected implementation. Phase 03 is active on
+`codex/m15-phase03-story-browser` under its own contract, goal, and future PR.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1414,13 +1414,12 @@ and unresolved items.
 - Do not weaken deterministic evidence or safety boundaries to make a cleaner picture.
 - Do not implement future-milestone features inside the active milestone.
 
-## 11. Current next action
+## 11. Current action
 
-After the clean Phase 01/02 delivery is merged and local `main` is synchronized, start one new
-user-visible Phase 03 Coordinator task with `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`. It must
-create one active Phase 03 goal, run the single early semantic-review gate, and coordinate separate
-visible worktree tracks for whole-story synthesis/storage, the compact vertical browser, and
-witness-path/Detail-Evidence navigation.
+The clean Phase 01/02 delivery is merged and local `main` is synchronized. The user started the
+Phase 03 Coordinator with `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`; its active contract and
+single early semantic-review `PASS` coordinate separate visible worktree tracks for whole-story
+synthesis/storage, the compact vertical browser, and witness-path/Detail-Evidence navigation.
 
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,

@@ -1,32 +1,32 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-25 (M15.1 Phase 02 complete; Phase 03 handoff prepared)
+Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M15.1 semantic Story Map correction inside M15 (between phases; Phase 03 has
-  not started).
-- Contract: completed Phase 02 contract [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Delivery base: `origin/main` at `a447a4eefbd7c093bdb2767e62a393805af068ac` before the clean
-  Phase 01/02 transfer.
-- Delivery branch: `codex/m15-phase01-phase02-clean`; full historical branch
-  `codex/m15-msday1-narrative-map` and PR #26 are preserved as backup, not the merge vehicle.
-- Status: Complete.
-- Completion state: the accepted private Phase 02 core is complete at 1/1 with 12 chronological
-  events, four exact story choices, eight branch outcomes, 20 anchors, and zero validation
-  failures. Source/archive/project fingerprints are unchanged. Independent final review returned
-  P0-P3 all zero. Exact full-history checkpoint `a42e8a0` passed GitHub run `30163111942`.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md).
-- Native Codex goal: Phase 02 Coordinator task/goal
-  `019f9676-c357-7803-a891-f03782bbb8ee` completed its exact done condition. No Phase 03 goal
-  exists until the user starts the new handoff.
-- Private evidence:
+- Active milestone: M15.1 Story Map V2 Phase 03 whole-story synthesis and path-aware browser.
+- Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
+  `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
+- Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
+  `codex/m15-msday1-narrative-map` remain backup only.
+- Status: Ready.
+- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
+- Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
+- Native Codex goal: active Phase 03 Coordinator goal/task
+  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; product
+  code has not started.
+- Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
-- Next action: after the clean delivery merges and local `main` is synchronized, start
-  [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md) in one
-  new Phase 03 Coordinator task. Phase 03 uses its own branch and PR.
+  The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
+  failures, and matching source/archive/project hash, size, and timestamp.
+- Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
+  reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
+- Pull request: none; Phase 03 will use one new PR after integration and private acceptance.
+- Next action: commit the locked contract/gate checkpoint and dispatch Track A for
+  synthesis/storage/API shared seams before Tracks B and C.
 
 ## M13 historical lifecycle
 
