@@ -57,11 +57,13 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   tests, Ruff, strict mypy, JSON/hash checks, and diff hygiene.
 - Track C reviewer: visible read-only task `019f9ca6-cb8b-7503-afc0-9e4c51cd0946`, worktree
   `C:/Users/prave/.codex/worktrees/6915/Renpy`, explicit `gpt-5.6-sol` High, returned `FAIL /
-  CHANGES REQUIRED` at exact head `13876361039ab120c7ef4d6765ae74c9f572647d`, with P0=0,
-  P1=0, P2=3, P3=0. Findings require an echoed selection ID in forged-selection HTTP 404 JSON,
+  CHANGES REQUIRED` at exact head `13876361039ab120c7ef4d6765ae74c9f572647d`, updated to P0=0,
+  P1=1, P2=3, P3=0 after reproducing backward continuation resolution through control-only
+  merge/label topology. The P2s require an echoed selection ID in forged-selection HTTP 404 JSON,
   removal of a type-only runtime import that breaks V2 import isolation, and use of the exact
-  centrally frozen six-state fixture filename. The existing worker is correcting them; the same
-  reviewer will rereview the new exact head.
+  centrally frozen six-state fixture filename. The worker is also correcting the P1 with three
+  end-to-end continuation/path/detail topology fixtures; the same reviewer will rereview the new
+  exact head.
 - Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
   continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
   broaden product scope.

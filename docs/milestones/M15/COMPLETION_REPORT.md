@@ -50,8 +50,9 @@ and diff hygiene. Independent visible reviewer `019f9ca6-cb8b-7503-afc0-9e4c51cd
 `C:/Users/prave/.codex/worktrees/6915/Renpy` is reviewing that exact head; no Track C commit is
 integrated yet. Track B remains in progress.
 
-Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED` with
-P0=0, P1=0, P2=3, P3=0. Focused tests passed 16; the adjacent matrix passed 172 and failed the
+Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED`, updated to
+P0=0, P1=1, P2=3, P3=0 after reproducing a backward continuation through control-only merge/label
+topology. Focused tests passed 16; the adjacent matrix passed 172 and failed the
 unchanged transitive import-isolation test once. The remaining P2s are missing selection-ID echo in
 forged-selection HTTP 404 JSON and a non-authoritative six-state fixture filename. A bounded new
 worker commit and same-reviewer rereview are in progress; the rejected head remains unintegrated.
