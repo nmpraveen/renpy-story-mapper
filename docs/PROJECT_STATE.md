@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 visual refinement in progress under amended semantic PASS and
-renewed exact native goal)
+Updated: 2026-07-26 (M15.1 Phase 03 visual refinement verified; replacement screenshot approval
+pending under the renewed exact native goal)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -15,7 +15,7 @@ renewed exact native goal)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: In progress.
+- Status: Verification.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
   presentation-only refinement before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
@@ -151,13 +151,21 @@ renewed exact native goal)
   accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
   Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
   authorized.
-- Current action: same Track B reviewer passed corrected exact head
-  `848dce0c06300fb90722ba00a2d69bcd8268793c` with P0=P1=P2=P3=0. The reviewed product/test blobs
-  were integrated byte-equivalently through `eecaf590f608d62d74b32c4af2b5a665d681bee5`; integrated
-  provider-free gates pass with 16 real-Chrome focused tests, 269 Story Map V2 passes, 136 adjacent
-  passes, and clean JS/Ruff/mypy/workflow/diff checks. Existing final cross-track reviewer task
-  `019f9d58-0eec-77f0-9049-61f8d5ba6e81` must review the exact lifecycle head before private
-  recapture.
+- Same Track B reviewer passed corrected exact head `848dce0c06300fb90722ba00a2d69bcd8268793c`
+  with P0=P1=P2=P3=0. The reviewed product/test blobs were integrated byte-equivalently through
+  `eecaf590f608d62d74b32c4af2b5a665d681bee5`; integrated provider-free gates pass with 16
+  real-Chrome focused tests, 269 Story Map V2 passes, 136 adjacent passes, and clean static gates.
+- Same final cross-track reviewer passed exact lifecycle head
+  `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1` with P0=P1=P2=P3=0 after 16 focused, 269 Story Map
+  V2, 137 adjacent, maximum-bound browser, static, identity, privacy, and containment checks. The
+  inherited compact-witness P3 is closed.
+- Replacement private browser report SHA `75143227693ed14a8e93ccdd29578c564c12c59156c1f6d79d2dc31e7f53042f`
+  passes 100%/200% with zero overflow, clipping, overlap, mojibake, remote requests, or new provider
+  activity; focus and selection return pass, protected inputs and ledger are unchanged. The four
+  replacement PNGs are captured outside Git; prior candidates are archived under
+  `output/m15-story-map-v2-phase-03-20260726-011613/pre-refinement-8e6de6f/`.
+- Current action: obtain explicit user approval of the replacement screenshots, then push/open the
+  single unmerged Phase 03 PR and require exact pushed-head GitHub checks.
 
 ## M13 historical lifecycle
 

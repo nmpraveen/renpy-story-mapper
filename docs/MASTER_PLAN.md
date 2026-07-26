@@ -18,7 +18,9 @@ P0=P1=P2=0 and one compact-witness P3. After comparing those captures with the a
 visual direction, the user approved a bounded provider-free browser refinement: compact fallback
 hierarchy, numbered existing-event timeline, concise mechanics-first witness with complete raw
 scenes retained under Analysis notes, responsive desktop/narrow arms, restrained accents, and a
-compact 200% masthead. Replacement screenshots, exact-head rereview, the open unmerged PR, and
+compact 200% masthead. The correction is integrated at product head `eecaf59`; exact lifecycle
+head `8d8aecf` passed final cross-track review with P0=P1=P2=P3=0, and replacement 100%/200%
+captures pass with zero provider activity. Explicit screenshot approval, the open unmerged PR, and
 exact pushed-head GitHub checks remain pending.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
@@ -1242,8 +1244,9 @@ excludes the rejected implementation. Phase 03 is in progress on
 goal. The one-call synthesis
 ceiling is spent after fail-closed identity verification; complete deterministic fallback and
 private browser/path/reopen evidence passed at reviewed product head `8e6de6f`. That candidate is
-now historical pre-refinement evidence; replacement browser acceptance, user screenshot approval,
-the future open unmerged PR, and pushed-head checks remain outstanding.
+historical pre-refinement evidence. The reviewed refinement is integrated through product head
+`eecaf59`, replacement browser acceptance passes, and only user screenshot approval, the future
+open unmerged PR, and pushed-head checks remain outstanding.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1450,12 +1453,16 @@ desktop arms that stack at narrow/effective-200% width, a mechanics-first witnes
 scene sequence retained under Analysis notes, and a compact responsive masthead. The one provider
 call remains terminal and no server/API/navigation/private authority changes are permitted.
 
+The corrected Track B head `848dce0` and exact integrated lifecycle head `8d8aecf` passed their
+independent reviews with P0=P1=P2=P3=0. Integrated provider-free gates and replacement private
+100%/200% capture pass; the browser report is `75143227...`, protected inputs and the terminal
+one-call ledger are unchanged, and no new provider construction, attempt, or call occurred.
+
 The supported flow is accepted Phase 02 core → one bounded Terra synthesis → Python-owned exact
 mechanics and routes → readable normal-flow story browser. Do not revive Stage H/E, reuse PR #26,
 or begin Phase 04/05 or M14. The amended semantic `PASS` and renewed native goal are complete. The
-immediate gate is the bounded browser correction, same-role exact-head rereviews, replacement
-private 100%/200% screenshots, explicit user approval, the single open unmerged Phase 03 PR, and
-exact pushed-head GitHub checks.
+immediate gate is explicit user approval of the replacement private 100%/200% screenshots,
+followed by the single open unmerged Phase 03 PR and exact pushed-head GitHub checks.
 
 ### Rejected historical next action
 

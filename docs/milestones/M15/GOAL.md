@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: In progress
+Status: Verification
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
@@ -107,11 +107,11 @@ routes, reachability, and source locations.
 | 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
 | 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
 | 12 | Storage identity/stale/reopen tests and private zero-new-call reopen result | Pass: project `0bd02eb8...`; reopen map/path/detail succeeded with zero new provider constructions, attempts, or calls |
-| 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pending approved visual refinement, exact-head browser matrix, and replacement outside-Git screenshots; prior report `df3c721f...` at `8e6de6f` is historical pre-refinement evidence |
+| 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for automated/capture evidence: exact product `eecaf59`, final lifecycle review `8d8aecf`, browser report `75143227...`; 16 focused cases, 100%/200% captures, no overflow/clipping/overlap/mojibake/remote/provider activity, protected inputs and ledger unchanged |
 | 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
 | 15 | User approval in the Phase 03 Coordinator task | Pending |
-| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Prior local final review passed at `8e6de6f`; amended visual candidate exact-head review and pushed PR-head GitHub run pending |
-| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pending visual correction, replacement screenshots, final review, push, PR, and exact pushed-head checks; evidence records are current through prior reviewed product head `8e6de6f` |
+| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Local final cross-track review PASS at lifecycle head `8d8aecf`, P0=P1=P2=P3=0; exact pushed PR-head GitHub run pending |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Evidence is current through final review and replacement captures; explicit screenshot approval, push, open PR, and exact pushed-head checks remain |
 | 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
 No planned command or screenshot is passing evidence until its observed result and exact head are
