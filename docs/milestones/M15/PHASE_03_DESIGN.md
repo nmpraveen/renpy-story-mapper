@@ -90,6 +90,39 @@ The read model has:
 Section IDs are presentation-only and never become route targets. The line-793 Day 2 boundary
 uses its deterministic destination/rejoin target and does not invent an event anchor.
 
+### Frozen continuation selection seam
+
+Each arm keeps its existing `rejoin_node_id` and `rejoin_line` fields and adds exactly one
+`rejoin_binding` field. It is `null` when no local rejoin is proven or the current project
+authority cannot resolve that rejoin uniquely. Otherwise it uses the existing `NavigationBinding`
+serialized shape:
+
+```json
+{
+  "selection_id": "story-map-v2-continuation:<sha256>",
+  "destination_kind": "generic_scene",
+  "target_id": "<existing M12 target id>",
+  "detail_kind": "story_map_v2_continuation",
+  "detail_id": "story-map-v2-continuation:<sha256>",
+  "source": {
+    "relative_path": "<current-core relative path>",
+    "start_line": 793,
+    "end_line": 793
+  }
+}
+```
+
+The binding contains one of the six destination kinds accepted by `M12RouteService`; it is never
+`canonical_node`. The server derives the opaque ID as the lowercase hex SHA-256 of canonical
+compact UTF-8 JSON for
+`["story_map_v2_continuation_v1", relative_path, rejoin_node_id, rejoin_line]`, prefixed by
+`story-map-v2-continuation:`. Equal proven local rejoins therefore deduplicate by ID. The path and
+detail endpoints recompute the ID from the current stored core, optionally resolve its binding
+from current project authority, and reject forged or stale IDs. The browser consumes this object,
+never creates one, and renders at most one compact continuation for each ID in a local branch
+context. It is an action/selection target, not another story event. The generalized integration fixture is
+`tests/fixtures/story_map_v2_phase03_continuation_contract.json`.
+
 ## Read-only API
 
 Bootstrap exposes one `story_map_v2` route group:

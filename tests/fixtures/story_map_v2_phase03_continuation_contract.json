@@ -1,0 +1,22 @@
+{
+  "arm": {
+    "rejoin_node_id": "node-day-two-boundary",
+    "rejoin_line": 793,
+    "rejoin_binding": {
+      "selection_id": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",
+      "destination_kind": "generic_scene",
+      "target_id": "scene-day-two-boundary",
+      "detail_kind": "story_map_v2_continuation",
+      "detail_id": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",
+      "source": {
+        "relative_path": "game/story.rpy",
+        "start_line": 793,
+        "end_line": 793
+      }
+    }
+  },
+  "request": {
+    "selection_id": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"
+  },
+  "forged_selection_id": "story-map-v2-continuation:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}
