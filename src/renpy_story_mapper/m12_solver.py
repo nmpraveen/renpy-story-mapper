@@ -36,6 +36,7 @@ from renpy_story_mapper.m12_model import (
     DeterministicLimitProfile,
     InitialStateValue,
     InitialValueKind,
+    M12TargetUnresolvableError,
     RequirementAttribution,
     RequirementSource,
     RouteAlternative,
@@ -1219,7 +1220,9 @@ def _map_destination(
             raise ValueError("exact occurrence destination is not present in M11")
         anchor = _occurrence_anchor(occurrence, atoms, edges)
         if anchor is None:
-            raise ValueError("M11 occurrence lacks a verified M10 call-entry anchor")
+            raise M12TargetUnresolvableError(
+                "M11 occurrence lacks a verified M10 call-entry anchor"
+            )
         return (anchor,)
     if destination.kind is DestinationKind.TERMINAL:
         node = nodes.get(destination.target_id)
@@ -1240,7 +1243,9 @@ def _map_destination(
             raise ValueError("temporary outcome destination is not present in M11")
         arm_anchors = _entry_anchors_for_atoms(arm.atom_ids, atoms, graph)
         if not arm_anchors:
-            raise ValueError("temporary outcome lacks a verified narrative entry anchor")
+            raise M12TargetUnresolvableError(
+                "temporary outcome lacks a verified narrative entry anchor"
+            )
         return tuple(_TargetAnchor(item) for item in arm_anchors)
     if destination.kind is DestinationKind.PERSISTENT_LANE:
         lane = next((item for item in scene_model.lanes if item.id == destination.target_id), None)
@@ -1259,7 +1264,9 @@ def _map_destination(
             raise ValueError("repeatable-event destination is not marked repeatable by M11")
         scene_anchors = _scene_anchors(scene, scene_model, graph)
         if not scene_anchors:
-            raise ValueError("scene destination lacks a verified narrative entry anchor")
+            raise M12TargetUnresolvableError(
+                "scene destination lacks a verified narrative entry anchor"
+            )
         return scene_anchors
     raise ValueError(f"unsupported route destination: {destination.kind.value}")
 

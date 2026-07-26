@@ -14,7 +14,7 @@ from typing import Final, Protocol, TypeVar
 
 from renpy_story_mapper.canonical_graph_contract import CanonicalGraph, CanonicalNodeKind
 from renpy_story_mapper.m11_scene_model import SceneModel, StoryAtom
-from renpy_story_mapper.m12_model import DestinationKind
+from renpy_story_mapper.m12_model import DestinationKind, M12TargetUnresolvableError
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
     CoreBranchOutcome,
@@ -782,7 +782,7 @@ class StoryMapNavigator[Prepared]:
         try:
             prepared = self._service.prepare(binding.destination_kind, binding.target_id)
             outcome = self._service.solve(prepared)
-        except ValueError:
+        except M12TargetUnresolvableError:
             return self._unresolved_path(
                 selection_id,
                 binding,

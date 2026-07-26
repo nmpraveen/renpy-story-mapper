@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper import m12_model
 from renpy_story_mapper.m12_model import DestinationKind
 from renpy_story_mapper.m12_persistence import RouteCacheState
 from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
@@ -78,6 +80,38 @@ def test_real_project_solve_publishes_once_and_reuses_exact_cache(tmp_path: Path
         assert recommended["scene_ids"]
         assert recommended["instructions"]
         assert recommended["provenance"]["node_ids"]
+
+
+def test_existing_scene_without_verified_entry_anchor_raises_typed_target_error(
+    tmp_path: Path,
+) -> None:
+    project, _source = _project(tmp_path)
+    with project:
+        authority = load_m12_authority(project)
+        atoms = {item.id: item for item in authority.scene_model.atoms}
+        scene = next(
+            item
+            for item in authority.scene_model.scenes
+            if any(atoms[atom_id].story_facing for atom_id in item.atom_ids)
+        )
+        model = replace(
+            authority.scene_model,
+            atoms=tuple(
+                replace(atom, story_facing=False)
+                if atom.id in scene.atom_ids
+                else atom
+                for atom in authority.scene_model.atoms
+            ),
+        )
+        model.validate()
+        service = M12RouteService(project)
+        service._authority = replace(authority, scene_model=model)
+
+        with pytest.raises(m12_model.M12TargetUnresolvableError):
+            service.prepare(DestinationKind.GENERIC_SCENE.value, scene.id)
+        with pytest.raises(ValueError) as missing:
+            service.prepare(DestinationKind.GENERIC_SCENE.value, "missing-scene")
+        assert not isinstance(missing.value, m12_model.M12TargetUnresolvableError)
 
 
 def test_cancel_and_emergency_abort_publish_no_result_or_cache_entry(tmp_path: Path) -> None:

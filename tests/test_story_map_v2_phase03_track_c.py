@@ -7,8 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper import m12_model
 from renpy_story_mapper.m12_model import DestinationKind
-from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
+from renpy_story_mapper.m12_service import (
+    M12PreparedSolve,
+    M12RouteService,
+    load_m12_authority,
+)
 from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
@@ -565,12 +570,16 @@ def test_recognized_path_route_service_value_error_is_unresolved_at_navigator(
         def prepare(self, _destination_kind: str, _target_id: str) -> object:
             self.prepare_calls += 1
             if failure_stage == "prepare":
-                raise ValueError("synthetic route service detail")
+                raise m12_model.M12TargetUnresolvableError(
+                    "synthetic route service detail"
+                )
             return object()
 
         def solve(self, _prepared: object) -> object:
             self.solve_calls += 1
-            raise ValueError("synthetic route service detail")
+            raise m12_model.M12TargetUnresolvableError(
+                "synthetic route service detail"
+            )
 
     _source, project_path, core = _project(tmp_path)
     service = FailingRouteService()
@@ -599,10 +608,10 @@ def test_recognized_path_route_service_value_error_is_unresolved_in_dispatch_and
         _destination_kind: str,
         _target_id: str,
     ) -> object:
-        raise ValueError("synthetic route service detail")
+        raise m12_model.M12TargetUnresolvableError("synthetic route service detail")
 
     def fail_solve(_service: M12RouteService, _prepared: object) -> object:
-        raise ValueError("synthetic route service detail")
+        raise m12_model.M12TargetUnresolvableError("synthetic route service detail")
 
     if failure_stage == "prepare":
         monkeypatch.setattr(M12RouteService, "prepare", fail_prepare)
@@ -652,6 +661,261 @@ def test_recognized_path_route_service_value_error_is_unresolved_in_dispatch_and
     assert serialized == direct
     _assert_route_service_value_error_envelope(direct, selection_id)
     _assert_route_service_value_error_envelope(serialized, selection_id)
+
+
+def _delete_route_authority(project: Project, collection: str) -> None:
+    project._require_open().execute(
+        "DELETE FROM payloads WHERE collection=?",
+        (collection,),
+    )
+
+
+def _corrupt_current_m10_nodes(project: Project) -> None:
+    connection = project._require_open()
+    row = connection.execute(
+        "SELECT payload_json FROM payloads WHERE collection=? AND record_key=?",
+        ("m10_canonical_graph", "authoritative"),
+    ).fetchone()
+    assert row is not None
+    encoded = row[0]
+    payload = json.loads(encoded.decode("utf-8") if isinstance(encoded, bytes) else str(encoded))
+    payload["nodes"] = [None]
+    connection.execute(
+        "UPDATE payloads SET payload_json=? WHERE collection=? AND record_key=?",
+        (
+            json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+            "m10_canonical_graph",
+            "authoritative",
+        ),
+    )
+
+
+def _path_response(
+    api: ProjectApi,
+    case_root: Path,
+    transport: str,
+    selection_id: str,
+) -> dict[str, object]:
+    if transport == "dispatch":
+        return api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": selection_id},
+        )
+    static_root = case_root / "static"
+    static_root.mkdir()
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        api,
+        static_root=static_root,
+        security=SessionSecurity("session-secret", "csrf-secret"),
+    )
+    thread = start_in_thread(server)
+    try:
+        status, response = _post_json(
+            server,
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": selection_id},
+        )
+    finally:
+        server.close_service()
+        thread.join(timeout=5)
+    assert status == 200
+    assert not thread.is_alive()
+    return response
+
+
+@pytest.mark.parametrize(
+    "collection",
+    ("m10_analysis_state", "m11_analysis_state"),
+    ids=("m10", "m11"),
+)
+def test_real_authority_invalidation_before_prepare_propagates_from_navigator(
+    tmp_path: Path,
+    collection: str,
+) -> None:
+    from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
+
+    _source, project_path, core = _project(tmp_path)
+    with Project.open(project_path) as project:
+        authority = load_m12_authority(project)
+        real_service = M12RouteService(project)
+
+        class InvalidatingPrepareService:
+            def prepare(self, destination_kind: str, target_id: str) -> object:
+                _delete_route_authority(project, collection)
+                return real_service.prepare(destination_kind, target_id)
+
+            def solve(self, prepared: object) -> object:
+                return real_service.solve(prepared)  # type: ignore[arg-type]
+
+        navigator = StoryMapNavigator(
+            authority,
+            InvalidatingPrepareService(),
+            core,
+            project_story_map(core, None),
+        )
+        with pytest.raises(ValueError, match="M12 requires"):
+            navigator.path("arm-24-2")
+
+
+@pytest.mark.parametrize(
+    "collection",
+    ("m10_analysis_state", "m11_analysis_state"),
+    ids=("m10", "m11"),
+)
+def test_real_authority_invalidation_between_prepare_and_solve_propagates_from_navigator(
+    tmp_path: Path,
+    collection: str,
+) -> None:
+    from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
+
+    _source, project_path, core = _project(tmp_path)
+    with Project.open(project_path) as project:
+        authority = load_m12_authority(project)
+        real_service = M12RouteService(project)
+
+        class InvalidatingSolveService:
+            def prepare(self, destination_kind: str, target_id: str) -> object:
+                return real_service.prepare(destination_kind, target_id)
+
+            def solve(self, prepared: object) -> object:
+                _delete_route_authority(project, collection)
+                return real_service.solve(prepared)  # type: ignore[arg-type]
+
+        navigator = StoryMapNavigator(
+            authority,
+            InvalidatingSolveService(),
+            core,
+            project_story_map(core, None),
+        )
+        with pytest.raises(ValueError, match="M12 requires"):
+            navigator.path("arm-24-2")
+
+
+@pytest.mark.parametrize("failure_stage", ("prepare", "solve"))
+@pytest.mark.parametrize("transport", ("dispatch", "http"))
+@pytest.mark.parametrize(
+    "collection",
+    ("m10_analysis_state", "m11_analysis_state"),
+    ids=("m10", "m11"),
+)
+def test_real_authority_invalidation_is_global_unavailable_at_api_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+    transport: str,
+    collection: str,
+) -> None:
+    original_prepare = M12RouteService.prepare
+    original_solve = M12RouteService.solve
+
+    def invalidating_prepare(
+        service: M12RouteService,
+        destination_kind: str,
+        target_id: str,
+    ) -> object:
+        _delete_route_authority(service._project, collection)
+        return original_prepare(service, destination_kind, target_id)
+
+    def invalidating_solve(service: M12RouteService, prepared: object) -> object:
+        _delete_route_authority(service._project, collection)
+        return original_solve(service, prepared)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        M12RouteService,
+        failure_stage,
+        invalidating_prepare if failure_stage == "prepare" else invalidating_solve,
+    )
+    case_root = tmp_path / f"{collection}-{failure_stage}-{transport}"
+    case_root.mkdir()
+    source, project_path, _core_value = _project(case_root)
+    api = _api(case_root, source, project_path)
+    selection_id = "arm-24-2"
+    try:
+        response = _path_response(api, case_root, transport, selection_id)
+    finally:
+        api.close()
+
+    _assert_envelope_shape(response, "path", "unavailable")
+    assert response["selection_id"] == selection_id
+
+
+@pytest.mark.parametrize("transport", ("dispatch", "http"))
+def test_stale_route_identity_between_prepare_and_solve_is_global_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+) -> None:
+    original_prepare = M12RouteService.prepare
+
+    def stale_prepare(
+        service: M12RouteService,
+        destination_kind: str,
+        target_id: str,
+    ) -> M12PreparedSolve:
+        prepared = original_prepare(service, destination_kind, target_id)
+        document = dict(prepared.identity.document)
+        document["authority"] = {}
+        return replace(
+            prepared,
+            identity=replace(prepared.identity, document=document),
+        )
+
+    monkeypatch.setattr(M12RouteService, "prepare", stale_prepare)
+    case_root = tmp_path / transport
+    case_root.mkdir()
+    source, project_path, _core_value = _project(case_root)
+    api = _api(case_root, source, project_path)
+    selection_id = "arm-24-2"
+    try:
+        response = _path_response(api, case_root, transport, selection_id)
+    finally:
+        api.close()
+
+    _assert_envelope_shape(response, "path", "unavailable")
+    assert response["selection_id"] == selection_id
+
+
+def test_corrupt_current_authority_is_not_swallowed_as_target_unresolved(
+    tmp_path: Path,
+) -> None:
+    from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
+
+    source, project_path, core = _project(tmp_path)
+    with Project.open(project_path) as project:
+        authority = load_m12_authority(project)
+        real_service = M12RouteService(project)
+
+        class CorruptingPrepareService:
+            def prepare(self, destination_kind: str, target_id: str) -> object:
+                _corrupt_current_m10_nodes(project)
+                return real_service.prepare(destination_kind, target_id)
+
+            def solve(self, prepared: object) -> object:
+                return real_service.solve(prepared)  # type: ignore[arg-type]
+
+        navigator = StoryMapNavigator(
+            authority,
+            CorruptingPrepareService(),
+            core,
+            project_story_map(core, None),
+        )
+        with pytest.raises(ValueError) as raised:
+            navigator.path("arm-24-2")
+        assert not isinstance(raised.value, m12_model.M12TargetUnresolvableError)
+
+    api = _api(tmp_path, source, project_path)
+    try:
+        response = api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": "arm-24-2"},
+        )
+    finally:
+        api.close()
+    _assert_envelope_shape(response, "path", "unavailable")
 
 
 def test_shared_api_contract_fixture_has_exact_six_states() -> None:
