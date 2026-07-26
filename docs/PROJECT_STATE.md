@@ -1,29 +1,24 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 complete; PR #28 merged normally at `27035cb`; no Phase 04/05
-implementation contract is active)
+Updated: 2026-07-26 (M15.1 Phase 04 explicitly started; bounded contract is in the single early
+semantic-review gate; broad implementation and native goal have not started)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: none. M15.1 Phase 03 is the most recently completed contract; Phase 04 and
-  Phase 05 have not started.
-- Completed contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Completed handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
-- Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
-  `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
-- Completed integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
-  `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Complete.
-- Merge state: PR #28 merged normally at `27035cb` after the completed PR-ready gate.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
-  presentation-only refinement before product edits.
-- Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
-- Native Codex goal: after the user removed the prior goal instance and authorized an updated
-  self-goal, renewed Phase 03 goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` was created from the
-  amended exact done condition. It closed successfully at PR readiness after final exact-head
-  GitHub run `30213028297`, while PR #28 was still open and unmerged as required by the contract.
+- Active milestone: M15.1 Phase 04 full-game scaling, persistence, recovery, and product workflow.
+- Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
+- Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
+- Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge
+  `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
+- Integration branch: `codex/m15-phase04-full-game`.
+- Status: Semantic review.
+- Merge state: Phase 03 PR #28 and closeout PR #29 are merged; no Phase 04 PR exists yet.
+- Semantic review: independent decision pending in
+  [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md).
+- Native Codex goal: not created. Create it only after the contract receives semantic `PASS`, and
+  before product-code changes.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -198,9 +193,9 @@ implementation contract is active)
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merge tree exactly matches reviewed head
   `1dd55ff`. Local `main` and `origin/main` both resolve to `27035cb`; preserved untracked
   user/private paths remain untouched.
-- Current action: none for Phase 03. Do not begin Phase 04/05 or M14 under this completed contract.
-  When separately authorized, create and semantically review a new bounded Phase 04 contract
-  before implementation.
+- Current action: complete the single independent Phase 04 semantic review. Until `PASS`, allow
+  read-only discovery, narrow experiments, and contract edits only. Do not begin product code,
+  Phase 05, M14, or historical Stage H/E work.
 
 ## M13 historical lifecycle
 

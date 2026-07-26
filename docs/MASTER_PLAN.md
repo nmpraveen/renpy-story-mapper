@@ -16,9 +16,11 @@ passed. Final PR head `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec` passed GitHub r
 `30213028297`; the native goal then closed at PR-ready while PR #28 remained open and unmerged.
 After that contracted gate, the user explicitly approved the normal merge. PR #28 merged on
 2026-07-26 at `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merged tree exactly matches the reviewed
-PR head, and local `main` matches `origin/main`. Phase 04 and Phase 05 have not started, so there is
-currently no active implementation milestone. The rejected Stage H/Stage E implementation and
-PR #26 remain historical delivery records only.
+PR head. Phase 03 closeout PR #29 then merged at `e715d8a`, and local `main` matched
+`origin/main`. The user explicitly started Phase 04 on 2026-07-26. Its bounded full-game scaling,
+persistence, recovery, and product-workflow contract is now in the single early semantic-review
+gate; broad implementation has not started. Phase 05 remains unstarted. The rejected Stage H/Stage
+E implementation and PR #26 remain historical delivery records only.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1240,7 +1242,9 @@ after fail-closed identity verification, so the complete deterministic fallback 
 accepted result. The final refinement is integrated through product head `eecaf59`, replacement
 browser acceptance and screenshot approval passed, and exact PR head `1dd55ff` passed GitHub run
 `30213028297`. The native goal closed at PR readiness; after separate explicit user approval,
-PR #28 merged normally to `main` at `27035cb`. No Phase 04 or Phase 05 contract is active.
+PR #28 merged normally to `main` at `27035cb`; Phase 03 closeout PR #29 merged at `e715d8a`.
+Phase 04 now has one separately authorized bounded contract in semantic review. Phase 05 remains
+unstarted.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1334,11 +1338,12 @@ Rejected historical Stage H/E boundaries:
   Release/package gate and exact passing pushed-head checks. Leave the PR open and unmerged.
 
 M15.1 itself is not complete yet. Phase 03 has delivered the whole-story synthesis/fallback and
-compact path-aware browser. Phase 04 remains responsible for full-game scaling, persistence, and
-recovery; Phase 05 remains responsible for retiring or isolating the rejected workflow and closing
-final product acceptance. Historical Stage H/E criteria and PR #26 are not prerequisites for the
-supported Story Map V2 path. Phase 04 requires its own reviewed contract and explicit start; it is
-not active as part of this Phase 03 closeout.
+compact path-aware browser. The user explicitly started Phase 04 on 2026-07-26 under
+`docs/milestones/M15_PHASE_04/GOAL.md`; it is currently limited to contract edits and the single
+early semantic-review gate. Phase 04 owns full-game scaling, persistence, recovery, and the
+supported generate/update product workflow. Phase 05 remains responsible for retiring or isolating
+the rejected workflow and closing final product acceptance. Historical Stage H/E criteria and PR
+#26 are not prerequisites for the supported Story Map V2 path.
 
 ## 8. Product completion definition
 
@@ -1441,10 +1446,10 @@ attempt → accepted deterministic fallback when identity verification fails →
 mechanics and routes → readable normal-flow story browser. Private acceptance artifacts remain
 outside Git, protected inputs remain unchanged, and the terminal one-call ledger remains final.
 
-There is no active implementation milestone. Do not revive Stage H/E, reuse PR #26, or begin
-Phase 04/05 or M14 as part of this closeout. The next product action, when separately authorized,
-is to write and review the bounded Phase 04 contract for full-game scaling, persistence, and
-recovery before implementation starts.
+The user explicitly authorized Phase 04 on 2026-07-26. Its one active contract is
+`docs/milestones/M15_PHASE_04/GOAL.md`, currently in `Semantic review`. Until that independent gate
+records `PASS`, permit only read-only discovery, bounded experiments, and contract edits. Do not
+revive Stage H/E, reuse PR #26, begin Phase 05 or M14, or start broad product implementation.
 
 ### Rejected historical next action
 
