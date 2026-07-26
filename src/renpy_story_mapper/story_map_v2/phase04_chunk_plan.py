@@ -67,7 +67,7 @@ class ChoiceArmBoundary:
 
 @dataclass(frozen=True)
 class ChunkPlanningPlacement:
-    """Temporary typed seam for one already ordered, scene-atomic StoryPlacement."""
+    """Temporary typed seam for one exact placement in an adapter-owned atomic group."""
 
     placement_id: str
     scope_id: str
@@ -1027,6 +1027,18 @@ def serialize_chunk_request(
         raise FrozenPlanMismatch("current story plan omits a frozen placement") from exc
     if any(placement.scope_id != chunk.scope_id for placement in placements):
         raise FrozenPlanMismatch("current placement scope differs from the frozen chunk")
+    frozen_membership = {
+        placement_id: group.id
+        for group in plan.atomic_groups
+        for placement_id in group.placement_ids
+    }
+    if any(
+        frozen_membership.get(placement.placement_id) != placement.atomic_group_id
+        for placement in placements
+    ):
+        raise FrozenPlanMismatch(
+            "current atomic group membership differs from the frozen chunk plan"
+        )
     if _ordered_unique([item.atomic_group_id for item in placements]) != chunk.atomic_group_ids:
         raise FrozenPlanMismatch("current atomic grouping differs from the frozen chunk plan")
     raw_story = _raw_story(placements)

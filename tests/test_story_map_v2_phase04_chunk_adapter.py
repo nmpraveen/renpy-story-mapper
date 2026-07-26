@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from dataclasses import asdict, replace
-import json
 from pathlib import Path
 
 import pytest
@@ -24,10 +24,10 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
     adapt_chunk_planning_projection,
     atomic_group_identity,
 )
-from renpy_story_mapper.story_map_v2.phase04_chunk_plan import plan_story_chunks
 from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
     FrozenPlanMismatch,
     deserialize_story_chunk_plan,
+    plan_story_chunks,
     serialize_chunk_request,
     serialize_story_chunk_plan,
 )

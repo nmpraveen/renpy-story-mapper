@@ -31,7 +31,7 @@ class ChunkPlanningAdaptationError(ValueError):
 
 
 def atomic_group_identity(placement: StoryPlacement, group_ordinal: int) -> str:
-    """Bind one contiguous scope/scene/call-occurrence run to one atomic group."""
+    """Bind one contiguous scope/scene/call/arm-lineage run to one atomic group."""
 
     if group_ordinal < 1:
         raise ValueError("atomic group ordinal must be positive")
@@ -43,6 +43,7 @@ def atomic_group_identity(placement: StoryPlacement, group_ordinal: int) -> str:
             "scene_id": placement.scene_id,
             "context_scene_id": placement.context_scene_id,
             "occurrence_path": placement.occurrence_path,
+            "arm_lineage": tuple(asdict(step) for step in placement.arm_lineage),
             "group_ordinal": group_ordinal,
         }
     )[:24]
@@ -190,7 +191,9 @@ def adapt_chunk_planning_projection(
     for ordinal, scope in enumerate(story_plan.scopes, start=1):
         persistent_choice_keys = _persistent_choice_keys(scope, placements_by_anchor)
         placements: list[ChunkPlanningPlacement] = []
-        current_group_key: tuple[str, str, tuple[str, ...]] | None = None
+        current_group_key: (
+            tuple[str, str, tuple[str, ...], tuple[tuple[str, int], ...]] | None
+        ) = None
         atomic_group_ordinal = 0
         for placement_id in scope.placement_ids:
             placement = placements_by_id.get(placement_id)
@@ -208,6 +211,10 @@ def adapt_chunk_planning_projection(
                 placement.scene_id,
                 placement.context_scene_id,
                 placement.occurrence_path,
+                tuple(
+                    (step.choice_key, step.arm_order)
+                    for step in placement.arm_lineage
+                ),
             )
             if group_key != current_group_key:
                 atomic_group_ordinal += 1
