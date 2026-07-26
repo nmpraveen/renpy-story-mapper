@@ -550,6 +550,76 @@ def test_projection_preserves_event_arm_order_nested_ownership_and_python_mechan
     assert nested_arms[1].rejoin_node_id == "node-rejoin"
 
 
+def test_projection_treats_external_only_choice_lineage_as_a_fallback_root() -> None:
+    core = synthetic_core()
+    chunk = core.chunks[0]
+    outer = replace(
+        chunk.choices[0],
+        parent_lineage=(ArmLineageStep("control/chapter.rpy:20", 1),),
+    )
+    projected_core = replace(core, chunks=(replace(chunk, choices=(outer,)),))
+
+    page = project_story_map(projected_core, synthesis=None)
+
+    events = tuple(event for section in page.sections for event in section.events)
+    assert page.status == "fallback"
+    assert tuple(event.selection_id for event in events) == tuple(
+        event.anchor.id for event in projected_core.chunks[0].events
+    )
+    assert events[1].choices[0].key == outer.key
+    assert projected_core.chunks[0].choices[0].parent_lineage == outer.parent_lineage
+
+
+def test_projection_nests_after_filtering_a_leading_external_ancestor() -> None:
+    core = synthetic_core()
+    chunk = core.chunks[0]
+    outer, nested = chunk.choices
+    nested_with_external_ancestor = replace(
+        nested,
+        parent_lineage=(
+            ArmLineageStep("control/chapter.rpy:20", 1),
+            ArmLineageStep(outer.key, 2),
+        ),
+    )
+    projected_core = replace(
+        core,
+        chunks=(replace(chunk, choices=(outer, nested_with_external_ancestor)),),
+    )
+
+    page = project_story_map(projected_core, synthesis=None)
+
+    events = tuple(event for section in page.sections for event in section.events)
+    root_choices = tuple(choice for event in events for choice in event.choices)
+    assert tuple(choice.key for choice in root_choices) == (outer.key,)
+    assert root_choices[0].arms[0].nested_choices == ()
+    assert root_choices[0].arms[1].nested_choices[0].key == nested.key
+    assert (
+        projected_core.chunks[0].choices[1].parent_lineage
+        == nested_with_external_ancestor.parent_lineage
+    )
+
+
+def test_projection_still_rejects_malformed_included_parent_ancestry() -> None:
+    core = synthetic_core()
+    chunk = core.chunks[0]
+    outer, nested = chunk.choices
+    malformed = replace(
+        nested,
+        parent_lineage=(
+            ArmLineageStep(nested.key, 1),
+            ArmLineageStep(outer.key, 2),
+        ),
+    )
+    projected_core = replace(
+        core,
+        chunks=(replace(chunk, choices=(outer, malformed)),),
+    )
+
+    with pytest.raises(ValueError, match="not represented by accepted mechanics"):
+        project_story_map(projected_core, synthesis=None)
+    assert projected_core.chunks[0].choices[1].parent_lineage == malformed.parent_lineage
+
+
 class _Dialogs:
     def choose_source(self, kind: str):
         return None

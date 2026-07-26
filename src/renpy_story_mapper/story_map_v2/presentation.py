@@ -77,6 +77,7 @@ def _choice_tree(
     choice: ChoiceMechanic,
     *,
     children: Mapping[tuple[ArmLineageStep, ...], tuple[ChoiceMechanic, ...]],
+    effective_lineages: Mapping[str, tuple[ArmLineageStep, ...]],
     outcomes: Mapping[tuple[str, int], CoreBranchOutcome],
     ancestry: tuple[str, ...] = (),
 ) -> StoryChoiceReadModel:
@@ -87,11 +88,15 @@ def _choice_tree(
         outcome = outcomes.get((choice.key, arm.order))
         if outcome is None:
             raise ValueError("every visible choice arm requires one accepted branch outcome")
-        expected_lineage = (*choice.parent_lineage, ArmLineageStep(choice.key, arm.order))
+        expected_lineage = (
+            *effective_lineages[choice.key],
+            ArmLineageStep(choice.key, arm.order),
+        )
         nested = tuple(
             _choice_tree(
                 item,
                 children=children,
+                effective_lineages=effective_lineages,
                 outcomes=outcomes,
                 ancestry=(*ancestry, choice.key),
             )
@@ -135,21 +140,29 @@ def _project_events(core: StoryMapCore) -> dict[str, StoryEventReadModel]:
     events = _all_events(core)
     choices = _all_choices(core)
     choice_by_key = {choice.key: choice for choice in choices}
+    accepted_choice_keys = set(choice_by_key)
+    effective_lineages = {
+        choice.key: tuple(
+            step for step in choice.parent_lineage if step.choice_key in accepted_choice_keys
+        )
+        for choice in choices
+    }
     children_lists: dict[tuple[ArmLineageStep, ...], list[ChoiceMechanic]] = {}
     for choice in choices:
-        if choice.parent_lineage:
-            immediate = choice.parent_lineage[-1]
+        effective_lineage = effective_lineages[choice.key]
+        if effective_lineage:
+            immediate = effective_lineage[-1]
             parent = choice_by_key.get(immediate.choice_key)
-            if parent is None or parent.parent_lineage != choice.parent_lineage[:-1]:
+            if parent is None or effective_lineages[parent.key] != effective_lineage[:-1]:
                 raise ValueError(
                     "nested choice parent lineage is not represented by accepted mechanics"
                 )
             if immediate.arm_order > len(parent.arms):
                 raise ValueError("nested choice parent arm is unavailable")
-            children_lists.setdefault(choice.parent_lineage, []).append(choice)
+            children_lists.setdefault(effective_lineage, []).append(choice)
     children = {key: tuple(value) for key, value in children_lists.items()}
     outcomes = _all_outcomes(core)
-    roots = tuple(choice for choice in choices if not choice.parent_lineage)
+    roots = tuple(choice for choice in choices if not effective_lineages[choice.key])
     owners: dict[str, list[ChoiceMechanic]] = {event.anchor.id: [] for event in events}
     for choice in roots:
         candidates = [
@@ -175,6 +188,7 @@ def _project_events(core: StoryMapCore) -> dict[str, StoryEventReadModel]:
             _choice_tree(
                 choice,
                 children=children,
+                effective_lineages=effective_lineages,
                 outcomes=outcomes,
             )
             for choice in owners[event.anchor.id]
