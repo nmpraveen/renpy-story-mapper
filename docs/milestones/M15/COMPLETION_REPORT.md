@@ -227,7 +227,10 @@ reported fresh final-byte results of 13 focused tests with desktop 100%, effecti
 Chrome profiles; 269 Story Map V2 passes with six separately exercised opt-in browser skips; 132
 adjacent passes with one excluded hardware smoke; and green JS, Ruff, strict mypy, manifest,
 mojibake, privacy, containment, and diff gates. Same-role independent exact-head review is in
-progress; these worker results are not yet integration authority.
+progress; these worker results are not yet integration authority. The same reviewer rejected
+`d858c999...` with P0=0/P1=0/P2=1/P3=0 solely because contract-valid long arm captions were clipped
+instead of wrapped across all three browser profiles. A bounded CSS/test/manifest correction is in
+progress; all other amended criteria passed independent review.
 
 Candidate screenshot artifacts (outside Git; approval pending):
 

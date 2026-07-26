@@ -151,12 +151,12 @@ renewed exact native goal)
   accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
   Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
   authorized.
-- Current action: existing Track B worker completed the bounded browser refinement at clean exact
-  head `d858c999e762336baf43fb86bbc9ca8e8a6acfdd` from lifecycle checkpoint `986b027`, with fresh
-  three-profile Chrome, 269-test Story Map V2, 132-test adjacent, static/integrity/privacy gates
-  green. Same independent reviewer task `019f9ca9-ab9e-77c0-a2f1-0426f9472084` is reviewing that
-  exact detached head with explicit `gpt-5.6-sol`/High settings; fast mode remains
-  unavailable/unverified. No integration before PASS with P0=P1=P2=0.
+- Current action: same Track B reviewer rejected exact head `d858c999e762336baf43fb86bbc9ca8e8a6acfdd`
+  with P0=0/P1=0/P2=1/P3=0 after reproducing contract-valid long arm-caption clipping across all
+  three profiles and Path closed/open; every other visual-refinement criterion passed. Existing
+  Track B worker task `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` is correcting only title wrapping plus
+  the generalized Chrome regression. No integration before same-reviewer exact-head PASS with
+  P0=P1=P2=0.
 
 ## M13 historical lifecycle
 
