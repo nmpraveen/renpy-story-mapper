@@ -175,11 +175,8 @@ M13_BATCH_LIMIT_FIELDS: Final = (
 
 STORY_MAP_V2_API_ROUTES: Final[dict[str, str]] = {
     "map": "/api/v1/story-map-v2/map",
-    "path": "/api/v1/story-map-v2/path",
-    "detail": "/api/v1/story-map-v2/detail",
 }
 STORY_MAP_V2_MAP_REQUEST_FIELDS: Final = ()
-STORY_MAP_V2_SELECTION_REQUEST_FIELDS: Final = ("selection_id",)
 
 
 @dataclass(frozen=True)
