@@ -677,7 +677,8 @@ class StoryMapWorkflowService:
             code = WorkflowFailure.INVALID_RESPONSE if local_invalid else failure.failure
         resume_call_kind = (
             failure.reservation.call_kind
-            if resolution is JobResolution.RESUMABLE and failure.reservation is not None
+            if resolution in {JobResolution.RESUMABLE, JobResolution.INDETERMINATE}
+            and failure.reservation is not None
             else None
         )
         self._repository.finalize_job(

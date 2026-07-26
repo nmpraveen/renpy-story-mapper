@@ -352,7 +352,8 @@ class MemoryWorkflowRepository:
                 uncertain = [
                     attempt
                     for attempt in job.attempts
-                    if attempt.stage is AttemptStage.SUBMITTING
+                    if attempt.stage
+                    in {AttemptStage.SUBMITTING, AttemptStage.INDETERMINATE}
                     or (
                         attempt.stage is AttemptStage.RETURNED
                         and (
@@ -382,7 +383,7 @@ class MemoryWorkflowRepository:
                         attempt.stage = AttemptStage.NOT_TRANSMITTED
                 elif uncertain:
                     job.state = "indeterminate"
-                    job.resume_call_kind = None
+                    job.resume_call_kind = uncertain[-1].reservation.call_kind
                     indeterminate.append(job.descriptor.job_id)
                     for attempt in uncertain:
                         attempt.stage = AttemptStage.INDETERMINATE
@@ -421,11 +422,10 @@ class MemoryWorkflowRepository:
         with self._lock:
             job = self.runs[run_id].jobs[approval.job_id]
             assert job.state == "indeterminate"
-            assert any(
-                attempt.reservation.attempt_id == approval.indeterminate_attempt_id
-                and attempt.stage is AttemptStage.INDETERMINATE
-                for attempt in job.attempts
-            )
+            latest = job.attempts[-1]
+            assert latest.reservation.attempt_id == approval.indeterminate_attempt_id
+            assert latest.stage is AttemptStage.INDETERMINATE
+            assert job.retry_attempt_id is None
             job.retry_attempt_id = approval.indeterminate_attempt_id
             self.durable.append(approval)
 
@@ -1460,6 +1460,128 @@ def test_uncertain_transport_never_auto_resubmits_without_job_approval() -> None
     assert final.accepted_jobs == 1
     assert factory.calls == 2
     assert repository.attempt_ordinals("run-public", "job-0") == [1, 2]
+
+
+def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None:
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    cloud = RecordingFactory(
+        policy.cloud,
+        [
+            _provider_failure(
+                WorkflowFailure.CONTENT_REFUSAL,
+                TransmissionDisposition.TRANSMITTED,
+                calls=1,
+            ),
+            _reply(policy.cloud, b"wrong-cloud-retry"),
+        ],
+    )
+    assert policy.loopback is not None
+    local = RecordingFactory(
+        policy.loopback,
+        [RuntimeError("uncertain local transport"), _reply(policy.loopback, b"local-ok")],
+    )
+    service = _service(repository, requests, cloud, local=local)
+    preview = _prepare_approve(service, plan, policy, _ceilings(2, fallbacks=1))
+
+    first = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.indeterminate_jobs == 1
+    assert cloud.calls == local.calls == 1
+    service.recover("run-public")
+    job = repository.runs["run-public"].jobs["job-0"]
+    assert job.resume_call_kind is ProviderCallKind.REFUSAL_FALLBACK
+    attempt_id = repository.last_attempt_id("run-public", "job-0")
+    service.approve_indeterminate_retry(
+        "run-public",
+        preview_identity=preview.identity,
+        job_id="job-0",
+        indeterminate_attempt_id=attempt_id,
+    )
+
+    final = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert final.accepted_jobs == 1
+    assert cloud.calls == 1
+    assert local.calls == 2
+    attempts = repository.runs["run-public"].jobs["job-0"].attempts
+    assert [attempt.reservation.call_kind for attempt in attempts] == [
+        ProviderCallKind.MAPPING,
+        ProviderCallKind.REFUSAL_FALLBACK,
+        ProviderCallKind.REFUSAL_FALLBACK,
+    ]
+    assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3]
+    reopened = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert reopened.accepted_jobs == 1
+    assert cloud.calls == 1
+    assert local.calls == 2
+
+
+def test_approved_indeterminate_replacement_review_retries_review_only() -> None:
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    cloud = RecordingFactory(
+        policy.cloud,
+        [
+            _reply(policy.cloud, b"flagged"),
+            RuntimeError("uncertain review transport"),
+            _reply(policy.cloud, b"review-ok"),
+        ],
+    )
+    service = _service(repository, requests, cloud)
+    preview = _prepare_approve(service, plan, policy, _ceilings(2, reviews=1))
+
+    first = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.indeterminate_jobs == 1
+    assert cloud.calls == 2
+    service.recover("run-public")
+    job = repository.runs["run-public"].jobs["job-0"]
+    assert job.resume_call_kind is ProviderCallKind.REPLACEMENT_REVIEW
+    attempt_id = repository.last_attempt_id("run-public", "job-0")
+    service.approve_indeterminate_retry(
+        "run-public",
+        preview_identity=preview.identity,
+        job_id="job-0",
+        indeterminate_attempt_id=attempt_id,
+    )
+
+    final = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert final.accepted_jobs == 1
+    assert cloud.calls == 3
+    attempts = repository.runs["run-public"].jobs["job-0"].attempts
+    assert [attempt.reservation.call_kind for attempt in attempts] == [
+        ProviderCallKind.MAPPING,
+        ProviderCallKind.REPLACEMENT_REVIEW,
+        ProviderCallKind.REPLACEMENT_REVIEW,
+    ]
+    assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3]
+    reopened = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert reopened.accepted_jobs == 1
+    assert cloud.calls == 3
 
 
 @pytest.mark.parametrize(
