@@ -16,6 +16,7 @@ const state = {
   narrativeCitationSelection: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
+  storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -829,8 +830,266 @@ async function resetRoutePaging() {
   return loadComparison();
 }
 
+function showStorySurface(visible) {
+  $("#storyBrowser").hidden = !visible;
+  for (const selector of [".commandbar", "#fallbackNotice", "#analysisFailureBanner", "#partialAnalysisPanel", "#mapLayout", "#organizationPanel"]) {
+    const node = $(selector);
+    if (visible) node.hidden = true;
+    else if ([".commandbar", "#mapLayout", "#organizationPanel"].includes(selector)) node.hidden = false;
+  }
+  if (visible) $("#narrativeDrawer").hidden = true;
+}
+
+function storyItemTitle(item) {
+  return item.title || item.caption || "Story moment";
+}
+
+function storyBadge(text, kind) {
+  return element("span", `story-badge ${kind}`, text);
+}
+
+function appendStoryBadges(host, item) {
+  const badges = element("div", "story-badges");
+  if (item.condition) badges.append(storyBadge(item.condition, "condition"));
+  for (const effect of item.effects || []) badges.append(storyBadge(effect, "effect"));
+  if (item.reachability === "unresolved") badges.append(storyBadge("Route unresolved", "warning"));
+  if (badges.children.length) host.append(badges);
+}
+
+function storySelectionControl(item, kind) {
+  const control = element("button", `${kind}-select`); control.type = "button";
+  control.dataset.storySelectionId = item.selection_id;
+  control.setAttribute("aria-selected", "false");
+  control.append(element("strong", "", storyItemTitle(item)), element("span", "", item.summary || item.outcome_summary || ""));
+  control.addEventListener("click", () => selectStoryItem(item, control));
+  return control;
+}
+
+function storyDetailControl(item) {
+  const button = element("button", "story-detail-button", "Detail / Evidence"); button.type = "button";
+  button.addEventListener("click", async () => {
+    const control = $(`[data-story-selection-id="${CSS.escape(item.selection_id)}"][aria-selected]`);
+    if (state.storySelectionId !== item.selection_id) activateStoryItem(item, control);
+    await openStoryDetail(item.selection_id);
+  });
+  return button;
+}
+
+function planStoryContinuations(rootChoice) {
+  const occurrences = new Map();
+  function visit(choice, choicePath) {
+    for (const arm of choice.arms) {
+      const armPath = [...choicePath, `arm:${arm.selection_id}`];
+      if (arm.rejoin_binding) {
+        const value = occurrences.get(arm.rejoin_binding.selection_id) || { binding: arm.rejoin_binding, paths: [] };
+        value.paths.push(armPath); occurrences.set(arm.rejoin_binding.selection_id, value);
+      }
+      (arm.nested_choices || []).forEach((child, index) => visit(child, [...armPath, `choice:${child.key}:${index}`]));
+    }
+  }
+  visit(rootChoice, []);
+  const owners = new Map();
+  for (const value of occurrences.values()) {
+    const first = value.paths[0] || []; let length = first.length;
+    for (const path of value.paths.slice(1)) {
+      let index = 0; while (index < length && index < path.length && first[index] === path[index]) index += 1;
+      length = index;
+    }
+    const key = JSON.stringify(first.slice(0, length)); const values = owners.get(key) || [];
+    values.push(value.binding); owners.set(key, values);
+  }
+  return owners;
+}
+
+function appendStoryContinuations(host, bindings, armOwned = false) {
+  for (const binding of bindings || []) {
+    const continuation = {
+      selection_id: binding.selection_id,
+      title: armOwned ? "Continue from this path" : "Paths continue together",
+      summary: armOwned ? "This path rejoins at a proven story point." : "Continue from this proven story point.",
+      binding,
+    };
+    state.storyItems.set(continuation.selection_id, continuation);
+    const row = element("div", "story-continuation");
+    row.append(storySelectionControl(continuation, "story-continuation"), storyDetailControl(continuation));
+    host.append(row);
+  }
+}
+
+function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = []) {
+  const plan = continuationPlan || planStoryContinuations(choice);
+  const article = element("section", `story-choice${nested ? " nested" : ""}`);
+  article.append(element("p", "story-choice-label", nested ? "Choice within this path" : "Choice"));
+  const arms = element("div", "story-arms");
+  for (const arm of choice.arms) {
+    const armPath = [...choicePath, `arm:${arm.selection_id}`];
+    state.storyItems.set(arm.selection_id, arm);
+    const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
+    const head = element("div", "story-arm-head");
+    head.append(storySelectionControl(arm, "story-arm"), storyDetailControl(arm));
+    armArticle.append(head); appendStoryBadges(armArticle, arm);
+    (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
+    appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
+    arms.append(armArticle);
+  }
+  article.append(arms);
+  appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)));
+  return article;
+}
+
+function renderStoryEvent(event) {
+  state.storyItems.set(event.selection_id, event);
+  const article = element("article", "story-event"); article.dataset.storySelectionId = event.selection_id;
+  const head = element("div", "story-event-head");
+  head.append(storySelectionControl(event, "story-event"), storyDetailControl(event));
+  article.append(head);
+  if (event.characters?.length) {
+    const characters = element("div", "story-characters");
+    for (const character of event.characters) characters.append(element("span", "", character));
+    article.append(characters);
+  }
+  const choices = element("div", "story-choices");
+  for (const choice of event.choices || []) choices.append(renderStoryChoice(choice));
+  if (choices.children.length) article.append(choices);
+  return article;
+}
+
+function renderStoryMapV2(page) {
+  state.storyPage = page; state.storyItems = new Map(); state.storyPath = null;
+  $("#storyTitle").textContent = page.title;
+  $("#storyOverview").textContent = page.overview;
+  $("#storyMapStatus").textContent = page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
+  const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren();
+  page.sections.forEach((section, sectionIndex) => {
+    const id = `story-section-${sectionIndex + 1}`;
+    const link = element("a", "", section.title); link.href = `#${id}`; index.append(link);
+    const card = element("section", "story-section"); card.id = id;
+    const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header);
+    const events = element("div", "story-events");
+    for (const event of section.events) events.append(renderStoryEvent(event));
+    card.append(events); sections.append(card);
+  });
+  const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
+  for (const note of page.analysis_notes || []) notes.append(element("p", "", note));
+  $("#storyAnalysisNotes").hidden = !notes.children.length;
+  $("#storyPathPanel").hidden = true; $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren();
+  showStorySurface(true);
+}
+
+function renderStoryPath(path) {
+  state.storyPath = path; const item = state.storyItems.get(state.storySelectionId);
+  $("#storyPathTitle").textContent = storyItemTitle(item || {});
+  $("#storyPathSummary").textContent = path.explanation || path.reason || (path.status === "available" ? "Known route to this moment." : "The complete route is not proven.");
+  const steps = $("#storyPathSteps"); steps.replaceChildren();
+  const instructions = path.witness?.instructions || [];
+  instructions.forEach((value, index) => {
+    const step = element("li", "story-path-step");
+    step.append(element("strong", "", String(value.kind).replaceAll("_", " ")), element("span", "", value.text));
+    appendStoryBadges(step, {
+      condition: index === 0 ? (path.witness.requirements || []).map((requirement) => requirement.expression).join(" · ") : null,
+      effects: index === instructions.length - 1 ? path.witness.effects || [] : [],
+    });
+    steps.append(step);
+  });
+  const warnings = $("#storyPathWarnings"); warnings.replaceChildren();
+  for (const warning of path.witness?.uncertainty || []) warnings.append(element("p", "", warning));
+  $("#storyPathPanel").hidden = false;
+  const selected = $(`[data-story-selection-id="${CSS.escape(state.storySelectionId || "")}"][aria-selected="true"]`);
+  if (selected) {
+    selected.scrollIntoView({ block: "center", inline: "nearest" });
+    state.storySelectionScrollY = $("#storyBrowser").scrollTop;
+    state.storySelectionWindowY = window.scrollY;
+    state.storySelectionViewportTop = selected.getBoundingClientRect().top;
+  }
+}
+
+function activateStoryItem(item, control) {
+  const selectionId = item.selection_id; state.storySelectionId = selectionId;
+  state.storySelectionScrollY = $("#storyBrowser").scrollTop;
+  state.storySelectionWindowY = window.scrollY;
+  state.storySelectionViewportTop = control?.getBoundingClientRect().top || 0;
+  for (const node of $$('[data-story-selection-id][aria-selected="true"]')) node.setAttribute("aria-selected", "false");
+  for (const node of $$(".story-event[aria-current],.story-arm[aria-current]")) node.removeAttribute("aria-current");
+  control?.setAttribute("aria-selected", "true"); control?.closest(".story-event,.story-arm")?.setAttribute("aria-current", "true");
+}
+
+async function selectStoryItem(item, control) {
+  const selectionId = item.selection_id;
+  activateStoryItem(item, control);
+  $("#storyPathPanel").hidden = false; $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Finding the known path…"; $("#storyPathSteps").replaceChildren();
+  const token = ++state.storyPathToken;
+  try {
+    const path = await api.storyMapV2Path(selectionId);
+    if (token === state.storyPathToken && selectionId === state.storySelectionId) renderStoryPath(path);
+  } catch (error) {
+    if (token === state.storyPathToken) renderStoryPath({ status: "unavailable", selection_id: selectionId, reason: error.message });
+  }
+}
+
+function renderStoryDetail(envelope) {
+  const detail = envelope.detail || {};
+  const unresolved = envelope.status === "unresolved";
+  const item = state.storyItems.get(state.storySelectionId) || {};
+  $("#detailTitle").textContent = detail.title || detail.element?.title || detail.scene?.title || storyItemTitle(item);
+  $("#detailKind").textContent = String(unresolved ? "unresolved detail" : detail.level || "story moment").replaceAll("_", " ");
+  $("#detailSummary").textContent = envelope.reason || detail.summary || detail.element?.summary || detail.scene?.summary || item.summary || item.outcome_summary || "Exact local story evidence.";
+  $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
+  $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
+  const evidence = $("#evidenceList"); evidence.replaceChildren();
+  for (const record of detail.evidence || []) {
+    const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id || "story-evidence";
+    article.append(element("pre", "", record.excerpt || record.text || "Evidence is available in the project.")); evidence.append(article);
+  }
+  const source = envelope.source_navigation;
+  if (source?.status === "available" && (unresolved || !evidence.children.length)) evidence.append(element("p", "source-line", `${source.path}:${source.start_line}${source.end_line !== source.start_line ? `–${source.end_line}` : ""}`));
+  else if (unresolved && source?.status === "unavailable") evidence.append(element("p", "source-line", source.reason));
+  state.detail = envelope; showLevel("detail_evidence"); document.documentElement.dataset.activeLevel = "detail_evidence"; $("#backToRouteMap").focus();
+}
+
+async function openStoryDetail(selectionId) {
+  state.storySelectionScrollY = $("#storyBrowser").scrollTop;
+  state.storySelectionWindowY = window.scrollY;
+  const control = $(`[data-story-selection-id="${CSS.escape(selectionId)}"][aria-selected]`);
+  state.storySelectionViewportTop = control?.getBoundingClientRect().top || state.storySelectionViewportTop;
+  try {
+    const detail = await api.storyMapV2Detail(selectionId);
+    if (detail.status === "unavailable") { toast(detail.reason || "Detail and Evidence is unavailable"); return; }
+    renderStoryDetail(detail);
+  } catch (error) { toast(error.message); }
+}
+
+function returnToStorySelection(scroll = true) {
+  if (!state.storyPage || !state.storySelectionId) return;
+  showLevel("route_map"); showStorySurface(true);
+  const control = $(`[data-story-selection-id="${CSS.escape(state.storySelectionId)}"][aria-selected]`);
+  if (!control) return;
+  if (scroll) control.scrollIntoView({ block: "center", inline: "nearest" });
+  else {
+    const browser = $("#storyBrowser");
+    if (browser.scrollHeight > browser.clientHeight + 1) browser.scrollTop = state.storySelectionScrollY;
+    else {
+      control.scrollIntoView({ block: "start", inline: "nearest" });
+      window.scrollBy(0, control.getBoundingClientRect().top - state.storySelectionViewportTop);
+    }
+  }
+  control.focus({ preventScroll: true });
+}
+
+async function loadStoryMapV2() {
+  if (!api.storyMapV2Routes?.map) return false;
+  try {
+    const page = await api.storyMapV2();
+    if (page.status === "unavailable") { state.storyPage = null; showStorySurface(false); return false; }
+    renderStoryMapV2(page); return true;
+  } catch (error) {
+    state.storyPage = null; showStorySurface(false); toast(error.message); return false;
+  }
+}
+
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
+  const storyAvailable = await loadStoryMapV2();
+  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; return true; }
   const available = await resetRoutePaging();
   await loadNarrative();
   await loadNarrativeRunStatus();
@@ -1298,7 +1557,10 @@ function bind() {
     if (target) openDetail(target);
   });
   $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
-  $("#backToRouteMap").addEventListener("click", () => { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#backToRouteMap").addEventListener("click", () => { if (state.storyPage && state.storySelectionId) returnToStorySelection(false); else { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); } }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+  $("#returnToStorySelection").addEventListener("click", () => returnToStorySelection(true));
+  $("#storyDetailAction").addEventListener("click", () => { if (state.storySelectionId) openStoryDetail(state.storySelectionId); });
+  $("#openCompatibilityMap").addEventListener("click", async () => { showStorySurface(false); const available = await resetRoutePaging(); await loadNarrative(); await loadNarrativeRunStatus(); if (available) renderMap(); await loadOrganization(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
   $("#selectVisibleNodes").addEventListener("click", async () => { try { await selectVisibleForAI(); toast("Exact provider-free preview ready"); } catch (error) { toast(error.message); } });
   $("#organizeButton").addEventListener("click", prepareOrganization); $("#resumeOrganization").addEventListener("click", async () => { state.prepared = null; await prepareOrganization(); });
@@ -1315,8 +1577,8 @@ function bind() {
 
 async function start() {
   bind();
-  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
+  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
 }
 
 start();
-export { api, graph, state, element, normalizedPage, loadOrganization };
+export { api, graph, state, element, normalizedPage, loadOrganization, loadStoryMapV2, renderStoryMapV2 };

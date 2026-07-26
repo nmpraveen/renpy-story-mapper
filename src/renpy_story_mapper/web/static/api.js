@@ -5,7 +5,8 @@ import {
   assertAIStoryDetail, assertAIStoryMap, assertMapComparison, assertSceneDetail, assertSceneMap,
   assertNarrativeArtifact, assertNarrativeCitations, assertNarrativePreparation,
   assertNarrativeRunStatus, assertNarrativeSnapshot,
-  exactOrganizationBudgets,
+  assertStoryMapV2, assertStoryMapV2Detail, assertStoryMapV2Path,
+  exactOrganizationBudgets, STORY_MAP_V2_ROUTE_KEYS,
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -113,6 +114,7 @@ export class LocalApi {
     this.csrf = csrf || document.querySelector('meta[name="rsm-csrf"]')?.content || "";
     this.organizationSelection = { scopeIds: [], windowRequests: [] };
     this.m12Routes = null;
+    this.storyMapV2Routes = null;
   }
 
   configureM12(routes) {
@@ -127,8 +129,20 @@ export class LocalApi {
     return this.m12Routes[key];
   }
 
+  configureStoryMapV2(routes) {
+    if (routes === undefined || routes === null) { this.storyMapV2Routes = null; return null; }
+    exactKeys(routes, STORY_MAP_V2_ROUTE_KEYS, "Story Map V2 route endpoints");
+    this.storyMapV2Routes = Object.freeze(Object.fromEntries(STORY_MAP_V2_ROUTE_KEYS.map((key) => [key, localVersionedPath(routes[key], `Story Map V2 ${key} endpoint`)])));
+    return this.storyMapV2Routes;
+  }
+
+  storyMapV2PathFor(key) {
+    if (!this.storyMapV2Routes || !Object.hasOwn(this.storyMapV2Routes, key)) throw new Error(`Story Map V2 ${key} is unavailable for this project`);
+    return this.storyMapV2Routes[key];
+  }
+
   async request(path, { method = "GET", body, signal } = {}) {
-    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path);
+    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path) || Object.values(this.storyMapV2Routes || {}).includes(path);
     if (!allowed) throw new TypeError("Unknown local API endpoint");
     const verb = method.toUpperCase();
     const headers = { Accept: "application/json", "X-RSM-Session": this.session };
@@ -166,6 +180,18 @@ export class LocalApi {
   saveSettings(settings) { return this.request(ENDPOINTS.settings, { method: "PUT", body: settings }); }
   diagnostics() { return this.request(ENDPOINTS.diagnostics); }
   shutdown() { return this.request(ENDPOINTS.shutdown, { method: "POST", body: {} }); }
+
+  async storyMapV2() {
+    return assertStoryMapV2(await this.request(this.storyMapV2PathFor("map"), { method: "POST", body: {} }));
+  }
+  async storyMapV2Path(selectionId) {
+    if (typeof selectionId !== "string" || !selectionId || selectionId.length > 512) throw new TypeError("Story selection is required");
+    return assertStoryMapV2Path(await this.request(this.storyMapV2PathFor("path"), { method: "POST", body: { selection_id: selectionId } }), selectionId);
+  }
+  async storyMapV2Detail(selectionId) {
+    if (typeof selectionId !== "string" || !selectionId || selectionId.length > 512) throw new TypeError("Story selection is required");
+    return assertStoryMapV2Detail(await this.request(this.storyMapV2PathFor("detail"), { method: "POST", body: { selection_id: selectionId } }), selectionId);
+  }
 
   async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
     return assertRoutePage(await this.request(ENDPOINTS.routeMap, {

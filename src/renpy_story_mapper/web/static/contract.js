@@ -3,6 +3,7 @@ export const API_VERSION = "v1";
 export const ROUTE_PAGE_SIZE = 30;
 export const ROUTE_EDGE_PAGE_SIZE = 180;
 export const RENDER_LIMITS = Object.freeze({ nodes: 30, edges: 180, items: 240 });
+export const STORY_MAP_V2_ROUTE_KEYS = Object.freeze(["map", "path", "detail"]);
 
 export const ENDPOINTS = Object.freeze({
   bootstrap: "/api/v1/bootstrap",
@@ -64,6 +65,224 @@ function uniqueStrings(value, label, maximum = 64) {
 }
 
 function sameArray(left, right) { return left.length === right.length && left.every((item, index) => item === right[index]); }
+
+function boundedText(value, label, maximum = 4096, { empty = false } = {}) {
+  if (typeof value !== "string" || value.length > maximum || (!empty && (!value || value !== value.trim()))) throw new TypeError(`${label} is not bounded readable text`);
+  return value;
+}
+
+function optionalText(value, label, maximum = 4096) {
+  if (value === null) return null;
+  return boundedText(value, label, maximum);
+}
+
+function sourceBinding(value) {
+  exactKeys(value, ["relative_path", "start_line", "end_line"], "Story Map V2 source binding");
+  if (!object(value) || typeof value.relative_path !== "string" || !value.relative_path || value.relative_path.length > 1024 || !Number.isInteger(value.start_line) || !Number.isInteger(value.end_line) || value.start_line < 1 || value.end_line < value.start_line) throw new TypeError("Invalid Story Map V2 source binding");
+  return value;
+}
+
+function navigationBinding(value, selectionId) {
+  exactKeys(value, ["selection_id", "destination_kind", "target_id", "detail_kind", "detail_id", "source"], "Story Map V2 navigation binding");
+  if (!object(value) || value.selection_id !== selectionId) throw new TypeError("Story Map V2 navigation binding drifted");
+  for (const key of ["destination_kind", "target_id", "detail_kind", "detail_id"]) boundedText(value[key], `Story Map V2 ${key}`, 512);
+  if (value.destination_kind !== "unresolved" && !M12_DESTINATION_KINDS.has(value.destination_kind)) throw new TypeError("Invalid Story Map V2 navigation destination");
+  sourceBinding(value.source);
+  return value;
+}
+
+const M12_DESTINATION_KINDS = new Set(["generic_scene", "exact_occurrence", "temporary_outcome", "persistent_lane", "terminal", "repeatable_event"]);
+
+function rejoinBinding(value) {
+  if (!object(value) || typeof value.selection_id !== "string" || !/^story-map-v2-continuation:[0-9a-f]{64}$/.test(value.selection_id)) throw new TypeError("Invalid Story Map V2 continuation selection");
+  navigationBinding(value, value.selection_id);
+  if (!M12_DESTINATION_KINDS.has(value.destination_kind) || value.destination_kind === "canonical_node" || value.detail_kind !== "story_map_v2_continuation" || value.detail_id !== value.selection_id) throw new TypeError("Invalid Story Map V2 continuation authority binding");
+  return value;
+}
+
+function readableStrings(value, label, maximum = 64) {
+  if (!Array.isArray(value) || value.length > maximum) throw new TypeError(`${label} is not a bounded array`);
+  value.forEach((item) => boundedText(item, label, 2048));
+  return value;
+}
+
+function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map()) {
+  if (!object(value) || depth > 8) throw new TypeError("Invalid Story Map V2 choice nesting");
+  boundedText(value.key, "Story Map V2 choice key", 512);
+  sourceBinding(value.source);
+  if (!Array.isArray(value.arms) || !value.arms.length || value.arms.length > 32) throw new TypeError("Invalid Story Map V2 choice arms");
+  value.arms.forEach((arm) => {
+    if (!object(arm)) throw new TypeError("Invalid Story Map V2 arm");
+    boundedText(arm.selection_id, "Story Map V2 arm selection", 512);
+    if (seenSelections.has(arm.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
+    seenSelections.add(arm.selection_id);
+    boundedText(arm.caption, "Story Map V2 arm caption", 2048);
+    boundedText(arm.outcome_summary, "Story Map V2 arm summary", 8192, { empty: true });
+    optionalText(arm.condition, "Story Map V2 condition", 4096);
+    readableStrings(arm.effects, "Story Map V2 effects");
+    for (const key of ["destination_id", "rejoin_node_id"]) if (arm[key] !== null) boundedText(arm[key], `Story Map V2 ${key}`, 512);
+    if (arm.rejoin_line !== null && (!Number.isInteger(arm.rejoin_line) || arm.rejoin_line < 1)) throw new TypeError("Invalid Story Map V2 rejoin line");
+    if (!["reachable", "unreachable", "unresolved"].includes(arm.reachability)) throw new TypeError("Invalid Story Map V2 arm reachability");
+    readableStrings(arm.warnings, "Story Map V2 arm warnings");
+    navigationBinding(arm.binding, arm.selection_id);
+    if (!Object.hasOwn(arm, "rejoin_binding")) throw new TypeError("Story Map V2 arm is missing rejoin_binding");
+    if (arm.rejoin_binding !== null) {
+      rejoinBinding(arm.rejoin_binding);
+      const rejoinId = arm.rejoin_binding.selection_id;
+      if (arm.rejoin_line !== null && (arm.rejoin_binding.source.start_line !== arm.rejoin_line || arm.rejoin_binding.source.end_line !== arm.rejoin_line)) throw new TypeError("Story Map V2 continuation source does not match the proven rejoin line");
+      const encoded = JSON.stringify(arm.rejoin_binding);
+      if (rejoinSelections.has(rejoinId) && rejoinSelections.get(rejoinId) !== encoded) throw new TypeError("Story Map V2 rejoin binding drifted within a choice tree");
+      if (!rejoinSelections.has(rejoinId)) {
+        if (seenSelections.has(rejoinId)) throw new TypeError("Duplicate Story Map V2 selection");
+        seenSelections.add(rejoinId); rejoinSelections.set(rejoinId, encoded);
+      }
+    }
+    if (!Array.isArray(arm.nested_choices) || arm.nested_choices.length > 16) throw new TypeError("Invalid nested Story Map V2 choices");
+    arm.nested_choices.forEach((choice) => storyChoice(choice, seenSelections, depth + 1, rejoinSelections));
+  });
+  return value;
+}
+
+export function assertStoryMapV2(value) {
+  if (!object(value) || value.schema !== "story-map-v2-page-v1" || !["unavailable", "synthesized", "fallback"].includes(value.status)) throw new TypeError("Invalid Story Map V2 response");
+  boundedText(value.title, "Story Map V2 title", 512);
+  boundedText(value.overview, "Story Map V2 overview", 16384, { empty: true });
+  if (value.reason !== null) boundedText(value.reason, "Story Map V2 reason", 2048);
+  readableStrings(value.analysis_notes, "Story Map V2 analysis notes", 64);
+  if (!Array.isArray(value.sections) || value.sections.length > 64) throw new TypeError("Story Map V2 sections are not bounded");
+  if (value.status === "unavailable") {
+    if (!value.reason || value.sections.length) throw new TypeError("Invalid unavailable Story Map V2 response");
+    return value;
+  }
+  if (!value.sections.length) throw new TypeError("Available Story Map V2 is empty");
+  const sectionIds = new Set(); const selections = new Set(); let eventCount = 0;
+  for (const section of value.sections) {
+    if (!object(section)) throw new TypeError("Invalid Story Map V2 section");
+    boundedText(section.id, "Story Map V2 section ID", 512);
+    if (sectionIds.has(section.id)) throw new TypeError("Duplicate Story Map V2 section");
+    sectionIds.add(section.id);
+    boundedText(section.title, "Story Map V2 section title", 512);
+    boundedText(section.summary, "Story Map V2 section summary", 8192, { empty: true });
+    if (!Array.isArray(section.events) || !section.events.length || eventCount + section.events.length > 512) throw new TypeError("Invalid Story Map V2 section events");
+    eventCount += section.events.length;
+    for (const event of section.events) {
+      if (!object(event)) throw new TypeError("Invalid Story Map V2 event");
+      boundedText(event.selection_id, "Story Map V2 event selection", 512);
+      if (selections.has(event.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
+      selections.add(event.selection_id);
+      boundedText(event.title, "Story Map V2 event title", 512);
+      boundedText(event.summary, "Story Map V2 event summary", 8192, { empty: true });
+      readableStrings(event.characters, "Story Map V2 characters");
+      readableStrings(event.warnings, "Story Map V2 event warnings");
+      if (!["reachable", "unreachable", "unresolved"].includes(event.reachability)) throw new TypeError("Invalid Story Map V2 event reachability");
+      navigationBinding(event.binding, event.selection_id);
+      if (!Array.isArray(event.choices) || event.choices.length > 32) throw new TypeError("Invalid Story Map V2 event choices");
+      event.choices.forEach((choice) => storyChoice(choice, selections));
+    }
+  }
+  return value;
+}
+
+export function assertStoryMapV2Path(value, selectionId) {
+  if (!object(value) || value.schema !== "story-map-v2-path-v1" || value.semantic_level !== "route_map" || value.selection_id !== selectionId) throw new TypeError("Invalid Story Map V2 path response");
+  if (value.status === "unavailable") {
+    exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "reason"], "Unavailable Story Map V2 path");
+    sizedString(value.reason, "Story Map V2 path reason", 1000);
+    return value;
+  }
+  exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "binding", "cached", "route_status", "complete", "explanation", "witness"], "Story Map V2 path");
+  if (!["available", "unresolved"].includes(value.status) || typeof value.cached !== "boolean" || typeof value.complete !== "boolean" || (value.status === "unresolved" && value.complete)) throw new TypeError("Invalid Story Map V2 path state");
+  if (value.route_status !== null) sizedString(value.route_status, "Story Map V2 route status", 80);
+  sizedString(value.explanation, "Story Map V2 path explanation", 1000, value.status === "unresolved");
+  navigationBinding(value.binding, selectionId);
+  if (value.status === "available" && value.binding.destination_kind === "unresolved") throw new TypeError("Available Story Map V2 path has an unresolved binding");
+  storyWitness(value.witness);
+  return value;
+}
+
+export function assertStoryMapV2Detail(value, selectionId) {
+  if (!object(value) || value.schema !== "story-map-v2-detail-v1" || value.semantic_level !== "detail_evidence" || value.selection_id !== selectionId) throw new TypeError("Invalid Story Map V2 detail response");
+  if (value.status === "unavailable" && Object.hasOwn(value, "reason")) {
+    exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "reason"], "Unavailable Story Map V2 detail");
+    sizedString(value.reason, "Story Map V2 detail reason", 1000, true);
+    return value;
+  }
+  if (value.status === "unresolved") {
+    exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "binding", "source_navigation", "reason"], "Unresolved Story Map V2 detail");
+    navigationBinding(value.binding, selectionId); storySourceNavigation(value.source_navigation);
+    sizedString(value.reason, "Story Map V2 detail reason", 1000, true);
+    return value;
+  }
+  exactKeys(value, ["schema", "semantic_level", "status", "selection_id", "binding", "source_navigation", "detail"], "Story Map V2 detail");
+  if (value.status !== "available") throw new TypeError("Invalid Story Map V2 detail state");
+  navigationBinding(value.binding, selectionId); storySourceNavigation(value.source_navigation);
+  if (value.binding.destination_kind === "unresolved") throw new TypeError("Available Story Map V2 detail has an unresolved binding");
+  assertStoryDetailPayload(value.detail);
+  return value;
+}
+
+function sizedString(value, label, maximum, nonempty = false) {
+  if (typeof value !== "string" || value.length > maximum || (nonempty && !value)) throw new TypeError(`${label} is not a bounded string`);
+  return value;
+}
+
+function sizedStringArray(value, label, maximumItems, maximumChars) {
+  if (!Array.isArray(value) || value.length > maximumItems) throw new TypeError(`${label} is not a bounded array`);
+  value.forEach((item) => sizedString(item, label, maximumChars));
+  return value;
+}
+
+function storyWitness(value) {
+  exactKeys(value, ["scene_titles", "visible_choices", "requirements", "effects", "uncertainty", "instructions"], "Story Map V2 witness");
+  sizedStringArray(value.scene_titles, "Story Map V2 scene title", 80, 160);
+  sizedStringArray(value.visible_choices, "Story Map V2 visible choice", 80, 1000);
+  sizedStringArray(value.effects, "Story Map V2 effect", 80, 1000);
+  sizedStringArray(value.uncertainty, "Story Map V2 uncertainty", 40, 1000);
+  if (!Array.isArray(value.requirements) || value.requirements.length > 80) throw new TypeError("Story Map V2 requirements are not bounded");
+  value.requirements.forEach((requirement) => {
+    exactKeys(requirement, ["expression", "source", "evidence_ids"], "Story Map V2 requirement");
+    sizedString(requirement.expression, "Story Map V2 requirement expression", 1000);
+    sizedString(requirement.source, "Story Map V2 requirement source", 80);
+    sizedStringArray(requirement.evidence_ids, "Story Map V2 requirement evidence ID", 80, 160);
+  });
+  if (!Array.isArray(value.instructions) || value.instructions.length > 120) throw new TypeError("Story Map V2 instructions are not bounded");
+  value.instructions.forEach((instruction) => {
+    exactKeys(instruction, ["ordinal", "kind", "text"], "Story Map V2 instruction");
+    if (!Number.isInteger(instruction.ordinal)) throw new TypeError("Story Map V2 instruction ordinal is not an integer");
+    sizedString(instruction.kind, "Story Map V2 instruction kind", 80);
+    sizedString(instruction.text, "Story Map V2 instruction text", 1000);
+  });
+  return value;
+}
+
+function storySourceNavigation(value) {
+  if (!object(value) || !["available", "unavailable"].includes(value.status)) throw new TypeError("Invalid Story Map V2 source navigation");
+  if (value.status === "unavailable") {
+    exactKeys(value, ["status", "reason"], "Unavailable Story Map V2 source navigation");
+    sizedString(value.reason, "Story Map V2 source reason", 1000, true); return value;
+  }
+  exactKeys(value, ["status", "path", "start_line", "end_line", "line_basis", "evidence_id"], "Story Map V2 source navigation");
+  sizedString(value.path, "Story Map V2 source path", 1024);
+  sizedString(value.line_basis, "Story Map V2 source line basis", 80);
+  sizedString(value.evidence_id, "Story Map V2 source evidence ID", 512);
+  if (!Number.isInteger(value.start_line) || !Number.isInteger(value.end_line) || value.start_line < 1 || value.end_line < value.start_line) throw new TypeError("Invalid Story Map V2 source lines");
+  return value;
+}
+
+function assertStoryDetailPayload(value) {
+  if (!object(value)) throw new TypeError("Invalid Story Map V2 detail payload");
+  if (value.level === "scene_detail" || (value.status === "unavailable" && Object.hasOwn(value, "fallback"))) assertSceneDetail(value);
+  else assertDetail(value);
+  for (const candidate of [value.title, value.summary, value.reason, value.element?.title, value.element?.summary, value.scene?.title, value.scene?.summary]) {
+    if (candidate !== undefined && candidate !== null) sizedString(candidate, "Story Map V2 rendered detail text", 16384);
+  }
+  if (!Array.isArray(value.evidence) || value.evidence.length > 60) throw new TypeError("Story Map V2 detail evidence is not bounded");
+  value.evidence.forEach((record) => {
+    if (!object(record)) throw new TypeError("Invalid Story Map V2 detail evidence");
+    for (const candidate of [record.id, record.excerpt, record.text]) if (candidate !== undefined && candidate !== null) sizedString(candidate, "Story Map V2 rendered evidence text", 16384);
+  });
+  return value;
+}
 
 export function exactOrganizationBudgets(value) {
   exactKeys(value, ORGANIZATION_BUDGET_KEYS, "Organization budgets");
