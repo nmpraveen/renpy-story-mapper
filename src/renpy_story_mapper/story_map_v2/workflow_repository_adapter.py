@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -71,8 +70,6 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
             if isinstance(repository, durable.SqliteStoryMapV2Repository)
             else None
         )
-        self._validated_jobs: dict[tuple[str, str], str] = {}
-        self._validated_lock = threading.Lock()
 
     @classmethod
     def from_project(cls, project: object) -> DurableWorkflowRepositoryAdapter:
@@ -359,6 +356,7 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
         claim: JobClaim,
         reservation: AttemptReservation | None,
         result: ValidatedWorkflowResult,
+        cache_identity: CacheIdentity,
     ) -> None:
         stored = _result_object(result)
         with self._repository() as repository:
@@ -367,22 +365,9 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                 durable_claim.descriptor.job_id,
                 None if reservation is None else reservation.attempt_id,
                 stored,
+                cache_identity=cache_identity.value,
                 fault=self._fault,
             )
-            preview = self.load_preview(claim.run_id)
-            identities = {claim.job.cache_identity.value}
-            if preview.policy.allow_refusal_fallback:
-                identities.add(
-                    preview.policy.input_identity(
-                        claim.job.serialized_request_identity,
-                        mode=ProviderMode.LOOPBACK,
-                    ).cache_identity.value
-                )
-            with self._validated_lock:
-                for cache_identity in identities:
-                    self._validated_jobs[(cache_identity, result.result_identity)] = (
-                        durable_claim.descriptor.job_id
-                    )
             if (
                 result.flagged_for_review
                 and reservation is not None
@@ -394,25 +379,42 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                     prior_attempt_id=reservation.attempt_id,
                     prior_result_identity=_object_identity(stored),
                 )
+            elif (
+                reservation is not None
+                and reservation.call_kind
+                in {
+                    ProviderCallKind.REPLACEMENT_REVIEW,
+                    ProviderCallKind.REFUSAL_FALLBACK,
+                }
+            ):
+                repository.record_continuation(
+                    durable_claim.descriptor.job_id,
+                    durable.ContinuationKind.COMPLETE,
+                    prior_attempt_id=reservation.attempt_id,
+                    prior_result_identity=_object_identity(stored),
+                )
 
     def store_cache(
-        self, cache_identity: CacheIdentity, result: ValidatedWorkflowResult
+        self,
+        claim: JobClaim,
+        cache_identity: CacheIdentity,
+        result: ValidatedWorkflowResult,
     ) -> None:
         stored = _result_object(result)
-        with self._validated_lock:
-            job_id = self._validated_jobs.get(
-                (cache_identity.value, result.result_identity)
-            )
-        if job_id is None:
-            raise durable.StoryMapV2RepositoryError(
-                "cache write has no matching validated workflow job"
-            )
+        job_id = _job_id(claim.run_id, claim.job.job_id)
         with self._repository() as repository:
             job = repository.get_job(job_id)
+            expected_descriptor = (
+                None
+                if job is None
+                else _durable_job(claim.run_id, claim.job, job.descriptor.ordinal)
+            )
             if (
                 job is None
+                or job.descriptor != expected_descriptor
                 or job.status is not durable.JobStatus.VALIDATED
                 or job.normalized_result_identity != _object_identity(stored)
+                or job.validated_cache_identity != cache_identity.value
             ):
                 raise durable.StoryMapV2RepositoryError(
                     "validated cache write no longer matches its durable job"
@@ -466,9 +468,11 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
             if job.resolution is durable.JobResolution.ACCEPTED:
                 if job.normalized_result_identity is None:
                     raise storage.ProjectCorruptError("accepted job has no durable result")
-                entry = repository.find_cache_by_result_identity(
-                    job.normalized_result_identity
-                )
+                if job.validated_cache_identity is None:
+                    raise storage.ProjectCorruptError(
+                        "accepted job cache identity is missing"
+                    )
+                entry = repository.lookup_cache(job.validated_cache_identity)
                 if entry is None:
                     raise storage.ProjectCorruptError("accepted job cache is missing")
                 result: object = entry.normalized_result
@@ -534,9 +538,8 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                     refreshed = repository.get_job(job.descriptor.job_id)
                     assert refreshed is not None
                     assert refreshed.normalized_result_identity is not None
-                    entry = repository.find_cache_by_result_identity(
-                        refreshed.normalized_result_identity
-                    )
+                    assert refreshed.validated_cache_identity is not None
+                    entry = repository.lookup_cache(refreshed.validated_cache_identity)
                     assert entry is not None
                     repository.publish_job(job.descriptor.job_id, entry.normalized_result)
                     finalized.append(public_id)
@@ -544,9 +547,8 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                 elif job.status is durable.JobStatus.FINALIZED:
                     if job.resolution is durable.JobResolution.ACCEPTED:
                         assert job.normalized_result_identity is not None
-                        entry = repository.find_cache_by_result_identity(
-                            job.normalized_result_identity
-                        )
+                        assert job.validated_cache_identity is not None
+                        entry = repository.lookup_cache(job.validated_cache_identity)
                         assert entry is not None
                         result = entry.normalized_result
                     else:

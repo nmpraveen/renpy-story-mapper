@@ -1764,6 +1764,7 @@ def _migrate_to_v7(connection: sqlite3.Connection) -> None:
             next_attempt_ordinal INTEGER NOT NULL CHECK (next_attempt_ordinal >= 1),
             validated_result_json BLOB,
             normalized_result_identity TEXT,
+            validated_cache_identity TEXT,
             continuation_kind TEXT NOT NULL CHECK (continuation_kind IN (
                 'mapping','replacement_review','refusal_fallback','complete'
             )),
@@ -1787,6 +1788,9 @@ def _migrate_to_v7(connection: sqlite3.Connection) -> None:
                 normalized_result_identity IS NULL OR length(normalized_result_identity) = 64
             ),
             CHECK (
+                validated_cache_identity IS NULL OR length(validated_cache_identity) = 64
+            ),
+            CHECK (
                 continuation_result_identity IS NULL OR length(continuation_result_identity) = 64
             ),
             CHECK (
@@ -1803,6 +1807,9 @@ def _migrate_to_v7(connection: sqlite3.Connection) -> None:
             call_kind TEXT NOT NULL,
             provider_input_identity TEXT NOT NULL,
             ceilings_identity TEXT NOT NULL,
+            retry_of_attempt_id TEXT,
+            uses_supplemental_retry_capacity INTEGER NOT NULL DEFAULT 0
+                CHECK (uses_supplemental_retry_capacity IN (0,1)),
             status TEXT NOT NULL CHECK (status IN (
                 'reserved','transmitting','returned','succeeded','not_transmitted','failed',
                 'cancelled','indeterminate'
@@ -1822,11 +1829,17 @@ def _migrate_to_v7(connection: sqlite3.Connection) -> None:
             failure_kind TEXT,
             sanitized_failure TEXT,
             FOREIGN KEY (job_id) REFERENCES story_map_v2_jobs(job_id) ON DELETE CASCADE,
+            FOREIGN KEY (retry_of_attempt_id)
+                REFERENCES story_map_v2_attempts(attempt_id) ON DELETE CASCADE,
             UNIQUE (job_id, ordinal),
             CHECK (length(trim(attempt_id)) > 0),
             CHECK (length(trim(call_kind)) > 0),
             CHECK (length(provider_input_identity) = 64),
             CHECK (length(ceilings_identity) = 64),
+            CHECK (retry_of_attempt_id IS NULL OR retry_of_attempt_id != attempt_id),
+            CHECK (
+                uses_supplemental_retry_capacity = 0 OR retry_of_attempt_id IS NOT NULL
+            ),
             CHECK (response_identity IS NULL OR length(response_identity) = 64),
             CHECK (
                 normalized_result_identity IS NULL OR length(normalized_result_identity) = 64
@@ -1978,6 +1991,9 @@ def _migrate_to_v7(connection: sqlite3.Connection) -> None:
         "ON story_map_v2_jobs(cache_identity, status)",
         "CREATE INDEX IF NOT EXISTS story_map_v2_attempts_job_idx "
         "ON story_map_v2_attempts(job_id, ordinal)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_attempts_retry_idx "
+        "ON story_map_v2_attempts(job_id, retry_of_attempt_id, "
+        "uses_supplemental_retry_capacity, transmission_disposition)",
         "CREATE INDEX IF NOT EXISTS story_map_v2_cache_request_idx "
         "ON story_map_v2_cache(serialized_request_identity, authority_identity)",
         "CREATE INDEX IF NOT EXISTS story_map_v2_validated_results_job_idx "
@@ -2057,6 +2073,7 @@ def _validate_v7_schema(connection: sqlite3.Connection, indexes: set[str]) -> No
                 ("next_attempt_ordinal", "INTEGER", False),
                 ("validated_result_json", "BLOB", True),
                 ("normalized_result_identity", "TEXT", True),
+                ("validated_cache_identity", "TEXT", True),
                 ("continuation_kind", "TEXT", False),
                 ("continuation_attempt_id", "TEXT", True),
                 ("continuation_result_identity", "TEXT", True),
@@ -2073,6 +2090,8 @@ def _validate_v7_schema(connection: sqlite3.Connection, indexes: set[str]) -> No
                 ("call_kind", "TEXT", False),
                 ("provider_input_identity", "TEXT", False),
                 ("ceilings_identity", "TEXT", False),
+                ("retry_of_attempt_id", "TEXT", True),
+                ("uses_supplemental_retry_capacity", "INTEGER", False),
                 ("status", "TEXT", False),
                 ("transmission_disposition", "TEXT", False),
                 ("reserved_utc", "TEXT", False),
@@ -2248,6 +2267,12 @@ def _validate_v7_schema(connection: sqlite3.Connection, indexes: set[str]) -> No
         "story_map_v2_jobs_run_idx": ("run_id", "ordinal", "job_id"),
         "story_map_v2_jobs_cache_idx": ("cache_identity", "status"),
         "story_map_v2_attempts_job_idx": ("job_id", "ordinal"),
+        "story_map_v2_attempts_retry_idx": (
+            "job_id",
+            "retry_of_attempt_id",
+            "uses_supplemental_retry_capacity",
+            "transmission_disposition",
+        ),
         "story_map_v2_cache_request_idx": (
             "serialized_request_identity",
             "authority_identity",
@@ -2285,6 +2310,12 @@ def _validate_v7_schema(connection: sqlite3.Connection, indexes: set[str]) -> No
         },
         "story_map_v2_attempts": {
             ("story_map_v2_jobs", "job_id", "job_id", "CASCADE"),
+            (
+                "story_map_v2_attempts",
+                "retry_of_attempt_id",
+                "attempt_id",
+                "CASCADE",
+            ),
         },
         "story_map_v2_run_approvals": {
             ("story_map_v2_runs", "run_id", "run_id", "CASCADE"),

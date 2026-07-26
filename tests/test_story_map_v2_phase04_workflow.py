@@ -79,6 +79,7 @@ class _Job:
     state: str = "pending"
     resolution: JobResolution | None = None
     result: ValidatedWorkflowResult | None = None
+    cache_identity: CacheIdentity | None = None
     attempts: list[_Attempt] = field(default_factory=list)
     defer_epoch: int = -1
     retry_attempt_id: str | None = None
@@ -309,19 +310,25 @@ class MemoryWorkflowRepository:
         claim: JobClaim,
         reservation: AttemptReservation | None,
         result: ValidatedWorkflowResult,
+        cache_identity: CacheIdentity,
     ) -> None:
         with self._lock:
             job = self.runs[claim.run_id].jobs[claim.job.job_id]
             if reservation is not None:
                 self._attempt(claim, reservation).stage = AttemptStage.VALIDATED
             job.result = result
+            job.cache_identity = cache_identity
             job.state = "validated"
             self.durable.append(result)
 
     def store_cache(
-        self, cache_identity: CacheIdentity, result: ValidatedWorkflowResult
+        self,
+        claim: JobClaim,
+        cache_identity: CacheIdentity,
+        result: ValidatedWorkflowResult,
     ) -> None:
         with self._lock:
+            assert self.runs[claim.run_id].jobs[claim.job.job_id].result == result
             self.cache[cache_identity] = result
             self.durable.extend((cache_identity, result))
 

@@ -344,6 +344,7 @@ class JobRecord:
     continuation_kind: ContinuationKind
     continuation_attempt_id: str | None
     continuation_result_identity: str | None
+    validated_cache_identity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -577,6 +578,7 @@ class StoryMapV2Repository(Protocol):
         attempt_id: str | None,
         normalized_result: object,
         *,
+        cache_identity: str | None = None,
         now: datetime | None = None,
         fault: FaultInjector | None = None,
     ) -> JobRecord: ...
@@ -673,10 +675,6 @@ class StoryMapV2Repository(Protocol):
     def recover_run(self, run_id: str, *, now: datetime | None = None) -> int: ...
 
     def lookup_cache(self, cache_identity: str) -> NormalizedCacheEntry | None: ...
-
-    def find_cache_by_result_identity(
-        self, result_identity: str
-    ) -> NormalizedCacheEntry | None: ...
 
     def create_generation(
         self,
@@ -1344,11 +1342,13 @@ class SqliteStoryMapV2Repository:
             self._connection.execute(
                 """INSERT INTO story_map_v2_attempts(
                     attempt_id, job_id, ordinal, call_kind, provider_input_identity,
-                    ceilings_identity, status, transmission_disposition, reserved_utc,
+                    ceilings_identity, retry_of_attempt_id,
+                    uses_supplemental_retry_capacity, status,
+                    transmission_disposition, reserved_utc,
                     transmission_utc, finalized_utc, normalized_result_identity,
                     calls, input_tokens, output_tokens, elapsed_ms, failure_kind,
                     sanitized_failure
-                ) VALUES (?, ?, ?, ?, ?, ?, 'reserved', 'not_started', ?, NULL, NULL, NULL,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', 'not_started', ?, NULL, NULL, NULL,
                     0, 0, 0, 0, NULL, NULL)""",
                 (
                     attempt_id,
@@ -1357,6 +1357,8 @@ class SqliteStoryMapV2Repository:
                     metadata.call_kind,
                     metadata.provider_input_identity,
                     metadata.ceilings_identity,
+                    retry_of_attempt_id,
+                    int(uses_supplemental),
                     timestamp,
                 ),
             )
@@ -1566,19 +1568,22 @@ class SqliteStoryMapV2Repository:
         attempt_id: str | None,
         normalized_result: object,
         *,
+        cache_identity: str | None = None,
         now: datetime | None = None,
         fault: FaultInjector | None = None,
     ) -> JobRecord:
         _identifier(job_id, "job_id")
         if attempt_id is not None:
             _identifier(attempt_id, "attempt_id")
+        if cache_identity is not None:
+            _digest(cache_identity, "cache_identity")
         result_bytes = _durable_json(normalized_result, "normalized result")
         result_identity = hashlib.sha256(result_bytes).hexdigest()
         timestamp = _timestamp(now)
         _inject(fault, FAULT_BEFORE_VALIDATION_RECORD)
         with storage.transaction(self._connection):
             job = self._connection.execute(
-                """SELECT jobs.status, runs.cancel_requested
+                """SELECT jobs.*, runs.cancel_requested
                    FROM story_map_v2_jobs AS jobs
                    JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
                    WHERE jobs.job_id = ?""",
@@ -1586,6 +1591,15 @@ class SqliteStoryMapV2Repository:
             ).fetchone()
             if job is None:
                 raise StoryMapV2RepositoryError("unknown job_id")
+            stored_cache_identity = _optional_text(job["validated_cache_identity"])
+            if (
+                stored_cache_identity is not None
+                and cache_identity is not None
+                and stored_cache_identity != cache_identity
+            ):
+                raise ImmutableRecordConflictError(
+                    "validated job cache identity is immutable"
+                )
             if (
                 bool(job["cancel_requested"])
                 or JobStatus(str(job["status"])) is JobStatus.CANCELLED
@@ -1642,9 +1656,16 @@ class SqliteStoryMapV2Repository:
             self._connection.execute(
                 """UPDATE story_map_v2_jobs
                    SET status = 'validated', validated_result_json = ?,
-                       normalized_result_identity = ?, updated_utc = ?
+                       normalized_result_identity = ?, validated_cache_identity = ?,
+                       updated_utc = ?
                    WHERE job_id = ? AND status IN ('claimed','returned','validated')""",
-                (result_bytes, result_identity, timestamp, job_id),
+                (
+                    result_bytes,
+                    result_identity,
+                    cache_identity or stored_cache_identity,
+                    timestamp,
+                    job_id,
+                ),
             )
             row = self._connection.execute(
                 "SELECT * FROM story_map_v2_jobs WHERE job_id = ?", (job_id,)
@@ -1792,6 +1813,16 @@ class SqliteStoryMapV2Repository:
             if result_blob is None or result_identity is None:
                 raise storage.ProjectCorruptError("validated job is missing normalized result")
             descriptor = _job_descriptor(row)
+            stored_cache_identity = _optional_text(row["validated_cache_identity"])
+            if (
+                cache_identity is not None
+                and stored_cache_identity is not None
+                and cache_identity != stored_cache_identity
+            ):
+                raise ImmutableRecordConflictError(
+                    "cache write does not match the validated job identity"
+                )
+            cache_identity = cache_identity or stored_cache_identity
             if cache_identity is not None:
                 _digest(cache_identity, "cache_identity")
                 descriptor = FrozenJobDescriptor(
@@ -2413,17 +2444,6 @@ class SqliteStoryMapV2Repository:
             created_utc=str(row["created_utc"]),
         )
 
-    def find_cache_by_result_identity(
-        self, result_identity: str
-    ) -> NormalizedCacheEntry | None:
-        _digest(result_identity, "result_identity")
-        row = self._connection.execute(
-            """SELECT cache_identity FROM story_map_v2_cache
-               WHERE normalized_result_identity = ? ORDER BY cache_identity LIMIT 1""",
-            (result_identity,),
-        ).fetchone()
-        return None if row is None else self.lookup_cache(str(row[0]))
-
     def create_generation(
         self,
         generation: GenerationDescriptor,
@@ -2882,7 +2902,8 @@ class SqliteStoryMapV2Repository:
         timestamp: str,
     ) -> str | None:
         rows = self._connection.execute(
-            """SELECT attempt_id, ordinal, call_kind, status, transmission_disposition
+            """SELECT attempt_id, ordinal, call_kind, status, transmission_disposition,
+                      retry_of_attempt_id
                FROM story_map_v2_attempts
                WHERE job_id = ? ORDER BY ordinal""",
             (job_id,),
@@ -2902,7 +2923,7 @@ class SqliteStoryMapV2Repository:
                 raise StoryMapV2RepositoryError(
                     "definite non-transmission retry requires the same call kind"
                 )
-            return self._retry_lineage_locked(job_id, ordinal - 1)
+            return _optional_text(previous["retry_of_attempt_id"])
         if (
             previous_status is AttemptStatus.INDETERMINATE
             or previous_disposition is TransmissionDisposition.INDETERMINATE
@@ -2965,22 +2986,6 @@ class SqliteStoryMapV2Repository:
             return None
         raise StoryMapV2RepositoryError("attempt call kind is not authorized")
 
-    def _retry_lineage_locked(self, job_id: str, prior_ordinal: int) -> str | None:
-        approval = self._connection.execute(
-            """SELECT attempt_ordinal FROM story_map_v2_retry_approvals
-               WHERE job_id = ? AND attempt_ordinal <= ? AND consumed_utc IS NOT NULL
-               ORDER BY attempt_ordinal DESC LIMIT 1""",
-            (job_id, prior_ordinal),
-        ).fetchone()
-        if approval is None:
-            return None
-        attempt = self._connection.execute(
-            """SELECT attempt_id FROM story_map_v2_attempts
-               WHERE job_id = ? AND ordinal = ?""",
-            (job_id, int(approval["attempt_ordinal"])),
-        ).fetchone()
-        return None if attempt is None else str(attempt["attempt_id"])
-
     def _validate_attempt_limits_locked(
         self,
         run_id: str,
@@ -3025,29 +3030,21 @@ class SqliteStoryMapV2Repository:
         if retry_of_attempt_id is None:
             raise StoryMapV2RepositoryError("ordinary provider-call ceiling is exhausted")
         occupied = self._connection.execute(
-            """SELECT COUNT(*) FROM story_map_v2_retry_approvals AS approvals
-               JOIN story_map_v2_jobs AS jobs ON jobs.job_id = approvals.job_id
-               WHERE jobs.run_id = ? AND approvals.consumed_utc IS NOT NULL
-                 AND EXISTS (
-                     SELECT 1 FROM story_map_v2_attempts AS retries
-                     WHERE retries.job_id = approvals.job_id
-                       AND retries.ordinal > approvals.attempt_ordinal
-                       AND retries.transmission_disposition != 'definitely_not_transmitted'
-                 )""",
+            """SELECT COUNT(*) FROM story_map_v2_attempts AS attempts
+               JOIN story_map_v2_jobs AS jobs ON jobs.job_id = attempts.job_id
+               WHERE jobs.run_id = ?
+                 AND attempts.uses_supplemental_retry_capacity = 1
+                 AND attempts.transmission_disposition != 'definitely_not_transmitted'""",
             (run_id,),
         ).fetchone()
         assert occupied is not None
         if int(occupied[0]) >= limits.indeterminate_retry_calls:
             raise StoryMapV2RepositoryError("supplemental retry-call ceiling is exhausted")
         same_job = self._connection.execute(
-            """SELECT 1 FROM story_map_v2_retry_approvals AS approvals
-               WHERE approvals.job_id = ? AND approvals.consumed_utc IS NOT NULL
-                 AND EXISTS (
-                     SELECT 1 FROM story_map_v2_attempts AS retries
-                     WHERE retries.job_id = approvals.job_id
-                       AND retries.ordinal > approvals.attempt_ordinal
-                       AND retries.transmission_disposition != 'definitely_not_transmitted'
-                 ) LIMIT 1""",
+            """SELECT 1 FROM story_map_v2_attempts
+               WHERE job_id = ? AND uses_supplemental_retry_capacity = 1
+                 AND transmission_disposition != 'definitely_not_transmitted'
+               LIMIT 1""",
             (job_id,),
         ).fetchone()
         if same_job is not None:
@@ -3210,6 +3207,7 @@ def _job_record(row: sqlite3.Row) -> JobRecord:
         continuation_kind=ContinuationKind(str(row["continuation_kind"])),
         continuation_attempt_id=_optional_text(row["continuation_attempt_id"]),
         continuation_result_identity=_optional_text(row["continuation_result_identity"]),
+        validated_cache_identity=_optional_text(row["validated_cache_identity"]),
     )
 
 
@@ -3244,6 +3242,10 @@ def _attempt_record(row: sqlite3.Row) -> AttemptRecord:
             status=AttemptStatus(str(row["status"])),
             transmission_disposition=TransmissionDisposition(str(row["transmission_disposition"])),
             reserved_utc=str(row["reserved_utc"]),
+            retry_of_attempt_id=_optional_text(row["retry_of_attempt_id"]),
+            uses_supplemental_retry_capacity=bool(
+                row["uses_supplemental_retry_capacity"]
+            ),
         ),
         transmission_utc=_optional_text(row["transmission_utc"]),
         finalized_utc=_optional_text(row["finalized_utc"]),

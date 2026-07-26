@@ -628,7 +628,12 @@ class StoryMapWorkflowService:
             _validate_durable_result(validated, prohibited_request=call.request)
         except Exception:
             return None
-        self._repository.record_validated(claim, call.reservation, validated)
+        self._repository.record_validated(
+            claim,
+            call.reservation,
+            validated,
+            call.reservation.provider_input.cache_identity,
+        )
         self._checkpoint("after_validation", claim.job.job_id)
         return validated
 
@@ -640,9 +645,9 @@ class StoryMapWorkflowService:
         result: ValidatedWorkflowResult,
     ) -> None:
         if reservation is None:
-            self._repository.record_validated(claim, None, result)
+            self._repository.record_validated(claim, None, result, cache_identity)
             self._checkpoint("after_validation", claim.job.job_id)
-        self._repository.store_cache(cache_identity, result)
+        self._repository.store_cache(claim, cache_identity, result)
         self._repository.finalize_job(
             claim,
             JobResolution.ACCEPTED,

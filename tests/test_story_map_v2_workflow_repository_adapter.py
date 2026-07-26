@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
     AuthorityIdentity,
+    ProviderCallKind,
     TransmissionDisposition,
     WorkflowFailure,
 )
@@ -39,6 +42,41 @@ class CancelAtSubmittingAdapter(DurableWorkflowRepositoryAdapter):
     def mark_submitting(self, claim, reservation):  # type: ignore[no-untyped-def]
         self.persist_cancellation(claim.run_id)
         return super().mark_submitting(claim, reservation)
+
+
+class ValidationBarrier:
+    def __init__(self) -> None:
+        self._barrier = threading.Barrier(2)
+
+    def __call__(self, name: str, job_id: str) -> None:
+        del job_id
+        if name == "after_validation":
+            self._barrier.wait(timeout=5)
+
+
+class MixedIndeterminateFactory:
+    def __init__(self) -> None:
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def __call__(self):  # type: ignore[no-untyped-def]
+        factory = self
+
+        class Provider:
+            def submit(self, request: bytes):  # type: ignore[no-untyped-def]
+                with factory._lock:
+                    factory.calls += 1
+                calls = 0 if b"public-0" in request else 1
+                raise WorkflowProviderError(
+                    WorkflowFailure.INDETERMINATE,
+                    TransmissionDisposition.INDETERMINATE,
+                    AttemptAccounting(calls, calls, 0, calls),
+                )
+
+            def cancel(self) -> None:
+                return
+
+        return Provider()
 
 
 def _service(
@@ -122,6 +160,130 @@ def test_real_service_publishes_immutable_result_and_second_run_uses_cache(
         assert cached_status.accepted_jobs == 1
         assert trap.constructions == 0
         assert adapter.load_published_result("run-first", "job-0") == published
+
+
+def test_cloned_adapter_recovers_exact_job_after_durable_validation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "cloned-validation.rsmp"
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    with Project.create(path) as project:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        cloud = RecordingFactory(policy.cloud, [_reply(policy.cloud, b"validated")])
+        service = _service(
+            adapter, requests, cloud, checkpoint=FaultOnce("after_validation")
+        )
+        preview = service.prepare("run-cloned", plan, policy, _ceilings(1))
+        service.approve(preview.run_id, preview.identity)
+        with pytest.raises(SimulatedProcessCrash):
+            service.execute(
+                preview.run_id,
+                preview_identity=preview.identity,
+                authority_identity=plan.authority_identity,
+            )
+
+        cloned = DurableWorkflowRepositoryAdapter.from_project(project)
+        trap = ConstructionTrap()
+        reopened = _service(cloned, requests, trap)
+        report = reopened.recover(preview.run_id)
+        assert report.finalized_jobs == ("job-0",)
+        assert report.published_jobs == ("job-0",)
+        assert cloned.load_cache(plan.jobs[0].cache_identity) is not None
+        assert cloned.load_published_result(preview.run_id, "job-0") is not None
+        assert trap.constructions == 0
+
+
+def test_two_concurrent_same_identity_runs_route_cache_to_exact_jobs(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "concurrent-cache.rsmp"
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    with Project.create(path) as project:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        barrier = ValidationBarrier()
+        services: list[tuple[StoryMapWorkflowService, str, str]] = []
+        for suffix in ("a", "b"):
+            cloud = RecordingFactory(policy.cloud, [_reply(policy.cloud, b"same")])
+            service = StoryMapWorkflowService(
+                adapter,
+                DictMaterializer(requests),
+                SyntheticValidator(),
+                cloud_factory=cloud,
+                checkpoint=barrier,
+            )
+            run_id = f"run-concurrent-{suffix}"
+            preview = service.prepare(run_id, plan, policy, _ceilings(1))
+            service.approve(run_id, preview.identity)
+            services.append((service, run_id, preview.identity))
+
+        def execute(item: tuple[StoryMapWorkflowService, str, str]) -> None:
+            service, run_id, identity = item
+            status = service.execute(
+                run_id,
+                preview_identity=identity,
+                authority_identity=plan.authority_identity,
+            )
+            assert status.accepted_jobs == 1
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            tuple(executor.map(execute, services))
+        rows = project._require_open().execute(
+            "SELECT run_id, status, resolution FROM story_map_v2_jobs ORDER BY run_id"
+        ).fetchall()
+        assert len(rows) == 2
+        assert {(str(row[1]), str(row[2])) for row in rows} == {
+            ("published", "accepted")
+        }
+        for _, run_id, _ in services:
+            assert adapter.load_published_result(run_id, "job-0") is not None
+
+
+def test_fallback_validation_recovery_uses_exact_loopback_cache_identity(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "fallback-validation.rsmp"
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    assert policy.loopback is not None
+    cloud = RecordingFactory(
+        policy.cloud,
+        [
+            WorkflowProviderError(
+                WorkflowFailure.CONTENT_REFUSAL,
+                TransmissionDisposition.TRANSMITTED,
+                AttemptAccounting(1, 1, 0, 1),
+            )
+        ],
+    )
+    loopback = RecordingFactory(policy.loopback, [_reply(policy.loopback, b"local")])
+    with Project.create(path) as project:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        service = _service(
+            adapter,
+            requests,
+            cloud,
+            loopback=loopback,
+            checkpoint=FaultOnce("after_validation"),
+        )
+        preview = service.prepare("run-fallback-cache", plan, policy, _ceilings(1, fallbacks=1))
+        service.approve(preview.run_id, preview.identity)
+        with pytest.raises(SimulatedProcessCrash):
+            service.execute(
+                preview.run_id,
+                preview_identity=preview.identity,
+                authority_identity=plan.authority_identity,
+            )
+        cloned = DurableWorkflowRepositoryAdapter.from_project(project)
+        report = cloned.recover(preview.run_id)
+        local_identity = policy.input_identity(
+            plan.jobs[0].serialized_request_identity,
+            mode=policy.loopback.mode,
+        ).cache_identity
+        assert report.published_jobs == ("job-0",)
+        assert cloned.load_cache(local_identity) is not None
+        assert cloned.load_cache(plan.jobs[0].cache_identity) is None
 
 
 def test_64_jobs_use_exact_six_real_sqlite_submission_slots(tmp_path: Path) -> None:
@@ -310,6 +472,96 @@ def test_calls_one_indeterminate_retry_uses_exact_supplemental_capacity_once(
             )
 
 
+def test_mixed_zero_and_one_call_indeterminate_retries_use_exact_capacities(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "mixed-retry-capacity.rsmp"
+    policy = _policy()
+    plan, requests = _plan(2, policy)
+    factory = MixedIndeterminateFactory()
+    with Project.create(path) as project:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        service = StoryMapWorkflowService(
+            adapter,
+            DictMaterializer(requests),
+            SyntheticValidator(),
+            cloud_factory=factory,
+        )
+        preview = service.prepare("run-mixed", plan, policy, _ceilings(2, retries=1))
+        service.approve(preview.run_id, preview.identity)
+        first = service.execute(
+            preview.run_id,
+            preview_identity=preview.identity,
+            authority_identity=plan.authority_identity,
+        )
+        assert first.indeterminate_jobs == 2
+        rows = project._require_open().execute(
+            """SELECT jobs.ordinal, attempts.attempt_id
+               FROM story_map_v2_jobs AS jobs
+               JOIN story_map_v2_attempts AS attempts ON attempts.job_id = jobs.job_id
+               ORDER BY jobs.ordinal, attempts.ordinal"""
+        ).fetchall()
+        assert len(rows) == 2
+        for job_ordinal, attempt_id in rows:
+            service.approve_indeterminate_retry(
+                preview.run_id,
+                preview_identity=preview.identity,
+                job_id=f"job-{int(job_ordinal)}",
+                indeterminate_attempt_id=str(attempt_id),
+            )
+        execution_id = adapter.begin_execution(
+            preview.run_id, preview.identity, plan.authority_identity.value
+        )
+        ordinary_claim = adapter.claim_next_job(
+            preview.run_id,
+            execution_id,
+            "ordinary-worker",
+            submission_slots=GLOBAL_SUBMISSION_SLOTS,
+        )
+        assert ordinary_claim is not None
+        assert ordinary_claim.job.job_id == "job-0"
+        ordinary = adapter.reserve_attempt(
+            ordinary_claim,
+            ProviderCallKind.MAPPING,
+            policy.input_identity(ordinary_claim.job.serialized_request_identity),
+            preview.ceilings,
+        )
+        assert ordinary is not None
+        assert ordinary.retry_of_attempt_id == str(rows[0][1])
+        assert not ordinary.uses_supplemental_retry_capacity
+
+        supplemental_claim = adapter.claim_next_job(
+            preview.run_id,
+            execution_id,
+            "supplemental-worker",
+            submission_slots=GLOBAL_SUBMISSION_SLOTS,
+        )
+        assert supplemental_claim is not None
+        assert supplemental_claim.job.job_id == "job-1"
+        supplemental = adapter.reserve_attempt(
+            supplemental_claim,
+            ProviderCallKind.MAPPING,
+            policy.input_identity(supplemental_claim.job.serialized_request_identity),
+            preview.ceilings,
+        )
+        assert supplemental is not None
+        assert supplemental.retry_of_attempt_id == str(rows[1][1])
+        assert supplemental.uses_supplemental_retry_capacity
+
+        reloaded = project.story_map_v2_repository()
+        run_row = project._require_open().execute(
+            "SELECT run_id FROM story_map_v2_runs LIMIT 1"
+        ).fetchone()
+        assert run_row is not None
+        durable_jobs = reloaded.list_jobs(str(run_row[0]))
+        first_retry = reloaded.list_attempts(durable_jobs[0].descriptor.job_id)[-1]
+        second_retry = reloaded.list_attempts(durable_jobs[1].descriptor.job_id)[-1]
+        assert first_retry.reservation.retry_of_attempt_id == ordinary.retry_of_attempt_id
+        assert not first_retry.reservation.uses_supplemental_retry_capacity
+        assert second_retry.reservation.retry_of_attempt_id == supplemental.retry_of_attempt_id
+        assert second_retry.reservation.uses_supplemental_retry_capacity
+
+
 @pytest.mark.parametrize("continuation", ["review", "fallback"])
 def test_calls_one_continuation_retry_survives_pretransmission_crash(
     tmp_path: Path, continuation: str
@@ -404,13 +656,18 @@ def test_calls_one_continuation_retry_survives_pretransmission_crash(
         )
         assert final.accepted_jobs == 1
         attempts = project._require_open().execute(
-            "SELECT ordinal, call_kind, transmission_disposition FROM story_map_v2_attempts "
+            "SELECT ordinal, call_kind, transmission_disposition, retry_of_attempt_id, "
+            "uses_supplemental_retry_capacity FROM story_map_v2_attempts "
             "ORDER BY ordinal"
         ).fetchall()
         assert [int(row[0]) for row in attempts] == [1, 2, 3, 4]
         expected = "replacement_review" if continuation == "review" else "refusal_fallback"
         assert [str(row[1]) for row in attempts[1:]] == [expected, expected, expected]
         assert str(attempts[2][2]) == "definitely_not_transmitted"
+        assert attempts[0][3] is None and int(attempts[0][4]) == 0
+        assert attempts[1][3] is None and int(attempts[1][4]) == 0
+        assert str(attempts[2][3]) == attempt_id and int(attempts[2][4]) == 1
+        assert str(attempts[3][3]) == attempt_id and int(attempts[3][4]) == 1
         assert final.accounting.calls == 3
         if loopback is None:
             assert cloud.calls == 3

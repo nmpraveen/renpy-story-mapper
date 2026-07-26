@@ -150,10 +150,12 @@ class WorkflowRepository(Protocol):
         claim: JobClaim,
         reservation: AttemptReservation | None,
         result: ValidatedWorkflowResult,
+        cache_identity: CacheIdentity,
     ) -> None: ...
 
     def store_cache(
         self,
+        claim: JobClaim,
         cache_identity: CacheIdentity,
         result: ValidatedWorkflowResult,
     ) -> None: ...
