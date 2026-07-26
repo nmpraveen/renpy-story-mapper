@@ -77,6 +77,7 @@ class ChunkPlanningPlacement:
     end_line: int
     raw_text: str
     raw_tokens: int
+    atomic_group_id: str
     choice_arms: tuple[ChoiceArmBoundary, ...] = ()
     structural_flags: tuple[str, ...] = ()
 
@@ -86,6 +87,7 @@ class ChunkPlanningPlacement:
             (self.scope_id, "scope ID"),
             (self.scene_id, "scene ID"),
             (self.relative_path, "relative path"),
+            (self.atomic_group_id, "atomic group ID"),
         ):
             _trimmed(value, label)
         if self.start_line < 1 or self.end_line < self.start_line:
@@ -109,12 +111,19 @@ class ChunkPlanningScope:
     parent_scope_id: str | None
     persistent_lane: bool
     branch_heavy: bool
+    chapter_ordinal: int
+    lane_id: str
+    lane_kind: str
     placements: tuple[ChunkPlanningPlacement, ...]
 
     def __post_init__(self) -> None:
         _trimmed(self.scope_id, "scope ID")
         if self.parent_scope_id is not None:
             _trimmed(self.parent_scope_id, "parent scope ID")
+        _trimmed(self.lane_id, "lane ID")
+        _trimmed(self.lane_kind, "lane kind")
+        if self.chapter_ordinal < 0:
+            raise ValueError("scope chapter ordinal cannot be negative")
         if self.ordinal < 1 or not self.placements:
             raise ValueError("scope ordinal and placements are required")
         if any(item.scope_id != self.scope_id for item in self.placements):
@@ -122,6 +131,15 @@ class ChunkPlanningScope:
         placement_ids = tuple(item.placement_id for item in self.placements)
         if len(placement_ids) != len(set(placement_ids)):
             raise ValueError("scope placement IDs must be unique")
+        seen_groups: set[str] = set()
+        current_group: str | None = None
+        for placement in self.placements:
+            if placement.atomic_group_id == current_group:
+                continue
+            if placement.atomic_group_id in seen_groups:
+                raise ValueError("scope atomic groups must remain contiguous")
+            seen_groups.add(placement.atomic_group_id)
+            current_group = placement.atomic_group_id
 
 
 @dataclass(frozen=True)
@@ -232,12 +250,46 @@ class FrozenChoiceSegment:
 
 
 @dataclass(frozen=True)
+class FrozenScopeBinding:
+    scope_id: str
+    ordinal: int
+    parent_scope_id: str | None
+    persistent_lane: bool
+    chapter_ordinal: int
+    lane_id: str
+    lane_kind: str
+
+    def __post_init__(self) -> None:
+        _trimmed(self.scope_id, "frozen scope ID")
+        if self.parent_scope_id is not None:
+            _trimmed(self.parent_scope_id, "frozen parent scope ID")
+        _trimmed(self.lane_id, "frozen lane ID")
+        _trimmed(self.lane_kind, "frozen lane kind")
+        if self.ordinal < 1 or self.chapter_ordinal < 0:
+            raise ValueError("frozen scope ordinals are invalid")
+
+
+@dataclass(frozen=True)
+class FrozenAtomicGroup:
+    id: str
+    scope_id: str
+    placement_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _trimmed(self.id, "atomic group ID")
+        _trimmed(self.scope_id, "atomic group scope ID")
+        if not self.placement_ids or len(self.placement_ids) != len(set(self.placement_ids)):
+            raise ValueError("atomic group placement coverage must be non-empty and unique")
+
+
+@dataclass(frozen=True)
 class StoryChunkDescriptor:
     chunk_id: str
     scope_id: str
     scope_ordinal: int
     chunk_ordinal: int
     profile: ChunkProfileKind
+    atomic_group_ids: tuple[str, ...]
     placement_ids: tuple[str, ...]
     raw_tokens: int
     rendered_input_hash: str
@@ -256,6 +308,10 @@ class StoryChunkDescriptor:
         _trimmed(self.scope_id, "scope ID")
         if self.scope_ordinal < 1 or self.chunk_ordinal < 1:
             raise ValueError("chunk scope/chunk ordinals must be positive")
+        if not self.atomic_group_ids or len(self.atomic_group_ids) != len(
+            set(self.atomic_group_ids)
+        ):
+            raise ValueError("chunk atomic group coverage must be non-empty and unique")
         if not self.placement_ids or len(self.placement_ids) != len(set(self.placement_ids)):
             raise ValueError("chunk placement coverage must be non-empty and unique")
         if self.raw_tokens < 1:
@@ -298,7 +354,9 @@ class StoryChunkPlan:
     story_plan_identity: str
     source_identity: str
     scope_ids: tuple[str, ...]
+    scope_bindings: tuple[FrozenScopeBinding, ...]
     covered_placement_ids: tuple[str, ...]
+    atomic_groups: tuple[FrozenAtomicGroup, ...]
     choice_parents: tuple[FrozenChoiceParent, ...]
     chunks: tuple[StoryChunkDescriptor, ...]
     normal_target_tokens: int = 8_000
@@ -328,8 +386,30 @@ class StoryChunkPlan:
         )
         if len(self.scope_ids) != len(set(self.scope_ids)):
             raise ValueError("StoryChunkPlan scope IDs must be unique")
+        if tuple(binding.scope_id for binding in self.scope_bindings) != self.scope_ids:
+            raise ValueError("StoryChunkPlan scope bindings must retain exact scope order")
+        if tuple(binding.ordinal for binding in self.scope_bindings) != tuple(
+            range(1, len(self.scope_bindings) + 1)
+        ):
+            raise ValueError("StoryChunkPlan scope binding ordinals must be contiguous")
+        scope_id_set = set(self.scope_ids)
         if len(self.covered_placement_ids) != len(set(self.covered_placement_ids)):
             raise ValueError("StoryChunkPlan coverage IDs must be unique")
+        atomic_group_ids = tuple(group.id for group in self.atomic_groups)
+        if len(atomic_group_ids) != len(set(atomic_group_ids)):
+            raise ValueError("StoryChunkPlan atomic group IDs must be unique")
+        if any(group.scope_id not in scope_id_set for group in self.atomic_groups):
+            raise ValueError("StoryChunkPlan atomic group has an unknown scope")
+        atomic_placement_ids = tuple(
+            placement_id
+            for group in self.atomic_groups
+            for placement_id in group.placement_ids
+        )
+        if atomic_placement_ids != self.covered_placement_ids:
+            raise ValueError(
+                "StoryChunkPlan atomic groups must cover every placement exactly once"
+            )
+        atomic_groups_by_id = {group.id: group for group in self.atomic_groups}
         parent_keys = tuple(parent.choice_key for parent in self.choice_parents)
         if len(parent_keys) != len(set(parent_keys)):
             raise ValueError("StoryChunkPlan choice parents must be unique")
@@ -341,6 +421,11 @@ class StoryChunkPlan:
         flattened = tuple(item for chunk in self.chunks for item in chunk.placement_ids)
         if flattened != self.covered_placement_ids:
             raise ValueError("StoryChunkPlan must cover every supplied placement exactly once")
+        flattened_group_ids = tuple(
+            group_id for chunk in self.chunks for group_id in chunk.atomic_group_ids
+        )
+        if flattened_group_ids != atomic_group_ids:
+            raise ValueError("StoryChunkPlan must cover every atomic group exactly once")
         if any(chunk.scope_id not in set(self.scope_ids) for chunk in self.chunks):
             raise ValueError("StoryChunkPlan chunk references an unknown scope")
         expected_scope_order = {
@@ -359,6 +444,21 @@ class StoryChunkPlan:
             if chunk.chunk_ordinal != next_ordinal:
                 raise ValueError("StoryChunkPlan chunk ordinals must be contiguous per scope")
             chunk_ordinals[chunk.scope_id] = next_ordinal
+            try:
+                atomic_chunk_placements = tuple(
+                    placement_id
+                    for group_id in chunk.atomic_group_ids
+                    for placement_id in atomic_groups_by_id[group_id].placement_ids
+                )
+            except KeyError as exc:
+                raise ValueError("StoryChunkPlan chunk has an unknown atomic group") from exc
+            if atomic_chunk_placements != chunk.placement_ids:
+                raise ValueError("StoryChunkPlan chunk splits an atomic scene group")
+            if any(
+                atomic_groups_by_id[group_id].scope_id != chunk.scope_id
+                for group_id in chunk.atomic_group_ids
+            ):
+                raise ValueError("StoryChunkPlan chunk crosses atomic group scopes")
             if (
                 not chunk.structural_fallback_only
                 and cast(int, chunk.complete_request_tokens) > self.maximum_request_tokens
@@ -409,6 +509,18 @@ class _ChunkDraft:
     oversized_candidate_tokens: int | None
 
 
+def _planning_atomic_groups(
+    placements: tuple[ChunkPlanningPlacement, ...],
+) -> tuple[tuple[ChunkPlanningPlacement, ...], ...]:
+    groups: list[list[ChunkPlanningPlacement]] = []
+    for placement in placements:
+        if not groups or groups[-1][-1].atomic_group_id != placement.atomic_group_id:
+            groups.append([placement])
+        else:
+            groups[-1].append(placement)
+    return tuple(tuple(group) for group in groups)
+
+
 def _ordered_unique(values: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
@@ -430,6 +542,7 @@ def _raw_story(placements: tuple[ChunkPlanningPlacement, ...]) -> str:
         header = canonical_json(
             {
                 "end_line": placement.end_line,
+                "atomic_group_id": placement.atomic_group_id,
                 "path": placement.relative_path,
                 "placement_id": placement.placement_id,
                 "scene_id": placement.scene_id,
@@ -517,6 +630,7 @@ def _request_payload(
     scope_ordinal: int,
     chunk_ordinal: int,
     profile: ChunkProfileKind,
+    atomic_group_ids: tuple[str, ...],
     placement_ids: tuple[str, ...],
     raw_story: str,
     mechanics: dict[str, object],
@@ -531,6 +645,7 @@ def _request_payload(
         "scope": {"id": scope_id, "ordinal": scope_ordinal},
         "chunk_ordinal": chunk_ordinal,
         "profile": profile.value,
+        "atomic_group_ids": list(atomic_group_ids),
         "placement_ids": list(placement_ids),
         "raw_story": raw_story,
         "mechanics": mechanics,
@@ -580,6 +695,9 @@ def _draft_request_metrics(
         scope_ordinal=scope.ordinal,
         chunk_ordinal=chunk_ordinal,
         profile=profile,
+        atomic_group_ids=_ordered_unique(
+            [item.atomic_group_id for item in placements]
+        ),
         placement_ids=tuple(item.placement_id for item in placements),
         raw_story=raw_story,
         mechanics=_mechanics_payload(segments, parents_by_key),
@@ -612,10 +730,11 @@ def _plan_scope_drafts(
     )
     drafts: list[_ChunkDraft] = []
     current: tuple[ChunkPlanningPlacement, ...] = ()
+    atomic_groups = _planning_atomic_groups(scope.placements)
     cursor = 0
-    while cursor < len(scope.placements):
-        placement = scope.placements[cursor]
-        candidate = (*current, placement)
+    while cursor < len(atomic_groups):
+        atomic_group = atomic_groups[cursor]
+        candidate = (*current, *atomic_group)
         chunk_ordinal = len(drafts) + 1
         _, candidate_tokens = _draft_request_metrics(
             projection,
@@ -646,7 +765,7 @@ def _plan_scope_drafts(
                     chunk_id=_chunk_id(projection, scope.scope_id, chunk_ordinal),
                     scope=scope,
                     chunk_ordinal=chunk_ordinal,
-                    placements=(placement,),
+                    placements=atomic_group,
                     profile=profile,
                     structural_fallback_only=True,
                     oversized_candidate_tokens=candidate_tokens,
@@ -749,6 +868,9 @@ def plan_story_chunks(
             [flag for placement in draft.placements for flag in placement.structural_flags]
         )
         placement_ids = tuple(item.placement_id for item in draft.placements)
+        atomic_group_ids = _ordered_unique(
+            [item.atomic_group_id for item in draft.placements]
+        )
         rendered_input_hash = canonical_hash(raw_story)
         mechanics_hash = canonical_hash(mechanics)
         raw_tokens = sum(item.raw_tokens for item in draft.placements)
@@ -760,6 +882,7 @@ def plan_story_chunks(
                     scope_ordinal=draft.scope.ordinal,
                     chunk_ordinal=draft.chunk_ordinal,
                     profile=draft.profile,
+                    atomic_group_ids=atomic_group_ids,
                     placement_ids=placement_ids,
                     raw_tokens=raw_tokens,
                     rendered_input_hash=rendered_input_hash,
@@ -783,6 +906,7 @@ def plan_story_chunks(
                 scope_ordinal=draft.scope.ordinal,
                 chunk_ordinal=draft.chunk_ordinal,
                 profile=draft.profile,
+                atomic_group_ids=atomic_group_ids,
                 placement_ids=placement_ids,
                 raw_story=raw_story,
                 mechanics=mechanics,
@@ -800,6 +924,7 @@ def plan_story_chunks(
                 scope_ordinal=draft.scope.ordinal,
                 chunk_ordinal=draft.chunk_ordinal,
                 profile=draft.profile,
+                atomic_group_ids=atomic_group_ids,
                 placement_ids=placement_ids,
                 raw_tokens=raw_tokens,
                 rendered_input_hash=rendered_input_hash,
@@ -815,15 +940,38 @@ def plan_story_chunks(
             )
         )
 
+    scope_bindings = tuple(
+        FrozenScopeBinding(
+            scope_id=scope.scope_id,
+            ordinal=scope.ordinal,
+            parent_scope_id=scope.parent_scope_id,
+            persistent_lane=scope.persistent_lane,
+            chapter_ordinal=scope.chapter_ordinal,
+            lane_id=scope.lane_id,
+            lane_kind=scope.lane_kind,
+        )
+        for scope in projection.scopes
+    )
+    atomic_groups = tuple(
+        FrozenAtomicGroup(
+            id=group[0].atomic_group_id,
+            scope_id=scope.scope_id,
+            placement_ids=tuple(item.placement_id for item in group),
+        )
+        for scope in projection.scopes
+        for group in _planning_atomic_groups(scope.placements)
+    )
     return StoryChunkPlan(
         story_plan_identity=projection.story_plan_identity,
         source_identity=projection.source_identity,
         scope_ids=tuple(scope.scope_id for scope in projection.scopes),
+        scope_bindings=scope_bindings,
         covered_placement_ids=tuple(
             placement.placement_id
             for scope in projection.scopes
             for placement in scope.placements
         ),
+        atomic_groups=atomic_groups,
         choice_parents=choice_parents,
         chunks=tuple(chunks),
         normal_target_tokens=policy.normal_target_tokens,
@@ -849,6 +997,25 @@ def serialize_chunk_request(
     if chunk.structural_fallback_only:
         raise FrozenPlanMismatch("structural-fallback-only chunk has no provider request")
 
+    scope = next(
+        (item for item in projection.scopes if item.scope_id == chunk.scope_id),
+        None,
+    )
+    binding = next(
+        (item for item in plan.scope_bindings if item.scope_id == chunk.scope_id),
+        None,
+    )
+    if scope is None or binding != FrozenScopeBinding(
+        scope_id=scope.scope_id,
+        ordinal=scope.ordinal,
+        parent_scope_id=scope.parent_scope_id,
+        persistent_lane=scope.persistent_lane,
+        chapter_ordinal=scope.chapter_ordinal,
+        lane_id=scope.lane_id,
+        lane_kind=scope.lane_kind,
+    ):
+        raise FrozenPlanMismatch("current scope/lane binding differs from the frozen chunk plan")
+
     placements_by_id = {
         placement.placement_id: placement
         for scope in projection.scopes
@@ -860,6 +1027,8 @@ def serialize_chunk_request(
         raise FrozenPlanMismatch("current story plan omits a frozen placement") from exc
     if any(placement.scope_id != chunk.scope_id for placement in placements):
         raise FrozenPlanMismatch("current placement scope differs from the frozen chunk")
+    if _ordered_unique([item.atomic_group_id for item in placements]) != chunk.atomic_group_ids:
+        raise FrozenPlanMismatch("current atomic grouping differs from the frozen chunk plan")
     raw_story = _raw_story(placements)
     if canonical_hash(raw_story) != chunk.rendered_input_hash:
         raise FrozenPlanMismatch("current rendered input differs from the frozen chunk plan")
@@ -882,6 +1051,7 @@ def serialize_chunk_request(
             scope_ordinal=chunk.scope_ordinal,
             chunk_ordinal=chunk.chunk_ordinal,
             profile=chunk.profile,
+            atomic_group_ids=chunk.atomic_group_ids,
             placement_ids=chunk.placement_ids,
             raw_story=raw_story,
             mechanics=mechanics,
@@ -918,6 +1088,7 @@ def _chunk_payload(chunk: StoryChunkDescriptor) -> dict[str, object]:
         "scope_ordinal": chunk.scope_ordinal,
         "chunk_ordinal": chunk.chunk_ordinal,
         "profile": chunk.profile.value,
+        "atomic_group_ids": list(chunk.atomic_group_ids),
         "placement_ids": list(chunk.placement_ids),
         "raw_tokens": chunk.raw_tokens,
         "rendered_input_hash": chunk.rendered_input_hash,
@@ -941,8 +1112,28 @@ def _plan_payload(plan: StoryChunkPlan) -> dict[str, object]:
         "story_plan_identity": plan.story_plan_identity,
         "source_identity": plan.source_identity,
         "scope_ids": list(plan.scope_ids),
+        "scope_bindings": [
+            {
+                "scope_id": binding.scope_id,
+                "ordinal": binding.ordinal,
+                "parent_scope_id": binding.parent_scope_id,
+                "persistent_lane": binding.persistent_lane,
+                "chapter_ordinal": binding.chapter_ordinal,
+                "lane_id": binding.lane_id,
+                "lane_kind": binding.lane_kind,
+            }
+            for binding in plan.scope_bindings
+        ],
         "covered_placement_ids": list(plan.covered_placement_ids),
         "coverage_hash": plan.coverage_hash,
+        "atomic_groups": [
+            {
+                "id": group.id,
+                "scope_id": group.scope_id,
+                "placement_ids": list(group.placement_ids),
+            }
+            for group in plan.atomic_groups
+        ],
         "choice_parents": [
             {
                 "choice_key": parent.choice_key,
@@ -1029,8 +1220,10 @@ def deserialize_story_chunk_plan(payload: bytes | str) -> StoryChunkPlan:
                 "story_plan_identity",
                 "source_identity",
                 "scope_ids",
+                "scope_bindings",
                 "covered_placement_ids",
                 "coverage_hash",
+                "atomic_groups",
                 "choice_parents",
                 "chunks",
                 "normal_target_tokens",
@@ -1041,6 +1234,61 @@ def deserialize_story_chunk_plan(payload: bytes | str) -> StoryChunkPlan:
         ),
         "StoryChunkPlan",
     )
+    scope_bindings: list[FrozenScopeBinding] = []
+    for binding_value in _required_list(root.get("scope_bindings"), "scope_bindings"):
+        binding = _required_dict(binding_value, "scope binding")
+        _exact_keys(
+            binding,
+            frozenset(
+                {
+                    "scope_id",
+                    "ordinal",
+                    "parent_scope_id",
+                    "persistent_lane",
+                    "chapter_ordinal",
+                    "lane_id",
+                    "lane_kind",
+                }
+            ),
+            "scope binding",
+        )
+        persistent_lane = binding.get("persistent_lane")
+        if type(persistent_lane) is not bool:
+            raise ValueError("scope binding persistent_lane must be a boolean")
+        scope_bindings.append(
+            FrozenScopeBinding(
+                scope_id=_required_str(binding.get("scope_id"), "scope binding ID"),
+                ordinal=_required_int(binding.get("ordinal"), "scope binding ordinal"),
+                parent_scope_id=_optional_str(
+                    binding.get("parent_scope_id"), "scope binding parent"
+                ),
+                persistent_lane=persistent_lane,
+                chapter_ordinal=_required_int(
+                    binding.get("chapter_ordinal"), "scope binding chapter ordinal"
+                ),
+                lane_id=_required_str(binding.get("lane_id"), "scope binding lane ID"),
+                lane_kind=_required_str(
+                    binding.get("lane_kind"), "scope binding lane kind"
+                ),
+            )
+        )
+    atomic_groups: list[FrozenAtomicGroup] = []
+    for group_value in _required_list(root.get("atomic_groups"), "atomic_groups"):
+        group = _required_dict(group_value, "atomic group")
+        _exact_keys(
+            group,
+            frozenset({"id", "scope_id", "placement_ids"}),
+            "atomic group",
+        )
+        atomic_groups.append(
+            FrozenAtomicGroup(
+                id=_required_str(group.get("id"), "atomic group ID"),
+                scope_id=_required_str(group.get("scope_id"), "atomic group scope ID"),
+                placement_ids=_string_tuple(
+                    group.get("placement_ids"), "atomic group placement_ids"
+                ),
+            )
+        )
     parents: list[FrozenChoiceParent] = []
     for parent_value in _required_list(root.get("choice_parents"), "choice_parents"):
         item = _required_dict(parent_value, "choice parent")
@@ -1070,6 +1318,7 @@ def deserialize_story_chunk_plan(payload: bytes | str) -> StoryChunkPlan:
                     "scope_ordinal",
                     "chunk_ordinal",
                     "profile",
+                    "atomic_group_ids",
                     "placement_ids",
                     "raw_tokens",
                     "rendered_input_hash",
@@ -1138,6 +1387,9 @@ def deserialize_story_chunk_plan(payload: bytes | str) -> StoryChunkPlan:
                 scope_ordinal=_required_int(item.get("scope_ordinal"), "scope ordinal"),
                 chunk_ordinal=_required_int(item.get("chunk_ordinal"), "chunk ordinal"),
                 profile=ChunkProfileKind(_required_str(item.get("profile"), "profile")),
+                atomic_group_ids=_string_tuple(
+                    item.get("atomic_group_ids"), "atomic_group_ids"
+                ),
                 placement_ids=_string_tuple(item.get("placement_ids"), "placement_ids"),
                 raw_tokens=_required_int(item.get("raw_tokens"), "raw tokens"),
                 rendered_input_hash=_required_str(
@@ -1170,9 +1422,11 @@ def deserialize_story_chunk_plan(payload: bytes | str) -> StoryChunkPlan:
         ),
         source_identity=_required_str(root.get("source_identity"), "source identity"),
         scope_ids=_string_tuple(root.get("scope_ids"), "scope_ids"),
+        scope_bindings=tuple(scope_bindings),
         covered_placement_ids=_string_tuple(
             root.get("covered_placement_ids"), "covered_placement_ids"
         ),
+        atomic_groups=tuple(atomic_groups),
         choice_parents=tuple(parents),
         chunks=tuple(chunks),
         normal_target_tokens=_required_int(

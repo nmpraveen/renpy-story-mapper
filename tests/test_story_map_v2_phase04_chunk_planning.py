@@ -61,6 +61,7 @@ def _placement(
         end_line=index * 10 + 9,
         raw_text=_story_text(index, raw_tokens),
         raw_tokens=raw_tokens,
+        atomic_group_id=f"atomic:{scope_id}:{index:02d}",
         choice_arms=arms,
         structural_flags=flags,
     )
@@ -80,6 +81,9 @@ def _scope(
         parent_scope_id=cast(str | None, case["parent_scope_id"]),
         persistent_lane=cast(bool, case["persistent_lane"]),
         branch_heavy=cast(bool, case["branch_heavy"]),
+        chapter_ordinal=0,
+        lane_id=f"lane:{scope_id}",
+        lane_kind="persistent" if cast(bool, case["persistent_lane"]) else "spine",
         placements=placements
         if placements is not None
         else tuple(

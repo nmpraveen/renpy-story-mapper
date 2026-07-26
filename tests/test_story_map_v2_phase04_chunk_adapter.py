@@ -25,7 +25,11 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
 )
 from renpy_story_mapper.story_map_v2.phase04_chunk_plan import plan_story_chunks
 from renpy_story_mapper.story_map_v2.source_adapter import adapt_story_scope
-from renpy_story_mapper.story_map_v2.story_plan import StoryPlan, build_story_plan
+from renpy_story_mapper.story_map_v2.story_plan import (
+    StoryPlacement,
+    StoryPlan,
+    build_story_plan,
+)
 
 FIXTURE = (
     Path(__file__).parent
@@ -113,12 +117,25 @@ def test_adapter_freezes_exact_a1_placements_groups_scopes_and_mechanics() -> No
     source_spans = {span.key: span for span in source.spans}
     story_placements = {placement.id: placement for placement in story_plan.placements}
     for scope in projection.scopes:
+        current_group_key: tuple[str, str, tuple[str, ...]] | None = None
+        group_ordinal = 0
         for placement in scope.placements:
             authority = story_placements[placement.placement_id]
             span = source_spans[authority.span_key]
+            group_key = (
+                authority.scene_id,
+                authority.context_scene_id,
+                authority.occurrence_path,
+            )
+            if group_key != current_group_key:
+                group_ordinal += 1
+                current_group_key = group_key
             assert placement.raw_text == span.raw_text
             assert placement.raw_tokens == span.estimated_tokens
-            assert placement.atomic_group_id == atomic_group_identity(authority)
+            assert placement.atomic_group_id == atomic_group_identity(
+                authority,
+                group_ordinal,
+            )
 
     grouped: dict[str, list[str]] = defaultdict(list)
     for scope in projection.scopes:
@@ -138,7 +155,12 @@ def test_adapter_freezes_exact_a1_placements_groups_scopes_and_mechanics() -> No
         for placement in story_plan.placements
         if placement.span_key == shared_span_key
     )
-    assert len({atomic_group_identity(placement) for placement in shared}) == len(shared)
+    adapted_group_by_id = {
+        placement.placement_id: placement.atomic_group_id
+        for scope in projection.scopes
+        for placement in scope.placements
+    }
+    assert len({adapted_group_by_id[placement.id] for placement in shared}) == len(shared)
 
     source_choices = {choice.key: choice for choice in source.choices}
     assert {
@@ -199,19 +221,28 @@ def test_oversized_multispan_atomic_group_uses_whole_group_structural_fallback()
     placement_span_counts = Counter(
         placement.span_key for placement in story_plan.placements
     )
-    grouped: dict[tuple[object, ...], list[object]] = defaultdict(list)
-    for placement in story_plan.placements:
-        grouped[
-            (
-                placement.scope_id,
+    grouped: list[tuple[StoryPlacement, ...]] = []
+    for scope in story_plan.scopes:
+        current: list[StoryPlacement] = []
+        current_key: tuple[str, str, tuple[str, ...]] | None = None
+        placements_by_id = {item.id: item for item in story_plan.placements}
+        for placement_id in scope.placement_ids:
+            placement = placements_by_id[placement_id]
+            key = (
                 placement.scene_id,
                 placement.context_scene_id,
                 placement.occurrence_path,
             )
-        ].append(placement)
+            if current and key != current_key:
+                grouped.append(tuple(current))
+                current = []
+            current.append(placement)
+            current_key = key
+        if current:
+            grouped.append(tuple(current))
     target = next(
-        tuple(items)
-        for items in grouped.values()
+        items
+        for items in grouped
         if len(items) >= 2
         and all(placement_span_counts[item.span_key] == 1 for item in items)
     )
@@ -231,8 +262,13 @@ def test_oversized_multispan_atomic_group_uses_whole_group_structural_fallback()
     projection = adapt_chunk_planning_projection(exact_plan, oversized_source)
     chunk_plan = plan_story_chunks(projection)
 
-    target_group_id = atomic_group_identity(target[0])
     target_ids = tuple(item.id for item in target)
+    target_group_id = next(
+        placement.atomic_group_id
+        for scope in projection.scopes
+        for placement in scope.placements
+        if placement.placement_id == target_ids[0]
+    )
     frozen_group = next(group for group in chunk_plan.atomic_groups if group.id == target_group_id)
     assert frozen_group.placement_ids == target_ids
     assert all(
