@@ -1083,6 +1083,7 @@ async function openStoryDetail(selectionId) {
 }
 
 function closeStoryPath() {
+  state.storyPathToken += 1;
   $("#storyPathPanel").hidden = true;
   returnToStorySelection(false);
 }

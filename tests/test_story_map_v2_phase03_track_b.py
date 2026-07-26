@@ -551,13 +551,17 @@ def _browser_driver() -> Any:
 
 class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
     story_page: dict[str, object]
+    delayed_path_selection: str | None = None
+    delayed_path_reject = False
+    path_release: threading.Event | None = None
+    path_finished: threading.Event | None = None
 
     def log_message(self, _format: str, *args: object) -> None:
         return
 
-    def _json(self, payload: object) -> None:
+    def _json(self, payload: object, status: int = 200) -> None:
         encoded = json.dumps(payload).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
@@ -620,6 +624,14 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
             self._json(self.story_page)
         elif self.path == "/api/v1/story-map-v2/path":
             selection_id = body["selection_id"]
+            delayed = selection_id == self.delayed_path_selection and self.path_release is not None
+            if delayed:
+                self.path_release.wait(timeout=10)
+            if delayed and self.delayed_path_reject:
+                self._json({"error": {"message": "Synthetic delayed failure"}}, status=503)
+                if self.path_finished is not None:
+                    self.path_finished.set()
+                return
             self._json(
                 {
                     "schema": "story-map-v2-path-v1",
@@ -661,6 +673,8 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                     },
                 }
             )
+            if delayed and self.path_finished is not None:
+                self.path_finished.set()
         elif self.path == "/api/v1/story-map-v2/detail":
             selection_id = body["selection_id"]
             binding = {
@@ -765,6 +779,10 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
 ) -> None:
     driver = _browser_driver()
     _SyntheticStoryHandler.story_page = _story_page()
+    _SyntheticStoryHandler.delayed_path_selection = None
+    _SyntheticStoryHandler.delayed_path_reject = False
+    _SyntheticStoryHandler.path_release = None
+    _SyntheticStoryHandler.path_finished = None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -911,7 +929,74 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             )
             assert unresolved["level"] == "detail_evidence"
             assert "story/chapter.rpy:6" in unresolved["source"]
-            driver._browser_diagnostics(session)
+
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait("!document.querySelector('#storyBrowser').hidden")
+            session.evaluate(
+                "if (!document.querySelector('#storyPathPanel').hidden) document.querySelector('#closeStoryPath').click()"
+            )
+            session.wait("document.querySelector('#storyPathPanel').hidden")
+            for reject in (False, True):
+                release = threading.Event()
+                finished = threading.Event()
+                _SyntheticStoryHandler.delayed_path_selection = "arm-nested-a"
+                _SyntheticStoryHandler.delayed_path_reject = reject
+                _SyntheticStoryHandler.path_release = release
+                _SyntheticStoryHandler.path_finished = finished
+                session.evaluate(
+                    "document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').scrollIntoView({block:'center'})"
+                )
+                delayed_before = session.evaluate(
+                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top})"
+                )
+                session.evaluate(
+                    "document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').click()"
+                )
+                session.wait(
+                    "!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyDetailAction').disabled"
+                )
+                session.evaluate("document.querySelector('#closeStoryPath').click()")
+                session.wait(
+                    "document.querySelector('#storyPathPanel').hidden && document.activeElement?.dataset?.storySelectionId === 'arm-nested-a'"
+                )
+                closed = session.evaluate(
+                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
+                )
+                assert abs(closed["scrollTop"] - delayed_before["scrollTop"]) <= 2
+                assert abs(closed["windowY"] - delayed_before["windowY"]) <= 2
+                assert abs(closed["top"] - delayed_before["top"]) <= 2
+                release.set()
+                assert finished.wait(timeout=5)
+                session.command(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "new Promise(resolve => setTimeout(resolve, 250))",
+                        "awaitPromise": True,
+                        "returnByValue": True,
+                    },
+                )
+                stale = session.evaluate(
+                    "({hidden:document.querySelector('#storyPathPanel').hidden, focused:document.activeElement?.dataset?.storySelectionId, scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
+                )
+                assert stale["hidden"] is True
+                assert stale["focused"] == "arm-nested-a"
+                assert stale["summary"] == closed["summary"]
+                assert abs(stale["scrollTop"] - closed["scrollTop"]) <= 2
+                assert abs(stale["windowY"] - closed["windowY"]) <= 2
+                assert abs(stale["top"] - closed["top"]) <= 2
+
+            _SyntheticStoryHandler.delayed_path_selection = None
+            _SyntheticStoryHandler.delayed_path_reject = False
+            session.evaluate(
+                "document.querySelector('[data-story-selection-id=\"arm-bridge\"][aria-selected]').click()"
+            )
+            session.wait(
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2"
+            )
+            _, _, allowed_errors = driver._browser_diagnostics(
+                session, allowed_error_suffixes=("/api/v1/story-map-v2/path",)
+            )
+            assert allowed_errors == 1
         finally:
             session.close()
             process.terminate()
