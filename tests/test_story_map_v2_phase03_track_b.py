@@ -133,7 +133,43 @@ def _story_page() -> dict[str, object]:
                                         "nested_choices": [nested_choice],
                                     },
                                 ],
-                            }
+                            },
+                            {
+                                "key": "river-choice",
+                                "source": source,
+                                "arms": [
+                                    {
+                                        "selection_id": "arm-river",
+                                        "caption": "Follow the river",
+                                        "outcome_summary": "They rejoin the road beyond the valley.",
+                                        "condition": None,
+                                        "effects": [],
+                                        "destination_id": "node-river",
+                                        "rejoin_node_id": "node-road",
+                                        "rejoin_line": 793,
+                                        "reachability": "reachable",
+                                        "warnings": [],
+                                        "binding": binding("arm-river", "story_map_v2_arm"),
+                                        "rejoin_binding": continuation_binding,
+                                        "nested_choices": [],
+                                    },
+                                    {
+                                        "selection_id": "arm-camp",
+                                        "caption": "Make camp",
+                                        "outcome_summary": "They remain on a separate persistent path.",
+                                        "condition": None,
+                                        "effects": [],
+                                        "destination_id": "node-camp",
+                                        "rejoin_node_id": None,
+                                        "rejoin_line": None,
+                                        "reachability": "unresolved",
+                                        "warnings": [],
+                                        "binding": binding("arm-camp", "story_map_v2_arm"),
+                                        "rejoin_binding": None,
+                                        "nested_choices": [],
+                                    },
+                                ],
+                            },
                         ],
                     }
                 ],
@@ -185,6 +221,27 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
       duplicate.sections[0].events[0].choices[0].arms[1].binding.selection_id = "arm-bridge";
       let duplicateRejected = false;
       try {{ assertStoryMapV2(duplicate); }} catch (_error) {{ duplicateRejected = true; }}
+      const continuationId = valid.sections[0].events[0].choices[0].arms[1].rejoin_binding.selection_id;
+      const globalDrift = structuredClone(valid);
+      globalDrift.sections[0].events[0].choices[1].arms[0].rejoin_binding.target_id = "node-drifted";
+      let globalDriftRejected = false;
+      try {{ assertStoryMapV2(globalDrift); }} catch (_error) {{ globalDriftRejected = true; }}
+      const sameTreeDrift = structuredClone(valid);
+      sameTreeDrift.sections[0].events[0].choices[0].arms[1].nested_choices[0].arms[0].rejoin_binding.target_id = "node-drifted";
+      let sameTreeDriftRejected = false;
+      try {{ assertStoryMapV2(sameTreeDrift); }} catch (_error) {{ sameTreeDriftRejected = true; }}
+      const eventCollision = structuredClone(valid);
+      eventCollision.sections[0].events[0].selection_id = continuationId;
+      eventCollision.sections[0].events[0].binding.selection_id = continuationId;
+      eventCollision.sections[0].events[0].binding.detail_id = continuationId;
+      let eventCollisionRejected = false;
+      try {{ assertStoryMapV2(eventCollision); }} catch (_error) {{ eventCollisionRejected = true; }}
+      const armCollision = structuredClone(valid);
+      armCollision.sections[0].events[0].choices[1].arms[0].selection_id = continuationId;
+      armCollision.sections[0].events[0].choices[1].arms[0].binding.selection_id = continuationId;
+      armCollision.sections[0].events[0].choices[1].arms[0].binding.detail_id = continuationId;
+      let armCollisionRejected = false;
+      try {{ assertStoryMapV2(armCollision); }} catch (_error) {{ armCollisionRejected = true; }}
       const mutations = [
         value => {{ value.extra = true; }},
         value => {{ delete value.overview; }},
@@ -228,6 +285,10 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
         nested: accepted.sections[0].events[0].choices[0].arms[1].nested_choices[0].key,
         continuation: accepted.sections[0].events[0].choices[0].arms[1].rejoin_binding.selection_id,
         duplicateRejected,
+        globalDriftRejected,
+        sameTreeDriftRejected,
+        eventCollisionRejected,
+        armCollisionRejected,
         adversarialRejected,
         adversarialTotal: mutations.length,
       }}));
@@ -245,6 +306,10 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
         "nested": "nested-choice",
         "continuation": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",
         "duplicateRejected": True,
+        "globalDriftRejected": True,
+        "sameTreeDriftRejected": True,
+        "eventCollisionRejected": True,
+        "armCollisionRejected": True,
         "adversarialRejected": 20,
         "adversarialTotal": 20,
     }
@@ -564,6 +629,11 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
     delayed_path_reject = False
     path_release: threading.Event | None = None
     path_finished: threading.Event | None = None
+    delayed_detail_selection: str | None = None
+    delayed_detail_reject = False
+    detail_started: threading.Event | None = None
+    detail_release: threading.Event | None = None
+    detail_finished: threading.Event | None = None
 
     def log_message(self, _format: str, *args: object) -> None:
         return
@@ -696,6 +766,19 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                 self.path_finished.set()
         elif self.path == "/api/v1/story-map-v2/detail":
             selection_id = body["selection_id"]
+            delayed = (
+                selection_id == self.delayed_detail_selection
+                and self.detail_release is not None
+            )
+            if delayed:
+                if self.detail_started is not None:
+                    self.detail_started.set()
+                self.detail_release.wait(timeout=10)
+            if delayed and self.delayed_detail_reject:
+                self._json({"error": {"message": "Synthetic delayed detail failure"}}, status=503)
+                if self.detail_finished is not None:
+                    self.detail_finished.set()
+                return
             binding = {
                 "selection_id": selection_id,
                 "destination_kind": "generic_scene",
@@ -741,13 +824,18 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                         "status": "available",
                         "level": "detail_evidence",
                         "element": {
-                            "title": "Wait for dawn",
-                            "summary": "The travellers wait together.",
+                            "title": {
+                                "arm-bridge": "Cross the bridge",
+                                "arm-nested-a": "Wait for dawn",
+                            }.get(selection_id, f"Detail for {selection_id}"),
+                            "summary": f"Exact detail for {selection_id}.",
                         },
                         "evidence": [],
                     },
                 }
             )
+            if delayed and self.detail_finished is not None:
+                self.detail_finished.set()
         else:
             self.send_error(404)
 
@@ -842,6 +930,166 @@ def _story_path_measurement(session: Any) -> dict[str, object]:
     ("profile", "zoom", "width", "height"),
     (("desktop", 100, 1440, 900), ("effective-200", 200, 720, 450), ("narrow", 100, 390, 844)),
 )
+def test_story_detail_stale_responses_do_not_replace_current_context(
+    profile: str, zoom: int, width: int, height: int
+) -> None:
+    driver = _browser_driver()
+    page = _story_page()
+    page["sections"][0]["events"][0]["choices"] = page["sections"][0]["events"][0][
+        "choices"
+    ][:1]
+    _SyntheticStoryHandler.story_page = page
+    _SyntheticStoryHandler.delayed_detail_selection = None
+    _SyntheticStoryHandler.delayed_detail_reject = False
+    _SyntheticStoryHandler.detail_started = None
+    _SyntheticStoryHandler.detail_release = None
+    _SyntheticStoryHandler.detail_finished = None
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}/"
+    with tempfile.TemporaryDirectory(prefix=f"rsm-m15-track-b-detail-{profile}-") as temporary:
+        process, session = driver._session(driver._browser(), zoom, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": width,
+                    "height": height,
+                    "deviceScaleFactor": 2 if zoom == 200 else 1,
+                    "mobile": False,
+                },
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait(
+                "document.readyState === 'complete' && !!document.querySelector('.recent-card')"
+            )
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait(
+                "!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('.story-arm').length === 3"
+            )
+
+            for reject in (False, True):
+                started = threading.Event()
+                release = threading.Event()
+                finished = threading.Event()
+                _SyntheticStoryHandler.delayed_detail_selection = "arm-bridge"
+                _SyntheticStoryHandler.delayed_detail_reject = reject
+                _SyntheticStoryHandler.detail_started = started
+                _SyntheticStoryHandler.detail_release = release
+                _SyntheticStoryHandler.detail_finished = finished
+                session.evaluate(
+                    "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').closest('.story-arm').querySelector('.story-detail-button').click()"
+                )
+                assert started.wait(timeout=5)
+                session.evaluate(
+                    "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').closest('.story-arm').querySelector('.story-detail-button').click()"
+                )
+                session.wait(
+                    "!document.querySelector('#detailView').hidden && document.querySelector('#detailTitle').textContent === 'Wait for dawn'"
+                )
+                current = session.evaluate(
+                    "({title:document.querySelector('#detailTitle').textContent, summary:document.querySelector('#detailSummary').textContent, toast:document.querySelector('#toast').textContent, toastHidden:document.querySelector('#toast').hidden})"
+                )
+                release.set()
+                assert finished.wait(timeout=5)
+                session.command(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "new Promise(resolve => setTimeout(resolve, 250))",
+                        "awaitPromise": True,
+                        "returnByValue": True,
+                    },
+                )
+                stale = session.evaluate(
+                    "({title:document.querySelector('#detailTitle').textContent, summary:document.querySelector('#detailSummary').textContent, toast:document.querySelector('#toast').textContent, toastHidden:document.querySelector('#toast').hidden, selection:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').getAttribute('aria-selected'), activeLevel:document.documentElement.dataset.activeLevel})"
+                )
+                assert stale["title"] == current["title"]
+                assert stale["summary"] == current["summary"]
+                assert stale["toast"] == current["toast"]
+                assert stale["toastHidden"] == current["toastHidden"]
+                assert stale["selection"] == "true"
+                assert stale["activeLevel"] == "detail_evidence"
+                session.evaluate("document.querySelector('#backToRouteMap').click()")
+                session.wait(
+                    "document.activeElement === document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]')"
+                )
+
+            session.evaluate(
+                "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').click()"
+            )
+            session.wait(
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled"
+            )
+            started = threading.Event()
+            release = threading.Event()
+            finished = threading.Event()
+            _SyntheticStoryHandler.delayed_detail_selection = "arm-bridge"
+            _SyntheticStoryHandler.delayed_detail_reject = False
+            _SyntheticStoryHandler.detail_started = started
+            _SyntheticStoryHandler.detail_release = release
+            _SyntheticStoryHandler.detail_finished = finished
+            session.evaluate("document.querySelector('#storyDetailAction').click()")
+            assert started.wait(timeout=5)
+            session.evaluate("document.querySelector('#returnToStorySelection').click()")
+            session.wait(
+                "document.activeElement === document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]') && document.documentElement.dataset.activeLevel === 'route_map'"
+            )
+            returned = session.evaluate(
+                "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').getBoundingClientRect().top})"
+            )
+            release.set()
+            assert finished.wait(timeout=5)
+            session.command(
+                "Runtime.evaluate",
+                {
+                    "expression": "new Promise(resolve => setTimeout(resolve, 250))",
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            after_return = session.evaluate(
+                "({level:document.documentElement.dataset.activeLevel, focused:document.activeElement?.dataset?.storySelectionId, scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').getBoundingClientRect().top})"
+            )
+            assert after_return["level"] == "route_map"
+            assert after_return["focused"] == "arm-bridge"
+            assert abs(after_return["scrollTop"] - returned["scrollTop"]) <= 2
+            assert abs(after_return["windowY"] - returned["windowY"]) <= 2
+            assert abs(after_return["top"] - returned["top"]) <= 2
+
+            _SyntheticStoryHandler.delayed_detail_selection = None
+            _SyntheticStoryHandler.delayed_detail_reject = False
+            _SyntheticStoryHandler.detail_started = None
+            _SyntheticStoryHandler.detail_release = None
+            _SyntheticStoryHandler.detail_finished = None
+            session.evaluate(
+                "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').closest('.story-arm').querySelector('.story-detail-button').click()"
+            )
+            session.wait(
+                "!document.querySelector('#detailView').hidden && document.querySelector('#detailTitle').textContent === 'Wait for dawn'"
+            )
+            _, _, allowed_errors = driver._browser_diagnostics(
+                session, allowed_error_suffixes=("/api/v1/story-map-v2/detail",)
+            )
+            assert allowed_errors == 1
+        finally:
+            session.close()
+            process.terminate()
+            process.wait(timeout=10)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+@pytest.mark.hardware_sensitive
+@pytest.mark.skipif(
+    os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
+    reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
+)
+@pytest.mark.parametrize(
+    ("profile", "zoom", "width", "height"),
+    (("desktop", 100, 1440, 900), ("effective-200", 200, 720, 450), ("narrow", 100, 390, 844)),
+)
 def test_story_map_v2_real_browser_geometry_and_deep_return(
     profile: str, zoom: int, width: int, height: int
 ) -> None:
@@ -851,6 +1099,11 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
     _SyntheticStoryHandler.delayed_path_reject = False
     _SyntheticStoryHandler.path_release = None
     _SyntheticStoryHandler.path_finished = None
+    _SyntheticStoryHandler.delayed_detail_selection = None
+    _SyntheticStoryHandler.delayed_detail_reject = False
+    _SyntheticStoryHandler.detail_started = None
+    _SyntheticStoryHandler.detail_release = None
+    _SyntheticStoryHandler.detail_finished = None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -873,7 +1126,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             )
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait(
-                "!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('.story-arm').length === 3"
+                "!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('.story-arm').length === 5"
             )
 
             measured = _browser_measurement(session)
@@ -891,9 +1144,9 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             groups = measured["groups"]
             assert isinstance(groups, list) and all(group["ordered"] for group in groups)
             assert measured["nestedArms"] == 1
-            assert measured["continuations"] == 1
-            assert measured["continuationTargets"] == 1
-            assert measured["continuationInsideArm"] == 1
+            assert measured["continuations"] == 2
+            assert measured["continuationTargets"] == 2
+            assert measured["continuationInsideArm"] == 2
             assert set(measured["reachability"]) == {"Reachable", "Unreachable", "Unresolved"}
             assert measured["warningDetails"] == 3
             assert measured["warningsOpen"] == 0
@@ -1024,6 +1277,61 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
 
             session.evaluate("document.querySelector('#backToRouteMap').click()")
             session.wait("!document.querySelector('#storyBrowser').hidden")
+            second_continuation_before = session.evaluate(
+                """(() => {
+                  const control = document.querySelectorAll('.story-continuation-select')[1];
+                  control.scrollIntoView({block:'center'});
+                  const rect = control.getBoundingClientRect();
+                  return {scrollTop:document.querySelector('#storyBrowser').scrollTop, top:rect.top};
+                })()"""
+            )
+            session.evaluate(
+                "document.querySelectorAll('.story-continuation .story-detail-button')[1].click()"
+            )
+            session.wait(
+                "!document.querySelector('#detailView').hidden && document.querySelector('#detailSummary').textContent.includes('recognized continuation')"
+            )
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait(
+                "document.activeElement === document.querySelectorAll('.story-continuation-select')[1]"
+            )
+            second_continuation_restored = session.evaluate(
+                """(() => {
+                  const controls = [...document.querySelectorAll('.story-continuation-select')];
+                  const rect = controls[1].getBoundingClientRect();
+                  return {
+                    firstSelected: controls[0].getAttribute('aria-selected'),
+                    secondSelected: controls[1].getAttribute('aria-selected'),
+                    scrollTop: document.querySelector('#storyBrowser').scrollTop,
+                    top: rect.top,
+                  };
+                })()"""
+            )
+            assert second_continuation_restored["firstSelected"] == "false"
+            assert second_continuation_restored["secondSelected"] == "true"
+            assert (
+                abs(
+                    second_continuation_restored["scrollTop"]
+                    - second_continuation_before["scrollTop"]
+                )
+                <= 2
+            )
+            assert (
+                abs(second_continuation_restored["top"] - second_continuation_before["top"])
+                <= 2
+            )
+            session.evaluate("document.querySelectorAll('.story-continuation-select')[1].click()")
+            session.wait(
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled"
+            )
+            session.evaluate("document.querySelector('#storyDetailAction').click()")
+            session.wait(
+                "!document.querySelector('#detailView').hidden && document.querySelector('#detailSummary').textContent.includes('recognized continuation')"
+            )
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait(
+                "document.activeElement === document.querySelectorAll('.story-continuation-select')[1]"
+            )
             session.evaluate(
                 "if (!document.querySelector('#storyPathPanel').hidden) document.querySelector('#closeStoryPath').click()"
             )

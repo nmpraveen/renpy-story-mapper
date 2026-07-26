@@ -16,7 +16,7 @@ const state = {
   narrativeCitationSelection: null,
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
-  storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0,
+  storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0,
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -614,6 +614,7 @@ function exportRouteJson() {
 }
 
 function showPrimary(name) {
+  invalidateStoryDetail();
   $("#welcomeView").hidden = name !== "welcome";
   $("#progressView").hidden = name !== "progress";
   $("#workspaceView").hidden = name !== "workspace";
@@ -831,6 +832,7 @@ async function resetRoutePaging() {
 }
 
 function showStorySurface(visible) {
+  if (!visible) invalidateStoryDetail();
   $("#storyBrowser").hidden = !visible;
   for (const selector of [".commandbar", "#fallbackNotice", "#analysisFailureBanner", "#partialAnalysisPanel", "#mapLayout", "#organizationPanel"]) {
     const node = $(selector);
@@ -878,11 +880,10 @@ function storySelectionControl(item, kind) {
   return control;
 }
 
-function storyDetailControl(item) {
+function storyDetailControl(item, control) {
   const button = element("button", "story-detail-button", "Detail / Evidence"); button.type = "button";
   button.addEventListener("click", async () => {
-    const control = $(`[data-story-selection-id="${CSS.escape(item.selection_id)}"][aria-selected]`);
-    if (state.storySelectionId !== item.selection_id) activateStoryItem(item, control);
+    if (state.storySelectionId !== item.selection_id || state.storySelectionControl !== control) activateStoryItem(item, control);
     await openStoryDetail(item.selection_id);
   });
   return button;
@@ -924,7 +925,8 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
     };
     state.storyItems.set(continuation.selection_id, continuation);
     const row = element("div", "story-continuation");
-    row.append(storySelectionControl(continuation, "story-continuation"), storyDetailControl(continuation));
+    const control = storySelectionControl(continuation, "story-continuation");
+    row.append(control, storyDetailControl(continuation, control));
     host.append(row);
   }
 }
@@ -939,7 +941,8 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     state.storyItems.set(arm.selection_id, arm);
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
     const head = element("div", "story-arm-head");
-    head.append(storySelectionControl(arm, "story-arm"), storyDetailControl(arm));
+    const control = storySelectionControl(arm, "story-arm");
+    head.append(control, storyDetailControl(arm, control));
     armArticle.append(head); appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings);
     (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
     appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
@@ -954,7 +957,8 @@ function renderStoryEvent(event) {
   state.storyItems.set(event.selection_id, event);
   const article = element("article", "story-event"); article.dataset.storySelectionId = event.selection_id;
   const head = element("div", "story-event-head");
-  head.append(storySelectionControl(event, "story-event"), storyDetailControl(event));
+  const control = storySelectionControl(event, "story-event");
+  head.append(control, storyDetailControl(event, control));
   article.append(head); appendStoryBadges(article, event); appendStoryWarnings(article, event.warnings);
   if (event.characters?.length) {
     const characters = element("div", "story-characters");
@@ -968,7 +972,8 @@ function renderStoryEvent(event) {
 }
 
 function renderStoryMapV2(page) {
-  state.storyPage = page; state.storyItems = new Map(); state.storyPath = null;
+  invalidateStoryDetail();
+  state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
   $("#storyMapStatus").textContent = page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
@@ -1006,7 +1011,7 @@ function clearStoryPathWitness() {
 }
 
 function renderStoryPath(path) {
-  state.storyPath = path; const item = state.storyItems.get(state.storySelectionId);
+  state.storyPath = path; const item = state.storySelectionItem || state.storyItems.get(state.storySelectionId);
   $("#storyPathTitle").textContent = storyItemTitle(item || {});
   $("#storyPathSummary").textContent = path.explanation || path.reason || (path.status === "available" ? "Known route to this moment." : "The complete route is not proven.");
   renderStoryWitnessList("#storyPathScenesGroup", "#storyPathScenes", path.witness?.scene_titles);
@@ -1028,7 +1033,8 @@ function renderStoryPath(path) {
 }
 
 function activateStoryItem(item, control) {
-  const selectionId = item.selection_id; state.storySelectionId = selectionId;
+  invalidateStoryDetail();
+  const selectionId = item.selection_id; state.storySelectionId = selectionId; state.storySelectionItem = item; state.storySelectionControl = control || null;
   state.storySelectionScrollY = $("#storyBrowser").scrollTop;
   state.storySelectionWindowY = window.scrollY;
   state.storySelectionViewportTop = control?.getBoundingClientRect().top || 0;
@@ -1053,7 +1059,7 @@ async function selectStoryItem(item, control) {
 function renderStoryDetail(envelope) {
   const detail = envelope.detail || {};
   const unresolved = envelope.status === "unresolved";
-  const item = state.storyItems.get(state.storySelectionId) || {};
+  const item = state.storySelectionItem || state.storyItems.get(state.storySelectionId) || {};
   $("#detailTitle").textContent = detail.title || detail.element?.title || detail.scene?.title || storyItemTitle(item);
   $("#detailKind").textContent = String(unresolved ? "unresolved detail" : detail.level || "story moment").replaceAll("_", " ");
   $("#detailSummary").textContent = envelope.reason || detail.summary || detail.element?.summary || detail.scene?.summary || item.summary || item.outcome_summary || "Exact local story evidence.";
@@ -1071,27 +1077,45 @@ function renderStoryDetail(envelope) {
 }
 
 async function openStoryDetail(selectionId) {
+  if (selectionId !== state.storySelectionId) return;
   state.storySelectionScrollY = $("#storyBrowser").scrollTop;
   state.storySelectionWindowY = window.scrollY;
-  const control = $(`[data-story-selection-id="${CSS.escape(selectionId)}"][aria-selected]`);
+  const control = currentStorySelectionControl(selectionId);
   state.storySelectionViewportTop = control?.getBoundingClientRect().top || state.storySelectionViewportTop;
+  const token = ++state.storyDetailToken;
   try {
     const detail = await api.storyMapV2Detail(selectionId);
+    if (token !== state.storyDetailToken || selectionId !== state.storySelectionId) return;
     if (detail.status === "unavailable") { toast(detail.reason || "Detail and Evidence is unavailable"); return; }
     renderStoryDetail(detail);
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (token === state.storyDetailToken && selectionId === state.storySelectionId) toast(error.message);
+  }
 }
 
 function closeStoryPath() {
   state.storyPathToken += 1;
+  invalidateStoryDetail();
   $("#storyPathPanel").hidden = true;
   returnToStorySelection(false);
 }
 
+function invalidateStoryDetail() {
+  state.storyDetailToken += 1;
+}
+
+function currentStorySelectionControl(selectionId = state.storySelectionId) {
+  const control = state.storySelectionControl;
+  if (control?.isConnected && control.dataset.storySelectionId === selectionId && control.hasAttribute("aria-selected")) return control;
+  if (!selectionId) return null;
+  return $(`[data-story-selection-id="${CSS.escape(selectionId)}"][aria-selected]`);
+}
+
 function returnToStorySelection(scroll = true) {
+  invalidateStoryDetail();
   if (!state.storyPage || !state.storySelectionId) return;
   showLevel("route_map"); showStorySurface(true);
-  const control = $(`[data-story-selection-id="${CSS.escape(state.storySelectionId)}"][aria-selected]`);
+  const control = currentStorySelectionControl();
   if (!control) return;
   if (scroll) control.scrollIntoView({ block: "center", inline: "nearest" });
   else {
@@ -1107,12 +1131,13 @@ function returnToStorySelection(scroll = true) {
 
 async function loadStoryMapV2() {
   if (!api.storyMapV2Routes?.map) return false;
+  invalidateStoryDetail();
   try {
     const page = await api.storyMapV2();
-    if (page.status === "unavailable") { state.storyPage = null; showStorySurface(false); return false; }
+    if (page.status === "unavailable") { state.storyPage = null; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; showStorySurface(false); return false; }
     renderStoryMapV2(page); return true;
   } catch (error) {
-    state.storyPage = null; showStorySurface(false); toast(error.message); return false;
+    state.storyPage = null; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; showStorySurface(false); toast(error.message); return false;
   }
 }
 
