@@ -137,7 +137,7 @@ button:disabled { cursor: default; opacity: .45; }
 .story-event-head, .story-arm-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .75rem; }
 .story-event-select, .story-arm-select { width: 100%; min-width: 0; border: 0; background: transparent; padding: .25rem; color: inherit; text-align: left; }
 .story-event-select:hover, .story-arm-select:hover { background: var(--paper-deep); }
-.story-event-select strong { display: block; font-family: Georgia, "Times New Roman", serif; font-size: 1.15rem; line-height: 1.25; }
+.story-event-select strong { display: block; overflow-wrap: anywhere; font-family: Georgia, "Times New Roman", serif; font-size: 1.15rem; line-height: 1.25; }
 .story-event-select span, .story-arm-select span { display: block; margin-top: .3rem; overflow-wrap: anywhere; color: var(--muted); line-height: 1.5; }
 .story-detail-button { min-height: 2rem; border: 0; border-bottom: 1px solid var(--rule-strong); background: transparent; padding: .2rem .35rem; color: var(--muted); font-size: 12px; }
 .story-detail-button:hover { border-color: var(--accent); color: var(--ink); }
@@ -149,7 +149,7 @@ button:disabled { cursor: default; opacity: .45; }
 .story-arms { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; }
 .story-arm { border: 1px solid var(--rule); background: color-mix(in srgb, var(--sheet) 84%, var(--paper)); padding: .65rem; }
 .story-arm[aria-current="true"], .story-event[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.story-arm-select strong { display: block; font-size: .95rem; }
+.story-arm-select strong { display: block; overflow-wrap: anywhere; font-size: .95rem; }
 .story-badges { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem .25rem 0; }
 .story-badge { max-width: 100%; border: 1px solid var(--rule); border-radius: 999px; padding: .15rem .5rem; overflow-wrap: anywhere; background: var(--sheet); color: var(--muted); font-size: 11px; }
 .story-badge.condition { border-color: #a46f29; color: color-mix(in srgb, #a46f29 85%, var(--ink)); }

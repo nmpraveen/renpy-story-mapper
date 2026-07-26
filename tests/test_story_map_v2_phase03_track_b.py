@@ -30,6 +30,7 @@ LONG_UNBROKEN_WARNING = "dynamic_warning_" + ("unresolved" * 80)
 LONG_SPACED_WARNING = (
     "Static analysis cannot prove this optional detour, but the known path remains readable. " * 11
 ).strip()
+LONG_ARM_CAPTION = ("unbrokenstorychoice" * 37)[:659]
 
 
 def _text(name: str) -> str:
@@ -1525,6 +1526,158 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 session, allowed_error_suffixes=("/api/v1/story-map-v2/path",)
             )
             assert allowed_errors == 1
+        finally:
+            session.close()
+            process.terminate()
+            process.wait(timeout=10)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+@pytest.mark.hardware_sensitive
+@pytest.mark.skipif(
+    os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
+    reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
+)
+@pytest.mark.parametrize(
+    ("profile", "zoom", "width", "height"),
+    (("desktop", 100, 1440, 900), ("effective-200", 200, 720, 450), ("narrow", 100, 390, 844)),
+)
+def test_story_map_v2_long_arm_caption_reflows_without_hidden_overflow(
+    profile: str, zoom: int, width: int, height: int
+) -> None:
+    assert len(LONG_ARM_CAPTION) == 659
+    page = _story_page()
+    page["sections"][0]["events"][0]["choices"][0]["arms"][0]["caption"] = LONG_ARM_CAPTION
+    driver = _browser_driver()
+    _SyntheticStoryHandler.story_page = page
+    _SyntheticStoryHandler.delayed_path_selection = None
+    _SyntheticStoryHandler.delayed_path_reject = False
+    _SyntheticStoryHandler.path_release = None
+    _SyntheticStoryHandler.path_finished = None
+    _SyntheticStoryHandler.delayed_detail_selection = None
+    _SyntheticStoryHandler.delayed_detail_reject = False
+    _SyntheticStoryHandler.detail_started = None
+    _SyntheticStoryHandler.detail_release = None
+    _SyntheticStoryHandler.detail_finished = None
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}/"
+
+    def measure(session: Any) -> dict[str, object]:
+        return session.evaluate(
+            """(() => {
+              const root = document.documentElement;
+              const body = document.body;
+              const browser = document.querySelector('#storyBrowser');
+              const title = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"] strong');
+              const control = title.closest('.story-arm-select');
+              const arm = title.closest('.story-arm');
+              const titleRect = title.getBoundingClientRect();
+              const controlRect = control.getBoundingClientRect();
+              const armRect = arm.getBoundingClientRect();
+              const style = getComputedStyle(title);
+              const visible = [...browser.querySelectorAll('*')].filter(node => {
+                const rect = node.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              });
+              const overflowers = visible.filter(node => node.scrollWidth > node.clientWidth + 1).map(node => ({
+                name: node.id || node.className || node.tagName,
+                clientWidth: node.clientWidth,
+                scrollWidth: node.scrollWidth,
+              }));
+              const clipped = visible.filter(node => {
+                const candidateStyle = getComputedStyle(node);
+                return (candidateStyle.overflowX === 'hidden' || candidateStyle.overflowX === 'clip')
+                  && node.scrollWidth > node.clientWidth + 1;
+              }).map(node => node.id || node.className || node.tagName);
+              return {
+                text: title.textContent,
+                page: {
+                  clientWidth: root.clientWidth,
+                  scrollWidth: root.scrollWidth,
+                  bodyClientWidth: body.clientWidth,
+                  bodyScrollWidth: body.scrollWidth,
+                  browserClientWidth: browser.clientWidth,
+                  browserScrollWidth: browser.scrollWidth,
+                },
+                title: {
+                  width: titleRect.width,
+                  height: titleRect.height,
+                  clientWidth: title.clientWidth,
+                  scrollWidth: title.scrollWidth,
+                  clientHeight: title.clientHeight,
+                  scrollHeight: title.scrollHeight,
+                  left: titleRect.left,
+                  right: titleRect.right,
+                  fontSize: parseFloat(style.fontSize),
+                  overflowX: style.overflowX,
+                  whiteSpace: style.whiteSpace,
+                },
+                control: {left: controlRect.left, right: controlRect.right, width: controlRect.width},
+                arm: {left: armRect.left, right: armRect.right, width: armRect.width},
+                overflowers,
+                clipped,
+                pathOpen: !document.querySelector('#storyPathPanel').hidden,
+              };
+            })()"""
+        )
+
+    with tempfile.TemporaryDirectory(prefix=f"rsm-m15-track-b-caption-{profile}-") as temporary:
+        process, session = driver._session(driver._browser(), zoom, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": width,
+                    "height": height,
+                    "deviceScaleFactor": 2 if zoom == 200 else 1,
+                    "mobile": False,
+                },
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait(
+                "document.readyState === 'complete' && !!document.querySelector('.recent-card')"
+            )
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait(
+                "!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('.story-arm').length === 5"
+            )
+
+            for path_open in (False, True):
+                if path_open:
+                    session.evaluate(
+                        "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').click()"
+                    )
+                    session.wait(
+                        "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled"
+                    )
+                measured = measure(session)
+                assert measured["text"] == LONG_ARM_CAPTION
+                assert measured["pathOpen"] is path_open
+                assert measured["overflowers"] == []
+                assert measured["clipped"] == []
+                page_geometry = measured["page"]
+                assert page_geometry["scrollWidth"] <= page_geometry["clientWidth"]
+                assert page_geometry["bodyScrollWidth"] <= page_geometry["bodyClientWidth"]
+                assert (
+                    page_geometry["browserScrollWidth"]
+                    <= page_geometry["browserClientWidth"] + 1
+                )
+                title = measured["title"]
+                control = measured["control"]
+                arm = measured["arm"]
+                assert title["width"] > 0 and title["height"] > title["fontSize"] * 1.5
+                assert title["scrollWidth"] <= title["clientWidth"] + 1
+                assert title["scrollHeight"] <= title["clientHeight"] + 1
+                assert title["left"] >= control["left"] - 1
+                assert title["right"] <= control["right"] + 1
+                assert control["left"] >= arm["left"] - 1
+                assert control["right"] <= arm["right"] + 1
+                assert title["overflowX"] not in {"hidden", "clip"}
+                assert title["whiteSpace"] != "nowrap"
         finally:
             session.close()
             process.terminate()
