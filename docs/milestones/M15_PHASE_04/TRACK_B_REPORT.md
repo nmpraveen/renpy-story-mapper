@@ -8,7 +8,7 @@ Required integration base: `5313a4cada975a62c2818bf82b2be548a9b3db53`
 
 Track branch: `codex/m15-p4-track-b`
 
-Integrated A+B+adapter candidate: `097460aff705a5f6ebce7f5efa0ecd0245e0fbd9`
+Integrated A+B+adapter code candidate: `e9ab282` (followed only by this report update)
 
 The worker implementations began at the reviewed product checkpoint `9e5088e`. After Track A PR
 #31 merged, Track B incorporated the exact current integration branch at `5313a4c`. Merge commit
@@ -91,7 +91,12 @@ generic repository hooks needed for approved cache revalidation and exact frozen
 The adapter branch reported 122 focused passes, 95 provider/project/V2-adjacent passes, 72
 persistence passes with 9 opt-in browser skips, a 140-pass synthetic Track A+B+adapter selection,
 Ruff, strict mypy over all 114 source files, pip check, whitespace, privacy, and architecture passes.
-The coordinator's exact integrated A+B+adapter focused run passed 145 tests.
+Final integrated review then found two adapter/storage defects: process-local validated-job cache
+routing and non-durable supplemental retry markers. Worker correction
+`aa0f57ea31f473e280ceab1e59e3aa2e4a1df40e` was replayed as `e9ab282`. It removes the
+process-local routing map, binds cache writes to the exact claim, persists mode-specific cache
+routing on the job, persists/reloads retry lineage and supplemental-use fields on attempts, and
+counts only durably marked possible-transmission attempts against supplemental capacity.
 
 ## Review correction history
 
@@ -105,10 +110,14 @@ Independent review rejected earlier candidates until the following defects were 
   indeterminate retry capacity, and provisional capacity lost after definite non-transmission.
 - Adapter failing-first tests: same-execution reclaim after definite no-send and the claimed-job
   transition required for approved cache revalidation.
+- Final integrated review at `0942ea8` rejected process-local cache routing and inferred rather
+  than persisted supplemental retry occupancy (`P0=0, P1=2, P2=0, P3=0`). Correction `e9ab282`
+  closes the cloned-adapter, identical-result concurrency, loopback recovery, mixed calls=0/1,
+  attempt reload, and no-send supplemental-release reproductions.
 
-No rejected head was integrated as the accepted tip; only the complete reviewed worker chains and
-the bounded adapter commit are present. The final combined candidate still requires a fresh exact
-head review after Track A integration.
+No rejected head remains the accepted tip. The complete reviewed worker chains, adapter, and its
+bounded durable-authority correction are present. The corrected combined candidate still requires
+a fresh exact-head review after this report update.
 
 ## Changed files relative to integration base `5313a4c`
 
@@ -138,12 +147,17 @@ Commands use Windows CPython 3.12.10 and `PYTHONPATH=src` because this worktree 
 - Storage/project/provider/persistence plus every public V2 test before Track A merge:
   `505 passed, 9` opt-in browser skips.
 - Track A+B focused suites after integrating `5313a4c`: `130 passed`.
-- Track A+B+adapter focused suites at `097460a`: `145 passed`.
+- Track A+B+adapter focused suites after durable-authority correction: `149 passed`.
+- Corrected storage/project/provider/persistence plus every public V2 test:
+  `547 passed, 9` opt-in browser skips.
+- Corrected targeted durability/privacy/fault/retry/cache selection: `82 passed, 44 deselected`.
+- Ruff over `src tests scripts`: PASS.
+- Strict mypy over all 118 source files: PASS.
+- `pip check`, `git diff --check`, and forbidden-import architecture scan: PASS.
 
-Final broad regressions, Ruff, strict mypy, pip check, diff/whitespace, privacy/architecture scans,
-and independent exact-head review are the remaining local gates. Push and PR creation remain
-blocked until those gates pass. The PR target is `codex/m15-phase04-full-game`, never `main`, and
-the coordinator will not merge it.
+Independent corrected exact-head review is the remaining local gate. Push and PR creation remain
+blocked until that review passes with `P0=P1=P2=0`. The PR target is
+`codex/m15-phase04-full-game`, never `main`, and the coordinator will not merge it.
 
 ## Assumptions, conflicts, and remaining cross-track work
 
