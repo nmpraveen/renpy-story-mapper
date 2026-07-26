@@ -92,8 +92,8 @@ uses its deterministic destination/rejoin target and does not invent an event an
 
 ### Frozen continuation selection seam
 
-Each arm keeps its existing `rejoin_node_id` and `rejoin_line` fields and adds exactly one
-`rejoin_binding` field. It is `null` when no local rejoin is proven or the current project
+Each arm keeps its existing `rejoin_node_id` and `rejoin_line` fields and has exactly one required
+`rejoin_binding` field. Its value is `null` when no local rejoin is proven or the current project
 authority cannot resolve that rejoin uniquely. Otherwise it uses the existing `NavigationBinding`
 serialized shape:
 
@@ -119,8 +119,9 @@ compact UTF-8 JSON for
 `story-map-v2-continuation:`. Equal proven local rejoins therefore deduplicate by ID. The path and
 detail endpoints recompute the ID from the current stored core, optionally resolve its binding
 from current project authority, and reject forged or stale IDs. The browser consumes this object,
-never creates one, and renders at most one compact continuation for each ID in a local branch
-context. It is an action/selection target, not another story event. The generalized integration fixture is
+never creates one, and renders at most one compact continuation for each ID across one local
+choice tree, including parent and nested descendants. It is an action/selection target, not
+another story event. The generalized integration fixture is
 `tests/fixtures/story_map_v2_phase03_continuation_contract.json`.
 
 ## Read-only API
