@@ -139,6 +139,8 @@ class StoryMapWorkflowService:
             raise ValueError("mapping-call ceiling cannot cover every frozen pending job")
         if ceilings.review_calls > len(plan.jobs):
             raise ValueError("review-call ceiling cannot exceed one review per job")
+        if ceilings.indeterminate_retry_calls > len(plan.jobs):
+            raise ValueError("retry-call ceiling cannot exceed one approved retry per job")
         if policy.allow_refusal_fallback:
             if ceilings.fallback_calls > len(plan.jobs):
                 raise ValueError("fallback-call ceiling cannot exceed one fallback per job")

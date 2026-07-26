@@ -124,7 +124,10 @@ class WorkflowRepository(Protocol):
         call_kind: ProviderCallKind,
         provider_input: ProviderInputIdentity,
         ceilings: WorkflowResourceCeilings,
-    ) -> AttemptReservation | None: ...
+    ) -> AttemptReservation | None:
+        """Atomically enforce ordinary ceilings and consume any exact approved retry."""
+
+        ...
 
     def mark_submitting(self, claim: JobClaim, reservation: AttemptReservation) -> bool:
         """Atomically mark submitting, or return false when cancellation already won."""

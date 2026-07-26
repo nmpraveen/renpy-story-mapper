@@ -202,6 +202,22 @@ class MemoryWorkflowRepository:
             run = self.runs[claim.run_id]
             job = run.jobs[claim.job.job_id]
             assert job.claimed_by == claim.worker_id
+            assert ceilings == run.preview.ceilings
+            is_indeterminate_retry = job.previous_state == "indeterminate"
+            retry_of_attempt_id: str | None = None
+            if is_indeterminate_retry:
+                if (
+                    job.retry_attempt_id is None
+                    or claim.resume_call_kind is not call_kind
+                ):
+                    return None
+                latest = job.attempts[-1]
+                if (
+                    latest.reservation.attempt_id != job.retry_attempt_id
+                    or latest.stage is not AttemptStage.INDETERMINATE
+                ):
+                    return None
+                retry_of_attempt_id = job.retry_attempt_id
             role_count = sum(
                 _attempt_consumes_call_budget(attempt)
                 and attempt.reservation.call_kind is call_kind
@@ -213,14 +229,31 @@ class MemoryWorkflowRepository:
                 ProviderCallKind.REPLACEMENT_REVIEW: ceilings.review_calls,
                 ProviderCallKind.REFUSAL_FALLBACK: ceilings.fallback_calls,
             }[call_kind]
-            if role_count >= role_limit:
-                return None
+            uses_supplemental = role_count >= role_limit
+            if uses_supplemental:
+                supplemental_used = sum(
+                    attempt.reservation.uses_supplemental_retry_capacity
+                    for item in run.jobs.values()
+                    for attempt in item.attempts
+                )
+                job_supplemental_used = any(
+                    attempt.reservation.uses_supplemental_retry_capacity
+                    for attempt in job.attempts
+                )
+                if (
+                    retry_of_attempt_id is None
+                    or supplemental_used >= ceilings.indeterminate_retry_calls
+                    or job_supplemental_used
+                ):
+                    return None
             ordinal = len(job.attempts) + 1
             reservation = AttemptReservation(
                 attempt_id=f"{job.descriptor.job_id}-attempt-{ordinal}",
                 ordinal=ordinal,
                 call_kind=call_kind,
                 provider_input=provider_input,
+                retry_of_attempt_id=retry_of_attempt_id,
+                uses_supplemental_retry_capacity=uses_supplemental,
             )
             job.attempts.append(_Attempt(reservation))
             job.retry_attempt_id = None
@@ -811,7 +844,13 @@ def _plan(
     )
 
 
-def _ceilings(jobs: int, *, reviews: int = 0, fallbacks: int = 0) -> WorkflowResourceCeilings:
+def _ceilings(
+    jobs: int,
+    *,
+    reviews: int = 0,
+    fallbacks: int = 0,
+    retries: int = 0,
+) -> WorkflowResourceCeilings:
     return WorkflowResourceCeilings(
         mapping_calls=jobs,
         review_calls=reviews,
@@ -819,6 +858,7 @@ def _ceilings(jobs: int, *, reviews: int = 0, fallbacks: int = 0) -> WorkflowRes
         input_tokens=max(1, jobs * 100),
         output_tokens=max(1, jobs * 100),
         elapsed_ms=max(1, jobs * 1_000),
+        indeterminate_retry_calls=retries,
     )
 
 
@@ -1089,6 +1129,7 @@ def test_preview_identity_binds_every_plan_provider_and_finite_ceiling_field() -
         replace(base, ceilings=replace(base.ceilings, input_tokens=101)),
         replace(base, ceilings=replace(base.ceilings, output_tokens=101)),
         replace(base, ceilings=replace(base.ceilings, elapsed_ms=1_001)),
+        replace(base, ceilings=replace(base.ceilings, indeterminate_retry_calls=1)),
         replace(
             base,
             policy=fallback_policy,
@@ -1462,7 +1503,10 @@ def test_uncertain_transport_never_auto_resubmits_without_job_approval() -> None
     assert repository.attempt_ordinals("run-public", "job-0") == [1, 2]
 
 
-def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None:
+@pytest.mark.parametrize("indeterminate_calls", [0, 1])
+def test_approved_indeterminate_refusal_fallback_retries_loopback_only(
+    indeterminate_calls: int,
+) -> None:
     policy = _policy(fallback=True)
     plan, requests = _plan(1, policy)
     repository = MemoryWorkflowRepository()
@@ -1478,12 +1522,26 @@ def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None
         ],
     )
     assert policy.loopback is not None
+    uncertain: BaseException = (
+        RuntimeError("uncertain local transport")
+        if indeterminate_calls == 0
+        else _provider_failure(
+            WorkflowFailure.INDETERMINATE,
+            TransmissionDisposition.INDETERMINATE,
+            calls=1,
+        )
+    )
     local = RecordingFactory(
         policy.loopback,
-        [RuntimeError("uncertain local transport"), _reply(policy.loopback, b"local-ok")],
+        [uncertain, _reply(policy.loopback, b"local-ok")],
     )
     service = _service(repository, requests, cloud, local=local)
-    preview = _prepare_approve(service, plan, policy, _ceilings(2, fallbacks=1))
+    preview = _prepare_approve(
+        service,
+        plan,
+        policy,
+        _ceilings(2, fallbacks=1, retries=indeterminate_calls),
+    )
 
     first = service.execute(
         "run-public",
@@ -1496,12 +1554,41 @@ def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None
     job = repository.runs["run-public"].jobs["job-0"]
     assert job.resume_call_kind is ProviderCallKind.REFUSAL_FALLBACK
     attempt_id = repository.last_attempt_id("run-public", "job-0")
+    if indeterminate_calls == 1:
+        with pytest.raises(AssertionError):
+            service.approve_indeterminate_retry(
+                "run-public",
+                preview_identity=preview.identity,
+                job_id="job-0",
+                indeterminate_attempt_id=job.attempts[0].reservation.attempt_id,
+            )
     service.approve_indeterminate_retry(
         "run-public",
         preview_identity=preview.identity,
         job_id="job-0",
         indeterminate_attempt_id=attempt_id,
     )
+    if indeterminate_calls == 1:
+        execution_id = repository.begin_execution(
+            "run-public", preview.identity, plan.authority_identity.value
+        )
+        claim = repository.claim_next_job(
+            "run-public",
+            execution_id,
+            "wrong-kind-worker",
+            submission_slots=GLOBAL_SUBMISSION_SLOTS,
+        )
+        assert claim is not None
+        assert (
+            repository.reserve_attempt(
+                claim,
+                ProviderCallKind.MAPPING,
+                policy.input_identity(claim.job.serialized_request_identity),
+                preview.ceilings,
+            )
+            is None
+        )
+        repository.release_claim(claim)
 
     final = service.execute(
         "run-public",
@@ -1509,6 +1596,7 @@ def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None
         authority_identity=plan.authority_identity,
     )
     assert final.accepted_jobs == 1
+    assert final.accounting.calls == 2 + indeterminate_calls
     assert cloud.calls == 1
     assert local.calls == 2
     attempts = repository.runs["run-public"].jobs["job-0"].attempts
@@ -1518,6 +1606,11 @@ def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None
         ProviderCallKind.REFUSAL_FALLBACK,
     ]
     assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3]
+    retry_reservation = attempts[-1].reservation
+    assert retry_reservation.retry_of_attempt_id == attempt_id
+    assert retry_reservation.uses_supplemental_retry_capacity is bool(
+        indeterminate_calls
+    )
     reopened = service.execute(
         "run-public",
         preview_identity=preview.identity,
@@ -1528,20 +1621,37 @@ def test_approved_indeterminate_refusal_fallback_retries_loopback_only() -> None
     assert local.calls == 2
 
 
-def test_approved_indeterminate_replacement_review_retries_review_only() -> None:
+@pytest.mark.parametrize("indeterminate_calls", [0, 1])
+def test_approved_indeterminate_replacement_review_retries_review_only(
+    indeterminate_calls: int,
+) -> None:
     policy = _policy()
     plan, requests = _plan(1, policy)
     repository = MemoryWorkflowRepository()
+    uncertain: BaseException = (
+        RuntimeError("uncertain review transport")
+        if indeterminate_calls == 0
+        else _provider_failure(
+            WorkflowFailure.INDETERMINATE,
+            TransmissionDisposition.INDETERMINATE,
+            calls=1,
+        )
+    )
     cloud = RecordingFactory(
         policy.cloud,
         [
             _reply(policy.cloud, b"flagged"),
-            RuntimeError("uncertain review transport"),
+            uncertain,
             _reply(policy.cloud, b"review-ok"),
         ],
     )
     service = _service(repository, requests, cloud)
-    preview = _prepare_approve(service, plan, policy, _ceilings(2, reviews=1))
+    preview = _prepare_approve(
+        service,
+        plan,
+        policy,
+        _ceilings(2, reviews=1, retries=indeterminate_calls),
+    )
 
     first = service.execute(
         "run-public",
@@ -1567,6 +1677,7 @@ def test_approved_indeterminate_replacement_review_retries_review_only() -> None
         authority_identity=plan.authority_identity,
     )
     assert final.accepted_jobs == 1
+    assert final.accounting.calls == 2 + indeterminate_calls
     assert cloud.calls == 3
     attempts = repository.runs["run-public"].jobs["job-0"].attempts
     assert [attempt.reservation.call_kind for attempt in attempts] == [
@@ -1575,6 +1686,11 @@ def test_approved_indeterminate_replacement_review_retries_review_only() -> None
         ProviderCallKind.REPLACEMENT_REVIEW,
     ]
     assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3]
+    retry_reservation = attempts[-1].reservation
+    assert retry_reservation.retry_of_attempt_id == attempt_id
+    assert retry_reservation.uses_supplemental_retry_capacity is bool(
+        indeterminate_calls
+    )
     reopened = service.execute(
         "run-public",
         preview_identity=preview.identity,

@@ -232,6 +232,7 @@ class WorkflowResourceCeilings:
     output_tokens: int
     elapsed_ms: int
     submission_slots: int = GLOBAL_SUBMISSION_SLOTS
+    indeterminate_retry_calls: int = 0
 
     def __post_init__(self) -> None:
         values = (
@@ -241,6 +242,7 @@ class WorkflowResourceCeilings:
             self.input_tokens,
             self.output_tokens,
             self.elapsed_ms,
+            self.indeterminate_retry_calls,
         )
         if any(type(value) is not int or value < 0 for value in values):
             raise ValueError("workflow resource ceilings must be finite non-negative integers")
@@ -418,11 +420,21 @@ class AttemptReservation:
     ordinal: int
     call_kind: ProviderCallKind
     provider_input: ProviderInputIdentity
+    retry_of_attempt_id: str | None = None
+    uses_supplemental_retry_capacity: bool = False
 
     def __post_init__(self) -> None:
         _text(self.attempt_id, "attempt ID")
         if self.ordinal < 1:
             raise ValueError("attempt ordinals must be positive and never reused")
+        if self.retry_of_attempt_id is not None:
+            _text(self.retry_of_attempt_id, "approved indeterminate retry attempt ID")
+            if self.retry_of_attempt_id == self.attempt_id:
+                raise ValueError("an attempt cannot retry itself")
+        if type(self.uses_supplemental_retry_capacity) is not bool:
+            raise ValueError("supplemental retry capacity marker must be a boolean")
+        if self.uses_supplemental_retry_capacity and self.retry_of_attempt_id is None:
+            raise ValueError("supplemental retry capacity requires an exact approved attempt")
 
 
 @dataclass(frozen=True)
