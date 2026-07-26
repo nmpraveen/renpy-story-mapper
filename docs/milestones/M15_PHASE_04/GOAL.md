@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 04 full-game scaling
 
-Status: Semantic review
+Status: Revise
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, the user's approved 2026-07-26 Phase 04 plan, and
 `docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`.
@@ -62,8 +62,9 @@ partial coverage.
    provider splitting, automatic retry tree, or attempt-number reuse. A transactional claim/lease
    prevents duplicate execution across processes.
 8. Python validates every mapper response. At most one Terra replacement review runs only for a
-   flagged cloud result. An explicit content refusal may use one separately approved configured
-   loopback Qwen mapping call; invalid local output does not return to cloud automatically.
+   flagged cloud result. An explicit content refusal may use one configured loopback Qwen mapping
+   call only when that fallback was explicitly disclosed and approved in the unchanged frozen
+   preview; invalid local output does not return to cloud automatically.
 9. Provider results never own mechanics. Accepted or cached prose is revalidated and re-overlaid
    against the current deterministic authority before publication.
 10. Cancellation persists before transport signalling, starts no later work, and preserves completed

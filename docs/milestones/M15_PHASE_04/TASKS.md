@@ -6,7 +6,7 @@ Baseline: merged Phase 03 closeout `e715d8ae80dd1188c729a447cfabf3c45b3b7286` on
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
 | Contract authoring | Phase Coordinator | GOAL, design, ledger, project pointers | User-approved plan | Complete | This contract checkpoint |
-| Early semantic review | Independent visible reviewer | Requirements, authority, architecture, checks, evidence mapping | Contract checkpoint | In progress | `SEMANTIC_REVIEW.md` pending independent decision |
+| Early semantic review | Independent visible reviewer | Requirements, authority, architecture, checks, evidence mapping | Contract checkpoint | In progress | `SEMANTIC_REVIEW.md` records `REVISE`: one approval/fallback contradiction was corrected to the approved design; a new checkpoint and repeated independent decision are required |
 | Native goal and draft PR | Phase Coordinator | Goal lifecycle, integration branch, one PR | Semantic `PASS` | Pending | Goal/PR identities pending |
 | Track A: authority and chunking | Visible Track A Coordinator | Occurrences, scopes, placements, frozen chunking, structural fallback | Semantic `PASS` | Pending | Separate worktree/task required |
 | Track A exact-head review | Independent Track A reviewer | Correctness, coverage, exclusions, focused tests | Track A candidate | Pending | Separate visible reviewer required |
