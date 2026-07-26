@@ -1,22 +1,30 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Verification (replacement screenshots explicitly approved; release/PR checks pending)
+Status: Complete
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Integration branch: `codex/m15-phase03-story-browser`
 
 Integration commit: `eecaf590f608d62d74b32c4af2b5a665d681bee5` (final reviewed product head;
-lifecycle-only evidence commits follow)
+lifecycle-only evidence commits followed through final PR head
+`1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec`)
 
-Pull request: Not created
+Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
+on 2026-07-26 at `27035cba5c55585ea5dbeb48e6dd1cd026c44941`
 
 ## Outcome
 
-Phase 03 is approved, preflight is complete, the shared design is frozen, and the single early
-semantic review passed before product edits. Visible Track A task
-`019f9c58-e638-71a0-b6a2-cb88b72f3d24` is implementing the shared synthesis/storage/projection/API
-seams from exact checkpoint `4f6e3a6` in `C:/Users/prave/.codex/worktrees/e7ca/Renpy`.
+Phase 03 is complete and merged. The final PR head
+`1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec` passed GitHub run `30213028297`; the native goal
+closed at PR readiness while PR #28 remained open and unmerged. Afterward, the user separately
+approved the normal merge. PR #28 merged at
+`27035cba5c55585ea5dbeb48e6dd1cd026c44941`; the merged tree exactly matches the reviewed PR
+head, and synchronized local `main` equals `origin/main`. Phase 04 and Phase 05 did not begin.
+
+The remainder of this Outcome section is a chronological record of implementation, correction,
+and review checkpoints. Statements that work or approval remained pending describe those
+historical checkpoints, not the final lifecycle state.
 
 Track A produced initial clean head `420dbb7`, with 15 focused tests, 186 V2/storage tests, 71
 web/M10-M12 regressions, Ruff, strict mypy, schema parsing, and whitespace green. Independent
@@ -210,7 +218,8 @@ exact-head `PASS`, P0=P1=P2=0/P3=1. Independent evidence includes 275/275 Story 
 browser acceptance enabled, 92 adjacent tests, 20/20 adversarial mutations rejected, six Chrome
 profiles, Ruff, strict mypy over 109 source files, four JavaScript checks, asset/fixture/privacy/
 containment checks, and matching authorized private artifact hashes. Explicit user screenshot
-approval, push/PR creation, and exact pushed-head GitHub checks remain pending.
+approval, push/PR creation, and exact pushed-head GitHub checks remained pending at that
+historical checkpoint.
 
 The user then compared the exact `8e6de6f` captures with the accepted Phase 01 prototype and did
 not approve them as final. They approved a bounded provider-free visual correction: compact and
@@ -236,7 +245,7 @@ workflow checks, and diff cleanliness. The same final cross-track reviewer passe
 head `8d8aecf9c668e85cafd5b50c6fb0c8180771eab1` with P0=P1=P2=P3=0; the inherited compact-witness
 P3 is closed. Replacement private 100%/200% capture passed with browser report SHA `75143227...`,
 zero provider activity, and unchanged protected inputs and terminal ledger. Explicit user approval
-remains pending.
+remained pending at that checkpoint and was subsequently granted before the final Release gate.
 
 Approved screenshot artifacts (outside Git):
 
@@ -277,18 +286,18 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 | Criterion | Result | Evidence |
 |---|---|---|
 | 1 | Pass | Exact baseline/fetch/preflight above |
-| 2 | Pass | Contract locked; active native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; all three visible tracks and separate exact-head reviewers are complete |
+| 2 | Pass | Contract locked; native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` closed at PR readiness; all three visible tracks and separate exact-head reviewers are complete |
 | 3 | Pass | `SEMANTIC_REVIEW.md` ends `PASS` before product edits |
 | 4 | Pass | Separate visible A/B/C tracks and exact-head reviewers completed with final P0=P1=P2=P3=0 verdicts |
 | 5-7 | Pass | Reviewed synthesis/validation/fallback implementation; the sole provider call failed identity verification and complete chronological fallback represents all 12 accepted events once |
 | 8-10 | Pass | Private fallback acceptance SHA `a42202b7...`: 12 events, 4 choices, 8 arms, 4 known rejoins, all 24 Detail/source targets, five target classes, complete fallback and honest one-path unresolved status |
 | 11 | Pass | Exact preview hashes/settings above; terminal ledger SHA `1607f22a...` records 1 construction/attempt/call, failed identity, and `completed_no_retry` with no retry or substitution |
 | 12 | Pass | Working project SHA `0bd02eb8...`; private reopen preserves map/path/detail and adds zero constructions, attempts, or calls |
-| 13 | Pass for automated/capture evidence | Final product `eecaf59`, exact lifecycle review `8d8aecf`, 16 focused Chrome cases, replacement report SHA `75143227...`, and four 100%/200% captures; no overflow/clipping/overlap/mojibake/remote/provider activity |
+| 13 | Pass | Final product `eecaf59`, exact lifecycle review `8d8aecf`, 16 focused Chrome cases, replacement report SHA `75143227...`, and four user-approved 100%/200% captures; no overflow/clipping/overlap/mojibake/remote/provider activity |
 | 14 | Pass | Protected fingerprints and ledger unchanged; zero remote browser requests; privacy/import/containment gates pass; artifacts remain outside Git |
 | 15 | Pass | User reviewed the replacement final-reviewed-head 100%/200% overview/deep-path captures and replied “looks better proceed” |
-| 16 | Local review pass; pushed check pending | Final cross-track review PASS at exact lifecycle head `8d8aecf`, P0=P1=P2=P3=0; exact pushed PR-head GitHub checks remain |
-| 17 | Pending | Evidence is current through final review, replacement capture, and explicit screenshot approval; push, open PR, and exact-head checks remain |
+| 16 | Pass | Final cross-track review PASS at exact lifecycle head `8d8aecf`, P0=P1=P2=P3=0; final PR head `1dd55ff` passed GitHub run `30213028297` |
+| 17 | Pass | Evidence is current through final head `1dd55ff`; PR #28 reached clean/open/non-draft/unmerged readiness and the native goal closed. Its later user-authorized merge at `27035cb` is reconciled below |
 | 18 | Pass | Exclusion/diff audits show no Phase 04/05, M14, scheduler/recovery, legacy-retirement, installer, dynamic-tracing, or historical Stage H/E scope |
 
 ## Validation
@@ -300,7 +309,7 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 | Phase 02 acceptance-summary structural audit | Pass | Complete 1/1; 12/4/8; zero failures |
 | Protected fingerprint/size/mtime recomputation | Pass | All three records match |
 | Early semantic review | Pass | `docs/milestones/M15/SEMANTIC_REVIEW.md` |
-| Native goal creation | Pass | Active goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matches the done condition |
+| Native goal creation and closure | Pass | Goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matched the done condition and closed successfully at PR readiness after final exact-head checks passed |
 | Track A initial worker checks | Pass at rejected head | `420dbb7`: 15 focused, 186 V2/storage, 71 web/M10-M12, Ruff, strict mypy, schema parse, whitespace |
 | Track A independent review | Fail | Task `019f9c67-af1c-7812-a471-1f6a98572f1c`: P0=0/P1=2/P2=0/P3=1 at exact head `420dbb7` |
 | Track A final independent rereview | Pass | Exact worker head `2319092`: P0=P1=P2=P3=0; 50 focused, 210 V2/import, 82 storage/web/M10-M12, Ruff, strict mypy, schema binding, whitespace |
@@ -335,6 +344,8 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 | CI polling correction | Pass | Three historical fake-provider polling loops now use a bounded 30-second monotonic deadline consistent with existing tests; all three affected regressions passed three consecutive local runs (9/9), then full Release passed 1,420 tests/16 hardware deselected plus every static/package gate; no product/provider code changed |
 | CI polling correction review | Pass | Exact head `3cde906febba265ab8b4d13798bf4444e6d704ba`; independent P0=P1=P2=P3=0; focused tests, workflow contracts, Ruff, diff/scope, PR metadata, and failed-run accounting independently verified |
 | Replacement pushed-head GitHub check | Pass | Run `30212233098` passed at exact reviewed head `3cde906`; PR #28 was `CLEAN`, open, non-draft, and unmerged |
+| Final lifecycle-only pushed-head GitHub check | Pass | Run `30213028297` passed at exact final PR head `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec`; the native goal then closed at PR readiness |
+| User-authorized merge and synchronization | Pass | PR #28 merged normally on 2026-07-26 at `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its tree exactly matches reviewed PR head `1dd55ff`; local `main` equals `origin/main` |
 | Integrated adjacent matrix | Pass | 317 passed/2 hardware deselected across bounded M10-M13 storage/API/navigation/route/privacy surfaces |
 | Integrated browser compatibility | Pass with separately recorded historical harness defect | Final Story Browser 3/3 and M12 Chrome pass; M13 exact control/record render was proven despite its legacy falsey-element wait timeout |
 | Integrated static/privacy gate | Pass | Ruff; strict mypy 108 files; JS syntax 4 files; 33 asset/privacy/import tests; JSON/schema/manifest/whitespace/containment clean |
@@ -351,28 +362,27 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
   passes with P0=P1=P2=P3=0; the inherited P3 is closed.
 - Replacement 100%/200% captures pass and the user explicitly approved them with “looks better
   proceed.” Prior candidates remain archived outside Git.
-- PR #28 is open, non-draft, and unmerged. Its first exact-head GitHub run is recorded above; the
-  bounded timing correction passed independent exact-head review and replacement GitHub run
-  `30212233098` at `3cde906`.
-- The same screenshot-approval condition remained unanswered for three consecutive goal turns.
-  The approval picker returned no selection and the required Pushover input-needed notification
-  was sent, so the milestone is blocked without any remote mutation.
-- That blocker is superseded: the user resumed, approved the bounded visual refinements, removed
-  the prior goal, and authorized an amended self-goal. The replacement exact head is reviewed and
-  recaptured; only explicit approval of the new screenshots remains at this gate.
+- The earlier screenshot-approval pause was superseded when the user resumed, approved the
+  bounded visual refinement, authorized the amended self-goal, and then explicitly approved the
+  replacement final-head screenshots.
+- Final PR head `1dd55ff` passed GitHub run `30213028297`, and the native goal closed at PR
+  readiness with no unresolved P0-P3. The user later authorized the normal merge of PR #28 at
+  `27035cb`; the merged and reviewed trees match exactly.
 
 ## Integration and PR state
 
 - Integrated diff reviewed against contract and exclusions: Yes; final cross-track PASS at exact
   lifecycle head `8d8aecf`, P0=P1=P2=P3=0
 - Required checks passed: Yes; local provider-free/private/browser and post-correction full Release
-  pass, independent exact-head review is P0=P1=P2=P3=0, and replacement GitHub run `30212233098`
-  passes at exact reviewed head `3cde906`
+  pass, independent exact-head review is P0=P1=P2=P3=0, and final GitHub run `30213028297` passes
+  at exact PR head `1dd55ff`
 - Blocking findings resolved or explicitly accepted: Yes; no unresolved P0-P3 in the amended
   exact-head review
 - User approved final-head screenshots: Yes
-- PR genuinely ready: Yes; PR #28 remains open, non-draft, clean, and unmerged. The required check
-  on this final lifecycle-only head is authoritative in the PR rollup before native-goal closure.
+- PR genuinely ready at goal closure: Yes; PR #28 was open, non-draft, clean, and unmerged when
+  the native goal closed. It subsequently merged normally under separate explicit user approval.
+- Merge reconciled: Yes; merge commit `27035cb`, reviewed head `1dd55ff`, byte-equivalent trees,
+  and synchronized local/remote `main`.
 
 ## Remaining limitations
 
@@ -385,10 +395,11 @@ The superseded pre-refinement browser report and four PNGs are preserved outside
 - The prior compact-witness P3 is closed: mechanics render first and the complete ordered scene
   sequence remains available under collapsed `Analysis notes`.
 - Replacement 100%/200% screenshots are explicitly approved. The bounded CI polling correction,
-  exact-head review, full Release, and replacement GitHub check pass; PR #28 is ready and remains
-  open/unmerged for explicit user approval.
+  exact-head review, full Release, and final GitHub check pass; PR #28 is merged at `27035cb`.
 - Fast-mode selection is unavailable in the visible task creation API and will be recorded as
   unavailable/unverified for task dispatch. Exact live Terra fast-off identity remains mandatory.
+- Phase 04 and Phase 05 remain unstarted and require a separate approved contract; M15.1 is not yet
+  complete as a whole.
 
-Complete the native Codex goal only when `PR genuinely ready` is `Yes`, final screenshots are
-explicitly approved, and every acceptance row has durable evidence.
+The native Codex goal was completed only after `PR genuinely ready` was `Yes`, final screenshots
+were explicitly approved, and every acceptance row had durable evidence.

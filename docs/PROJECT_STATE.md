@@ -1,28 +1,29 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 PR ready; PR #28 open and unmerged; final lifecycle-only
-head remains subject to its authoritative GitHub check before native-goal closure)
+Updated: 2026-07-26 (M15.1 Phase 03 complete; PR #28 merged normally at `27035cb`; no Phase 04/05
+implementation contract is active)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
 ## Current contract
 
-- Active milestone: M15.1 semantic Story Map correction inside M15; Phase 03 whole-story
-  synthesis and path-aware browser.
-- Contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Active handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
+- Active milestone: none. M15.1 Phase 03 is the most recently completed contract; Phase 04 and
+  Phase 05 have not started.
+- Completed contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
+- Completed handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
 - Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
-- Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
+- Completed integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: PR ready.
+- Status: Complete.
+- Merge state: PR #28 merged normally at `27035cb` after the completed PR-ready gate.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
   presentation-only refinement before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: after the user removed the prior goal instance and authorized an updated
   self-goal, renewed Phase 03 goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` was created from the
-  amended exact done condition and is active through replacement review, screenshot approval,
-  pushed-head checks, and open-unmerged-PR readiness.
+  amended exact done condition. It closed successfully at PR readiness after final exact-head
+  GitHub run `30213028297`, while PR #28 was still open and unmerged as required by the contract.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -30,8 +31,10 @@ head remains subject to its authoritative GitHub check before native-goal closur
   full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
-- Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), open, non-draft,
-  and unmerged from `codex/m15-phase03-story-browser` to `main`.
+- Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
+  after separate explicit user approval on 2026-07-26 at
+  `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was
+  `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec`; its tree exactly matches the merge tree.
 - Visible Track A Coordinator: task `019f9c58-e638-71a0-b6a2-cb88b72f3d24`, worktree
   `C:/Users/prave/.codex/worktrees/e7ca/Renpy`, explicit `gpt-5.6-sol` with High reasoning;
   fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
@@ -187,9 +190,17 @@ head remains subject to its authoritative GitHub check before native-goal closur
 - Replacement pushed-head GitHub check: run
   [`30212233098`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30212233098)
   passed at exact reviewed head `3cde906`; PR #28 was `CLEAN`, open, non-draft, and unmerged.
-- Current action: require the authoritative GitHub check on this final lifecycle-only head, then
-  complete the native goal without another repository mutation. Leave PR #28 open and unmerged
-  for explicit user approval.
+- Final lifecycle-only PR head: `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec`. GitHub run
+  [`30213028297`](https://github.com/nmpraveen/renpy-story-mapper/actions/runs/30213028297)
+  passed at that exact head. The native goal then closed at PR readiness with PR #28 still open
+  and unmerged, satisfying the approved Phase 03 contract.
+- Post-goal merge: the user separately approved a normal merge. PR #28 merged on 2026-07-26 at
+  `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merge tree exactly matches reviewed head
+  `1dd55ff`. Local `main` and `origin/main` both resolve to `27035cb`; preserved untracked
+  user/private paths remain untouched.
+- Current action: none for Phase 03. Do not begin Phase 04/05 or M14 under this completed contract.
+  When separately authorized, create and semantically review a new bounded Phase 04 contract
+  before implementation.
 
 ## M13 historical lifecycle
 

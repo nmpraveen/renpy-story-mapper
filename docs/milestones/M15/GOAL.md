@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: PR ready
+Status: Complete
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
@@ -9,7 +9,8 @@ Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Integration branch: `codex/m15-phase03-story-browser`
 
-Pull request: Not created
+Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged on
+2026-07-26 at `27035cba5c55585ea5dbeb48e6dd1cd026c44941` after separate explicit user approval
 
 ## Done condition
 
@@ -102,7 +103,7 @@ routes, reachability, and source locations.
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
 | 1 | Fetch result, exact local/remote baseline, tracked-clean status, supported V2 files | Preflight recorded in `COMPLETION_REPORT.md` |
-| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Renewed exact done-condition goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` is active; amended semantic `PASS` and all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
+| 2-4 | Goal result, lifecycle pointers, semantic gate, visible task/worktree/reviewer IDs | Renewed exact done-condition goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` closed successfully at PR readiness; amended semantic `PASS` and all Track A/B/C worker and exact-head reviewer identities remain recorded in `TASKS.md` and `COMPLETION_REPORT.md` |
 | 5-7 | Versioned synthesis schema/validation, generalized tests, complete fallback and successful-result counts | Pass: reviewed implementation and generalized gates; the sole synthesis failed closed on unverifiable identity, and deterministic fallback covers all 12 events once in chronological order (`output/m15-story-map-v2-phase-03-20260726-011613/private-fallback-acceptance.json`) |
 | 8-10 | Synthetic mechanics/nesting/rejoin/fallback tests plus private count and browser audit | Pass: outside-Git private acceptance reports 12 events, 4 choices, 8 arms, 4 known rejoins, 24 selectable event/arm/continuation Detail and source targets, and complete fallback |
 | 11 | Zero-submit preview, payload/transmitted-field hashes, provider identity and one-call ledger | Pass: preview confirmation `cd367171...`, request `d4d44735...`, schema `4febec35...`; terminal ledger `1607f22a...` records exactly 1 construction/attempt/call, failed identity verification, and `completed_no_retry` |
@@ -110,8 +111,8 @@ routes, reachability, and source locations.
 | 13 | Automated hierarchy/density/witness/arm/masthead plus overflow/focus/selection checks and final-head 100%/200% screenshots | Pass for automated/capture evidence: exact product `eecaf59`, final lifecycle review `8d8aecf`, browser report `75143227...`; 16 focused cases, 100%/200% captures, no overflow/clipping/overlap/mojibake/remote/provider activity, protected inputs and ledger unchanged |
 | 14 | Containment/import/privacy/browser-network checks and protected before/after fingerprints | Pass: tracked containment, import/privacy gates, zero remote browser requests, unchanged one-call ledger, and unchanged protected fingerprints |
 | 15 | User approval in the Phase 03 Coordinator task | Pass: user reviewed the replacement 100%/200% overview/deep-path captures and replied “looks better proceed” |
-| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Pass: product/lifecycle review `8d8aecf` and CI-only correction review `3cde906` both report P0=P1=P2=P3=0; exact reviewed correction head passed GitHub run `30212233098` |
-| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pass: evidence is current through exact review/check head `3cde906`; PR #28 is clean, open, non-draft, and unmerged; direct private artifact links and exclusions are recorded. This lifecycle-only head's check rollup is authoritative before native-goal closure |
+| 16 | Exact-head final review verdict and exact pushed-head GitHub run | Pass: product/lifecycle review `8d8aecf` and CI-only correction review `3cde906` both report P0=P1=P2=P3=0; final PR head `1dd55ff` passed GitHub run `30213028297` |
+| 17 | Completion report, commits, PR state, exclusions/diff audit, local artifact links | Pass at goal closure: evidence was current at final head `1dd55ff`, PR #28 was clean/open/non-draft/unmerged, and direct private artifact links and exclusions were recorded. Afterward, separate explicit user approval authorized the normal merge at `27035cb` |
 | 18 | Exclusion and scope audit | Pass to current product head; Phase 04/05, M14, scheduler/recovery, legacy retirement, installer, dynamic tracing, and historical Stage H/E remain out of scope |
 
 No planned command or screenshot is passing evidence until its observed result and exact head are
@@ -149,6 +150,17 @@ for product rendering.
 - No PR #26 reuse, direct push to `main`, PR merge, destructive history cleanup, or protected
   private-input mutation.
 
+## Post-merge reconciliation
+
+- The approved done condition was satisfied and the native goal closed while PR #28 was open and
+  unmerged. Final PR head `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec` passed GitHub run
+  `30213028297`.
+- The user later gave separate explicit approval to merge, superseding only the coordinator's
+  no-merge handoff constraint after goal closure. PR #28 merged normally on 2026-07-26 at
+  `27035cba5c55585ea5dbeb48e6dd1cd026c44941`.
+- The merge tree exactly matches the reviewed PR head, and synchronized local `main` and
+  `origin/main` both resolve to `27035cb`. No Phase 04/05 or M14 work began during closeout.
+
 ## Handoff rules
 
 - The Phase 03 Coordinator alone owns the native goal, active contract, shared seams, integration
@@ -162,5 +174,6 @@ for product rendering.
 - Keep lifecycle at `Integration` until reviewed worker commits are actually integrated, and keep
   the native goal active through verification, user screenshot approval, final review, PR
   creation, and exact pushed-head checks.
-- Complete the native goal only when the Phase 03 PR is genuinely ready and remains open and
-  unmerged for explicit user approval.
+- The native goal was completed only after the Phase 03 PR was genuinely ready and remained open
+  and unmerged for explicit user approval. The later merge is recorded above as a distinct,
+  user-authorized post-goal action.
