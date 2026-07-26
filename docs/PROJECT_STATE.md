@@ -65,7 +65,9 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   removal of a type-only runtime import that breaks V2 import isolation, and use of the exact
   centrally frozen six-state fixture filename. The worker is also correcting the P1 with three
   end-to-end continuation/path/detail topology fixtures; the same reviewer will rereview the new
-  exact head.
+  exact head. Corrected clean head `fb0f2ecd207848248e674f9c76af7a3d505019fb` passes the worker's
+  final provider-free gate of 22 focused, 7 targeted, 192 adjacent, Ruff, strict mypy, JSON/blob/
+  diff/privacy checks; the same reviewer is rereviewing it now.
 - Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
   continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
   broaden product scope.

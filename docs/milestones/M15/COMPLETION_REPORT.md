@@ -57,6 +57,12 @@ unchanged transitive import-isolation test once. The remaining P2s are missing s
 forged-selection HTTP 404 JSON and a non-authoritative six-state fixture filename. A bounded new
 worker commit and same-reviewer rereview are in progress; the rejected head remains unintegrated.
 
+The consolidated Track C correction is clean at exact head
+`fb0f2ecd207848248e674f9c76af7a3d505019fb`. Its final provider-free worker gate passed 22 focused,
+7 targeted HTTP/import/topology tests, 192 adjacent tests, Ruff, strict mypy, both JSON/blob checks,
+and diff/privacy hygiene. The same reviewer is rereviewing the exact corrected head; it remains
+unintegrated.
+
 Track B then froze clean exact head `2069eab3a1f0a018724106f94634e1292072e358` after the final
 bytes passed its focused/static/schema/lint gate, real Chrome at desktop 100%, effective 200%, and
 390px narrow, 63 adjacent tests, 107-file mypy, asset integrity, and diff hygiene. Independent
