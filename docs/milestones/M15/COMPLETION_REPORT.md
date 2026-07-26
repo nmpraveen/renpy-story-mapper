@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: In progress
+Status: Integration
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -47,8 +47,8 @@ non-overlapping. Neither has provider or private-artifact authority.
 Track C then froze clean exact head `13876361039ab120c7ef4d6765ae74c9f572647d` after its final
 post-edit gate passed 75 tests, Ruff, strict mypy, both serialized contract fixtures/hash checks,
 and diff hygiene. Independent visible reviewer `019f9ca6-cb8b-7503-afc0-9e4c51cd0946` in
-`C:/Users/prave/.codex/worktrees/6915/Renpy` reviewed that exact head; no Track C commit was
-integrated yet. Track B remains in progress.
+`C:/Users/prave/.codex/worktrees/6915/Renpy` reviewed that exact head while both tracks were still
+unintegrated.
 
 Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED`, updated to
 P0=0, P1=1, P2=3, P3=0 after reproducing a backward continuation through control-only merge/label
@@ -60,48 +60,53 @@ a bounded correction and same-reviewer rereview followed; the rejected head rema
 The consolidated Track C correction is clean at exact head
 `fb0f2ecd207848248e674f9c76af7a3d505019fb`. Its final provider-free worker gate passed 22 focused,
 7 targeted HTTP/import/topology tests, 192 adjacent tests, Ruff, strict mypy, both JSON/blob checks,
-and diff/privacy hygiene. The same reviewer rereviewed the exact corrected head; it remains
-unintegrated.
+and diff/privacy hygiene. The same reviewer then rereviewed the exact corrected head.
 
 The rereview returned `PASS` at exact Track C head `fb0f2ec`, P0=P1=P2=P3=0. Independent results
 were 22 focused, 7 finding-specific, 192 bounded, three supplemental architecture, and 16 loopback
-tests plus Ruff, strict mypy, fixtures, and diff hygiene. Track C is integration-ready but is held
-until Track B passes. A partial first-commit cherry-pick (`c046d8c`) was immediately reverted by
-`f325d07` when that sequencing checkpoint arrived; there is no net Track C product change in the
-integration tree.
+tests plus Ruff, strict mypy, fixtures, and diff hygiene. Track C was held until Track B passed. A
+partial first-commit cherry-pick (`c046d8c`) was immediately reverted by `f325d07` at that
+checkpoint; the complete corrected chain was integrated only after both reviews passed.
 
 Track B then froze clean exact head `2069eab3a1f0a018724106f94634e1292072e358` after the final
 bytes passed its focused/static/schema/lint gate, real Chrome at desktop 100%, effective 200%, and
 390px narrow, 63 adjacent tests, 107-file mypy, asset integrity, and diff hygiene. Independent
 visible reviewer `019f9ca9-ab9e-77c0-a2f1-0426f9472084` in
-`C:/Users/prave/.codex/worktrees/4f7b/Renpy` is reviewing that exact head. One accidentally enabled
+`C:/Users/prave/.codex/worktrees/4f7b/Renpy` reviewed that exact head. One accidentally enabled
 out-of-scope M13 hardware smoke timed out on a pre-existing evidence selector and is recorded
-separately, not counted as Track B evidence. No Track B commit is integrated yet.
+separately, not counted as Track B evidence.
 
 Track B independent review at exact head `2069eab` returned `FAIL / CHANGES REQUIRED` with
 P0=0, P1=0, P2=5, P3=0. The P2s cover the shared fixture filename, deep/exact map bounds and
 non-empty unavailable reason, reversible path-panel context, missing authoritative reachability/
-item warnings, and browser-invented witness mechanic placement. A bounded new worker commit, full
-three-profile Chrome/131-test adjacent gate, and same-reviewer rereview are in progress.
+item warnings, and browser-invented witness mechanic placement. A bounded worker correction, full
+three-profile Chrome/131-test adjacent gate, and same-reviewer rereview followed.
 
 The consolidated Track B correction is clean at exact head
 `81313d7b2b86bf12c3236659f259c24f129dd00c`. Its final provider-free gate passed 10 focused tests
 with all three Chrome profiles, the exact 131 pass/2 intended opt-in skip adjacent matrix,
 adversarial deep-map/envelope contracts, 107-file mypy, Ruff, JavaScript syntax, corrected Track C
-fixture byte identity, asset integrity, mojibake, and diff hygiene. The same reviewer is rereviewing
-that exact head; it remains unintegrated.
+fixture byte identity, asset integrity, mojibake, and diff hygiene. The same reviewer rereviewed
+that exact head.
 
 Rereview at exact Track B head `81313d7` closed all five original P2s but returned `FAIL / CHANGES
 REQUIRED`, P0=0, P1=0, P2=1, P3=0. A delayed in-flight path response can reopen the panel after the
 user closes it because Close does not invalidate the request token. A smallest token correction,
-delayed-response Chrome regression, full gate, and same-reviewer rereview are in progress.
+delayed-response Chrome regression, full gate, and same-reviewer rereview followed.
 
 The final bounded Track B correction is clean at exact head
 `47f0cacf3e6d6d84281403c38061265ebaee722b`. Delayed success and delayed rejection now remain
 closed at desktop 100%, effective 200%, and 390px narrow while a subsequent request succeeds. The
 full final gate passed 10 focused, 131 adjacent with two intended opt-in skips, adversarial map/
 envelope probes, JavaScript/Ruff/107-file mypy, assets, shared fixture, mojibake, and diff hygiene.
-The same reviewer is rereviewing this exact head; it remains unintegrated.
+The same reviewer returned exact-head `PASS` with P0=P1=P2=P3=0 after independently repeating the
+three-profile Chrome, adjacent, adversarial contract, static, asset, fixture, and diff gates.
+
+After both exact-head reviews passed, the coordinator integrated the complete reviewed Track C
+chain as `3161261`/`659d612` and the complete reviewed Track B chain as
+`472129b`/`a3eb8fa`/`a8e0ddf`. Direct path-by-path comparisons against `fb0f2ecd...` and
+`47f0cacf...` pass with no differences. The shared six-state API fixture is byte-identical in both
+reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`.
 
 ## Preflight evidence
 
@@ -128,7 +133,7 @@ The same reviewer is rereviewing this exact head; it remains unintegrated.
 | Criterion | Result | Evidence |
 |---|---|---|
 | 1 | Pass | Exact baseline/fetch/preflight above |
-| 2 | In progress | Contract locked; active native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; all three worker tracks are visible, while B/C reviewers remain to be dispatched at their frozen heads |
+| 2 | Pass | Contract locked; active native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; all three visible tracks and separate exact-head reviewers are complete |
 | 3 | Pass | `SEMANTIC_REVIEW.md` ends `PASS` before product edits |
 | 4-18 | Pending | Implementation, integration, private acceptance, review, and PR evidence remain |
 
@@ -146,17 +151,21 @@ The same reviewer is rereviewing this exact head; it remains unintegrated.
 | Track A independent review | Fail | Task `019f9c67-af1c-7812-a471-1f6a98572f1c`: P0=0/P1=2/P2=0/P3=1 at exact head `420dbb7` |
 | Track A final independent rereview | Pass | Exact worker head `2319092`: P0=P1=P2=P3=0; 50 focused, 210 V2/import, 82 storage/web/M10-M12, Ruff, strict mypy, schema binding, whitespace |
 | Track A integration | Pass | Reviewed commits integrated byte-equivalently through `50bdc08`; coordinator CPython 3.12 focused set 50 passed |
-| Track B/C dispatch | In progress | Visible tasks `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` and `019f9c8d-cfa8-76c1-9111-7600e1180d35`, exact base `4827b06`, explicit `gpt-5.6-sol` High, non-overlapping scopes |
+| Track B/C dispatch | Pass | Visible tasks `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` and `019f9c8d-cfa8-76c1-9111-7600e1180d35`, exact base `4827b06`, explicit `gpt-5.6-sol` High, non-overlapping scopes |
 | Track C initial worker gate | Rejected by review | Exact head `1387636`; reviewer P0=0/P1=0/P2=3/P3=0; focused 16 passed, adjacent 172 passed/1 failed; correction/rereview pending |
 | Track B initial worker gate | Rejected by review | Exact head `2069eab`; reviewer P0=0/P1=0/P2=5/P3=0; correction/full rerun/rereview pending |
+| Track B final independent rereview | Pass | Exact head `47f0cacf3e6d6d84281403c38061265ebaee722b`: P0=P1=P2=P3=0; all earlier findings closed |
+| Track C final independent rereview | Pass | Exact head `fb0f2ecd207848248e674f9c76af7a3d505019fb`: P0=P1=P2=P3=0; focused, topology, architecture, loopback, static, and fixture gates green |
+| Track B/C integration | Pass | Reviewed chains integrated through `a8e0ddf`; every track-owned path is byte-equivalent to its reviewed exact head and the shared API fixture blob matches |
 
 ## Review findings
 
 - No unresolved semantic-gate finding.
-- Product, integration, private acceptance, responsive browser, and final exact-head review have
-  not yet occurred.
-- Track A is integration-ready and integrated; Tracks B/C, their reviews, integrated provider-free
-  verification, private acceptance, screenshots, final review, and PR evidence remain pending.
+- Integrated provider-free verification, private acceptance, coordinator screenshots, and final
+  integrated exact-head review have not yet occurred.
+- Tracks A/B/C and their exact-head reviews are complete and integrated byte-equivalently.
+  Integrated provider-free verification, private acceptance, screenshots, final review, and PR
+  evidence remain pending.
 
 ## Integration and PR state
 

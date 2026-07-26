@@ -12,13 +12,13 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: In progress.
+- Status: Integration.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
   `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; Track A
-  is reviewed and integrated, Track C is reviewed/integration-ready, and Track B correction is in
-  progress.
+  is reviewed and integrated, and Tracks B/C have both passed exact-head review and are integrated
+  byte-equivalently for combined provider-free verification.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -53,14 +53,15 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   preserved/restorable path context, visible authoritative reachability/item warnings, and honest
   unassociated witness groups. Corrected clean head `81313d7b2b86bf12c3236659f259c24f129dd00c`
   passes 10 focused/three-profile Chrome, the exact 131 pass/2 opt-in skip adjacent matrix,
-  adversarial contracts, 107-file mypy, Ruff/JS/fixture/asset/diff gates. The same reviewer is
-  rereviewing that exact head. Rereview closed all five original findings but returned `FAIL /
+  adversarial contracts, 107-file mypy, Ruff/JS/fixture/asset/diff gates. Rereview of that head
+  closed all five original findings but returned `FAIL /
   CHANGES REQUIRED`, P0=0, P1=0, P2=1, P3=0 because closing the path panel did not invalidate an
-  in-flight response, which could reopen it. The worker is making only the bounded token/
+  in-flight response, which could reopen it. The worker then made only the bounded token/
   delayed-response regression correction. Final clean head
   `47f0cacf3e6d6d84281403c38061265ebaee722b` closes delayed success/error races across all three
   Chrome profiles and passes the full 10 focused, 131 pass/2 intended skip adjacent, adversarial,
-  static, mypy, asset, fixture, and diff gate. The same reviewer is rereviewing this exact head.
+  static, mypy, asset, fixture, and diff gate. The same reviewer returned exact-head `PASS` with
+  P0=P1=P2=P3=0 after independently repeating the full bounded gate.
 - Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
   `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
   `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python
@@ -73,21 +74,23 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   P1=1, P2=3, P3=0 after reproducing backward continuation resolution through control-only
   merge/label topology. The P2s require an echoed selection ID in forged-selection HTTP 404 JSON,
   removal of a type-only runtime import that breaks V2 import isolation, and use of the exact
-  centrally frozen six-state fixture filename. The worker is also correcting the P1 with three
-  end-to-end continuation/path/detail topology fixtures; the same reviewer will rereview the new
-  exact head. Corrected clean head `fb0f2ecd207848248e674f9c76af7a3d505019fb` passes the worker's
+  centrally frozen six-state fixture filename. The worker corrected the P1 with three end-to-end
+  continuation/path/detail topology fixtures. Corrected clean head
+  `fb0f2ecd207848248e674f9c76af7a3d505019fb` passes the worker's
   final provider-free gate of 22 focused, 7 targeted, 192 adjacent, Ruff, strict mypy, JSON/blob/
   diff/privacy checks. The same reviewer returned exact-head `PASS` with P0=P1=P2=P3=0 after
   independently passing 22 focused, 7 finding-specific, 192 bounded, three architecture, and 16
-  loopback tests plus static gates. Track C is integration-ready but remains unintegrated pending
-  Track B PASS. A partial cherry-pick `c046d8c` was immediately reverted by `f325d07` when this
-  sequencing checkpoint arrived; the integration product tree has no net Track C change.
+  loopback tests plus static gates. A premature partial cherry-pick `c046d8c` was immediately
+  reverted by `f325d07`; after both reviews passed, the complete reviewed Track C chain was
+  integrated byte-equivalently as `3161261` and `659d612`.
 - Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
   continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
   broaden product scope.
-- Next action: finish Track B and its independent exact-head rereview, then integrate only the
-  reviewed B/C chains together. No provider/private action occurs before all integrated
-  provider-free gates pass.
+- Track B's complete reviewed chain was integrated byte-equivalently as `472129b`, `a3eb8fa`, and
+  `a8e0ddf`. The shared six-state fixture has blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`
+  in both reviewed heads and the integration tree.
+- Next action: run all combined provider-free focused, adjacent, browser, static, fixture, asset,
+  import-isolation, and privacy gates. No provider/private action occurs before they pass.
 
 ## M13 historical lifecycle
 
