@@ -51,7 +51,10 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   CHANGES REQUIRED` at exact head `2069eab3a1f0a018724106f94634e1292072e358`, P0=0, P1=0,
   P2=5, P3=0. Findings require the exact shared fixture identity, strict deeply bounded map records,
   preserved/restorable path context, visible authoritative reachability/item warnings, and honest
-  unassociated witness groups. The worker is correcting them; the same reviewer will rereview.
+  unassociated witness groups. Corrected clean head `81313d7b2b86bf12c3236659f259c24f129dd00c`
+  passes 10 focused/three-profile Chrome, the exact 131 pass/2 opt-in skip adjacent matrix,
+  adversarial contracts, 107-file mypy, Ruff/JS/fixture/asset/diff gates. The same reviewer is
+  rereviewing that exact head.
 - Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
   `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
   `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python

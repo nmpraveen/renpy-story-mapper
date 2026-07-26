@@ -84,6 +84,13 @@ non-empty unavailable reason, reversible path-panel context, missing authoritati
 item warnings, and browser-invented witness mechanic placement. A bounded new worker commit, full
 three-profile Chrome/131-test adjacent gate, and same-reviewer rereview are in progress.
 
+The consolidated Track B correction is clean at exact head
+`81313d7b2b86bf12c3236659f259c24f129dd00c`. Its final provider-free gate passed 10 focused tests
+with all three Chrome profiles, the exact 131 pass/2 intended opt-in skip adjacent matrix,
+adversarial deep-map/envelope contracts, 107-file mypy, Ruff, JavaScript syntax, corrected Track C
+fixture byte identity, asset integrity, mojibake, and diff hygiene. The same reviewer is rereviewing
+that exact head; it remains unintegrated.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
