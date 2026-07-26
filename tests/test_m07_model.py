@@ -21,14 +21,14 @@ def _scope(ordinal: int) -> RouteScope:
     )
 
 
-def test_v5_to_v6_migration_and_reopen(tmp_path: Path) -> None:
+def test_v5_to_current_schema_migration_and_reopen(tmp_path: Path) -> None:
     path = tmp_path / "migration.rsmproj"
     connection = storage.connect(path)
     storage.initialize_database(connection, target_version=5)
     connection.close()
 
     with Project.open(path) as project:
-        assert project.schema_version == 6
+        assert project.schema_version == storage.SCHEMA_VERSION
         project.m07_model_service().register_scopes((_scope(0),), generation="g1")
     with Project.open(path) as reopened:
         checkpoints = reopened.m07_model_service().checkpoints()
