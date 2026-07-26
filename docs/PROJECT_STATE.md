@@ -1,8 +1,9 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 04 Track A passed exact-head review and PR CI, then merged into
-the integration branch at `b18ab4d`; Track B remains active, the native goal remains active, and
-the lifecycle is `In progress`)
+Updated: 2026-07-26 (M15.1 Phase 04 Tracks A and B passed exact-head review and PR CI and are
+integrated at `24e6ea8`; their product seam is frozen, repository-wide CI acceleration and
+Tracks C/D are the next parallel work, the native goal remains active, and the lifecycle is
+`In progress`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,6 +15,8 @@ the lifecycle is `In progress`)
 - Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge
   `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
 - Integration branch: `codex/m15-phase04-full-game`.
+- Current integrated A/B checkpoint: `24e6ea8` (Track PRs #31 and #32 merged normally into the
+  Phase 04 integration branch). A/B interfaces are frozen for Tracks C and D.
 - Status: In progress.
 - Merge state: Phase 03 PR #28 and closeout PR #29 are merged. Draft Phase 04
   [PR #30](https://github.com/nmpraveen/renpy-story-mapper/pull/30) is open against `main` and
@@ -44,7 +47,7 @@ the lifecycle is `In progress`)
   P0=P1=P2=P3=0 and GitHub deterministic checks in 18m49s. Track
   [PR #31](https://github.com/nmpraveen/renpy-story-mapper/pull/31) merged normally into the
   Phase 04 integration branch at `b18ab4d`; a post-merge focused gate passed 25 tests. Track A is
-  complete, while the A/B interface freeze remains pending Track B integration.
+  complete.
 - Phase 04 Track B Coordinator: visible task `019fa00d-1e77-7fd3-93d5-ee9761a5f662`, worktree
   `C:/Users/prave/.codex/worktrees/bcc8/Renpy`, dispatched from the same exact checkpoint with
   explicit `gpt-5.6-sol` High. Worker B1 is task `019fa00f-8e20-7382-8dc9-2c1ce5d39975` in
@@ -53,6 +56,25 @@ the lifecycle is `In progress`)
   the independent reviewer is task `019fa00f-dad0-7b13-9454-9c9b44a0d098` in
   `C:/Users/prave/.codex/worktrees/70a9/Renpy`. Both coordinators report fast-mode selection as
   unavailable/unverified.
+- Phase 04 Track B completion: the initial integrated candidate `0942ea8` was rejected with two
+  P1 durable-authority findings. Corrected product head
+  `948994e3a13c77982cb356692e1fe15b5f079147` passed independent exact-head review with
+  P0=P1=P2=P3=0. A one-line stale schema-version test then caused the first PR run
+  `30223104080` to fail with `1 failed, 1568 passed, 16 deselected`; exact test-only head
+  `edf8b4fc95ff90803982b94b726ee810a6c67d25` independently passed review and GitHub run
+  `30224335123` / job `89851989571` in 17m22s. Track
+  [PR #32](https://github.com/nmpraveen/renpy-story-mapper/pull/32) merged normally into the
+  integration branch at `24e6ea8`. The post-merge A/B seam gate passed 151 tests, Ruff, strict
+  mypy over 118 source files, `pip check`, and diff hygiene.
+- Repository-wide CI acceleration: visible coordinator task
+  `019fa0a1-e213-7f62-8ca9-ea0e6e1de032`, branch `codex/m15-p4-ci-shards`, worktree
+  `C:/Users/prave/.codex/worktrees/d42f/Renpy`, explicit `gpt-5.6-sol` High with fast-mode
+  unavailable/unverified. It is replacing the serial Windows pytest bottleneck with complete,
+  timing-balanced required shards and a stable aggregate check without dropping tests. This is a
+  shared workflow improvement for all future repository PRs and `main` pushes, not a Phase 04-only
+  exception. Current action: freeze and independently review that correction while Tracks C and D
+  proceed from the frozen A/B product seam, then make C/D consume the accepted workflow before
+  their exact pushed-head gates.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was
