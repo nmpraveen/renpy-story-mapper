@@ -157,7 +157,11 @@ def build_synthesis_request(
                 )
                 for arm in choice.arms
             ),
-            tuple((aliases[step.choice_key], step.arm_order) for step in choice.parent_lineage),
+            tuple(
+                (aliases[step.choice_key], step.arm_order)
+                for step in choice.parent_lineage
+                if step.choice_key in aliases
+            ),
         )
         for choice in choices
     )

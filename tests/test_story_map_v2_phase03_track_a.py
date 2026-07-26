@@ -273,6 +273,46 @@ def test_request_payload_contains_only_approved_story_facing_fields() -> None:
     assert "event-outer-1" in payload
 
 
+def test_synthesis_lineage_omits_an_external_non_story_ancestor() -> None:
+    core = synthetic_core()
+    chunk = core.chunks[0]
+    outer = replace(
+        chunk.choices[0],
+        parent_lineage=(ArmLineageStep("control/chapter.rpy:20", 1),),
+    )
+    projected_core = replace(core, chunks=(replace(chunk, choices=(outer,)),))
+
+    request = build_synthesis_request(projected_core, project_identity(projected_core))
+
+    assert request.choices[0].parent_lineage == ()
+    assert projected_core.chunks[0].choices[0].parent_lineage == outer.parent_lineage
+
+
+def test_synthesis_lineage_keeps_only_the_included_anonymized_story_parent() -> None:
+    core = synthetic_core()
+    chunk = core.chunks[0]
+    outer, nested = chunk.choices
+    nested_with_external_ancestor = replace(
+        nested,
+        parent_lineage=(
+            ArmLineageStep("control/chapter.rpy:20", 1),
+            ArmLineageStep(outer.key, 2),
+        ),
+    )
+    projected_core = replace(
+        core,
+        chunks=(replace(chunk, choices=(outer, nested_with_external_ancestor)),),
+    )
+
+    request = build_synthesis_request(projected_core, project_identity(projected_core))
+
+    assert request.choices[1].parent_lineage == (("choice-1", 2),)
+    assert (
+        projected_core.chunks[0].choices[1].parent_lineage
+        == nested_with_external_ancestor.parent_lineage
+    )
+
+
 class _FakeProvider:
     def __init__(self, response: str, *, resolved_model: str = "gpt-5.6-terra") -> None:
         self.response = response
