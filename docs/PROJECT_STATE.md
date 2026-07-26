@@ -151,11 +151,13 @@ renewed exact native goal)
   accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
   Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
   authorized.
-- Current action: existing Track B worker closed the sole long-caption P2 in clean descendant
-  `848dce0c06300fb90722ba00a2d69bcd8268793c` with a CSS-only wrapping rule, final manifest hash,
-  and nine-case three-profile Chrome regression; fresh focused/full/adjacent/static gates pass.
-  Same reviewer task `019f9ca9-ab9e-77c0-a2f1-0426f9472084` is rereviewing that exact detached head.
-  No integration before PASS with P0=P1=P2=0.
+- Current action: same Track B reviewer passed corrected exact head
+  `848dce0c06300fb90722ba00a2d69bcd8268793c` with P0=P1=P2=P3=0. The reviewed product/test blobs
+  were integrated byte-equivalently through `eecaf590f608d62d74b32c4af2b5a665d681bee5`; integrated
+  provider-free gates pass with 16 real-Chrome focused tests, 269 Story Map V2 passes, 136 adjacent
+  passes, and clean JS/Ruff/mypy/workflow/diff checks. Existing final cross-track reviewer task
+  `019f9d58-0eec-77f0-9049-61f8d5ba6e81` must review the exact lifecycle head before private
+  recapture.
 
 ## M13 historical lifecycle
 

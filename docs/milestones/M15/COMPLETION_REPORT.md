@@ -221,19 +221,19 @@ retained under Analysis notes, and a compact responsive masthead. The user remov
 goal and explicitly authorized an updated self-goal and continued implementation. No provider
 retry, server/API/navigation change, private-artifact exposure, or new story semantics is included.
 
-The bounded Track B correction is committed at exact head
-`d858c999e762336baf43fb86bbc9ca8e8a6acfdd` from amended lifecycle checkpoint `986b027`. The worker
-reported fresh final-byte results of 13 focused tests with desktop 100%, effective 200%, and 390px
-Chrome profiles; 269 Story Map V2 passes with six separately exercised opt-in browser skips; 132
-adjacent passes with one excluded hardware smoke; and green JS, Ruff, strict mypy, manifest,
-mojibake, privacy, containment, and diff gates. Same-role independent exact-head review is in
-progress; these worker results are not yet integration authority. The same reviewer rejected
-`d858c999...` with P0=0/P1=0/P2=1/P3=0 solely because contract-valid long arm captions were clipped
-instead of wrapped across all three browser profiles. A bounded CSS/test/manifest correction is in
-clean descendant `848dce0c06300fb90722ba00a2d69bcd8268793c`; its final worker gate reports 16 focused
-passes with nine Chrome cases, 269 Story Map V2 passes, 132 adjacent passes, and green static/privacy
-checks. Same-reviewer exact-head rereview is in progress; all other amended criteria previously
-passed independent review.
+The bounded Track B correction first produced exact head `d858c999...` from amended lifecycle
+checkpoint `986b027`. The same reviewer rejected it with P0=0/P1=0/P2=1/P3=0 solely because
+contract-valid long arm captions were clipped instead of wrapped across all three browser profiles.
+A bounded CSS/test/manifest correction produced clean descendant
+`848dce0c06300fb90722ba00a2d69bcd8268793c`; its final worker gate passed 16 focused tests with nine
+Chrome cases, 269 Story Map V2 tests, 132 adjacent tests, and the static/privacy checks. The same
+reviewer then returned exact-head `PASS` at `848dce0...` with
+P0=P1=P2=P3=0. The reviewed product/test blobs were integrated byte-equivalently through
+`eecaf590f608d62d74b32c4af2b5a665d681bee5`. Coordinator reruns at the integrated head passed 16
+real-Chrome focused tests, 269 Story Map V2 tests with nine already-exercised opt-in skips, 136
+adjacent tests with two opt-in skips, four JS syntax checks, Ruff, strict mypy over 109 source files,
+workflow checks, and diff cleanliness. Final cross-track rereview and private replacement captures
+remain pending.
 
 Candidate screenshot artifacts (outside Git; approval pending):
 
