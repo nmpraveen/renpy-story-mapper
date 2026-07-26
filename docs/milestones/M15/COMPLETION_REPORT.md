@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Integration
+Status: Verification
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -108,6 +108,22 @@ chain as `3161261`/`659d612` and the complete reviewed Track B chain as
 `47f0cacf...` pass with no differences. The shared six-state API fixture is byte-identical in both
 reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`.
 
+Combined provider-free verification is complete at integration checkpoint `f70ca88`. The complete
+Story Map V2 family passes 239 tests with three opt-in Chrome cases skipped in that invocation;
+those three desktop 100%, effective 200%, and 390px profiles pass separately. The bounded adjacent
+M10-M13/storage/API/navigation/privacy matrix passes 317 tests with two hardware-sensitive browser
+cases deselected. M12 real Chrome passes. The historical M13 real-browser harness reaches its
+known citation-selector timeout, but a diagnostic run proves the exact expected M10 control and
+exact `record_id` are already in the DOM; the harness waits on a DOM element object rather than a
+boolean, and CDP serializes that object falsey. The diagnostic edit was fully removed and the
+historical harness remains byte-identical. This pre-existing harness defect is recorded separately
+and is not Track B/C product evidence.
+
+Ruff passes across `src`, `tests`, and `scripts`; strict mypy passes all 108 source files; all four
+packaged JavaScript files pass `node --check`; 33 browser-asset/privacy/import-isolation tests pass;
+the synthesis schema and both frozen fixtures parse; deterministic manifest tests pass; whitespace
+is clean; no private output path is tracked; and the tracked worktree is clean.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
@@ -135,7 +151,9 @@ reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a7014
 | 1 | Pass | Exact baseline/fetch/preflight above |
 | 2 | Pass | Contract locked; active native goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`; all three visible tracks and separate exact-head reviewers are complete |
 | 3 | Pass | `SEMANTIC_REVIEW.md` ends `PASS` before product edits |
-| 4-18 | Pending | Implementation, integration, private acceptance, review, and PR evidence remain |
+| 4 | Pass | Separate visible A/B/C tracks and exact-head reviewers completed with final P0=P1=P2=P3=0 verdicts |
+| 5-10 | Pass (synthetic/integrated) | Reviewed implementation plus the 239-test V2 and 317-test adjacent matrices; private acceptance counts remain pending |
+| 11-18 | Pending | Preview/live accounting, private acceptance, screenshots, final review, and PR evidence remain |
 
 ## Validation
 
@@ -157,15 +175,19 @@ reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a7014
 | Track B final independent rereview | Pass | Exact head `47f0cacf3e6d6d84281403c38061265ebaee722b`: P0=P1=P2=P3=0; all earlier findings closed |
 | Track C final independent rereview | Pass | Exact head `fb0f2ecd207848248e674f9c76af7a3d505019fb`: P0=P1=P2=P3=0; focused, topology, architecture, loopback, static, and fixture gates green |
 | Track B/C integration | Pass | Reviewed chains integrated through `a8e0ddf`; every track-owned path is byte-equivalent to its reviewed exact head and the shared API fixture blob matches |
+| Integrated Story Map V2 matrix | Pass | 239 passed/3 opt-in browser skips; all three skipped profiles pass in their dedicated final-byte Chrome run |
+| Integrated adjacent matrix | Pass | 317 passed/2 hardware deselected across bounded M10-M13 storage/API/navigation/route/privacy surfaces |
+| Integrated browser compatibility | Pass with separately recorded historical harness defect | Final Story Browser 3/3 and M12 Chrome pass; M13 exact control/record render was proven despite its legacy falsey-element wait timeout |
+| Integrated static/privacy gate | Pass | Ruff; strict mypy 108 files; JS syntax 4 files; 33 asset/privacy/import tests; JSON/schema/manifest/whitespace/containment clean |
 
 ## Review findings
 
 - No unresolved semantic-gate finding.
-- Integrated provider-free verification, private acceptance, coordinator screenshots, and final
-  integrated exact-head review have not yet occurred.
-- Tracks A/B/C and their exact-head reviews are complete and integrated byte-equivalently.
-  Integrated provider-free verification, private acceptance, screenshots, final review, and PR
-  evidence remain pending.
+- Private preview/execution, private acceptance, coordinator screenshots, and final integrated
+  exact-head review have not yet occurred.
+- Tracks A/B/C and their exact-head reviews are complete, integrated byte-equivalently, and pass
+  the combined provider-free gate. Private acceptance, screenshots, final review, and PR evidence
+  remain pending.
 
 ## Integration and PR state
 
@@ -177,8 +199,7 @@ reviewed heads and the integration tree at blob `906fa04e3c3451b6cded1bcb84a7014
 
 ## Remaining limitations
 
-- Track A product code is integrated; Track B/C implementation and their exact-head reviews are
-  still in progress.
+- Track A/B/C product code and exact-head reviews are integrated and provider-free verified.
 - No provider preview or synthesis submission has occurred.
 - The accepted Phase 02 core remains an outside-Git developer artifact until the coordinator's
   later private acceptance imports a copy into the supported project storage.

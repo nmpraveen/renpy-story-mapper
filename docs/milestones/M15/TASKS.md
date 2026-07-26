@@ -4,7 +4,7 @@ Baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
 Integration branch: `codex/m15-phase03-story-browser`
 
-Lifecycle: `Integration`
+Lifecycle: `Verification`
 
 | Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
@@ -18,7 +18,7 @@ Lifecycle: `Integration`
 | Track B independent review | Visible task `019f9ca9-ab9e-77c0-a2f1-0426f9472084`; worktree `C:/Users/prave/.codex/worktrees/4f7b/Renpy` | Track B exact head, responsive/accessibility/browser contract and exclusions | Track B frozen head | Complete | Final exact-head `PASS` at `47f0cacf3e6d6d84281403c38061265ebaee722b`, P0=P1=P2=P3=0; all five initial P2s and the rereview race P2 closed; independent three-profile Chrome, 131 pass/2 intended skip adjacent, adversarial/static/mypy/asset/fixture/diff gates green |
 | Track C - path/detail navigation | Visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`; worktree `C:/Users/prave/.codex/worktrees/ee40/Renpy` | Anchor-to-M12 target binding, honest witness projection, detail/source navigation, generalized tests | Exact frozen checkpoint `4827b06` plus additive continuation seam | Complete | Corrected clean head `fb0f2ecd207848248e674f9c76af7a3d505019fb`; final gate 22 focused, 7 targeted HTTP/import/topology, 192 adjacent, Ruff, strict mypy, JSON/blob/diff/privacy |
 | Track C independent review | Visible task `019f9ca6-cb8b-7503-afc0-9e4c51cd0946`; worktree `C:/Users/prave/.codex/worktrees/6915/Renpy` | Track C exact head, route/evidence correctness and exclusions | Track C frozen head | Complete | Exact corrected head `fb0f2ecd207848248e674f9c76af7a3d505019fb`: `PASS`, P0=P1=P2=P3=0; 22 focused, 7 finding-specific, 192 bounded, 3 architecture, 16 loopback plus static gates |
-| Integration and provider-free verification | Phase 03 Coordinator | Reviewed track commits, focused/regression/static/privacy gates | All track reviews pass | In progress | Track C reviewed chain integrated as `3161261`/`659d612`; Track B reviewed chain integrated as `472129b`/`a3eb8fa`/`a8e0ddf`. Every owned path and shared fixture is byte-equivalent to the reviewed heads; combined provider-free gates are next |
+| Integration and provider-free verification | Phase 03 Coordinator | Reviewed track commits, focused/regression/static/privacy gates | All track reviews pass | Complete | Integration checkpoint `f70ca88`; every owned path is byte-equivalent. 239 V2, 317 adjacent, 3 final Story Browser Chrome, 1 M12 Chrome, and 33 asset/privacy/import tests pass; Ruff, strict mypy (108 files), four JS syntax checks, JSON/schema, manifest, whitespace, and tracked-clean gates pass. The excluded historical M13 browser test still has its known falsey DOM-element wait; direct diagnostics prove the exact expected control/record rendered |
 | Zero-submit preview and one Terra call | Phase 03 Coordinator | Private accepted core, exact synthesis payload/settings/accounting | Provider-free gates pass | Pending | One-call ceiling; no retry/substitution |
 | Private browser/path acceptance | Phase 03 Coordinator | Exact private core/result, five target classes, reopen, 100%/200%, no remote requests | Integrated result stored | Pending | Outside-Git report and screenshots |
 | User screenshot approval | User in Coordinator task | Actual final reviewed-head 100%/200% screenshots | Candidate screenshots captured | Pending | Explicit approval required |

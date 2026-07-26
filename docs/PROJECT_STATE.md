@@ -12,7 +12,7 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Integration.
+- Status: Verification.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
@@ -89,8 +89,17 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Track B's complete reviewed chain was integrated byte-equivalently as `472129b`, `a3eb8fa`, and
   `a8e0ddf`. The shared six-state fixture has blob `906fa04e3c3451b6cded1bcb84a70144f16727b9`
   in both reviewed heads and the integration tree.
-- Next action: run all combined provider-free focused, adjacent, browser, static, fixture, asset,
-  import-isolation, and privacy gates. No provider/private action occurs before they pass.
+- Integrated provider-free verification at `f70ca88` passes: 239 Story Map V2 tests (three opt-in
+  browser cases separately pass), 317 bounded M10-M13/storage/API/navigation/privacy tests (two
+  hardware tests deselected), all three final Story Browser Chrome profiles, M12 real Chrome, 33
+  browser-asset/privacy/import tests, Ruff, strict mypy over 108 source files, four JavaScript
+  syntax checks, JSON/schema/fixture parsing, manifest integrity, whitespace, and tracked-clean
+  containment. The old M13 hardware harness still times out because it waits on a DOM element
+  object that CDP serializes as falsey; a diagnostic run proved the exact expected M10 control and
+  `record_id` were rendered. The untouched historical harness is excluded, as previously frozen,
+  rather than counted as Track B/C product evidence.
+- Next action: create and inspect the exact zero-submit private synthesis preview. Only after it is
+  valid may the coordinator spend the single authorized sterile Terra call.
 
 ## M13 historical lifecycle
 
