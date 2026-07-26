@@ -54,7 +54,10 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   unassociated witness groups. Corrected clean head `81313d7b2b86bf12c3236659f259c24f129dd00c`
   passes 10 focused/three-profile Chrome, the exact 131 pass/2 opt-in skip adjacent matrix,
   adversarial contracts, 107-file mypy, Ruff/JS/fixture/asset/diff gates. The same reviewer is
-  rereviewing that exact head.
+  rereviewing that exact head. Rereview closed all five original findings but returned `FAIL /
+  CHANGES REQUIRED`, P0=0, P1=0, P2=1, P3=0 because closing the path panel did not invalidate an
+  in-flight response, which could reopen it. The worker is making only the bounded token/
+  delayed-response regression correction before another exact-head rereview.
 - Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
   `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
   `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python

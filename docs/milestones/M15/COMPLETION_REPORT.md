@@ -91,6 +91,11 @@ adversarial deep-map/envelope contracts, 107-file mypy, Ruff, JavaScript syntax,
 fixture byte identity, asset integrity, mojibake, and diff hygiene. The same reviewer is rereviewing
 that exact head; it remains unintegrated.
 
+Rereview at exact Track B head `81313d7` closed all five original P2s but returned `FAIL / CHANGES
+REQUIRED`, P0=0, P1=0, P2=1, P3=0. A delayed in-flight path response can reopen the panel after the
+user closes it because Close does not invalidate the request token. A smallest token correction,
+delayed-response Chrome regression, full gate, and same-reviewer rereview are in progress.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
