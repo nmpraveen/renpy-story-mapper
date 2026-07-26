@@ -189,6 +189,43 @@ def test_choice_context_loops_endings_and_unresolved_placements_remain_explicit(
     assert any(arm.unresolved_warnings for arm in nested_choice.arms)
 
 
+def test_choice_parent_lineage_never_contains_the_choice_itself() -> None:
+    _graph, _scene_model, source, plan, _by_key = _planned()
+    loop_choice = next(choice for choice in source.choices if choice.line == 54)
+
+    assert loop_choice.parent_lineage == ()
+    assert all(
+        len({step.choice_key for step in choice.parent_lineage})
+        == len(choice.parent_lineage)
+        and all(step.choice_key != choice.key for step in choice.parent_lineage)
+        for choice in source.choices
+    )
+
+    nested_placement = next(
+        placement for placement in plan.placements if len(placement.arm_lineage) == 2
+    )
+    assert len({step.choice_key for step in nested_placement.arm_lineage}) == 2
+    plan.validate()
+
+
+def test_plan_rejects_duplicate_or_self_choice_keys_in_placement_lineage() -> None:
+    _graph, _scene_model, _source, plan, _by_key = _planned()
+    target = next(placement for placement in plan.placements if placement.arm_lineage)
+    forged = replace(
+        target,
+        arm_lineage=(*target.arm_lineage, target.arm_lineage[-1]),
+    )
+
+    with pytest.raises(ValueError, match="repeats a choice in its arm lineage"):
+        replace(
+            plan,
+            placements=tuple(
+                forged if placement.id == target.id else placement
+                for placement in plan.placements
+            ),
+        ).validate()
+
+
 def test_plan_coverage_has_no_omission_or_accidental_duplication() -> None:
     _graph, _scene_model, source, plan, _by_key = _planned()
 
@@ -247,3 +284,50 @@ def test_plan_rejects_stale_bindings_and_mutated_coverage() -> None:
             placements=plan.placements[:-1],
             placement_coverage_identity="stale",
         ).validate()
+
+
+def test_plan_rejects_caller_mutated_story_scope_content() -> None:
+    graph, scene_model, source, _plan, _by_key = _planned()
+    first_span = source.spans[0]
+    first_choice = source.choices[0]
+    first_arm = first_choice.arms[0]
+    forged_scopes = (
+        replace(
+            source,
+            spans=(
+                replace(first_span, raw_text=f'{first_span.raw_text}\n"forged"\n'),
+                *source.spans[1:],
+            ),
+        ),
+        replace(
+            source,
+            spans=(
+                replace(first_span, estimated_tokens=first_span.estimated_tokens + 1),
+                *source.spans[1:],
+            ),
+        ),
+        replace(
+            source,
+            choices=(
+                replace(
+                    first_choice,
+                    arms=(
+                        replace(first_arm, caption=f"{first_arm.caption} (forged)"),
+                        *first_choice.arms[1:],
+                    ),
+                ),
+                *source.choices[1:],
+            ),
+        ),
+    )
+
+    for forged_scope in forged_scopes:
+        with pytest.raises(
+            SourceAdaptationError,
+            match="exact graph-derived StoryScope",
+        ):
+            build_story_plan(
+                graph,
+                scene_model=scene_model,
+                source_scope=forged_scope,
+            )
