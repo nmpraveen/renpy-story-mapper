@@ -11,18 +11,12 @@ import hashlib
 from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import Final, Protocol, TypeVar
 
-from renpy_story_mapper.canonical_graph_contract import CanonicalNodeKind
-from renpy_story_mapper.m11_scene_model import StoryAtom
+from renpy_story_mapper.canonical_graph_contract import CanonicalGraph, CanonicalNodeKind
+from renpy_story_mapper.m11_scene_model import SceneModel, StoryAtom
 from renpy_story_mapper.m12_model import DestinationKind
-from renpy_story_mapper.m12_service import (
-    M12Authority,
-    M12RouteService,
-    load_m12_authority,
-)
-from renpy_story_mapper.project import Project
-from renpy_story_mapper.storage import ProjectStorageError, canonical_json
+from renpy_story_mapper.storage import canonical_json
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
     CoreBranchOutcome,
@@ -48,6 +42,36 @@ MAX_WITNESS_UNCERTAINTY: Final = 40
 MAX_WITNESS_INSTRUCTIONS: Final = 120
 MAX_WITNESS_TITLE_CHARS: Final = 160
 MAX_WITNESS_TEXT_CHARS: Final = 1_000
+CONTROL_ONLY_BOUNDARY_KINDS: Final = frozenset(
+    {CanonicalNodeKind.MERGE, CanonicalNodeKind.LABEL_REGION}
+)
+
+Prepared = TypeVar("Prepared")
+
+
+class NavigationAuthority(Protocol):
+    @property
+    def graph(self) -> CanonicalGraph: ...
+
+    @property
+    def scene_model(self) -> SceneModel: ...
+
+    @property
+    def canonical_hash(self) -> str: ...
+
+
+class RouteSolveOutcome(Protocol):
+    @property
+    def cached(self) -> bool: ...
+
+    @property
+    def result(self) -> Mapping[str, object] | None: ...
+
+
+class RouteService(Protocol[Prepared]):
+    def prepare(self, destination_kind: str, target_id: str) -> Prepared: ...
+
+    def solve(self, prepared: Prepared) -> RouteSolveOutcome: ...
 
 
 class UnknownStorySelectionError(KeyError):
@@ -207,7 +231,7 @@ def _deduplicate(candidates: Sequence[_Candidate]) -> tuple[_Candidate, ...]:
 
 
 def _forward_boundary_scenes(
-    authority: M12Authority,
+    authority: NavigationAuthority,
     selection: NavigationSelection,
     atoms: Mapping[str, StoryAtom],
 ) -> tuple[_Candidate, ...]:
@@ -216,10 +240,16 @@ def _forward_boundary_scenes(
         if edge.resolved:
             outgoing[edge.source_id].add(edge.target_id)
     scene_by_node: dict[str, set[str]] = defaultdict(set)
+    node_kinds = {node.id: node.kind for node in authority.graph.nodes}
     model = authority.scene_model
     for scene in model.scenes:
         for atom_id in scene.atom_ids:
             atom = atoms[atom_id]
+            if (
+                not atom.story_facing
+                or node_kinds.get(atom.primary_node_id) in CONTROL_ONLY_BOUNDARY_KINDS
+            ):
+                continue
             scene_by_node[atom.primary_node_id].add(scene.id)
     queue = deque((node_id, 0) for node_id in selection.exact_node_ids)
     seen = set(selection.exact_node_ids)
@@ -230,8 +260,9 @@ def _forward_boundary_scenes(
         if found_depth is not None and depth > found_depth:
             break
         if depth > 0:
-            found.update(scene_by_node.get(node_id, ()))
-            if found:
+            scenes_at_depth = scene_by_node.get(node_id, ())
+            if scenes_at_depth:
+                found.update(scenes_at_depth)
                 found_depth = depth
                 continue
         if depth >= 32:
@@ -254,7 +285,7 @@ def _forward_boundary_scenes(
 
 
 def _candidate_groups(
-    authority: M12Authority,
+    authority: NavigationAuthority,
     selection: NavigationSelection,
 ) -> dict[DestinationKind, tuple[_Candidate, ...]]:
     model = authority.scene_model
@@ -359,7 +390,7 @@ def _candidate_groups(
 
 
 def _resolve_binding(
-    authority: M12Authority,
+    authority: NavigationAuthority,
     selection: NavigationSelection,
 ) -> NavigationBinding:
     groups = _candidate_groups(authority, selection)
@@ -634,19 +665,20 @@ def unresolved_navigation_page(page: StoryMapReadModel) -> StoryMapReadModel:
     )
 
 
-class StoryMapNavigator:
+class StoryMapNavigator[Prepared]:
     """Resolve and serve only current stored-core visible selections."""
 
-    def __init__(self, project: Project, core: StoryMapCore, page: StoryMapReadModel) -> None:
-        self._project = project
-        self._core = core
+    def __init__(
+        self,
+        authority: NavigationAuthority,
+        service: RouteService[Prepared],
+        core: StoryMapCore,
+        page: StoryMapReadModel,
+    ) -> None:
         self._page = page
         self._selections = _core_selections(core)
-        try:
-            self._authority = load_m12_authority(project)
-        except (ProjectStorageError, ValueError) as exc:
-            raise StoryNavigationAuthorityUnavailableError from exc
-        self._service = M12RouteService(project)
+        self._authority = authority
+        self._service = service
         self._bindings = {
             selection_id: _resolve_binding(self._authority, selection)
             for selection_id, selection in self._selections.items()

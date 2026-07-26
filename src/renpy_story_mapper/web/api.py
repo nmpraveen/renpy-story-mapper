@@ -38,7 +38,11 @@ from renpy_story_mapper.m07_workflow import (
 from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
-from renpy_story_mapper.m12_service import M12PreparedSolve, M12RouteService
+from renpy_story_mapper.m12_service import (
+    M12PreparedSolve,
+    M12RouteService,
+    load_m12_authority,
+)
 from renpy_story_mapper.narrative.authority import load_narrative_authority
 from renpy_story_mapper.narrative.batching import BatchLimits
 from renpy_story_mapper.narrative.contracts import (
@@ -96,6 +100,7 @@ from renpy_story_mapper.project import (
     open_project,
     refresh_ingested_project,
 )
+from renpy_story_mapper.story_map_v2.contracts import StoryMapCore
 from renpy_story_mapper.story_map_v2.navigation import (
     DETAIL_SCHEMA,
     PATH_SCHEMA,
@@ -109,6 +114,7 @@ from renpy_story_mapper.story_map_v2.persistence import (
     StoryMapV2PersistenceError,
     load_story_map_v2_for_current_project,
 )
+from renpy_story_mapper.story_map_v2.phase03_contracts import StoryMapReadModel
 from renpy_story_mapper.story_map_v2.presentation import (
     project_story_map,
     unavailable_story_map,
@@ -208,11 +214,33 @@ LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
 
 
 class ApiProblem(Exception):
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        message: str,
+        *,
+        selection_id: str | None = None,
+    ) -> None:
         super().__init__(message)
+        if selection_id is not None and (not selection_id or len(selection_id) > 512):
+            raise ValueError("API error selection ID must be a non-empty bounded string")
         self.status = status
         self.code = code
         self.message = message
+        self.selection_id = selection_id
+
+
+def _story_map_navigator(
+    project: Project,
+    core: StoryMapCore,
+    page: StoryMapReadModel,
+) -> StoryMapNavigator[M12PreparedSolve]:
+    try:
+        authority = load_m12_authority(project)
+    except (storage.ProjectStorageError, ValueError) as exc:
+        raise StoryNavigationAuthorityUnavailableError from exc
+    return StoryMapNavigator(authority, M12RouteService(project), core, page)
 
 
 class DialogAdapter(Protocol):
@@ -492,7 +520,7 @@ class ProjectApi:
                     else:
                         projected_page = project_story_map(stored.core, stored.synthesis)
                         try:
-                            story_map_v2_page = StoryMapNavigator(
+                            story_map_v2_page = _story_map_navigator(
                                 opened_project,
                                 stored.core,
                                 projected_page,
@@ -526,7 +554,7 @@ class ProjectApi:
                             "reason": "Story Map V2 is unavailable for the current project.",
                         }
                     require_current_selection(stored.core, selection_id)
-                    navigator = StoryMapNavigator(
+                    navigator = _story_map_navigator(
                         opened_project,
                         stored.core,
                         project_story_map(stored.core, stored.synthesis),
@@ -537,6 +565,7 @@ class ProjectApi:
                     404,
                     "story_map_v2_selection_not_found",
                     "The Story Map V2 selection is unavailable.",
+                    selection_id=selection_id,
                 ) from exc
             except (
                 StoryMapV2PersistenceError,
@@ -2361,7 +2390,7 @@ class ProjectApi:
                         "reason": "Story Map V2 is unavailable for the current project.",
                     }
                 require_current_selection(stored.core, selection_id)
-                navigator = StoryMapNavigator(
+                navigator = _story_map_navigator(
                     opened_project,
                     stored.core,
                     project_story_map(stored.core, stored.synthesis),
@@ -2373,6 +2402,7 @@ class ProjectApi:
                 404,
                 "story_map_v2_selection_not_found",
                 "The Story Map V2 selection is unavailable.",
+                selection_id=selection_id,
             ) from exc
         except (
             StoryMapV2PersistenceError,

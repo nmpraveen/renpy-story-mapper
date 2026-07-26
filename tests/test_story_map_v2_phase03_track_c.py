@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from renpy_story_mapper.m12_model import DestinationKind
-from renpy_story_mapper.m12_service import load_m12_authority
+from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project, create_ingested_project
 from renpy_story_mapper.story_map_v2.contracts import (
     ArmLineageStep,
@@ -31,12 +32,14 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
 from renpy_story_mapper.story_map_v2.presentation import project_story_map
 from renpy_story_mapper.web.api import ApiProblem, ProjectApi
 from renpy_story_mapper.web.contracts import STORY_MAP_V2_API_ROUTES
+from renpy_story_mapper.web.security import SessionSecurity
+from renpy_story_mapper.web.server import LocalWebServer, start_in_thread
 from renpy_story_mapper.web.state import UserStateStore
 
 FIXTURE = Path(__file__).parent / "fixtures" / "story_map_v2" / "phase03_navigation.rpy"
 M12_KINDS = {item.value for item in DestinationKind}
 ENVELOPE_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "story_map_v2_phase03_navigation_envelopes.json"
+    Path(__file__).parent / "fixtures" / "story_map_v2_phase03_api_contract.json"
 )
 
 
@@ -327,10 +330,168 @@ def _project(tmp_path: Path) -> tuple[Path, Path, StoryMapCore]:
     return source, project_path, core
 
 
+@dataclass(frozen=True)
+class _BoundaryCase:
+    fixture_name: str
+    rejoin_line: int
+    after_line: int
+
+
+def _scene_for_line(authority: object, line: int) -> str:
+    model = authority.scene_model  # type: ignore[attr-defined]
+    node_id = _canonical_node_at_line(authority, line)
+    matching_atoms = {
+        atom.id
+        for atom in model.atoms
+        if node_id in {atom.primary_node_id, *atom.provenance.node_ids}
+    }
+    scenes = [scene.id for scene in model.scenes if matching_atoms.intersection(scene.atom_ids)]
+    assert len(scenes) == 1, (line, scenes)
+    return scenes[0]
+
+
+def _boundary_project(
+    tmp_path: Path,
+    case: _BoundaryCase,
+) -> tuple[Path, Path, str]:
+    fixture = Path(__file__).parent / "fixtures" / "story_map_v2" / case.fixture_name
+    source = tmp_path / "game"
+    source.mkdir()
+    (source / "story.rpy").write_bytes(fixture.read_bytes())
+    project_path = tmp_path / "boundary.rsmproj"
+    project = create_ingested_project(project_path, source)
+    with project:
+        authority = load_m12_authority(project)
+        branch = _branch_starting_at(authority, 5)
+        choice_key = "game/story.rpy:4"
+        arm_specs = ((1, "Left", 5, 6, 6), (2, "Right", 7, 8, 8))
+        arms = tuple(
+            ArmMechanic(
+                order,
+                caption,
+                start_line,
+                end_line,
+                None,
+                (),
+                _canonical_node_at_line(authority, node_line),
+                branch.merge_node_id,
+                case.rejoin_line,
+                Reachability.REACHABLE,
+            )
+            for order, caption, start_line, end_line, node_line in arm_specs
+        )
+        choice = ChoiceMechanic(choice_key, "game/story.rpy", 4, arms)
+        outcomes = tuple(
+            CoreBranchOutcome(
+                choice_key,
+                arm.order,
+                arm.caption,
+                f"{arm.caption} outcome.",
+                _anchor(
+                    f"boundary-arm-{arm.order}",
+                    _canonical_node_at_line(authority, line),
+                    line,
+                    lineage=(ArmLineageStep(choice_key, arm.order),),
+                    destination_id=arm.destination_id,
+                ),
+                Reachability.REACHABLE,
+            )
+            for arm, (_order, _caption, _start, _end, line) in zip(
+                arms, arm_specs, strict=True
+            )
+        )
+        events = (
+            CoreEvent(
+                "Before",
+                "Before the choice.",
+                "game/story.rpy",
+                3,
+                8,
+                (),
+                (),
+                _anchor("boundary-event-before", _canonical_node_at_line(authority, 3), 3),
+                Reachability.REACHABLE,
+            ),
+            CoreEvent(
+                "After",
+                "After the rejoin.",
+                "game/story.rpy",
+                case.after_line,
+                case.after_line,
+                (),
+                (),
+                _anchor(
+                    "boundary-event-after",
+                    _canonical_node_at_line(authority, case.after_line),
+                    case.after_line,
+                ),
+                Reachability.REACHABLE,
+            ),
+        )
+        core = StoryMapCore(
+            "story-map-v2-core-v1",
+            f"boundary-{case.fixture_name}",
+            ChunkStatus.COMPLETE,
+            (
+                CoreChunk(
+                    "boundary-chunk",
+                    ChunkStatus.COMPLETE,
+                    ProviderOrigin.MISSING,
+                    events,
+                    (choice,),
+                    outcomes,
+                    "Boundary topology",
+                    "A generalized continuation topology.",
+                ),
+            ),
+            "Boundary topology",
+            "A generalized continuation topology.",
+        )
+        identity = StoryMapProjectIdentity(
+            PROJECT_SCHEMA,
+            core.schema,
+            canonical_hash(asdict(core)),
+            core.source_identity,
+            authority.graph.source_generation,
+            authority.canonical_hash,
+            ("game/story.rpy",),
+        )
+        save_story_map_v2(project, core, identity)
+        expected_scene_id = _scene_for_line(authority, case.after_line)
+    return source, project_path, expected_scene_id
+
+
 def _api(tmp_path: Path, source: Path, project_path: Path) -> ProjectApi:
     api = ProjectApi(_Dialogs(), state_store=UserStateStore(tmp_path / "state.json"))
     api._retain_project_path(project_path, source)
     return api
+
+
+def _post_json(
+    server: LocalWebServer,
+    path: str,
+    body: dict[str, object],
+) -> tuple[int, dict[str, object]]:
+    connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
+    payload = json.dumps(body).encode("utf-8")
+    connection.request(
+        "POST",
+        path,
+        body=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(payload)),
+            "Host": f"127.0.0.1:{server.port}",
+            "Origin": f"http://127.0.0.1:{server.port}",
+            "X-RSM-Session": "session-secret",
+            "X-RSM-CSRF": "csrf-secret",
+        },
+    )
+    response = connection.getresponse()
+    result = json.loads(response.read())
+    connection.close()
+    assert isinstance(result, dict)
+    return response.status, result
 
 
 def _all_arms(event: dict[str, object]) -> list[dict[str, object]]:
@@ -363,6 +524,113 @@ def _assert_envelope_shape(
         witness = payload["witness"]
         assert isinstance(witness, dict)
         assert set(witness) == set(contract["path"]["witness_keys"])
+
+
+def test_shared_api_contract_fixture_has_exact_six_states() -> None:
+    contract = json.loads(ENVELOPE_FIXTURE.read_text(encoding="utf-8"))
+    assert set(contract) == {"path", "detail"}
+    assert set(contract["path"]) == {
+        "available",
+        "unresolved",
+        "unavailable",
+        "witness_keys",
+    }
+    assert set(contract["detail"]) == {
+        "available",
+        "unresolved",
+        "unavailable",
+        "source_navigation",
+    }
+
+
+@pytest.mark.parametrize("route", ("path", "detail"))
+def test_forged_selection_404_echoes_id_in_dispatch_and_http(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    source, project_path, _core_value = _project(tmp_path)
+    api = _api(tmp_path, source, project_path)
+    selection_id = f"forged-{route}-selection"
+    expected_error = {
+        "code": "story_map_v2_selection_not_found",
+        "message": "The Story Map V2 selection is unavailable.",
+    }
+    with pytest.raises(ApiProblem) as raised:
+        api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES[route],
+            {"selection_id": selection_id},
+        )
+    assert raised.value.status == 404
+    assert raised.value.code == expected_error["code"]
+    assert raised.value.message == expected_error["message"]
+    assert raised.value.selection_id == selection_id
+
+    static_root = tmp_path / "static"
+    static_root.mkdir()
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        api,
+        static_root=static_root,
+        security=SessionSecurity("session-secret", "csrf-secret"),
+    )
+    thread = start_in_thread(server)
+    try:
+        status, body = _post_json(
+            server,
+            STORY_MAP_V2_API_ROUTES[route],
+            {"selection_id": selection_id},
+        )
+    finally:
+        server.close_service()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert status == 404
+    assert body == {"error": expected_error, "selection_id": selection_id}
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        _BoundaryCase("phase03_boundary_fallthrough_new_scene.rpy", 10, 12),
+        _BoundaryCase("phase03_boundary_direct_label_new_scene.rpy", 10, 12),
+        _BoundaryCase("phase03_boundary_same_scene.rpy", 10, 10),
+    ),
+    ids=("fallthrough-new-scene", "direct-label-new-scene", "same-scene-fallthrough"),
+)
+def test_boundary_topology_resolves_map_path_and_detail_end_to_end(
+    tmp_path: Path,
+    case: _BoundaryCase,
+) -> None:
+    source, project_path, expected_scene_id = _boundary_project(tmp_path, case)
+    api = _api(tmp_path, source, project_path)
+    try:
+        page = api.dispatch("POST", STORY_MAP_V2_API_ROUTES["map"], {})
+        event = page["sections"][0]["events"][0]
+        binding = event["choices"][0]["arms"][0]["rejoin_binding"]
+        assert binding is not None
+        path = api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": binding["selection_id"]},
+        )
+        detail = api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES["detail"],
+            {"selection_id": binding["selection_id"]},
+        )
+    finally:
+        api.close()
+
+    assert binding["destination_kind"] == "generic_scene"
+    assert binding["target_id"] == expected_scene_id
+    assert path["status"] == "available"
+    assert path["binding"]["target_id"] == expected_scene_id
+    assert path["witness"]["scene_titles"]
+    assert detail["status"] == "available"
+    assert detail["binding"]["target_id"] == expected_scene_id
+    assert detail["detail"]["level"] == "scene_detail"
 
 
 def test_bootstrap_map_path_and_detail_are_bounded_to_selection_ids(tmp_path: Path) -> None:
@@ -588,7 +856,8 @@ def test_duplicate_cross_role_visible_selection_id_is_rejected_before_overwrite(
     )
     with Project.open(project_path) as project, pytest.raises(ValueError, match="collide"):
         StoryMapNavigator(
-            project,
+            load_m12_authority(project),
+            M12RouteService(project),
             duplicate_core,
             project_story_map(duplicate_core, None),
         )
@@ -612,7 +881,8 @@ def test_zero_match_rejoin_emits_null_binding(tmp_path: Path) -> None:
     )
     with Project.open(project_path) as project:
         page = StoryMapNavigator(
-            project,
+            load_m12_authority(project),
+            M12RouteService(project),
             missing_core,
             project_story_map(missing_core, None),
         ).bound_page()
@@ -739,6 +1009,9 @@ def test_missing_m12_authority_keeps_map_and_fails_path_and_detail_closed(
                 {"selection_id": "forged-selection"},
             )
         assert raised.value.status == 404
+        assert raised.value.code == "story_map_v2_selection_not_found"
+        assert raised.value.message == "The Story Map V2 selection is unavailable."
+        assert raised.value.selection_id == "forged-selection"
 
 
 def test_detail_status_shapes_distinguish_available_unresolved_and_unavailable(
