@@ -22,6 +22,14 @@ CONTINUATION_FIXTURE = (
     ROOT / "tests" / "fixtures" / "story_map_v2_phase03_continuation_contract.json"
 )
 API_CONTRACT_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2_phase03_api_contract.json"
+LONG_UNBROKEN_INSTRUCTION = "route_instruction_" + ("northbound" * 80)
+LONG_SPACED_INSTRUCTION = (
+    "Follow the marked corridor while keeping the selected story moment in view. " * 12
+).strip()
+LONG_UNBROKEN_WARNING = "dynamic_warning_" + ("unresolved" * 80)
+LONG_SPACED_WARNING = (
+    "Static analysis cannot prove this optional detour, but the known path remains readable. " * 11
+).strip()
 
 
 def _text(name: str) -> str:
@@ -157,6 +165,7 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
         assert marker in html
     assert "story-section" in css and "story-event" in css and "story-arm" in css
     assert "grid-template-columns: minmax(0, 1fr)" in css
+    assert ".story-path-panel :where" in css and "overflow-wrap: anywhere" in css
     assert "@media (max-width: 780px)" in css
     assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
     story_surface = html[html.index('id="storyBrowser"') : html.index('<div class="commandbar">')]
@@ -665,10 +674,20 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                             }
                         ],
                         "effects": ["Patience +1"],
-                        "uncertainty": [],
+                        "uncertainty": [LONG_UNBROKEN_WARNING, LONG_SPACED_WARNING],
                         "instructions": [
                             {"ordinal": 1, "kind": "scene", "text": "Leave the village."},
                             {"ordinal": 2, "kind": "choice", "text": "Take the tunnel."},
+                            {
+                                "ordinal": 3,
+                                "kind": "route_note",
+                                "text": LONG_UNBROKEN_INSTRUCTION,
+                            },
+                            {
+                                "ordinal": 4,
+                                "kind": "route_note",
+                                "text": LONG_SPACED_INSTRUCTION,
+                            },
                         ],
                     },
                 }
@@ -760,6 +779,55 @@ def _browser_measurement(session: Any) -> dict[str, object]:
             warningDetails: document.querySelectorAll('details.story-warnings').length,
             warningsOpen: document.querySelectorAll('details.story-warnings[open]').length,
             warningText: [...document.querySelectorAll('details.story-warnings')].map(node => node.textContent),
+          };
+        })()"""
+    )
+
+
+def _story_path_measurement(session: Any) -> dict[str, object]:
+    return session.evaluate(
+        """(() => {
+          const root = document.documentElement;
+          const browser = document.querySelector('#storyBrowser');
+          const panel = document.querySelector('#storyPathPanel');
+          const panelRect = panel.getBoundingClientRect();
+          const candidates = [panel, ...panel.querySelectorAll('*')].filter(node => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+          const overflowers = candidates.filter(node => node.scrollWidth > node.clientWidth + 1).map(node => node.id || node.className || node.tagName);
+          const clipped = candidates.filter(node => {
+            const style = getComputedStyle(node);
+            const hidesX = style.overflowX === 'hidden' || style.overflowX === 'clip';
+            const hidesY = style.overflowY === 'hidden' || style.overflowY === 'clip';
+            return (hidesX && node.scrollWidth > node.clientWidth + 1) || (hidesY && node.scrollHeight > node.clientHeight + 1);
+          }).map(node => node.id || node.className || node.tagName);
+          const important = [...panel.querySelectorAll('.story-path-step span, #storyPathWarnings p')];
+          const boxes = important.map(node => {
+            const rect = node.getBoundingClientRect();
+            return { width: rect.width, height: rect.height, left: rect.left, right: rect.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight };
+          });
+          const steps = [...panel.querySelectorAll('.story-path-step')].map(node => node.getBoundingClientRect());
+          const warnings = [...panel.querySelectorAll('#storyPathWarnings p')].map(node => node.getBoundingClientRect());
+          const beforeScroll = panel.scrollTop;
+          panel.scrollTop = panel.scrollHeight;
+          const afterScroll = panel.scrollTop;
+          const detailRect = document.querySelector('#storyDetailAction').getBoundingClientRect();
+          panel.scrollTop = beforeScroll;
+          const beforeBrowserScroll = browser.scrollTop;
+          browser.scrollTop = browser.scrollHeight;
+          const afterBrowserScroll = browser.scrollTop;
+          browser.scrollTop = beforeBrowserScroll;
+          return {
+            panel: { clientWidth: panel.clientWidth, scrollWidth: panel.scrollWidth, clientHeight: panel.clientHeight, scrollHeight: panel.scrollHeight, left: panelRect.left, right: panelRect.right },
+            page: { clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, browserClientWidth: browser.clientWidth, browserScrollWidth: browser.scrollWidth },
+            overflowers, clipped, boxes,
+            stepsOrdered: steps.every((rect, index) => index === 0 || rect.top >= steps[index - 1].bottom - 1),
+            warningsOrdered: warnings.every((rect, index) => index === 0 || rect.top >= warnings[index - 1].bottom - 1),
+            verticalScroll: { before: beforeScroll, after: afterScroll, browserBefore: beforeBrowserScroll, browserAfter: afterBrowserScroll, detailTop: detailRect.top, panelTop: panelRect.top, panelBottom: panelRect.bottom },
+            instructionText: document.querySelector('#storyPathSteps').textContent,
+            warningText: document.querySelector('#storyPathWarnings').textContent,
+            uncertaintyHidden: document.querySelector('#storyPathUncertaintyGroup').hidden,
           };
         })()"""
     )
@@ -864,7 +932,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 "document.querySelector('.story-choice.nested .story-arm-select').click()"
             )
             session.wait(
-                "!document.querySelector('#storyPathPanel').hidden && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2 && document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-selected') === 'true'"
+                "!document.querySelector('#storyPathPanel').hidden && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4 && document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-selected') === 'true'"
             )
             witness = session.evaluate(
                 "({scenes:document.querySelector('#storyPathScenes').textContent, choices:document.querySelector('#storyPathChoices').textContent, requirements:document.querySelector('#storyPathRequirements').textContent, effects:document.querySelector('#storyPathEffects').textContent, steps:document.querySelector('#storyPathSteps').textContent})"
@@ -875,6 +943,30 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             assert "Patience +1" in witness["effects"]
             assert "lantern == true" not in witness["steps"]
             assert "Patience +1" not in witness["steps"]
+            path_layout = _story_path_measurement(session)
+            panel = path_layout["panel"]
+            assert panel["scrollWidth"] <= panel["clientWidth"] + 1
+            page_layout = path_layout["page"]
+            assert page_layout["scrollWidth"] <= page_layout["clientWidth"]
+            assert page_layout["browserScrollWidth"] <= page_layout["browserClientWidth"] + 1
+            assert path_layout["overflowers"] == []
+            assert path_layout["clipped"] == []
+            assert path_layout["stepsOrdered"] is True
+            assert path_layout["warningsOrdered"] is True
+            assert path_layout["uncertaintyHidden"] is False
+            assert LONG_UNBROKEN_INSTRUCTION in path_layout["instructionText"]
+            assert LONG_SPACED_INSTRUCTION in path_layout["instructionText"]
+            assert LONG_UNBROKEN_WARNING in path_layout["warningText"]
+            assert LONG_SPACED_WARNING in path_layout["warningText"]
+            assert path_layout["boxes"]
+            for box in path_layout["boxes"]:
+                assert box["width"] > 0 and box["height"] > 0
+                assert box["left"] >= panel["left"] - 1
+                assert box["right"] <= panel["right"] + 1
+                assert box["scrollWidth"] <= box["clientWidth"] + 1
+                assert box["scrollHeight"] <= box["clientHeight"] + 1
+            vertical_scroll = path_layout["verticalScroll"]
+            assert max(vertical_scroll["after"], vertical_scroll["browserAfter"]) > 0
             session.evaluate("document.querySelector('#closeStoryPath').click()")
             session.wait(
                 "document.querySelector('#storyPathPanel').hidden && document.activeElement?.dataset?.storySelectionId === 'arm-nested-a'"
@@ -889,7 +981,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 "document.querySelector('.story-choice.nested .story-arm-select').click()"
             )
             session.wait(
-                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2"
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4"
             )
             before = session.evaluate(
                 "({scrollTop:document.querySelector('#storyBrowser').scrollTop, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top})"
@@ -991,7 +1083,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 "document.querySelector('[data-story-selection-id=\"arm-bridge\"][aria-selected]').click()"
             )
             session.wait(
-                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 2"
+                "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4"
             )
             _, _, allowed_errors = driver._browser_diagnostics(
                 session, allowed_error_suffixes=("/api/v1/story-map-v2/path",)

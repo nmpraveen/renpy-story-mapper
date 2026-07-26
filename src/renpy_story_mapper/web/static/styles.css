@@ -160,7 +160,8 @@ button:disabled { cursor: default; opacity: .45; }
 .story-analysis-notes { margin-top: 1.5rem; border-top: 1px solid var(--rule); padding-top: .75rem; color: var(--muted); font-size: 13px; }
 .story-analysis-notes summary { cursor: pointer; color: var(--ink); }
 .story-analysis-notes p { margin: .5rem 0; }
-.story-path-panel { position: sticky; top: 1rem; align-self: start; max-height: calc(100vh - var(--masthead) - 2rem); overflow: auto; border-top: 3px solid var(--accent); background: var(--sheet); padding: 1rem; box-shadow: 6px 6px 0 var(--paper-deep); }
+.story-path-panel { position: sticky; top: 1rem; min-width: 0; align-self: start; max-height: calc(100vh - var(--masthead) - 2rem); overflow: auto; border-top: 3px solid var(--accent); background: var(--sheet); padding: 1rem; box-shadow: 6px 6px 0 var(--paper-deep); }
+.story-path-panel :where(h2, h3, p, li, strong, span) { min-width: 0; overflow-wrap: anywhere; }
 .story-path-heading { display: grid; gap: .65rem; }
 .story-path-heading h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; }
 .story-path-heading .quiet-button { justify-self: start; padding-inline: 0; }
