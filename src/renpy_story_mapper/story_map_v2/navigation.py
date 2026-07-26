@@ -745,47 +745,57 @@ class StoryMapNavigator[Prepared]:
             return "m11_scene", owners[0]
         return "m11_scene", binding.target_id
 
+    @staticmethod
+    def _unresolved_path(
+        selection_id: str,
+        binding: NavigationBinding,
+        selection: NavigationSelection,
+        explanation: str,
+    ) -> dict[str, object]:
+        witness, _unused = compact_witness(
+            {"complete": False, "recommended": {}},
+            selection_effects=selection.effects,
+        )
+        return {
+            "schema": PATH_SCHEMA,
+            "semantic_level": "route_map",
+            "status": "unresolved",
+            "selection_id": selection_id,
+            "binding": binding,
+            "cached": False,
+            "route_status": None,
+            "complete": False,
+            "explanation": explanation,
+            "witness": witness,
+        }
+
     def path(self, selection_id: str) -> dict[str, object]:
         binding = self.binding(selection_id)
         selection = self._selections[selection_id]
         if binding.destination_kind == "unresolved":
-            witness, _unused = compact_witness(
-                {"complete": False, "recommended": {}},
-                selection_effects=selection.effects,
+            return self._unresolved_path(
+                selection_id,
+                binding,
+                selection,
+                self._unresolved_reasons[selection_id],
             )
-            return {
-                "schema": PATH_SCHEMA,
-                "semantic_level": "route_map",
-                "status": "unresolved",
-                "selection_id": selection_id,
-                "binding": binding,
-                "cached": False,
-                "route_status": None,
-                "complete": False,
-                "explanation": self._unresolved_reasons[selection_id],
-                "witness": witness,
-            }
-        prepared = self._service.prepare(binding.destination_kind, binding.target_id)
-        outcome = self._service.solve(prepared)
+        try:
+            prepared = self._service.prepare(binding.destination_kind, binding.target_id)
+            outcome = self._service.solve(prepared)
+        except ValueError:
+            return self._unresolved_path(
+                selection_id,
+                binding,
+                selection,
+                "The deterministic target has no verified route entry or witness.",
+            )
         if outcome.result is None:
-            witness, _unused = compact_witness(
-                {"complete": False, "recommended": {}},
-                selection_effects=selection.effects,
+            return self._unresolved_path(
+                selection_id,
+                binding,
+                selection,
+                "The deterministic route attempt ended without a publishable result.",
             )
-            return {
-                "schema": PATH_SCHEMA,
-                "semantic_level": "route_map",
-                "status": "unresolved",
-                "selection_id": selection_id,
-                "binding": binding,
-                "cached": False,
-                "route_status": None,
-                "complete": False,
-                "explanation": (
-                    "The deterministic route attempt ended without a publishable result."
-                ),
-                "witness": witness,
-            }
         result = outcome.result
         witness, explanation = compact_witness(result, selection_effects=selection.effects)
         return {

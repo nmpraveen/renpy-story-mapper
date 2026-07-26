@@ -526,6 +526,134 @@ def _assert_envelope_shape(
         assert set(witness) == set(contract["path"]["witness_keys"])
 
 
+def _assert_route_service_value_error_envelope(
+    payload: dict[str, object],
+    selection_id: str,
+) -> None:
+    _assert_envelope_shape(payload, "path", "unresolved")
+    assert payload["selection_id"] == selection_id
+    assert payload["cached"] is False
+    assert payload["route_status"] is None
+    assert payload["complete"] is False
+    binding = payload["binding"]
+    if isinstance(binding, dict):
+        destination_kind = binding["destination_kind"]
+        target_id = binding["target_id"]
+    else:
+        destination_kind = binding.destination_kind  # type: ignore[attr-defined]
+        target_id = binding.target_id  # type: ignore[attr-defined]
+    assert destination_kind in M12_KINDS
+    assert target_id
+    assert "synthetic route service detail" not in payload["explanation"]  # type: ignore[operator]
+    witness = payload["witness"]
+    assert isinstance(witness, dict)
+    assert witness["effects"]
+
+
+@pytest.mark.parametrize("failure_stage", ("prepare", "solve"))
+def test_recognized_path_route_service_value_error_is_unresolved_at_navigator(
+    tmp_path: Path,
+    failure_stage: str,
+) -> None:
+    from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
+
+    class FailingRouteService:
+        def __init__(self) -> None:
+            self.prepare_calls = 0
+            self.solve_calls = 0
+
+        def prepare(self, _destination_kind: str, _target_id: str) -> object:
+            self.prepare_calls += 1
+            if failure_stage == "prepare":
+                raise ValueError("synthetic route service detail")
+            return object()
+
+        def solve(self, _prepared: object) -> object:
+            self.solve_calls += 1
+            raise ValueError("synthetic route service detail")
+
+    _source, project_path, core = _project(tmp_path)
+    service = FailingRouteService()
+    with Project.open(project_path) as project:
+        navigator = StoryMapNavigator(
+            load_m12_authority(project),
+            service,
+            core,
+            project_story_map(core, None),
+        )
+        result = navigator.path("arm-24-2")
+
+    _assert_route_service_value_error_envelope(result, "arm-24-2")
+    assert service.prepare_calls == 1
+    assert service.solve_calls == (failure_stage == "solve")
+
+
+@pytest.mark.parametrize("failure_stage", ("prepare", "solve"))
+def test_recognized_path_route_service_value_error_is_unresolved_in_dispatch_and_http(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    def fail_prepare(
+        _service: M12RouteService,
+        _destination_kind: str,
+        _target_id: str,
+    ) -> object:
+        raise ValueError("synthetic route service detail")
+
+    def fail_solve(_service: M12RouteService, _prepared: object) -> object:
+        raise ValueError("synthetic route service detail")
+
+    if failure_stage == "prepare":
+        monkeypatch.setattr(M12RouteService, "prepare", fail_prepare)
+    else:
+        monkeypatch.setattr(M12RouteService, "solve", fail_solve)
+
+    source, project_path, _core_value = _project(tmp_path)
+    def forbidden_provider() -> object:
+        raise AssertionError("path navigation must not construct a provider")
+
+    api = ProjectApi(
+        _Dialogs(),
+        state_store=UserStateStore(tmp_path / "state.json"),
+        m07_provider_factory=forbidden_provider,  # type: ignore[arg-type]
+        m13_provider_factory=forbidden_provider,  # type: ignore[arg-type]
+    )
+    api._retain_project_path(project_path, source)
+    selection_id = "arm-24-2"
+    static_root = tmp_path / "static"
+    static_root.mkdir()
+    server = LocalWebServer(
+        "127.0.0.1",
+        0,
+        api,
+        static_root=static_root,
+        security=SessionSecurity("session-secret", "csrf-secret"),
+    )
+    thread = start_in_thread(server)
+    try:
+        direct = api.dispatch(
+            "POST",
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": selection_id},
+        )
+        status, serialized = _post_json(
+            server,
+            STORY_MAP_V2_API_ROUTES["path"],
+            {"selection_id": selection_id},
+        )
+    finally:
+        server.close_service()
+        thread.join(timeout=5)
+        api.close()
+
+    assert not thread.is_alive()
+    assert status == 200
+    assert serialized == direct
+    _assert_route_service_value_error_envelope(direct, selection_id)
+    _assert_route_service_value_error_envelope(serialized, selection_id)
+
+
 def test_shared_api_contract_fixture_has_exact_six_states() -> None:
     contract = json.loads(ENVELOPE_FIXTURE.read_text(encoding="utf-8"))
     assert set(contract) == {"path", "detail"}
