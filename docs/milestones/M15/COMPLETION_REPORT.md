@@ -17,6 +17,16 @@ semantic review passed before product edits. Visible Track A task
 `019f9c58-e638-71a0-b6a2-cb88b72f3d24` is implementing the shared synthesis/storage/projection/API
 seams from exact checkpoint `4f6e3a6` in `C:/Users/prave/.codex/worktrees/e7ca/Renpy`.
 
+Track A produced initial clean head `420dbb7`, with 15 focused tests, 186 V2/storage tests, 71
+web/M10-M12 regressions, Ruff, strict mypy, schema parsing, and whitespace green. Independent
+visible reviewer `019f9c67-af1c-7812-a471-1f6a98572f1c` nevertheless returned `FAIL / CHANGES
+REQUIRED` at that exact head: P0=0, P1=2, P2=0, P3=1. Sterile adversarial probes proved that a
+stale optional synthesis removes the valid deterministic fallback and that forged successful
+provider provenance can be saved/reopened/rendered. The reviewer also found a tautological reopen
+test. A bounded correction is active; coordinator inspection additionally requires removing the
+known provider-incompatible `uniqueItems` schema keyword and adding the real sterile Terra CLI
+adapter needed for the authorized one-call acceptance.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
@@ -56,12 +66,16 @@ seams from exact checkpoint `4f6e3a6` in `C:/Users/prave/.codex/worktrees/e7ca/R
 | Protected fingerprint/size/mtime recomputation | Pass | All three records match |
 | Early semantic review | Pass | `docs/milestones/M15/SEMANTIC_REVIEW.md` |
 | Native goal creation | Pass | Active goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matches the done condition |
+| Track A initial worker checks | Pass at rejected head | `420dbb7`: 15 focused, 186 V2/storage, 71 web/M10-M12, Ruff, strict mypy, schema parse, whitespace |
+| Track A independent review | Fail | Task `019f9c67-af1c-7812-a471-1f6a98572f1c`: P0=0/P1=2/P2=0/P3=1 at exact head `420dbb7` |
 
 ## Review findings
 
 - No unresolved semantic-gate finding.
 - Product, integration, private acceptance, responsive browser, and final exact-head review have
   not yet occurred.
+- Track A initial head `420dbb7` is not integration-ready; its two reviewer P1s and coordinator
+  provider-schema/transport gaps require correction and exact-head rereview.
 
 ## Integration and PR state
 
