@@ -166,9 +166,12 @@ open PR, and exact pushed-head checks pending)
   `output/m15-story-map-v2-phase-03-20260726-011613/pre-refinement-8e6de6f/`.
 - User screenshot approval: complete. The user reviewed the replacement 100%/200% overview and
   deep-path captures and replied “looks better proceed.”
-- Current action: refresh the local dev/build dependency used by the exact release validator, rerun
-  `scripts/validate.ps1 -Tier Release -NoTimeout` on final bytes, then push/open the single unmerged
-  Phase 03 PR and require the exact pushed-head GitHub check.
+- Final local release validation: pass on approval head `f56f238`; 1,420 deterministic tests passed
+  with 16 hardware-sensitive tests deselected, Ruff and strict mypy over 109 source files passed,
+  dependencies and four JavaScript files passed, and isolated sdist/wheel build, wheel install,
+  isolated import, packaged assets, and whitespace checks passed.
+- Current action: push/open the single unmerged Phase 03 PR and require the exact pushed-head
+  GitHub check before marking PR ready.
 
 ## M13 historical lifecycle
 
