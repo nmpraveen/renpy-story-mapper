@@ -47,7 +47,7 @@ non-overlapping. Neither has provider or private-artifact authority.
 Track C then froze clean exact head `13876361039ab120c7ef4d6765ae74c9f572647d` after its final
 post-edit gate passed 75 tests, Ruff, strict mypy, both serialized contract fixtures/hash checks,
 and diff hygiene. Independent visible reviewer `019f9ca6-cb8b-7503-afc0-9e4c51cd0946` in
-`C:/Users/prave/.codex/worktrees/6915/Renpy` is reviewing that exact head; no Track C commit is
+`C:/Users/prave/.codex/worktrees/6915/Renpy` reviewed that exact head; no Track C commit was
 integrated yet. Track B remains in progress.
 
 Track C independent review at exact head `1387636` returned `FAIL / CHANGES REQUIRED`, updated to
@@ -55,13 +55,20 @@ P0=0, P1=1, P2=3, P3=0 after reproducing a backward continuation through control
 topology. Focused tests passed 16; the adjacent matrix passed 172 and failed the
 unchanged transitive import-isolation test once. The remaining P2s are missing selection-ID echo in
 forged-selection HTTP 404 JSON and a non-authoritative six-state fixture filename. A bounded new
-worker commit and same-reviewer rereview are in progress; the rejected head remains unintegrated.
+a bounded correction and same-reviewer rereview followed; the rejected head remained unintegrated.
 
 The consolidated Track C correction is clean at exact head
 `fb0f2ecd207848248e674f9c76af7a3d505019fb`. Its final provider-free worker gate passed 22 focused,
 7 targeted HTTP/import/topology tests, 192 adjacent tests, Ruff, strict mypy, both JSON/blob checks,
-and diff/privacy hygiene. The same reviewer is rereviewing the exact corrected head; it remains
+and diff/privacy hygiene. The same reviewer rereviewed the exact corrected head; it remains
 unintegrated.
+
+The rereview returned `PASS` at exact Track C head `fb0f2ec`, P0=P1=P2=P3=0. Independent results
+were 22 focused, 7 finding-specific, 192 bounded, three supplemental architecture, and 16 loopback
+tests plus Ruff, strict mypy, fixtures, and diff hygiene. Track C is integration-ready but is held
+until Track B passes. A partial first-commit cherry-pick (`c046d8c`) was immediately reverted by
+`f325d07` when that sequencing checkpoint arrived; there is no net Track C product change in the
+integration tree.
 
 Track B then froze clean exact head `2069eab3a1f0a018724106f94634e1292072e358` after the final
 bytes passed its focused/static/schema/lint gate, real Chrome at desktop 100%, effective 200%, and

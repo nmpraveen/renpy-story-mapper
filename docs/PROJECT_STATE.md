@@ -17,7 +17,8 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
   `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; Track A
-  is reviewed and integrated while Tracks B/C are in progress.
+  is reviewed and integrated, Track C is reviewed/integration-ready, and Track B correction is in
+  progress.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -67,12 +68,17 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   end-to-end continuation/path/detail topology fixtures; the same reviewer will rereview the new
   exact head. Corrected clean head `fb0f2ecd207848248e674f9c76af7a3d505019fb` passes the worker's
   final provider-free gate of 22 focused, 7 targeted, 192 adjacent, Ruff, strict mypy, JSON/blob/
-  diff/privacy checks; the same reviewer is rereviewing it now.
+  diff/privacy checks. The same reviewer returned exact-head `PASS` with P0=P1=P2=P3=0 after
+  independently passing 22 focused, 7 finding-specific, 192 bounded, three architecture, and 16
+  loopback tests plus static gates. Track C is integration-ready but remains unintegrated pending
+  Track B PASS. A partial cherry-pick `c046d8c` was immediately reverted by `f325d07` when this
+  sequencing checkpoint arrived; the integration product tree has no net Track C change.
 - Additive cross-track freezes are recorded at `4bfcf5e`, `ec8a194`, and `a9ca7e2`: server-owned
   continuation bindings, tree-wide deduplication, and exact path/detail envelopes. These do not
   broaden product scope.
-- Next action: finish Track B and both independent exact-head reviews, then integrate only reviewed
-  commits. No provider/private action occurs before all integrated provider-free gates pass.
+- Next action: finish Track B and its independent exact-head rereview, then integrate only the
+  reviewed B/C chains together. No provider/private action occurs before all integrated
+  provider-free gates pass.
 
 ## M13 historical lifecycle
 
