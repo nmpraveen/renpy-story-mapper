@@ -103,6 +103,17 @@ native goal remains active, and the lifecycle is `In progress`)
   separate command-routing gap without changing reader v1; the exact requested envelope was sent
   to the Phase Coordinator and Track B coordinator for an ownership-correct frozen seam. Track D
   keeps those controls unavailable until bootstrap advertises that separate contract.
+- A later cross-track audit found that Track B's frozen mapping/review/fallback ceilings did not
+  yet disclose C1's separately finite section and whole-game synthesis work. Preliminary
+  coordinator seam `9657c6e` assumed exact derived child/request identities could be frozen at
+  Prepare; C1's dependency analysis rejected that assumption before product hard-coding. The
+  preserved preliminary document now points to effective
+  `story-map-v2-derived-semantic-workflow-v2` at
+  `db50539a8616bb29b6735b95a60ff401ce0f10d2`. V2 freezes `section_synthesis` and
+  `rollup_synthesis`, a fan-in-24 upper-bound plan and component ceiling formula at Prepare, then
+  immutable exact-input jobs only after dependencies publish. Track B paused its v1 work and is
+  freezing its separate HTTP/domain contract against this corrected seam; C2 owns only later web
+  composition in its already assigned web files. Reader contract v2 remains unchanged.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was
