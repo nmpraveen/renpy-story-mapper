@@ -191,7 +191,10 @@ def test_local_and_nested_choices_segment_at_exact_scene_boundaries() -> None:
         for segment in chunk.choice_segments
         if segment.choice_key == "choice:nested"
     ]
-    assert [(item.segment_ordinal, item.segment_count) for item in root_segments] == [(1, 2), (2, 2)]
+    assert [(item.segment_ordinal, item.segment_count) for item in root_segments] == [
+        (1, 2),
+        (2, 2),
+    ]
     assert [item.arm_orders for item in root_segments] == [(1,), (1, 2)]
     assert [(item.segment_ordinal, item.segment_count) for item in nested_segments] == [
         (1, 2),
@@ -201,6 +204,57 @@ def test_local_and_nested_choices_segment_at_exact_scene_boundaries() -> None:
     assert [placement for chunk in plan.chunks for placement in chunk.placement_ids] == [
         item.placement_id for item in placements
     ]
+
+
+def test_oversized_persistent_choice_segments_by_exact_arm_scene_boundaries() -> None:
+    case = _fixture_cases()["persistent_choice"]
+    scope_id = cast(str, case["scope_id"])
+    tokens = cast(list[int], case["raw_tokens"])
+    placements = tuple(
+        _placement(
+            scope_id,
+            index,
+            raw_tokens,
+            arms=(
+                ChoiceArmBoundary(
+                    "choice:persistent",
+                    1 if index <= 3 else 2,
+                    "persistent",
+                    0,
+                ),
+            ),
+        )
+        for index, raw_tokens in enumerate(tokens, start=1)
+    )
+    projection = _projection(
+        (_scope(case, 1, placements=placements),),
+        choices=(_choice("choice:persistent"),),
+    )
+
+    plan = plan_story_chunks(projection)
+
+    assert [chunk.raw_tokens for chunk in plan.chunks] == [5000, 5000, 5000]
+    assert [
+        segment.arm_orders
+        for chunk in plan.chunks
+        for segment in chunk.choice_segments
+    ] == [(1,), (1, 2), (2,)]
+    assert [
+        segment.segment_ordinal
+        for chunk in plan.chunks
+        for segment in chunk.choice_segments
+    ] == [1, 2, 3]
+    assert all(
+        segment.boundary_kinds == ("persistent",)
+        for chunk in plan.chunks
+        for segment in chunk.choice_segments
+    )
+    assert len(plan.choice_parents) == 1
+    assert all(
+        chunk.complete_request_tokens is not None
+        and chunk.complete_request_tokens <= 10_700
+        for chunk in plan.chunks
+    )
 
 
 def test_complete_serialized_requests_stay_under_hard_ceiling_without_omission() -> None:
@@ -231,7 +285,11 @@ def test_complete_serialized_requests_stay_under_hard_ceiling_without_omission()
         placements=(changed, *projection.scopes[0].placements[1:]),
     )
     with pytest.raises(FrozenPlanMismatch, match="rendered input"):
-        serialize_chunk_request(plan, plan.chunks[0].chunk_id, replace(projection, scopes=(mutated_scope,)))
+        serialize_chunk_request(
+            plan,
+            plan.chunks[0].chunk_id,
+            replace(projection, scopes=(mutated_scope,)),
+        )
 
 
 def test_atomic_request_over_ceiling_is_provider_free_structural_fallback() -> None:
@@ -275,15 +333,16 @@ def test_structural_fallback_preserves_loops_endings_and_unresolved_arms() -> No
 
     assert len(assembled.slots) == len(plan.chunks)
     assert all(slot.prose is None and slot.fallback is not None for slot in assembled.slots)
+    fallbacks = tuple(slot.fallback for slot in assembled.slots)
+    assert all(fallback is not None for fallback in fallbacks)
+    retained_fallbacks = tuple(fallback for fallback in fallbacks if fallback is not None)
     assert {
-        flag
-        for slot in assembled.slots
-        for flag in cast(object, slot.fallback).structural_flags
+        flag for fallback in retained_fallbacks for flag in fallback.structural_flags
     } == {"loop", "ending", "unresolved_arm"}
     assert [
         placement_id
-        for slot in assembled.slots
-        for placement_id in cast(object, slot.fallback).placement_ids
+        for fallback in retained_fallbacks
+        for placement_id in fallback.placement_ids
     ] == list(plan.covered_placement_ids)
 
 
@@ -322,6 +381,14 @@ def test_round_trip_and_assembly_consume_exact_plan_without_replanning() -> None
     assert assembled.slots[0].prose == result
     assert all(slot.fallback is not None for slot in assembled.slots[1:])
 
+    tampered = json.loads(frozen_bytes)
+    tampered["unexpected"] = "not part of the frozen contract"
+    tampered_bytes = json.dumps(
+        tampered, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    with pytest.raises(ValueError, match="unexpected fields"):
+        deserialize_story_chunk_plan(tampered_bytes)
+
 
 def test_plan_and_assembly_reject_duplicate_or_foreign_chunk_results() -> None:
     plan = plan_story_chunks(
@@ -358,6 +425,7 @@ def test_fixture_is_public_synthetic_and_contains_all_required_shapes() -> None:
     assert set(_fixture_cases()) == {
         "long_persistent_lane",
         "local_nested_choices",
+        "persistent_choice",
         "oversized_material",
         "structural_edges",
         "atomic_oversized",
