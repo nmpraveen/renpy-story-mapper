@@ -2,8 +2,8 @@
 
 Updated: 2026-07-26 (M15.1 Phase 04 Tracks A and B passed exact-head review and PR CI and are
 integrated at `24e6ea8`; their product seam is frozen, repository-wide CI acceleration and
-Tracks C/D are running in parallel against reader-contract checkpoint `cea5cf0`, the native goal
-remains active, and the lifecycle is `In progress`)
+Tracks C/D are running in parallel against effective reader-contract-v2 checkpoint `44a41cc`, the
+native goal remains active, and the lifecycle is `In progress`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -79,11 +79,16 @@ remains active, and the lifecycle is `In progress`)
   `C:/Users/prave/.codex/worktrees/b98c/Renpy`, branch `codex/m15-p4-track-c`, dispatched from
   exact integration head `e73abf35c76283fe69aa7172ef999464995f2fe7` with explicit
   `gpt-5.6-sol` High; fast-mode selection is unavailable/unverified. The smallest C/D read seam is
-  frozen at `cea5cf03145a2395be6571f9f8a91c7a6020c504` as
-  `story-map-v2-reader-contract-v1`, with its schema, public synthetic fixture, revision/cursor
-  rules, bounded page shells, locate/search/path/detail/view-state envelopes, and typed stale 409
-  recorded in `TRACK_C_READER_CONTRACT.md`. Track D consumed it before production assumptions and
-  reported no reader-schema delta.
+  frozen first at `cea5cf03145a2395be6571f9f8a91c7a6020c504` as the preserved
+  `story-map-v2-reader-contract-v1` base, with its schema, public synthetic fixture,
+  revision/cursor rules, bounded page shells, locate/search/path/detail/view-state envelopes, and
+  typed stale 409 recorded in `TRACK_C_READER_CONTRACT.md`. Before product UI edits, D1 proved that
+  v1's opaque locate result could not identify the required unloaded branch-page resource. The
+  additive effective `story-map-v2-reader-contract-v2` correction at
+  `44a41cca1fcb02264a0981dbd39aa7691bf9cbf7` preserves v1 and requires
+  `location.branch_id`, with its cursor bound to that exact branch resource or null for
+  section-only targets. C2, D1, D2, both coordinators, both reviewers, and the Phase Coordinator
+  received the exact v2 paths/checkpoint before production assumptions.
 - Phase 04 Track C workers: C1 semantic assembly/publication is visible task
   `019fa0c3-689c-7151-82bc-410d7959c992` in
   `C:/Users/prave/.codex/worktrees/bf83/Renpy`; C2 scalable reader/API is visible task
