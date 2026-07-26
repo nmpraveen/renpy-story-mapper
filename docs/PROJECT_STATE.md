@@ -151,12 +151,12 @@ renewed exact native goal)
   accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
   Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
   authorized.
-- Current action: existing Track B task `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` is implementing the
-  bounded browser refinement from exact lifecycle checkpoint `986b027`, with explicit
-  `gpt-5.6-sol`/High settings and fast mode unavailable/unverified. Next require fresh final-byte
-  gates, same-reviewer exact-head PASS, byte-equivalent integration, provider-free/private browser
-  acceptance, new screenshot approval, then the single open unmerged PR and exact pushed-head
-  GitHub checks.
+- Current action: existing Track B worker completed the bounded browser refinement at clean exact
+  head `d858c999e762336baf43fb86bbc9ca8e8a6acfdd` from lifecycle checkpoint `986b027`, with fresh
+  three-profile Chrome, 269-test Story Map V2, 132-test adjacent, static/integrity/privacy gates
+  green. Same independent reviewer task `019f9ca9-ab9e-77c0-a2f1-0426f9472084` is reviewing that
+  exact detached head with explicit `gpt-5.6-sol`/High settings; fast mode remains
+  unavailable/unverified. No integration before PASS with P0=P1=P2=0.
 
 ## M13 historical lifecycle
 

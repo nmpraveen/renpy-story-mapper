@@ -221,6 +221,14 @@ retained under Analysis notes, and a compact responsive masthead. The user remov
 goal and explicitly authorized an updated self-goal and continued implementation. No provider
 retry, server/API/navigation change, private-artifact exposure, or new story semantics is included.
 
+The bounded Track B correction is committed at exact head
+`d858c999e762336baf43fb86bbc9ca8e8a6acfdd` from amended lifecycle checkpoint `986b027`. The worker
+reported fresh final-byte results of 13 focused tests with desktop 100%, effective 200%, and 390px
+Chrome profiles; 269 Story Map V2 passes with six separately exercised opt-in browser skips; 132
+adjacent passes with one excluded hardware smoke; and green JS, Ruff, strict mypy, manifest,
+mojibake, privacy, containment, and diff gates. Same-role independent exact-head review is in
+progress; these worker results are not yet integration authority.
+
 Candidate screenshot artifacts (outside Git; approval pending):
 
 - `output/m15-story-map-v2-phase-03-20260726-011613/story-map-v2-overview-100.png`, SHA-256
