@@ -30,13 +30,16 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   fast-mode selection is unavailable/unverified. It started from exact contract checkpoint
   `4f6e3a6` and produced rejected review head `420dbb7`.
 - Track A reviewer: visible task `019f9c67-af1c-7812-a471-1f6a98572f1c`, worktree
-  `C:/Users/prave/.codex/worktrees/8255/Renpy`, returned `FAIL / CHANGES REQUIRED` at exact head
-  `420dbb7` with P0=0, P1=2, P2=0, P3=1. The two P1s are synthesis-only staleness incorrectly
-  removing a valid deterministic fallback and insufficient fail-closed durable synthesis
-  provenance validation.
-- Next action: complete the bounded Track A correction, including the reviewer findings and the
-  coordinator's provider-schema/production-transport acceptance gaps, then obtain an exact-head
-  rereview `PASS` before integration and Track B/C dispatch.
+  `C:/Users/prave/.codex/worktrees/8255/Renpy`, initially returned `FAIL` at `420dbb7` with two
+  P1s and one P3, then found one schema-file binding P2 at corrected head `62a0234`. The same
+  reviewer returned final `PASS` at exact head `2319092` with P0=P1=P2=P3=0.
+- Track A integration: reviewed worker commits `420dbb7`, `62a0234`, and `2319092` were
+  cherry-picked byte-equivalently as `e4b497f`, `1dcc63e`, and `50bdc08`. Coordinator CPython
+  3.12 focused verification passed 50 tests; the integration branch is clean apart from preserved
+  untracked user/private paths.
+- Next action: dispatch separate visible Track B and Track C worktrees concurrently from exact
+  integrated shared-seam checkpoint `50bdc08`, then require an independent exact-head reviewer for
+  each before integration.
 
 ## M13 historical lifecycle
 

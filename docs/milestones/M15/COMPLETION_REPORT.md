@@ -23,9 +23,18 @@ visible reviewer `019f9c67-af1c-7812-a471-1f6a98572f1c` nevertheless returned `F
 REQUIRED` at that exact head: P0=0, P1=2, P2=0, P3=1. Sterile adversarial probes proved that a
 stale optional synthesis removes the valid deterministic fallback and that forged successful
 provider provenance can be saved/reopened/rendered. The reviewer also found a tautological reopen
-test. A bounded correction is active; coordinator inspection additionally requires removing the
-known provider-incompatible `uniqueItems` schema keyword and adding the real sterile Terra CLI
-adapter needed for the authorized one-call acceptance.
+ test. Coordinator inspection additionally required removing the known provider-incompatible
+ `uniqueItems` schema keyword and adding the real sterile Terra CLI adapter needed for the
+ authorized one-call acceptance.
+
+The bounded correction produced `62a0234`: both P1s and the P3 closed, durable provenance became
+exact, incompatible schema keywords were removed, and a hardened sterile production Terra adapter
+was added under the repository's validated CLI 0.144 identity policy. Rereview found one P2: a
+configurable schema path could differ from the preview-validated schema. Final worker head
+`2319092` removes that override and passes the exact canonical approved schema bytes through the
+one-use isolated process directory. The same reviewer returned final `PASS` with P0=P1=P2=P3=0.
+The coordinator integrated the three reviewed commits byte-equivalently as `e4b497f`, `1dcc63e`,
+and `50bdc08`; integrated CPython 3.12 focused verification passes 50 tests.
 
 ## Preflight evidence
 
@@ -68,14 +77,16 @@ adapter needed for the authorized one-call acceptance.
 | Native goal creation | Pass | Active goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` exactly matches the done condition |
 | Track A initial worker checks | Pass at rejected head | `420dbb7`: 15 focused, 186 V2/storage, 71 web/M10-M12, Ruff, strict mypy, schema parse, whitespace |
 | Track A independent review | Fail | Task `019f9c67-af1c-7812-a471-1f6a98572f1c`: P0=0/P1=2/P2=0/P3=1 at exact head `420dbb7` |
+| Track A final independent rereview | Pass | Exact worker head `2319092`: P0=P1=P2=P3=0; 50 focused, 210 V2/import, 82 storage/web/M10-M12, Ruff, strict mypy, schema binding, whitespace |
+| Track A integration | Pass | Reviewed commits integrated byte-equivalently through `50bdc08`; coordinator CPython 3.12 focused set 50 passed |
 
 ## Review findings
 
 - No unresolved semantic-gate finding.
 - Product, integration, private acceptance, responsive browser, and final exact-head review have
   not yet occurred.
-- Track A initial head `420dbb7` is not integration-ready; its two reviewer P1s and coordinator
-  provider-schema/transport gaps require correction and exact-head rereview.
+- Track A is integration-ready and integrated; Tracks B/C, their reviews, integrated provider-free
+  verification, private acceptance, screenshots, final review, and PR evidence remain pending.
 
 ## Integration and PR state
 
