@@ -1,8 +1,8 @@
 # M07.1 Completion Report — Safety and Real-Project Closure
 
-Date: 2026-07-12  
-Branch: `codex/m07-1-safety-real-project-closure`  
-Baseline: `4c421a10364d2c75d8437b2775cbb57ef28d80fc`  
+Date: 2026-07-12<br>
+Branch: `codex/m07-1-safety-real-project-closure`<br>
+Baseline: `4c421a10364d2c75d8437b2775cbb57ef28d80fc`<br>
 Status: Complete; one pull request remains intentionally unmerged.
 
 Pull request: `#12` — `https://github.com/nmpraveen/renpy-story-mapper/pull/12`.
@@ -98,7 +98,7 @@ Browser evidence is stored under `artifacts/M07.1/browser-accepted-head`.
 
 ### Wheel evidence
 
-Artifact: `artifacts/M07.1/wheel-accepted/renpy_story_mapper-0.1.0-py3-none-any.whl`  
+Artifact: `artifacts/M07.1/wheel-accepted/renpy_story_mapper-0.1.0-py3-none-any.whl`<br>
 SHA-256: `96311d0342b30d30fb63299b0d7e7e6d6fb3b066508ce0c538bb2d178dfe6f28`.
 
 ## Canonical sample and privacy

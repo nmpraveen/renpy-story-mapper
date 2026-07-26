@@ -13,13 +13,139 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONHASHSEED: "0"
+
 jobs:
-  deterministic-checks:
-    name: Deterministic checks (Python 3.12)
+  classify-changes:
+    name: Classify CI scope
     runs-on: windows-latest
-    env:
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      PYTHONHASHSEED: "0"
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      run_full: ${{ steps.classify.outputs.run_full }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check changed whitespace
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+          } else {
+            $emptyTree = @() | git mktree
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git diff --check "$emptyTree..HEAD" --
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Classify strict docs-only changes
+        id: classify
+        shell: pwsh
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python scripts/ci_changed_files.py `
+            --event-name "${{ github.event_name }}" `
+            --head-ref $env:HEAD_REF `
+            --base "${{ github.event.pull_request.base.sha || github.event.before }}" `
+            --head "${{ github.sha }}" `
+            --github-output $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  workflow-contract:
+    name: Workflow contract
+    needs: classify-changes
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install checks and project
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run workflow contract checks
+        shell: pwsh
+        run: >-
+          python -m pytest -q
+          tests/test_workflow_contract.py
+          tests/test_validation_script.py
+          tests/test_ci_sharding_contract.py
+
+  test-plan:
+    name: Freeze deterministic test inventory
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install checks and project
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect once and freeze exact shard plan
+        shell: pwsh
+        run: |
+          python scripts/ci_pytest_shard.py `
+            --write-plan artifacts/ci-test-plan.json `
+            --proof-json artifacts/ci-test-proof.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload exact test plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-test-plan
+          path: artifacts
+          if-no-files-found: error
+
+  quality:
+    name: Quality gates
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository
@@ -48,16 +174,146 @@ jobs:
           python -m pip install -e ".[dev]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Check changed whitespace
+      - name: Run quality-only Release validation
+        shell: pwsh
+        run: .\scripts\validate.ps1 -Tier Release -ReleaseComponent Quality -NoTimeout
+
+  package:
+    name: Release package
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install checks and project
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "pull_request") {
-            git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
-          } else {
-            git diff --check "${{ github.event.before }}..${{ github.sha }}"
-          }
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -e ".[dev]"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run deterministic release validation
+      - name: Run package-only Release validation
         shell: pwsh
-        run: .\scripts\validate.ps1 -Tier Release -NoTimeout
+        run: .\scripts\validate.ps1 -Tier Release -ReleaseComponent Package -NoTimeout
+
+  deterministic-pytest:
+    name: Deterministic pytest (${{ matrix.shard }})
+    needs: [classify-changes, test-plan]
+    if: needs.classify-changes.outputs.run_full == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [shard-1, shard-2, shard-3, shard-4]
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install checks and project
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download exact test plan
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-test-plan
+          path: artifacts/plan
+
+      - name: Recollect, verify, and run exact shard
+        shell: pwsh
+        run: |
+          python scripts/ci_pytest_shard.py `
+            --shard "${{ matrix.shard }}" `
+            --plan-json artifacts/plan/ci-test-plan.json `
+            --durations=50 `
+            --junit-xml "artifacts/${{ matrix.shard }}/junit-${{ matrix.shard }}.xml" `
+            --selection-json "artifacts/${{ matrix.shard }}/selection-${{ matrix.shard }}.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload shard timing and JUnit evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-shard-${{ matrix.shard }}
+          path: artifacts/${{ matrix.shard }}
+          if-no-files-found: error
+
+  deterministic-checks:
+    name: Deterministic checks (Python 3.12)
+    needs:
+      - classify-changes
+      - workflow-contract
+      - test-plan
+      - quality
+      - package
+      - deterministic-pytest
+    if: ${{ always() }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Evaluate aggregate truth table
+        id: gate
+        shell: pwsh
+        env:
+          RUN_FULL: ${{ needs.classify-changes.outputs.run_full }}
+          CLASSIFIER_RESULT: ${{ needs.classify-changes.result }}
+          CONTRACT_RESULT: ${{ needs.workflow-contract.result }}
+          PLAN_RESULT: ${{ needs.test-plan.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          SHARDS_RESULT: ${{ needs.deterministic-pytest.result }}
+        run: python scripts/ci_aggregate.py --github-output $env:GITHUB_OUTPUT
+
+      - name: Download shard evidence
+        if: steps.gate.outputs.verify_reports == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Verify exact disjoint successful shard union
+        if: steps.gate.outputs.verify_reports == 'true'
+        shell: pwsh
+        run: >-
+          python scripts/ci_verify_shards.py
+          --plan-json artifacts/ci-test-plan/ci-test-plan.json
+          --artifacts-root artifacts

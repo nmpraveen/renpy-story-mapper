@@ -3,6 +3,9 @@ param(
     [ValidateSet("Fast", "Focused", "Release")]
     [string]$Tier = "Fast",
 
+    [ValidateSet("All", "Quality", "Package")]
+    [string]$ReleaseComponent = "All",
+
     [Alias("Target")]
     [string[]]$PytestTarget,
 
@@ -36,6 +39,118 @@ $Results = New-Object System.Collections.Generic.List[object]
 $TemporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
     "renpy-story-mapper-validation-{0}" -f [guid]::NewGuid().ToString("N")
 )
+
+if ($null -eq ("ValidationProcessJob" -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+public static class ValidationProcessJob
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicLimitInformation
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ExtendedLimitInformation
+    {
+        public BasicLimitInformation BasicLimitInformation;
+        public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(
+        IntPtr job,
+        int informationClass,
+        IntPtr information,
+        uint informationLength);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    public static IntPtr Create()
+    {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        ExtendedLimitInformation limits = new ExtendedLimitInformation();
+        limits.BasicLimitInformation.LimitFlags = 0x2000;
+        int length = Marshal.SizeOf(typeof(ExtendedLimitInformation));
+        IntPtr information = Marshal.AllocHGlobal(length);
+        try
+        {
+            Marshal.StructureToPtr(limits, information, false);
+            if (!SetInformationJobObject(job, 9, information, (uint)length))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        catch
+        {
+            CloseHandle(job);
+            throw;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(information);
+        }
+        return job;
+    }
+
+    public static void Assign(IntPtr job, Process process)
+    {
+        if (!AssignProcessToJobObject(job, process.Handle))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static void Terminate(IntPtr job, uint exitCode)
+    {
+        if (!TerminateJobObject(job, exitCode))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static void Close(IntPtr job)
+    {
+        if (job != IntPtr.Zero)
+            CloseHandle(job);
+    }
+}
+"@
+}
 
 function Resolve-Tool {
     param(
@@ -178,9 +293,14 @@ function Invoke-Step {
     $started = Get-Date
     $timedOut = $false
     $exitCode = 1
-    $stdout = ""
-    $stderr = ""
-
+    $process = $null
+    $processJob = [IntPtr]::Zero
+    $stdoutRead = $null
+    $stderrRead = $null
+    $stdoutClosed = $false
+    $stderrClosed = $false
+    $processJobClosed = $false
+    $rootExitCode = 1
     try {
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
         $startInfo.FileName = $Step.FilePath
@@ -197,42 +317,93 @@ function Invoke-Step {
 
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $startInfo
+        $processJob = [ValidationProcessJob]::Create()
         [void]$process.Start()
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        if ($Step.TimeoutSeconds -gt 0) {
-            if (-not $process.WaitForExit($Step.TimeoutSeconds * 1000)) {
+        try {
+            [ValidationProcessJob]::Assign($processJob, $process)
+        }
+        catch {
+            if (-not $process.HasExited) {
+                $process.Kill()
+                $process.WaitForExit()
+            }
+            throw
+        }
+        $stdoutRead = $process.StandardOutput.ReadLineAsync()
+        $stderrRead = $process.StandardError.ReadLineAsync()
+        $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+        while (-not ($process.HasExited -and $stdoutClosed -and $stderrClosed)) {
+            $madeProgress = $false
+            while (-not $stdoutClosed -and $stdoutRead.IsCompleted) {
+                $line = $stdoutRead.GetAwaiter().GetResult()
+                if ($null -eq $line) {
+                    $stdoutClosed = $true
+                }
+                else {
+                    Write-Host $line
+                    $stdoutRead = $process.StandardOutput.ReadLineAsync()
+                }
+                $madeProgress = $true
+            }
+            while (-not $stderrClosed -and $stderrRead.IsCompleted) {
+                $line = $stderrRead.GetAwaiter().GetResult()
+                if ($null -eq $line) {
+                    $stderrClosed = $true
+                }
+                else {
+                    Write-Host $line
+                    $stderrRead = $process.StandardError.ReadLineAsync()
+                }
+                $madeProgress = $true
+            }
+
+            if (
+                -not $timedOut -and
+                -not $process.HasExited -and
+                $Step.TimeoutSeconds -gt 0 -and
+                $stepTimer.Elapsed.TotalSeconds -ge $Step.TimeoutSeconds
+            ) {
                 $timedOut = $true
-                & taskkill.exe /PID $process.Id /T /F *> $null
-                $process.WaitForExit()
+                [ValidationProcessJob]::Terminate($processJob, 124)
+                $madeProgress = $true
             }
-            else {
-                $process.WaitForExit()
+            if ($process.HasExited -and -not $processJobClosed) {
+                $rootExitCode = $process.ExitCode
+                [ValidationProcessJob]::Close($processJob)
+                $processJob = [IntPtr]::Zero
+                $processJobClosed = $true
+                $madeProgress = $true
+            }
+            if (-not $madeProgress) {
+                Start-Sleep -Milliseconds 10
             }
         }
-        else {
-            $process.WaitForExit()
-        }
-        $stdout = $stdoutTask.Result
-        $stderr = $stderrTask.Result
+        $process.WaitForExit()
         if ($timedOut) {
             $exitCode = 124
         }
         else {
-            $exitCode = $process.ExitCode
+            $exitCode = $rootExitCode
         }
-        $process.Dispose()
     }
     catch {
-        $stderr = $_.Exception.Message
-        $exitCode = 1
+        Write-Host $_.Exception.Message
+        $exitCode = if ($timedOut) { 124 } else { 1 }
     }
-
-    if ($stdout.Trim().Length -gt 0) {
-        Write-Host $stdout.TrimEnd()
+    finally {
+        if ($null -ne $process) {
+            if (-not $process.HasExited -and $processJob -ne [IntPtr]::Zero) {
+                [ValidationProcessJob]::Terminate($processJob, 124)
+            }
+            $process.Dispose()
+        }
+        if (-not $processJobClosed) {
+            [ValidationProcessJob]::Close($processJob)
+        }
     }
-    if ($stderr.Trim().Length -gt 0) {
-        Write-Host $stderr.TrimEnd()
+    if ($timedOut) {
+        $exitCode = 124
     }
 
     $elapsed = ((Get-Date) - $started).TotalSeconds
@@ -273,6 +444,9 @@ function Get-AcceptanceOutputOption {
 if ($Tier -eq "Focused" -and (!$PytestTarget -or $PytestTarget.Count -eq 0)) {
     throw "Focused validation requires at least one -PytestTarget."
 }
+if ($Tier -ne "Release" -and $ReleaseComponent -ne "All") {
+    throw "-ReleaseComponent is available only with -Tier Release."
+}
 if ($NoTimeout -and $TimeoutSeconds -gt 0) {
     throw "-NoTimeout cannot be combined with -TimeoutSeconds."
 }
@@ -293,6 +467,11 @@ if ($IncludePrivate -and -not $PrivateScript) {
 }
 if ($IncludeHardwareSensitive -and $Tier -ne "Release") {
     throw "Hardware-sensitive acceptance is available only with -Tier Release."
+}
+if ($ReleaseComponent -ne "All" -and (
+    $IncludeBrowser -or $IncludePrivate -or $IncludeHardwareSensitive
+)) {
+    throw "Opt-in acceptance requires -ReleaseComponent All."
 }
 
 $PythonCommand = Resolve-PythonCommand
@@ -321,48 +500,54 @@ elseif ($Tier -eq "Focused") {
         -DefaultTimeout 600 -Arguments (Python-Arguments $focusedArguments)))
 }
 else {
-    $pytestArguments = @("-m", "pytest", "-q")
-    if (-not $IncludeHardwareSensitive) {
-        $pytestArguments += @("-m", "not hardware_sensitive")
-    }
-    $steps.Add((Add-Step -Name "Full deterministic pytest" -FilePath $PythonCommand.FilePath `
-        -DefaultTimeout 900 -Arguments (Python-Arguments $pytestArguments)))
-    $steps.Add((Add-Step -Name "Ruff" -FilePath $PythonCommand.FilePath -DefaultTimeout 180 `
-        -Arguments (Python-Arguments @("-m", "ruff", "check", "src", "tests", "scripts"))))
-    $steps.Add((Add-Step -Name "Strict mypy" -FilePath $PythonCommand.FilePath -DefaultTimeout 300 `
-        -Arguments (Python-Arguments @("-m", "mypy", "--strict", "src/renpy_story_mapper"))))
-    $steps.Add((Add-Step -Name "Installed dependency check" -FilePath $PythonCommand.FilePath `
-        -DefaultTimeout 60 -Arguments (Python-Arguments @("-m", "pip", "check"))))
-
-    $javascriptFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "src") `
-        -Filter "*.js" -File -Recurse | Sort-Object FullName)
-    if ($javascriptFiles.Count -gt 0) {
-        $node = $null
-        try {
-            $node = Resolve-Tool "node"
+    if ($ReleaseComponent -eq "All") {
+        $pytestArguments = @("-m", "pytest", "-q")
+        if (-not $IncludeHardwareSensitive) {
+            $pytestArguments += @("-m", "not hardware_sensitive")
         }
-        catch {
-            if (-not $DryRun) {
-                throw
+        $steps.Add((Add-Step -Name "Full deterministic pytest" -FilePath $PythonCommand.FilePath `
+            -DefaultTimeout 900 -Arguments (Python-Arguments $pytestArguments)))
+    }
+    if ($ReleaseComponent -ne "Package") {
+        $steps.Add((Add-Step -Name "Ruff" -FilePath $PythonCommand.FilePath -DefaultTimeout 180 `
+            -Arguments (Python-Arguments @("-m", "ruff", "check", "src", "tests", "scripts"))))
+        $steps.Add((Add-Step -Name "Strict mypy" -FilePath $PythonCommand.FilePath -DefaultTimeout 300 `
+            -Arguments (Python-Arguments @("-m", "mypy", "--strict", "src/renpy_story_mapper"))))
+        $steps.Add((Add-Step -Name "Installed dependency check" -FilePath $PythonCommand.FilePath `
+            -DefaultTimeout 60 -Arguments (Python-Arguments @("-m", "pip", "check"))))
+
+        $javascriptFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "src") `
+            -Filter "*.js" -File -Recurse | Sort-Object FullName)
+        if ($javascriptFiles.Count -gt 0) {
+            $node = $null
+            try {
+                $node = Resolve-Tool "node"
             }
-            $node = "node"
+            catch {
+                if (-not $DryRun) {
+                    throw
+                }
+                $node = "node"
+            }
+            foreach ($javascriptFile in $javascriptFiles) {
+                $relative = $javascriptFile.FullName.Substring($RepositoryRoot.Length + 1)
+                $steps.Add((Add-Step -Name ("JavaScript syntax: {0}" -f $relative) `
+                    -FilePath $node -DefaultTimeout 30 -Arguments @("--check", $javascriptFile.FullName)))
+            }
         }
-        foreach ($javascriptFile in $javascriptFiles) {
-            $relative = $javascriptFile.FullName.Substring($RepositoryRoot.Length + 1)
-            $steps.Add((Add-Step -Name ("JavaScript syntax: {0}" -f $relative) `
-                -FilePath $node -DefaultTimeout 30 -Arguments @("--check", $javascriptFile.FullName)))
-        }
-    }
 
-    $git = Resolve-Tool "git"
-    $steps.Add((Add-Step -Name "Whitespace check" -FilePath $git -DefaultTimeout 60 `
-        -Arguments @("diff", "--check")))
+        $git = Resolve-Tool "git"
+        $steps.Add((Add-Step -Name "Whitespace check" -FilePath $git -DefaultTimeout 60 `
+            -Arguments @("diff", "--check")))
+    }
 
     $distributionDirectory = Join-Path $TemporaryRoot "dist"
-    $steps.Add((Add-Step -Name "Build isolated sdist and wheel" -FilePath $PythonCommand.FilePath `
-        -DefaultTimeout 300 -Arguments (Python-Arguments @(
-            "-m", "build", "--sdist", "--wheel", "--outdir", $distributionDirectory, "."
-        ))))
+    if ($ReleaseComponent -ne "Quality") {
+        $steps.Add((Add-Step -Name "Build isolated sdist and wheel" -FilePath $PythonCommand.FilePath `
+            -DefaultTimeout 300 -Arguments (Python-Arguments @(
+                "-m", "build", "--sdist", "--wheel", "--outdir", $distributionDirectory, "."
+            ))))
+    }
 
     if ($IncludeHardwareSensitive) {
         $scaleScripts = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "scripts") `
@@ -503,6 +688,8 @@ finally {
         Remove-Item -LiteralPath $TemporaryRoot -Recurse -Force
     }
 }
+
+$allPassed = @($Results | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0
 
 Write-Host ""
 Write-Host ("Validation summary ({0})" -f $Tier.ToLowerInvariant())
