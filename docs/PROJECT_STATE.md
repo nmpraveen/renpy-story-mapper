@@ -1,8 +1,8 @@
 # Ren'Py Story Mapper project state
 
 Updated: 2026-07-26 (M15.1 Phase 04 repeated exact-head semantic review passed at corrected
-checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; lifecycle is `Ready`; product work remains
-prohibited until the Phase Coordinator creates and records the native goal)
+checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and lifecycle is
+`In progress`)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,14 +14,15 @@ prohibited until the Phase Coordinator creates and records the native goal)
 - Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge
   `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
 - Integration branch: `codex/m15-phase04-full-game`.
-- Status: Ready.
+- Status: In progress.
 - Merge state: Phase 03 PR #28 and closeout PR #29 are merged; no Phase 04 PR exists yet.
 - Semantic review: repeated exact-head `PASS` at corrected checkpoint
   `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2` in
   [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md). The document preserves the
   initial `REVISE` and its corrected consent conflict; current P0=P1=P2=0.
-- Native Codex goal: not created. The Phase Coordinator must create and record it now, before any
-  product-code change or implementation dispatch.
+- Native Codex goal: active on coordinator task `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`, created
+  from the exact `GOAL.md` done condition after repeated semantic `PASS`. Keep it active through
+  integration, verification, review, and genuine PR readiness.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation

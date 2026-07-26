@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 04 full-game scaling
 
-Status: Ready
+Status: In progress
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, the user's approved 2026-07-26 Phase 04 plan, and
 `docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`.

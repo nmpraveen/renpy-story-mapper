@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 04 report
 
-Status: Ready
+Status: In progress
 
 Integration commit: Pending
 
@@ -8,9 +8,10 @@ Pull request: Pending
 
 ## Outcome
 
-Implementation has not begun. The bounded contract passed its repeated exact-head semantic gate at
-corrected checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2` and is ready for the Phase
-Coordinator to create and record the native goal before product-code changes.
+The bounded contract passed its repeated exact-head semantic gate at corrected checkpoint
+`eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`. Native goal
+`019f7fe2-eeaa-7622-b3eb-f53d5bd5f749` is active; product implementation is beginning under the
+approved track boundaries.
 
 ## Acceptance evidence
 
