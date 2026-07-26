@@ -331,6 +331,7 @@ class WorkflowPreview:
     ceilings: WorkflowResourceCeilings
     privacy: WorkflowPrivacyScope
     cache_hit_job_ids: tuple[str, ...]
+    loopback_cache_hit_job_ids: tuple[str, ...] = ()
     schema: str = WORKFLOW_SCHEMA
 
     def __post_init__(self) -> None:
@@ -344,6 +345,16 @@ class WorkflowPreview:
             raise ValueError("cache-hit job IDs must be unique")
         if not set(self.cache_hit_job_ids).issubset(known_jobs):
             raise ValueError("cache-hit jobs must belong to the frozen plan")
+        if len(set(self.loopback_cache_hit_job_ids)) != len(
+            self.loopback_cache_hit_job_ids
+        ):
+            raise ValueError("loopback cache-hit job IDs must be unique")
+        if not set(self.loopback_cache_hit_job_ids).issubset(known_jobs):
+            raise ValueError("loopback cache-hit jobs must belong to the frozen plan")
+        if self.loopback_cache_hit_job_ids and not self.policy.allow_refusal_fallback:
+            raise ValueError("loopback cache hits require a disclosed loopback provider")
+        if set(self.cache_hit_job_ids) & set(self.loopback_cache_hit_job_ids):
+            raise ValueError("cloud and loopback cache hits must be disjoint")
 
     @property
     def identity(self) -> str:
@@ -394,8 +405,11 @@ class JobClaim:
     resume_call_kind: ProviderCallKind | None = None
 
     def __post_init__(self) -> None:
-        if self.resume_call_kind not in {None, ProviderCallKind.REPLACEMENT_REVIEW}:
-            raise ValueError("only a persisted replacement review may resume by policy")
+        if (
+            self.resume_call_kind is not None
+            and type(self.resume_call_kind) is not ProviderCallKind
+        ):
+            raise ValueError("resume call kind must use the frozen provider-call contract")
 
 
 @dataclass(frozen=True)
@@ -419,7 +433,7 @@ class AttemptAccounting:
     elapsed_ms: int
 
     def __post_init__(self) -> None:
-        if self.calls not in {0, 1}:
+        if type(self.calls) is not int or self.calls not in {0, 1}:
             raise ValueError("one attempt may account for zero or one provider call")
         if any(
             type(value) is not int or value < 0
@@ -430,6 +444,21 @@ class AttemptAccounting:
     @classmethod
     def zero(cls) -> AttemptAccounting:
         return cls(calls=0, input_tokens=0, output_tokens=0, elapsed_ms=0)
+
+
+def validate_transmission_accounting(
+    transmission: TransmissionDisposition,
+    accounting: AttemptAccounting,
+) -> None:
+    """Reject provider-boundary accounting that contradicts transmission certainty."""
+
+    if (
+        transmission is TransmissionDisposition.NOT_TRANSMITTED
+        and accounting.calls != 0
+    ) or (
+        transmission is TransmissionDisposition.TRANSMITTED and accounting.calls != 1
+    ):
+        raise ValueError("transmission disposition and accounting conflict")
 
 
 @dataclass(frozen=True)
@@ -494,6 +523,7 @@ class AttemptCompletion:
     sanitized_reason: str | None
 
     def __post_init__(self) -> None:
+        validate_transmission_accounting(self.transmission, self.accounting)
         if self.response_identity is not None:
             _digest(self.response_identity, "response identity")
         if self.sanitized_reason is not None:

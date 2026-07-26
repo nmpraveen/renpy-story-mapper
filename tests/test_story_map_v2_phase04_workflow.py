@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -41,6 +42,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
 )
 from renpy_story_mapper.story_map_v2.workflow_protocols import (
     ProviderFactory,
+    WorkflowCheckpoint,
     WorkflowProviderError,
 )
 from renpy_story_mapper.story_map_v2.workflow_service import (
@@ -56,6 +58,12 @@ class _Attempt:
     completion: AttemptCompletion | None = None
 
 
+def _attempt_consumes_call_budget(attempt: _Attempt) -> bool:
+    if attempt.completion is None:
+        return True
+    return attempt.completion.accounting.calls == 1
+
+
 @dataclass
 class _Job:
     descriptor: WorkflowJobDescriptor
@@ -65,6 +73,7 @@ class _Job:
     attempts: list[_Attempt] = field(default_factory=list)
     defer_epoch: int = -1
     retry_attempt_id: str | None = None
+    resume_call_kind: ProviderCallKind | None = None
     claimed_by: str | None = None
     previous_state: str | None = None
 
@@ -160,6 +169,8 @@ class MemoryWorkflowRepository:
                 )
                 if job.state == "review_pending":
                     eligible = True
+                if job.state == "fallback_pending":
+                    eligible = True
                 if job.state == "indeterminate" and job.retry_attempt_id is not None:
                     eligible = True
                 if not eligible or job.claimed_by is not None:
@@ -169,11 +180,7 @@ class MemoryWorkflowRepository:
                 job.claimed_by = worker_id
                 self.active_claims += 1
                 claim_id = f"claim-{run.epoch}-{job.descriptor.job_id}"
-                resume_call_kind = (
-                    ProviderCallKind.REPLACEMENT_REVIEW
-                    if job.previous_state == "review_pending"
-                    else None
-                )
+                resume_call_kind = job.resume_call_kind
                 return JobClaim(
                     run_id,
                     execution_id,
@@ -196,7 +203,8 @@ class MemoryWorkflowRepository:
             job = run.jobs[claim.job.job_id]
             assert job.claimed_by == claim.worker_id
             role_count = sum(
-                attempt.reservation.call_kind is call_kind
+                _attempt_consumes_call_budget(attempt)
+                and attempt.reservation.call_kind is call_kind
                 for item in run.jobs.values()
                 for attempt in item.attempts
             )
@@ -216,15 +224,19 @@ class MemoryWorkflowRepository:
             )
             job.attempts.append(_Attempt(reservation))
             job.retry_attempt_id = None
+            job.resume_call_kind = None
             self.durable.append(reservation)
             return reservation
 
-    def mark_submitting(self, claim: JobClaim, reservation: AttemptReservation) -> None:
+    def mark_submitting(self, claim: JobClaim, reservation: AttemptReservation) -> bool:
         with self._lock:
+            if self.runs[claim.run_id].cancelled:
+                return False
             attempt = self._attempt(claim, reservation)
             attempt.stage = AttemptStage.SUBMITTING
             self.active_submitting += 1
             self.max_submitting = max(self.max_submitting, self.active_submitting)
+            return True
 
     def complete_attempt(
         self,
@@ -268,6 +280,7 @@ class MemoryWorkflowRepository:
         result_identity: str | None,
         failure: WorkflowFailure | None,
         sanitized_reason: str | None,
+        resume_call_kind: ProviderCallKind | None,
     ) -> None:
         with self._lock:
             run = self.runs[claim.run_id]
@@ -285,6 +298,7 @@ class MemoryWorkflowRepository:
                 job.state = "indeterminate"
             else:
                 job.state = "cancelled"
+            job.resume_call_kind = resume_call_kind
             if job.attempts and job.attempts[-1].stage is AttemptStage.VALIDATED:
                 job.attempts[-1].stage = AttemptStage.FINALIZED
             self.durable.extend((resolution, result_identity, failure, sanitized_reason))
@@ -328,20 +342,54 @@ class MemoryWorkflowRepository:
             published: list[str] = []
             policy_resume: list[str] = []
             for job in run.jobs.values():
-                stages = {attempt.stage for attempt in job.attempts}
-                if AttemptStage.RESERVED in stages:
+                if job.state == "published":
+                    continue
+                reserved = [
+                    attempt
+                    for attempt in job.attempts
+                    if attempt.stage is AttemptStage.RESERVED
+                ]
+                uncertain = [
+                    attempt
+                    for attempt in job.attempts
+                    if attempt.stage is AttemptStage.SUBMITTING
+                    or (
+                        attempt.stage is AttemptStage.RETURNED
+                        and (
+                            attempt.completion is None
+                            or attempt.completion.failure
+                            is not WorkflowFailure.CONTENT_REFUSAL
+                            or attempt.completion.transmission
+                            is not TransmissionDisposition.TRANSMITTED
+                        )
+                    )
+                ]
+                refusal = [
+                    attempt
+                    for attempt in job.attempts
+                    if attempt.stage is AttemptStage.RETURNED
+                    and attempt.completion is not None
+                    and attempt.completion.failure is WorkflowFailure.CONTENT_REFUSAL
+                    and attempt.completion.transmission
+                    is TransmissionDisposition.TRANSMITTED
+                ]
+                if reserved:
                     job.state = "resumable"
                     job.defer_epoch = run.epoch
+                    job.resume_call_kind = reserved[-1].reservation.call_kind
                     not_transmitted.append(job.descriptor.job_id)
-                    for attempt in job.attempts:
-                        if attempt.stage is AttemptStage.RESERVED:
-                            attempt.stage = AttemptStage.NOT_TRANSMITTED
-                elif stages & {AttemptStage.SUBMITTING, AttemptStage.RETURNED}:
+                    for attempt in reserved:
+                        attempt.stage = AttemptStage.NOT_TRANSMITTED
+                elif uncertain:
                     job.state = "indeterminate"
+                    job.resume_call_kind = None
                     indeterminate.append(job.descriptor.job_id)
-                    for attempt in job.attempts:
-                        if attempt.stage in {AttemptStage.SUBMITTING, AttemptStage.RETURNED}:
-                            attempt.stage = AttemptStage.INDETERMINATE
+                    for attempt in uncertain:
+                        attempt.stage = AttemptStage.INDETERMINATE
+                elif refusal and run.preview.policy.allow_refusal_fallback:
+                    job.state = "fallback_pending"
+                    job.resume_call_kind = ProviderCallKind.REFUSAL_FALLBACK
+                    policy_resume.append(job.descriptor.job_id)
                 elif job.state == "validated":
                     assert job.result is not None
                     latest_kind = job.attempts[-1].reservation.call_kind
@@ -350,6 +398,7 @@ class MemoryWorkflowRepository:
                         and latest_kind is ProviderCallKind.MAPPING
                     ):
                         job.state = "review_pending"
+                        job.resume_call_kind = ProviderCallKind.REPLACEMENT_REVIEW
                         policy_resume.append(job.descriptor.job_id)
                     else:
                         job.resolution = JobResolution.ACCEPTED
@@ -449,6 +498,21 @@ class MemoryWorkflowRepository:
         )
 
 
+class CancelOnMarkRepository(MemoryWorkflowRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.on_mark: Callable[[], None] | None = None
+
+    def mark_submitting(
+        self, claim: JobClaim, reservation: AttemptReservation
+    ) -> bool:
+        if self.on_mark is not None:
+            self.on_mark()
+        if self.is_cancelled(claim.run_id):
+            return False
+        return super().mark_submitting(claim, reservation)
+
+
 class DictMaterializer:
     def __init__(self, requests: dict[str, bytes]) -> None:
         self.requests = requests
@@ -475,6 +539,8 @@ class SyntheticValidator:
             raise ValueError("SECRET raw source validation detail")
         if payload == b"absolute-path":
             normalized = b'{"summary":"C:\\Users\\private\\story.rpy"}'
+        elif payload == b"nested-posix-path":
+            normalized = b'{"outer":{"items":[{"path":"/opt/private/story.rpy"}]}}'
         elif payload.startswith(b"normalized:"):
             normalized = payload
         else:
@@ -662,6 +728,21 @@ class FaultOnce:
             raise SimulatedProcessCrash(name)
 
 
+class FaultOnOccurrence:
+    def __init__(self, checkpoint: str, occurrence: int) -> None:
+        self.checkpoint = checkpoint
+        self.occurrence = occurrence
+        self.seen = 0
+
+    def __call__(self, name: str, job_id: str) -> None:
+        del job_id
+        if name != self.checkpoint:
+            return
+        self.seen += 1
+        if self.seen == self.occurrence:
+            raise SimulatedProcessCrash(name)
+
+
 def _cloud_settings() -> ProviderSettings:
     return ProviderSettings(
         provider="codex-cli",
@@ -779,7 +860,7 @@ def _service(
     *,
     validator: SyntheticValidator | None = None,
     local: ProviderFactory | None = None,
-    checkpoint: FaultOnce | None = None,
+    checkpoint: WorkflowCheckpoint | None = None,
 ) -> StoryMapWorkflowService:
     return StoryMapWorkflowService(
         repository,
@@ -1158,6 +1239,28 @@ def test_cancellation_is_persisted_before_signal_and_starts_no_later_work() -> N
     assert factory.cancel_calls >= 1
 
 
+def test_atomic_cancel_wins_mark_submitting_race_with_zero_submit_or_publication() -> None:
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    repository = CancelOnMarkRepository()
+    factory = RecordingFactory(policy.cloud, [_reply(policy.cloud)])
+    service = _service(repository, requests, factory)
+    repository.on_mark = lambda: service.cancel("run-public")
+    preview = _prepare_approve(service, plan, policy, _ceilings(1))
+
+    status = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert status.cancelled is True
+    assert factory.calls == 0
+    assert factory.cancel_calls == 1
+    job = repository.runs["run-public"].jobs["job-0"]
+    assert job.state == "cancelled"
+    assert job.result is None
+
+
 def test_definite_nontransmission_resumes_once_with_new_attempt_ordinal() -> None:
     policy = _policy()
     plan, requests = _plan(1, policy)
@@ -1183,6 +1286,101 @@ def test_definite_nontransmission_resumes_once_with_new_attempt_ordinal() -> Non
     assert second.accounting.calls == 1
     assert factory.calls == 1
     assert repository.attempt_ordinals("run-public", "job-0") == [1, 2]
+
+
+def test_crash_before_local_reservation_resumes_fallback_without_second_cloud_mapping() -> None:
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    refusal = _provider_failure(
+        WorkflowFailure.CONTENT_REFUSAL,
+        TransmissionDisposition.TRANSMITTED,
+        calls=1,
+    )
+    cloud = RecordingFactory(policy.cloud, [refusal, refusal])
+    assert policy.loopback is not None
+    local = RecordingFactory(policy.loopback, [_reply(policy.loopback, b"local-ok")])
+    service = _service(
+        repository,
+        requests,
+        cloud,
+        local=local,
+        checkpoint=FaultOnOccurrence("before_reservation", 2),
+    )
+    preview = _prepare_approve(service, plan, policy, _ceilings(2, fallbacks=1))
+
+    with pytest.raises(SimulatedProcessCrash):
+        service.execute(
+            "run-public",
+            preview_identity=preview.identity,
+            authority_identity=plan.authority_identity,
+        )
+    recovery = service.recover("run-public")
+    assert recovery.policy_resume_jobs == ("job-0",)
+
+    status = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert status.accepted_jobs == 1
+    assert cloud.calls == 1
+    assert local.calls == 1
+    attempts = repository.runs["run-public"].jobs["job-0"].attempts
+    assert [attempt.reservation.call_kind for attempt in attempts] == [
+        ProviderCallKind.MAPPING,
+        ProviderCallKind.REFUSAL_FALLBACK,
+    ]
+
+
+def test_definite_nontransmitted_local_construction_resumes_local_only() -> None:
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    cloud = RecordingFactory(
+        policy.cloud,
+        [
+            _provider_failure(
+                WorkflowFailure.CONTENT_REFUSAL,
+                TransmissionDisposition.TRANSMITTED,
+                calls=1,
+            )
+        ],
+    )
+    assert policy.loopback is not None
+    local = ConstructionFailureOnce(policy.loopback, [_reply(policy.loopback, b"local-ok")])
+    service = _service(repository, requests, cloud, local=local)
+    preview = _prepare_approve(service, plan, policy, _ceilings(2, fallbacks=1))
+
+    first = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.resumable_jobs == 1
+    final = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert final.accepted_jobs == 1
+    assert cloud.calls == 1
+    assert local.calls == 1
+    attempts = repository.runs["run-public"].jobs["job-0"].attempts
+    assert [attempt.reservation.call_kind for attempt in attempts] == [
+        ProviderCallKind.MAPPING,
+        ProviderCallKind.REFUSAL_FALLBACK,
+        ProviderCallKind.REFUSAL_FALLBACK,
+    ]
+    assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3]
+    assert service.recover("run-public").policy_resume_jobs == ()
+    reopened = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert reopened.accepted_jobs == 1
+    assert cloud.calls == local.calls == 1
 
 
 def test_same_run_completed_cache_is_allowed_during_definite_nontransmission_resume() -> None:
@@ -1262,6 +1460,67 @@ def test_uncertain_transport_never_auto_resubmits_without_job_approval() -> None
     assert final.accepted_jobs == 1
     assert factory.calls == 2
     assert repository.attempt_ordinals("run-public", "job-0") == [1, 2]
+
+
+@pytest.mark.parametrize(
+    ("transmission", "accounting"),
+    [
+        (TransmissionDisposition.NOT_TRANSMITTED, AttemptAccounting(1, 1, 0, 1)),
+        (TransmissionDisposition.TRANSMITTED, AttemptAccounting.zero()),
+    ],
+)
+def test_provider_failure_rejects_contradictory_disposition_accounting(
+    transmission: TransmissionDisposition,
+    accounting: AttemptAccounting,
+) -> None:
+    with pytest.raises(ValueError, match=r"transmission.*accounting"):
+        WorkflowProviderError(
+            WorkflowFailure.PROVIDER_UNAVAILABLE,
+            transmission,
+            accounting,
+        )
+
+
+def test_durable_completion_rejects_not_transmitted_with_one_call() -> None:
+    with pytest.raises(ValueError, match=r"transmission.*accounting"):
+        AttemptCompletion(
+            stage=AttemptStage.NOT_TRANSMITTED,
+            transmission=TransmissionDisposition.NOT_TRANSMITTED,
+            accounting=AttemptAccounting(1, 1, 0, 1),
+            response_identity=None,
+            failure=WorkflowFailure.NOT_TRANSMITTED,
+            sanitized_reason="Provider did not transmit.",
+        )
+
+
+def test_mutated_not_transmitted_call_accounting_fails_indeterminate_without_retry() -> None:
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    malformed = WorkflowProviderError(
+        WorkflowFailure.PROVIDER_UNAVAILABLE,
+        TransmissionDisposition.NOT_TRANSMITTED,
+        AttemptAccounting.zero(),
+    )
+    malformed.accounting = AttemptAccounting(1, 1, 0, 1)
+    factory = RecordingFactory(policy.cloud, [malformed, _reply(policy.cloud)])
+    service = _service(repository, requests, factory)
+    preview = _prepare_approve(service, plan, policy, _ceilings(2))
+
+    first = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.indeterminate_jobs == 1
+    assert first.resumable_jobs == 0
+    unchanged = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert unchanged.indeterminate_jobs == 1
+    assert factory.calls == 1
 
 
 def test_flagged_cloud_result_receives_exactly_one_replacement_review() -> None:
@@ -1552,6 +1811,91 @@ def test_cached_prose_is_revalidated_against_current_job_authority_without_provi
     assert trap.constructions == 0
 
 
+def test_second_approved_run_reuses_mode_specific_loopback_cache_with_zero_calls() -> None:
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    cloud = RecordingFactory(
+        policy.cloud,
+        [
+            _provider_failure(
+                WorkflowFailure.CONTENT_REFUSAL,
+                TransmissionDisposition.TRANSMITTED,
+                calls=1,
+            )
+        ],
+    )
+    assert policy.loopback is not None
+    local = RecordingFactory(policy.loopback, [_reply(policy.loopback, b"local-ok")])
+    first_service = _service(repository, requests, cloud, local=local)
+    first_preview = _prepare_approve(
+        first_service,
+        plan,
+        policy,
+        _ceilings(1, fallbacks=1),
+        run_id="run-first",
+    )
+    first = first_service.execute(
+        "run-first",
+        preview_identity=first_preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.accepted_jobs == 1
+    assert cloud.calls == local.calls == 1
+
+    cloud_trap = ConstructionTrap()
+    local_trap = ConstructionTrap()
+    second_service = _service(
+        repository,
+        requests,
+        cloud_trap,
+        local=local_trap,
+    )
+    second_preview = _prepare_approve(
+        second_service,
+        plan,
+        policy,
+        _ceilings(1, fallbacks=1),
+        run_id="run-second",
+    )
+    assert second_preview.cache_hit_job_ids == ()
+    assert second_preview.loopback_cache_hit_job_ids == ("job-0",)
+    second = second_service.execute(
+        "run-second",
+        preview_identity=second_preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert second.accepted_jobs == 1
+    assert second.accounting == WorkflowAccounting.zero()
+    assert cloud_trap.constructions == local_trap.constructions == 0
+
+
+def test_external_loopback_cache_mutation_invalidates_preview_before_construction() -> None:
+    policy = _policy(fallback=True)
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    cloud_trap = ConstructionTrap()
+    local_trap = ConstructionTrap()
+    service = _service(repository, requests, cloud_trap, local=local_trap)
+    preview = _prepare_approve(service, plan, policy, _ceilings(1, fallbacks=1))
+    local_identity = policy.input_identity(
+        plan.jobs[0].serialized_request_identity,
+        mode=ProviderMode.LOOPBACK,
+    ).cache_identity
+    repository.cache[local_identity] = ValidatedWorkflowResult(
+        hashlib.sha256(b"normalized:external-local").hexdigest(),
+        b"normalized:external-local",
+    )
+
+    with pytest.raises(WorkflowApprovalError, match="cache-hit work changed"):
+        service.execute(
+            "run-public",
+            preview_identity=preview.identity,
+            authority_identity=plan.authority_identity,
+        )
+    assert cloud_trap.constructions == local_trap.constructions == 0
+
+
 @pytest.mark.parametrize(
     ("checkpoint", "expected_recovery", "calls_before", "requires_retry"),
     [
@@ -1705,6 +2049,23 @@ def test_echoed_request_packet_is_rejected_before_sanitized_persistence() -> Non
     )
     assert status.structural_fallback_jobs == 1
     assert requests["request-0"] not in repr(repository.durable).encode()
+
+
+def test_nested_platform_neutral_absolute_path_is_rejected_recursively() -> None:
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    factory = RecordingFactory(policy.cloud, [_reply(policy.cloud, b"nested-posix-path")])
+    service = _service(repository, requests, factory)
+    preview = _prepare_approve(service, plan, policy, _ceilings(1))
+
+    status = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert status.structural_fallback_jobs == 1
+    assert "/opt/private/story.rpy" not in repr(repository.durable)
 
 
 def test_workflow_modules_do_not_import_track_a_storage_project_or_historical_schedulers() -> None:

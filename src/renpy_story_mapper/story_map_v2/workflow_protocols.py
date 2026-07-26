@@ -26,6 +26,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowPreview,
     WorkflowResourceCeilings,
     WorkflowStatus,
+    validate_transmission_accounting,
 )
 
 
@@ -42,6 +43,7 @@ class WorkflowProviderError(RuntimeError):
             raise TypeError("provider failure requires an explicit transmission disposition")
         if type(accounting) is not AttemptAccounting:
             raise TypeError("provider failure requires finite attempt accounting")
+        validate_transmission_accounting(transmission, accounting)
         super().__init__(failure.value)
         self.failure = failure
         self.transmission = transmission
@@ -124,7 +126,10 @@ class WorkflowRepository(Protocol):
         ceilings: WorkflowResourceCeilings,
     ) -> AttemptReservation | None: ...
 
-    def mark_submitting(self, claim: JobClaim, reservation: AttemptReservation) -> None: ...
+    def mark_submitting(self, claim: JobClaim, reservation: AttemptReservation) -> bool:
+        """Atomically mark submitting, or return false when cancellation already won."""
+
+        ...
 
     def complete_attempt(
         self,
@@ -153,6 +158,7 @@ class WorkflowRepository(Protocol):
         result_identity: str | None,
         failure: WorkflowFailure | None,
         sanitized_reason: str | None,
+        resume_call_kind: ProviderCallKind | None,
     ) -> None: ...
 
     def publish_job(self, claim: JobClaim) -> None: ...

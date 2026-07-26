@@ -37,6 +37,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowPrivacyScope,
     WorkflowResourceCeilings,
     WorkflowStatus,
+    validate_transmission_accounting,
 )
 from renpy_story_mapper.story_map_v2.workflow_protocols import (
     ProviderFactory,
@@ -49,7 +50,8 @@ from renpy_story_mapper.story_map_v2.workflow_protocols import (
 )
 
 _ABSOLUTE_PATH = re.compile(
-    rb"(?:[A-Za-z]:[\\/]|\\\\[^\\\r\n]+\\|/(?:Users|home|var|tmp)/)", re.IGNORECASE
+    rb"(?:[A-Za-z]:[\\/]|\\\\[^\\\r\n]+\\|(?<![A-Za-z0-9._-])/(?!/)[^\s\"'<>]+(?:/[^\s\"'<>]+)*)",
+    re.IGNORECASE,
 )
 _SOURCE_PACKET_MARKERS = (b"@@SOURCE ", b'"raw_text":', b'"mechanics":')
 
@@ -118,13 +120,21 @@ class StoryMapWorkflowService:
         """Persist a deterministic preview while constructing and calling zero providers."""
 
         cache_hits: list[str] = []
+        loopback_cache_hits: list[str] = []
         for job in plan.jobs:
             expected = policy.input_identity(job.serialized_request_identity).cache_identity
             if expected != job.cache_identity:
                 raise ValueError("job cache identity does not match the frozen provider input")
             if self._repository.load_cache(job.cache_identity) is not None:
                 cache_hits.append(job.job_id)
-        pending = len(plan.jobs) - len(cache_hits)
+                continue
+            if policy.allow_refusal_fallback:
+                loopback_identity = policy.input_identity(
+                    job.serialized_request_identity, mode=ProviderMode.LOOPBACK
+                ).cache_identity
+                if self._repository.load_cache(loopback_identity) is not None:
+                    loopback_cache_hits.append(job.job_id)
+        pending = len(plan.jobs) - len(cache_hits) - len(loopback_cache_hits)
         if ceilings.mapping_calls < pending:
             raise ValueError("mapping-call ceiling cannot cover every frozen pending job")
         if ceilings.review_calls > len(plan.jobs):
@@ -144,6 +154,7 @@ class StoryMapWorkflowService:
                 loopback_story_content=policy.allow_refusal_fallback,
             ),
             cache_hit_job_ids=tuple(cache_hits),
+            loopback_cache_hit_job_ids=tuple(loopback_cache_hits),
         )
         self._repository.store_prepared(preview)
         return preview
@@ -244,19 +255,45 @@ class StoryMapWorkflowService:
             raise WorkflowApprovalError("plan or authority changed after workflow approval")
         if authority_identity != preview.plan.authority_identity:
             raise WorkflowApprovalError("current authority does not match the frozen workflow plan")
-        initial_hits = set(preview.cache_hit_job_ids)
+        initial_cloud_hits = set(preview.cache_hit_job_ids)
+        initial_loopback_hits = set(preview.loopback_cache_hit_job_ids)
         for job in preview.plan.jobs:
-            cached = self._repository.load_cache(job.cache_identity)
-            if cached is None:
-                if job.job_id in initial_hits:
-                    raise WorkflowApprovalError("cache-hit work changed after workflow preview")
-                continue
-            if job.job_id in initial_hits:
-                continue
             published = self._repository.load_published_result(run_id, job.job_id)
-            if published != cached:
-                raise WorkflowApprovalError("cache-hit work changed after workflow preview")
+            self._validate_frozen_cache_state(
+                job.job_id,
+                job.cache_identity,
+                job.job_id in initial_cloud_hits,
+                published,
+            )
+            if preview.policy.allow_refusal_fallback:
+                loopback_identity = preview.policy.input_identity(
+                    job.serialized_request_identity, mode=ProviderMode.LOOPBACK
+                ).cache_identity
+                self._validate_frozen_cache_state(
+                    job.job_id,
+                    loopback_identity,
+                    job.job_id in initial_loopback_hits,
+                    published,
+                )
         return preview
+
+    def _validate_frozen_cache_state(
+        self,
+        job_id: str,
+        cache_identity: CacheIdentity,
+        was_hit: bool,
+        published: ValidatedWorkflowResult | None,
+    ) -> None:
+        cached = self._repository.load_cache(cache_identity)
+        if cached is None:
+            if was_hit:
+                raise WorkflowApprovalError("cache-hit work changed after workflow preview")
+            return
+        if was_hit or published == cached:
+            return
+        raise WorkflowApprovalError(
+            f"cache-hit work changed after workflow preview for {job_id}"
+        )
 
     def _worker(
         self,
@@ -308,7 +345,29 @@ class StoryMapWorkflowService:
                 claim, review.reservation, claim.job.cache_identity, replacement
             )
             return
-        cached = self._repository.load_cache(claim.job.cache_identity)
+        if claim.resume_call_kind is ProviderCallKind.REFUSAL_FALLBACK:
+            self._run_refusal_fallback(preview, claim)
+            return
+
+        cached_identity = claim.job.cache_identity
+        cached = self._load_eligible_cache(
+            preview,
+            claim,
+            cached_identity,
+            set(preview.cache_hit_job_ids),
+        )
+        if cached is None and preview.policy.allow_refusal_fallback:
+            loopback_identity = preview.policy.input_identity(
+                claim.job.serialized_request_identity, mode=ProviderMode.LOOPBACK
+            ).cache_identity
+            cached = self._load_eligible_cache(
+                preview,
+                claim,
+                loopback_identity,
+                set(preview.loopback_cache_hit_job_ids),
+            )
+            if cached is not None:
+                cached_identity = loopback_identity
         if cached is not None:
             try:
                 cached_validated = self._validator.validate(
@@ -321,7 +380,7 @@ class StoryMapWorkflowService:
             if cached_validated.flagged_for_review:
                 self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
                 return
-            self._accept_result(claim, None, claim.job.cache_identity, cached_validated)
+            self._accept_result(claim, None, cached_identity, cached_validated)
             return
 
         primary = self._call(
@@ -359,6 +418,25 @@ class StoryMapWorkflowService:
             reservation = primary.reservation
         self._accept_result(claim, reservation, claim.job.cache_identity, validated)
 
+    def _load_eligible_cache(
+        self,
+        preview: WorkflowPreview,
+        claim: JobClaim,
+        cache_identity: CacheIdentity,
+        approved_hit_job_ids: set[str],
+    ) -> ValidatedWorkflowResult | None:
+        cached = self._repository.load_cache(cache_identity)
+        if cached is None:
+            return None
+        if claim.job.job_id in approved_hit_job_ids:
+            return cached
+        published = self._repository.load_published_result(
+            preview.run_id, claim.job.job_id
+        )
+        if published == cached:
+            return cached
+        raise WorkflowApprovalError("cache-hit work changed after workflow preview")
+
     def _handle_primary_failure(
         self,
         preview: WorkflowPreview,
@@ -372,26 +450,40 @@ class StoryMapWorkflowService:
             and preview.policy.loopback is not None
             and self._loopback_factory is not None
         ):
-            fallback = self._call(
-                preview,
-                claim,
-                ProviderCallKind.REFUSAL_FALLBACK,
-                preview.policy.loopback,
-                self._loopback_factory,
-            )
-            if isinstance(fallback, _CallFailure):
-                self._finalize_from_call_failure(claim, fallback, local_invalid=True)
-                return
-            validated = self._validate_call(claim, fallback)
-            if validated is None or validated.flagged_for_review:
-                self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
-                return
-            local_cache = preview.policy.input_identity(
-                claim.job.serialized_request_identity, mode=ProviderMode.LOOPBACK
-            ).cache_identity
-            self._accept_result(claim, fallback.reservation, local_cache, validated)
+            self._run_refusal_fallback(preview, claim)
             return
         self._finalize_from_call_failure(claim, failure)
+
+    def _run_refusal_fallback(
+        self,
+        preview: WorkflowPreview,
+        claim: JobClaim,
+    ) -> None:
+        if (
+            not preview.policy.allow_refusal_fallback
+            or preview.policy.loopback is None
+            or self._loopback_factory is None
+        ):
+            self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
+            return
+        fallback = self._call(
+            preview,
+            claim,
+            ProviderCallKind.REFUSAL_FALLBACK,
+            preview.policy.loopback,
+            self._loopback_factory,
+        )
+        if isinstance(fallback, _CallFailure):
+            self._finalize_from_call_failure(claim, fallback, local_invalid=True)
+            return
+        validated = self._validate_call(claim, fallback)
+        if validated is None or validated.flagged_for_review:
+            self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
+            return
+        local_cache = preview.policy.input_identity(
+            claim.job.serialized_request_identity, mode=ProviderMode.LOOPBACK
+        ).cache_identity
+        self._accept_result(claim, fallback.reservation, local_cache, validated)
 
     def _call(
         self,
@@ -445,16 +537,44 @@ class StoryMapWorkflowService:
                 reservation, WorkflowFailure.CANCELLED, TransmissionDisposition.NOT_TRANSMITTED
             )
 
-        self._repository.mark_submitting(claim, reservation)
-        self._checkpoint("after_mark_submitting", claim.job.job_id)
         with self._active_lock:
             self._active[reservation.attempt_id] = provider
+        try:
+            submitting = self._repository.mark_submitting(claim, reservation)
+        except BaseException:
+            with self._active_lock:
+                self._active.pop(reservation.attempt_id, None)
+            raise
+        if not submitting:
+            with self._active_lock:
+                self._active.pop(reservation.attempt_id, None)
+            self._complete_not_transmitted(claim, reservation, WorkflowFailure.CANCELLED)
+            return _CallFailure(
+                reservation,
+                WorkflowFailure.CANCELLED,
+                TransmissionDisposition.NOT_TRANSMITTED,
+            )
+        try:
+            self._checkpoint("after_mark_submitting", claim.job.job_id)
+        except BaseException:
+            with self._active_lock:
+                self._active.pop(reservation.attempt_id, None)
+            raise
+        if self._repository.is_cancelled(preview.run_id):
+            with self._active_lock:
+                self._active.pop(reservation.attempt_id, None)
+            self._complete_not_transmitted(claim, reservation, WorkflowFailure.CANCELLED)
+            return _CallFailure(
+                reservation,
+                WorkflowFailure.CANCELLED,
+                TransmissionDisposition.NOT_TRANSMITTED,
+            )
         stop_monitor, monitor = self._start_cancellation_monitor(preview.run_id, provider)
         try:
             result = provider.submit(request)
         except WorkflowProviderError as exc:
-            self._record_provider_failure(claim, reservation, exc)
-            return _CallFailure(reservation, exc.failure, exc.transmission)
+            failure, transmission = self._record_provider_failure(claim, reservation, exc)
+            return _CallFailure(reservation, failure, transmission)
         except Exception:
             completion = AttemptCompletion(
                 stage=AttemptStage.INDETERMINATE,
@@ -527,6 +647,7 @@ class StoryMapWorkflowService:
             result.result_identity,
             None,
             None,
+            None,
         )
         self._checkpoint("after_finalization", claim.job.job_id)
         self._repository.publish_job(claim)
@@ -554,8 +675,18 @@ class StoryMapWorkflowService:
         else:
             resolution = JobResolution.STRUCTURAL_FALLBACK
             code = WorkflowFailure.INVALID_RESPONSE if local_invalid else failure.failure
+        resume_call_kind = (
+            failure.reservation.call_kind
+            if resolution is JobResolution.RESUMABLE and failure.reservation is not None
+            else None
+        )
         self._repository.finalize_job(
-            claim, resolution, None, code, _SANITIZED_REASONS[code]
+            claim,
+            resolution,
+            None,
+            code,
+            _SANITIZED_REASONS[code],
+            resume_call_kind,
         )
         self._checkpoint("after_finalization", claim.job.job_id)
         if resolution is JobResolution.STRUCTURAL_FALLBACK:
@@ -569,6 +700,7 @@ class StoryMapWorkflowService:
             None,
             failure,
             _SANITIZED_REASONS[failure],
+            None,
         )
         self._checkpoint("after_finalization", claim.job.job_id)
         self._repository.publish_job(claim)
@@ -581,6 +713,7 @@ class StoryMapWorkflowService:
             None,
             WorkflowFailure.CANCELLED,
             _SANITIZED_REASONS[WorkflowFailure.CANCELLED],
+            None,
         )
 
     def _complete_not_transmitted(
@@ -607,7 +740,23 @@ class StoryMapWorkflowService:
         claim: JobClaim,
         reservation: AttemptReservation,
         error: WorkflowProviderError,
-    ) -> None:
+    ) -> tuple[WorkflowFailure, TransmissionDisposition]:
+        try:
+            validate_transmission_accounting(error.transmission, error.accounting)
+        except (TypeError, ValueError):
+            self._repository.complete_attempt(
+                claim,
+                reservation,
+                AttemptCompletion(
+                    stage=AttemptStage.INDETERMINATE,
+                    transmission=TransmissionDisposition.INDETERMINATE,
+                    accounting=error.accounting,
+                    response_identity=None,
+                    failure=WorkflowFailure.INDETERMINATE,
+                    sanitized_reason=_SANITIZED_REASONS[WorkflowFailure.INDETERMINATE],
+                ),
+            )
+            return WorkflowFailure.INDETERMINATE, TransmissionDisposition.INDETERMINATE
         if error.transmission is TransmissionDisposition.NOT_TRANSMITTED:
             stage = AttemptStage.NOT_TRANSMITTED
         elif error.transmission is TransmissionDisposition.INDETERMINATE:
@@ -626,6 +775,7 @@ class StoryMapWorkflowService:
                 sanitized_reason=_SANITIZED_REASONS[error.failure],
             ),
         )
+        return error.failure, error.transmission
 
     def _start_cancellation_monitor(
         self,
