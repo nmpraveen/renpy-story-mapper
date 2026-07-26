@@ -96,6 +96,13 @@ REQUIRED`, P0=0, P1=0, P2=1, P3=0. A delayed in-flight path response can reopen 
 user closes it because Close does not invalidate the request token. A smallest token correction,
 delayed-response Chrome regression, full gate, and same-reviewer rereview are in progress.
 
+The final bounded Track B correction is clean at exact head
+`47f0cacf3e6d6d84281403c38061265ebaee722b`. Delayed success and delayed rejection now remain
+closed at desktop 100%, effective 200%, and 390px narrow while a subsequent request succeeds. The
+full final gate passed 10 focused, 131 adjacent with two intended opt-in skips, adversarial map/
+envelope probes, JavaScript/Ruff/107-file mypy, assets, shared fixture, mojibake, and diff hygiene.
+The same reviewer is rereviewing this exact head; it remains unintegrated.
+
 ## Preflight evidence
 
 - `git fetch --prune origin` completed.
