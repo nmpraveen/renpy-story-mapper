@@ -1,0 +1,37 @@
+{
+  "schema": "story-map-v2-scale-fixture-v1",
+  "reader_schema": "story-map-v2-reader-contract-v2",
+  "seed": 404,
+  "counts": {
+    "events": 5000,
+    "choices": 5000,
+    "arms": 20300,
+    "rejoins": 2000,
+    "sections": 256
+  },
+  "features": {
+    "persistent_route_first_section": 100,
+    "persistent_route_section_count": 50,
+    "nested_choice_depth": 8,
+    "oversized_branch_choice_id": "choice:0",
+    "oversized_branch_arm_count": 304,
+    "cross_section_choice_id": "choice:19",
+    "cross_section_rejoin_section": 20,
+    "final_target_selection_id": "event:4999",
+    "final_target_section_id": "section:255",
+    "unloaded_branch_selection_id": "arm:303",
+    "unloaded_branch_id": "choice:0"
+  },
+  "profiles": [
+    {"id": "desktop-100", "width": 1440, "height": 900, "device_scale_factor": 1},
+    {"id": "desktop-200", "width": 720, "height": 450, "device_scale_factor": 2},
+    {"id": "narrow", "width": 390, "height": 844, "device_scale_factor": 1}
+  ],
+  "bounds": {
+    "live_story_nodes": 600,
+    "dom_nodes": 4000,
+    "heap_bytes": 268435456,
+    "page_bytes": 1048576
+  },
+  "search_query": "final target"
+}
