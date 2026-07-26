@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 final local review passes; screenshot approval, PR, and
-pushed-head checks pending)
+Updated: 2026-07-26 (M15.1 Phase 03 final local review passes; blocked pending explicit screenshot
+approval before PR creation)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -15,15 +15,16 @@ pushed-head checks pending)
   `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
 - Integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
   `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Verification.
+- Status: Blocked. Resume at `Verification` after explicit user screenshot approval.
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
   `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition. All three
   tracks and bounded post-integration corrections are independently reviewed and integrated;
   private fallback/path/reopen and real-browser acceptance pass, and the final cross-track review
-  passes at exact product head `8e6de6f`. The goal remains active through user screenshot
-  approval, PR creation, and exact pushed-head checks.
+  passes at exact product head `8e6de6f`. The goal is blocked after the same required screenshot
+  approval remained unanswered for three consecutive goal turns; it resumes at `Verification`
+  when the user explicitly approves or requests changes.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -147,7 +148,9 @@ pushed-head checks pending)
   report and all four previously presented overview/deep-path PNGs byte-for-byte, with unchanged
   protected inputs and terminal one-call ledger.
 - Next action: obtain explicit user approval of the candidate screenshots, then push, open the
-  single unmerged Phase 03 PR, and require exact pushed-head GitHub checks.
+  single unmerged Phase 03 PR, and require exact pushed-head GitHub checks. The approval picker
+  returned no selection, and the required Pushover input-needed notification was sent; no remote
+  branch or PR exists.
 
 ## M13 historical lifecycle
 

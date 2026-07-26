@@ -1,6 +1,6 @@
 # M15.1 Story Map V2 Phase 03 report
 
-Status: Verification
+Status: Blocked (resume at Verification after explicit screenshot approval)
 
 Integration baseline: `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`
 
@@ -312,6 +312,9 @@ Candidate screenshot artifacts (outside Git; approval pending):
   P0-P2. One compact-witness presentation P3 remains accepted as nonblocking.
 - Candidate screenshots are captured and presented, but explicit user approval is still pending.
 - Push/PR creation and exact pushed-head GitHub checks have not yet occurred.
+- The same screenshot-approval condition remained unanswered for three consecutive goal turns.
+  The approval picker returned no selection and the required Pushover input-needed notification
+  was sent, so the milestone is blocked without any remote mutation.
 
 ## Integration and PR state
 

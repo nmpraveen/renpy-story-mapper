@@ -1,6 +1,6 @@
 # M15.1 - Story Map V2 Phase 03 whole-story browser
 
-Status: Verification
+Status: Blocked
 
 Scope authority: `docs/MASTER_PLAN.md`, M15, and
 `docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`
