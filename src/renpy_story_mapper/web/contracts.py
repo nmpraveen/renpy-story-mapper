@@ -173,6 +173,11 @@ M13_BATCH_LIMIT_FIELDS: Final = (
     "maximum_input_tokens",
 )
 
+STORY_MAP_V2_API_ROUTES: Final[dict[str, str]] = {
+    "map": "/api/v1/story-map-v2/map",
+}
+STORY_MAP_V2_MAP_REQUEST_FIELDS: Final = ()
+
 
 @dataclass(frozen=True)
 class ApiErrorBody:

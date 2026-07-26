@@ -96,6 +96,14 @@ from renpy_story_mapper.project import (
     open_project,
     refresh_ingested_project,
 )
+from renpy_story_mapper.story_map_v2.persistence import (
+    StoryMapV2PersistenceError,
+    load_story_map_v2_for_current_project,
+)
+from renpy_story_mapper.story_map_v2.presentation import (
+    project_story_map,
+    unavailable_story_map,
+)
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
     M07_PREPARE_REQUEST_FIELDS,
@@ -124,6 +132,8 @@ from renpy_story_mapper.web.contracts import (
     M13_PROVIDER_SETTING_FIELDS,
     M13_SNAPSHOT_REQUEST_FIELDS,
     M13_START_REQUEST_FIELDS,
+    STORY_MAP_V2_API_ROUTES,
+    STORY_MAP_V2_MAP_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -405,6 +415,7 @@ class ProjectApi:
                     "m11": dict(M11_API_ROUTES),
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
+                    "story_map_v2": dict(STORY_MAP_V2_API_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -461,6 +472,19 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if method == "POST" and path == STORY_MAP_V2_API_ROUTES["map"]:
+            exact_fields(body, allowed=STORY_MAP_V2_MAP_REQUEST_FIELDS)
+            try:
+                with Project.open(self._project()) as opened_project:
+                    stored = load_story_map_v2_for_current_project(opened_project)
+                story_map_v2_page = (
+                    unavailable_story_map()
+                    if stored is None
+                    else project_story_map(stored.core, stored.synthesis)
+                )
+            except (StoryMapV2PersistenceError, storage.ProjectStorageError, ValueError):
+                story_map_v2_page = unavailable_story_map()
+            return json_value(story_map_v2_page)
         if method == "POST" and path == M08_API_ROUTES["ai_story_map"]:
             exact_fields(body, allowed=M08_AI_STORY_MAP_REQUEST_FIELDS)
             return json_value(self._m08_ai_story_page(body))
