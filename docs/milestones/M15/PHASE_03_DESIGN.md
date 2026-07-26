@@ -138,6 +138,37 @@ The API never accepts synthesis prose, mechanics, topology, source paths, or pro
 from the browser. Missing/stale V2 records return a bounded unavailable response without falling
 back to historical Stage H/E.
 
+### Frozen path/detail envelopes
+
+The request `selection_id` is required and bounded to 512 characters. Every JSON response echoes
+it, including a global missing/stale `unavailable` response. A forged or unknown selection against
+a current stored core remains a 404. Every path envelope uses `semantic_level: "route_map"`; every
+detail envelope uses `semantic_level: "detail_evidence"`.
+
+- Path `available` and recognized `unresolved` responses have exactly `schema`,
+  `semantic_level`, `status`, `selection_id`, `binding`, `cached`, `route_status`, `complete`,
+  `explanation`, and `witness`. The witness has exactly the six bounded fields `scene_titles`,
+  `visible_choices`, `requirements`, `effects`, `uncertainty`, and `instructions`.
+  Item ceilings are respectively 80, 80, 80, 80, 40, and 120; scene titles are at most 160
+  characters and other witness text at most 1,000. Requirements have exact expression/source/
+  evidence-ID fields, while instructions have exact ordinal/kind/text fields.
+- A recognized unresolved path may carry a strict server binding whose destination kind is
+  `unresolved`; that kind is never submitted to M12. Its `complete` is false and its explanation
+  is non-empty.
+- Detail `available` has exactly `schema`, `semantic_level`, `status`, `selection_id`, `binding`,
+  `source_navigation`, and `detail`; the nested detail must pass the existing M10 or M11 detail
+  contract. Recognized no-unique-target/detail failures instead use `unresolved`, omit `detail`,
+  and add a non-empty `reason`.
+- Global path/detail `unavailable` has exactly `schema`, `semantic_level`, `status`,
+  `selection_id`, and a non-empty bounded `reason`; it does not invent a binding, witness, source,
+  or detail.
+- Source navigation is either the exact available tuple (`status`, qualified `path`, start/end
+  line, line basis, evidence ID) or exact unavailable tuple (`status`, bounded `reason`).
+
+The plain reason/explanation ceiling is 1,000 characters. The shared provider-free serialized
+fixture covers path and detail at `available`, recognized `unresolved`, and global `unavailable`:
+`tests/fixtures/story_map_v2_phase03_api_contract.json`.
+
 ## Path projection
 
 Each selectable item carries an exact Python-built binding:
