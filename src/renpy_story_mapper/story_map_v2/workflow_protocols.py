@@ -125,7 +125,11 @@ class WorkflowRepository(Protocol):
         provider_input: ProviderInputIdentity,
         ceilings: WorkflowResourceCeilings,
     ) -> AttemptReservation | None:
-        """Atomically enforce ordinary ceilings and consume any exact approved retry."""
+        """Atomically enforce ceilings and consume or continue an exact approved retry.
+
+        Supplemental capacity is provisional until transmission can occur. A durably definite
+        no-send may reserve the same lineage again; an indeterminate/transmitted retry may not.
+        """
 
         ...
 
@@ -175,7 +179,10 @@ class WorkflowRepository(Protocol):
     def recover(self, run_id: str) -> RecoveryReport: ...
 
     def store_retry_approval(self, run_id: str, approval: JobRetryApproval) -> None:
-        """Approve only the latest indeterminate attempt for one matching call-kind resume."""
+        """Approve only the latest original indeterminate attempt for one matching resume.
+
+        An attempt already carrying retry lineage cannot receive another retry approval.
+        """
 
         ...
 

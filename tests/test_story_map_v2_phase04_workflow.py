@@ -59,9 +59,18 @@ class _Attempt:
 
 
 def _attempt_consumes_call_budget(attempt: _Attempt) -> bool:
+    if attempt.stage is AttemptStage.NOT_TRANSMITTED:
+        return False
     if attempt.completion is None:
         return True
     return attempt.completion.accounting.calls == 1
+
+
+def _supplemental_capacity_is_occupied(attempt: _Attempt) -> bool:
+    return (
+        attempt.reservation.uses_supplemental_retry_capacity
+        and attempt.stage is not AttemptStage.NOT_TRANSMITTED
+    )
 
 
 @dataclass
@@ -218,6 +227,16 @@ class MemoryWorkflowRepository:
                 ):
                     return None
                 retry_of_attempt_id = job.retry_attempt_id
+            elif job.previous_state == "resumable" and job.attempts:
+                latest = job.attempts[-1]
+                if latest.reservation.retry_of_attempt_id is not None:
+                    if (
+                        latest.stage is not AttemptStage.NOT_TRANSMITTED
+                        or latest.reservation.call_kind is not call_kind
+                        or claim.resume_call_kind is not call_kind
+                    ):
+                        return None
+                    retry_of_attempt_id = latest.reservation.retry_of_attempt_id
             role_count = sum(
                 _attempt_consumes_call_budget(attempt)
                 and attempt.reservation.call_kind is call_kind
@@ -232,12 +251,12 @@ class MemoryWorkflowRepository:
             uses_supplemental = role_count >= role_limit
             if uses_supplemental:
                 supplemental_used = sum(
-                    attempt.reservation.uses_supplemental_retry_capacity
+                    _supplemental_capacity_is_occupied(attempt)
                     for item in run.jobs.values()
                     for attempt in item.attempts
                 )
                 job_supplemental_used = any(
-                    attempt.reservation.uses_supplemental_retry_capacity
+                    _supplemental_capacity_is_occupied(attempt)
                     for attempt in job.attempts
                 )
                 if (
@@ -458,6 +477,7 @@ class MemoryWorkflowRepository:
             latest = job.attempts[-1]
             assert latest.reservation.attempt_id == approval.indeterminate_attempt_id
             assert latest.stage is AttemptStage.INDETERMINATE
+            assert latest.reservation.retry_of_attempt_id is None
             assert job.retry_attempt_id is None
             job.retry_attempt_id = approval.indeterminate_attempt_id
             self.durable.append(approval)
@@ -1698,6 +1718,127 @@ def test_approved_indeterminate_replacement_review_retries_review_only(
     )
     assert reopened.accepted_jobs == 1
     assert cloud.calls == 3
+
+
+@pytest.mark.parametrize("continuation", ["replacement_review", "refusal_fallback"])
+def test_supplemental_retry_reservation_is_released_after_definite_no_send(
+    continuation: str,
+) -> None:
+    policy = _policy(fallback=continuation == "refusal_fallback")
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    uncertain = _provider_failure(
+        WorkflowFailure.INDETERMINATE,
+        TransmissionDisposition.INDETERMINATE,
+        calls=1,
+    )
+    checkpoint = FaultOnOccurrence("after_reservation", 3)
+    if continuation == "refusal_fallback":
+        cloud = RecordingFactory(
+            policy.cloud,
+            [
+                _provider_failure(
+                    WorkflowFailure.CONTENT_REFUSAL,
+                    TransmissionDisposition.TRANSMITTED,
+                    calls=1,
+                )
+            ],
+        )
+        assert policy.loopback is not None
+        local: RecordingFactory | None = RecordingFactory(
+            policy.loopback,
+            [uncertain, uncertain],
+        )
+        ceilings = _ceilings(2, fallbacks=1, retries=1)
+        expected_kind = ProviderCallKind.REFUSAL_FALLBACK
+    else:
+        cloud = RecordingFactory(
+            policy.cloud,
+            [_reply(policy.cloud, b"flagged"), uncertain, uncertain],
+        )
+        local = None
+        ceilings = _ceilings(2, reviews=1, retries=1)
+        expected_kind = ProviderCallKind.REPLACEMENT_REVIEW
+    service = _service(
+        repository,
+        requests,
+        cloud,
+        local=local,
+        checkpoint=checkpoint,
+    )
+    preview = _prepare_approve(service, plan, policy, ceilings)
+
+    first = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert first.indeterminate_jobs == 1
+    approved_attempt_id = repository.last_attempt_id("run-public", "job-0")
+    service.approve_indeterminate_retry(
+        "run-public",
+        preview_identity=preview.identity,
+        job_id="job-0",
+        indeterminate_attempt_id=approved_attempt_id,
+    )
+    cloud_calls_before_crash = cloud.calls
+    local_calls_before_crash = 0 if local is None else local.calls
+
+    with pytest.raises(SimulatedProcessCrash):
+        service.execute(
+            "run-public",
+            preview_identity=preview.identity,
+            authority_identity=plan.authority_identity,
+        )
+    assert cloud.calls == cloud_calls_before_crash
+    assert (0 if local is None else local.calls) == local_calls_before_crash
+    recovery = service.recover("run-public")
+    assert recovery.not_transmitted_jobs == ("job-0",)
+
+    resumed = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert resumed.indeterminate_jobs == 1
+    assert resumed.accounting.calls == 3
+    attempts = repository.runs["run-public"].jobs["job-0"].attempts
+    assert [attempt.reservation.call_kind for attempt in attempts] == [
+        ProviderCallKind.MAPPING,
+        expected_kind,
+        expected_kind,
+        expected_kind,
+    ]
+    assert [attempt.reservation.ordinal for attempt in attempts] == [1, 2, 3, 4]
+    assert attempts[2].stage is AttemptStage.NOT_TRANSMITTED
+    for attempt in attempts[2:]:
+        assert attempt.reservation.retry_of_attempt_id == approved_attempt_id
+        assert attempt.reservation.uses_supplemental_retry_capacity is True
+    if local is None:
+        assert cloud.calls == 3
+    else:
+        assert cloud.calls == 1
+        assert local.calls == 2
+
+    latest_attempt_id = repository.last_attempt_id("run-public", "job-0")
+    with pytest.raises(AssertionError):
+        service.approve_indeterminate_retry(
+            "run-public",
+            preview_identity=preview.identity,
+            job_id="job-0",
+            indeterminate_attempt_id=latest_attempt_id,
+        )
+    unchanged = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+    assert unchanged.indeterminate_jobs == 1
+    if local is None:
+        assert cloud.calls == 3
+    else:
+        assert cloud.calls == 1
+        assert local.calls == 2
 
 
 @pytest.mark.parametrize(
