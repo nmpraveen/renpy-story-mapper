@@ -151,10 +151,12 @@ renewed exact native goal)
   accents, desktop two-column/narrow stacked arms, mechanics-first witness with full raw scenes in
   Analysis notes, and compact 200% masthead. No provider/server/API/navigation/private change is
   authorized.
-- Next action: create and record the renewed exact done-condition goal, resume existing Track B
-  browser ownership from exact lifecycle head `4c4d400`, require same-reviewer exact-head PASS,
-  integrate byte-equivalently, run provider-free/private browser acceptance, obtain new screenshot
-  approval, then push/open the single unmerged PR and require exact pushed-head GitHub checks.
+- Current action: existing Track B task `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6` is implementing the
+  bounded browser refinement from exact lifecycle checkpoint `986b027`, with explicit
+  `gpt-5.6-sol`/High settings and fast mode unavailable/unverified. Next require fresh final-byte
+  gates, same-reviewer exact-head PASS, byte-equivalent integration, provider-free/private browser
+  acceptance, new screenshot approval, then the single open unmerged PR and exact pushed-head
+  GitHub checks.
 
 ## M13 historical lifecycle
 
