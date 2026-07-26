@@ -230,7 +230,10 @@ mojibake, privacy, containment, and diff gates. Same-role independent exact-head
 progress; these worker results are not yet integration authority. The same reviewer rejected
 `d858c999...` with P0=0/P1=0/P2=1/P3=0 solely because contract-valid long arm captions were clipped
 instead of wrapped across all three browser profiles. A bounded CSS/test/manifest correction is in
-progress; all other amended criteria passed independent review.
+clean descendant `848dce0c06300fb90722ba00a2d69bcd8268793c`; its final worker gate reports 16 focused
+passes with nine Chrome cases, 269 Story Map V2 passes, 132 adjacent passes, and green static/privacy
+checks. Same-reviewer exact-head rereview is in progress; all other amended criteria previously
+passed independent review.
 
 Candidate screenshot artifacts (outside Git; approval pending):
 
