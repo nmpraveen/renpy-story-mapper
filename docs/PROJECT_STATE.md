@@ -16,8 +16,8 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
 - Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md) before product edits.
 - Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
 - Native Codex goal: active Phase 03 Coordinator goal/task
-  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; product
-  code has not started.
+  `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0`, exactly matching the contract done condition; Track A
+  is reviewed and integrated while Tracks B/C are in progress.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -37,9 +37,17 @@ Updated: 2026-07-25 (M15.1 Phase 03 started; semantic review PASS)
   cherry-picked byte-equivalently as `e4b497f`, `1dcc63e`, and `50bdc08`. Coordinator CPython
   3.12 focused verification passed 50 tests; the integration branch is clean apart from preserved
   untracked user/private paths.
-- Next action: dispatch separate visible Track B and Track C worktrees concurrently from exact
-  integrated shared-seam checkpoint `50bdc08`, then require an independent exact-head reviewer for
-  each before integration.
+- Track B browser: visible task `019f9c8d-cfb6-7b32-8c7f-51482bbe39c6`, worktree
+  `C:/Users/prave/.codex/worktrees/9ea6/Renpy`, dispatched with explicit `gpt-5.6-sol` High from
+  exact frozen checkpoint `4827b06` (Track A product seam through `50bdc08`). It owns only the
+  static browser and focused tests and is in progress.
+- Track C navigation: visible task `019f9c8d-cfa8-76c1-9111-7600e1180d35`, worktree
+  `C:/Users/prave/.codex/worktrees/ee40/Renpy`, dispatched concurrently with explicit
+  `gpt-5.6-sol` High from exact frozen checkpoint `4827b06`. It owns only deterministic Python
+  path/detail/source navigation and focused tests and is in progress.
+- Next action: receive clean exact-head Track B/C handoffs, dispatch one separate independent
+  exact-head reviewer for each, and integrate only reviewed commits. No provider/private action
+  occurs before all integrated provider-free gates pass.
 
 ## M13 historical lifecycle
 
