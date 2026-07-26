@@ -34,14 +34,19 @@ checkpoint `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; native goal is active and
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
 - Phase 04 Track A Coordinator: visible task `019fa00d-1e55-79e0-95b0-c88f8fd89919`, worktree
   `C:/Users/prave/.codex/worktrees/6321/Renpy`, dispatched from exact integration checkpoint
-  `9e5088ea54dcd227e933fb14884d408596ff979b` with explicit `gpt-5.6-sol` High. It must create
-  separate visible A1, A2, and exact-head reviewer tasks before implementing the occurrence-aware
-  plan and frozen chunking scope.
+  `9e5088ea54dcd227e933fb14884d408596ff979b` with explicit `gpt-5.6-sol` High. Worker A1 is task
+  `019fa00e-c8e5-7141-8c83-d043b27d9d34` in `C:/Users/prave/.codex/worktrees/9f93/Renpy`;
+  Worker A2 is task `019fa00e-c8e9-7422-bce8-adc0b692ff40` in
+  `C:/Users/prave/.codex/worktrees/fe82/Renpy`; the independent reviewer is task
+  `019fa00e-c967-7e71-a7e4-151e1cfcb498` in `C:/Users/prave/.codex/worktrees/ad4a/Renpy`.
 - Phase 04 Track B Coordinator: visible task `019fa00d-1e77-7fd3-93d5-ee9761a5f662`, worktree
   `C:/Users/prave/.codex/worktrees/bcc8/Renpy`, dispatched from the same exact checkpoint with
-  explicit `gpt-5.6-sol` High. It must create separate visible B1, B2, and exact-head reviewer
-  tasks before implementing schema-v7 durability and the provider workflow. Both coordinators
-  report fast-mode selection as unavailable/unverified.
+  explicit `gpt-5.6-sol` High. Worker B1 is task `019fa00f-8e20-7382-8dc9-2c1ce5d39975` in
+  `C:/Users/prave/.codex/worktrees/d46a/Renpy`; Worker B2 is task
+  `019fa00f-b94c-7af1-9b10-1b67c64ea6fb` in `C:/Users/prave/.codex/worktrees/f258/Renpy`;
+  the independent reviewer is task `019fa00f-dad0-7b13-9454-9c9b44a0d098` in
+  `C:/Users/prave/.codex/worktrees/70a9/Renpy`. Both coordinators report fast-mode selection as
+  unavailable/unverified.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was

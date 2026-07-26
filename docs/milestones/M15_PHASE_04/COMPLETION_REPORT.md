@@ -13,7 +13,9 @@ The bounded contract passed its repeated exact-head semantic gate at corrected c
 `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`. Native goal
 `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749` is active; product implementation is beginning under the
 approved track boundaries. Track A task `019fa00d-1e55-79e0-95b0-c88f8fd89919` and Track B task
-`019fa00d-1e77-7fd3-93d5-ee9761a5f662` are active in separate worktrees.
+`019fa00d-1e77-7fd3-93d5-ee9761a5f662` are active in separate worktrees. Each has dispatched two
+independent implementation workers and one independent exact-head reviewer as required; all six
+child tasks are recorded in `TASKS.md`.
 
 ## Acceptance evidence
 
