@@ -76,7 +76,7 @@ def _story_page() -> dict[str, object]:
     }
     return {
         "schema": "story-map-v2-page-v1",
-        "status": "synthesized",
+        "status": "fallback",
         "reason": None,
         "title": "A Road Through Winter",
         "overview": "Two travellers choose how to cross the valley.",
@@ -84,8 +84,8 @@ def _story_page() -> dict[str, object]:
         "sections": [
             {
                 "id": "section-1",
-                "title": "Leaving home",
-                "summary": "The journey begins before the weather turns.",
+                "title": "A Road Through Winter",
+                "summary": "Two travellers choose how to cross the valley.",
                 "events": [
                     {
                         "selection_id": "event-departure",
@@ -171,7 +171,17 @@ def _story_page() -> dict[str, object]:
                                 ],
                             },
                         ],
-                    }
+                    },
+                    {
+                        "selection_id": "event-shelter",
+                        "title": "Shelter from the storm",
+                        "summary": "The travellers reach safety after the valley crossing.",
+                        "characters": ["Ari", "Mara"],
+                        "reachability": "reachable",
+                        "warnings": [],
+                        "binding": binding("event-shelter", "story_map_v2_event"),
+                        "choices": [],
+                    },
                 ],
             }
         ],
@@ -195,17 +205,42 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
         'id="storyPathChoices"',
         'id="storyPathRequirements"',
         'id="storyPathEffects"',
+        'id="storyPathAnalysisNotes"',
         'id="returnToStorySelection"',
         'id="storyAnalysisNotes"',
     ):
         assert marker in html
     assert "story-section" in css and "story-event" in css and "story-arm" in css
+    assert ".story-event-number" in css
+    assert 'element("ol", "story-events")' in assets
+    assert 'number.setAttribute("aria-label", `Event ${ordinal}`)' in assets
     assert "grid-template-columns: minmax(0, 1fr)" in css
+    assert "@media (min-width: 1100px)" in css
+    assert "repeat(2, minmax(0, 1fr))" in css
     assert ".story-path-panel :where" in css and "overflow-wrap: anywhere" in css
     assert "@media (max-width: 780px)" in css
+    assert not re.search(r"#diagnosticsButton[^}]*display\s*:\s*none", css)
     assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
     story_surface = html[html.index('id="storyBrowser"') : html.index('<div class="commandbar">')]
     assert not re.search(r"fit.?all|zoom", story_surface, re.IGNORECASE)
+    path_surface = story_surface[
+        story_surface.index('id="storyPathPanel"') : story_surface.index("</aside>")
+    ]
+    assert '<details id="storyPathAnalysisNotes"' in path_surface
+    assert "<summary>Analysis notes</summary>" in path_surface
+    assert not re.search(r'id="storyPathAnalysisNotes"[^>]*\bopen\b', path_surface)
+    mechanics = (
+        path_surface.index('id="storyPathChoicesGroup"'),
+        path_surface.index('id="storyPathRequirementsGroup"'),
+        path_surface.index('id="storyPathEffectsGroup"'),
+        path_surface.index('id="storyPathSteps"'),
+        path_surface.index('id="storyPathUncertaintyGroup"'),
+    )
+    assert list(mechanics) == sorted(mechanics)
+    assert mechanics[-1] < path_surface.index('id="storyPathAnalysisNotes"')
+    assert path_surface.index('id="storyPathAnalysisNotes"') < path_surface.index(
+        'id="storyPathScenes"'
+    )
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
@@ -301,7 +336,7 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
         encoding="utf-8",
     )
     assert json.loads(completed.stdout) == {
-        "status": "synthesized",
+        "status": "fallback",
         "event": "event-departure",
         "nested": "nested-choice",
         "continuation": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",
@@ -850,15 +885,42 @@ def _browser_measurement(session: Any) -> dict[str, object]:
             left: rect.left, right: rect.right, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth,
             clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
           }; });
-          const stackSelectors = ['#storySections', '.story-events', '.story-choices', '.story-arms'];
+          const stackSelectors = ['#storySections', '.story-events', '.story-choices'];
           const groups = stackSelectors.flatMap(selector => [...document.querySelectorAll(selector)].map(group => {
             const children = [...group.children].filter(node => node.matches('.story-section,.story-event,.story-choice,.story-arm,.story-continuation'));
             const rects = children.map(node => node.getBoundingClientRect());
             return { count: rects.length, ordered: rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom - 1) };
           }));
+          const armLayouts = [...document.querySelectorAll('.story-choice:not(.nested) > .story-arms')].map(group => {
+            const arms = [...group.children].filter(node => node.classList.contains('story-arm'));
+            const rects = arms.map(node => node.getBoundingClientRect());
+            return {
+              ids: arms.map(node => node.dataset.storySelectionId),
+              columns: rects.length === 2 && Math.abs(rects[0].top - rects[1].top) <= 1 && rects[1].left > rects[0].left,
+              stacked: rects.length === 2 && rects[1].top >= rects[0].bottom - 1,
+            };
+          });
+          const masthead = document.querySelector('.masthead');
+          const mastheadRect = masthead.getBoundingClientRect();
+          const mastheadParts = [...masthead.children].filter(node => {
+            const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0;
+          }).map(node => { const rect = node.getBoundingClientRect(); return {name:node.id || node.className, left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom}; });
+          const mastheadOverlap = mastheadParts.some((left, index) => mastheadParts.slice(index + 1).some(right => Math.min(left.right, right.right) - Math.max(left.left, right.left) > 1 && Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) > 1));
+          const mastheadActions = ['homeButton','refreshProject','diagnosticsButton','settingsButton','quitButton'].map(id => {
+            const node = document.getElementById(id); const rect = node.getBoundingClientRect();
+            return {id, width:rect.width, height:rect.height, left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom};
+          });
+          const hero = document.querySelector('.story-hero'); const heroRect = hero.getBoundingClientRect(); const heroStyle = getComputedStyle(hero);
           return {
             page: { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, bodyScrollWidth: body.scrollWidth, bodyClientWidth: body.clientWidth },
             boxes, groups,
+            armLayouts,
+            hero: {height:heroRect.height, paddingTop:parseFloat(heroStyle.paddingTop), titleSize:parseFloat(getComputedStyle(document.querySelector('#storyTitle')).fontSize), titleRegions:document.querySelectorAll('#storyBrowser h1').length, titleCopies:[...document.querySelectorAll('#storyBrowser *')].filter(node => !node.children.length && node.textContent.trim() === document.querySelector('#storyTitle').textContent.trim()).length, overviewCopies:[...document.querySelectorAll('#storyBrowser *')].filter(node => !node.children.length && node.textContent.trim() === document.querySelector('#storyOverview').textContent.trim()).length, wrapperHeaders:document.querySelectorAll('.story-section-header').length, fallback:document.querySelector('#storyBrowser').classList.contains('is-fallback')},
+            masthead: {height:mastheadRect.height, left:mastheadRect.left, right:mastheadRect.right, top:mastheadRect.top, bottom:mastheadRect.bottom, overlap:mastheadOverlap, parts:mastheadParts, actions:mastheadActions, projectVisible:document.querySelector('#projectIdentity').getBoundingClientRect().width > 0},
+            eventIds: [...document.querySelectorAll('.story-event')].map(node => node.dataset.storySelectionId),
+            eventNumbers: [...document.querySelectorAll('.story-event-number')].map(node => node.textContent.trim()),
+            eventSemantics: {listTag:document.querySelector('.story-events')?.tagName, itemTags:[...document.querySelectorAll('.story-event')].map(node => node.tagName), ordinalLabels:[...document.querySelectorAll('.story-event-number')].map(node => node.getAttribute('aria-label'))},
+            nestedOwner: document.querySelector('.story-choice.nested')?.closest('.story-arm')?.dataset.storySelectionId,
             nestedArms: document.querySelectorAll('.story-choice.nested .story-arm').length,
             continuations: document.querySelectorAll('.story-continuation').length,
             continuationTargets: document.querySelectorAll('[data-story-selection-id="story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"][aria-selected]').length,
@@ -897,6 +959,8 @@ def _story_path_measurement(session: Any) -> dict[str, object]:
           });
           const steps = [...panel.querySelectorAll('.story-path-step')].map(node => node.getBoundingClientRect());
           const warnings = [...panel.querySelectorAll('#storyPathWarnings p')].map(node => node.getBoundingClientRect());
+          const analysis = panel.querySelector('#storyPathAnalysisNotes');
+          const mechanics = ['#storyPathTitle','#storyPathSummary','#storyPathChoicesGroup','#storyPathRequirementsGroup','#storyPathEffectsGroup','.story-witness-title','#storyPathUncertaintyGroup'].map(selector => panel.querySelector(selector));
           const beforeScroll = panel.scrollTop;
           panel.scrollTop = panel.scrollHeight;
           const afterScroll = panel.scrollTop;
@@ -916,6 +980,7 @@ def _story_path_measurement(session: Any) -> dict[str, object]:
             instructionText: document.querySelector('#storyPathSteps').textContent,
             warningText: document.querySelector('#storyPathWarnings').textContent,
             uncertaintyHidden: document.querySelector('#storyPathUncertaintyGroup').hidden,
+            analysis: {open:analysis.open, hidden:analysis.hidden, label:analysis.querySelector('summary').textContent.trim(), scenes:[...document.querySelectorAll('#storyPathScenes li')].map(node => node.textContent), containsScenes:analysis.contains(document.querySelector('#storyPathScenesGroup')), mechanicsFirst:mechanics.every(node => Boolean(node.compareDocumentPosition(analysis) & Node.DOCUMENT_POSITION_FOLLOWING))},
           };
         })()"""
     )
@@ -1143,6 +1208,48 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 assert box["scrollHeight"] <= box["clientHeight"] + 2
             groups = measured["groups"]
             assert isinstance(groups, list) and all(group["ordered"] for group in groups)
+            assert measured["eventIds"] == ["event-departure", "event-shelter"]
+            assert measured["eventNumbers"] == ["01", "02"]
+            assert measured["eventSemantics"] == {
+                "listTag": "OL",
+                "itemTags": ["LI", "LI"],
+                "ordinalLabels": ["Event 1", "Event 2"],
+            }
+            hero = measured["hero"]
+            assert hero["fallback"] is True
+            assert hero["titleRegions"] == 1
+            assert hero["titleCopies"] == 1
+            assert hero["overviewCopies"] == 1
+            assert hero["wrapperHeaders"] == 0
+            assert hero["paddingTop"] <= 40
+            assert hero["titleSize"] <= 60
+            masthead = measured["masthead"]
+            assert masthead["projectVisible"] is True
+            assert masthead["overlap"] is False
+            assert masthead["height"] <= (52 if profile == "desktop" else 96)
+            for part in masthead["parts"]:
+                assert part["left"] >= masthead["left"] - 1
+                assert part["right"] <= masthead["right"] + 1
+                assert part["top"] >= masthead["top"] - 1
+                assert part["bottom"] <= masthead["bottom"] + 1
+            for action in masthead["actions"]:
+                assert action["width"] > 0 and action["height"] > 0
+                assert action["left"] >= masthead["left"] - 1
+                assert action["right"] <= masthead["right"] + 1
+                focused = session.evaluate(
+                    f"document.querySelector('#{action['id']}').focus(); document.activeElement.id"
+                )
+                assert focused == action["id"]
+            arm_layouts = measured["armLayouts"]
+            assert [layout["ids"] for layout in arm_layouts] == [
+                ["arm-bridge", "arm-tunnel"],
+                ["arm-river", "arm-camp"],
+            ]
+            if profile == "desktop":
+                assert all(layout["columns"] for layout in arm_layouts)
+            else:
+                assert all(layout["stacked"] for layout in arm_layouts)
+            assert measured["nestedOwner"] == "arm-tunnel"
             assert measured["nestedArms"] == 1
             assert measured["continuations"] == 2
             assert measured["continuationTargets"] == 2
@@ -1207,6 +1314,14 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             assert path_layout["stepsOrdered"] is True
             assert path_layout["warningsOrdered"] is True
             assert path_layout["uncertaintyHidden"] is False
+            assert path_layout["analysis"] == {
+                "open": False,
+                "hidden": False,
+                "label": "Analysis notes",
+                "scenes": ["Departure", "Tunnel"],
+                "containsScenes": True,
+                "mechanicsFirst": True,
+            }
             assert LONG_UNBROKEN_INSTRUCTION in path_layout["instructionText"]
             assert LONG_SPACED_INSTRUCTION in path_layout["instructionText"]
             assert LONG_UNBROKEN_WARNING in path_layout["warningText"]
@@ -1220,6 +1335,19 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 assert box["scrollHeight"] <= box["clientHeight"] + 1
             vertical_scroll = path_layout["verticalScroll"]
             assert max(vertical_scroll["after"], vertical_scroll["browserAfter"]) > 0
+            session.evaluate("document.querySelector('#storyPathAnalysisNotes').open = true")
+            session.wait(
+                "document.querySelector('#storyPathScenes').getBoundingClientRect().height > 0"
+            )
+            expanded_path_layout = _story_path_measurement(session)
+            assert expanded_path_layout["analysis"]["open"] is True
+            assert expanded_path_layout["analysis"]["scenes"] == ["Departure", "Tunnel"]
+            assert expanded_path_layout["panel"]["scrollWidth"] <= expanded_path_layout["panel"][
+                "clientWidth"
+            ] + 1
+            assert expanded_path_layout["overflowers"] == []
+            assert expanded_path_layout["clipped"] == []
+            session.evaluate("document.querySelector('#storyPathAnalysisNotes').open = false")
             session.evaluate("document.querySelector('#closeStoryPath').click()")
             session.wait(
                 "document.querySelector('#storyPathPanel').hidden && document.activeElement?.dataset?.storySelectionId === 'arm-nested-a'"

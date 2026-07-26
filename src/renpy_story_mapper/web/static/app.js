@@ -953,9 +953,10 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
   return article;
 }
 
-function renderStoryEvent(event) {
+function renderStoryEvent(event, ordinal) {
   state.storyItems.set(event.selection_id, event);
-  const article = element("article", "story-event"); article.dataset.storySelectionId = event.selection_id;
+  const article = element("li", "story-event"); article.dataset.storySelectionId = event.selection_id; article.dataset.storyOrdinal = String(ordinal);
+  const number = element("span", "story-event-number", String(ordinal).padStart(2, "0")); number.setAttribute("aria-label", `Event ${ordinal}`); article.append(number);
   const head = element("div", "story-event-head");
   const control = storySelectionControl(event, "story-event");
   head.append(control, storyDetailControl(event, control));
@@ -974,19 +975,23 @@ function renderStoryEvent(event) {
 function renderStoryMapV2(page) {
   invalidateStoryDetail();
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
+  const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
   $("#storyMapStatus").textContent = page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
-  const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren();
+  const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren(); let eventOrdinal = 0;
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
-    const link = element("a", "", section.title); link.href = `#${id}`; index.append(link);
+    const duplicateFallbackWrapper = fallback && page.sections.length === 1 && section.title.trim() === page.title.trim() && section.summary.trim() === page.overview.trim();
+    if (!duplicateFallbackWrapper) { const link = element("a", "", section.title); link.href = `#${id}`; index.append(link); }
     const card = element("section", "story-section"); card.id = id;
-    const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header);
-    const events = element("div", "story-events");
-    for (const event of section.events) events.append(renderStoryEvent(event));
+    card.classList.toggle("story-section--duplicate-wrapper", duplicateFallbackWrapper);
+    if (!duplicateFallbackWrapper) { const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header); }
+    const events = element("ol", "story-events");
+    for (const event of section.events) events.append(renderStoryEvent(event, ++eventOrdinal));
     card.append(events); sections.append(card);
   });
+  index.hidden = !index.children.length;
   const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
   for (const note of page.analysis_notes || []) notes.append(element("p", "", note));
   $("#storyAnalysisNotes").hidden = !notes.children.length;
@@ -1007,7 +1012,7 @@ function clearStoryPathWitness() {
     ["#storyPathRequirementsGroup", "#storyPathRequirements"],
     ["#storyPathEffectsGroup", "#storyPathEffects"],
   ]) renderStoryWitnessList(groupSelector, listSelector, []);
-  $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren(); $("#storyPathUncertaintyGroup").hidden = true;
+  $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren(); $("#storyPathUncertaintyGroup").hidden = true; $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = true;
 }
 
 function renderStoryPath(path) {
@@ -1028,6 +1033,7 @@ function renderStoryPath(path) {
   const warnings = $("#storyPathWarnings"); warnings.replaceChildren();
   for (const warning of path.witness?.uncertainty || []) warnings.append(element("p", "", warning));
   $("#storyPathUncertaintyGroup").hidden = !warnings.children.length;
+  $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = $("#storyPathScenesGroup").hidden;
   $("#storyDetailAction").disabled = false;
   $("#storyPathPanel").hidden = false;
 }
