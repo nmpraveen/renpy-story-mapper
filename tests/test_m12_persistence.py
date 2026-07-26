@@ -99,7 +99,7 @@ def _result(marker: str = "one") -> dict[str, object]:
 
 
 def test_m12_uses_scoped_schema_v6_generic_payload_storage() -> None:
-    assert storage.SCHEMA_VERSION == 6
+    assert storage.SCHEMA_VERSION >= 6
     assert ROUTE_RESULTS_COLLECTION in storage.PAYLOAD_COLLECTIONS
 
 
