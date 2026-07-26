@@ -452,6 +452,219 @@ def test_cancelled_reserved_attempt_cannot_transition_to_transmitting(tmp_path: 
         )
 
 
+@pytest.mark.parametrize(
+    "disposition",
+    [TransmissionDisposition.TRANSMITTED, TransmissionDisposition.INDETERMINATE],
+)
+def test_reserved_attempt_cannot_report_possible_transmission_without_mark(
+    tmp_path: Path,
+    disposition: TransmissionDisposition,
+) -> None:
+    with Project.create(tmp_path / f"reserved-{disposition}.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+
+        with pytest.raises(LeaseConflictError, match="transmitting"):
+            repository.complete_attempt(
+                claim,
+                attempt,
+                disposition=disposition,
+                accounting=one_call()
+                if disposition is TransmissionDisposition.TRANSMITTED
+                else AttemptAccounting(0, 0, 0, 1),
+                response_identity=digest("response")
+                if disposition is TransmissionDisposition.TRANSMITTED
+                else None,
+                failure_kind=None
+                if disposition is TransmissionDisposition.TRANSMITTED
+                else "transport_unknown",
+                sanitized_failure=None
+                if disposition is TransmissionDisposition.TRANSMITTED
+                else "provider_outcome_unknown",
+                now=NOW,
+            )
+        assert repository.list_attempts(claim.descriptor.job_id)[0].reservation.status is (
+            AttemptStatus.RESERVED
+        )
+
+
+def test_reserved_attempt_cannot_finalize_success_without_mark(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "reserved-direct-success.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        with pytest.raises(LeaseConflictError, match="transmitting"):
+            repository.finalize_success(
+                claim,
+                attempt,
+                {"summary": "must not cache"},
+                one_call(),
+                now=NOW,
+            )
+        assert repository.lookup_cache(claim.descriptor.cache_identity) is None
+
+
+@pytest.mark.parametrize(
+    "disposition",
+    [TransmissionDisposition.TRANSMITTED, TransmissionDisposition.INDETERMINATE],
+)
+def test_reserved_attempt_cannot_finalize_possible_transmission_failure_without_mark(
+    tmp_path: Path,
+    disposition: TransmissionDisposition,
+) -> None:
+    with Project.create(tmp_path / f"reserved-failure-{disposition}.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        with pytest.raises(LeaseConflictError, match="transmitting"):
+            repository.finalize_failure(
+                claim,
+                attempt,
+                disposition=disposition,
+                accounting=one_call()
+                if disposition is TransmissionDisposition.TRANSMITTED
+                else AttemptAccounting(0, 0, 0, 1),
+                failure_kind="provider_failure",
+                sanitized_failure="provider_failure_after_possible_send",
+                now=NOW,
+            )
+        assert repository.list_attempts(claim.descriptor.job_id)[0].reservation.status is (
+            AttemptStatus.RESERVED
+        )
+
+
+def test_cancelled_reserved_attempt_cannot_complete_as_transmitted(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "cancel-direct-complete.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+
+        with pytest.raises(LeaseConflictError, match="transmitting"):
+            repository.complete_attempt(
+                claim,
+                attempt,
+                disposition=TransmissionDisposition.TRANSMITTED,
+                accounting=one_call(),
+                response_identity=digest("forbidden-direct-response"),
+                now=NOW,
+            )
+        assert repository.lookup_cache(claim.descriptor.cache_identity) is None
+        assert repository.list_attempts(claim.descriptor.job_id)[0].reservation.status is (
+            AttemptStatus.RESERVED
+        )
+
+
+def test_cancelled_reserved_attempt_cannot_finalize_success(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "cancel-direct-success.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+
+        with pytest.raises(LeaseConflictError, match="transmitting"):
+            repository.finalize_success(
+                claim,
+                attempt,
+                {"summary": "must not persist"},
+                one_call(),
+                now=NOW,
+            )
+        assert repository.lookup_cache(claim.descriptor.cache_identity) is None
+        assert repository.list_attempts(claim.descriptor.job_id)[0].reservation.status is (
+            AttemptStatus.RESERVED
+        )
+
+
+def test_cancelled_reserved_attempt_may_complete_as_definitely_not_transmitted(
+    tmp_path: Path,
+) -> None:
+    with Project.create(tmp_path / "cancel-definite-no-send.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+        completed = repository.complete_attempt(
+            claim,
+            attempt,
+            disposition=TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED,
+            accounting=AttemptAccounting(0, 0, 0, 0),
+            response_identity=None,
+            failure_kind="cancelled_before_send",
+            sanitized_failure="cancelled_before_transmission",
+            now=NOW,
+        )
+
+        assert completed.reservation.status is AttemptStatus.NOT_TRANSMITTED
+        assert repository.get_job(claim.descriptor.job_id).status is JobStatus.CANCELLED  # type: ignore[union-attr]
+
+
+def test_post_transmitting_cancel_records_attempt_but_blocks_result_processing(
+    tmp_path: Path,
+) -> None:
+    with Project.create(tmp_path / "cancel-after-transmitting.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.mark_transmitting(claim, attempt, now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+        completed = repository.complete_attempt(
+            claim,
+            attempt,
+            disposition=TransmissionDisposition.TRANSMITTED,
+            accounting=one_call(),
+            response_identity=digest("returned-after-cancel"),
+            now=NOW,
+        )
+
+        assert completed.reservation.status is AttemptStatus.RETURNED
+        assert repository.get_job(claim.descriptor.job_id).status is JobStatus.CANCELLED  # type: ignore[union-attr]
+        with pytest.raises(StoryMapV2RepositoryError, match="cancel"):
+            repository.record_validated(
+                claim.descriptor.job_id,
+                attempt.attempt_id,
+                {"summary": "must not validate"},
+                now=NOW,
+            )
+        assert repository.lookup_cache(claim.descriptor.cache_identity) is None
+
+
+def test_post_transmitting_cancel_blocks_convenience_success(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "cancel-convenience-success.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.mark_transmitting(claim, attempt, now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+
+        with pytest.raises(LeaseConflictError, match="cancel"):
+            repository.finalize_success(
+                claim,
+                attempt,
+                {"summary": "must not cache"},
+                one_call(),
+                now=NOW,
+            )
+        assert repository.lookup_cache(claim.descriptor.cache_identity) is None
+
+
 def test_staged_indeterminate_completion_requires_explicit_retry_approval(tmp_path: Path) -> None:
     with Project.create(tmp_path / "staged-indeterminate.rsmp") as project:
         repository = project.story_map_v2_repository()
@@ -654,6 +867,31 @@ def test_attempt_completion_enforces_call_and_disposition_coherence(tmp_path: Pa
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("calls", True),
+        ("calls", 0.0),
+        ("input_tokens", True),
+        ("input_tokens", 0.0),
+        ("output_tokens", True),
+        ("output_tokens", 0.0),
+        ("elapsed_ms", True),
+        ("elapsed_ms", 0.0),
+    ],
+)
+def test_attempt_accounting_rejects_bool_and_float_fields(field: str, value: object) -> None:
+    values: dict[str, object] = {
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "elapsed_ms": 0,
+    }
+    values[field] = value
+    with pytest.raises(TypeError, match="integers"):
+        AttemptAccounting(**values)  # type: ignore[arg-type]
+
+
 def test_indeterminate_failure_persists_disposition_accounting_and_failure_kind(
     tmp_path: Path,
 ) -> None:
@@ -761,6 +999,48 @@ def test_staged_return_validation_finalization_and_publication_survive_crashes(
         published = repository.load_published_result("run-1", "run-1-job-0")
         assert published is not None and published.result == normalized
         assert repository.get_job("run-1-job-0").status is JobStatus.PUBLISHED  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize("checkpoint", ["cache", "finalize", "publish"])
+def test_cancel_requested_blocks_result_cache_finalization_and_publication(
+    tmp_path: Path,
+    checkpoint: str,
+) -> None:
+    normalized = {"summary": "Synthetic accepted result"}
+    with Project.create(tmp_path / f"cancel-{checkpoint}.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        claim = repository.claim_next_job("runner", now=NOW)
+        assert claim is not None
+        attempt = repository.reserve_attempt(claim, reservation_metadata(claim.descriptor), now=NOW)
+        repository.mark_transmitting(claim, attempt, now=NOW)
+        repository.complete_attempt(
+            claim,
+            attempt,
+            disposition=TransmissionDisposition.TRANSMITTED,
+            accounting=one_call(),
+            response_identity=digest(f"response-{checkpoint}"),
+            now=NOW,
+        )
+        repository.record_validated(
+            claim.descriptor.job_id, attempt.attempt_id, normalized, now=NOW
+        )
+        if checkpoint != "cache":
+            repository.store_cache(claim.descriptor.job_id, now=NOW)
+        if checkpoint == "publish":
+            repository.finalize_job(claim.descriptor.job_id, JobResolution.ACCEPTED, now=NOW)
+        repository.cancel_run("run-1", now=NOW)
+
+        if checkpoint == "cache":
+            with pytest.raises(StoryMapV2RepositoryError, match="cancel"):
+                repository.store_cache(claim.descriptor.job_id, now=NOW)
+        elif checkpoint == "finalize":
+            with pytest.raises(StoryMapV2RepositoryError, match="cancel"):
+                repository.finalize_job(claim.descriptor.job_id, JobResolution.ACCEPTED, now=NOW)
+        else:
+            with pytest.raises(StoryMapV2RepositoryError, match="cancel"):
+                repository.publish_job(claim.descriptor.job_id, normalized, now=NOW)
+        assert repository.load_published_result("run-1", claim.descriptor.job_id) is None
 
 
 @pytest.mark.parametrize(
@@ -902,6 +1182,7 @@ def test_cache_identity_is_immutable_and_run_routing_is_excluded(tmp_path: Path)
         first_attempt = repository.reserve_attempt(
             first_claim, reservation_metadata(first_claim.descriptor), now=NOW
         )
+        repository.mark_transmitting(first_claim, first_attempt, now=NOW)
         repository.finalize_success(
             first_claim,
             first_attempt,
@@ -936,6 +1217,7 @@ def test_cache_identity_is_immutable_and_run_routing_is_excluded(tmp_path: Path)
             reservation_metadata(collision_claim.descriptor),
             now=NOW,
         )
+        repository.mark_transmitting(collision_claim, collision_attempt, now=NOW)
         with pytest.raises(ImmutableRecordConflictError):
             repository.finalize_success(
                 collision_claim,
@@ -1166,6 +1448,9 @@ def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
         "Location /opt/private/POSIX_PATH_MARKER.rpy",
         "Location C:\\private\\WINDOWS_PATH_MARKER.rpy",
         "Location \\\\private-server\\share\\UNC_PATH_MARKER.rpy",
+        "See(/opt/private/PUNCTUATED_POSIX_MARKER.rpy)",
+        "See=C:\\private\\PUNCTUATED_WINDOWS_MARKER.rpy",
+        "See[\\\\private-server\\share\\PUNCTUATED_UNC_MARKER.rpy]",
     )
     with Project.create(path) as project:
         repository = project.story_map_v2_repository()
@@ -1190,6 +1475,7 @@ def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
                 one_call(),
                 now=NOW,
             )
+        repository.mark_transmitting(claim, attempt, now=NOW)
         repository.finalize_success(
             claim,
             attempt,

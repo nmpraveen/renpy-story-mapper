@@ -38,9 +38,9 @@ FAULT_BEFORE_GENERATION_PUBLICATION: Final = "generation_publication.before"
 FAULT_AFTER_GENERATION_PUBLICATION: Final = "generation_publication.after"
 
 _DIGEST_RE: Final = re.compile(r"^[0-9a-f]{64}$")
-_WINDOWS_ABSOLUTE_RE: Final = re.compile(r"(?:^|[\s\"'])[a-zA-Z]:[\\/]")
-_UNC_RE: Final = re.compile(r"(?:^|[\s\"'])\\\\[^\\]")
-_POSIX_ABSOLUTE_RE: Final = re.compile(r"(?:^|[\s\"'])/(?!/)[^\s]")
+_WINDOWS_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])[a-zA-Z]:[\\/]")
+_UNC_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])\\\\[^\\\s]+\\")
+_POSIX_ABSOLUTE_RE: Final = re.compile(r"(?<![A-Za-z0-9:/\\])/(?!/)[^\s)\]}>;,]+")
 _FORBIDDEN_KEYS: Final = frozenset(
     {
         "prompt",
@@ -247,6 +247,9 @@ class AttemptAccounting:
     elapsed_ms: int
 
     def __post_init__(self) -> None:
+        values = (self.calls, self.input_tokens, self.output_tokens, self.elapsed_ms)
+        if any(type(value) is not int for value in values):
+            raise TypeError("attempt accounting fields must be integers")
         if min(self.calls, self.input_tokens, self.output_tokens, self.elapsed_ms) < 0:
             raise ValueError("attempt accounting cannot be negative")
         if self.calls not in {0, 1}:
@@ -1363,11 +1366,33 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         _inject(fault, FAULT_BEFORE_ATTEMPT_COMPLETION)
         with storage.transaction(self._connection):
-            self._assert_claim_locked(
+            job_row = self._assert_claim_locked(
                 claim,
                 timestamp,
                 (JobStatus.RESERVED, JobStatus.SUBMITTING),
             )
+            requires_transmitting = (
+                disposition is not TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
+            )
+            required_job_status = (
+                JobStatus.SUBMITTING if requires_transmitting else JobStatus.RESERVED
+            )
+            required_attempt_status = (
+                AttemptStatus.TRANSMITTING if requires_transmitting else AttemptStatus.RESERVED
+            )
+            attempt_row = self._connection.execute(
+                """SELECT status FROM story_map_v2_attempts
+                   WHERE attempt_id = ? AND job_id = ?""",
+                (attempt.attempt_id, claim.descriptor.job_id),
+            ).fetchone()
+            if (
+                JobStatus(str(job_row["status"])) is not required_job_status
+                or attempt_row is None
+                or AttemptStatus(str(attempt_row["status"])) is not required_attempt_status
+            ):
+                raise LeaseConflictError(
+                    "attempt must be transmitting before possible transmission completion"
+                )
             if disposition is TransmissionDisposition.TRANSMITTED and response_identity is not None:
                 attempt_status = AttemptStatus.RETURNED
             elif disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
@@ -1382,7 +1407,7 @@ class SqliteStoryMapV2Repository:
                        response_identity = ?, calls = ?, input_tokens = ?, output_tokens = ?,
                        elapsed_ms = ?, failure_kind = ?, sanitized_failure = ?
                    WHERE attempt_id = ? AND job_id = ?
-                     AND status IN ('reserved','transmitting')""",
+                     AND status = ?""",
                 (
                     attempt_status,
                     disposition,
@@ -1396,17 +1421,24 @@ class SqliteStoryMapV2Repository:
                     failure,
                     attempt.attempt_id,
                     claim.descriptor.job_id,
+                    required_attempt_status,
                 ),
             )
             if cursor.rowcount != 1:
                 raise LeaseConflictError("attempt is no longer completable")
-            if disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
+            if bool(job_row["cancel_requested"]):
+                job_status = JobStatus.CANCELLED
+            elif disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
                 job_status = JobStatus.PENDING
             elif disposition is TransmissionDisposition.INDETERMINATE:
                 job_status = JobStatus.INDETERMINATE
             else:
                 job_status = JobStatus.RETURNED
-            if job_status in {JobStatus.PENDING, JobStatus.INDETERMINATE}:
+            if job_status in {
+                JobStatus.PENDING,
+                JobStatus.INDETERMINATE,
+                JobStatus.CANCELLED,
+            }:
                 self._connection.execute(
                     """UPDATE story_map_v2_jobs
                        SET status = ?, lease_owner = NULL, lease_token = NULL,
@@ -1451,6 +1483,20 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         _inject(fault, FAULT_BEFORE_VALIDATION_RECORD)
         with storage.transaction(self._connection):
+            job = self._connection.execute(
+                """SELECT jobs.status, runs.cancel_requested
+                   FROM story_map_v2_jobs AS jobs
+                   JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+                   WHERE jobs.job_id = ?""",
+                (job_id,),
+            ).fetchone()
+            if job is None:
+                raise StoryMapV2RepositoryError("unknown job_id")
+            if (
+                bool(job["cancel_requested"])
+                or JobStatus(str(job["status"])) is JobStatus.CANCELLED
+            ):
+                raise StoryMapV2RepositoryError("cancelled job cannot record a validated result")
             attempt = self._connection.execute(
                 """SELECT status, ordinal FROM story_map_v2_attempts
                    WHERE attempt_id = ? AND job_id = ?""",
@@ -1515,7 +1561,11 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
             row = self._connection.execute(
-                "SELECT * FROM story_map_v2_jobs WHERE job_id = ?", (job_id,)
+                """SELECT jobs.*, runs.cancel_requested
+                   FROM story_map_v2_jobs AS jobs
+                   JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+                   WHERE jobs.job_id = ?""",
+                (job_id,),
             ).fetchone()
             attempt = self._connection.execute(
                 """SELECT * FROM story_map_v2_attempts
@@ -1524,6 +1574,8 @@ class SqliteStoryMapV2Repository:
             ).fetchone()
             if row is None or attempt is None:
                 raise StoryMapV2RepositoryError("continuation requires an existing job attempt")
+            if bool(row["cancel_requested"]):
+                raise StoryMapV2RepositoryError("cancelled job cannot record a continuation")
             if JobStatus(str(row["status"])) not in {JobStatus.RETURNED, JobStatus.VALIDATED}:
                 raise StoryMapV2RepositoryError("job is not at a continuation checkpoint")
             latest = self._connection.execute(
@@ -1611,8 +1663,14 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
             row = self._connection.execute(
-                "SELECT * FROM story_map_v2_jobs WHERE job_id = ?", (job_id,)
+                """SELECT jobs.*, runs.cancel_requested
+                   FROM story_map_v2_jobs AS jobs
+                   JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+                   WHERE jobs.job_id = ?""",
+                (job_id,),
             ).fetchone()
+            if row is not None and bool(row["cancel_requested"]):
+                raise StoryMapV2RepositoryError("cancelled job cannot store a cache result")
             if row is None or str(row["status"]) not in {
                 JobStatus.VALIDATED,
                 JobStatus.CACHE_STORED,
@@ -1656,10 +1714,18 @@ class SqliteStoryMapV2Repository:
         _inject(fault, FAULT_BEFORE_JOB_FINALIZATION)
         with storage.transaction(self._connection):
             row = self._connection.execute(
-                "SELECT * FROM story_map_v2_jobs WHERE job_id = ?", (job_id,)
+                """SELECT jobs.*, runs.cancel_requested
+                   FROM story_map_v2_jobs AS jobs
+                   JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+                   WHERE jobs.job_id = ?""",
+                (job_id,),
             ).fetchone()
             if row is None:
                 raise StoryMapV2RepositoryError("unknown job_id")
+            if bool(row["cancel_requested"]) and resolution is not JobResolution.CANCELLED:
+                raise StoryMapV2RepositoryError(
+                    "cancelled run cannot finalize a non-cancelled job result"
+                )
             status = JobStatus(str(row["status"]))
             allowed = {
                 JobStatus.RETURNED,
@@ -1739,12 +1805,17 @@ class SqliteStoryMapV2Repository:
         _inject(fault, FAULT_BEFORE_JOB_PUBLICATION)
         with storage.transaction(self._connection):
             job_row = self._connection.execute(
-                """SELECT run_id, status, resolution, normalized_result_identity
-                   FROM story_map_v2_jobs WHERE job_id = ?""",
+                """SELECT jobs.run_id, jobs.status, jobs.resolution,
+                          jobs.normalized_result_identity, runs.cancel_requested
+                   FROM story_map_v2_jobs AS jobs
+                   JOIN story_map_v2_runs AS runs ON runs.run_id = jobs.run_id
+                   WHERE jobs.job_id = ?""",
                 (job_id,),
             ).fetchone()
             if job_row is None:
                 raise StoryMapV2RepositoryError("unknown job_id")
+            if bool(job_row["cancel_requested"]):
+                raise StoryMapV2RepositoryError("cancelled run cannot publish a job result")
             if str(job_row["status"]) not in {JobStatus.FINALIZED, JobStatus.PUBLISHED} or str(
                 job_row["resolution"]
             ) not in {JobResolution.ACCEPTED, JobResolution.STRUCTURAL}:
@@ -1822,32 +1893,36 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         _inject(fault, FAULT_BEFORE_ATTEMPT_FINALIZATION)
         with storage.transaction(self._connection):
-            self._assert_claim_locked(
+            job_row = self._assert_claim_locked(
                 claim,
                 timestamp,
                 (JobStatus.RESERVED, JobStatus.SUBMITTING),
             )
+            if JobStatus(str(job_row["status"])) is not JobStatus.SUBMITTING:
+                raise LeaseConflictError("attempt must be transmitting before success")
+            if bool(job_row["cancel_requested"]):
+                raise LeaseConflictError("cancelled run cannot finalize a successful attempt")
             attempt_row = self._connection.execute(
                 "SELECT status FROM story_map_v2_attempts WHERE attempt_id = ? AND job_id = ?",
                 (attempt.attempt_id, claim.descriptor.job_id),
             ).fetchone()
-            if attempt_row is None or str(attempt_row["status"]) not in {
-                AttemptStatus.RESERVED,
-                AttemptStatus.TRANSMITTING,
-            }:
-                raise LeaseConflictError("attempt is no longer finalizable")
+            if (
+                attempt_row is None
+                or AttemptStatus(str(attempt_row["status"])) is not AttemptStatus.TRANSMITTING
+            ):
+                raise LeaseConflictError("attempt must be transmitting before success")
             self._insert_immutable_cache_locked(
                 claim.descriptor,
                 result_bytes,
                 result_identity,
                 timestamp,
             )
-            self._connection.execute(
+            attempt_cursor = self._connection.execute(
                 """UPDATE story_map_v2_attempts
                    SET status = 'succeeded', transmission_disposition = 'transmitted',
                        finalized_utc = ?, normalized_result_identity = ?, calls = ?,
                        input_tokens = ?, output_tokens = ?, elapsed_ms = ?
-                   WHERE attempt_id = ?""",
+                   WHERE attempt_id = ? AND status = 'transmitting'""",
                 (
                     timestamp,
                     result_identity,
@@ -1858,7 +1933,9 @@ class SqliteStoryMapV2Repository:
                     attempt.attempt_id,
                 ),
             )
-            self._connection.execute(
+            if attempt_cursor.rowcount != 1:
+                raise LeaseConflictError("attempt success compare-and-swap failed")
+            job_cursor = self._connection.execute(
                 """UPDATE story_map_v2_jobs
                    SET status = 'succeeded', lease_owner = NULL, lease_token = NULL,
                        lease_expires_utc = NULL, normalized_result_identity = ?, updated_utc = ?
@@ -1870,6 +1947,8 @@ class SqliteStoryMapV2Repository:
                     claim.lease_token,
                 ),
             )
+            if job_cursor.rowcount != 1:
+                raise LeaseConflictError("job success compare-and-swap failed")
             self._refresh_run_state_locked(claim.descriptor.run_id, timestamp)
         entry = NormalizedCacheEntry(
             claim.descriptor.cache_identity,
@@ -1924,18 +2003,31 @@ class SqliteStoryMapV2Repository:
         failure = _sanitized_failure(sanitized_failure)
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
-            self._assert_claim_locked(
+            job_row = self._assert_claim_locked(
                 claim,
                 timestamp,
                 (JobStatus.RESERVED, JobStatus.SUBMITTING),
             )
+            requires_transmitting = (
+                disposition is not TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
+            )
+            required_job_status = (
+                JobStatus.SUBMITTING if requires_transmitting else JobStatus.RESERVED
+            )
+            required_attempt_status = (
+                AttemptStatus.TRANSMITTING if requires_transmitting else AttemptStatus.RESERVED
+            )
+            if JobStatus(str(job_row["status"])) is not required_job_status:
+                raise LeaseConflictError(
+                    "attempt must be transmitting before possible transmission failure"
+                )
             cursor = self._connection.execute(
                 """UPDATE story_map_v2_attempts
                    SET status = ?, transmission_disposition = ?, finalized_utc = ?,
                        calls = ?, input_tokens = ?, output_tokens = ?, elapsed_ms = ?,
                        failure_kind = ?, sanitized_failure = ?
                    WHERE attempt_id = ? AND job_id = ?
-                      AND status IN ('reserved','transmitting')""",
+                      AND status = ?""",
                 (
                     AttemptStatus.NOT_TRANSMITTED
                     if disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED
@@ -1954,15 +2046,12 @@ class SqliteStoryMapV2Repository:
                     failure,
                     attempt.attempt_id,
                     claim.descriptor.job_id,
+                    required_attempt_status,
                 ),
             )
             if cursor.rowcount != 1:
                 raise LeaseConflictError("attempt is no longer finalizable")
-            run = self._connection.execute(
-                "SELECT cancel_requested FROM story_map_v2_runs WHERE run_id = ?",
-                (claim.descriptor.run_id,),
-            ).fetchone()
-            if run is not None and bool(run[0]):
+            if bool(job_row["cancel_requested"]):
                 next_status = JobStatus.CANCELLED
             elif disposition is TransmissionDisposition.DEFINITELY_NOT_TRANSMITTED:
                 next_status = JobStatus.PENDING
