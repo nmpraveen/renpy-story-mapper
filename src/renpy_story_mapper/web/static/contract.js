@@ -146,8 +146,9 @@ function storyWorkflowProvider(value, label, { nullable = false } = {}) {
 function storyWorkflowDerivedProvider(value, label) {
   if (!object(value)) throw new TypeError(`${label} is invalid`);
   exactKeys(value, ["prompt_version", "schema_version", "provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"], label);
-  for (const key of ["prompt_version", "schema_version", "provider", "model", "reasoning", "mode", "adapter_version"]) boundedText(value[key], `${label} ${key}`, 512);
-  if (typeof value.fast_mode !== "boolean") throw new TypeError(`${label} fast mode is invalid`);
+  for (const key of ["prompt_version", "schema_version", "provider", "model", "mode", "adapter_version"]) boundedText(value[key], `${label} ${key}`, 512);
+  if (value.reasoning !== null) boundedText(value.reasoning, `${label} reasoning`, 512);
+  if (value.fast_mode !== null && typeof value.fast_mode !== "boolean") throw new TypeError(`${label} fast mode is invalid`);
 }
 
 export function assertStoryWorkflowResponse(value, expectedCommand = null) {
@@ -166,8 +167,9 @@ export function assertStoryWorkflowResponse(value, expectedCommand = null) {
   }
   if (!object(preview.cache_hits) || !Array.isArray(preview.cache_hits.cloud_job_ids) || !Array.isArray(preview.cache_hits.loopback_job_ids)) throw new TypeError("Story workflow cache hits are invalid");
   if (!object(preview.policy)) throw new TypeError("Story workflow policy is invalid");
-  storyWorkflowProvider(preview.policy.cloud, "Story workflow cloud provider");
+  storyWorkflowProvider(preview.policy.cloud, "Story workflow cloud provider", { nullable: true });
   storyWorkflowProvider(preview.policy.loopback, "Story workflow loopback provider", { nullable: true });
+  if (preview.policy.cloud === null && (preview.policy.loopback === null || preview.policy.loopback.mode !== "loopback")) throw new TypeError("Story workflow local primary provider is invalid");
   storyWorkflowDerivedProvider(preview.policy.section_synthesis, "Story workflow section provider");
   storyWorkflowDerivedProvider(preview.policy.rollup_synthesis, "Story workflow rollup provider");
   const ceilingKeys = ["mapping_calls", "review_calls", "fallback_calls", "section_synthesis_calls", "route_reduction_calls", "route_summary_calls", "whole_game_reduction_calls", "final_overview_calls", "rollup_synthesis_calls", "input_tokens", "output_tokens", "elapsed_ms", "submission_slots", "indeterminate_retry_calls"];

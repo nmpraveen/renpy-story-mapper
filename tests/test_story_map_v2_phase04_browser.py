@@ -98,6 +98,42 @@ def test_reader_contract_rejects_v1_locate_and_accepts_v2_branch_identity() -> N
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_workflow_contract_accepts_loopback_primary_and_rejects_no_provider() -> None:
+    fixture = json.loads(WORKFLOW_FIXTURE.read_text(encoding="utf-8"))
+    response = fixture["examples"]["successes"]["prepare"]
+    preview = response["preview"]
+    preview["policy"]["cloud"] = None
+    local = preview["policy"]["loopback"]
+    for key in ("section_synthesis", "rollup_synthesis"):
+        preview["policy"][key].update(
+            provider=local["provider"],
+            model=local["model"],
+            reasoning=None,
+            fast_mode=None,
+            mode="loopback",
+        )
+    preview["privacy"].update(
+        cloud_story_content=False, loopback_story_content=True
+    )
+    script = f"""
+      import {{ assertStoryWorkflowResponse }} from {json.dumps((STATIC / 'contract.js').as_uri())};
+      const good = {json.dumps(response)};
+      assertStoryWorkflowResponse(good, 'prepare');
+      const bad = structuredClone(good); bad.preview.policy.loopback = null;
+      try {{ assertStoryWorkflowResponse(bad, 'prepare'); process.exit(2); }} catch (error) {{
+        if (!String(error.message).includes('local primary provider')) process.exit(3);
+      }}
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     fixture = _fixture()
     workflow_fixture = json.loads(WORKFLOW_FIXTURE.read_text(encoding="utf-8"))
@@ -111,6 +147,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     delay_finished: threading.Event | None = None
     advertise_workflow = False
     workflow_status_mode = "complete"
+    workflow_local_only = False
     reader_available = True
 
     def log_message(self, _format: str, *args: object) -> None:
@@ -128,6 +165,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         cls.delay_finished = None
         cls.advertise_workflow = False
         cls.workflow_status_mode = "complete"
+        cls.workflow_local_only = False
         cls.reader_available = True
 
     def _at_revision(self, value: Any) -> Any:
@@ -203,6 +241,13 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         workflow_command = next((key for key, route in workflow_routes.items() if key != "contract" and route == self.path), None)
         if workflow_command is not None:
             response = copy.deepcopy(self.workflow_fixture["examples"]["successes"][workflow_command])
+            if type(self).workflow_local_only:
+                preview = response["preview"]
+                local = preview["policy"]["loopback"]
+                preview["policy"]["cloud"] = None
+                for key in ("section_synthesis", "rollup_synthesis"):
+                    preview["policy"][key].update({"provider": local["provider"], "model": local["model"], "reasoning": None, "fast_mode": None, "mode": "loopback"})
+                preview["privacy"].update({"cloud_story_content": False, "loopback_story_content": True})
             if workflow_command == "status" and type(self).workflow_status_mode == "complete":
                 response["status"].update({"pending_jobs": 0, "active_jobs": 0, "accepted_jobs": 3, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 0, "can_cancel": False, "can_resume": False, "indeterminate_retries": []})
                 type(self).revision = 8
@@ -293,10 +338,11 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             response["state"] = copy.deepcopy(type(self).view_state)
             self._json(response)
 @contextmanager
-def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True) -> Iterator[str]:
+def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True, workflow_local_only: bool = False) -> Iterator[str]:
     _ReaderHandler.reset()
     _ReaderHandler.advertise_workflow = workflow
     _ReaderHandler.workflow_status_mode = workflow_status_mode
+    _ReaderHandler.workflow_local_only = workflow_local_only
     _ReaderHandler.reader_available = reader_available
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _ReaderHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -434,7 +480,7 @@ def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions(
         browser = driver._browser()
     except FileNotFoundError:
         pytest.skip("Chrome or Edge is unavailable")
-    with _server(workflow=True, workflow_status_mode="resumable") as origin, tempfile.TemporaryDirectory(prefix="rsm-m15-p4-workflow-", ignore_cleanup_errors=True) as temporary:
+    with _server(workflow=True, workflow_status_mode="resumable", workflow_local_only=True) as origin, tempfile.TemporaryDirectory(prefix="rsm-m15-p4-workflow-", ignore_cleanup_errors=True) as temporary:
         process, session = driver._session(browser, 100, Path(temporary))
         try:
             session.command("Page.navigate", {"url": origin})
@@ -444,7 +490,7 @@ def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions(
             session.evaluate("document.querySelector('#storyPrepareAction').click()")
             session.wait("document.querySelector('#storyApprovalDialog').open")
             facts = session.evaluate("document.querySelector('#storyApprovalFacts').innerText")
-            for expected in ("codex-cli", "gpt-5.6-terra", "high", "false (off)", "Private story text may be sent", "1 chunk · 1 job", "6", "0"):
+            for expected in ("loopback-fixture", "qwen-fixture", "Not specified", "No private story text is sent to the cloud provider.", "Private story text may be sent to the configured local provider.", "1 chunk · 1 job", "6", "0"):
                 assert expected in facts
             workflow_requests = [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
             assert workflow_requests == [("/api/v1/story-map-v2/workflow/prepare", {"contract": "story-map-v2-workflow-http-v2"})]

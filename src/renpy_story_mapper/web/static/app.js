@@ -1302,14 +1302,14 @@ async function restoreStoryWorkflow() {
 }
 
 function storyWorkflowFacts(preview) {
-  const cloud = preview.policy.cloud; const cacheHits = preview.cache_hits.cloud_job_ids.length + preview.cache_hits.loopback_job_ids.length;
+  const primary = preview.policy.cloud ?? preview.policy.loopback; const cacheHits = preview.cache_hits.cloud_job_ids.length + preview.cache_hits.loopback_job_ids.length;
   const privacy = preview.privacy; const chunks = preview.jobs.length;
   const disclosure = [
     privacy.cloud_story_content ? "Private story text may be sent to the cloud provider." : "No private story text is sent to the cloud provider.",
     privacy.loopback_story_content ? "Private story text may be sent to the configured local provider." : "No private story text is sent to a local provider.",
   ].join(" ");
   return [
-    ["Provider", cloud.provider], ["Model", cloud.model], ["Reasoning", cloud.reasoning], ["Fast mode", `${cloud.fast_mode} (${cloud.fast_mode ? "on" : "off"})`],
+    ["Provider", primary.provider], ["Model", primary.model], ["Reasoning", primary.reasoning ?? "Not specified"], ["Fast mode", primary.fast_mode === null ? "Not specified" : `${primary.fast_mode} (${primary.fast_mode ? "on" : "off"})`],
     ["Private content", disclosure], ["Work", `${chunks} ${chunks === 1 ? "chunk" : "chunks"} · ${chunks} ${chunks === 1 ? "job" : "jobs"}`],
     ["Maximum calls", String(storyWorkflowMaximumCalls(preview))], ["Cache hits", String(cacheHits)],
   ];
