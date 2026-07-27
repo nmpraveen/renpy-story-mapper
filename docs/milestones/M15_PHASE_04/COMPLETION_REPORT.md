@@ -1,6 +1,6 @@
 # M15.1 Phase 04 progress report
 
-Status: Integration — bounded backend/API and website vertical paths integrated
+Status: Blocked — Gate 2 awaits exact user consent for private provider transmission
 
 Current product checkpoint: `4a85a79` on `codex/m15-phase04-full-game`
 
@@ -84,6 +84,11 @@ No current product code is being discarded, but the remaining old acceptance wor
   `output/m15-phase04-gate2-preview-20260727-0009/`.
 - Exact user consent has not been granted. The approval action was not activated and no private
   provider call occurred.
+- Read-only durable checks repeated across three consecutive goal turns with the same result: the
+  preview identity remains available, all 425 jobs remain pending, no approval record exists, and
+  accounting remains zero. The native goal and milestone are now blocked at this user-decision
+  boundary. The prepared run was not cancelled; an explicit approve or cancel response resumes the
+  lifecycle at `Integration`.
 
 ## Remaining lean work
 

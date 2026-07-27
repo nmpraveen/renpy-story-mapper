@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 corrected vertical path integrated through `4a85a79`; exact zero-submit
-real-game preview awaits user consent)
+Updated: 2026-07-27 (Phase 04 is blocked at the exact zero-submit consent gate; the prepared run
+remains unapproved with zero provider accounting)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -16,9 +16,9 @@ real-game preview awaits user consent)
 - Integration branch: `codex/m15-phase04-full-game`.
 - Safe product checkpoint: `4a85a79`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Integration. The bounded vertical path plus the one demonstrated first-generation UI
-  correction are integrated; exact preview `9d449b95…a3a2c1` awaits consent and no private provider
-  transmission is authorized yet.
+- Status: Blocked. The bounded vertical path and first-generation correction are integrated, but
+  exact preview `9d449b95…a3a2c1` still has no approval record after three consecutive goal turns.
+  No private provider transmission is authorized.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: active on the current Orchestra task
@@ -53,6 +53,9 @@ real-game preview awaits user consent)
   fast off, private cloud story content, 425 chunks/jobs, 2,927 maximum cloud calls, zero local
   calls, and zero cache hits. Accounting remains zero calls/tokens. Protected-input aggregate
   SHA-256 is unchanged before/after. Approval has not been activated.
+- The same missing-consent condition persisted for three consecutive native-goal turns. The native
+  goal is blocked without cancelling the durable preview; an explicit approve or cancel response
+  resumes Phase 04 at `Integration`.
 
 ## Historical Phase 04 production-grade record (superseded)
 

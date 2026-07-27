@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: In progress
+Status: Blocked — awaiting exact user consent for the prepared private-provider run
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -58,6 +58,9 @@ must be ready, open, and unmerged.
 - Lifecycle is `Integration`. Supported-website zero-submit preview
   `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` is prepared with zero
   calls/tokens and awaits exact user consent. No private story text may be transmitted until then.
+- The same missing-consent condition persisted for three consecutive native-goal turns. Phase 04
+  is therefore lifecycle-blocked at Gate 2 without cancelling the preview. Resume at `Integration`
+  when the user explicitly approves or cancels that exact identity.
 
 ## Must work in Phase 04
 
