@@ -51,8 +51,13 @@ must be ready, open, and unmerged.
 - Fresh lightweight semantic review passed at exact contract head `2bcdd02`. The two bounded
   vertical-path workers are integrated through `2776b99`; the focused integrated gate passed 123
   tests plus Ruff, strict mypy over the six changed source files, JavaScript syntax, and whitespace.
-- Lifecycle is `Integration`. The next gate is the supported-website zero-submit MsDenvers preview;
-  no private story text may be transmitted until the user approves that exact preview.
+- The real full-game website check exposed one first-generation blocker: Generate was hidden when
+  no reader generation existed. The same existing action is now visible in the technical fallback
+  workspace and hidden off-workspace through corrected head `4a85a79`; the focused browser/asset
+  gate passes 14 tests at normal and effective-200 profiles.
+- Lifecycle is `Integration`. Supported-website zero-submit preview
+  `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` is prepared with zero
+  calls/tokens and awaits exact user consent. No private story text may be transmitted until then.
 
 ## Must work in Phase 04
 

@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (Phase 04 lean vertical path integrated through `2776b99`; zero-submit real-game
-preview is the next consent gate)
+Updated: 2026-07-27 (Phase 04 corrected vertical path integrated through `4a85a79`; exact zero-submit
+real-game preview awaits user consent)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,10 +14,11 @@ preview is the next consent gate)
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `2776b99`.
+- Safe product checkpoint: `4a85a79`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Integration. The two bounded vertical-path seams are integrated and the focused combined
-  gate is green; no private provider transmission is authorized yet.
+- Status: Integration. The bounded vertical path plus the one demonstrated first-generation UI
+  correction are integrated; exact preview `9d449b95…a3a2c1` awaits consent and no private provider
+  transmission is authorized yet.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: active on the current Orchestra task
@@ -30,9 +31,9 @@ preview is the next consent gate)
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: prepare the real MsDenvers run through the supported website, stop for exact
-  consent, run and inspect the story map, fix only demonstrated blockers, then perform one final
-  review/CI/Release gate.
+- Remaining lean path: obtain the user's exact decision on the prepared MsDenvers preview, then—if
+  approved—run and inspect the story map before one final review/CI/Release gate. Another product
+  correction loop requires explicit approval.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
@@ -44,6 +45,14 @@ preview is the next consent gate)
 - Integrated verification passed 123 focused tests in 44.41 seconds plus Ruff, strict mypy over six
   changed source files, JavaScript syntax, and whitespace. No provider construction/call, private
   input access, push, PR mutation, or merge occurred through this integration checkpoint.
+- The supported real full-game project exposed one first-generation blocker: the Generate action
+  was hidden without an existing reader manifest. The existing action now moves into the technical
+  fallback masthead and remains hidden off-workspace through `4a85a79`; 14 focused browser/asset
+  tests pass at normal and effective-200 profiles.
+- Zero-submit preview `9d449b95…a3a2c1` discloses Codex CLI `gpt-5.6-terra`, High reasoning,
+  fast off, private cloud story content, 425 chunks/jobs, 2,927 maximum cloud calls, zero local
+  calls, and zero cache hits. Accounting remains zero calls/tokens. Protected-input aggregate
+  SHA-256 is unchanged before/after. Approval has not been activated.
 
 ## Historical Phase 04 production-grade record (superseded)
 

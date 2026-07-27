@@ -2,7 +2,7 @@
 
 Status: Integration — bounded backend/API and website vertical paths integrated
 
-Current product checkpoint: `2776b99` on `codex/m15-phase04-full-game`
+Current product checkpoint: `4a85a79` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -61,13 +61,37 @@ No current product code is being discarded, but the remaining old acceptance wor
 - No new schema, protocol, scheduler, recovery subsystem, provider call, private input access,
   push, PR mutation, or merge occurred during worker implementation or integration.
 
+## Gate 2 zero-submit checkpoint
+
+- The supported website opened the current 57-source full-game MsDenvers project. Its first load
+  demonstrated that Generate was hidden when no reader generation existed. The responsible website
+  worker made the single bounded blocker correction at `b5e222e` plus Orchestra-requested
+  off-workspace guard `4852337`; these integrated as `b2d3e6a` and `4a85a79`.
+- The corrected live website exposes the same existing Generate action in the technical fallback
+  workspace. Normal and effective-200 approval views have zero horizontal overflow; the short 200%
+  dialog scroll exposes the unchanged approval action.
+- Exact zero-submit preview identity is
+  `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` for run
+  `workflow:0cfddba52e4a4262bfdb1915dd15a612`: Codex CLI, `gpt-5.6-terra`, High reasoning,
+  fast mode off, 425 chunks/jobs, 2,927 maximum cloud calls, zero local calls, and zero cache hits.
+- Provider accounting is exactly zero calls, zero input/output tokens, and zero elapsed provider
+  time. The browser observed only loopback requests. Private raw story text plus exact mechanics may
+  be sent by mapping calls; derived calls may send accepted child summaries and route/rollup
+  structure. Raw requests/responses, provider diagnostics, and absolute paths are not durable.
+- Protected `.rpy`/`.rpyc`/`.rpa` aggregate SHA-256 remained
+  `0a3391b63c5b18e76cfa1bded722a8e5d8a62fbc74e5e1c26eb9dd9179d10762` before and after.
+  Sanitized preview evidence and screenshots remain outside Git under
+  `output/m15-phase04-gate2-preview-20260727-0009/`.
+- Exact user consent has not been granted. The approval action was not activated and no private
+  provider call occurred.
+
 ## Remaining lean work
 
-1. Produce the supported-website MsDenvers zero-submit preview and obtain exact consent.
-2. Run the real MsDenvers workflow, inspect representative output, and let the user judge it.
-3. Fix only demonstrated blockers.
-4. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
-5. Make PR #30 ready while leaving it unmerged.
+1. Obtain exact consent for preview `9d449b95…a3a2c1`, or cancel it.
+2. If approved, run the real MsDenvers workflow, inspect representative output, and let the user
+   judge it; do not start another correction loop without approval.
+3. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
+4. Make PR #30 ready while leaving it unmerged.
 
 ## This documentation reset
 
