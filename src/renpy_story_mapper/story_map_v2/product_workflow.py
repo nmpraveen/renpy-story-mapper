@@ -226,6 +226,7 @@ def _bind_provider_prose(
         return payload
     event = {
         **events[0],
+        "key": "chunk-summary",
         "placement_ids": list(descriptor.placement_ids),
         "title": _bounded_provider_text(events[0].get("title"), 80),
         "summary": _bounded_provider_text(events[0].get("summary"), 320),

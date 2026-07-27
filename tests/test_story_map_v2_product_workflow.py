@@ -343,7 +343,7 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
         "review_requested": True,
         "events": [
             {
-                "key": "opening",
+                "key": "",
                 "placement_ids": ["python-owned"],
                 "title": "Opening events",
                 "summary": "The characters move through the opening sequence. " * 12,
