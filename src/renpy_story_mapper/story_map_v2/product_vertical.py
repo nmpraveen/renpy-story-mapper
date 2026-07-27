@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import replace
 from pathlib import Path
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
-from renpy_story_mapper.m12_service import load_m12_authority
-from renpy_story_mapper.project import Project
+from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.story_map_v2.durable_repository import (
     GenerationDescriptor,
     GenerationPointers,
@@ -45,8 +45,10 @@ from renpy_story_mapper.story_map_v2.phase04_semantics import (
 from renpy_story_mapper.story_map_v2.product_workflow import (
     FrozenProductRequestMaterializer,
     PreparedProductWorkflow,
+    ProductWorkflowProject,
     adapt_derived_semantic_job,
     create_product_workflow_service,
+    prepare_product_workflow_from_authority,
 )
 from renpy_story_mapper.story_map_v2.reader import (
     BRANCH_PAGE_ENDPOINT,
@@ -67,6 +69,7 @@ from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
 )
 
 _PAGE_ITEMS = 30
+ProjectOpener = Callable[[Path], AbstractContextManager[ProductWorkflowProject]]
 
 
 def execute_product_vertical(
@@ -75,11 +78,12 @@ def execute_product_vertical(
     *,
     preview_identity: str,
     cloud_factory: ProviderFactory,
-    authority_graph: CanonicalGraph | None = None,
+    project_opener: ProjectOpener,
+    authority_graph: CanonicalGraph,
 ) -> None:
     """Execute approved work, assemble accepted prose/fallbacks, and publish one map."""
 
-    with Project.open(project_path) as project:
+    with project_opener(project_path) as project:
         repository = project.story_map_v2_repository()
         current = repository.generation_pointers().current_complete_generation
         published = None if current is None else repository.load_generation(current)
@@ -268,14 +272,19 @@ def project_workflow_reader_status(
 
 
 def load_product_workflow(
-    project: Project,
+    project: ProductWorkflowProject,
     run_id: str,
+    *,
+    authority_graph: CanonicalGraph,
+    scene_model: SceneModel,
 ) -> tuple[PreparedProductWorkflow, WorkflowPreview, WorkflowApproval | None, WorkflowStatus]:
     """Rebuild ephemeral request bytes and verify them against one durable preview."""
 
-    from renpy_story_mapper.story_map_v2.product_workflow import prepare_product_workflow
-
-    prepared = prepare_product_workflow(project, run_id=run_id)
+    prepared = prepare_product_workflow_from_authority(
+        authority_graph,
+        scene_model,
+        run_id=run_id,
+    )
     adapter = DurableWorkflowRepositoryAdapter.from_project(project)
     preview = adapter.load_preview(run_id)
     if (
@@ -381,16 +390,16 @@ def _generation_id(
 
 
 def _publish_generation(
-    project: Project,
+    project: ProductWorkflowProject,
     prepared: PreparedProductWorkflow,
     semantic: SemanticAssembly,
     derived: DerivedSemanticAssembly,
     generation_id: str,
     *,
-    authority_graph: CanonicalGraph | None,
+    authority_graph: CanonicalGraph,
 ) -> None:
     repository = project.story_map_v2_repository()
-    graph = authority_graph or load_m12_authority(project).graph
+    graph = authority_graph
     generation_repository = DurableWorkflowRepositoryAdapter.from_project(project)
     pointers = generation_repository.generation_pointers()
     previous = _previous_path_facts(repository, pointers.current_complete_generation)

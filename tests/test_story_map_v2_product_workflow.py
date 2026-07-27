@@ -674,6 +674,7 @@ def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview
         prepared,
         preview_identity=preview.identity,
         cloud_factory=FakeProvider,
+        project_opener=Project.open,
         authority_graph=graph,
     )
 
@@ -813,6 +814,7 @@ def test_vertical_publishes_structural_reader_when_all_prose_is_invalid(
         prepared,
         preview_identity=preview.identity,
         cloud_factory=InvalidProvider,
+        project_opener=Project.open,
         authority_graph=graph,
     )
     with Project.open(path) as project:
@@ -919,6 +921,7 @@ def test_terminal_indeterminate_mapping_run_publishes_without_derived_calls(
         prepared,
         preview_identity=preview.identity,
         cloud_factory=IndeterminateProvider,
+        project_opener=Project.open,
         authority_graph=graph,
     )
 

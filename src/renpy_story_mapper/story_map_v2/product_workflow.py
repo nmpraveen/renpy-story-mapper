@@ -12,13 +12,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import NoReturn, cast
+from typing import NoReturn, Protocol
 
 from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
 from renpy_story_mapper.m11_scene_model import SceneModel
-from renpy_story_mapper.m12_service import canonical_graph_from_mapping, load_m12_authority
-from renpy_story_mapper.project import Project
 from renpy_story_mapper.story_map_v2.contracts import canonical_json
+from renpy_story_mapper.story_map_v2.durable_repository import SqliteStoryMapV2Repository
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
     adapt_chunk_planning_projection,
@@ -80,6 +79,12 @@ from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
 from renpy_story_mapper.story_map_v2.workflow_service import StoryMapWorkflowService
+
+
+class ProductWorkflowProject(Protocol):
+    """Small opened-project surface needed by the Phase 04 workflow."""
+
+    def story_map_v2_repository(self) -> SqliteStoryMapV2Repository: ...
 
 MAPPING_ADAPTER_VERSION = "story-map-v2-phase04-mapper-adapter-v1"
 DERIVED_INPUT_TOKEN_ALLOWANCE = 10_700
@@ -358,7 +363,7 @@ def _derived_text(value: object, label: str, maximum: int) -> str:
 
 
 def persist_product_workflow_preview(
-    project: Project,
+    project: ProductWorkflowProject,
     prepared: PreparedProductWorkflow,
 ) -> WorkflowPreview:
     """Persist one zero-submit preview and its privacy-safe plans.
@@ -388,7 +393,7 @@ def persist_product_workflow_preview(
 
 
 def create_product_workflow_service(
-    project: Project,
+    project: ProductWorkflowProject,
     prepared: PreparedProductWorkflow,
     *,
     cloud_factory: ProviderFactory | None = None,
@@ -460,23 +465,6 @@ def adapt_derived_semantic_job(
         serialized_request_identity=request_identity,
         provider_input_identity=provider_input,
         cache_identity=provider_input.cache_identity,
-    )
-
-
-def prepare_product_workflow(
-    project: Project,
-    *,
-    run_id: str,
-    loopback: ProviderSettings | None = None,
-) -> PreparedProductWorkflow:
-    """Prepare the current opened project without constructing or calling a provider."""
-
-    graph, scene_model = _current_full_authority(project)
-    return prepare_product_workflow_from_authority(
-        graph,
-        scene_model,
-        run_id=run_id,
-        loopback=loopback,
     )
 
 
@@ -569,21 +557,6 @@ def prepare_product_workflow_from_authority(
         ceilings,
         tuple(requests),
     )
-
-
-def _current_full_authority(project: Project) -> tuple[CanonicalGraph, SceneModel]:
-    current = load_m12_authority(project)
-    value = project.payload("m10_canonical_graph", "authoritative")
-    if not isinstance(value, dict):
-        raise ValueError("Phase 04 requires current complete M10 authority")
-    graph = canonical_graph_from_mapping(cast(dict[str, object], value))
-    if (
-        graph.source_generation != current.graph.source_generation
-        or graph.authority_hash != current.canonical_hash
-        or current.scene_model.binding.canonical_hash != graph.authority_hash
-    ):
-        raise ValueError("Phase 04 authority changed while preparing the Story Map")
-    return graph, current.scene_model
 
 
 def _workflow_policy(loopback: ProviderSettings | None) -> WorkflowPolicy:

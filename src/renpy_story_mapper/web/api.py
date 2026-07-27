@@ -131,7 +131,7 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
     PreparedProductWorkflow,
     create_product_workflow_service,
     persist_product_workflow_preview,
-    prepare_product_workflow,
+    prepare_product_workflow_from_authority,
 )
 from renpy_story_mapper.story_map_v2.reader import (
     DEFAULT_SEARCH_RESULTS,
@@ -826,7 +826,13 @@ class ProjectApi:
             prepared = self._phase04_prepared.get(run_id)
         if prepared is None:
             try:
-                prepared, preview, approval, status = load_product_workflow(project, run_id)
+                authority = load_m12_authority(project)
+                prepared, preview, approval, status = load_product_workflow(
+                    project,
+                    run_id,
+                    authority_graph=authority.graph,
+                    scene_model=authority.scene_model,
+                )
             except ValueError:
                 self._workflow_problem(
                     409,
@@ -870,6 +876,8 @@ class ProjectApi:
         preview_identity: str,
     ) -> None:
         project_path = self._project()
+        with Project.open(project_path) as project:
+            authority_graph = load_m12_authority(project).graph
         with self._lock:
             existing = self._phase04_futures.get(prepared.run_id)
             if existing is not None and not existing.done():
@@ -882,6 +890,8 @@ class ProjectApi:
                 prepared,
                 preview_identity=preview_identity,
                 cloud_factory=self._phase04_cloud_factory,
+                project_opener=Project.open,
+                authority_graph=authority_graph,
             )
 
     def _story_map_v2_workflow_dispatch(
@@ -906,8 +916,10 @@ class ProjectApi:
             )
             try:
                 with Project.open(self._project()) as project:
-                    prepared = prepare_product_workflow(
-                        project,
+                    authority = load_m12_authority(project)
+                    prepared = prepare_product_workflow_from_authority(
+                        authority.graph,
+                        authority.scene_model,
                         run_id=f"workflow:{uuid.uuid4().hex}",
                     )
                     preview = persist_product_workflow_preview(project, prepared)
