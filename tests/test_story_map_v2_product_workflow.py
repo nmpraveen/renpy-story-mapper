@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+from jsonschema import Draft202012Validator
 
 from renpy_story_mapper.canonical_graph import build_canonical_graph
 from renpy_story_mapper.canonical_graph_contract import CanonicalGraph, source_generation
@@ -23,6 +26,10 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     GLOBAL_SUBMISSION_SLOTS,
     ProviderMode,
     ProviderSettings,
+)
+from renpy_story_mapper.story_map_v2.workflow_http_projection import (
+    WORKFLOW_HTTP_CONTRACT,
+    workflow_success_envelope,
 )
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
@@ -158,3 +165,44 @@ def test_product_preview_persists_exact_plans_with_zero_provider_construction(
         frozen.story_chunk_plan_bytes
         == prepared.frozen_plans.story_chunk_plan_bytes
     )
+
+
+def test_product_prepare_projects_exact_privacy_safe_http_v2_envelope(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:http-product",
+    )
+    path = tmp_path / "http-preview.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        envelope = workflow_success_envelope(
+            "prepare",
+            preview,
+            adapter.status(prepared.run_id),
+            None,
+        )
+
+    schema_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "story_map_v2"
+        / "schemas"
+        / "story_map_workflow_http_v2.schema.json"
+    )
+    root_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    success_schema = {
+        "$schema": root_schema["$schema"],
+        "$defs": root_schema["$defs"],
+        "$ref": "#/$defs/successEnvelope",
+    }
+    assert not tuple(Draft202012Validator(success_schema).iter_errors(envelope))
+    assert envelope["contract"] == WORKFLOW_HTTP_CONTRACT
+    serialized = json.dumps(envelope, sort_keys=True)
+    assert "raw_story" not in serialized
+    assert "serialized_request_identity" not in serialized
