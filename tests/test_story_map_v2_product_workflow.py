@@ -74,7 +74,11 @@ from renpy_story_mapper.story_map_v2.workflow_http_projection import (
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
-from renpy_story_mapper.web.api import ApiProblem, ProjectApi
+from renpy_story_mapper.web.api import (
+    ApiProblem,
+    ProjectApi,
+    _phase04_full_authority_graph,
+)
 from renpy_story_mapper.web.state import UserStateStore
 
 FIXTURE = (
@@ -108,6 +112,29 @@ def _authority() -> CanonicalGraph:
         state,
         source_generation=source_generation(((module.path, "4" * 64),)),
     )
+
+
+def test_phase04_uses_exact_full_m10_graph_for_m11_binding() -> None:
+    graph = _authority()
+
+    class ProjectStub:
+        def payload(self, collection: str, record_key: str) -> dict[str, object]:
+            assert (collection, record_key) == (
+                "m10_canonical_graph",
+                "authoritative",
+            )
+            return graph.to_dict()
+
+    project = ProjectStub()
+    loaded = _phase04_full_authority_graph(  # type: ignore[arg-type]
+        project, graph.authority_hash
+    )
+    assert loaded.authority_hash == graph.authority_hash
+    assert loaded.normalized_bytes() == graph.normalized_bytes()
+    with pytest.raises(ValueError, match="authority changed"):
+        _phase04_full_authority_graph(  # type: ignore[arg-type]
+            project, "0" * 64
+        )
 
 
 def _authority_with_effect() -> CanonicalGraph:

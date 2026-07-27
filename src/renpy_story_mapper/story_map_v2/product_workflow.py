@@ -58,6 +58,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_PROVIDER,
     CLOUD_REASONING,
     GLOBAL_SUBMISSION_SLOTS,
+    LOOPBACK_REASONING,
     AuthorityIdentity,
     DerivedSemanticNodeRole,
     ProviderCallKind,
@@ -103,7 +104,7 @@ def local_lm_studio_workflow_settings() -> ProviderSettings:
     return ProviderSettings(
         provider="lm-studio-loopback",
         model=LOCAL_MAPPER_MODEL,
-        reasoning=None,
+        reasoning=LOOPBACK_REASONING,
         fast_mode=None,
         mode=ProviderMode.LOOPBACK,
         adapter_version=LOOPBACK_WORKFLOW_ADAPTER_VERSION,

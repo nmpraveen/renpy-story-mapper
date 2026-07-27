@@ -35,6 +35,7 @@ from renpy_story_mapper.story_map_v2.provider_policy import (
     ProviderFailure,
 )
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    LOOPBACK_REASONING,
     AttemptAccounting,
     ProviderCallResult,
     TransmissionDisposition,
@@ -190,6 +191,7 @@ class LoopbackLmStudioTransport:
             {
                 "messages": [{"content": request.decode("utf-8"), "role": "user"}],
                 "model": LOCAL_MAPPER_MODEL,
+                "reasoning_effort": LOOPBACK_REASONING,
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {
@@ -219,7 +221,7 @@ class LoopbackLmStudioTransport:
             ),
             resolved_provider="lm-studio-loopback",
             resolved_model=LOCAL_MAPPER_MODEL,
-            resolved_reasoning=None,
+            resolved_reasoning=LOOPBACK_REASONING,
             resolved_fast_mode=None,
         )
 

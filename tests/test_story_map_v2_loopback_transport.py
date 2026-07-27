@@ -188,9 +188,11 @@ def test_workflow_submit_uses_existing_json_schema_without_small_token_cap() -> 
         "story_map_phase04_section_prose_v1"
     )
     assert submitted["response_format"]["json_schema"]["schema"]["type"] == "object"
+    assert submitted["reasoning_effort"] == "none"
     assert "max_tokens" not in submitted
     assert json.loads(result.payload) == payload
     assert result.accounting.output_tokens == 293
+    assert result.resolved_reasoning == "none"
 
 
 def test_model_mismatch_fails_before_any_submission() -> None:

@@ -19,6 +19,7 @@ CLOUD_PROVIDER = "codex-cli"
 CLOUD_MODEL = "gpt-5.6-terra"
 CLOUD_REASONING = "high"
 CLOUD_FAST_MODE = False
+LOOPBACK_REASONING = "none"
 GLOBAL_SUBMISSION_SLOTS = 6
 DERIVED_SEMANTIC_WORKFLOW_VERSION = "story-map-v2-derived-semantic-workflow-v2"
 DERIVED_SEMANTIC_FAN_IN = 24
@@ -513,7 +514,7 @@ class WorkflowPolicy:
             raise ValueError("cloud policy requires exact Terra, High, fast-off settings")
         if self.cloud.mode is ProviderMode.LOOPBACK and (
             self.cloud.provider == CLOUD_PROVIDER
-            or self.cloud.reasoning is not None
+            or self.cloud.reasoning not in {None, LOOPBACK_REASONING}
             or self.cloud.fast_mode is not None
         ):
             raise ValueError(

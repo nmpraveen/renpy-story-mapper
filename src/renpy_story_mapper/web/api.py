@@ -26,7 +26,11 @@ from renpy_story_mapper.bounded_window import (
     BoundedWindowError,
     build_bounded_narrative_window,
 )
-from renpy_story_mapper.canonical_graph_contract import CANONICAL_GRAPH_SCHEMA, SourceEvidence
+from renpy_story_mapper.canonical_graph_contract import (
+    CANONICAL_GRAPH_SCHEMA,
+    CanonicalGraph,
+    SourceEvidence,
+)
 from renpy_story_mapper.inspection_projection import INSPECTION_PROJECTION_SCHEMA
 from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
 from renpy_story_mapper.m07_workflow import (
@@ -42,6 +46,7 @@ from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheSta
 from renpy_story_mapper.m12_service import (
     M12PreparedSolve,
     M12RouteService,
+    canonical_graph_from_mapping,
     load_m12_authority,
 )
 from renpy_story_mapper.narrative.authority import load_narrative_authority
@@ -283,6 +288,21 @@ LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
         "/api/v1/organization/discard",
     }
 )
+
+
+def _phase04_full_authority_graph(
+    project: Project,
+    expected_canonical_hash: str,
+) -> CanonicalGraph:
+    """Load the exact M10 graph needed by the M11-bound Phase 04 planner."""
+
+    raw = project.payload("m10_canonical_graph", "authoritative")
+    if not isinstance(raw, Mapping):
+        raise ValueError("Phase 04 requires current M10 authority")
+    graph = canonical_graph_from_mapping(raw)
+    if graph.authority_hash != expected_canonical_hash:
+        raise ValueError("Phase 04 M10 authority changed")
+    return graph
 
 
 class ApiProblem(Exception):
@@ -836,7 +856,9 @@ class ProjectApi:
                 prepared, preview, approval, status = load_product_workflow(
                     project,
                     run_id,
-                    authority_graph=authority.graph,
+                    authority_graph=_phase04_full_authority_graph(
+                        project, authority.canonical_hash
+                    ),
                     scene_model=authority.scene_model,
                 )
             except ValueError:
@@ -885,7 +907,10 @@ class ProjectApi:
     ) -> None:
         project_path = self._project()
         with Project.open(project_path) as project:
-            authority_graph = load_m12_authority(project).graph
+            authority = load_m12_authority(project)
+            authority_graph = _phase04_full_authority_graph(
+                project, authority.canonical_hash
+            )
         with self._lock:
             existing = self._phase04_futures.get(prepared.run_id)
             if existing is not None and not existing.done():
@@ -926,7 +951,7 @@ class ProjectApi:
                 with Project.open(self._project()) as project:
                     authority = load_m12_authority(project)
                     prepared = prepare_product_workflow_from_authority(
-                        authority.graph,
+                        _phase04_full_authority_graph(project, authority.canonical_hash),
                         authority.scene_model,
                         run_id=f"workflow:{uuid.uuid4().hex}",
                         primary=local_lm_studio_workflow_settings(),
