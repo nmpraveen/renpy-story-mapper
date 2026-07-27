@@ -21,10 +21,15 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     SECTION_SYNTHESIS_ADAPTER_VERSION,
     SECTION_SYNTHESIS_PROMPT_VERSION,
     SECTION_SYNTHESIS_SCHEMA_VERSION,
+    assemble_derived_semantics,
+    build_derived_semantic_plan,
 )
+from renpy_story_mapper.story_map_v2.phase04_semantics import assemble_semantic_corridors
 from renpy_story_mapper.story_map_v2.product_workflow import (
     MAPPING_ADAPTER_VERSION,
+    FrozenProductRequestMaterializer,
     ProductWorkflowValidator,
+    adapt_derived_semantic_job,
     create_product_workflow_service,
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
@@ -341,6 +346,128 @@ def test_product_validator_binds_contiguous_section_prose_to_derived_job() -> No
     assert normalized["semantic_plan_identity"] == semantic.semantic_plan_identity
     assert normalized["ordered_child_ids"] == ["event:one", "event:two"]
     assert validator.validate(job, result.normalized_payload, cached=True) == result
+
+
+def test_published_mapping_events_unlock_durable_section_jobs(tmp_path: Path) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:durable-sections",
+    )
+    chunks = {
+        chunk.chunk_id: chunk for chunk in prepared.frozen_plans.story_chunk_plan.chunks
+    }
+
+    class MappingAndSectionProvider:
+        def submit(self, request: bytes) -> ProviderCallResult:
+            packet = json.loads(request)
+            if packet.get("call_kind") == "section_synthesis":
+                child_ids = [child["id"] for child in packet["children"]]
+                prose: dict[str, object] = {
+                    "title": "Meaningful story corridor",
+                    "summary": "The related events form a continuous part of the story.",
+                    "sections": [
+                        {
+                            "first_event_id": child_ids[0],
+                            "last_event_id": child_ids[-1],
+                            "title": "A continuous sequence",
+                            "summary": "The ordered events progress through one narrative beat.",
+                        }
+                    ],
+                }
+            else:
+                chunk = chunks[packet["chunk_id"]]
+                prose = {
+                    "title": "Mapped story chunk",
+                    "overview": "The supplied events are summarized in chronological order.",
+                    "review_requested": False,
+                    "events": [
+                        {
+                            "key": "event",
+                            "placement_ids": list(chunk.placement_ids),
+                            "title": "Story events",
+                            "summary": "The characters progress through this part of the story.",
+                            "characters": [],
+                        }
+                    ],
+                    "branch_summaries": [
+                        {
+                            "choice_key": segment.choice_key,
+                            "arm_orders": list(segment.arm_orders),
+                            "summary": "The choice paths briefly diverge.",
+                        }
+                        for segment in chunk.choice_segments
+                    ],
+                }
+            return ProviderCallResult(
+                payload=canonical_json(prose),
+                accounting=AttemptAccounting(1, 100, 40, 10),
+                resolved_provider=CLOUD_PROVIDER,
+                resolved_model=CLOUD_MODEL,
+                resolved_reasoning=CLOUD_REASONING,
+                resolved_fast_mode=CLOUD_FAST_MODE,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    path = tmp_path / "durable-sections.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        materializer = FrozenProductRequestMaterializer(prepared)
+        service = create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=MappingAndSectionProvider,
+            request_materializer=materializer,
+        )
+        service.approve(prepared.run_id, preview.identity)
+        service.execute(
+            prepared.run_id,
+            preview_identity=preview.identity,
+            authority_identity=prepared.plan.authority_identity,
+        )
+        repository = DurableWorkflowRepositoryAdapter.from_project(project)
+        mapping_payloads = tuple(
+            result.normalized_payload
+            for job in prepared.plan.jobs
+            if (result := repository.load_published_result(prepared.run_id, job.job_id))
+            is not None
+        )
+        semantic_assembly = assemble_semantic_corridors(
+            prepared.frozen_plans.story_chunk_plan,
+            mapping_payloads,
+        )
+        derived_plan = build_derived_semantic_plan(
+            prepared.frozen_plans.story_chunk_plan,
+            prepared.plan.authority_identity.value,
+        )
+        derived = assemble_derived_semantics(
+            derived_plan,
+            semantic_assembly,
+            workflow_digest("candidate:durable-sections"),
+        )
+        for semantic_job in derived.section_jobs:
+            durable_job = adapt_derived_semantic_job(prepared, semantic_job)
+            materializer.register(durable_job.serialized_request_identity, semantic_job.request)
+            service.register_derived_job(
+                prepared.run_id,
+                preview_identity=preview.identity,
+                job=durable_job,
+            )
+        status = service.execute(
+            prepared.run_id,
+            preview_identity=preview.identity,
+            authority_identity=prepared.plan.authority_identity,
+        )
+
+    assert status.pending_jobs == 0
+    assert status.accepted_jobs == len(prepared.plan.jobs) + len(derived.section_jobs)
+    assert all(
+        repository.load_published_result(prepared.run_id, job.job_id) is not None
+        for job in (adapt_derived_semantic_job(prepared, item) for item in derived.section_jobs)
+    )
 
 
 def test_product_preview_persists_exact_plans_with_zero_provider_construction(

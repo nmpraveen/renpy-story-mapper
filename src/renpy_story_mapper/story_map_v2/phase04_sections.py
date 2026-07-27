@@ -603,15 +603,25 @@ def _string_array(value: object, label: str) -> tuple[str, ...]:
     return tuple(_string(item, label) for item in _array(value, label))
 
 
+def meaningful_section_identity(
+    semantic_plan_identity: str,
+    corridor_id: str,
+    event_ids: tuple[str, ...],
+) -> str:
+    """Return the stable Python-owned identity for one contiguous section."""
+
+    digest = canonical_hash(
+        {"plan": semantic_plan_identity, "corridor": corridor_id, "events": list(event_ids)}
+    )
+    return f"section:{digest[:32]}"
+
+
 def _section_id(
     semantic_plan_identity: str,
     corridor_id: str,
     event_ids: tuple[str, ...],
 ) -> str:
-    digest = canonical_hash(
-        {"plan": semantic_plan_identity, "corridor": corridor_id, "events": list(event_ids)}
-    )
-    return f"section:{digest[:32]}"
+    return meaningful_section_identity(semantic_plan_identity, corridor_id, event_ids)
 
 
 def _corridor_events(
@@ -782,6 +792,27 @@ def _section_children(result: CorridorSectionResult) -> tuple[ChildSummary, ...]
     )
 
 
+def derived_rollup_identity(
+    semantic_plan_identity: str,
+    candidate_generation_identity: str,
+    role: str,
+    route_owner: str | None,
+    child_ids: Sequence[str],
+) -> str:
+    """Return the stable Python-owned identity for one fixed-membership rollup."""
+
+    digest = canonical_hash(
+        {
+            "semantic_plan_identity": semantic_plan_identity,
+            "candidate_generation_identity": candidate_generation_identity,
+            "role": role,
+            "route_owner": route_owner,
+            "child_ids": list(child_ids),
+        }
+    )
+    return f"rollup:{digest[:32]}"
+
+
 def _rollup_id(
     plan: DerivedSemanticPlan,
     candidate_generation_identity: str,
@@ -789,16 +820,13 @@ def _rollup_id(
     route_owner: str | None,
     child_ids: Sequence[str],
 ) -> str:
-    digest = canonical_hash(
-        {
-            "semantic_plan_identity": plan.semantic_plan_identity,
-            "candidate_generation_identity": candidate_generation_identity,
-            "role": role.value,
-            "route_owner": route_owner,
-            "child_ids": list(child_ids),
-        }
+    return derived_rollup_identity(
+        plan.semantic_plan_identity,
+        candidate_generation_identity,
+        role.value,
+        route_owner,
+        child_ids,
     )
-    return f"rollup:{digest[:32]}"
 
 
 def _validate_rollup_response(

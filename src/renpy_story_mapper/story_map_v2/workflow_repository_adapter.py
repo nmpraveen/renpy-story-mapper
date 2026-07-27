@@ -14,6 +14,15 @@ from typing import cast
 from renpy_story_mapper import storage
 from renpy_story_mapper.story_map_v2 import durable_repository as durable
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
+from renpy_story_mapper.story_map_v2.phase04_sections import (
+    ROLLUP_SYNTHESIS_SCHEMA_VERSION,
+    SECTION_SYNTHESIS_SCHEMA_VERSION,
+    derived_rollup_identity,
+    meaningful_section_identity,
+)
+from renpy_story_mapper.story_map_v2.phase04_semantics import (
+    assemble_semantic_corridors,
+)
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     AttemptAccounting,
     AttemptCompletion,
@@ -271,6 +280,7 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                 "derived job does not match the approved semantic plan"
             )
         _validate_derived_job_membership(job, semantic_plan)
+        frozen_plans = self.load_frozen_plans(run_id)
         stored = _derived_job_object(job)
         with self._repository() as repository:
             run = repository.get_run(_run_id(run_id))
@@ -278,20 +288,24 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
                 raise durable.StoryMapV2RepositoryError(
                     "cancelled or missing workflow cannot register descendants"
                 )
+            artifacts = (
+                _published_direct_job_artifacts(repository, run_id, job)
+                if frozen_plans is None
+                else _published_semantic_artifacts(
+                    repository,
+                    run_id,
+                    preview,
+                    frozen_plans,
+                )
+            )
             for child_id, prose_hash in zip(
                 job.child_ids, job.child_prose_hashes, strict=True
             ):
-                child = repository.load_published_result(
-                    run.descriptor.run_id, _job_id(run_id, child_id)
-                )
-                if child is None:
+                if artifacts.get(child_id) is None:
                     raise durable.StoryMapV2RepositoryError(
                         "derived job dependencies are not all published"
                     )
-                child_value = _mapping(child.result, "derived child result")
-                if child_value.get("kind") != _RESULT_KIND or _str(
-                    child_value, "result_identity"
-                ) != prose_hash:
+                if artifacts[child_id] != prose_hash:
                     raise durable.StoryMapV2RepositoryError(
                         "derived job child prose identity changed"
                     )
@@ -1340,6 +1354,148 @@ def _int(value: Mapping[str, object], key: str) -> int:
     if type(item) is not int:
         raise storage.ProjectCorruptError(f"{key} is not a canonical integer")
     return item
+
+
+def _published_semantic_artifacts(
+    repository: durable.StoryMapV2Repository,
+    run_id: str,
+    preview: WorkflowPreview,
+    frozen_plans: FrozenPlanBundle,
+) -> dict[str, str]:
+    """Project durable sanitized results into their dependency child identities."""
+
+    normalized_mapping: list[bytes] = []
+    for job in preview.plan.jobs:
+        mapping_published = repository.load_published_result(
+            _run_id(run_id), _job_id(run_id, job.job_id)
+        )
+        if mapping_published is None:
+            raise durable.StoryMapV2RepositoryError(
+                "section synthesis waits for every mapping job to publish"
+            )
+        result = _mapping(mapping_published.result, "published mapping result")
+        if result.get("kind") == _RESULT_KIND:
+            normalized_mapping.append(_decode_result(result).normalized_payload)
+        elif result.get("kind") != _STRUCTURAL_KIND:
+            raise storage.ProjectCorruptError("unsupported published mapping result")
+
+    assembly = assemble_semantic_corridors(
+        frozen_plans.story_chunk_plan,
+        tuple(normalized_mapping),
+    )
+    artifacts: dict[str, str] = {}
+    for event in assembly.events:
+        _add_semantic_artifact(
+            artifacts,
+            event.event_id,
+            workflow_digest({"title": event.title, "summary": event.summary}),
+        )
+
+    for job_record in repository.list_jobs(_run_id(run_id)):
+        if job_record.descriptor.ordinal < len(preview.plan.jobs):
+            continue
+        published = repository.load_published_result(
+            _run_id(run_id), job_record.descriptor.job_id
+        )
+        if published is None:
+            continue
+        envelope = _mapping(published.result, "published derived result")
+        if envelope.get("kind") != _RESULT_KIND:
+            continue
+        try:
+            raw: object = json.loads(_decode_result(envelope).normalized_payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise storage.ProjectCorruptError("derived result prose is not canonical JSON") from exc
+        value = _mapping(raw, "derived result prose")
+        schema = value.get("schema")
+        if schema == SECTION_SYNTHESIS_SCHEMA_VERSION:
+            _add_published_sections(artifacts, value)
+        elif schema == ROLLUP_SYNTHESIS_SCHEMA_VERSION:
+            _add_published_rollup(artifacts, value)
+    return artifacts
+
+
+def _published_direct_job_artifacts(
+    repository: durable.StoryMapV2Repository,
+    run_id: str,
+    job: WorkflowDerivedSemanticJobDescriptor,
+) -> dict[str, str]:
+    """Preserve the provider-neutral test/compatibility seam without frozen product plans."""
+
+    artifacts: dict[str, str] = {}
+    for child_id in job.child_ids:
+        child = repository.load_published_result(
+            _run_id(run_id), _job_id(run_id, child_id)
+        )
+        if child is None:
+            continue
+        value = _mapping(child.result, "derived child result")
+        if value.get("kind") == _RESULT_KIND:
+            artifacts[child_id] = _str(value, "result_identity")
+    return artifacts
+
+
+def _add_published_sections(
+    artifacts: dict[str, str],
+    value: Mapping[str, object],
+) -> None:
+    child_ids = tuple(str(item) for item in _list(value, "ordered_child_ids"))
+    indexes = {child_id: index for index, child_id in enumerate(child_ids)}
+    semantic_plan_identity = _str(value, "semantic_plan_identity")
+    corridor_id = _str(value, "corridor_id")
+    cursor = 0
+    for raw in _list(value, "sections"):
+        section = _mapping(raw, "published section")
+        first = _str(section, "first_event_id")
+        last = _str(section, "last_event_id")
+        if first not in indexes or last not in indexes:
+            raise storage.ProjectCorruptError("published section has foreign event membership")
+        first_index = indexes[first]
+        last_index = indexes[last]
+        if first_index != cursor or last_index < first_index:
+            raise storage.ProjectCorruptError("published section membership is not contiguous")
+        members = child_ids[first_index : last_index + 1]
+        cursor = last_index + 1
+        section_id = meaningful_section_identity(
+            semantic_plan_identity,
+            corridor_id,
+            members,
+        )
+        _add_semantic_artifact(
+            artifacts,
+            section_id,
+            workflow_digest(
+                {"title": _str(section, "title"), "summary": _str(section, "summary")}
+            ),
+        )
+    if cursor != len(child_ids):
+        raise storage.ProjectCorruptError("published sections omit event membership")
+
+
+def _add_published_rollup(
+    artifacts: dict[str, str],
+    value: Mapping[str, object],
+) -> None:
+    rollup_id = derived_rollup_identity(
+        _str(value, "semantic_plan_identity"),
+        _str(value, "candidate_generation_identity"),
+        _str(value, "node_role"),
+        None if value.get("route_owner") is None else _str(value, "route_owner"),
+        tuple(str(item) for item in _list(value, "ordered_child_ids")),
+    )
+    _add_semantic_artifact(
+        artifacts,
+        rollup_id,
+        workflow_digest({"title": _str(value, "title"), "summary": _str(value, "summary")}),
+    )
+
+
+def _add_semantic_artifact(
+    artifacts: dict[str, str], child_id: str, prose_hash: str
+) -> None:
+    previous = artifacts.setdefault(child_id, prose_hash)
+    if previous != prose_hash:
+        raise storage.ProjectCorruptError("semantic child identity has conflicting prose")
 
 
 __all__ = ["DurableWorkflowRepositoryAdapter"]

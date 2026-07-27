@@ -30,7 +30,17 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
     plan_story_chunks,
     serialize_chunk_request,
 )
-from renpy_story_mapper.story_map_v2.phase04_sections import build_derived_semantic_plan
+from renpy_story_mapper.story_map_v2.phase04_sections import (
+    ROLLUP_SYNTHESIS_ADAPTER_VERSION,
+    ROLLUP_SYNTHESIS_PROMPT_VERSION,
+    ROLLUP_SYNTHESIS_SCHEMA_VERSION,
+    SECTION_SYNTHESIS_ADAPTER_VERSION,
+    SECTION_SYNTHESIS_PROMPT_VERSION,
+    SECTION_SYNTHESIS_SCHEMA_VERSION,
+    DerivedCallKind,
+    DerivedSemanticJob,
+    build_derived_semantic_plan,
+)
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
     PHASE04_MAPPER_RESPONSE_SCHEMA,
     FrozenMapperJobBinding,
@@ -47,7 +57,9 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_PROVIDER,
     CLOUD_REASONING,
     AuthorityIdentity,
+    DerivedSemanticNodeRole,
     ProviderCallKind,
+    ProviderInputIdentity,
     ProviderMode,
     ProviderSettings,
     SerializedRequestIdentity,
@@ -118,6 +130,14 @@ class FrozenProductRequestMaterializer:
             raise ValueError("the frozen workflow request is unavailable") from exc
         identity.verify(request)
         return request
+
+    def register(self, identity: SerializedRequestIdentity, request: bytes) -> None:
+        """Add one dependency-created exact request without replacing frozen material."""
+
+        identity.verify(request)
+        existing = self._requests.setdefault(identity.value, request)
+        if existing != request:
+            raise ValueError("a workflow request identity cannot be reused for new bytes")
 
 
 class ProductWorkflowValidator:
@@ -372,14 +392,74 @@ def create_product_workflow_service(
     prepared: PreparedProductWorkflow,
     *,
     cloud_factory: ProviderFactory | None = None,
+    request_materializer: FrozenProductRequestMaterializer | None = None,
 ) -> StoryMapWorkflowService:
     """Compose the durable runner without constructing a provider before execution."""
 
+    materializer = request_materializer or FrozenProductRequestMaterializer(prepared)
     return StoryMapWorkflowService(
         DurableWorkflowRepositoryAdapter.from_project(project),
-        FrozenProductRequestMaterializer(prepared),
+        materializer,
         ProductWorkflowValidator(prepared),
         cloud_factory=cloud_factory or CodexCliWorkflowProvider,
+    )
+
+
+def adapt_derived_semantic_job(
+    prepared: PreparedProductWorkflow,
+    job: DerivedSemanticJob,
+) -> WorkflowDerivedSemanticJobDescriptor:
+    """Adapt one dependency-ready C job into the durable B workflow contract."""
+
+    semantic = prepared.plan.derived_semantic_plan
+    if semantic is None or job.semantic_plan_identity != semantic.semantic_plan_identity:
+        raise ValueError("derived job does not bind the prepared semantic plan")
+    request_identity = SerializedRequestIdentity(
+        job.request_identity.value,
+        job.request_identity.sha256,
+        job.request_identity.byte_count,
+    )
+    if job.call_kind is DerivedCallKind.SECTION_SYNTHESIS:
+        prompt_version = SECTION_SYNTHESIS_PROMPT_VERSION
+        schema_version = SECTION_SYNTHESIS_SCHEMA_VERSION
+        adapter_version = SECTION_SYNTHESIS_ADAPTER_VERSION
+    else:
+        prompt_version = ROLLUP_SYNTHESIS_PROMPT_VERSION
+        schema_version = ROLLUP_SYNTHESIS_SCHEMA_VERSION
+        adapter_version = ROLLUP_SYNTHESIS_ADAPTER_VERSION
+    provider_input = ProviderInputIdentity(
+        serialized_request_identity=request_identity,
+        prompt_version=prompt_version,
+        schema_version=schema_version,
+        adapter_version=adapter_version,
+        provider=CLOUD_PROVIDER,
+        model=CLOUD_MODEL,
+        reasoning=CLOUD_REASONING,
+        fast_mode=CLOUD_FAST_MODE,
+        mode=ProviderMode.CLOUD,
+    )
+    node_role = (
+        None
+        if job.node_role is None
+        else DerivedSemanticNodeRole(job.node_role.value)
+    )
+    return WorkflowDerivedSemanticJobDescriptor(
+        plan_id=prepared.plan.plan_id,
+        semantic_plan_identity=job.semantic_plan_identity,
+        story_chunk_plan_identity=semantic.story_chunk_plan_identity,
+        candidate_generation_identity=job.candidate_generation_identity,
+        authority_identity=prepared.plan.authority_identity,
+        job_id=job.job_id,
+        call_kind=ProviderCallKind(job.call_kind.value),
+        node_role=node_role,
+        corridor_id=job.corridor_id,
+        route_owner=job.route_owner,
+        child_ids=job.child_ids,
+        child_prose_hashes=job.child_prose_hashes,
+        ordinal=job.ordinal,
+        serialized_request_identity=request_identity,
+        provider_input_identity=provider_input,
+        cache_identity=provider_input.cache_identity,
     )
 
 
