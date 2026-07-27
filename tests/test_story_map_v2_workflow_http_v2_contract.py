@@ -456,6 +456,44 @@ def test_every_error_bucket_uses_its_exact_fixed_message() -> None:
             assert envelope["error"]["message"] == WORKFLOW_HTTP_ERROR_MESSAGES[code]
 
 
+@pytest.mark.parametrize(
+    ("code", "unsafe_message"),
+    (
+        (code, unsafe_message)
+        for code in ("stale_workflow_preview", "stale_workflow_approval")
+        for unsafe_message in (
+            "provider stderr: authentication failed for tenant alpha",
+            "source text: label private_route:",
+            "credential token sk-synthetic-secret",
+            'RuntimeError("provider returned source payload")',
+            "provider codex-cli diagnostic: request rejected",
+            'script dialogue: narrator "private marker"',
+            "Authorization: Bearer synthetic-secret",
+            "API key synthetic-secret",
+            "Traceback (most recent call last): ValueError('provider failed')",
+            "file:///opt/private/story.rpy",
+            r"\\server\private\story.rpy",
+            r"C:\private\story.rpy",
+            "/opt/private/story.rpy",
+        )
+    ),
+)
+def test_reusable_stale_error_definition_rejects_nonconstant_messages(
+    code: str,
+    unsafe_message: str,
+) -> None:
+    schema = _load(SCHEMA_PATH)
+    direct_schema = {
+        "$schema": schema["$schema"],
+        "$defs": schema["$defs"],
+        "$ref": "#/$defs/staleError",
+    }
+    envelope = deepcopy(_load(FIXTURE_PATH)["examples"]["stale_errors"][code])
+    envelope["error"]["message"] = unsafe_message
+
+    assert tuple(Draft202012Validator(direct_schema).iter_errors(envelope))
+
+
 def _walk_strings(value: object) -> Iterator[str]:
     if isinstance(value, str):
         yield value

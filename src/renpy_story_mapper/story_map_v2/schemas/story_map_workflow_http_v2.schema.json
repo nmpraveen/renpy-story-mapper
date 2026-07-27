@@ -930,6 +930,24 @@
             "current_run_id": {"$ref": "#/$defs/nullableNonempty"},
             "current_preview_identity": {"$ref": "#/$defs/nullableDigest"}
           },
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "code": {"const": "stale_workflow_preview"},
+                    "message": {"const": "The workflow preview has changed."}
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {"const": "stale_workflow_approval"},
+                    "message": {"const": "The workflow approval is stale."}
+                  }
+                }
+              ]
+            }
+          ],
           "oneOf": [
             {
               "properties": {
