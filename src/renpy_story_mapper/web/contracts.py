@@ -173,6 +173,18 @@ M13_BATCH_LIMIT_FIELDS: Final = (
     "maximum_input_tokens",
 )
 
+STORY_MAP_V2_READER_API_ROUTES: Final[dict[str, str]] = {
+    "manifest": "/api/v1/story-map-v2/manifest",
+    "status": "/api/v1/story-map-v2/status",
+    "section_page": "/api/v1/story-map-v2/section-page",
+    "branch_page": "/api/v1/story-map-v2/branch-page",
+    "locate": "/api/v1/story-map-v2/locate",
+    "search": "/api/v1/story-map-v2/search",
+    "path_page": "/api/v1/story-map-v2/path-page",
+    "detail_page": "/api/v1/story-map-v2/detail-page",
+    "view_state": "/api/v1/story-map-v2/view-state",
+    "save_view_state": "/api/v1/story-map-v2/view-state/save",
+}
 STORY_MAP_V2_API_ROUTES: Final[dict[str, str]] = {
     "map": "/api/v1/story-map-v2/map",
     "path": "/api/v1/story-map-v2/path",
@@ -180,6 +192,40 @@ STORY_MAP_V2_API_ROUTES: Final[dict[str, str]] = {
 }
 STORY_MAP_V2_MAP_REQUEST_FIELDS: Final = ()
 STORY_MAP_V2_SELECTION_REQUEST_FIELDS: Final = ("selection_id",)
+STORY_MAP_V2_MANIFEST_REQUEST_FIELDS: Final = ()
+STORY_MAP_V2_STATUS_REQUEST_FIELDS: Final = ()
+STORY_MAP_V2_SECTION_PAGE_REQUEST_FIELDS: Final = (
+    "map_revision",
+    "section_id",
+    "limit",
+    "cursor",
+)
+STORY_MAP_V2_BRANCH_PAGE_REQUEST_FIELDS: Final = (
+    "map_revision",
+    "branch_id",
+    "limit",
+    "cursor",
+)
+STORY_MAP_V2_LOCATE_REQUEST_FIELDS: Final = ("map_revision", "selection_id")
+STORY_MAP_V2_SEARCH_REQUEST_FIELDS: Final = (
+    "map_revision",
+    "query",
+    "limit",
+    "cursor",
+)
+STORY_MAP_V2_PATH_PAGE_REQUEST_FIELDS: Final = (
+    "map_revision",
+    "selection_id",
+    "limit",
+    "cursor",
+)
+STORY_MAP_V2_DETAIL_PAGE_REQUEST_FIELDS: Final = STORY_MAP_V2_PATH_PAGE_REQUEST_FIELDS
+STORY_MAP_V2_VIEW_STATE_REQUEST_FIELDS: Final = ("map_revision", "view_key")
+STORY_MAP_V2_SAVE_VIEW_STATE_REQUEST_FIELDS: Final = (
+    "map_revision",
+    "view_key",
+    "state",
+)
 
 
 @dataclass(frozen=True)

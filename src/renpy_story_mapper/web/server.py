@@ -138,6 +138,7 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
                 exc.code,
                 exc.message,
                 selection_id=exc.selection_id,
+                map_revision=exc.map_revision,
             )
             return
         except ValueError:
@@ -239,12 +240,15 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
         message: str,
         *,
         selection_id: str | None = None,
+        map_revision: int | None = None,
     ) -> None:
         body: dict[str, JsonValue] = {
             "error": {"code": code, "message": redact_message(message)}
         }
         if selection_id is not None:
             body["selection_id"] = selection_id
+        if map_revision is not None:
+            body["map_revision"] = map_revision
         self._write_json(status, body)
 
     def _write_json(self, status: int, value: JsonValue) -> None:

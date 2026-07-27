@@ -709,7 +709,6 @@ class StoryMapV2Repository(Protocol):
         plan_id: str,
         authority_identity: str,
     ) -> bool: ...
-
     def set_active_generation(
         self,
         generation_id: str,
@@ -727,6 +726,15 @@ class StoryMapV2Repository(Protocol):
         page_ordinal: int,
     ) -> SectionPageRecord | None: ...
 
+    def list_section_pages(
+        self,
+        generation_id: str,
+        section_id: str,
+        *,
+        start_page_ordinal: int = 0,
+        limit: int = 64,
+    ) -> tuple[SectionPageRecord, ...]: ...
+
     def store_selection(self, selection: SelectionIndexRecord) -> None: ...
 
     def locate_selection(
@@ -734,6 +742,16 @@ class StoryMapV2Repository(Protocol):
         generation_id: str,
         selection_id: str,
     ) -> SelectionIndexRecord | None: ...
+
+    def list_selections(
+        self,
+        generation_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 128,
+    ) -> tuple[SelectionIndexRecord, ...]: ...
+
+    def count_selections(self, generation_id: str) -> int: ...
 
     def generation_pointers(self) -> GenerationPointers: ...
 
@@ -2609,6 +2627,7 @@ class SqliteStoryMapV2Repository:
             )
 
     def load_generation(self, generation_id: str) -> GenerationDescriptor | None:
+        """Load one immutable generation descriptor without scanning generation pages."""
         _identifier(generation_id, "generation_id")
         row = self._connection.execute(
             "SELECT * FROM story_map_v2_generations WHERE generation_id = ?",
@@ -2767,6 +2786,40 @@ class SqliteStoryMapV2Repository:
             page_identity=str(row["page_identity"]),
         )
 
+    def list_section_pages(
+        self,
+        generation_id: str,
+        section_id: str,
+        *,
+        start_page_ordinal: int = 0,
+        limit: int = 64,
+    ) -> tuple[SectionPageRecord, ...]:
+        """Read a bounded page range through the schema-v7 covering order index."""
+
+        _identifier(generation_id, "generation_id")
+        _identifier(section_id, "section_id")
+        if type(start_page_ordinal) is not int or start_page_ordinal < 0:
+            raise ValueError("start_page_ordinal cannot be negative")
+        if type(limit) is not int or not 1 <= limit <= 512:
+            raise ValueError("section-page read limit is outside the allowed range")
+        rows = self._connection.execute(
+            """SELECT * FROM story_map_v2_section_pages
+               WHERE generation_id = ? AND section_id = ? AND page_ordinal >= ?
+               ORDER BY page_ordinal LIMIT ?""",
+            (generation_id, section_id, start_page_ordinal, limit),
+        ).fetchall()
+        return tuple(
+            SectionPageRecord(
+                generation_id=str(row["generation_id"]),
+                section_id=str(row["section_id"]),
+                page_ordinal=int(row["page_ordinal"]),
+                item_count=int(row["item_count"]),
+                page=storage.decode_json(row["page_json"]),
+                page_identity=str(row["page_identity"]),
+            )
+            for row in rows
+        )
+
     def locate_selection(
         self,
         generation_id: str,
@@ -2789,6 +2842,47 @@ class SqliteStoryMapV2Repository:
             item_ordinal=int(row["item_ordinal"]),
             selection_kind=str(row["selection_kind"]),
         )
+
+    def list_selections(
+        self,
+        generation_id: str,
+        *,
+        offset: int = 0,
+        limit: int = 128,
+    ) -> tuple[SelectionIndexRecord, ...]:
+        """Stream the stable locator order without materializing the full selection index."""
+
+        _identifier(generation_id, "generation_id")
+        if type(offset) is not int or offset < 0:
+            raise ValueError("selection offset cannot be negative")
+        if type(limit) is not int or not 1 <= limit <= 512:
+            raise ValueError("selection read limit is outside the allowed range")
+        rows = self._connection.execute(
+            """SELECT * FROM story_map_v2_selection_index
+               WHERE generation_id = ?
+               ORDER BY section_id, page_ordinal, item_ordinal, selection_id
+               LIMIT ? OFFSET ?""",
+            (generation_id, limit, offset),
+        ).fetchall()
+        return tuple(
+            SelectionIndexRecord(
+                generation_id=str(row["generation_id"]),
+                selection_id=str(row["selection_id"]),
+                section_id=str(row["section_id"]),
+                page_ordinal=int(row["page_ordinal"]),
+                item_ordinal=int(row["item_ordinal"]),
+                selection_kind=str(row["selection_kind"]),
+            )
+            for row in rows
+        )
+
+    def count_selections(self, generation_id: str) -> int:
+        _identifier(generation_id, "generation_id")
+        row = self._connection.execute(
+            "SELECT COUNT(*) FROM story_map_v2_selection_index WHERE generation_id = ?",
+            (generation_id,),
+        ).fetchone()
+        return 0 if row is None else int(row[0])
 
     def generation_pointers(self) -> GenerationPointers:
         return self._pointers_locked()
