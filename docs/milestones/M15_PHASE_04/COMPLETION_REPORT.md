@@ -1,6 +1,6 @@
 # M15.1 Phase 04 progress report
 
-Status: Blocked — Gate 2 awaits exact user consent for private provider transmission
+Status: Blocked — the exact approved Gate 2 run ended indeterminate without a map
 
 Current product checkpoint: `4a85a79` on `codex/m15-phase04-full-game`
 
@@ -82,19 +82,28 @@ No current product code is being discarded, but the remaining old acceptance wor
   `0a3391b63c5b18e76cfa1bded722a8e5d8a62fbc74e5e1c26eb9dd9179d10762` before and after.
   Sanitized preview evidence and screenshots remain outside Git under
   `output/m15-phase04-gate2-preview-20260727-0009/`.
-- Exact user consent has not been granted. The approval action was not activated and no private
-  provider call occurred.
-- Read-only durable checks repeated across three consecutive goal turns with the same result: the
-  preview identity remains available, all 425 jobs remain pending, no approval record exists, and
-  accounting remains zero. The native goal and milestone are now blocked at this user-decision
-  boundary. The prepared run was not cancelled; an explicit approve or cancel response resumes the
-  lifecycle at `Integration`.
+- The user explicitly replied `Approved proceed` on 2026-07-27. Immediately before activation, a
+  fresh durable and website preflight reconfirmed the unchanged preview/run identity, no approval,
+  all 425 jobs pending, and zero calls/tokens.
+- The Orchestra activated `#approveStoryGeneration` exactly once through the supported website.
+  No second click or prepare occurred. The durable ledger then showed the exact approval stored and
+  the finite run executing. Early mapping calls returned the sanitized failure `The configured
+  mapper is unavailable.` with zero tokens; the workflow continues recording structural fallback
+  or indeterminate outcomes rather than inventing AI prose.
+- The run reached its durable stopping point without intervention: 425 calls, 0 accepted jobs, 19
+  structural fallbacks, 406 indeterminate jobs, 0 input/output tokens, no active or pending jobs,
+  no complete/active generation, and `map_revision=0`. Consequently there is no new real map for
+  the required representative website inspection or user usefulness decision.
+- Local non-provider diagnostics confirm Codex CLI 0.144.0 is installed, logged in through
+  ChatGPT, and recognizes every feature name disabled by the sterile command. The exact provider
+  process/model rejection is not durably retained by the privacy design, so a correction,
+  diagnostic provider call, retry approval, or replacement run requires explicit user direction.
 
 ## Remaining lean work
 
-1. Obtain exact consent for preview `9d449b95…a3a2c1`, or cancel it.
-2. If approved, run the real MsDenvers workflow, inspect representative output, and let the user
-   judge it; do not start another correction loop without approval.
+1. Obtain explicit user direction before any bounded provider correction/diagnostic, retry
+   approval, or replacement preview/run.
+2. After a published generation exists, inspect representative output and let the user judge it.
 3. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
 4. Make PR #30 ready while leaving it unmerged.
 

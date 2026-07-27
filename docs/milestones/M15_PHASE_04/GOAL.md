@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Blocked — awaiting exact user consent for the prepared private-provider run
+Status: Blocked — the exact approved run ended indeterminate without publishing a map
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -55,12 +55,16 @@ must be ready, open, and unmerged.
   no reader generation existed. The same existing action is now visible in the technical fallback
   workspace and hidden off-workspace through corrected head `4a85a79`; the focused browser/asset
   gate passes 14 tests at normal and effective-200 profiles.
-- Lifecycle is `Integration`. Supported-website zero-submit preview
+- Lifecycle is `Blocked`. Supported-website preview
   `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` is prepared with zero
-  calls/tokens and awaits exact user consent. No private story text may be transmitted until then.
-- The same missing-consent condition persisted for three consecutive native-goal turns. Phase 04
-  is therefore lifecycle-blocked at Gate 2 without cancelling the preview. Resume at `Integration`
-  when the user explicitly approves or cancels that exact identity.
+  calls/tokens at the consent checkpoint. The user explicitly replied `Approved proceed` on
+  2026-07-27; the website stored approval for that unchanged identity and started it exactly once
+  without another prepare. The durable run stopped after exactly 425 calls: zero accepted results,
+  19 structural fallbacks, 406 indeterminate jobs, zero reported tokens, and no published
+  generation (`map_revision=0`). Local checks confirm Codex CLI 0.144.0 is installed, logged in,
+  and recognizes the disabled feature names; the remaining provider/model process failure is not
+  durably retained by design. A correction, diagnostic provider call, retry approval, or new run
+  requires the user's direction.
 
 ## Must work in Phase 04
 

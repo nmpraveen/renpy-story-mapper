@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 is blocked at the exact zero-submit consent gate; the prepared run
-remains unapproved with zero provider accounting)
+Updated: 2026-07-27 (Phase 04 is blocked after the exact approved run ended indeterminate without
+publishing a map)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -16,9 +16,10 @@ remains unapproved with zero provider accounting)
 - Integration branch: `codex/m15-phase04-full-game`.
 - Safe product checkpoint: `4a85a79`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Blocked. The bounded vertical path and first-generation correction are integrated, but
-  exact preview `9d449b95…a3a2c1` still has no approval record after three consecutive goal turns.
-  No private provider transmission is authorized.
+- Status: Blocked. The bounded vertical path and first-generation correction are integrated. The
+  user replied `Approved proceed`; exact preview `9d449b95…a3a2c1` was approved and started exactly
+  once through the supported website without another prepare, but stopped indeterminate without a
+  published generation.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: active on the current Orchestra task
@@ -31,9 +32,9 @@ remains unapproved with zero provider accounting)
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: obtain the user's exact decision on the prepared MsDenvers preview, then—if
-  approved—run and inspect the story map before one final review/CI/Release gate. Another product
-  correction loop requires explicit approval.
+- Remaining lean path: obtain the user's direction before any provider correction/diagnostic,
+  retry approval, or replacement preview/run. A published map must then be inspected before one
+  final review/CI/Release gate.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
@@ -49,13 +50,15 @@ remains unapproved with zero provider accounting)
   was hidden without an existing reader manifest. The existing action now moves into the technical
   fallback masthead and remains hidden off-workspace through `4a85a79`; 14 focused browser/asset
   tests pass at normal and effective-200 profiles.
-- Zero-submit preview `9d449b95…a3a2c1` discloses Codex CLI `gpt-5.6-terra`, High reasoning,
+- Preview `9d449b95…a3a2c1` discloses Codex CLI `gpt-5.6-terra`, High reasoning,
   fast off, private cloud story content, 425 chunks/jobs, 2,927 maximum cloud calls, zero local
-  calls, and zero cache hits. Accounting remains zero calls/tokens. Protected-input aggregate
-  SHA-256 is unchanged before/after. Approval has not been activated.
-- The same missing-consent condition persisted for three consecutive native-goal turns. The native
-  goal is blocked without cancelling the durable preview; an explicit approve or cancel response
-  resumes Phase 04 at `Integration`.
+  calls, and zero cache hits. Its consent checkpoint had zero calls/tokens and an unchanged
+  protected-input aggregate SHA-256. After the user's exact approval, the website stored approval
+  and started this identity once. The durable stopping state is 425 calls, 0 accepted, 19
+  structural, 406 indeterminate, zero tokens, no generation, and `map_revision=0`.
+- The user's `Approved proceed` response resumed the same native goal at `Integration`; no duplicate
+  goal, second prepare, second run, correction loop, or retry approval was created. The milestone
+  is now blocked on explicit direction for the demonstrated provider-execution failure.
 
 ## Historical Phase 04 production-grade record (superseded)
 
