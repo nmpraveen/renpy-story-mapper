@@ -947,6 +947,39 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
             tuple(retry_details),
         )
 
+    def latest_approved_status(self) -> WorkflowStatus | None:
+        """Return the newest approved non-terminal workflow for reader progress."""
+
+        if self._database_path is None:
+            return None
+        connection = storage.connect(self._database_path)
+        try:
+            rows = connection.execute(
+                """SELECT preview_json FROM story_map_v2_previews
+                   WHERE json_extract(preview_json, '$.kind') = ?
+                   ORDER BY created_utc DESC LIMIT 64""",
+                (_PREVIEW_KIND,),
+            ).fetchall()
+            candidates = tuple(bytes(row[0]) for row in rows)
+        finally:
+            connection.close()
+        for raw in candidates:
+            preview = _decode_preview(storage.decode_json(raw))
+            with self._repository() as repository:
+                run = repository.get_run(_run_id(preview.run_id))
+                approved = (
+                    run is not None
+                    and repository.load_run_approval(run.descriptor.run_id) is not None
+                )
+            if run is None or not approved or run.status in {
+                durable.RunStatus.CANCELLED,
+                durable.RunStatus.INDETERMINATE,
+                durable.RunStatus.FAILED,
+            }:
+                continue
+            return self.status(preview.run_id)
+        return None
+
 def _preview_object(preview: WorkflowPreview) -> object:
     return {
         "kind": _PREVIEW_KIND,

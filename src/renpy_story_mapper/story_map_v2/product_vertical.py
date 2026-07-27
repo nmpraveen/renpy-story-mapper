@@ -215,8 +215,10 @@ def project_workflow_reader_status(
     )
     if not isinstance(run_id, str):
         run_id = generation.run_id
+    adapter = DurableWorkflowRepositoryAdapter(repository)
     try:
-        status = DurableWorkflowRepositoryAdapter(repository).status(run_id)
+        active_status = adapter.latest_approved_status()
+        status = active_status or adapter.status(run_id)
     except StoryMapV2RepositoryError:
         return {
             "run_id": run_id,
@@ -243,7 +245,10 @@ def project_workflow_reader_status(
         + status.indeterminate_jobs
     )
     finished = status.accepted_jobs + status.structural_fallback_jobs
-    complete = generation.kind.value == GenerationKind.COMPLETE.value
+    complete = (
+        status.run_id == run_id
+        and generation.kind.value == GenerationKind.COMPLETE.value
+    )
     return {
         "run_id": status.run_id,
         "state": "complete" if complete else "building",

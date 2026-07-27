@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NoReturn
 
 import pytest
@@ -900,6 +901,78 @@ def test_project_api_advertises_only_frozen_workflow_routes_and_safe_errors(
         assert provider_constructions == 0
     finally:
         api.close()
+
+
+def test_reader_status_prefers_latest_approved_workflow_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = WorkflowStatus(
+        run_id="run:active",
+        preview_identity="a" * 64,
+        approved=True,
+        cancelled=False,
+        pending_jobs=348,
+        active_jobs=1,
+        accepted_jobs=76,
+        structural_fallback_jobs=0,
+        resumable_jobs=0,
+        indeterminate_jobs=0,
+        accounting=WorkflowAccounting.zero(),
+        indeterminate_retries=(),
+    )
+    monkeypatch.setattr(
+        DurableWorkflowRepositoryAdapter,
+        "latest_approved_status",
+        lambda _self: active,
+    )
+    generation = SimpleNamespace(
+        descriptor={"workflow_run_id": "run:published"},
+        run_id="run:published",
+        kind=SimpleNamespace(value="complete"),
+    )
+
+    status = project_workflow_reader_status(
+        object(),  # type: ignore[arg-type]
+        generation,  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+    )
+
+    assert status["state"] == "building"
+    assert status["run_id"] == "run:active"
+    assert status["progress"] == {
+        "completed_jobs": 76,
+        "total_jobs": 425,
+        "failed_jobs": 0,
+        "indeterminate_jobs": 0,
+    }
+
+
+def test_adapter_finds_latest_approved_workflow_for_reader_progress(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:reader-progress",
+    )
+    path = tmp_path / "reader-progress.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=lambda: None,  # type: ignore[arg-type,return-value]
+        ).approve(prepared.run_id, preview.identity)
+        status = DurableWorkflowRepositoryAdapter.from_project(
+            project
+        ).latest_approved_status()
+
+    assert status is not None
+    assert status.run_id == prepared.run_id
+    assert status.approved is True
+    assert status.pending_jobs == len(prepared.plan.jobs)
 
 
 def test_vertical_publishes_structural_reader_when_all_prose_is_invalid(
