@@ -145,8 +145,8 @@ A stale workflow command returns HTTP 409 with exactly:
 `{contract, error: {code, message, sanitized_reason, current_run_id,
 current_preview_identity}}`
 
-`code` is exactly `stale_workflow_preview` or `stale_workflow_approval`. `message` is a nonempty
-sanitized browser message. `sanitized_reason` is only one of `preview_replaced`,
+`code` is exactly `stale_workflow_preview` or `stale_workflow_approval`. `message` is the fixed
+generic value for that exact code from the table below. `sanitized_reason` is only one of `preview_replaced`,
 `authority_changed`, `plan_changed`, `provider_policy_changed`, `ceilings_changed`,
 `privacy_scope_changed`, or `cache_state_changed`. The two current identities are either both
 non-null for the replacement preview or both null when no replacement preview exists.
@@ -160,16 +160,19 @@ atomically create approval for that exact new preview before background executio
 Non-stale failures return exactly `{contract, error: {code, message, sanitized_reason}}`, with no
 partial preview/status data. The frozen code, HTTP status, and reason pairs are:
 
-| HTTP | `code` | `sanitized_reason` |
-|---:|---|---|
-| 400 | `invalid_workflow_request` | `invalid_request` |
-| 404 | `workflow_run_not_found` | `run_not_found` |
-| 409 | `workflow_command_conflict` | `command_not_available` |
-| 413 | `workflow_request_too_large` | `request_too_large` |
-| 500 | `workflow_internal_error` | `internal_error` |
-| 503 | `workflow_unavailable` | `service_unavailable` |
+| HTTP | `code` | `sanitized_reason` | exact `message` |
+|---:|---|---|---|
+| 409 | `stale_workflow_preview` | stale reason enum | `The workflow preview has changed.` |
+| 409 | `stale_workflow_approval` | stale reason enum | `The workflow approval is stale.` |
+| 400 | `invalid_workflow_request` | `invalid_request` | `The workflow request is invalid.` |
+| 404 | `workflow_run_not_found` | `run_not_found` | `The workflow run is unavailable.` |
+| 409 | `workflow_command_conflict` | `command_not_available` | `The workflow command is not available.` |
+| 413 | `workflow_request_too_large` | `request_too_large` | `The workflow request is too large.` |
+| 500 | `workflow_internal_error` | `internal_error` | `The workflow command could not be completed.` |
+| 503 | `workflow_unavailable` | `service_unavailable` | `The workflow service is unavailable.` |
 
-Messages are nonempty, bounded, static or allowlisted prose. No error contains raw provider data,
+Messages are exact constants selected only by error code. The HTTP composer must never interpolate
+or append context. No error contains raw provider data,
 source text, request/response bytes, stderr, credentials, exception representations, or absolute
 paths.
 

@@ -10,6 +10,16 @@ from typing import Final, cast
 WORKFLOW_HTTP_CONTRACT: Final = "story-map-v2-workflow-http-v2"
 WORKFLOW_HTTP_COHERENCE: Final = "story-map-v2-workflow-http-coherence-v1"
 DERIVED_SEMANTIC_FAN_IN: Final = 24
+WORKFLOW_HTTP_ERROR_MESSAGES: Final[Mapping[str, str]] = {
+    "stale_workflow_preview": "The workflow preview has changed.",
+    "stale_workflow_approval": "The workflow approval is stale.",
+    "invalid_workflow_request": "The workflow request is invalid.",
+    "workflow_run_not_found": "The workflow run is unavailable.",
+    "workflow_command_conflict": "The workflow command is not available.",
+    "workflow_request_too_large": "The workflow request is too large.",
+    "workflow_internal_error": "The workflow command could not be completed.",
+    "workflow_unavailable": "The workflow service is unavailable.",
+}
 
 _COMMANDS: Final = frozenset({"prepare", "start", "cancel", "resume", "retry", "status"})
 _CALL_KINDS: Final = frozenset(
@@ -305,8 +315,14 @@ def validate_workflow_http_error(value: object, *, expected_code: str) -> None:
     envelope = _mapping(value, "workflow error envelope")
     _contract(envelope)
     error = _mapping(envelope.get("error"), "workflow error")
-    if _text(error.get("code"), "error code") != expected_code:
+    code = _text(error.get("code"), "error code")
+    if code != expected_code:
         raise WorkflowHttpContractCoherenceError("workflow error bucket mismatch")
+    expected_message = WORKFLOW_HTTP_ERROR_MESSAGES.get(code)
+    if expected_message is None or error.get("message") != expected_message:
+        raise WorkflowHttpContractCoherenceError(
+            "workflow error message is not the fixed safe value"
+        )
     for item in _strings(error):
         if _ABSOLUTE_PATH.search(item) is not None:
             raise WorkflowHttpContractCoherenceError("workflow error contains an absolute path")

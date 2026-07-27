@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 
 from renpy_story_mapper.story_map_v2.workflow_http_contract import (
     WORKFLOW_HTTP_COHERENCE,
+    WORKFLOW_HTTP_ERROR_MESSAGES,
     WorkflowHttpContractCoherenceError,
     validate_workflow_http_contract_bundle,
 )
@@ -411,6 +412,48 @@ def test_schema_and_coherence_validator_fail_closed_on_adversarial_mutations(
         coherence_failure = exc
 
     assert schema_failures or coherence_failure is not None, mutation_name
+
+
+@pytest.mark.parametrize(
+    "unsafe_message",
+    (
+        "provider stderr: authentication failed for tenant alpha",
+        "source text: label private_route:",
+        "credential token sk-synthetic-secret",
+        'RuntimeError("provider returned source payload")',
+        "provider codex-cli diagnostic: request rejected",
+        'script dialogue: narrator "private marker"',
+        "Authorization: Bearer synthetic-secret",
+        "API key synthetic-secret",
+        "Traceback (most recent call last): ValueError('provider failed')",
+        "file:///opt/private/story.rpy",
+        r"\\server\private\story.rpy",
+        r"C:\private\story.rpy",
+        "/opt/private/story.rpy",
+    ),
+)
+def test_error_messages_are_fixed_constants_rejected_by_both_contract_layers(
+    unsafe_message: str,
+) -> None:
+    schema = _load(SCHEMA_PATH)
+    bundle = deepcopy(_load(FIXTURE_PATH))
+    error = bundle["examples"]["non_stale_errors"]["workflow_internal_error"]["error"]
+    error["message"] = unsafe_message
+
+    assert tuple(Draft202012Validator(schema).iter_errors(bundle))
+    with pytest.raises(
+        WorkflowHttpContractCoherenceError,
+        match="fixed safe value",
+    ):
+        validate_workflow_http_contract_bundle(bundle)
+
+
+def test_every_error_bucket_uses_its_exact_fixed_message() -> None:
+    bundle = _load(FIXTURE_PATH)
+    examples = bundle["examples"]
+    for group in ("stale_errors", "non_stale_errors"):
+        for code, envelope in examples[group].items():
+            assert envelope["error"]["message"] == WORKFLOW_HTTP_ERROR_MESSAGES[code]
 
 
 def _walk_strings(value: object) -> Iterator[str]:

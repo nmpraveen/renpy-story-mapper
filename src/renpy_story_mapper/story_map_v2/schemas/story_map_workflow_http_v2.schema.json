@@ -958,7 +958,10 @@
             {
               "properties": {
                 "error": {
-                  "properties": {"code": {"const": "stale_workflow_preview"}}
+                  "properties": {
+                    "code": {"const": "stale_workflow_preview"},
+                    "message": {"const": "The workflow preview has changed."}
+                  }
                 }
               }
             }
@@ -970,7 +973,10 @@
             {
               "properties": {
                 "error": {
-                  "properties": {"code": {"const": "stale_workflow_approval"}}
+                  "properties": {
+                    "code": {"const": "stale_workflow_approval"},
+                    "message": {"const": "The workflow approval is stale."}
+                  }
                 }
               }
             }
@@ -1014,27 +1020,45 @@
           "allOf": [
             {
               "if": {"properties": {"code": {"const": "invalid_workflow_request"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "invalid_request"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow request is invalid."},
+                "sanitized_reason": {"const": "invalid_request"}
+              }}
             },
             {
               "if": {"properties": {"code": {"const": "workflow_run_not_found"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "run_not_found"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow run is unavailable."},
+                "sanitized_reason": {"const": "run_not_found"}
+              }}
             },
             {
               "if": {"properties": {"code": {"const": "workflow_command_conflict"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "command_not_available"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow command is not available."},
+                "sanitized_reason": {"const": "command_not_available"}
+              }}
             },
             {
               "if": {"properties": {"code": {"const": "workflow_request_too_large"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "request_too_large"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow request is too large."},
+                "sanitized_reason": {"const": "request_too_large"}
+              }}
             },
             {
               "if": {"properties": {"code": {"const": "workflow_internal_error"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "internal_error"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow command could not be completed."},
+                "sanitized_reason": {"const": "internal_error"}
+              }}
             },
             {
               "if": {"properties": {"code": {"const": "workflow_unavailable"}}},
-              "then": {"properties": {"sanitized_reason": {"const": "service_unavailable"}}}
+              "then": {"properties": {
+                "message": {"const": "The workflow service is unavailable."},
+                "sanitized_reason": {"const": "service_unavailable"}
+              }}
             }
           ]
         }
