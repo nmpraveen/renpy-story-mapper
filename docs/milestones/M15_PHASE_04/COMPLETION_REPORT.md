@@ -1,8 +1,8 @@
 # M15.1 Phase 04 progress report
 
-Status: In progress — two bounded vertical-path workers dispatched after semantic `PASS`
+Status: Integration — bounded backend/API and website vertical paths integrated
 
-Current product checkpoint: `2995d99` on `codex/m15-phase04-full-game`
+Current product checkpoint: `2776b99` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -46,12 +46,26 @@ No current product code is being discarded, but the remaining old acceptance wor
   `019fa18f-f055-7411-ac72-acbddf2b4f8d` started concurrently from exact semantic-gate commit
   `21d80d208f4f505f39e6649df246d88e8688bb82` in separate clean branches/worktrees with disjoint
   Python/backend and static-website ownership.
+- Backend worker head `3723da9` integrated as `29f4378`. It composes the existing workflow,
+  semantic/derived assemblers, structural fallback, durable repository, atomic generation
+  publisher, reader records, frozen HTTP routes, and the web server's existing single executor.
+  Its fake-provider handoff passed 141 focused workflow/reader tests and 19 adjacent API tests,
+  Ruff, and strict mypy.
+- Website worker heads `cdfd37a` and `b4572aa` integrated as `b8bf018` and `2776b99`. The website
+  now provides prepare/approval/start/status/cancel/resume, progress, reader refresh, and bounded
+  reopen restoration using the existing frozen route family; its focused browser and asset checks
+  passed at normal, effective-200%, and narrow layouts.
+- The Orchestra's single focused integrated gate passed 123 tests in 44.41 seconds across the
+  product workflow, derived semantics, frozen workflow contract, reader, browser, and adjacent web
+  API, plus Ruff, strict mypy over all six changed source files, JavaScript syntax, and whitespace.
+- No new schema, protocol, scheduler, recovery subsystem, provider call, private input access,
+  push, PR mutation, or merge occurred during worker implementation or integration.
 
 ## Remaining lean work
 
-1. Finish the missing accepted-summary/section/overview/publication and workflow-web seams.
-2. Run the real MsDenvers workflow after zero-submit preview and exact consent.
-3. Let the user inspect the story map; fix only demonstrated blockers.
+1. Produce the supported-website MsDenvers zero-submit preview and obtain exact consent.
+2. Run the real MsDenvers workflow, inspect representative output, and let the user judge it.
+3. Fix only demonstrated blockers.
 4. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
 5. Make PR #30 ready while leaving it unmerged.
 

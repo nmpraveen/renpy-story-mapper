@@ -1,7 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (Phase 04 resumed at contract head `2bcdd02`; the fresh lightweight independent
-semantic gate passed and the two bounded vertical-path workers are `In progress`)
+Updated: 2026-07-26 (Phase 04 lean vertical path integrated through `2776b99`; zero-submit real-game
+preview is the next consent gate)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,26 +14,25 @@ semantic gate passed and the two bounded vertical-path workers are `In progress`
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `2995d99`.
+- Safe product checkpoint: `2776b99`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: In progress. Product implementation is limited to the two bounded vertical-path seams
-  recorded in the lean task ledger.
+- Status: Integration. The two bounded vertical-path seams are integrated and the focused combined
+  gate is green; no private provider transmission is authorized yet.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: active on the current Orchestra task
   `019fa176-8277-7920-8558-b816cf168a9f`, matching the revised lean done condition. The prior
   coordinator's recorded goal was inaccessible from both chats, and the user explicitly authorized
   replacement rather than retaining the stale record.
-- Active workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` on
-  `codex/m15-p4-backend-vertical` and website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` on
-  `codex/m15-p4-website-vertical`, both from semantic-gate commit `21d80d2`. Prior Track A-D/CI
-  tasks are complete historical implementation work.
+- Completed workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` at `3723da9` and
+  website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` at `cdfd37a` plus `b4572aa`, all from
+  semantic-gate commit `21d80d2`. They integrated as `29f4378`, `b8bf018`, and `2776b99`.
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: finish accepted-summary to simple section/overview to publication, expose
-  the existing workflow through the website, run real MsDenvers after zero-submit preview and exact
-  consent, fix only demonstrated blockers, then perform one final review/CI/Release gate.
+- Remaining lean path: prepare the real MsDenvers run through the supported website, stop for exact
+  consent, run and inspect the story map, fix only demonstrated blockers, then perform one final
+  review/CI/Release gate.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
@@ -42,8 +41,9 @@ semantic gate passed and the two bounded vertical-path workers are `In progress`
   lightweight semantic reviewer, and one final integrated reviewer. Pause and ask on scope doubt.
 - Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR
   candidate, and one final Windows Release/package gate. Do not continuously monitor healthy CI.
-- No provider construction/call, private input access, product test rerun, push, PR mutation, or
-  merge occurred during the scope reset.
+- Integrated verification passed 123 focused tests in 44.41 seconds plus Ruff, strict mypy over six
+  changed source files, JavaScript syntax, and whitespace. No provider construction/call, private
+  input access, push, PR mutation, or merge occurred through this integration checkpoint.
 
 ## Historical Phase 04 production-grade record (superseded)
 
