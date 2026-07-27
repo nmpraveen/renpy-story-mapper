@@ -37,6 +37,9 @@ from renpy_story_mapper.story_map_v2.phase04_semantics import (
 )
 from renpy_story_mapper.story_map_v2.source_adapter import adapt_story_scope
 from renpy_story_mapper.story_map_v2.story_plan import build_story_plan
+from renpy_story_mapper.story_map_v2.workflow_cloud_provider import (
+    CodexCliWorkflowProvider,
+)
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_FAST_MODE,
     CLOUD_MODEL,
@@ -57,6 +60,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowResourceCeilings,
     WorkflowRouteMembership,
 )
+from renpy_story_mapper.story_map_v2.workflow_protocols import ProviderFactory
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
@@ -197,6 +201,22 @@ def persist_product_workflow_preview(
         prepared.policy,
         prepared.ceilings,
         frozen_plans=prepared.frozen_plans,
+    )
+
+
+def create_product_workflow_service(
+    project: Project,
+    prepared: PreparedProductWorkflow,
+    *,
+    cloud_factory: ProviderFactory | None = None,
+) -> StoryMapWorkflowService:
+    """Compose the durable runner without constructing a provider before execution."""
+
+    return StoryMapWorkflowService(
+        DurableWorkflowRepositoryAdapter.from_project(project),
+        FrozenProductRequestMaterializer(prepared),
+        ProductWorkflowValidator(prepared),
+        cloud_factory=cloud_factory or CodexCliWorkflowProvider,
     )
 
 

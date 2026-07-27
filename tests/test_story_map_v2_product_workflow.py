@@ -15,16 +15,22 @@ from renpy_story_mapper.project import Project
 from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
+from renpy_story_mapper.story_map_v2.contracts import canonical_json
 from renpy_story_mapper.story_map_v2.product_workflow import (
     MAPPING_ADAPTER_VERSION,
     ProductWorkflowValidator,
+    create_product_workflow_service,
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    CLOUD_FAST_MODE,
     CLOUD_MODEL,
+    CLOUD_PROVIDER,
     CLOUD_REASONING,
     GLOBAL_SUBMISSION_SLOTS,
+    AttemptAccounting,
+    ProviderCallResult,
     ProviderMode,
     ProviderSettings,
 )
@@ -186,6 +192,78 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
     assert normalized["chunk_id"] == job.chunk_id
     assert normalized["request_hash"] == job.serialized_request_identity.sha256
     assert normalized["scope_id"] == job.scope_id
+
+
+def test_approved_product_runner_accepts_all_mapping_jobs_without_live_provider(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:approved-mapping",
+    )
+    chunks = {
+        chunk.chunk_id: chunk for chunk in prepared.frozen_plans.story_chunk_plan.chunks
+    }
+
+    class ProseProvider:
+        def submit(self, request: bytes) -> ProviderCallResult:
+            packet = json.loads(request)
+            chunk = chunks[packet["chunk_id"]]
+            prose = {
+                "title": "Mapped story chunk",
+                "overview": "The supplied events are summarized in chronological order.",
+                "review_requested": False,
+                "events": [
+                    {
+                        "key": "event",
+                        "placement_ids": list(chunk.placement_ids),
+                        "title": "Story events",
+                        "summary": "The characters progress through this part of the story.",
+                        "characters": [],
+                    }
+                ],
+                "branch_summaries": [
+                    {
+                        "choice_key": segment.choice_key,
+                        "arm_orders": list(segment.arm_orders),
+                        "summary": "The choice paths diverge locally as described by Python.",
+                    }
+                    for segment in chunk.choice_segments
+                ],
+            }
+            return ProviderCallResult(
+                payload=canonical_json(prose),
+                accounting=AttemptAccounting(1, 100, 40, 10),
+                resolved_provider=CLOUD_PROVIDER,
+                resolved_model=CLOUD_MODEL,
+                resolved_reasoning=CLOUD_REASONING,
+                resolved_fast_mode=CLOUD_FAST_MODE,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    path = tmp_path / "approved-mapping.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        service = create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=ProseProvider,
+        )
+        service.approve(prepared.run_id, preview.identity)
+        status = service.execute(
+            prepared.run_id,
+            preview_identity=preview.identity,
+            authority_identity=prepared.plan.authority_identity,
+        )
+
+    assert status.pending_jobs == 0
+    assert status.accepted_jobs == len(prepared.plan.jobs)
+    assert status.structural_fallback_jobs == 0
+    assert status.accounting.calls == len(prepared.plan.jobs)
 
 
 def test_product_preview_persists_exact_plans_with_zero_provider_construction(
