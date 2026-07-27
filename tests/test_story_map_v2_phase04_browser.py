@@ -493,6 +493,10 @@ def test_workflow_v2_first_generation_is_visible_without_reader_manifest(
             facts = session.evaluate("document.querySelector('#storyApprovalFacts').innerText")
             for expected in ("codex-cli", "gpt-5.6-terra", "Private story text may be sent", "Maximum calls"):
                 assert expected in facts
+            session.evaluate("document.querySelector('#closeStoryApproval').click(); document.querySelector('#homeButton').click()")
+            session.wait("!document.querySelector('#welcomeView').hidden && document.querySelector('#storyPrepareAction').hidden")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#workspaceView').hidden && document.querySelector('#storyPrepareAction').closest('.masthead-actions') && !document.querySelector('#storyPrepareAction').hidden && !document.querySelector('#storyPrepareAction').disabled")
             workflow_requests = [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
             assert workflow_requests == [("/api/v1/story-map-v2/workflow/prepare", {"contract": "story-map-v2-workflow-http-v2"})]
         finally:

@@ -626,6 +626,7 @@ function showPrimary(name) {
   $("#welcomeView").hidden = name !== "welcome";
   $("#progressView").hidden = name !== "progress";
   $("#workspaceView").hidden = name !== "workspace";
+  $("#storyPrepareAction").hidden = name !== "workspace";
   $("#projectIdentity").hidden = name === "welcome";
   $("#refreshProject").hidden = name !== "workspace";
 }
