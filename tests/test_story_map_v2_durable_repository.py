@@ -78,6 +78,23 @@ def digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def generation_lineage(
+    generation_id: str,
+    marker: str = "public",
+    *,
+    path_facts: object | None = None,
+) -> dict[str, object]:
+    return {
+        "schema": "story-map-v2-phase04-generation-v1",
+        "generation_id": generation_id,
+        "story_chunk_plan_identity": digest(f"chunks-{marker}"),
+        "source_identity": digest(f"source-{marker}"),
+        "coverage_hash": digest(f"coverage-{marker}"),
+        "path_facts": [] if path_facts is None else path_facts,
+        "baseline_generation_id": None,
+    }
+
+
 def job(
     ordinal: int,
     *,
@@ -1263,14 +1280,23 @@ def test_generation_pages_selection_and_atomic_pointer_survive_reopen(tmp_path: 
     with Project.create(path) as project:
         repository = project.story_map_v2_repository()
         create_run(repository)
+        candidate = GenerationDescriptor(
+            "candidate-1",
+            "run-1",
+            "plan-1",
+            digest("authority"),
+            GenerationKind.CANDIDATE,
+            generation_lineage("candidate-1"),
+        )
         generation = GenerationDescriptor(
             "generation-1",
             "run-1",
             "plan-1",
             digest("authority"),
             GenerationKind.COMPLETE,
-            {"section_count": 1, "event_count": 1},
+            generation_lineage("generation-1"),
         )
+        repository.create_generation(candidate, now=NOW)
         repository.create_generation(generation, now=NOW)
         repository.store_section_page(
             SectionPageRecord("generation-1", "section-1", 0, 1, page_payload, page_identity)
@@ -1279,13 +1305,17 @@ def test_generation_pages_selection_and_atomic_pointer_survive_reopen(tmp_path: 
             SelectionIndexRecord("generation-1", "event-1", "section-1", 0, 0, "event")
         )
         repository.set_active_generation(
-            "generation-1", expected_active_generation_id=None, now=NOW
+            "candidate-1",
+            expected_active_generation_id=None,
+            expected_complete_generation_id=None,
+            now=NOW,
         )
 
         with pytest.raises(RuntimeError, match=FAULT_BEFORE_GENERATION_PUBLICATION):
             repository.publish_generation(
                 "generation-1",
-                expected_active_generation_id="generation-1",
+                expected_active_generation_id="candidate-1",
+                expected_complete_generation_id=None,
                 now=NOW,
                 fault=raise_at(FAULT_BEFORE_GENERATION_PUBLICATION),
             )
@@ -1294,12 +1324,19 @@ def test_generation_pages_selection_and_atomic_pointer_survive_reopen(tmp_path: 
         with pytest.raises(RuntimeError, match=FAULT_AFTER_GENERATION_PUBLICATION):
             repository.publish_generation(
                 "generation-1",
-                expected_active_generation_id="generation-1",
+                expected_active_generation_id="candidate-1",
+                expected_complete_generation_id=None,
                 now=NOW,
                 fault=raise_at(FAULT_AFTER_GENERATION_PUBLICATION),
             )
         assert repository.generation_pointers().current_complete_generation == "generation-1"
         assert repository.generation_pointers().map_revision == 1
+        assert repository.publish_generation(
+            "generation-1",
+            expected_active_generation_id="candidate-1",
+            expected_complete_generation_id=None,
+            now=NOW,
+        ).map_revision == 1
         repository.save_view_state(
             "primary",
             generation_id="generation-1",
@@ -1335,7 +1372,7 @@ def test_generation_and_page_records_are_immutable(tmp_path: Path) -> None:
             "plan-1",
             digest("authority"),
             GenerationKind.COMPLETE,
-            {"count": 1},
+            generation_lineage("generation-1", "one"),
         )
         repository.create_generation(generation, now=NOW)
         repository.create_generation(generation, now=NOW)
@@ -1347,7 +1384,7 @@ def test_generation_and_page_records_are_immutable(tmp_path: Path) -> None:
                     "plan-1",
                     digest("authority"),
                     GenerationKind.COMPLETE,
-                    {"count": 2},
+                    generation_lineage("generation-1", "two"),
                 ),
                 now=NOW,
             )
@@ -1376,14 +1413,22 @@ def test_publication_requires_the_exact_active_complete_generation(tmp_path: Pat
                 "plan-1",
                 digest("authority"),
                 GenerationKind.CANDIDATE,
-                {},
+                generation_lineage("candidate"),
             ),
             now=NOW,
         )
-        repository.set_active_generation("candidate", expected_active_generation_id=None, now=NOW)
+        repository.set_active_generation(
+            "candidate",
+            expected_active_generation_id=None,
+            expected_complete_generation_id=None,
+            now=NOW,
+        )
         with pytest.raises(PublicationConflictError, match="complete"):
             repository.publish_generation(
-                "candidate", expected_active_generation_id="candidate", now=NOW
+                "candidate",
+                expected_active_generation_id="candidate",
+                expected_complete_generation_id=None,
+                now=NOW,
             )
 
 
@@ -1401,7 +1446,7 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
                     "foreign-plan",
                     digest("authority"),
                     GenerationKind.COMPLETE,
-                    {},
+                    generation_lineage("wrong-plan"),
                 ),
                 now=NOW,
             )
@@ -1413,18 +1458,18 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
                     "plan-1",
                     digest("foreign-authority"),
                     GenerationKind.COMPLETE,
-                    {},
+                    generation_lineage("wrong-authority"),
                 ),
                 now=NOW,
             )
 
         generation = GenerationDescriptor(
-            "complete",
+            "candidate-authority",
             "run-1",
             "plan-1",
             digest("authority"),
-            GenerationKind.COMPLETE,
-            {},
+            GenerationKind.CANDIDATE,
+            generation_lineage("candidate-authority"),
         )
         repository.create_generation(generation, now=NOW)
         repository._connection.execute(
@@ -1435,6 +1480,7 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
             repository.set_active_generation(
                 generation.generation_id,
                 expected_active_generation_id=None,
+                expected_complete_generation_id=None,
                 now=NOW,
             )
         repository._connection.execute(
@@ -1445,6 +1491,7 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
         repository.set_active_generation(
             generation.generation_id,
             expected_active_generation_id=None,
+            expected_complete_generation_id=None,
             now=NOW,
         )
         repository._connection.execute(
@@ -1453,11 +1500,182 @@ def test_generation_authority_must_match_its_run_at_create_activate_and_publish(
             (digest("foreign-authority"), generation.generation_id),
         )
         with pytest.raises(PublicationConflictError, match="run identity"):
-            repository.publish_generation(
+            repository.set_active_generation(
                 generation.generation_id,
                 expected_active_generation_id=generation.generation_id,
+                expected_complete_generation_id=None,
                 now=NOW,
             )
+
+
+def test_generation_dual_pointer_cas_cancel_and_lineage_are_transactional(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "generation-dual-cas.rsmp"
+    with Project.create(path) as project:
+        first = project.story_map_v2_repository()
+        create_run(first)
+        candidate = GenerationDescriptor(
+            "candidate-one",
+            "run-1",
+            "plan-1",
+            digest("authority"),
+            GenerationKind.CANDIDATE,
+            generation_lineage("candidate-one"),
+        )
+        stale = GenerationDescriptor(
+            "candidate-stale",
+            "run-1",
+            "plan-1",
+            digest("authority"),
+            GenerationKind.CANDIDATE,
+            generation_lineage("candidate-stale"),
+        )
+        complete = GenerationDescriptor(
+            "complete-one",
+            "run-1",
+            "plan-1",
+            digest("authority"),
+            GenerationKind.COMPLETE,
+            generation_lineage("complete-one"),
+        )
+        foreign = GenerationDescriptor(
+            "complete-foreign-lineage",
+            "run-1",
+            "plan-1",
+            digest("authority"),
+            GenerationKind.COMPLETE,
+            generation_lineage("complete-foreign-lineage", "foreign"),
+        )
+        for item in (candidate, stale, complete, foreign):
+            first.create_generation(item, now=NOW)
+        assert first.load_generation(candidate.generation_id) == candidate
+        assert first.is_run_publishable("run-1", "plan-1", digest("authority"))
+
+        second_connection = storage.connect(path)
+        try:
+            second = SqliteStoryMapV2Repository(second_connection)
+            first.set_active_generation(
+                candidate.generation_id,
+                expected_active_generation_id=None,
+                expected_complete_generation_id=None,
+                now=NOW,
+            )
+            with pytest.raises(PublicationConflictError, match="pointers"):
+                second.set_active_generation(
+                    stale.generation_id,
+                    expected_active_generation_id=None,
+                    expected_complete_generation_id=None,
+                    now=NOW,
+                )
+            with pytest.raises(PublicationConflictError, match="lineage"):
+                second.publish_generation(
+                    foreign.generation_id,
+                    expected_active_generation_id=candidate.generation_id,
+                    expected_complete_generation_id=None,
+                    now=NOW,
+                )
+            assert first.generation_pointers().active_build_generation == candidate.generation_id
+
+            def cancel_at_publication(point: str) -> None:
+                if point == FAULT_BEFORE_GENERATION_PUBLICATION:
+                    second.cancel_run("run-1", now=NOW)
+
+            with pytest.raises(PublicationConflictError, match="publishable"):
+                first.publish_generation(
+                    complete.generation_id,
+                    expected_active_generation_id=candidate.generation_id,
+                    expected_complete_generation_id=None,
+                    now=NOW,
+                    fault=cancel_at_publication,
+                )
+            assert not first.is_run_publishable("run-1", "plan-1", digest("authority"))
+            assert first.generation_pointers().map_revision == 0
+            assert first.generation_pointers().active_build_generation == candidate.generation_id
+        finally:
+            second_connection.close()
+
+
+def test_generation_complete_pointer_cas_blocks_stale_publication(tmp_path: Path) -> None:
+    with Project.create(tmp_path / "generation-complete-cas.rsmp") as project:
+        repository = project.story_map_v2_repository()
+        create_run(repository)
+        def lineage(generation_id: str) -> dict[str, object]:
+            return generation_lineage(generation_id)
+        items = (
+            GenerationDescriptor(
+                "candidate-zero",
+                "run-1",
+                "plan-1",
+                digest("authority"),
+                GenerationKind.CANDIDATE,
+                lineage("candidate-zero"),
+            ),
+            GenerationDescriptor(
+                "complete-zero",
+                "run-1",
+                "plan-1",
+                digest("authority"),
+                GenerationKind.COMPLETE,
+                lineage("complete-zero"),
+            ),
+            GenerationDescriptor(
+                "candidate-one",
+                "run-1",
+                "plan-1",
+                digest("authority"),
+                GenerationKind.CANDIDATE,
+                lineage("candidate-one"),
+            ),
+            GenerationDescriptor(
+                "complete-one",
+                "run-1",
+                "plan-1",
+                digest("authority"),
+                GenerationKind.COMPLETE,
+                lineage("complete-one"),
+            ),
+        )
+        for item in items:
+            repository.create_generation(item, now=NOW)
+        repository.set_active_generation(
+            "candidate-zero",
+            expected_active_generation_id=None,
+            expected_complete_generation_id=None,
+            now=NOW,
+        )
+        repository.publish_generation(
+            "complete-zero",
+            expected_active_generation_id="candidate-zero",
+            expected_complete_generation_id=None,
+            now=NOW,
+        )
+        repository.set_active_generation(
+            "candidate-one",
+            expected_active_generation_id=None,
+            expected_complete_generation_id="complete-zero",
+            now=NOW,
+        )
+        with pytest.raises(PublicationConflictError, match="pointers"):
+            repository.publish_generation(
+                "complete-one",
+                expected_active_generation_id="candidate-one",
+                expected_complete_generation_id=None,
+                now=NOW,
+            )
+        unchanged = repository.generation_pointers()
+        assert unchanged.current_complete_generation == "complete-zero"
+        assert unchanged.active_build_generation == "candidate-one"
+        assert unchanged.map_revision == 1
+        published = repository.publish_generation(
+            "complete-one",
+            expected_active_generation_id="candidate-one",
+            expected_complete_generation_id="complete-zero",
+            now=NOW,
+        )
+        assert published.current_complete_generation == "complete-one"
+        assert published.active_build_generation is None
+        assert published.map_revision == 2
 
 
 @pytest.mark.parametrize("embedded_path", COLON_DELIMITED_ABSOLUTE_PATHS)
@@ -1616,7 +1834,10 @@ def test_privacy_rejection_and_sanitized_database_scan(tmp_path: Path) -> None:
                 "plan-1",
                 digest("authority"),
                 GenerationKind.COMPLETE,
-                {"machine_path": "C:\\private\\source.rpy"},
+                generation_lineage(
+                    "private-generation",
+                    path_facts=[{"machine_path": "C:\\private\\source.rpy"}]
+                ),
             )
         for index, (key, marker) in enumerate(normalized_key_markers.items()):
             preview = {key: marker}

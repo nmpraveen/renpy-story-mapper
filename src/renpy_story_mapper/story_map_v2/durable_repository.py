@@ -252,6 +252,12 @@ class AttemptReservationLimits:
     output_tokens: int
     elapsed_ms: int
     indeterminate_retry_calls: int = 0
+    section_synthesis_calls: int = 0
+    route_reduction_calls: int = 0
+    route_summary_calls: int = 0
+    whole_game_reduction_calls: int = 0
+    final_overview_calls: int = 0
+    rollup_synthesis_calls: int = 0
 
     def __post_init__(self) -> None:
         values = (
@@ -262,6 +268,12 @@ class AttemptReservationLimits:
             self.output_tokens,
             self.elapsed_ms,
             self.indeterminate_retry_calls,
+            self.section_synthesis_calls,
+            self.route_reduction_calls,
+            self.route_summary_calls,
+            self.whole_game_reduction_calls,
+            self.final_overview_calls,
+            self.rollup_synthesis_calls,
         )
         if any(type(value) is not int or value < 0 for value in values):
             raise ValueError("attempt reservation limits must be non-negative integers")
@@ -409,7 +421,7 @@ class GenerationDescriptor:
         ):
             _identifier(value, label)
         _digest(self.authority_identity, "authority_identity")
-        _durable_json(self.descriptor, "generation descriptor")
+        _validate_generation_payload(self.generation_id, self.descriptor)
 
 
 @dataclass(frozen=True)
@@ -475,6 +487,12 @@ class StoryMapV2Repository(Protocol):
     def create_run(
         self,
         run: FrozenRunDescriptor,
+        jobs: Sequence[FrozenJobDescriptor],
+    ) -> None: ...
+
+    def register_jobs(
+        self,
+        run_id: str,
         jobs: Sequence[FrozenJobDescriptor],
     ) -> None: ...
 
@@ -683,12 +701,21 @@ class StoryMapV2Repository(Protocol):
         now: datetime | None = None,
     ) -> None: ...
 
+    def load_generation(self, generation_id: str) -> GenerationDescriptor | None: ...
+
+    def is_run_publishable(
+        self,
+        run_id: str,
+        plan_id: str,
+        authority_identity: str,
+    ) -> bool: ...
+
     def set_active_generation(
         self,
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
-        now: datetime | None = None,
+        expected_complete_generation_id: str | None,
     ) -> GenerationPointers: ...
 
     def store_section_page(self, page: SectionPageRecord) -> None: ...
@@ -715,7 +742,7 @@ class StoryMapV2Repository(Protocol):
         generation_id: str,
         *,
         expected_active_generation_id: str,
-        now: datetime | None = None,
+        expected_complete_generation_id: str | None,
         fault: FaultInjector | None = None,
     ) -> GenerationPointers: ...
 
@@ -1320,6 +1347,7 @@ class SqliteStoryMapV2Repository:
                 metadata,
                 timestamp,
             )
+
             uses_supplemental = False
             if limits is not None:
                 uses_supplemental = self._validate_attempt_limits_locked(
@@ -1384,6 +1412,78 @@ class SqliteStoryMapV2Repository:
         )
         _inject(fault, FAULT_AFTER_ATTEMPT_RESERVATION)
         return reservation
+
+    def register_jobs(
+        self,
+        run_id: str,
+        jobs: Sequence[FrozenJobDescriptor],
+    ) -> None:
+        """Register exact dependency-created jobs immutably in an approved live run."""
+
+        _identifier(run_id, "run_id")
+        ordered = tuple(jobs)
+        if not ordered:
+            return
+        if len({job.job_id for job in ordered}) != len(ordered):
+            raise ValueError("job_id values must be unique")
+        if len({job.ordinal for job in ordered}) != len(ordered):
+            raise ValueError("job ordinals must be unique")
+        timestamp = _timestamp(None)
+        with storage.transaction(self._connection):
+            run = self._connection.execute(
+                """SELECT plan_id, authority_identity, cancel_requested
+                   FROM story_map_v2_runs WHERE run_id = ?""",
+                (run_id,),
+            ).fetchone()
+            approval = self._connection.execute(
+                "SELECT 1 FROM story_map_v2_run_approvals WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if run is None or approval is None or bool(run["cancel_requested"]):
+                raise StoryMapV2RepositoryError(
+                    "derived job registration requires an approved non-cancelled run"
+                )
+            for job in ordered:
+                if (
+                    job.run_id != run_id
+                    or job.plan_id != str(run["plan_id"])
+                    or job.authority_identity != str(run["authority_identity"])
+                ):
+                    raise ValueError("registered job must match its frozen run identity")
+                existing = self._connection.execute(
+                    "SELECT * FROM story_map_v2_jobs WHERE job_id = ?",
+                    (job.job_id,),
+                ).fetchone()
+                if existing is not None:
+                    if _job_descriptor(existing) != job:
+                        raise ImmutableRecordConflictError(
+                            "dependency-created job identity is immutable"
+                        )
+                    continue
+                self._connection.execute(
+                    """INSERT INTO story_map_v2_jobs(
+                        job_id, run_id, plan_id, scope_id, chunk_id, authority_identity,
+                        serialized_request_identity, cache_identity, ordinal, status,
+                        lease_owner, lease_token, lease_expires_utc, next_attempt_ordinal,
+                        validated_result_json, normalized_result_identity, continuation_kind,
+                        continuation_attempt_id, continuation_result_identity, resolution,
+                        updated_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, 1,
+                        NULL, NULL, 'mapping', NULL, NULL, NULL, ?)""",
+                    (
+                        job.job_id,
+                        job.run_id,
+                        job.plan_id,
+                        job.scope_id,
+                        job.chunk_id,
+                        job.authority_identity,
+                        job.serialized_request_identity,
+                        job.cache_identity,
+                        job.ordinal,
+                        timestamp,
+                    ),
+                )
+            self._refresh_run_state_locked(run_id, timestamp)
 
     def mark_transmitting(
         self,
@@ -2158,6 +2258,7 @@ class SqliteStoryMapV2Repository:
                     attempt.attempt_id,
                 ),
             )
+
             if attempt_cursor.rowcount != 1:
                 raise LeaseConflictError("attempt success compare-and-swap failed")
             job_cursor = self._connection.execute(
@@ -2507,20 +2608,55 @@ class SqliteStoryMapV2Repository:
                 ),
             )
 
+    def load_generation(self, generation_id: str) -> GenerationDescriptor | None:
+        _identifier(generation_id, "generation_id")
+        row = self._connection.execute(
+            "SELECT * FROM story_map_v2_generations WHERE generation_id = ?",
+            (generation_id,),
+        ).fetchone()
+        return None if row is None else _generation_descriptor(row)
+
+    def is_run_publishable(
+        self,
+        run_id: str,
+        plan_id: str,
+        authority_identity: str,
+    ) -> bool:
+        _identifier(run_id, "run_id")
+        _identifier(plan_id, "plan_id")
+        _digest(authority_identity, "authority_identity")
+        row = self._connection.execute(
+            """SELECT 1 FROM story_map_v2_runs
+               WHERE run_id = ? AND plan_id = ? AND authority_identity = ?
+                 AND cancel_requested = 0""",
+            (run_id, plan_id, authority_identity),
+        ).fetchone()
+        return row is not None
+
     def set_active_generation(
         self,
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
+        expected_complete_generation_id: str | None,
         now: datetime | None = None,
     ) -> GenerationPointers:
         _identifier(generation_id, "generation_id")
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
-            self._require_generation_locked(generation_id)
+            target = self._require_generation_locked(generation_id)
+            if str(target["generation_kind"]) == GenerationKind.COMPLETE:
+                raise PublicationConflictError(
+                    "complete generations cannot become the active build"
+                )
+            self._require_publishable_generation_locked(target)
             pointers = self._pointers_locked()
-            if pointers.active_build_generation != expected_active_generation_id:
-                raise PublicationConflictError("active generation pointer changed")
+            if (
+                pointers.active_build_generation != expected_active_generation_id
+                or pointers.current_complete_generation
+                != expected_complete_generation_id
+            ):
+                raise PublicationConflictError("generation pointers changed")
             self._connection.execute(
                 """UPDATE story_map_v2_generation_pointers
                    SET active_build_generation = ?, updated_utc = ? WHERE singleton = 1""",
@@ -2662,6 +2798,7 @@ class SqliteStoryMapV2Repository:
         generation_id: str,
         *,
         expected_active_generation_id: str,
+        expected_complete_generation_id: str | None,
         now: datetime | None = None,
         fault: FaultInjector | None = None,
     ) -> GenerationPointers:
@@ -2670,14 +2807,27 @@ class SqliteStoryMapV2Repository:
         timestamp = _timestamp(now)
         _inject(fault, FAULT_BEFORE_GENERATION_PUBLICATION)
         with storage.transaction(self._connection):
-            generation = self._require_generation_locked(generation_id)
-            if str(generation["generation_kind"]) != GenerationKind.COMPLETE:
+            target = self._require_generation_locked(generation_id)
+            active = self._require_generation_locked(expected_active_generation_id)
+            if str(target["generation_kind"]) != GenerationKind.COMPLETE:
                 raise PublicationConflictError("only a complete generation can be published")
+            self._require_publishable_generation_locked(target)
+            if _generation_lineage(target) != _generation_lineage(active):
+                raise PublicationConflictError(
+                    "complete and active generation lineage changed"
+                )
             pointers = self._pointers_locked()
-            if pointers.active_build_generation != expected_active_generation_id:
-                raise PublicationConflictError("active generation pointer changed")
-            if generation_id != expected_active_generation_id:
-                raise PublicationConflictError("published generation must be the active generation")
+            if (
+                pointers.current_complete_generation == generation_id
+                and pointers.active_build_generation is None
+            ):
+                return pointers
+            if (
+                pointers.active_build_generation != expected_active_generation_id
+                or pointers.current_complete_generation
+                != expected_complete_generation_id
+            ):
+                raise PublicationConflictError("generation pointers changed")
             revision = pointers.map_revision + 1
             self._connection.execute(
                 """UPDATE story_map_v2_generation_pointers
@@ -2909,8 +3059,14 @@ class SqliteStoryMapV2Repository:
             (job_id,),
         ).fetchall()
         if ordinal == 1:
-            if rows or metadata.call_kind != ContinuationKind.MAPPING:
-                raise StoryMapV2RepositoryError("first attempt must be the mapping call")
+            if rows or metadata.call_kind not in {
+                ContinuationKind.MAPPING,
+                "section_synthesis",
+                "rollup_synthesis",
+            }:
+                raise StoryMapV2RepositoryError(
+                    "first attempt must use its frozen workflow call kind"
+                )
             return None
         if not rows or int(rows[-1]["ordinal"]) != ordinal - 1:
             raise StoryMapV2RepositoryError("attempt ordinal does not follow the latest attempt")
@@ -3013,6 +3169,8 @@ class SqliteStoryMapV2Repository:
             ContinuationKind.MAPPING.value: limits.mapping_calls,
             ContinuationKind.REPLACEMENT_REVIEW.value: limits.review_calls,
             ContinuationKind.REFUSAL_FALLBACK.value: limits.fallback_calls,
+            "section_synthesis": limits.section_synthesis_calls,
+            "rollup_synthesis": limits.rollup_synthesis_calls,
         }.get(call_kind)
         if role_limit is None:
             raise StoryMapV2RepositoryError("attempt call kind has no finite role limit")
@@ -3026,7 +3184,43 @@ class SqliteStoryMapV2Repository:
         ).fetchone()
         assert role_row is not None
         if int(role_row[0]) < role_limit:
-            return False
+            if call_kind == "rollup_synthesis":
+                job = self._connection.execute(
+                    "SELECT scope_id FROM story_map_v2_jobs WHERE job_id = ?",
+                    (job_id,),
+                ).fetchone()
+                assert job is not None
+                component_limit = {
+                    "route_reduction": limits.route_reduction_calls,
+                    "route_summary": limits.route_summary_calls,
+                    "whole_game_reduction": limits.whole_game_reduction_calls,
+                    "final_overview": limits.final_overview_calls,
+                }.get(str(job["scope_id"]))
+                if component_limit is None:
+                    raise StoryMapV2RepositoryError(
+                        "rollup job has no frozen component role"
+                    )
+                component = self._connection.execute(
+                    """SELECT COUNT(*) FROM story_map_v2_attempts AS attempts
+                       JOIN story_map_v2_jobs AS jobs ON jobs.job_id = attempts.job_id
+                       WHERE jobs.run_id = ? AND jobs.scope_id = ?
+                         AND attempts.call_kind = 'rollup_synthesis'
+                         AND attempts.transmission_disposition != 'definitely_not_transmitted'
+                         AND (
+                           attempts.status IN ('reserved','transmitting') OR attempts.calls = 1
+                         )""",
+                    (run_id, str(job["scope_id"])),
+                ).fetchone()
+                assert component is not None
+                if int(component[0]) >= component_limit:
+                    if retry_of_attempt_id is None:
+                        raise StoryMapV2RepositoryError(
+                            "derived component provider-call ceiling is exhausted"
+                        )
+                else:
+                    return False
+            else:
+                return False
         if retry_of_attempt_id is None:
             raise StoryMapV2RepositoryError("ordinary provider-call ceiling is exhausted")
         occupied = self._connection.execute(
@@ -3148,7 +3342,8 @@ class SqliteStoryMapV2Repository:
     def _require_generation_locked(self, generation_id: str) -> sqlite3.Row:
         row = self._connection.execute(
             """SELECT generations.*, runs.plan_id AS run_plan_id,
-                      runs.authority_identity AS run_authority_identity
+                      runs.authority_identity AS run_authority_identity,
+                      runs.cancel_requested AS run_cancel_requested
                FROM story_map_v2_generations AS generations
                JOIN story_map_v2_runs AS runs ON runs.run_id = generations.run_id
                WHERE generations.generation_id = ?""",
@@ -3167,6 +3362,14 @@ class SqliteStoryMapV2Repository:
                 "generation run identity does not match its plan and authority"
             )
         return cast(sqlite3.Row, row)
+
+    def _require_publishable_generation_locked(self, row: sqlite3.Row) -> None:
+        if bool(row["run_cancel_requested"]) or (
+            str(row["plan_id"]), str(row["authority_identity"])
+        ) != (str(row["run_plan_id"]), str(row["run_authority_identity"])):
+            raise PublicationConflictError(
+                "generation run is cancelled or no longer publishable"
+            )
 
     def _pointers_locked(self) -> GenerationPointers:
         row = self._connection.execute(
@@ -3193,6 +3396,66 @@ def _job_descriptor(row: sqlite3.Row) -> FrozenJobDescriptor:
         cache_identity=str(row["cache_identity"]),
         ordinal=int(row["ordinal"]),
     )
+
+
+def _generation_descriptor(row: sqlite3.Row) -> GenerationDescriptor:
+    value = storage.decode_json(row["descriptor_json"])
+    return GenerationDescriptor(
+        generation_id=str(row["generation_id"]),
+        run_id=str(row["run_id"]),
+        plan_id=str(row["plan_id"]),
+        authority_identity=str(row["authority_identity"]),
+        kind=GenerationKind(str(row["generation_kind"])),
+        descriptor=value,
+    )
+
+
+def _generation_lineage(row: sqlite3.Row) -> tuple[object, ...]:
+    generation = _generation_descriptor(row)
+    descriptor = cast(Mapping[str, object], generation.descriptor)
+    return (
+        generation.run_id,
+        generation.plan_id,
+        generation.authority_identity,
+        descriptor["story_chunk_plan_identity"],
+        descriptor["source_identity"],
+        descriptor["coverage_hash"],
+        storage.canonical_json(descriptor["path_facts"]),
+        descriptor["baseline_generation_id"],
+    )
+
+
+def _validate_generation_payload(generation_id: str, value: object) -> None:
+    if not isinstance(value, Mapping) or not all(isinstance(key, str) for key in value):
+        raise ValueError("generation descriptor must be a canonical object")
+    required = {
+        "schema",
+        "generation_id",
+        "story_chunk_plan_identity",
+        "source_identity",
+        "coverage_hash",
+        "path_facts",
+        "baseline_generation_id",
+    }
+    if not required.issubset(value):
+        raise ValueError("generation descriptor is missing authoritative lineage")
+    if value["schema"] != "story-map-v2-phase04-generation-v1":
+        raise ValueError("generation descriptor schema is unsupported")
+    if value["generation_id"] != generation_id:
+        raise ValueError("generation descriptor and envelope IDs differ")
+    for key in ("story_chunk_plan_identity", "source_identity", "coverage_hash"):
+        item = value[key]
+        if not isinstance(item, str):
+            raise ValueError("generation lineage identity must be text")
+        _digest(item, key)
+    baseline = value["baseline_generation_id"]
+    if baseline is not None:
+        if not isinstance(baseline, str):
+            raise ValueError("baseline generation ID must be text or null")
+        _identifier(baseline, "baseline_generation_id")
+    if not isinstance(value["path_facts"], list):
+        raise ValueError("generation path facts must be an ordered list")
+    _durable_json(value, "generation descriptor")
 
 
 def _job_record(row: sqlite3.Row) -> JobRecord:

@@ -66,6 +66,7 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
     TransmissionDisposition,
     ViewStateRecord,
 )
+from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.phase03_contracts import (
     NavigationBinding,
     SourceBinding,
@@ -119,6 +120,7 @@ __all__ = [
     "ExecutionMode",
     "FailureKind",
     "FrozenJobDescriptor",
+    "FrozenPlanBundle",
     "FrozenRunDescriptor",
     "GenerationDescriptor",
     "GenerationKind",

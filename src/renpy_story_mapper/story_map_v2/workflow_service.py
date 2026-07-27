@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 
+from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
@@ -30,6 +31,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     TransmissionDisposition,
     ValidatedWorkflowResult,
     WorkflowApproval,
+    WorkflowDerivedSemanticJobDescriptor,
     WorkflowFailure,
     WorkflowPlanDescriptor,
     WorkflowPolicy,
@@ -116,6 +118,8 @@ class StoryMapWorkflowService:
         plan: WorkflowPlanDescriptor,
         policy: WorkflowPolicy,
         ceilings: WorkflowResourceCeilings,
+        *,
+        frozen_plans: FrozenPlanBundle | None = None,
     ) -> WorkflowPreview:
         """Persist a deterministic preview while constructing and calling zero providers."""
 
@@ -140,12 +144,20 @@ class StoryMapWorkflowService:
         if ceilings.review_calls > len(plan.jobs):
             raise ValueError("review-call ceiling cannot exceed one review per job")
         if ceilings.indeterminate_retry_calls > len(plan.jobs):
-            raise ValueError("retry-call ceiling cannot exceed one approved retry per job")
+            derived_max = (
+                0
+                if plan.derived_semantic_plan is None
+                else plan.derived_semantic_plan.section_synthesis_calls
+                + plan.derived_semantic_plan.rollup_synthesis_calls
+            )
+            if ceilings.indeterminate_retry_calls > len(plan.jobs) + derived_max:
+                raise ValueError("retry-call ceiling cannot exceed one approved retry per job")
         if policy.allow_refusal_fallback:
             if ceilings.fallback_calls > len(plan.jobs):
                 raise ValueError("fallback-call ceiling cannot exceed one fallback per job")
         elif ceilings.fallback_calls != 0:
             raise ValueError("fallback calls require a disclosed loopback provider")
+        _validate_derived_ceilings(plan, ceilings)
         preview = WorkflowPreview(
             run_id=run_id,
             plan=plan,
@@ -158,8 +170,24 @@ class StoryMapWorkflowService:
             cache_hit_job_ids=tuple(cache_hits),
             loopback_cache_hit_job_ids=tuple(loopback_cache_hits),
         )
-        self._repository.store_prepared(preview)
+        self._repository.store_prepared(preview, frozen_plans)
         return preview
+
+    def register_derived_job(
+        self,
+        run_id: str,
+        *,
+        preview_identity: str,
+        job: WorkflowDerivedSemanticJobDescriptor,
+    ) -> None:
+        """Register one immutable dependency-ready semantic job without a provider."""
+
+        preview = self._repository.load_preview(run_id)
+        if not _same_digest(preview.identity, preview_identity):
+            raise WorkflowApprovalError(
+                "derived job registration does not match the frozen preview"
+            )
+        self._repository.register_derived_job(run_id, preview_identity, job)
 
     def approve(self, run_id: str, preview_identity: str) -> WorkflowApproval:
         preview = self._repository.load_preview(run_id)
@@ -184,7 +212,8 @@ class StoryMapWorkflowService:
         preview = self._repository.load_preview(run_id)
         if not _same_digest(preview.identity, preview_identity):
             raise WorkflowApprovalError("retry approval does not match the frozen workflow preview")
-        if job_id not in {job.job_id for job in preview.plan.jobs}:
+        mapping_job = next((job for job in preview.plan.jobs if job.job_id == job_id), None)
+        if mapping_job is None and self._repository.load_job_descriptor(run_id, job_id) is None:
             raise ValueError("retry approval identifies a foreign workflow job")
         approval = JobRetryApproval(preview.identity, job_id, indeterminate_attempt_id)
         self._repository.store_retry_approval(run_id, approval)
@@ -257,6 +286,8 @@ class StoryMapWorkflowService:
             raise WorkflowApprovalError("plan or authority changed after workflow approval")
         if authority_identity != preview.plan.authority_identity:
             raise WorkflowApprovalError("current authority does not match the frozen workflow plan")
+        if self._repository.is_cancelled(run_id):
+            raise WorkflowApprovalError("cancelled workflow runs are terminal")
         initial_cloud_hits = set(preview.cache_hit_job_ids)
         initial_loopback_hits = set(preview.loopback_cache_hit_job_ids)
         for job in preview.plan.jobs:
@@ -327,6 +358,9 @@ class StoryMapWorkflowService:
     def _process_claim(self, preview: WorkflowPreview, claim: JobClaim) -> None:
         if self._repository.is_cancelled(preview.run_id):
             self._finalize_cancelled(claim)
+            return
+        if isinstance(claim.job, WorkflowDerivedSemanticJobDescriptor):
+            self._process_derived_claim(preview, claim)
             return
         if claim.resume_call_kind is ProviderCallKind.REPLACEMENT_REVIEW:
             review = self._call(
@@ -420,6 +454,47 @@ class StoryMapWorkflowService:
             reservation = primary.reservation
         self._accept_result(claim, reservation, claim.job.cache_identity, validated)
 
+    def _process_derived_claim(self, preview: WorkflowPreview, claim: JobClaim) -> None:
+        job = claim.job
+        assert isinstance(job, WorkflowDerivedSemanticJobDescriptor)
+        cached = self._repository.load_cache(job.cache_identity)
+        if cached is not None:
+            try:
+                validated = self._validator.validate(job, cached.normalized_payload, cached=True)
+                _validate_durable_result(validated)
+            except Exception:
+                self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
+                return
+            if validated.flagged_for_review:
+                self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
+                return
+            self._accept_result(claim, None, job.cache_identity, validated)
+            return
+        settings = ProviderSettings(
+            provider=job.provider_input_identity.provider,
+            model=job.provider_input_identity.model,
+            reasoning=job.provider_input_identity.reasoning,
+            fast_mode=job.provider_input_identity.fast_mode,
+            mode=job.provider_input_identity.mode,
+            adapter_version=job.provider_input_identity.adapter_version,
+        )
+        call = self._call(
+            preview,
+            claim,
+            job.call_kind,
+            settings,
+            self._cloud_factory,
+            provider_input=job.provider_input_identity,
+        )
+        if isinstance(call, _CallFailure):
+            self._finalize_from_call_failure(claim, call)
+            return
+        call_validated = self._validate_call(claim, call)
+        if call_validated is None or call_validated.flagged_for_review:
+            self._finalize_structural(claim, WorkflowFailure.INVALID_RESPONSE)
+            return
+        self._accept_result(claim, call.reservation, job.cache_identity, call_validated)
+
     def _load_eligible_cache(
         self,
         preview: WorkflowPreview,
@@ -494,8 +569,10 @@ class StoryMapWorkflowService:
         call_kind: ProviderCallKind,
         settings: ProviderSettings,
         factory: ProviderFactory,
+        *,
+        provider_input: ProviderInputIdentity | None = None,
     ) -> _CallSuccess | _CallFailure:
-        provider_input = _provider_input(preview.policy, claim, settings)
+        provider_input = provider_input or _provider_input(preview.policy, claim, settings)
         self._checkpoint("before_reservation", claim.job.job_id)
         reservation = self._repository.reserve_attempt(
             claim, call_kind, provider_input, preview.ceilings
@@ -816,6 +893,35 @@ def _provider_input(
     if settings.mode is ProviderMode.CLOUD and result.cache_identity != claim.job.cache_identity:
         raise WorkflowApprovalError("claimed job cache identity changed after approval")
     return result
+
+
+def _validate_derived_ceilings(
+    plan: WorkflowPlanDescriptor,
+    ceilings: WorkflowResourceCeilings,
+) -> None:
+    semantic = plan.derived_semantic_plan
+    actual = (
+        ceilings.section_synthesis_calls,
+        ceilings.route_reduction_calls,
+        ceilings.route_summary_calls,
+        ceilings.whole_game_reduction_calls,
+        ceilings.final_overview_calls,
+        ceilings.rollup_synthesis_calls,
+    )
+    if semantic is None:
+        if any(actual):
+            raise ValueError("derived semantic ceilings require a frozen semantic plan")
+        return
+    expected = (
+        semantic.section_synthesis_calls,
+        semantic.route_reduction_calls,
+        semantic.route_summary_calls,
+        semantic.whole_game_reduction_calls,
+        semantic.final_overview_calls,
+        semantic.rollup_synthesis_calls,
+    )
+    if actual != expected:
+        raise ValueError("derived semantic ceilings changed from the frozen semantic plan")
 
 
 def _provider_identity_failure(

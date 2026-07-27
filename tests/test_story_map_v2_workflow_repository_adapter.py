@@ -9,6 +9,16 @@ import pytest
 
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.story_map_v2.durable_repository import StoryMapV2RepositoryError
+from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
+from renpy_story_mapper.story_map_v2.phase04_assembly import assemble_frozen_chunk_plan
+from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
+    adapt_chunk_planning_projection,
+)
+from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
+    plan_story_chunks,
+    serialize_story_chunk_plan,
+)
+from renpy_story_mapper.story_map_v2.story_plan import serialize_story_plan
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
@@ -22,6 +32,7 @@ from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
 from renpy_story_mapper.story_map_v2.workflow_service import StoryMapWorkflowService
+from test_story_map_v2_phase04_story_plan import _planned
 from test_story_map_v2_phase04_workflow import (
     BarrierFactory,
     ConstructionTrap,
@@ -97,8 +108,25 @@ def _service(
     )
 
 
-def test_prepare_approval_status_and_reopen_construct_zero_providers(tmp_path: Path) -> None:
+def _frozen_plan_bundle() -> tuple[FrozenPlanBundle, tuple[bytes, ...]]:
+    _graph, _scene_model, source, story_plan, _by_key = _planned()
+    story_chunk_plan = plan_story_chunks(
+        adapt_chunk_planning_projection(story_plan, source)
+    )
+    raw_story_fragments = tuple(
+        span.raw_text.encode("utf-8")
+        for span in source.spans
+        if len(span.raw_text.encode("utf-8")) >= 24
+    )
+    return FrozenPlanBundle(story_plan, story_chunk_plan), raw_story_fragments
+
+
+def test_prepare_approval_status_and_reopen_construct_zero_providers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     path = tmp_path / "prepare.rsmp"
+    frozen_plans, raw_story_fragments = _frozen_plan_bundle()
     with Project.create(path) as project:
         adapter = DurableWorkflowRepositoryAdapter.from_project(project)
         policy = _policy()
@@ -106,20 +134,63 @@ def test_prepare_approval_status_and_reopen_construct_zero_providers(tmp_path: P
         trap = ConstructionTrap()
         service = _service(adapter, requests, trap)
 
-        preview = service.prepare("run-prepare", plan, policy, _ceilings(1))
+        preview = service.prepare(
+            "run-prepare",
+            plan,
+            policy,
+            _ceilings(1),
+            frozen_plans=frozen_plans,
+        )
         service.approve("run-prepare", preview.identity)
         assert service.status("run-prepare").pending_jobs == 1
         assert service.recover("run-prepare").not_transmitted_jobs == ()
         assert trap.constructions == 0
 
+    replanning_calls = 0
+
+    def replanning_trap(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal replanning_calls
+        replanning_calls += 1
+        raise AssertionError("reopen attempted forbidden Story Plan replanning")
+
+    monkeypatch.setattr(
+        "renpy_story_mapper.story_map_v2.story_plan.build_story_plan",
+        replanning_trap,
+    )
+    monkeypatch.setattr(
+        "renpy_story_mapper.story_map_v2.phase04_chunk_adapter.adapt_chunk_planning_projection",
+        replanning_trap,
+    )
+    monkeypatch.setattr(
+        "renpy_story_mapper.story_map_v2.phase04_chunk_plan.plan_story_chunks",
+        replanning_trap,
+    )
+
     with Project.open(path) as project:
         trap = ConstructionTrap()
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
         reopened = _service(
-            DurableWorkflowRepositoryAdapter.from_project(project), requests, trap
+            adapter, requests, trap
         )
+        loaded_plans = adapter.load_frozen_plans("run-prepare")
+        assert loaded_plans is not None
         assert reopened.status("run-prepare").approved
         assert reopened.recover("run-prepare").published_jobs == ()
         assert trap.constructions == 0
+        assembly = assemble_frozen_chunk_plan(
+            loaded_plans.story_chunk_plan,
+            (),
+            replanning_trap=replanning_trap,
+        )
+
+    assert serialize_story_plan(loaded_plans.story_plan) == frozen_plans.story_plan_bytes
+    assert serialize_story_chunk_plan(
+        loaded_plans.story_chunk_plan
+    ) == frozen_plans.story_chunk_plan_bytes
+    assert assembly.story_chunk_plan_identity == frozen_plans.story_chunk_plan.identity
+    assert replanning_calls == 0
+    database_bytes = path.read_bytes()
+    assert all(fragment not in database_bytes for fragment in raw_story_fragments)
 
 
 def test_real_service_publishes_immutable_result_and_second_run_uses_cache(

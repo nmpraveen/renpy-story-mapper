@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
+from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     AttemptAccounting,
     AttemptCompletion,
@@ -21,8 +22,9 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     TransmissionDisposition,
     ValidatedWorkflowResult,
     WorkflowApproval,
+    WorkflowDerivedSemanticJobDescriptor,
+    WorkflowExecutableJobDescriptor,
     WorkflowFailure,
-    WorkflowJobDescriptor,
     WorkflowPreview,
     WorkflowResourceCeilings,
     WorkflowStatus,
@@ -72,7 +74,7 @@ class WorkflowResponseValidator(Protocol):
 
     def validate(
         self,
-        job: WorkflowJobDescriptor,
+        job: WorkflowExecutableJobDescriptor,
         payload: bytes,
         *,
         cached: bool,
@@ -86,9 +88,15 @@ class WorkflowRepository(Protocol):
     connection, project object, provider object, or source packet may cross this boundary.
     """
 
-    def store_prepared(self, preview: WorkflowPreview) -> None: ...
+    def store_prepared(
+        self,
+        preview: WorkflowPreview,
+        frozen_plans: FrozenPlanBundle | None = None,
+    ) -> None: ...
 
     def load_preview(self, run_id: str) -> WorkflowPreview: ...
+
+    def load_frozen_plans(self, run_id: str) -> FrozenPlanBundle | None: ...
 
     def store_approval(self, run_id: str, approval: WorkflowApproval) -> None: ...
 
@@ -101,6 +109,19 @@ class WorkflowRepository(Protocol):
         run_id: str,
         job_id: str,
     ) -> ValidatedWorkflowResult | None: ...
+
+    def register_derived_job(
+        self,
+        run_id: str,
+        preview_identity: str,
+        job: WorkflowDerivedSemanticJobDescriptor,
+    ) -> None: ...
+
+    def load_job_descriptor(
+        self,
+        run_id: str,
+        job_id: str,
+    ) -> WorkflowExecutableJobDescriptor | None: ...
 
     def begin_execution(
         self,

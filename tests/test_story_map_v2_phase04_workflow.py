@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
@@ -110,14 +111,25 @@ class MemoryWorkflowRepository:
         self.max_submitting = 0
         self.durable: list[object] = []
         self.cancellation_persisted = False
+        self.frozen_plans: dict[str, FrozenPlanBundle] = {}
 
-    def store_prepared(self, preview: WorkflowPreview) -> None:
+    def store_prepared(
+        self,
+        preview: WorkflowPreview,
+        frozen_plans: FrozenPlanBundle | None = None,
+    ) -> None:
         with self._lock:
             self.runs[preview.run_id] = _Run(
                 preview=preview,
                 jobs={job.job_id: _Job(job) for job in preview.plan.jobs},
             )
             self.durable.append(preview)
+            if frozen_plans is not None:
+                self.frozen_plans[preview.run_id] = frozen_plans
+
+    def load_frozen_plans(self, run_id: str) -> FrozenPlanBundle | None:
+        with self._lock:
+            return self.frozen_plans.get(run_id)
 
     def load_preview(self, run_id: str) -> WorkflowPreview:
         with self._lock:

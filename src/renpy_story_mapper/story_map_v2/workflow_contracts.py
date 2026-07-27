@@ -20,6 +20,8 @@ CLOUD_MODEL = "gpt-5.6-terra"
 CLOUD_REASONING = "high"
 CLOUD_FAST_MODE = False
 GLOBAL_SUBMISSION_SLOTS = 6
+DERIVED_SEMANTIC_WORKFLOW_VERSION = "story-map-v2-derived-semantic-workflow-v2"
+DERIVED_SEMANTIC_FAN_IN = 24
 
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -55,6 +57,15 @@ class ProviderCallKind(StrEnum):
     MAPPING = "mapping"
     REPLACEMENT_REVIEW = "replacement_review"
     REFUSAL_FALLBACK = "refusal_fallback"
+    SECTION_SYNTHESIS = "section_synthesis"
+    ROLLUP_SYNTHESIS = "rollup_synthesis"
+
+
+class DerivedSemanticNodeRole(StrEnum):
+    ROUTE_REDUCTION = "route_reduction"
+    ROUTE_SUMMARY = "route_summary"
+    WHOLE_GAME_REDUCTION = "whole_game_reduction"
+    FINAL_OVERVIEW = "final_overview"
 
 
 class WorkflowFailure(StrEnum):
@@ -183,10 +194,198 @@ class WorkflowJobDescriptor:
 
 
 @dataclass(frozen=True)
+class WorkflowCorridorDescriptor:
+    corridor_id: str
+    route_owner: str | None
+    event_slot_upper_bound: int
+    ordinal: int
+
+    def __post_init__(self) -> None:
+        _text(self.corridor_id, "corridor ID")
+        if self.route_owner is not None:
+            _text(self.route_owner, "route owner")
+        if type(self.event_slot_upper_bound) is not int or self.event_slot_upper_bound < 1:
+            raise ValueError("event-slot upper bound must be a positive integer")
+        if type(self.ordinal) is not int or self.ordinal < 0:
+            raise ValueError("corridor ordinal must be a non-negative integer")
+
+
+@dataclass(frozen=True)
+class WorkflowRouteMembership:
+    route_id: str
+    ordered_corridor_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _text(self.route_id, "route ID")
+        if not self.ordered_corridor_ids:
+            raise ValueError("persistent route membership cannot be empty")
+        if len(set(self.ordered_corridor_ids)) != len(self.ordered_corridor_ids):
+            raise ValueError("persistent route corridor IDs must be unique")
+        for corridor_id in self.ordered_corridor_ids:
+            _text(corridor_id, "route corridor ID")
+
+
+def derived_reduce_calls(count: int, *, fan_in: int = DERIVED_SEMANTIC_FAN_IN) -> int:
+    """Return the frozen consecutive fan-in reduction-call upper bound."""
+
+    if type(count) is not int or count < 0:
+        raise ValueError("derived reduction count must be a non-negative integer")
+    if fan_in != DERIVED_SEMANTIC_FAN_IN:
+        raise ValueError("derived semantic fan-in must be 24")
+    calls = 0
+    while count > fan_in:
+        count = (count + fan_in - 1) // fan_in
+        calls += count
+    return calls
+
+
+@dataclass(frozen=True)
+class WorkflowDerivedSemanticPlanDescriptor:
+    semantic_plan_identity: str
+    story_chunk_plan_identity: str
+    authority_identity: AuthorityIdentity
+    corridors: tuple[WorkflowCorridorDescriptor, ...]
+    route_memberships: tuple[WorkflowRouteMembership, ...]
+    section_synthesis_calls: int
+    route_reduction_calls: int
+    route_summary_calls: int
+    whole_game_reduction_calls: int
+    final_overview_calls: int
+    rollup_synthesis_calls: int
+    fan_in: int = DERIVED_SEMANTIC_FAN_IN
+    version: str = DERIVED_SEMANTIC_WORKFLOW_VERSION
+
+    def __post_init__(self) -> None:
+        _digest(self.semantic_plan_identity, "semantic plan identity")
+        _digest(self.story_chunk_plan_identity, "story chunk plan identity")
+        if self.version != DERIVED_SEMANTIC_WORKFLOW_VERSION:
+            raise ValueError("unsupported derived semantic workflow version")
+        if self.fan_in != DERIVED_SEMANTIC_FAN_IN:
+            raise ValueError("derived semantic fan-in must be 24")
+        if tuple(item.ordinal for item in self.corridors) != tuple(range(len(self.corridors))):
+            raise ValueError("corridor ordinals must be consecutive")
+        corridor_ids = tuple(item.corridor_id for item in self.corridors)
+        if len(set(corridor_ids)) != len(corridor_ids):
+            raise ValueError("corridor IDs must be unique")
+        route_ids = tuple(item.route_id for item in self.route_memberships)
+        if len(set(route_ids)) != len(route_ids):
+            raise ValueError("persistent route IDs must be unique")
+        by_id = {item.corridor_id: item for item in self.corridors}
+        referenced: list[str] = []
+        route_upper_bounds: list[int] = []
+        for membership in self.route_memberships:
+            route_upper_bound = 0
+            for corridor_id in membership.ordered_corridor_ids:
+                corridor = by_id.get(corridor_id)
+                if corridor is None:
+                    raise ValueError("route membership references an unknown corridor")
+                if corridor.route_owner != membership.route_id:
+                    raise ValueError("route membership must match the persistent lane owner")
+                referenced.append(corridor_id)
+                route_upper_bound += corridor.event_slot_upper_bound
+            route_upper_bounds.append(route_upper_bound)
+        owned = tuple(item.corridor_id for item in self.corridors if item.route_owner is not None)
+        if len(set(referenced)) != len(referenced) or set(referenced) != set(owned):
+            raise ValueError("every persistent corridor requires exactly one route membership")
+        common = sum(
+            item.event_slot_upper_bound for item in self.corridors if item.route_owner is None
+        )
+        expected = (
+            len(self.corridors),
+            sum(derived_reduce_calls(value) for value in route_upper_bounds),
+            len(self.route_memberships),
+            derived_reduce_calls(common + len(self.route_memberships)),
+            int(common + len(self.route_memberships) > 0),
+        )
+        actual = (
+            self.section_synthesis_calls,
+            self.route_reduction_calls,
+            self.route_summary_calls,
+            self.whole_game_reduction_calls,
+            self.final_overview_calls,
+        )
+        if actual != expected or self.rollup_synthesis_calls != sum(expected[1:]):
+            raise ValueError("derived semantic component ceilings do not match the frozen formula")
+
+
+@dataclass(frozen=True)
+class WorkflowDerivedSemanticJobDescriptor:
+    plan_id: str
+    semantic_plan_identity: str
+    story_chunk_plan_identity: str
+    candidate_generation_identity: str
+    authority_identity: AuthorityIdentity
+    job_id: str
+    call_kind: ProviderCallKind
+    node_role: DerivedSemanticNodeRole | None
+    corridor_id: str | None
+    route_owner: str | None
+    child_ids: tuple[str, ...]
+    child_prose_hashes: tuple[str, ...]
+    ordinal: int
+    serialized_request_identity: SerializedRequestIdentity
+    provider_input_identity: ProviderInputIdentity
+    cache_identity: CacheIdentity
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.plan_id, "plan ID"),
+            (self.job_id, "derived job ID"),
+        ):
+            _text(value, label)
+        for value, label in (
+            (self.semantic_plan_identity, "semantic plan identity"),
+            (self.story_chunk_plan_identity, "story chunk plan identity"),
+            (self.candidate_generation_identity, "candidate generation identity"),
+        ):
+            _digest(value, label)
+        if self.call_kind is ProviderCallKind.SECTION_SYNTHESIS:
+            if self.node_role is not None or self.corridor_id is None:
+                raise ValueError("section synthesis requires a corridor and no rollup role")
+        elif self.call_kind is ProviderCallKind.ROLLUP_SYNTHESIS:
+            if self.node_role is None:
+                raise ValueError("rollup synthesis requires an exact node role")
+        else:
+            raise ValueError("derived semantic jobs use only the two synthesis call kinds")
+        if self.corridor_id is not None:
+            _text(self.corridor_id, "derived corridor ID")
+        if self.route_owner is not None:
+            _text(self.route_owner, "derived route owner")
+        if not self.child_ids or len(self.child_ids) != len(self.child_prose_hashes):
+            raise ValueError("derived jobs require exact ordered child IDs and prose hashes")
+        if len(set(self.child_ids)) != len(self.child_ids):
+            raise ValueError("derived child IDs must be unique")
+        for child_id in self.child_ids:
+            _text(child_id, "derived child ID")
+        for prose_hash in self.child_prose_hashes:
+            _digest(prose_hash, "derived child prose hash")
+        if type(self.ordinal) is not int or self.ordinal < 0:
+            raise ValueError("derived job ordinal must be a non-negative integer")
+        if self.provider_input_identity.serialized_request_identity != (
+            self.serialized_request_identity
+        ):
+            raise ValueError("derived provider input must bind the serialized request identity")
+        if self.provider_input_identity.cache_identity != self.cache_identity:
+            raise ValueError("derived cache identity must bind the exact provider input")
+        if (
+            self.provider_input_identity.provider != CLOUD_PROVIDER
+            or self.provider_input_identity.model != CLOUD_MODEL
+            or self.provider_input_identity.reasoning != CLOUD_REASONING
+            or self.provider_input_identity.fast_mode is not CLOUD_FAST_MODE
+            or self.provider_input_identity.mode is not ProviderMode.CLOUD
+        ):
+            raise ValueError("derived synthesis requires exact Terra, High, fast-off cloud input")
+
+
+WorkflowExecutableJobDescriptor = WorkflowJobDescriptor | WorkflowDerivedSemanticJobDescriptor
+
+
+@dataclass(frozen=True)
 class WorkflowPlanDescriptor:
     plan_id: str
     authority_identity: AuthorityIdentity
     jobs: tuple[WorkflowJobDescriptor, ...]
+    derived_semantic_plan: WorkflowDerivedSemanticPlanDescriptor | None = None
 
     def __post_init__(self) -> None:
         _text(self.plan_id, "plan ID")
@@ -201,6 +400,11 @@ class WorkflowPlanDescriptor:
                 raise ValueError("workflow jobs must bind the frozen plan ID")
             if job.authority_identity != self.authority_identity:
                 raise ValueError("workflow jobs must bind the frozen authority identity")
+        if (
+            self.derived_semantic_plan is not None
+            and self.derived_semantic_plan.authority_identity != self.authority_identity
+        ):
+            raise ValueError("derived semantic plan must bind the frozen authority identity")
 
 
 @dataclass(frozen=True)
@@ -233,6 +437,12 @@ class WorkflowResourceCeilings:
     elapsed_ms: int
     submission_slots: int = GLOBAL_SUBMISSION_SLOTS
     indeterminate_retry_calls: int = 0
+    section_synthesis_calls: int = 0
+    route_reduction_calls: int = 0
+    route_summary_calls: int = 0
+    whole_game_reduction_calls: int = 0
+    final_overview_calls: int = 0
+    rollup_synthesis_calls: int = 0
 
     def __post_init__(self) -> None:
         values = (
@@ -243,6 +453,12 @@ class WorkflowResourceCeilings:
             self.output_tokens,
             self.elapsed_ms,
             self.indeterminate_retry_calls,
+            self.section_synthesis_calls,
+            self.route_reduction_calls,
+            self.route_summary_calls,
+            self.whole_game_reduction_calls,
+            self.final_overview_calls,
+            self.rollup_synthesis_calls,
         )
         if any(type(value) is not int or value < 0 for value in values):
             raise ValueError("workflow resource ceilings must be finite non-negative integers")
@@ -403,7 +619,7 @@ class JobClaim:
     execution_id: str
     claim_id: str
     worker_id: str
-    job: WorkflowJobDescriptor
+    job: WorkflowExecutableJobDescriptor
     resume_call_kind: ProviderCallKind | None = None
 
     def __post_init__(self) -> None:
@@ -555,6 +771,24 @@ class WorkflowStatus:
     resumable_jobs: int
     indeterminate_jobs: int
     accounting: WorkflowAccounting
+    indeterminate_retries: tuple[IndeterminateRetryStatus, ...] = ()
+
+
+@dataclass(frozen=True)
+class IndeterminateRetryStatus:
+    job_id: str
+    attempt_id: str
+    call_kind: ProviderCallKind
+    retry_approval_identity: str | None
+    can_approve_retry: bool
+
+    def __post_init__(self) -> None:
+        _text(self.job_id, "indeterminate job ID")
+        _text(self.attempt_id, "indeterminate attempt ID")
+        if self.retry_approval_identity is not None:
+            _digest(self.retry_approval_identity, "retry approval identity")
+        if self.can_approve_retry != (self.retry_approval_identity is None):
+            raise ValueError("retry approval action must match its durable identity")
 
 
 @dataclass(frozen=True)
