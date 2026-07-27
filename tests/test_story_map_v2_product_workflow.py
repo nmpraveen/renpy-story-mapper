@@ -28,6 +28,7 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import assemble_semantic_corridors
 from renpy_story_mapper.story_map_v2.product_vertical import (
+    _terminal_indeterminate_fallback,
     execute_product_vertical,
     project_workflow_reader_status,
 )
@@ -49,13 +50,16 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_REASONING,
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
+    IndeterminateRetryStatus,
     ProviderCallKind,
     ProviderCallResult,
     ProviderInputIdentity,
     ProviderMode,
     ProviderSettings,
     SerializedRequestIdentity,
+    WorkflowAccounting,
     WorkflowDerivedSemanticJobDescriptor,
+    WorkflowStatus,
     workflow_digest,
 )
 from renpy_story_mapper.story_map_v2.workflow_http_projection import (
@@ -822,3 +826,113 @@ def test_vertical_publishes_structural_reader_when_all_prose_is_invalid(
         assert manifest["sections"]
         assert manifest["overview"]["title"] == "Whole story overview"
         assert manifest["overview"]["summary"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({}, True),
+        ({"approved": False}, False),
+        ({"cancelled": True}, False),
+        ({"pending_jobs": 1}, False),
+        ({"active_jobs": 1}, False),
+        ({"resumable_jobs": 1}, False),
+        ({"indeterminate_jobs": 0, "accepted_jobs": 1}, False),
+        (
+            {
+                "indeterminate_retries": (
+                    IndeterminateRetryStatus(
+                        "derived-job",
+                        "derived-attempt",
+                        ProviderCallKind.SECTION_SYNTHESIS,
+                        None,
+                        True,
+                    ),
+                )
+            },
+            False,
+        ),
+    ],
+)
+def test_terminal_indeterminate_fallback_requires_no_remaining_work(
+    changes: dict[str, object],
+    expected: bool,
+) -> None:
+    values: dict[str, object] = {
+        "run_id": "run:terminal-fallback",
+        "preview_identity": "a" * 64,
+        "approved": True,
+        "cancelled": False,
+        "pending_jobs": 0,
+        "active_jobs": 0,
+        "accepted_jobs": 0,
+        "structural_fallback_jobs": 0,
+        "resumable_jobs": 0,
+        "indeterminate_jobs": 1,
+        "accounting": WorkflowAccounting.zero(),
+        "indeterminate_retries": (
+            IndeterminateRetryStatus(
+                "mapping-job",
+                "mapping-attempt",
+                ProviderCallKind.MAPPING,
+                None,
+                True,
+            ),
+        ),
+    }
+    values.update(changes)
+    assert _terminal_indeterminate_fallback(WorkflowStatus(**values)) is expected  # type: ignore[arg-type]
+
+
+def test_terminal_indeterminate_mapping_run_publishes_without_derived_calls(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:vertical-indeterminate",
+    )
+    provider_submissions = 0
+
+    class IndeterminateProvider:
+        def submit(self, _request: bytes) -> ProviderCallResult:
+            nonlocal provider_submissions
+            provider_submissions += 1
+            raise RuntimeError("provider result is indeterminate")
+
+        def cancel(self) -> None:
+            return None
+
+    path = tmp_path / "vertical-indeterminate.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=IndeterminateProvider,
+        ).approve(prepared.run_id, preview.identity)
+
+    execute_product_vertical(
+        path,
+        prepared,
+        preview_identity=preview.identity,
+        cloud_factory=IndeterminateProvider,
+        authority_graph=graph,
+    )
+
+    assert provider_submissions == len(prepared.plan.jobs)
+    with Project.open(path) as project:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        status = adapter.status(prepared.run_id)
+        assert status.indeterminate_jobs == len(prepared.plan.jobs)
+        reader = StoryMapReader(
+            DurableStoryMapReaderSource(
+                project.story_map_v2_repository(),
+                workflow_status=project_workflow_reader_status,
+            )
+        )
+        manifest = reader.manifest()
+        assert manifest["status"] == "complete"
+        assert manifest["sections"]
+        assert manifest["overview"]["title"] == "Whole story overview"

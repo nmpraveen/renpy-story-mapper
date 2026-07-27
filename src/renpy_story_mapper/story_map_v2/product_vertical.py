@@ -54,6 +54,7 @@ from renpy_story_mapper.story_map_v2.reader import (
 from renpy_story_mapper.story_map_v2.reader_store import reader_storage_page
 from renpy_story_mapper.story_map_v2.story_plan import StoryPlacement
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    ProviderCallKind,
     WorkflowApproval,
     WorkflowPreview,
     WorkflowStatus,
@@ -101,7 +102,8 @@ def execute_product_vertical(
         )
         adapter = DurableWorkflowRepositoryAdapter.from_project(project)
         status = adapter.status(prepared.run_id)
-        if _execution_blocked(status):
+        terminal_fallback = _terminal_indeterminate_fallback(status)
+        if _execution_blocked(status) and not terminal_fallback:
             return
 
         semantic = _semantic_assembly(adapter, prepared)
@@ -111,6 +113,16 @@ def execute_product_vertical(
         )
         generation_id = _generation_id("complete", prepared, semantic)
         derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
+        if terminal_fallback:
+            _publish_generation(
+                project,
+                prepared,
+                semantic,
+                derived,
+                generation_id,
+                authority_graph=authority_graph,
+            )
+            return
 
         for job in derived.section_jobs:
             _register_job(service, materializer, prepared, preview_identity, job)
@@ -280,6 +292,22 @@ def _execution_blocked(status: WorkflowStatus) -> bool:
         or status.active_jobs
         or status.resumable_jobs
         or status.indeterminate_jobs
+    )
+
+
+def _terminal_indeterminate_fallback(status: WorkflowStatus) -> bool:
+    return (
+        status.approved
+        and not status.cancelled
+        and status.indeterminate_jobs > 0
+        and status.pending_jobs == 0
+        and status.active_jobs == 0
+        and status.resumable_jobs == 0
+        and len(status.indeterminate_retries) == status.indeterminate_jobs
+        and all(
+            item.call_kind is ProviderCallKind.MAPPING
+            for item in status.indeterminate_retries
+        )
     )
 
 
