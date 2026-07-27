@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 is in verification with a published structural full-game map)
+Updated: 2026-07-27 (Phase 04 is verifying a local-only AI summary run)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,28 +13,27 @@ Updated: 2026-07-27 (Phase 04 is in verification with a published structural ful
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `4484460`.
+- Safe product checkpoint: `4426a58`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Verification. The exact approved run remains historically indeterminate with no accepted
-  AI prose, but the user-authorized provider-free correction published its deterministic structure
-  as generation `b7f05d2…f940`: 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and
-  59 landmarks. The live website shows choices/effects, late state, Path, and relative
-  Detail/Evidence. Final integrated review passes with P0/P1/P2 all zero, and Windows Release
-  passes 1,773 tests plus every quality/package stage. Push/CI and explicit user usefulness
-  approval remain.
+- Status: Verification. The deterministic structure remains published as generation
+  `b7f05d2…f940`: 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and 59 landmarks.
+  Commit `4426a58` adds private local transcript evidence, a compact 425-row website progress
+  table, and a simplified one-summary prompt with Python-owned structural/length binding. A fresh
+  local-only run is active and reached 31/31 accepted responses with zero rejects/provider errors
+  at the evidence checkpoint. Final intended-head gates, push/CI, and explicit usefulness approval
+  remain.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
-- Native Codex goal: repository history records the lean goal on Orchestra task
-  `019fa176-8277-7920-8558-b816cf168a9f`, but the current goal API returns `goal: null`. No duplicate
-  was created; lifecycle truth remains in this active contract until the tool record is accessible.
+- Native Codex goal: verified active on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f` with the lean done condition; no duplicate goal exists.
 - Completed workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` at `3723da9` and
   website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` at `cdfd37a` plus `b4572aa`, all from
   semantic-gate commit `21d80d2`. They integrated as `29f4378`, `b8bf018`, and `2776b99`.
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: one push and CI inspection, then explicit user usefulness approval. No
-  provider diagnostic, retry, replacement run, or additional review/Release cycle is needed.
+- Remaining lean path: finish/inspect the active local summary run, obtain explicit usefulness
+  approval, then run the intended-head final gates and perform one push/CI inspection.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
@@ -46,24 +45,26 @@ Updated: 2026-07-27 (Phase 04 is in verification with a published structural ful
 - Integrated verification passed 123 focused tests in 44.41 seconds plus Ruff, strict mypy over six
   changed source files, JavaScript syntax, and whitespace. No provider construction/call, private
   input access, push, PR mutation, or merge occurred through this integration checkpoint.
+- The local-summary correction passed 116 focused tests plus Ruff, strict mypy, JavaScript syntax,
+  and whitespace. It changes no HTTP/schema/database contract and makes no cloud summary call.
 - The supported real full-game project exposed one first-generation blocker: the Generate action
   was hidden without an existing reader manifest. The existing action now moves into the technical
   fallback masthead and remains hidden off-workspace through `4a85a79`; 14 focused browser/asset
   tests pass at normal and effective-200 profiles.
-- Preview `9d449b95…a3a2c1` discloses Codex CLI `gpt-5.6-terra`, High reasoning,
+- Historical preview `9d449b95…a3a2c1` disclosed Codex CLI `gpt-5.6-terra`, High reasoning,
   fast off, private cloud story content, 425 chunks/jobs, 2,927 maximum cloud calls, zero local
   calls, and zero cache hits. Its consent checkpoint had zero calls/tokens and an unchanged
   protected-input aggregate SHA-256. After the user's exact approval, the website stored approval
   and started this identity once. The durable stopping state is 425 calls, 0 accepted, 19
   structural, 406 indeterminate, zero tokens, no generation, and `map_revision=0`.
 - The user's `Approved proceed` response resumed the same native goal at `Integration`; no duplicate
-  goal, second prepare, second run, correction loop, or retry approval was created. The milestone
-  is now blocked on explicit direction for the demonstrated provider-execution failure.
+  goal was created. That historical provider-execution block was later resolved first by honest
+  structural publication and then by the user-authorized local-only summary path.
 - Provider-free in-memory assembly over that exact frozen run proves the current semantic and
   derived assemblers can already form 425 structural chunks, 1,770 ordered events, 693 choices,
   425 structural sections, and a structural overview with zero provider calls. The smallest
-  demonstrated correction is to let `product_vertical` publish those existing fallbacks after a
-  terminal indeterminate mapping pass; implementation remains paused pending user approval.
+  demonstrated correction was to let `product_vertical` publish those existing fallbacks after a
+  terminal indeterminate mapping pass; that bounded correction is complete.
 
 ## Historical Phase 04 production-grade record (superseded)
 

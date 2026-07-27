@@ -2,7 +2,7 @@
 
 Status: Verification — the structural full-game map is published and final lean gates are in progress
 
-Current product checkpoint: `4484460` on `codex/m15-phase04-full-game`
+Current product checkpoint: `4426a58` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -170,11 +170,41 @@ No current product code is being discarded, but the remaining old acceptance wor
   JavaScript, whitespace, isolated sdist/wheel build, install/import, browser asset, and notice
   checks all passed in 609.9 seconds.
 
+## Local-only summary observability and prompt correction
+
+- The user requested a private record of every model prompt/response and a more detailed website
+  progress view. Commit `4426a58` adds an opt-in JSONL transcript outside durable project storage
+  and Git. Each model call records its full parsed prompt/response, identity, accounting, outcome,
+  and validator comment. Transcript write failure cannot change workflow behavior.
+- The website now has one collapsed `AI progress details` table using the existing preview/status
+  response. It labels all 425 ordered queries by story section/part and shows response, summary,
+  and comment state without adding an HTTP route, schema, database table, or dashboard.
+- A bounded local-only experiment compared the former exact-mechanics prompt, one event per Python
+  atomic group, and one whole-chunk event. The selected whole-chunk variant used 150 output tokens
+  and 4.86 seconds on the same first real chunk, versus 1,701 tokens and 44.58 seconds for the
+  16-event variant. Python now attaches exact placements, choices, effects, routes, rejoins, and
+  endings, and trims prose to existing bounds.
+- The cancelled diagnostic run proved the two remaining validators were false format failures:
+  Python-owned escaped Ren'Py dialogue in canonical mechanics was mistaken for a Windows path, and
+  three otherwise valid summaries exceeded 320 characters. The correction excludes only
+  Python-owned canonical mechanics from the provider-material scan and keeps the existing path/raw
+  packet checks over provider prose.
+- Fresh zero-submit preview: `lm-studio-loopback`, model
+  `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`, reasoning none, fast mode unspecified, private
+  story may go only to the local provider, 425 jobs, 2,927 maximum calls, and zero cache hits. The
+  user-authorized v3 run reached 31/31 accepted responses with zero rejection/provider errors at
+  this checkpoint, covering every query that failed during the cancelled diagnostic run.
+- Focused verification passed 116 tests in 31.48 seconds plus Ruff, strict mypy, JavaScript syntax,
+  and whitespace. Raw private artifacts are under
+  `output/m15-phase04-local-summary-v3-20260727-171150/` and are not committed.
+
 ## Remaining lean work
 
-1. Push once, inspect the repository-wide sharded CI once, and leave PR #30 open and unmerged.
-2. Obtain explicit user approval that the supplied normal/effective-200 result is useful. Do not
-   mark Phase 04 complete or PR #30 ready before that subjective gate.
+1. Let the active local-only summary run reach its useful publication checkpoint and inspect the
+   resulting reader output. Raw prompt/response evidence stays outside Git.
+2. Obtain explicit user approval that the resulting story view is useful.
+3. Run the intended-head final gates, push once, inspect repository-wide sharded CI once, and leave
+   PR #30 open and unmerged. Do not mark Phase 04 complete or PR #30 ready before those gates.
 
 ## This documentation reset
 

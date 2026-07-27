@@ -37,8 +37,8 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "- Status: Verification." in state
     assert "Semantic review: fresh exact-head `PASS`" in state
     assert "docs/milestones/M15_PHASE_04/GOAL.md" in state
-    assert "Native Codex goal: repository history records the lean goal" in state
-    assert "current goal API returns `goal: null`" in state
+    assert "Native Codex goal: verified active" in state
+    assert "no duplicate goal exists" in state
     assert "019fa176-8277-7920-8558-b816cf168a9f" in state
     assert "019f7fe2-eeaa-7622-b3eb-f53d5bd5f749" in state
     assert "2776b99" in state

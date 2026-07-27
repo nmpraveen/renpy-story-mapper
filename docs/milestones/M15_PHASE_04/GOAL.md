@@ -37,6 +37,7 @@ must be ready, open, and unmerged.
 ## Current safe checkpoint
 
 - Integration branch: `codex/m15-phase04-full-game`.
+- Current local implementation checkpoint: `4426a58`.
 - Current local head before this scope reset: `2995d99`.
 - Draft PR: #30, open and unmerged.
 - Useful foundations already exist: occurrence-aware planning/chunking, durable workflow storage,
@@ -44,9 +45,7 @@ must be ready, open, and unmerged.
   repository-wide sharded CI, and durable section-job scheduling.
 - The last implementation checkpoint reported 119 focused tests passing. This scope-reset change
   runs documentation checks only and does not repeat product tests.
-- The prior coordinator task `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749` created the historical goal,
-  but both the new Orchestra and the prior task's last recorded goal check returned no accessible
-  goal. The user authorized replacement with the lean-contract goal on Orchestra task
+- The lean-contract native goal is verified active on Orchestra task
   `019fa176-8277-7920-8558-b816cf168a9f`.
 - Fresh lightweight semantic review passed at exact contract head `2bcdd02`. The two bounded
   vertical-path workers are integrated through `2776b99`; the focused integrated gate passed 123
@@ -82,6 +81,15 @@ must be ready, open, and unmerged.
   structural whole-game overview with zero provider calls. The demonstrated code blocker is the
   early indeterminate return in `product_vertical._execution_blocked`, before those existing
   fallbacks could be published. The bounded correction is integrated through `157c496`.
+- The user then authorized local-only AI summaries plus simple troubleshooting visibility. Commit
+  `4426a58` adds an opt-in private JSONL prompt/response transcript, a collapsed 425-row website
+  progress table, and a shorter local-model prompt. Python now owns exact placement/choice binding
+  and prose length limits. No HTTP/schema/database family was added.
+- A fresh supported website preview discloses `lm-studio-loopback`, model
+  `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`, no reasoning/fast-mode setting, 425 jobs,
+  2,927 maximum calls, and zero cache hits. The user-authorized run is active; its first 31 model
+  responses are all accepted, including the exact choice and overlength cases that failed in the
+  diagnostic run. Raw story/prompts/responses remain outside Git.
 
 ## Must work in Phase 04
 
