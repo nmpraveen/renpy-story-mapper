@@ -546,8 +546,11 @@ def test_all_ai_failure_still_builds_complete_structural_sections_and_overview()
     result = assemble_derived_semantics(derived_plan, semantic, _digest("candidate-public"))
     assert result.sections
     assert all(section.origin is SemanticOrigin.STRUCTURAL for section in result.sections)
+    assert result.sections[0].title.startswith(semantic.events[0].title)
+    assert semantic.events[0].summary in result.sections[0].summary
     assert result.overview is not None
     assert result.overview.origin is SemanticOrigin.STRUCTURAL
+    assert semantic.events[0].summary in result.overview.summary
     assert all(job.call_kind is DerivedCallKind.SECTION_SYNTHESIS for job in result.section_jobs)
     assert all(job.call_kind is DerivedCallKind.ROLLUP_SYNTHESIS for job in result.rollup_jobs)
 

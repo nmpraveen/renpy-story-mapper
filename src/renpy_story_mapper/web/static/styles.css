@@ -139,7 +139,7 @@ button:disabled { cursor: default; opacity: .45; }
 .story-search-result { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; border: 0; background: var(--sheet); padding: .75rem; color: inherit; text-align: left; }
 .story-search-result strong, .story-search-result span { min-width: 0; overflow-wrap: anywhere; }
 .story-search-result span { color: var(--muted); font-size: 12px; }
-.story-section-index { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: 1.75rem; border-bottom: 1px solid var(--rule); padding-bottom: .8rem; }
+.story-section-index { display: flex; max-height: 12rem; flex-wrap: wrap; align-content: start; gap: .3rem .8rem; margin-bottom: 1.75rem; overflow-y: auto; border-bottom: 1px solid var(--rule); padding: 0 .35rem .8rem 0; }
 .story-section-index button { border: 0; border-bottom: 1px solid transparent; background: transparent; padding: .2rem 0; color: var(--muted); font-size: 12px; text-align: left; }
 .story-section-index button:hover, .story-section-index button[aria-current="true"] { border-bottom-color: var(--accent); color: var(--ink); }
 .story-sections { counter-reset: story-section; display: grid; gap: 1.25rem; }

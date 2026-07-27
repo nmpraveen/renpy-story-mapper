@@ -1229,8 +1229,8 @@ function renderStoryReaderManifest(manifest) {
 function renderStoryReaderStatus(status) {
   state.storyReader.status = status;
   if (state.storyWorkflow.response) { renderStoryWorkflow(state.storyWorkflow.response); return; }
-  $("#storyRunDetails").hidden = true;
   const progress = status.progress; const percent = progress.total_jobs ? Math.round((progress.completed_jobs / progress.total_jobs) * 100) : Math.round(status.coverage.event_fraction * 100);
+  $("#storyRunDetails").hidden = !(api.storyWorkflowRoutes && status.run_id && progress.total_jobs);
   $("#storyRunState").textContent = String(status.state).replaceAll("_", " ");
   $("#storyRunProgress").textContent = `${progress.completed_jobs}/${progress.total_jobs} jobs · ${progress.failed_jobs} failed · ${progress.indeterminate_jobs} indeterminate`;
   $("#storyRunProgressBar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
@@ -1337,6 +1337,18 @@ async function restoreStoryWorkflow() {
     if (error instanceof TypeError || ["invalid_workflow_request", "workflow_run_not_found", "stale_workflow_preview", "stale_workflow_approval"].includes(error?.code)) clearStoredStoryWorkflow();
     return false;
   }
+}
+
+async function loadPublishedStoryWorkflowDetails() {
+  const details = $("#storyRunDetails"); const runId = state.storyReader.status?.run_id;
+  if (!details.open || state.storyWorkflow.response || state.storyWorkflow.busy || !api.storyWorkflowRoutes || typeof runId !== "string" || !runId) return;
+  state.storyWorkflow.busy = true;
+  try {
+    const response = await api.storyWorkflowStatus({ run_id: runId });
+    if (response.preview.run_id !== runId) throw new TypeError("Published story workflow binding is stale");
+    renderStoryWorkflow(response);
+  } catch (error) { details.open = false; toast(error.message); }
+  finally { state.storyWorkflow.busy = false; }
 }
 
 function storyWorkflowFacts(preview) {
@@ -2224,6 +2236,7 @@ function bind() {
   $("#storyBrowser").addEventListener("scroll", scheduleStoryReaderViewSave, { passive: true });
   $("#closeStoryApproval").addEventListener("click", () => $("#storyApprovalDialog").close());
   $("#storyPrepareAction").addEventListener("click", prepareStoryWorkflow);
+  $("#storyRunDetails").addEventListener("toggle", loadPublishedStoryWorkflowDetails);
   $("#approveStoryGeneration").addEventListener("click", () => runStoryWorkflow("start"));
   $("#storyCancelRun").addEventListener("click", () => runStoryWorkflow("cancel"));
   $("#storyResumeRun").addEventListener("click", () => runStoryWorkflow("resume"));

@@ -683,6 +683,16 @@ def _structural_sections(
     for index in range(0, len(events), 30):
         group = events[index : index + 30]
         event_ids = tuple(event.event_id for event in group)
+        title = (
+            group[0].title
+            if len(group) == 1
+            else f"{group[0].title} to {group[-1].title}"
+        )
+        if len(title) > 80:
+            title = title[:77].rstrip() + "..."
+        summary = " ".join(event.summary for event in group)
+        if len(summary) > 600:
+            summary = summary[:597].rstrip() + "..."
         sections.append(
             MeaningfulSection(
                 section_id=_section_id(
@@ -691,8 +701,8 @@ def _structural_sections(
                 corridor_id=corridor.corridor_id,
                 route_owner=corridor.route_owner,
                 event_ids=event_ids,
-                title=f"Story section {corridor.ordinal + 1}.{index // 30 + 1}",
-                summary="Exact ordered story events remain available without synthesis prose.",
+                title=title,
+                summary=summary,
                 origin=SemanticOrigin.STRUCTURAL,
             )
         )
