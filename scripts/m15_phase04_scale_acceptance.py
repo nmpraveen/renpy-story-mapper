@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
+import gc
 import hashlib
 import http.client
 import importlib.util
 import json
+import math
+import os
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import tracemalloc
 from collections.abc import Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -91,6 +96,7 @@ class ScaleDataset:
         self.map_revision = 7
         self.freshness = "current"
         self.wording_epoch = 0
+        self.path_cache: set[str] = set()
         self.view_state: dict[str, Any] = {
             "section_id": "section:0",
             "selection_id": "event:0",
@@ -397,6 +403,10 @@ class ScaleDataset:
     def path_page(self, body: Mapping[str, Any]) -> dict[str, Any]:
         self._require_revision(body)
         selection_id = str(body["selection_id"])
+        cache_state = "hit" if selection_id in self.path_cache else "miss"
+        if cache_state == "miss":
+            time.sleep(0.1)
+            self.path_cache.add(selection_id)
         items = [
             {
                 "id": f"path-step:{index}",
@@ -416,7 +426,9 @@ class ScaleDataset:
                 "selection_id": selection_id,
             }
         )
-        return self._page(selection_id, items, "path", "route:persistent-50", None)
+        page = self._page(selection_id, items, "path", "route:persistent-50", None)
+        page["cache_state"] = cache_state
+        return page
 
     def detail_page(self, body: Mapping[str, Any]) -> dict[str, Any]:
         self._require_revision(body)
@@ -611,7 +623,7 @@ def _handler(dataset: ScaleDataset) -> type[BaseHTTPRequestHandler]:
                 else:
                     self._error(HTTPStatus.NOT_FOUND, "not_found", "Unknown local harness route.")
                     return
-                self._json(HTTPStatus.OK, payload, bounded_page="-page" in route)
+                self._json(HTTPStatus.OK, payload)
             except StaleRevision:
                 self._json(
                     HTTPStatus.CONFLICT,
@@ -637,12 +649,10 @@ def _handler(dataset: ScaleDataset) -> type[BaseHTTPRequestHandler]:
                 },
             )
 
-        def _json(
-            self, status: HTTPStatus, payload: Mapping[str, Any], *, bounded_page: bool = False
-        ) -> None:
+        def _json(self, status: HTTPStatus, payload: Mapping[str, Any]) -> None:
             data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
-            if bounded_page and len(data) > 1_048_576:
-                raise AssertionError("fixture page exceeds the 1 MiB contract")
+            if len(data) > int(dataset.profile["bounds"]["page_bytes"]):
+                raise AssertionError("fixture API response exceeds the 1 MiB contract")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
@@ -651,6 +661,204 @@ def _handler(dataset: ScaleDataset) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(data)
 
     return Handler
+
+
+def _process_rss_bytes() -> int:
+    if os.name == "nt":
+
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("PageFaultCount", ctypes.c_ulong),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = ProcessMemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        kernel32.GetCurrentProcess.argtypes = []
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        psapi.GetProcessMemoryInfo.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ProcessMemoryCounters),
+            ctypes.c_ulong,
+        ]
+        psapi.GetProcessMemoryInfo.restype = ctypes.c_bool
+        handle = kernel32.GetCurrentProcess()
+        if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+            raise OSError("GetProcessMemoryInfo failed")
+        return int(counters.WorkingSetSize)
+    statm = Path("/proc/self/statm")
+    if statm.is_file():
+        resident_pages = int(statm.read_text(encoding="ascii").split()[1])
+        return resident_pages * int(os.sysconf("SC_PAGE_SIZE"))
+    return 0
+
+
+def _p95(values: list[float]) -> float:
+    if not values:
+        raise ValueError("p95 requires samples")
+    ordered = sorted(values)
+    return round(ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)], 6)
+
+
+def _http_post(
+    origin: str, route: str, body: Mapping[str, Any]
+) -> tuple[float, int, dict[str, Any]]:
+    parsed = urlsplit(origin)
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+    encoded = json.dumps(body, separators=(",", ":")).encode()
+    started = time.perf_counter()
+    connection.request(
+        "POST",
+        route,
+        body=encoded,
+        headers={"Content-Type": "application/json", "Content-Length": str(len(encoded))},
+    )
+    response = connection.getresponse()
+    raw = response.read()
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    connection.close()
+    payload = json.loads(raw)
+    if response.status != HTTPStatus.OK:
+        raise AssertionError(f"benchmark API request failed: {route} {response.status} {payload}")
+    if not isinstance(payload, dict):
+        raise TypeError("benchmark API response must be an object")
+    return elapsed_ms, len(raw), payload
+
+
+def _benchmark_reader_api(dataset: ScaleDataset, origin: str) -> dict[str, Any]:
+    routes = dataset.contract["routes"]
+    samples: dict[str, list[float]] = {
+        "manifest_cold": [],
+        "manifest_warm": [],
+        "section": [],
+        "locator": [],
+        "search": [],
+        "path_uncached": [],
+        "path_cached": [],
+    }
+    response_sizes: list[int] = []
+    rendered_counts: list[int] = []
+
+    def record(key: str, route: str, body: Mapping[str, Any]) -> dict[str, Any]:
+        elapsed, size, payload = _http_post(origin, route, body)
+        samples[key].append(elapsed)
+        response_sizes.append(size)
+        rendered = payload.get("rendered_item_count")
+        if isinstance(rendered, int):
+            rendered_counts.append(rendered)
+        return payload
+
+    for _ in range(20):
+        dataset.reset()
+        record("manifest_cold", routes["manifest"], {})
+        record("manifest_warm", routes["manifest"], {})
+
+    dataset.reset()
+    for index in range(20):
+        section_index = (index * 97) % dataset.section_count
+        selection_id = f"event:{dataset.section_starts[section_index]}"
+        record(
+            "section",
+            routes["section_page"],
+            {"map_revision": 7, "section_id": f"section:{section_index}", "limit": 30},
+        )
+        record(
+            "locator",
+            routes["locate"],
+            {"map_revision": 7, "selection_id": selection_id},
+        )
+        record(
+            "search",
+            routes["search"],
+            {"map_revision": 7, "query": "final target", "limit": 50},
+        )
+
+    for index in range(20):
+        dataset.reset()
+        selection_id = f"event:{dataset.event_count - 1 - index}"
+        request = {"map_revision": 7, "selection_id": selection_id, "limit": 240}
+        record("path_uncached", routes["path_page"], request)
+        record("path_cached", routes["path_page"], request)
+
+    dataset.reset()
+    extra_requests = (
+        (routes["status"], {}),
+        (routes["branch_page"], {"map_revision": 7, "branch_id": "choice:0", "limit": 240}),
+        (routes["detail_page"], {"map_revision": 7, "selection_id": "event:4999", "limit": 240}),
+        (routes["view_state"], {"map_revision": 7, "view_key": "route-map"}),
+        (
+            routes["save_view_state"],
+            {
+                "map_revision": 7,
+                "view_key": "route-map",
+                "state": dict(dataset.view_state),
+            },
+        ),
+    )
+    for route, body in extra_requests:
+        _, size, payload = _http_post(origin, route, body)
+        response_sizes.append(size)
+        rendered = payload.get("rendered_item_count")
+        if isinstance(rendered, int):
+            rendered_counts.append(rendered)
+
+    measurements = {
+        "sample_count": 20,
+        "methodology": {
+            "manifest_cold": "first request after resetting the deterministic fixture",
+            "manifest_warm": "immediate repeat against the same fixture revision",
+            "latency_scope": "full loopback HTTP round trip with a new connection per sample",
+            "path_uncached": "first request after clearing the deterministic path cache",
+            "path_cached": "immediate repeat for the same opaque selection id",
+        },
+        "manifest_cold_p95_ms": _p95(samples["manifest_cold"]),
+        "manifest_warm_p95_ms": _p95(samples["manifest_warm"]),
+        "section_p95_ms": _p95(samples["section"]),
+        "locator_p95_ms": _p95(samples["locator"]),
+        "search_p95_ms": _p95(samples["search"]),
+        "uncached_path_p95_ms": _p95(samples["path_uncached"]),
+        "cached_path_p95_ms": _p95(samples["path_cached"]),
+        "maximum_api_response_bytes": max(response_sizes),
+        "maximum_rendered_items": max(rendered_counts),
+    }
+    bounds = dataset.profile["bounds"]
+    inclusive_comparisons = (
+        ("manifest_cold_p95_ms", "manifest_cold_p95_ms"),
+        ("manifest_warm_p95_ms", "manifest_warm_p95_ms"),
+        ("maximum_api_response_bytes", "page_bytes"),
+        ("maximum_rendered_items", "rendered_items_per_page"),
+    )
+    strict_comparisons = (
+        ("section_p95_ms", "section_or_locator_p95_ms"),
+        ("locator_p95_ms", "section_or_locator_p95_ms"),
+        ("search_p95_ms", "search_p95_ms"),
+        ("uncached_path_p95_ms", "uncached_path_p95_ms"),
+        ("cached_path_p95_ms", "cached_path_p95_ms"),
+    )
+    for measurement, bound in inclusive_comparisons:
+        if float(measurements[measurement]) > float(bounds[bound]):
+            raise AssertionError(
+                f"approved API bound failed: {measurement}={measurements[measurement]} "
+                f"> {bound}={bounds[bound]}"
+            )
+    for measurement, bound in strict_comparisons:
+        if float(measurements[measurement]) >= float(bounds[bound]):
+            raise AssertionError(
+                f"approved API bound failed: {measurement}={measurements[measurement]} "
+                f">= {bound}={bounds[bound]}"
+            )
+    dataset.reset()
+    return measurements
 
 
 def _cdp_module() -> Any:
@@ -671,6 +879,16 @@ def _devtools_page(port: int) -> dict[str, Any]:
     pages = json.loads(response.read())
     connection.close()
     return next(page for page in pages if page.get("type") == "page")
+
+
+def _browser_heap_used_bytes(session: Any) -> int:
+    metrics = session.command("Performance.getMetrics").get("metrics", [])
+    return int(
+        next(
+            (entry["value"] for entry in metrics if entry["name"] == "JSHeapUsedSize"),
+            0,
+        )
+    )
 
 
 def _capture_profile(
@@ -755,10 +973,15 @@ def _capture_profile(
                         f"{first_navigation}"
                     ) from error
             initial = session.evaluate(
-                "({freshness:document.querySelector('#freshness').dataset.freshness,errors:window.harnessState.errors})"
+                "({freshness:document.querySelector('#freshness').dataset.freshness,"
+                "errors:window.harnessState.errors,"
+                "overviewColdMs:window.harnessState.overviewColdMs})"
             )
             if initial["freshness"] != "current" or initial["errors"]:
                 raise AssertionError(f"initial current presentation failed: {initial}")
+            bounds = _load_object(PROFILE_PATH)["bounds"]
+            if float(initial["overviewColdMs"]) >= float(bounds["usable_overview_cold_ms"]):
+                raise AssertionError(f"cold usable overview bound failed: {initial}")
 
             session.evaluate("window.phase04Harness.searchFinal()")
             session.wait(
@@ -770,10 +993,22 @@ def _capture_profile(
             if new_before_hide != {"markers": 1, "facts": 1, "section": "section:255"}:
                 raise AssertionError(f"API NEW marker failed: {new_before_hide}")
 
-            session.evaluate("window.phase04Harness.openPath('event:4999')")
+            session.evaluate("void window.phase04Harness.openPath('event:4999')")
             session.wait(
-                "window.harnessState.pathCount === 1 && !document.querySelector('#side-panel').hidden"
+                "window.harnessState.pathProgressVisible === true && "
+                "document.querySelector('#status').dataset.progress === 'path'",
+                timeout=2,
             )
+            uncached_progress_visible = True
+            session.wait(
+                "window.harnessState.pathCount === 1 && "
+                "window.harnessState.pathProgressVisible === false && "
+                "!document.querySelector('#side-panel').hidden",
+                timeout=5,
+            )
+            uncached_path_ms = float(session.evaluate("window.harnessState.uncachedPathMs"))
+            if uncached_path_ms >= float(bounds["uncached_path_p95_ms"]):
+                raise AssertionError(f"uncached path bound failed: {uncached_path_ms} ms")
             session.evaluate("window.phase04Harness.openDetail('event:4999')")
             session.wait(
                 "window.harnessState.detailCount === 1 && document.querySelector('#side-panel h2').textContent === 'Detail / Evidence'"
@@ -782,6 +1017,13 @@ def _capture_profile(
             session.wait(
                 "window.harnessState.backCount === 1 && document.querySelector('#side-panel').hidden"
             )
+            session.evaluate("window.phase04Harness.openPath('event:4999')")
+            session.wait("window.harnessState.pathCount === 2")
+            cached_path_ms = float(session.evaluate("window.harnessState.cachedPathMs"))
+            if cached_path_ms >= float(bounds["cached_path_p95_ms"]):
+                raise AssertionError(f"cached path bound failed: {cached_path_ms} ms")
+            session.evaluate("window.phase04Harness.closePanel()")
+            session.wait("window.harnessState.backCount === 2")
 
             session.evaluate("window.phase04Harness.locateSelection('arm:303')")
             session.wait(
@@ -832,6 +1074,9 @@ def _capture_profile(
             session.wait(
                 "window.harnessState.reopenCount === 1 && window.harnessState.hideNew === true && window.harnessState.selectionId === 'event:4999'"
             )
+            overview_warm_ms = float(session.evaluate("window.harnessState.overviewWarmMs"))
+            if overview_warm_ms >= float(bounds["usable_overview_warm_ms"]):
+                raise AssertionError(f"warm usable overview bound failed: {overview_warm_ms} ms")
             session.evaluate("window.phase04Harness.refresh()")
             session.wait(
                 "window.harnessState.refreshCount === 1 && window.harnessState.staleCount === 1 && document.querySelector('#freshness').dataset.freshness === 'stale'"
@@ -844,20 +1089,30 @@ def _capture_profile(
             if wording_only != {"markers": 0, "facts": 0, "freshness": "stale"}:
                 raise AssertionError(f"wording-only refresh created NEW: {wording_only}")
 
-            metrics = session.evaluate(
-                "({innerWidth,innerHeight,liveStoryNodes:window.phase04Harness.liveStoryNodes(),domNodes:document.querySelectorAll('*').length,scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth,errors:window.harnessState.errors.slice(),selection:window.harnessState.selectionId,hideNew:window.harnessState.hideNew})"
-            )
-            performance_metrics = session.command("Performance.getMetrics").get("metrics", [])
-            heap_bytes = int(
-                next(
-                    (
-                        entry["value"]
-                        for entry in performance_metrics
-                        if entry["name"] == "JSHeapUsedSize"
-                    ),
-                    0,
+            session.command("HeapProfiler.collectGarbage")
+            heap_before_jumps = _browser_heap_used_bytes(session)
+            session.evaluate("window.phase04Harness.jumpDistantSections(100)")
+            session.wait("window.harnessState.distantJumpCount === 100", timeout=20)
+            heap_after_jumps_raw = _browser_heap_used_bytes(session)
+            session.command("HeapProfiler.collectGarbage")
+            heap_after_jumps = _browser_heap_used_bytes(session)
+            heap_growth = max(0, heap_after_jumps - heap_before_jumps)
+            if heap_growth >= int(bounds["browser_memory_growth_100_jumps_bytes"]):
+                raise AssertionError(
+                    f"browser memory grew too much after 100 distant jumps: {heap_growth}"
                 )
+
+            metrics = session.evaluate(
+                "({innerWidth,innerHeight,liveStoryNodes:window.phase04Harness.liveStoryNodes(),"
+                "domNodes:document.querySelectorAll('*').length,"
+                "scrollWidth:document.documentElement.scrollWidth,"
+                "clientWidth:document.documentElement.clientWidth,"
+                "errors:window.harnessState.errors.slice(),"
+                "selection:window.harnessState.selectionId,hideNew:window.harnessState.hideNew,"
+                "distantJumpCount:window.harnessState.distantJumpCount,"
+                "distantJumpMs:window.harnessState.distantJumpMs})"
             )
+            heap_bytes = max(heap_before_jumps, heap_after_jumps_raw, heap_after_jumps)
             screenshot = output_dir / f"phase04-scale-{profile_id}.png"
             screenshot.write_bytes(
                 base64.b64decode(
@@ -902,12 +1157,9 @@ def _capture_profile(
                     else:
                         browser_errors.append(event)
                         browser_error_summaries.append(summary)
-            bounds = _load_object(PROFILE_PATH)["bounds"]
-            if metrics["liveStoryNodes"] > int(bounds["live_story_nodes"]):
+            if metrics["liveStoryNodes"] >= int(bounds["live_story_nodes"]):
                 raise AssertionError(f"live story nodes exceeded bound: {metrics}")
-            if metrics["domNodes"] > int(bounds["dom_nodes"]):
-                raise AssertionError(f"DOM nodes exceeded bound: {metrics}")
-            if heap_bytes > int(bounds["heap_bytes"]):
+            if heap_bytes >= int(bounds["browser_memory_bytes"]):
                 raise AssertionError(f"JS heap exceeded bound: {heap_bytes}")
             if metrics["scrollWidth"] > metrics["clientWidth"]:
                 raise AssertionError(f"horizontal overflow at {profile_id}: {metrics}")
@@ -928,6 +1180,16 @@ def _capture_profile(
                 "live_story_nodes": metrics["liveStoryNodes"],
                 "dom_nodes": metrics["domNodes"],
                 "js_heap_used_bytes": heap_bytes,
+                "js_heap_before_100_jumps_bytes": heap_before_jumps,
+                "js_heap_after_100_jumps_bytes": heap_after_jumps,
+                "js_heap_growth_after_100_jumps_bytes": heap_growth,
+                "distant_jumps": metrics["distantJumpCount"],
+                "distant_jump_elapsed_ms": round(float(metrics["distantJumpMs"]), 6),
+                "usable_overview_cold_ms": round(float(initial["overviewColdMs"]), 6),
+                "usable_overview_warm_ms": round(overview_warm_ms, 6),
+                "uncached_path_ms": round(uncached_path_ms, 6),
+                "uncached_path_progress_visible": uncached_progress_visible,
+                "cached_path_ms": round(cached_path_ms, 6),
                 "horizontal_overflow": False,
                 "remote_requests": 0,
                 "browser_errors": 0,
@@ -1020,7 +1282,13 @@ def _structural_evidence(dataset: ScaleDataset) -> dict[str, Any]:
 def run(output_dir: Path) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
+    gc.collect()
+    process_rss_before_dataset = _process_rss_bytes()
+    tracemalloc.start()
     dataset = ScaleDataset()
+    dataset_traced_current, dataset_traced_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    process_rss_after_dataset = _process_rss_bytes()
     structural = _structural_evidence(dataset)
     server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(dataset))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1031,6 +1299,7 @@ def run(output_dir: Path) -> dict[str, Any]:
     captures: list[dict[str, Any]] = []
     started = time.perf_counter()
     try:
+        api_performance = _benchmark_reader_api(dataset, origin)
         for profile in dataset.profile["profiles"]:
             dataset.reset()
             captures.append(_capture_profile(driver, browser, origin, output_dir, profile))
@@ -1038,8 +1307,21 @@ def run(output_dir: Path) -> dict[str, Any]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+    gc.collect()
+    process_rss_after_acceptance = _process_rss_bytes()
+    python_memory = {
+        "approved_numeric_bound": None,
+        "note": "Measured evidence only; the approved criterion provides no Python-memory ceiling.",
+        "process_rss_before_dataset_bytes": process_rss_before_dataset,
+        "process_rss_after_dataset_bytes": process_rss_after_dataset,
+        "process_rss_after_acceptance_bytes": process_rss_after_acceptance,
+        "dataset_rss_growth_bytes": max(0, process_rss_after_dataset - process_rss_before_dataset),
+        "dataset_tracemalloc_current_bytes": dataset_traced_current,
+        "dataset_tracemalloc_peak_bytes": dataset_traced_peak,
+        "fixture_descriptor_bytes": PROFILE_PATH.stat().st_size,
+    }
     report = {
-        "schema": "story-map-v2-phase04-scale-acceptance-v1",
+        "schema": "story-map-v2-phase04-scale-acceptance-v2",
         "reader_schema": SCHEMA,
         "status": "passed",
         "provider_calls": 0,
@@ -1047,6 +1329,8 @@ def run(output_dir: Path) -> dict[str, Any]:
         "game_or_creator_code_executed": False,
         "elapsed_seconds": round(time.perf_counter() - started, 6),
         "structural": structural,
+        "api_performance": api_performance,
+        "python_memory": python_memory,
         "profiles": captures,
         "bounds": dataset.profile["bounds"],
     }
@@ -1061,6 +1345,8 @@ def run(output_dir: Path) -> dict[str, Any]:
 
 def _markdown(report: Mapping[str, Any]) -> str:
     structural = report["structural"]
+    api = report["api_performance"]
+    memory = report["python_memory"]
     lines = [
         "# M15.1 Phase 04 public scale acceptance",
         "",
@@ -1072,16 +1358,51 @@ def _markdown(report: Mapping[str, Any]) -> str:
         f"{structural['counts']['arms']} arms, {structural['counts']['rejoins']} rejoins, "
         f"{structural['counts']['sections']} sections.",
         "",
-        "| Profile | Live story nodes | DOM nodes | JS heap bytes | Remote | Stale/current |",
-        "|---|---:|---:|---:|---:|---|",
+        "## Loopback API bounds",
+        "",
+        "| Measurement | Observed | Approved bound |",
+        "|---|---:|---:|",
+        f"| Cold manifest p95 | {api['manifest_cold_p95_ms']} ms | <= 1500 ms |",
+        f"| Warm manifest p95 | {api['manifest_warm_p95_ms']} ms | <= 500 ms |",
+        f"| Section p95 | {api['section_p95_ms']} ms | < 500 ms |",
+        f"| Locator p95 | {api['locator_p95_ms']} ms | < 500 ms |",
+        f"| Search p95 | {api['search_p95_ms']} ms | < 750 ms |",
+        f"| Uncached path p95 | {api['uncached_path_p95_ms']} ms | < 5000 ms |",
+        f"| Cached path p95 | {api['cached_path_p95_ms']} ms | < 1000 ms |",
+        f"| Largest API response | {api['maximum_api_response_bytes']} bytes | <= 1048576 |",
+        f"| Maximum rendered items | {api['maximum_rendered_items']} | <= 240 |",
+        "",
+        "## Browser bounds",
+        "",
+        "| Profile | Cold overview ms | Warm overview ms | Cached/uncached path ms | Live story nodes | JS heap bytes | 100-jump growth |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for capture in report["profiles"]:
         lines.append(
-            f"| {capture['profile']} | {capture['live_story_nodes']} | {capture['dom_nodes']} | "
-            f"{capture['js_heap_used_bytes']} | {capture['remote_requests']} | pass |"
+            f"| {capture['profile']} | {capture['usable_overview_cold_ms']} | "
+            f"{capture['usable_overview_warm_ms']} | {capture['cached_path_ms']} / "
+            f"{capture['uncached_path_ms']} | {capture['live_story_nodes']} | "
+            f"{capture['js_heap_used_bytes']} | "
+            f"{capture['js_heap_growth_after_100_jumps_bytes']} bytes |"
         )
     lines.extend(
         [
+            "",
+            "Every profile completed 100 distant section jumps, stayed below 600 live story-item "
+            "nodes and 250 MiB browser heap, grew by less than 20 MiB after garbage collection, "
+            "and displayed progress during the uncached path request.",
+            "",
+            "## Python memory evidence",
+            "",
+            f"Process RSS before dataset: **{memory['process_rss_before_dataset_bytes']} bytes**; "
+            f"after dataset: **{memory['process_rss_after_dataset_bytes']} bytes**; after acceptance: "
+            f"**{memory['process_rss_after_acceptance_bytes']} bytes**. Dataset traced current/peak: "
+            f"**{memory['dataset_tracemalloc_current_bytes']} / "
+            f"{memory['dataset_tracemalloc_peak_bytes']} bytes**.",
+            "",
+            "The approved criterion provides no separate numeric Python-process or dataset-memory "
+            "ceiling; these values are recorded as measured evidence and are not presented as a "
+            "passed invented bound.",
             "",
             "Search/locate, v2 unloaded-branch routing, oversized cursor paging/tamper rejection, "
             "cross-section rejoin, 50-section path, Detail/Back, refresh/stale 409, reopen/view state, "

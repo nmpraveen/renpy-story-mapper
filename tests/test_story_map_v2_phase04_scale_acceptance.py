@@ -74,6 +74,10 @@ def test_public_scale_fixture_meets_structural_and_v2_cursor_contracts() -> None
     assert branch["items"][-1]["selection_id"] == "arm:303"
     assert branch["items"][-1]["is_new"] is True
     assert len(json.dumps(branch).encode()) < 1_048_576
+    uncached = dataset.path_page({"map_revision": 7, "selection_id": "event:4999", "limit": 240})
+    cached = dataset.path_page({"map_revision": 7, "selection_id": "event:4999", "limit": 240})
+    assert uncached["cache_state"] == "miss"
+    assert cached["cache_state"] == "hit"
 
     with pytest.raises(module.InvalidCursor):
         dataset.branch_page(
@@ -101,6 +105,22 @@ def test_scale_harness_is_local_bounded_and_uses_opaque_v2_branch_location() -> 
         {"id": "desktop-200", "width": 720, "height": 450, "device_scale_factor": 2},
         {"id": "narrow", "width": 390, "height": 844, "device_scale_factor": 1},
     ]
+    assert profile["bounds"] == {
+        "manifest_cold_p95_ms": 1500,
+        "manifest_warm_p95_ms": 500,
+        "usable_overview_cold_ms": 4000,
+        "usable_overview_warm_ms": 2000,
+        "section_or_locator_p95_ms": 500,
+        "search_p95_ms": 750,
+        "cached_path_p95_ms": 1000,
+        "uncached_path_p95_ms": 5000,
+        "live_story_nodes": 600,
+        "browser_memory_bytes": 262144000,
+        "browser_memory_growth_100_jumps_bytes": 20971520,
+        "repeated_distant_jumps": 100,
+        "page_bytes": 1048576,
+        "rendered_items_per_page": 240,
+    }
     assert "<canvas" not in html.casefold()
     assert "http://" not in html and "https://" not in html
     assert "innerHTML" not in javascript and "eval(" not in javascript
@@ -115,6 +135,10 @@ def test_scale_harness_is_local_bounded_and_uses_opaque_v2_branch_location() -> 
         "window.phase04Harness.tamperCursor()",
         "window.phase04Harness.locateSelection('arm:303')",
         "window.phase04Harness.openPath('event:4999')",
+        "window.phase04Harness.jumpDistantSections(100)",
+        "HeapProfiler.collectGarbage",
+        "manifest_cold_p95_ms",
+        "process_rss_before_dataset_bytes",
         "window.phase04Harness.openDetail('event:4999')",
         "window.phase04Harness.reopen()",
         "window.phase04Harness.refresh()",
@@ -132,8 +156,29 @@ def test_real_browser_scale_matrix(tmp_path: Path) -> None:
     report = module.run(tmp_path / "phase04-scale")
     assert report["status"] == "passed"
     assert report["reader_schema"] == "story-map-v2-reader-contract-v2"
+    assert report["schema"] == "story-map-v2-phase04-scale-acceptance-v2"
     assert [item["profile"] for item in report["profiles"]] == [
         "desktop-100",
         "desktop-200",
         "narrow",
     ]
+    assert report["api_performance"]["manifest_cold_p95_ms"] <= 1500
+    assert report["api_performance"]["manifest_warm_p95_ms"] <= 500
+    assert report["api_performance"]["section_p95_ms"] < 500
+    assert report["api_performance"]["locator_p95_ms"] < 500
+    assert report["api_performance"]["search_p95_ms"] < 750
+    assert report["api_performance"]["cached_path_p95_ms"] < 1000
+    assert report["api_performance"]["uncached_path_p95_ms"] < 5000
+    assert report["api_performance"]["maximum_api_response_bytes"] <= 1_048_576
+    assert report["api_performance"]["maximum_rendered_items"] <= 240
+    assert report["python_memory"]["approved_numeric_bound"] is None
+    for capture in report["profiles"]:
+        assert capture["usable_overview_cold_ms"] < 4000
+        assert capture["usable_overview_warm_ms"] < 2000
+        assert capture["uncached_path_progress_visible"] is True
+        assert capture["uncached_path_ms"] < 5000
+        assert capture["cached_path_ms"] < 1000
+        assert capture["live_story_nodes"] < 600
+        assert capture["js_heap_used_bytes"] < 262_144_000
+        assert capture["distant_jumps"] == 100
+        assert capture["js_heap_growth_after_100_jumps_bytes"] < 20_971_520

@@ -31,6 +31,14 @@ const state = {
   viewSaveCount: 0,
   crossSectionRejoin: null,
   apiNewFactCount: 0,
+  overviewColdMs: null,
+  overviewWarmMs: null,
+  pathProgressVisible: false,
+  uncachedPathMs: null,
+  cachedPathMs: null,
+  distantJumpCount: 0,
+  distantJumpMs: null,
+  apiTimings: {},
   errors: [],
 };
 window.harnessState = state;
@@ -38,12 +46,14 @@ window.harnessState = state;
 class StaleMapRevision extends Error {}
 
 async function jsonPost(route, body) {
+  const started = performance.now();
   const response = await fetch(route, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const payload = await response.json();
+  (state.apiTimings[route] ||= []).push(performance.now() - started);
   const staleRevision = staleRevisionFromResponse(response.status, payload);
   if (staleRevision !== null) {
     state.mapRevision = staleRevision;
@@ -68,7 +78,12 @@ function route(key) {
   return value;
 }
 
-function setStatus(text) { $("#status").textContent = text; }
+function setStatus(text, progress = null) {
+  const status = $("#status");
+  status.textContent = text;
+  if (progress === null) delete status.dataset.progress;
+  else status.dataset.progress = progress;
+}
 
 function renderFreshness() {
   const presentation = presentFreshness(state.manifest);
@@ -173,7 +188,7 @@ async function loadManifest() {
   }
 }
 
-async function loadSection(sectionId) {
+async function loadSection(sectionId, { persist = true } = {}) {
   const page = await jsonPost(route("section_page"), {
     map_revision: state.mapRevision,
     section_id: sectionId,
@@ -184,7 +199,7 @@ async function loadSection(sectionId) {
   state.branchCursor = null;
   renderItems(page.items);
   setStatus(`${sectionId} · ${page.rendered_item_count} items`);
-  await saveViewState();
+  if (persist) await saveViewState();
   return page;
 }
 
@@ -281,15 +296,27 @@ function showPanel(title, items, backAction) {
 }
 
 async function openPath(selectionId) {
-  const page = await jsonPost(route("path_page"), {
-    map_revision: state.mapRevision,
-    selection_id: selectionId,
-    limit: 240,
-  });
+  const started = performance.now();
+  state.pathProgressVisible = true;
+  setStatus("Finding path…", "path");
+  let page;
+  try {
+    page = await jsonPost(route("path_page"), {
+      map_revision: state.mapRevision,
+      selection_id: selectionId,
+      limit: 240,
+    });
+  } finally {
+    state.pathProgressVisible = false;
+  }
+  const elapsed = performance.now() - started;
+  if (page.cache_state === "hit") state.cachedPathMs = elapsed;
+  else state.uncachedPathMs = elapsed;
   state.selectionId = selectionId;
   state.pathCount += 1;
   showPanel("Path to this moment", page.items, closePanel);
   $("#side-panel").append(button("Detail", () => openDetail(selectionId)));
+  setStatus(page.cache_state === "hit" ? "Path ready · cached" : "Path ready");
   return page;
 }
 
@@ -325,6 +352,7 @@ async function refresh() {
 }
 
 async function reopen() {
+  const started = performance.now();
   await loadManifest();
   const restored = await jsonPost(route("view_state"), {
     map_revision: state.mapRevision,
@@ -338,7 +366,20 @@ async function reopen() {
   await loadSection(state.sectionId);
   state.selectionId = restored.state.selection_id;
   selectItem(state.selectionId);
+  state.overviewWarmMs = performance.now() - started;
   state.reopenCount += 1;
+}
+
+async function jumpDistantSections(count = 100) {
+  const started = performance.now();
+  for (let index = 0; index < count; index += 1) {
+    const sectionIndex = (index * 97) % state.manifest.sections.length;
+    await loadSection(`section:${sectionIndex}`, { persist: false });
+  }
+  await saveViewState();
+  state.distantJumpCount += count;
+  state.distantJumpMs = performance.now() - started;
+  return state.distantJumpMs;
 }
 
 async function initialize() {
@@ -351,6 +392,7 @@ async function initialize() {
   state.selectionId = restored.state.selection_id;
   state.focusId = restored.state.focus_id;
   await loadSection(state.sectionId);
+  state.overviewColdMs = performance.now();
   state.ready = true;
 }
 
@@ -377,6 +419,7 @@ window.phase04Harness = Object.freeze({
   closePanel,
   refresh,
   reopen,
+  jumpDistantSections,
   liveStoryNodes: enforceLiveBound,
 });
 

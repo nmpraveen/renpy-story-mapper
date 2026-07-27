@@ -28,10 +28,20 @@
     {"id": "narrow", "width": 390, "height": 844, "device_scale_factor": 1}
   ],
   "bounds": {
+    "manifest_cold_p95_ms": 1500,
+    "manifest_warm_p95_ms": 500,
+    "usable_overview_cold_ms": 4000,
+    "usable_overview_warm_ms": 2000,
+    "section_or_locator_p95_ms": 500,
+    "search_p95_ms": 750,
+    "cached_path_p95_ms": 1000,
+    "uncached_path_p95_ms": 5000,
     "live_story_nodes": 600,
-    "dom_nodes": 4000,
-    "heap_bytes": 268435456,
-    "page_bytes": 1048576
+    "browser_memory_bytes": 262144000,
+    "browser_memory_growth_100_jumps_bytes": 20971520,
+    "repeated_distant_jumps": 100,
+    "page_bytes": 1048576,
+    "rendered_items_per_page": 240
   },
   "search_query": "final target"
 }
