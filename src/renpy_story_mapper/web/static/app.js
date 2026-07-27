@@ -1,11 +1,12 @@
 import { DEFAULT_NARRATIVE_BATCH_LIMITS, DEFAULT_NARRATIVE_LIMITS, LocalApi, stableRouteJson } from "./api.js";
-import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
+import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE, STORY_WORKFLOW_CONTRACT } from "./contract.js";
 import { RouteGraph } from "./graph.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const api = new LocalApi();
 const CURSOR_HISTORY_LIMIT = 12;
+const STORY_WORKFLOW_STORAGE_KEY = "rsm.story-map-v2.workflow.v2";
 
 const state = {
   project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
@@ -665,6 +666,7 @@ async function choose(kind) {
 
 async function openSelection(selection, notify = false) {
   try {
+    state.storyWorkflow.pollToken += 1; state.storyWorkflow.response = null; state.storyWorkflow.busy = false;
     const opened = await api.open(selection.selection_id || selection.id);
     state.project = opened.project || { name: selection.display_name || "Story", organization: "Technical Structure" };
     if (state.project.name === "Opening") state.project.name = selection.display_name || "Story";
@@ -1239,8 +1241,31 @@ function storyWorkflowMaximumCalls(preview) {
   return ceilings.mapping_calls + ceilings.review_calls + ceilings.fallback_calls + ceilings.section_synthesis_calls + ceilings.rollup_synthesis_calls + ceilings.indeterminate_retry_calls;
 }
 
+function clearStoredStoryWorkflow() {
+  try { localStorage.removeItem(STORY_WORKFLOW_STORAGE_KEY); } catch (_error) { /* Storage is optional. */ }
+}
+
+function storedStoryWorkflow() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORY_WORKFLOW_STORAGE_KEY) || "null");
+    const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : [];
+    if (keys.length !== 3 || !["contract", "run_id", "preview_identity"].every((key) => keys.includes(key))) throw new TypeError("Stored story workflow binding is invalid");
+    if (value.contract !== STORY_WORKFLOW_CONTRACT || typeof value.run_id !== "string" || !value.run_id || value.run_id.length > 1024 || typeof value.preview_identity !== "string" || !value.preview_identity || value.preview_identity.length > 1024) throw new TypeError("Stored story workflow binding is invalid");
+    return value;
+  } catch (_error) { clearStoredStoryWorkflow(); return null; }
+}
+
+function persistStoryWorkflow(response) {
+  const status = response.status;
+  const unfinished = status.pending_jobs + status.active_jobs + status.resumable_jobs + status.indeterminate_jobs;
+  if (status.cancelled || unfinished === 0) { clearStoredStoryWorkflow(); return; }
+  const binding = { contract: STORY_WORKFLOW_CONTRACT, run_id: response.preview.run_id, preview_identity: response.preview.preview_identity };
+  try { localStorage.setItem(STORY_WORKFLOW_STORAGE_KEY, JSON.stringify(binding)); } catch (_error) { /* The current page still works without persistence. */ }
+}
+
 function renderStoryWorkflow(response) {
   state.storyWorkflow.response = response;
+  persistStoryWorkflow(response);
   const status = response.status; const total = storyWorkflowTotal(status);
   const completed = Math.min(total, status.accepted_jobs + status.structural_fallback_jobs);
   const percent = total ? Math.round((completed / total) * 100) : 100;
@@ -1252,6 +1277,21 @@ function renderStoryWorkflow(response) {
   $("#storyResumeRun").hidden = !status.can_resume;
   $("#storyRetryRun").hidden = true;
   $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+}
+
+async function restoreStoryWorkflow() {
+  if (!api.storyWorkflowRoutes) return false;
+  const binding = storedStoryWorkflow(); if (!binding) return false;
+  try {
+    const response = await api.storyWorkflowStatus(binding);
+    if (response.preview.run_id !== binding.run_id || response.preview.preview_identity !== binding.preview_identity) throw new TypeError("Stored story workflow binding is stale");
+    renderStoryWorkflow(response); await refreshReaderIfPublished();
+    if (response.status.pending_jobs || response.status.active_jobs) pollStoryWorkflow();
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError || ["invalid_workflow_request", "workflow_run_not_found", "stale_workflow_preview", "stale_workflow_approval"].includes(error?.code)) clearStoredStoryWorkflow();
+    return false;
+  }
 }
 
 function storyWorkflowFacts(preview) {
@@ -1652,7 +1692,7 @@ async function loadStoryMapV2() {
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const storyAvailable = await loadStoryMapV2();
-  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; return true; }
+  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; await restoreStoryWorkflow(); return true; }
   const available = await resetRoutePaging();
   await loadNarrative();
   await loadNarrativeRunStatus();

@@ -460,6 +460,53 @@ def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions(
                 process.wait(timeout=10)
 
 
+def test_workflow_v2_reopen_restores_status_and_resumes_without_starting_again() -> None:
+    driver = _browser_driver()
+    try:
+        browser = driver._browser()
+    except FileNotFoundError:
+        pytest.skip("Chrome or Edge is unavailable")
+    with _server(workflow=True, workflow_status_mode="resumable") as origin, tempfile.TemporaryDirectory(prefix="rsm-m15-p4-workflow-reopen-", ignore_cleanup_errors=True) as temporary:
+        process, session = driver._session(browser, 100, Path(temporary))
+        try:
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#storyPrepareAction').disabled")
+            session.evaluate("document.querySelector('#storyPrepareAction').click()")
+            session.wait("document.querySelector('#storyApprovalDialog').open")
+            session.evaluate("document.querySelector('#approveStoryGeneration').click()")
+            session.wait("!document.querySelector('#storyResumeRun').hidden && document.querySelector('#storyRunProgress').textContent === '1 of 3 jobs completed'")
+            stored = session.evaluate("JSON.parse(localStorage.getItem('rsm.story-map-v2.workflow.v2'))")
+            assert stored == {"contract": "story-map-v2-workflow-http-v2", "run_id": "run:fixture", "preview_identity": "a" * 64}
+            starts_before = len([request for request in _ReaderHandler.requests if request[0].endswith("/workflow/start")])
+            statuses_before = len([request for request in _ReaderHandler.requests if request[0].endswith("/workflow/status")])
+
+            session.evaluate("document.documentElement.dataset.testReload='old'; location.reload()")
+            session.wait("document.documentElement.dataset.testReload !== 'old' && document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#storyResumeRun').hidden && document.querySelector('#storyRunProgress').textContent === '1 of 3 jobs completed'")
+            assert len([request for request in _ReaderHandler.requests if request[0].endswith("/workflow/status")]) > statuses_before
+            assert len([request for request in _ReaderHandler.requests if request[0].endswith("/workflow/start")]) == starts_before == 1
+            assert not [request for request in _ReaderHandler.requests if request[0].endswith("/workflow/prepare")][1:]
+
+            session.evaluate("document.querySelector('#storyResumeRun').click()")
+            session.wait("performance.getEntriesByType('resource').filter(entry => entry.name.endsWith('/workflow/resume')).length === 1")
+            resumes = [request for request in _ReaderHandler.requests if request[0].endswith("/workflow/resume")]
+            assert len(resumes) == 1
+            assert resumes[0][1] == {"contract": "story-map-v2-workflow-http-v2", "run_id": "run:fixture", "preview_identity": "a" * 64}
+            session.evaluate("document.querySelector('#storyCancelRun').click()")
+            session.wait("localStorage.getItem('rsm.story-map-v2.workflow.v2') === null")
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
 @pytest.mark.parametrize(
     ("profile", "zoom", "width", "height", "device_scale"),
     [("desktop", 100, 1440, 900, 1), ("effective_200", 200, 720, 450, 2), ("narrow", 100, 390, 844, 1)],
