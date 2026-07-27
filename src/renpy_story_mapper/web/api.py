@@ -12,7 +12,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import Final, NoReturn, Protocol, cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
@@ -121,6 +121,18 @@ from renpy_story_mapper.story_map_v2.presentation import (
     project_story_map,
     unavailable_story_map,
 )
+from renpy_story_mapper.story_map_v2.product_vertical import (
+    execute_product_vertical,
+    load_product_workflow,
+    project_workflow_reader_status,
+)
+from renpy_story_mapper.story_map_v2.product_workflow import (
+    FrozenProductRequestMaterializer,
+    PreparedProductWorkflow,
+    create_product_workflow_service,
+    persist_product_workflow_preview,
+    prepare_product_workflow,
+)
 from renpy_story_mapper.story_map_v2.reader import (
     DEFAULT_SEARCH_RESULTS,
     DETAIL_PAGE_ENDPOINT,
@@ -139,6 +151,30 @@ from renpy_story_mapper.story_map_v2.reader import (
 )
 from renpy_story_mapper.story_map_v2.reader_compat import phase03_compatibility_source
 from renpy_story_mapper.story_map_v2.reader_store import DurableStoryMapReaderSource
+from renpy_story_mapper.story_map_v2.workflow_cloud_provider import (
+    CodexCliWorkflowProvider,
+)
+from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    WorkflowApproval,
+    WorkflowPreview,
+    WorkflowStatus,
+)
+from renpy_story_mapper.story_map_v2.workflow_http_contract import (
+    WORKFLOW_HTTP_ERROR_MESSAGES,
+)
+from renpy_story_mapper.story_map_v2.workflow_http_projection import (
+    WORKFLOW_HTTP_CONTRACT,
+    WORKFLOW_HTTP_ROUTES,
+    workflow_error_envelope,
+    workflow_success_envelope,
+)
+from renpy_story_mapper.story_map_v2.workflow_protocols import (
+    ProviderFactory as StoryMapProviderFactory,
+)
+from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
+    DurableWorkflowRepositoryAdapter,
+)
+from renpy_story_mapper.story_map_v2.workflow_service import StoryMapWorkflowService
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
     M07_PREPARE_REQUEST_FIELDS,
@@ -253,6 +289,7 @@ class ApiProblem(Exception):
         *,
         selection_id: str | None = None,
         map_revision: int | None = None,
+        payload: JsonValue | None = None,
     ) -> None:
         super().__init__(message)
         if selection_id is not None and (not selection_id or len(selection_id) > 512):
@@ -266,6 +303,7 @@ class ApiProblem(Exception):
         ):
             raise ValueError("API error map revision must be a non-negative integer")
         self.map_revision = map_revision
+        self.payload = payload
 
 
 def _story_map_navigator(
@@ -650,6 +688,7 @@ class ProjectApi:
         state_store: UserStateStore | None = None,
         m07_provider_factory: ProviderFactory | None = None,
         m13_provider_factory: M13ProviderFactory | None = None,
+        phase04_cloud_factory: StoryMapProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -682,6 +721,9 @@ class ProjectApi:
         self._m13_preview: dict[str, JsonValue] | None = None
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
+        self._phase04_cloud_factory = phase04_cloud_factory or CodexCliWorkflowProvider
+        self._phase04_prepared: dict[str, PreparedProductWorkflow] = {}
+        self._phase04_futures: dict[str, Future[None]] = {}
 
     def close(self) -> None:
         self.cancel()
@@ -689,6 +731,11 @@ class ProjectApi:
         if future is not None:
             with suppress(Exception):
                 future.result(timeout=5)
+        with self._lock:
+            phase04_futures = tuple(self._phase04_futures.values())
+        for phase04_future in phase04_futures:
+            with suppress(Exception):
+                phase04_future.result(timeout=5)
         self._executor.shutdown(wait=True, cancel_futures=True)
 
     def cancel(self) -> None:
@@ -700,9 +747,284 @@ class ProjectApi:
             with suppress(Exception):
                 provider.cancel()
 
+    def _workflow_problem(
+        self,
+        status: int,
+        code: str,
+        sanitized_reason: str,
+        *,
+        current_run_id: str | None = None,
+        current_preview_identity: str | None = None,
+    ) -> NoReturn:
+        payload = workflow_error_envelope(
+            code,
+            sanitized_reason,
+            current_run_id=current_run_id,
+            current_preview_identity=current_preview_identity,
+        )
+        raise ApiProblem(
+            status,
+            code,
+            WORKFLOW_HTTP_ERROR_MESSAGES[code],
+            payload=json_value(payload),
+        )
+
+    def _workflow_request(
+        self,
+        body: dict[str, JsonValue],
+        *,
+        allowed: tuple[str, ...],
+        required: tuple[str, ...],
+    ) -> None:
+        try:
+            exact_fields(body, allowed=allowed, required=required)
+            contract = require_string(body, "contract", maximum=128)
+        except ValueError:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        if contract != WORKFLOW_HTTP_CONTRACT:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+
+    def _phase04_context(
+        self,
+        project: Project,
+        run_id: str,
+    ) -> tuple[
+        PreparedProductWorkflow,
+        WorkflowPreview,
+        WorkflowApproval | None,
+        WorkflowStatus,
+    ]:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        try:
+            preview = adapter.load_preview(run_id)
+        except Exception as exc:
+            self._workflow_problem(404, "workflow_run_not_found", "run_not_found")
+            raise AssertionError("unreachable") from exc
+        with self._lock:
+            prepared = self._phase04_prepared.get(run_id)
+        if prepared is None:
+            try:
+                prepared, preview, approval, status = load_product_workflow(project, run_id)
+            except ValueError:
+                self._workflow_problem(
+                    409,
+                    "stale_workflow_approval",
+                    "authority_changed",
+                    current_run_id=run_id,
+                    current_preview_identity=preview.identity,
+                )
+            with self._lock:
+                self._phase04_prepared[run_id] = prepared
+            return prepared, preview, approval, status
+        if (
+            prepared.plan != preview.plan
+            or prepared.policy != preview.policy
+            or prepared.ceilings != preview.ceilings
+        ):
+            self._workflow_problem(
+                409,
+                "stale_workflow_approval",
+                "authority_changed",
+                current_run_id=run_id,
+                current_preview_identity=preview.identity,
+            )
+        return prepared, preview, adapter.load_approval(run_id), adapter.status(run_id)
+
+    def _phase04_service(
+        self,
+        project: Project,
+        prepared: PreparedProductWorkflow,
+    ) -> StoryMapWorkflowService:
+        return create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=self._phase04_cloud_factory,
+            request_materializer=FrozenProductRequestMaterializer(prepared),
+        )
+
+    def _phase04_start_background(
+        self,
+        prepared: PreparedProductWorkflow,
+        preview_identity: str,
+    ) -> None:
+        project_path = self._project()
+        with self._lock:
+            existing = self._phase04_futures.get(prepared.run_id)
+            if existing is not None and not existing.done():
+                self._workflow_problem(
+                    409, "workflow_command_conflict", "command_not_available"
+                )
+            self._phase04_futures[prepared.run_id] = self._executor.submit(
+                execute_product_vertical,
+                project_path,
+                prepared,
+                preview_identity=preview_identity,
+                cloud_factory=self._phase04_cloud_factory,
+            )
+
+    def _story_map_v2_workflow_dispatch(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, JsonValue],
+    ) -> JsonValue:
+        if method != "POST":
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        command = next(
+            (name for name, route in WORKFLOW_HTTP_ROUTES.items() if route == path),
+            None,
+        )
+        if command is None or command == "contract":
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        if command == "prepare":
+            self._workflow_request(
+                body,
+                allowed=("contract",),
+                required=("contract",),
+            )
+            try:
+                with Project.open(self._project()) as project:
+                    prepared = prepare_product_workflow(
+                        project,
+                        run_id=f"workflow:{uuid.uuid4().hex}",
+                    )
+                    preview = persist_product_workflow_preview(project, prepared)
+                    adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+                    status = adapter.status(prepared.run_id)
+            except ApiProblem:
+                raise
+            except Exception:
+                self._workflow_problem(503, "workflow_unavailable", "service_unavailable")
+            with self._lock:
+                self._phase04_prepared[prepared.run_id] = prepared
+            return json_value(
+                workflow_success_envelope("prepare", preview, status, None)
+            )
+
+        if command == "status":
+            self._workflow_request(
+                body,
+                allowed=("contract", "run_id"),
+                required=("contract", "run_id"),
+            )
+        elif command in {"start", "cancel", "resume"}:
+            self._workflow_request(
+                body,
+                allowed=("contract", "run_id", "preview_identity"),
+                required=("contract", "run_id", "preview_identity"),
+            )
+        else:
+            self._workflow_request(
+                body,
+                allowed=(
+                    "contract",
+                    "run_id",
+                    "preview_identity",
+                    "job_id",
+                    "indeterminate_attempt_id",
+                ),
+                required=(
+                    "contract",
+                    "run_id",
+                    "preview_identity",
+                    "job_id",
+                    "indeterminate_attempt_id",
+                ),
+            )
+        try:
+            run_id = require_string(body, "run_id", maximum=512)
+        except ValueError:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        with Project.open(self._project()) as project:
+            prepared, preview, approval, status = self._phase04_context(project, run_id)
+            if command == "status":
+                return json_value(
+                    workflow_success_envelope(command, preview, status, approval)
+                )
+            try:
+                preview_identity = require_string(
+                    body, "preview_identity", maximum=128
+                )
+            except ValueError:
+                self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+            if preview_identity != preview.identity:
+                self._workflow_problem(
+                    409,
+                    "stale_workflow_preview",
+                    "preview_replaced",
+                    current_run_id=run_id,
+                    current_preview_identity=preview.identity,
+                )
+            service = self._phase04_service(project, prepared)
+            if command == "start":
+                if approval is not None or status.cancelled:
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                approval = service.approve(run_id, preview_identity)
+                self._phase04_start_background(prepared, preview_identity)
+            elif command == "cancel":
+                service.cancel(run_id)
+            elif command == "resume":
+                if approval is None or status.cancelled:
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                repository = project.story_map_v2_repository()
+                current = repository.generation_pointers().current_complete_generation
+                generation = None if current is None else repository.load_generation(current)
+                if (
+                    generation is not None
+                    and isinstance(generation.descriptor, Mapping)
+                    and generation.descriptor.get("workflow_run_id") == run_id
+                ):
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                service.recover(run_id)
+                self._phase04_start_background(prepared, preview_identity)
+            else:
+                try:
+                    job_id = require_string(body, "job_id", maximum=512)
+                    attempt_id = require_string(
+                        body, "indeterminate_attempt_id", maximum=512
+                    )
+                except ValueError:
+                    self._workflow_problem(
+                        400, "invalid_workflow_request", "invalid_request"
+                    )
+                retry_approval = service.approve_indeterminate_retry(
+                    run_id,
+                    preview_identity=preview_identity,
+                    job_id=job_id,
+                    indeterminate_attempt_id=attempt_id,
+                )
+                adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+                return json_value(
+                    workflow_success_envelope(
+                        command,
+                        preview,
+                        adapter.status(run_id),
+                        approval,
+                        retry_approval=retry_approval,
+                    )
+                )
+            adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+            return json_value(
+                workflow_success_envelope(
+                    command,
+                    preview,
+                    adapter.status(run_id),
+                    adapter.load_approval(run_id),
+                )
+            )
+
     def _story_map_reader(self, project: Project) -> StoryMapReader:
         repository = project.story_map_v2_repository()
-        durable_source = DurableStoryMapReaderSource(repository)
+        durable_source = DurableStoryMapReaderSource(
+            repository,
+            workflow_status=project_workflow_reader_status,
+        )
         if durable_source.snapshot() is not None:
             return StoryMapReader(durable_source)
         stored = load_story_map_v2_for_current_project(project)
@@ -760,6 +1082,7 @@ class ProjectApi:
                     "m13": dict(M13_API_ROUTES),
                     "story_map_v2": dict(STORY_MAP_V2_API_ROUTES),
                     "story_map_v2_reader": dict(STORY_MAP_V2_READER_API_ROUTES),
+                    "story_map_v2_workflow": dict(WORKFLOW_HTTP_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -816,6 +1139,8 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if path in WORKFLOW_HTTP_ROUTES.values():
+            return self._story_map_v2_workflow_dispatch(method, path, body)
         if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["manifest"]:
             exact_fields(body, allowed=STORY_MAP_V2_MANIFEST_REQUEST_FIELDS)
             return self._reader_call(lambda reader, _project: reader.manifest())

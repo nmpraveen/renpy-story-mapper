@@ -25,6 +25,8 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowStatus,
 )
 from renpy_story_mapper.story_map_v2.workflow_http_contract import (
+    WORKFLOW_HTTP_ERROR_MESSAGES,
+    validate_workflow_http_error,
     validate_workflow_http_success,
 )
 
@@ -38,6 +40,31 @@ WORKFLOW_HTTP_ROUTES = {
     "retry": "/api/v1/story-map-v2/workflow/retry",
     "status": "/api/v1/story-map-v2/workflow/status",
 }
+
+
+def workflow_error_envelope(
+    code: str,
+    sanitized_reason: str,
+    *,
+    current_run_id: str | None = None,
+    current_preview_identity: str | None = None,
+) -> dict[str, object]:
+    """Build and self-check one exact privacy-safe workflow error."""
+
+    error = {
+        "code": code,
+        "message": WORKFLOW_HTTP_ERROR_MESSAGES[code],
+        "sanitized_reason": sanitized_reason,
+    }
+    value: dict[str, object] = {"contract": WORKFLOW_HTTP_CONTRACT, "error": error}
+    if code in {"stale_workflow_preview", "stale_workflow_approval"}:
+        value["error"] = {
+            **error,
+            "current_run_id": current_run_id,
+            "current_preview_identity": current_preview_identity,
+        }
+    validate_workflow_http_error(value, expected_code=code)
+    return value
 
 
 def workflow_success_envelope(

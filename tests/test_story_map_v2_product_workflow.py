@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import NoReturn
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from renpy_story_mapper.canonical_graph import build_canonical_graph
@@ -25,6 +27,10 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     build_derived_semantic_plan,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import assemble_semantic_corridors
+from renpy_story_mapper.story_map_v2.product_vertical import (
+    execute_product_vertical,
+    project_workflow_reader_status,
+)
 from renpy_story_mapper.story_map_v2.product_workflow import (
     MAPPING_ADAPTER_VERSION,
     FrozenProductRequestMaterializer,
@@ -34,6 +40,8 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
+from renpy_story_mapper.story_map_v2.reader import StoryMapReader
+from renpy_story_mapper.story_map_v2.reader_store import DurableStoryMapReaderSource
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_FAST_MODE,
     CLOUD_MODEL,
@@ -52,11 +60,14 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
 )
 from renpy_story_mapper.story_map_v2.workflow_http_projection import (
     WORKFLOW_HTTP_CONTRACT,
+    WORKFLOW_HTTP_ROUTES,
     workflow_success_envelope,
 )
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
+from renpy_story_mapper.web.api import ApiProblem, ProjectApi
+from renpy_story_mapper.web.state import UserStateStore
 
 FIXTURE = (
     Path(__file__).parent
@@ -88,6 +99,34 @@ def _authority() -> CanonicalGraph:
         route,
         state,
         source_generation=source_generation(((module.path, "4" * 64),)),
+    )
+
+
+def _authority_with_effect() -> CanonicalGraph:
+    source = FIXTURE.read_text(encoding="utf-8").replace(
+        '        "Continue directly":\n            "The direct local arm stays visible."',
+        '        "Continue directly":\n'
+        '            $ route_flag = True\n'
+        '            "The direct local arm stays visible."',
+    )
+    module = parse_script(
+        "game/phase04_effect.rpy",
+        source.splitlines(keepends=True),
+    )
+    graph = build_graph([module])
+    semantic = build_semantic_story(graph)
+    state = extract_state([module])
+    control = analyze_control_flow(
+        graph, semantic, state.requirements, state.effects
+    ).to_dict()
+    route = project_route_map(control, semantic, state.requirements, state.effects)
+    return build_canonical_graph(
+        graph,
+        semantic,
+        control,
+        route,
+        state,
+        source_generation=source_generation(((module.path, "5" * 64),)),
     )
 
 
@@ -541,3 +580,245 @@ def test_product_prepare_projects_exact_privacy_safe_http_v2_envelope(
     serialized = json.dumps(envelope, sort_keys=True)
     assert "raw_story" not in serialized
     assert "serialized_request_identity" not in serialized
+
+
+def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview(
+    tmp_path: Path,
+) -> None:
+    graph = _authority_with_effect()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:vertical-reader",
+    )
+    chunks = {
+        chunk.chunk_id: chunk for chunk in prepared.frozen_plans.story_chunk_plan.chunks
+    }
+
+    class FakeProvider:
+        def submit(self, request: bytes) -> ProviderCallResult:
+            packet = json.loads(request)
+            call_kind = packet.get("call_kind")
+            if call_kind == "section_synthesis":
+                child_ids = [child["id"] for child in packet["children"]]
+                prose: dict[str, object] = {
+                    "title": "Chronological section",
+                    "summary": "The story events remain in their exact order.",
+                    "sections": [
+                        {
+                            "first_event_id": child_ids[0],
+                            "last_event_id": child_ids[-1],
+                            "title": "Story section",
+                            "summary": "A concise part of the whole story.",
+                        }
+                    ],
+                }
+            elif call_kind == "rollup_synthesis":
+                prose = {
+                    "title": "Whole story",
+                    "summary": "The routes split, progress, and reach their known outcomes.",
+                }
+            else:
+                chunk = chunks[packet["chunk_id"]]
+                prose = {
+                    "title": "Mapped chunk",
+                    "overview": "This chunk advances the story.",
+                    "review_requested": False,
+                    "events": [
+                        {
+                            "key": "event",
+                            "placement_ids": list(chunk.placement_ids),
+                            "title": "Story events",
+                            "summary": "The characters move through this part of the story.",
+                            "characters": [],
+                        }
+                    ],
+                    "branch_summaries": [
+                        {
+                            "choice_key": segment.choice_key,
+                            "arm_orders": list(segment.arm_orders),
+                            "summary": "The known outcomes diverge and may rejoin.",
+                        }
+                        for segment in chunk.choice_segments
+                    ],
+                }
+            return ProviderCallResult(
+                payload=canonical_json(prose),
+                accounting=AttemptAccounting(1, 100, 40, 10),
+                resolved_provider=CLOUD_PROVIDER,
+                resolved_model=CLOUD_MODEL,
+                resolved_reasoning=CLOUD_REASONING,
+                resolved_fast_mode=CLOUD_FAST_MODE,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    path = tmp_path / "vertical-reader.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        service = create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=FakeProvider,
+        )
+        service.approve(prepared.run_id, preview.identity)
+
+    execute_product_vertical(
+        path,
+        prepared,
+        preview_identity=preview.identity,
+        cloud_factory=FakeProvider,
+        authority_graph=graph,
+    )
+
+    with Project.open(path) as project:
+        source = DurableStoryMapReaderSource(
+            project.story_map_v2_repository(),
+            workflow_status=project_workflow_reader_status,
+        )
+        reader = StoryMapReader(source)
+        manifest = reader.manifest()
+        assert reader.status()["state"] == "complete"
+        assert manifest["overview"] == {
+            "title": "Whole story",
+            "summary": "The routes split, progress, and reach their known outcomes.",
+        }
+        revision = manifest["map_revision"]
+        assert isinstance(revision, int)
+        branch_ids: list[str] = []
+        visible_event_effects: list[str] = []
+        for section in manifest["sections"]:
+            assert isinstance(section, dict)
+            page = reader.section_page(
+                map_revision=revision,
+                section_id=str(section["id"]),
+            )
+            branch_ids.extend(
+                str(item["id"])
+                for item in page["items"]
+                if isinstance(item, dict) and item.get("kind") == "choice"
+            )
+            visible_event_effects.extend(
+                effect
+                for item in page["items"]
+                if isinstance(item, dict) and item.get("kind") in {"event", "ending"}
+                for effect in item["effects"]
+            )
+        branches = [
+            reader.branch_page(map_revision=revision, branch_id=branch_id)
+            for branch_id in branch_ids
+        ]
+        arms = [item for branch in branches for item in branch["items"]]
+        shells = [shell for branch in branches for shell in branch["shells"]]
+        assert any("route_flag = True" in item["effects"] for item in arms)
+        assert "route_flag = True" in visible_event_effects
+        assert all(item["destination_id"] for item in arms)
+        assert any(shell["rejoin_selection_id"] for shell in shells)
+        selected = next(item["selection_id"] for item in arms if item["effects"])
+        assert reader.selection_navigation(
+            map_revision=revision,
+            selection_id=str(selected),
+        ) is not None
+
+
+def test_project_api_advertises_only_frozen_workflow_routes_and_safe_errors(
+    tmp_path: Path,
+) -> None:
+    class Dialogs:
+        def choose_source(self, _kind: str) -> None:
+            return None
+
+        def choose_open_project(self) -> None:
+            return None
+
+        def choose_save_project(self) -> None:
+            return None
+
+    provider_constructions = 0
+
+    def provider_trap() -> NoReturn:
+        nonlocal provider_constructions
+        provider_constructions += 1
+        raise AssertionError("bootstrap and invalid requests must not construct a provider")
+
+    api = ProjectApi(
+        Dialogs(),
+        state_store=UserStateStore(tmp_path / "state.json"),
+        phase04_cloud_factory=provider_trap,
+    )
+    try:
+        bootstrap = api.dispatch("GET", "/api/v1/bootstrap", {})
+        assert isinstance(bootstrap, dict)
+        assert bootstrap["routes"]["story_map_v2_workflow"] == WORKFLOW_HTTP_ROUTES
+        with pytest.raises(ApiProblem) as caught:
+            api.dispatch(
+                "POST",
+                WORKFLOW_HTTP_ROUTES["prepare"],
+                {"contract": "foreign-contract"},
+            )
+        assert caught.value.status == 400
+        assert caught.value.payload == {
+            "contract": WORKFLOW_HTTP_CONTRACT,
+            "error": {
+                "code": "invalid_workflow_request",
+                "message": "The workflow request is invalid.",
+                "sanitized_reason": "invalid_request",
+            },
+        }
+        assert provider_constructions == 0
+    finally:
+        api.close()
+
+
+def test_vertical_publishes_structural_reader_when_all_prose_is_invalid(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:vertical-structural",
+    )
+
+    class InvalidProvider:
+        def submit(self, _request: bytes) -> ProviderCallResult:
+            return ProviderCallResult(
+                payload=canonical_json({"invalid": True}),
+                accounting=AttemptAccounting(1, 10, 5, 1),
+                resolved_provider=CLOUD_PROVIDER,
+                resolved_model=CLOUD_MODEL,
+                resolved_reasoning=CLOUD_REASONING,
+                resolved_fast_mode=CLOUD_FAST_MODE,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    path = tmp_path / "vertical-structural.rsmproj"
+    with Project.create(path) as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        create_product_workflow_service(
+            project,
+            prepared,
+            cloud_factory=InvalidProvider,
+        ).approve(prepared.run_id, preview.identity)
+    execute_product_vertical(
+        path,
+        prepared,
+        preview_identity=preview.identity,
+        cloud_factory=InvalidProvider,
+        authority_graph=graph,
+    )
+    with Project.open(path) as project:
+        reader = StoryMapReader(
+            DurableStoryMapReaderSource(
+                project.story_map_v2_repository(),
+                workflow_status=project_workflow_reader_status,
+            )
+        )
+        manifest = reader.manifest()
+        assert manifest["status"] == "complete"
+        assert manifest["sections"]
+        assert manifest["overview"]["title"] == "Whole story overview"
+        assert manifest["overview"]["summary"]

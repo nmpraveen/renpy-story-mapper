@@ -133,6 +133,9 @@ class LocalRequestHandler(BaseHTTPRequestHandler):
             body = self._read_json_body() if method != "GET" else {}
             result = self.server.api.dispatch(method, path, body)
         except ApiProblem as exc:
+            if exc.payload is not None:
+                self._write_json(exc.status, exc.payload)
+                return
             self._json_error(
                 exc.status,
                 exc.code,

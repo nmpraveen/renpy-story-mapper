@@ -14,6 +14,15 @@ from typing import cast
 from renpy_story_mapper import storage
 from renpy_story_mapper.story_map_v2 import durable_repository as durable
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
+from renpy_story_mapper.story_map_v2.phase04_publication import (
+    GenerationDescriptor as PublicationGenerationDescriptor,
+)
+from renpy_story_mapper.story_map_v2.phase04_publication import (
+    GenerationKind as PublicationGenerationKind,
+)
+from renpy_story_mapper.story_map_v2.phase04_publication import (
+    GenerationPointers as PublicationGenerationPointers,
+)
 from renpy_story_mapper.story_map_v2.phase04_sections import (
     ROLLUP_SYNTHESIS_SCHEMA_VERSION,
     SECTION_SYNTHESIS_SCHEMA_VERSION,
@@ -99,6 +108,104 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
         if not callable(factory):
             raise TypeError("project does not expose story_map_v2_repository()")
         return cls(cast(durable.StoryMapV2Repository, factory()))
+
+    def create_generation(self, generation: PublicationGenerationDescriptor) -> None:
+        """Translate public workflow lineage into the existing durable routing IDs."""
+
+        with self._repository() as repository:
+            repository.create_generation(
+                durable.GenerationDescriptor(
+                    generation.generation_id,
+                    _run_id(generation.run_id),
+                    _stable_id("plan", generation.plan_id),
+                    _authority_digest(generation.authority_identity),
+                    durable.GenerationKind(generation.kind.value),
+                    generation.descriptor,
+                )
+            )
+
+    def load_generation(
+        self, generation_id: str
+    ) -> PublicationGenerationDescriptor | None:
+        with self._repository() as repository:
+            stored = repository.load_generation(generation_id)
+        if stored is None:
+            return None
+        descriptor = _mapping(stored.descriptor, "generation descriptor")
+        run_id = str(descriptor.get("workflow_run_id", stored.run_id))
+        plan_id = str(descriptor.get("workflow_plan_id", stored.plan_id))
+        authority = str(
+            descriptor.get("workflow_authority_identity", stored.authority_identity)
+        )
+        return PublicationGenerationDescriptor(
+            stored.generation_id,
+            run_id,
+            plan_id,
+            authority,
+            PublicationGenerationKind(stored.kind.value),
+            stored.descriptor,
+        )
+
+    def is_run_publishable(
+        self, run_id: str, plan_id: str, authority_identity: str
+    ) -> bool:
+        with self._repository() as repository:
+            return repository.is_run_publishable(
+                _run_id(run_id),
+                _stable_id("plan", plan_id),
+                _authority_digest(authority_identity),
+            )
+
+    def generation_pointers(self) -> PublicationGenerationPointers:
+        with self._repository() as repository:
+            pointers = repository.generation_pointers()
+        return PublicationGenerationPointers(
+            pointers.current_complete_generation,
+            pointers.active_build_generation,
+            pointers.map_revision,
+        )
+
+    def set_active_generation(
+        self,
+        generation_id: str,
+        *,
+        expected_active_generation_id: str | None,
+        expected_complete_generation_id: str | None,
+    ) -> PublicationGenerationPointers:
+        with self._repository() as repository:
+            pointers = repository.set_active_generation(
+                generation_id,
+                expected_active_generation_id=expected_active_generation_id,
+                expected_complete_generation_id=expected_complete_generation_id,
+            )
+        return PublicationGenerationPointers(
+            pointers.current_complete_generation,
+            pointers.active_build_generation,
+            pointers.map_revision,
+        )
+
+    def publish_generation(
+        self,
+        generation_id: str,
+        *,
+        expected_active_generation_id: str,
+        expected_complete_generation_id: str | None,
+        fault: object | None = None,
+    ) -> PublicationGenerationPointers:
+        if fault is not None and not callable(fault):
+            raise TypeError("publication fault injector must be callable")
+        with self._repository() as repository:
+            pointers = repository.publish_generation(
+                generation_id,
+                expected_active_generation_id=expected_active_generation_id,
+                expected_complete_generation_id=expected_complete_generation_id,
+                fault=cast(durable.FaultInjector | None, fault),
+            )
+        return PublicationGenerationPointers(
+            pointers.current_complete_generation,
+            pointers.active_build_generation,
+            pointers.map_revision,
+        )
 
     @contextmanager
     def _repository(self) -> Iterator[durable.StoryMapV2Repository]:

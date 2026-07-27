@@ -206,6 +206,7 @@ class GenerationArtifact:
     baseline_generation_id: str | None
     baseline_path_facts: tuple[PathFact, ...] | None
     new_path_facts: tuple[NewPathFact, ...]
+    reader_manifest: Mapping[str, object] | None = None
     schema: str = PHASE04_GENERATION_SCHEMA
 
     def __post_init__(self) -> None:
@@ -267,7 +268,7 @@ class GenerationArtifact:
 
     @property
     def descriptor(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "schema": self.schema,
             "generation_id": self.generation_id,
             "state": self.state.value,
@@ -306,6 +307,16 @@ class GenerationArtifact:
                 for fact in self.new_path_facts
             ],
         }
+        if self.reader_manifest is not None:
+            value.update(
+                {
+                    "workflow_run_id": self.run_id,
+                    "workflow_plan_id": self.plan_id,
+                    "workflow_authority_identity": self.authority_identity,
+                }
+            )
+            value["reader_manifest"] = dict(self.reader_manifest)
+        return value
 
     def durable_descriptor(self) -> GenerationDescriptor:
         return GenerationDescriptor(
