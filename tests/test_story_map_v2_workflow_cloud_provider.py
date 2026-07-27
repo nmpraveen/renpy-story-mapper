@@ -107,6 +107,48 @@ def test_phase04_schema_accepts_the_validator_response_shape() -> None:
     assert not tuple(Draft202012Validator(schema).iter_errors(_response()))
 
 
+@pytest.mark.parametrize(
+    ("schema_name", "payload"),
+    [
+        (
+            "story_map_phase04_section_prose_v1.schema.json",
+            {
+                "title": "Opening",
+                "summary": "The story begins.",
+                "sections": [
+                    {
+                        "first_event_id": "event:one",
+                        "last_event_id": "event:one",
+                        "title": "First events",
+                        "summary": "The opening events establish the situation.",
+                    }
+                ],
+            },
+        ),
+        (
+            "story_map_phase04_rollup_prose_v1.schema.json",
+            {"title": "Whole story", "summary": "A concise whole-story overview."},
+        ),
+    ],
+)
+def test_derived_prose_schemas_are_valid_and_accept_exact_shapes(
+    schema_name: str,
+    payload: dict[str, object],
+) -> None:
+    schema_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "story_map_v2"
+        / "schemas"
+        / schema_name
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    Draft202012Validator.check_schema(schema)
+    assert not tuple(Draft202012Validator(schema).iter_errors(payload))
+
+
 def test_provider_transmits_frozen_bytes_unchanged_with_terra_high(tmp_path: Path) -> None:
     request = canonical_json({"task": "summarize", "raw_story": "private fixture"})
     process = FakeProcess(_output())
@@ -148,6 +190,60 @@ def test_provider_rejects_wrong_runtime_identity_as_transmitted(tmp_path: Path) 
     assert raised.value.failure is WorkflowFailure.IDENTITY_MISMATCH
     assert raised.value.transmission is TransmissionDisposition.TRANSMITTED
     assert raised.value.accounting.calls == 1
+
+
+def test_provider_selects_section_schema_from_exact_request(tmp_path: Path) -> None:
+    prose = {
+        "title": "A story section",
+        "summary": "The events form one continuous part of the story.",
+        "sections": [
+            {
+                "first_event_id": "event:one",
+                "last_event_id": "event:one",
+                "title": "Opening",
+                "summary": "The story begins.",
+            }
+        ],
+    }
+    stdout = b"".join(
+        (
+            canonical_json(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": json.dumps(prose)},
+                }
+            )
+            + b"\n",
+            canonical_json(
+                {
+                    "type": "turn.completed",
+                    "model": CLOUD_MODEL,
+                    "reasoning_effort": CLOUD_REASONING,
+                    "fast_mode": False,
+                    "usage": {"input_tokens": 10, "output_tokens": 10},
+                }
+            )
+            + b"\n",
+        )
+    )
+    process = FakeProcess(stdout)
+    specs: list[ProcessSpec] = []
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        specs.append(spec)
+        return process
+
+    provider = CodexCliWorkflowProvider(
+        executable=str(_executable(tmp_path)),
+        process_factory=factory,
+    )
+    result = provider.submit(
+        canonical_json({"call_kind": "section_synthesis", "task": "group events"})
+    )
+
+    schema = specs[0].command[specs[0].command.index("--output-schema") + 1]
+    assert Path(schema).name == "story_map_phase04_section_prose_v1.schema.json"
+    assert result.payload == canonical_json(prose)
 
 
 def test_unavailable_executable_is_definitely_not_transmitted(tmp_path: Path) -> None:

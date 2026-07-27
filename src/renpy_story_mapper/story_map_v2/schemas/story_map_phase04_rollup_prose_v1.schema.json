@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "story-map-v2-phase04-rollup-prose-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "summary"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 80},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 800}
+  }
+}

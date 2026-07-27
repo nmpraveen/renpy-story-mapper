@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -16,6 +17,11 @@ from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
 from renpy_story_mapper.story_map_v2.contracts import canonical_json
+from renpy_story_mapper.story_map_v2.phase04_sections import (
+    SECTION_SYNTHESIS_ADAPTER_VERSION,
+    SECTION_SYNTHESIS_PROMPT_VERSION,
+    SECTION_SYNTHESIS_SCHEMA_VERSION,
+)
 from renpy_story_mapper.story_map_v2.product_workflow import (
     MAPPING_ADAPTER_VERSION,
     ProductWorkflowValidator,
@@ -30,9 +36,14 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_REASONING,
     GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
+    ProviderCallKind,
     ProviderCallResult,
+    ProviderInputIdentity,
     ProviderMode,
     ProviderSettings,
+    SerializedRequestIdentity,
+    WorkflowDerivedSemanticJobDescriptor,
+    workflow_digest,
 )
 from renpy_story_mapper.story_map_v2.workflow_http_projection import (
     WORKFLOW_HTTP_CONTRACT,
@@ -264,6 +275,72 @@ def test_approved_product_runner_accepts_all_mapping_jobs_without_live_provider(
     assert status.accepted_jobs == len(prepared.plan.jobs)
     assert status.structural_fallback_jobs == 0
     assert status.accounting.calls == len(prepared.plan.jobs)
+
+
+def test_product_validator_binds_contiguous_section_prose_to_derived_job() -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:derived-section",
+    )
+    semantic = prepared.plan.derived_semantic_plan
+    assert semantic is not None
+    request = b'{"call_kind":"section_synthesis"}'
+    identity = SerializedRequestIdentity(
+        "request:derived-section",
+        hashlib.sha256(request).hexdigest(),
+        len(request),
+    )
+    provider_input = ProviderInputIdentity(
+        identity,
+        SECTION_SYNTHESIS_PROMPT_VERSION,
+        SECTION_SYNTHESIS_SCHEMA_VERSION,
+        SECTION_SYNTHESIS_ADAPTER_VERSION,
+        CLOUD_PROVIDER,
+        CLOUD_MODEL,
+        CLOUD_REASONING,
+        CLOUD_FAST_MODE,
+        ProviderMode.CLOUD,
+    )
+    job = WorkflowDerivedSemanticJobDescriptor(
+        plan_id=prepared.plan.plan_id,
+        semantic_plan_identity=semantic.semantic_plan_identity,
+        story_chunk_plan_identity=semantic.story_chunk_plan_identity,
+        candidate_generation_identity=workflow_digest("candidate:section"),
+        authority_identity=prepared.plan.authority_identity,
+        job_id="derived:section:one",
+        call_kind=ProviderCallKind.SECTION_SYNTHESIS,
+        node_role=None,
+        corridor_id=semantic.corridors[0].corridor_id,
+        route_owner=semantic.corridors[0].route_owner,
+        child_ids=("event:one", "event:two"),
+        child_prose_hashes=(workflow_digest("one"), workflow_digest("two")),
+        ordinal=0,
+        serialized_request_identity=identity,
+        provider_input_identity=provider_input,
+        cache_identity=provider_input.cache_identity,
+    )
+    prose = {
+        "title": "Opening sequence",
+        "summary": "The opening events establish the story.",
+        "sections": [
+            {
+                "first_event_id": "event:one",
+                "last_event_id": "event:two",
+                "title": "The beginning",
+                "summary": "Two events form one continuous opening section.",
+            }
+        ],
+    }
+    validator = ProductWorkflowValidator(prepared)
+
+    result = validator.validate(job, canonical_json(prose), cached=False)
+    normalized = json.loads(result.normalized_payload)
+
+    assert normalized["semantic_plan_identity"] == semantic.semantic_plan_identity
+    assert normalized["ordered_child_ids"] == ["event:one", "event:two"]
+    assert validator.validate(job, result.normalized_payload, cached=True) == result
 
 
 def test_product_preview_persists_exact_plans_with_zero_provider_construction(

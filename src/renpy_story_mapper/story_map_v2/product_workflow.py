@@ -9,6 +9,7 @@ may be persisted.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import NoReturn, cast
@@ -46,11 +47,13 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_PROVIDER,
     CLOUD_REASONING,
     AuthorityIdentity,
+    ProviderCallKind,
     ProviderMode,
     ProviderSettings,
     SerializedRequestIdentity,
     ValidatedWorkflowResult,
     WorkflowCorridorDescriptor,
+    WorkflowDerivedSemanticJobDescriptor,
     WorkflowDerivedSemanticPlanDescriptor,
     WorkflowExecutableJobDescriptor,
     WorkflowJobDescriptor,
@@ -132,8 +135,10 @@ class ProductWorkflowValidator:
         *,
         cached: bool,
     ) -> ValidatedWorkflowResult:
+        if isinstance(job, WorkflowDerivedSemanticJobDescriptor):
+            return _validate_derived_provider_prose(job, payload, cached=cached)
         if not isinstance(job, WorkflowJobDescriptor):
-            raise ValueError("derived semantic validation is not available in the mapper adapter")
+            raise TypeError("unsupported workflow job descriptor")
         binding = FrozenMapperJobBinding(
             plan_id=job.plan_id,
             scope_id=job.scope_id,
@@ -172,6 +177,164 @@ def _bind_provider_prose(job: WorkflowJobDescriptor, payload: bytes) -> bytes:
             **value,
         }
     )
+
+
+def _validate_derived_provider_prose(
+    job: WorkflowDerivedSemanticJobDescriptor,
+    payload: bytes,
+    *,
+    cached: bool,
+) -> ValidatedWorkflowResult:
+    """Bind section/overview prose to Python-owned membership and job identities."""
+
+    try:
+        value: object = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("derived provider prose is not JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("derived provider prose must be an object")
+    if job.call_kind is ProviderCallKind.SECTION_SYNTHESIS:
+        prose = _section_prose(job, value, cached=cached)
+        bound: dict[str, object] = {
+            "schema": job.provider_input_identity.schema_version,
+            "semantic_plan_identity": job.semantic_plan_identity,
+            "candidate_generation_identity": job.candidate_generation_identity,
+            "job_id": job.job_id,
+            "corridor_id": job.corridor_id,
+            "ordered_child_ids": list(job.child_ids),
+            **prose,
+        }
+    elif job.call_kind is ProviderCallKind.ROLLUP_SYNTHESIS:
+        prose = _rollup_prose(job, value, cached=cached)
+        if job.node_role is None:
+            raise ValueError("rollup job is missing its Python-owned role")
+        bound = {
+            "schema": job.provider_input_identity.schema_version,
+            "semantic_plan_identity": job.semantic_plan_identity,
+            "candidate_generation_identity": job.candidate_generation_identity,
+            "job_id": job.job_id,
+            "node_role": job.node_role.value,
+            "route_owner": job.route_owner,
+            "ordered_child_ids": list(job.child_ids),
+            **prose,
+        }
+    else:
+        raise ValueError("unsupported derived semantic call kind")
+    normalized = canonical_json(bound)
+    return ValidatedWorkflowResult(hashlib.sha256(normalized).hexdigest(), normalized)
+
+
+def _section_prose(
+    job: WorkflowDerivedSemanticJobDescriptor,
+    value: dict[object, object],
+    *,
+    cached: bool,
+) -> dict[str, object]:
+    prose_keys = {"title", "summary", "sections"}
+    bound_keys = prose_keys | {
+        "schema",
+        "semantic_plan_identity",
+        "candidate_generation_identity",
+        "job_id",
+        "corridor_id",
+        "ordered_child_ids",
+    }
+    if set(value) != (bound_keys if cached else prose_keys):
+        raise ValueError("section prose fields do not match the frozen schema")
+    if cached:
+        _verify_derived_binding(job, value, section=True)
+    title = _derived_text(value["title"], "section title", 80)
+    summary = _derived_text(value["summary"], "section summary", 600)
+    raw_sections = value["sections"]
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise ValueError("section prose requires at least one section")
+    indexes = {child_id: index for index, child_id in enumerate(job.child_ids)}
+    cursor = 0
+    sections: list[dict[str, object]] = []
+    for raw in raw_sections:
+        if not isinstance(raw, dict) or set(raw) != {
+            "first_event_id",
+            "last_event_id",
+            "title",
+            "summary",
+        }:
+            raise ValueError("section proposal fields are invalid")
+        first = _derived_text(raw["first_event_id"], "first event ID", 2_000)
+        last = _derived_text(raw["last_event_id"], "last event ID", 2_000)
+        if first not in indexes or last not in indexes:
+            raise ValueError("section proposal references a foreign child")
+        first_index = indexes[first]
+        last_index = indexes[last]
+        if first_index != cursor or last_index < first_index:
+            raise ValueError("section proposal is not contiguous and ordered")
+        cursor = last_index + 1
+        sections.append(
+            {
+                "first_event_id": first,
+                "last_event_id": last,
+                "title": _derived_text(raw["title"], "proposed section title", 80),
+                "summary": _derived_text(
+                    raw["summary"], "proposed section summary", 600
+                ),
+            }
+        )
+    if cursor != len(job.child_ids):
+        raise ValueError("section proposal does not cover every child exactly once")
+    return {"title": title, "summary": summary, "sections": sections}
+
+
+def _rollup_prose(
+    job: WorkflowDerivedSemanticJobDescriptor,
+    value: dict[object, object],
+    *,
+    cached: bool,
+) -> dict[str, object]:
+    prose_keys = {"title", "summary"}
+    bound_keys = prose_keys | {
+        "schema",
+        "semantic_plan_identity",
+        "candidate_generation_identity",
+        "job_id",
+        "node_role",
+        "route_owner",
+        "ordered_child_ids",
+    }
+    if set(value) != (bound_keys if cached else prose_keys):
+        raise ValueError("rollup prose fields do not match the frozen schema")
+    if cached:
+        _verify_derived_binding(job, value, section=False)
+    return {
+        "title": _derived_text(value["title"], "rollup title", 80),
+        "summary": _derived_text(value["summary"], "rollup summary", 800),
+    }
+
+
+def _verify_derived_binding(
+    job: WorkflowDerivedSemanticJobDescriptor,
+    value: dict[object, object],
+    *,
+    section: bool,
+) -> None:
+    expected: dict[str, object] = {
+        "schema": job.provider_input_identity.schema_version,
+        "semantic_plan_identity": job.semantic_plan_identity,
+        "candidate_generation_identity": job.candidate_generation_identity,
+        "job_id": job.job_id,
+        "ordered_child_ids": list(job.child_ids),
+    }
+    if section:
+        expected["corridor_id"] = job.corridor_id
+    else:
+        expected["node_role"] = None if job.node_role is None else job.node_role.value
+        expected["route_owner"] = job.route_owner
+    if any(value.get(key) != expected_value for key, expected_value in expected.items()):
+        raise ValueError("cached derived prose has stale or foreign membership")
+
+
+def _derived_text(value: object, label: str, maximum: int) -> str:
+    if not isinstance(value, str) or not value or value != value.strip() or len(value) > maximum:
+        raise ValueError(f"{label} must be non-empty, trimmed, and bounded")
+    return value
 
 
 def persist_product_workflow_preview(

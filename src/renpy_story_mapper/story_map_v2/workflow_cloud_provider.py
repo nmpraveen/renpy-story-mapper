@@ -62,14 +62,12 @@ class CodexCliWorkflowProvider:
         maximum_input_bytes: int = DEFAULT_MAXIMUM_INPUT_BYTES,
         maximum_output_bytes: int = DEFAULT_MAXIMUM_OUTPUT_BYTES,
     ) -> None:
-        selected_schema = schema_path or (
-            Path(__file__).resolve().parent
-            / "schemas"
-            / "story_map_phase04_mapper_response_v1.schema.json"
-        )
-        self._schema_path = selected_schema.resolve()
-        if not self._schema_path.is_file():
+        self._schema_path = None if schema_path is None else schema_path.resolve()
+        if self._schema_path is not None and not self._schema_path.is_file():
             raise ValueError("The Phase 04 workflow response schema is unavailable.")
+        for name in _RESPONSE_SCHEMAS.values():
+            if not _schema_path(name).is_file():
+                raise ValueError("A Phase 04 workflow response schema is unavailable.")
         if timeout_seconds <= 0:
             raise ValueError("The workflow provider timeout must be positive.")
         if maximum_input_bytes <= 0 or maximum_output_bytes <= 0:
@@ -113,9 +111,10 @@ class CodexCliWorkflowProvider:
                 started,
             )
         self._resolved_executable = executable
+        response_schema = self._schema_path or _schema_for_request(request)
         command = build_sterile_command(
             executable,
-            self._schema_path,
+            response_schema,
             model=CLOUD_MODEL,
             reasoning=CLOUD_REASONING,
         )
@@ -276,6 +275,28 @@ def _parse_workflow_jsonl(
         frozenset(reasonings),
         frozenset(fast_modes),
     )
+
+
+_RESPONSE_SCHEMAS = {
+    "mapping": "story_map_phase04_mapper_response_v1.schema.json",
+    "section_synthesis": "story_map_phase04_section_prose_v1.schema.json",
+    "rollup_synthesis": "story_map_phase04_rollup_prose_v1.schema.json",
+}
+
+
+def _schema_path(name: str) -> Path:
+    return (Path(__file__).resolve().parent / "schemas" / name).resolve()
+
+
+def _schema_for_request(request: bytes) -> Path:
+    try:
+        value: object = json.loads(request)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        kind = "mapping"
+    else:
+        call_kind = value.get("call_kind") if isinstance(value, dict) else None
+        kind = call_kind if call_kind in _RESPONSE_SCHEMAS else "mapping"
+    return _schema_path(_RESPONSE_SCHEMAS[kind])
 
 
 def _parse_last_usage(raw: bytes) -> tuple[int, int]:

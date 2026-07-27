@@ -33,6 +33,19 @@ SECTION_SYNTHESIS_ADAPTER_VERSION = "story-map-v2-phase04-section-adapter-v1"
 ROLLUP_SYNTHESIS_PROMPT_VERSION = "story-map-v2-phase04-rollup-prompt-v1"
 ROLLUP_SYNTHESIS_SCHEMA_VERSION = "story-map-v2-phase04-rollup-response-v1"
 ROLLUP_SYNTHESIS_ADAPTER_VERSION = "story-map-v2-phase04-rollup-adapter-v1"
+SECTION_SYNTHESIS_TASK = (
+    "Return exactly one JSON object matching the supplied section prose schema. Group the "
+    "ordered child events into a small number of meaningful contiguous story sections. Cover "
+    "every child exactly once and preserve order. Write only titles and summaries; do not "
+    "change membership, routes, choices, or mechanics. Do not use tools, files, web search, "
+    "apps, plugins, other agents, or provider calls."
+)
+ROLLUP_SYNTHESIS_TASK = (
+    "Return exactly one JSON object matching the supplied rollup prose schema. Write a concise "
+    "title and narrative overview for the ordered child summaries. Treat persistent routes as "
+    "alternatives when identified. Do not add events, choices, routes, endings, or mechanics. "
+    "Do not use tools, files, web search, apps, plugins, other agents, or provider calls."
+)
 DERIVED_SEMANTIC_FAN_IN = 24
 DERIVED_PROVIDER = "codex-cli"
 DERIVED_MODEL = "gpt-5.6-terra"
@@ -490,6 +503,11 @@ def _materialize_job(
     )
     request = canonical_json(
         {
+            "task": (
+                SECTION_SYNTHESIS_TASK
+                if call_kind is DerivedCallKind.SECTION_SYNTHESIS
+                else ROLLUP_SYNTHESIS_TASK
+            ),
             "semantic_plan_identity": plan.semantic_plan_identity,
             "story_chunk_plan_identity": plan.story_chunk_plan_identity,
             "authority_identity": plan.authority_identity,
