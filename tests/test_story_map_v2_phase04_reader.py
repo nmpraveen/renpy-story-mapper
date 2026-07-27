@@ -6,10 +6,12 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.canonical_graph_contract import OriginReference, SourceEvidence
 from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.story_map_v2.contracts import (
@@ -54,6 +56,7 @@ from renpy_story_mapper.story_map_v2.reader import (
     InvalidStoryMapCursorError,
     MemoryStoryMapReaderSource,
     ReaderLocation,
+    ReaderNavigation,
     ReaderSlice,
     ReaderSnapshot,
     StaleMapRevisionError,
@@ -65,7 +68,7 @@ from renpy_story_mapper.story_map_v2.reader_store import (
     DurableStoryMapReaderSource,
     reader_storage_page,
 )
-from renpy_story_mapper.web.api import ProjectApi
+from renpy_story_mapper.web.api import ProjectApi, _durable_source_navigation
 from renpy_story_mapper.web.contracts import (
     STORY_MAP_V2_API_ROUTES,
     STORY_MAP_V2_READER_API_ROUTES,
@@ -1591,6 +1594,62 @@ def test_durable_only_selection_uses_indexed_path_detail_and_source(
         assert _json_size(response) <= MAX_SERIALIZED_BYTES
     assert any(item["kind"] == "evidence" for item in detail_page["items"])
     assert provider_calls == []
+
+
+def test_durable_source_navigation_requires_one_exact_current_locator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    navigation = ReaderNavigation(
+        destination_kind="generic_scene",
+        target_id="scene:one",
+        detail_service_kind="m11_scene",
+        detail_service_id="scene:one",
+        evidence_id="story_anchor_phase04",
+        relative_path="game/story.rpy",
+        start_line=10,
+        end_line=12,
+        line_basis="physical",
+    )
+
+    def evidence(identity: str, *, start_line: int = 10) -> SourceEvidence:
+        return SourceEvidence(
+            identity,
+            {
+                "path": "game/story.rpy",
+                "start": {"line": start_line, "column": 1},
+                "end": {"line": 12, "column": 20},
+            },
+            "Synthetic current source",
+            (OriginReference("graph_nodes", f"node:{identity}"),),
+            "physical",
+        )
+
+    current = evidence("m12-evidence-current")
+
+    def install(*records: SourceEvidence) -> None:
+        authority = SimpleNamespace(graph=SimpleNamespace(evidence=records))
+        monkeypatch.setattr(
+            "renpy_story_mapper.web.api.load_m12_authority",
+            lambda _project: authority,
+        )
+
+    path = tmp_path / "navigation-compatibility.rsmproj"
+    with Project.create(path) as project:
+        install(current)
+        assert _durable_source_navigation(project, navigation)["evidence_id"] == current.id
+
+        install()
+        with pytest.raises(StoryMapReaderDataError, match="no longer current"):
+            _durable_source_navigation(project, navigation)
+
+        install(current, evidence("m12-evidence-duplicate"))
+        with pytest.raises(StoryMapReaderDataError, match="no longer current"):
+            _durable_source_navigation(project, navigation)
+
+        install(evidence(navigation.evidence_id, start_line=9), current)
+        with pytest.raises(StoryMapReaderDataError, match="locator is stale"):
+            _durable_source_navigation(project, navigation)
 
 
 def test_api_and_http_stale_transport_are_provider_free(tmp_path: Path) -> None:

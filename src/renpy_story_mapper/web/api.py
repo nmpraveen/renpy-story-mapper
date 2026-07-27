@@ -26,7 +26,7 @@ from renpy_story_mapper.bounded_window import (
     BoundedWindowError,
     build_bounded_narrative_window,
 )
-from renpy_story_mapper.canonical_graph_contract import CANONICAL_GRAPH_SCHEMA
+from renpy_story_mapper.canonical_graph_contract import CANONICAL_GRAPH_SCHEMA, SourceEvidence
 from renpy_story_mapper.inspection_projection import INSPECTION_PROJECTION_SCHEMA
 from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
 from renpy_story_mapper.m07_workflow import (
@@ -382,19 +382,15 @@ def _durable_source_navigation(
         None,
     )
     if evidence is None:
-        raise StoryMapReaderDataError("durable navigation evidence is no longer current")
-    source = evidence.source
-    path = source.get("path")
-    start = source.get("start")
-    end = source.get("end")
-    start_line = start.get("line") if isinstance(start, Mapping) else None
-    end_line = end.get("line") if isinstance(end, Mapping) else start_line
-    if (
-        path != navigation.relative_path
-        or start_line != navigation.start_line
-        or end_line != navigation.end_line
-        or (evidence.line_basis or "physical") != navigation.line_basis
-    ):
+        matches = tuple(
+            item
+            for item in authority.graph.evidence
+            if _evidence_locator(item) == _navigation_locator(navigation)
+        )
+        if len(matches) != 1:
+            raise StoryMapReaderDataError("durable navigation evidence is no longer current")
+        evidence = matches[0]
+    if _evidence_locator(evidence) != _navigation_locator(navigation):
         raise StoryMapReaderDataError("durable navigation evidence locator is stale")
     return {
         "status": "available",
@@ -402,8 +398,27 @@ def _durable_source_navigation(
         "start_line": navigation.start_line,
         "end_line": navigation.end_line,
         "line_basis": navigation.line_basis,
-        "evidence_id": navigation.evidence_id,
+        "evidence_id": evidence.id,
     }
+
+
+def _evidence_locator(evidence: SourceEvidence) -> tuple[object, object, object, str]:
+    source = evidence.source
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    start_line = start.get("line") if isinstance(start, Mapping) else None
+    end_line = end.get("line") if isinstance(end, Mapping) else start_line
+    return path, start_line, end_line, evidence.line_basis or "physical"
+
+
+def _navigation_locator(navigation: ReaderNavigation) -> tuple[str, int, int, str]:
+    return (
+        navigation.relative_path,
+        navigation.start_line,
+        navigation.end_line,
+        navigation.line_basis,
+    )
 
 
 def _projection_id(family: str, selection_id: str, path: str) -> str:
