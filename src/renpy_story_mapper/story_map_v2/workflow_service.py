@@ -761,14 +761,22 @@ class StoryMapWorkflowService:
                 model=call.result.resolved_model,
             )
             return None
+        transcript_outcome = (
+            "review_requested" if validated.flagged_for_review else "accepted"
+        )
+        transcript_comment = (
+            "AI response passed validation but requested review; replacement required."
+            if validated.flagged_for_review
+            else "AI response passed validation; summary added."
+        )
         _append_ai_transcript(
             job_id=claim.job.job_id,
             attempt_id=call.reservation.attempt_id,
             call_kind=call.reservation.call_kind,
             prompt=call.request,
             response=call.result.payload,
-            outcome="accepted",
-            comment="AI response passed validation; summary added.",
+            outcome=transcript_outcome,
+            comment=transcript_comment,
             accounting=call.result.accounting,
             provider=call.result.resolved_provider,
             model=call.result.resolved_model,

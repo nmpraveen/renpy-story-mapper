@@ -240,7 +240,7 @@ def _bind_provider_prose(
             "scope_id": job.scope_id,
             "title": _bounded_provider_text(value["title"], 80),
             "overview": _bounded_provider_text(value["overview"], 600),
-            "review_requested": value["review_requested"],
+            "review_requested": False,
             "events": [event],
             "branch_summaries": [
                 {

@@ -340,7 +340,7 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
     prose = {
         "title": "Story opening",
         "overview": "The opening events establish the current situation.",
-        "review_requested": False,
+        "review_requested": True,
         "events": [
             {
                 "key": "opening",
@@ -364,6 +364,7 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
     assert normalized["chunk_id"] == job.chunk_id
     assert normalized["request_hash"] == job.serialized_request_identity.sha256
     assert normalized["scope_id"] == job.scope_id
+    assert result.flagged_for_review is False
     assert len(normalized["events"]) == 1
     assert normalized["events"][0]["placement_ids"] == list(chunk.placement_ids)
     assert len(normalized["events"][0]["summary"]) <= 320

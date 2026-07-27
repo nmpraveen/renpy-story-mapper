@@ -1936,7 +1936,9 @@ def test_mutated_not_transmitted_call_accounting_fails_indeterminate_without_ret
     assert factory.calls == 1
 
 
-def test_flagged_cloud_result_receives_exactly_one_replacement_review() -> None:
+def test_flagged_cloud_result_receives_exactly_one_replacement_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     policy = _policy()
     plan, requests = _plan(1, policy)
     repository = MemoryWorkflowRepository()
@@ -1944,6 +1946,8 @@ def test_flagged_cloud_result_receives_exactly_one_replacement_review() -> None:
         policy.cloud,
         [_reply(policy.cloud, b"flagged"), _reply(policy.cloud, b"review-ok")],
     )
+    transcript_path = tmp_path / "private-ai-transcript.jsonl"
+    monkeypatch.setenv("RENPY_STORY_MAPPER_AI_TRANSCRIPT", str(transcript_path))
     service = _service(repository, requests, factory)
     preview = _prepare_approve(service, plan, policy, _ceilings(2, reviews=1))
 
@@ -1959,6 +1963,14 @@ def test_flagged_cloud_result_receives_exactly_one_replacement_review() -> None:
     assert [item.reservation.call_kind for item in attempts] == [
         ProviderCallKind.MAPPING,
         ProviderCallKind.REPLACEMENT_REVIEW,
+    ]
+    transcript = [
+        json.loads(line)
+        for line in transcript_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [item["outcome"] for item in transcript] == [
+        "review_requested",
+        "accepted",
     ]
 
 
