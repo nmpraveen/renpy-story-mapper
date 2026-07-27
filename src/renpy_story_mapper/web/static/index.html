@@ -47,14 +47,34 @@
               </div>
               <div class="story-hero-meta">
                 <span id="storyMapStatus" class="status-badge">Chronological map</span>
+                <button id="storyPrepareAction" class="accent-button" type="button" disabled>Generate</button>
                 <button id="openCompatibilityMap" class="quiet-button" type="button">Technical view</button>
               </div>
             </header>
 
+            <section id="storyRunBar" class="story-runbar" aria-labelledby="storyRunState">
+              <div class="story-run-summary">
+                <strong id="storyRunState">Ready</strong>
+                <span id="storyRunProgress">Structural map available</span>
+              </div>
+              <div class="story-run-track" role="progressbar" aria-label="Story generation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="storyRunProgressBar"></i></div>
+              <div class="story-run-actions">
+                <button id="storyCancelRun" class="quiet-button" type="button" hidden>Cancel</button>
+                <button id="storyResumeRun" class="quiet-button" type="button" hidden>Resume</button>
+                <button id="storyRetryRun" class="quiet-button" type="button" hidden>Approve retry</button>
+              </div>
+            </section>
+
             <div class="story-reader-shell">
               <article id="storyGuide" class="story-guide" aria-label="Chronological story">
+                <div class="story-reader-tools">
+                  <label class="story-search"><span class="sr-only">Search the whole story</span><input id="storySearchInput" type="search" maxlength="256" placeholder="Search the whole story" autocomplete="off"></label>
+                  <label class="story-new-toggle"><input id="storyHideNew" type="checkbox"> Hide NEW</label>
+                </div>
+                <div id="storySearchResults" class="story-search-results" hidden aria-label="Story search results"></div>
                 <nav id="storySectionIndex" class="story-section-index" aria-label="Story sections"></nav>
                 <div id="storySections" class="story-sections"></div>
+                <button id="storyLoadMore" class="secondary-button story-load-more" type="button" hidden>Continue section</button>
                 <details id="storyAnalysisNotes" class="story-analysis-notes">
                   <summary>Analysis notes</summary>
                   <div id="storyAnalysisNotesList"></div>
@@ -63,7 +83,7 @@
 
               <aside id="storyPathPanel" class="story-path-panel" hidden aria-labelledby="storyPathTitle">
                 <div class="story-path-heading">
-                  <div><p class="eyebrow">Witness path</p><h2 id="storyPathTitle">Reach this moment</h2></div>
+                  <div><p class="eyebrow">Witness path</p><h2 id="storyPathTitle">Path to this moment</h2></div>
                   <div class="story-path-actions"><button id="closeStoryPath" class="quiet-button" type="button">Close path</button><button id="returnToStorySelection" class="quiet-button" type="button">Return to selected</button></div>
                 </div>
                 <p id="storyPathSummary" class="story-path-summary" role="status" aria-live="polite"></p>
@@ -152,13 +172,14 @@
           <header class="detail-command"><button id="backToRouteMap" class="back-button" type="button">← Back to Route Map</button><button id="canonicalEscapeButton" class="quiet-button" type="button" hidden>Open canonical record</button><span id="detailKind" class="status-badge"></span></header>
           <div class="detail-layout">
             <article class="detail-main"><p class="eyebrow">Detail / Evidence</p><h1 id="detailTitle">Selected story event</h1><p id="detailSummary" class="detail-summary"></p><nav id="pathStrip" class="path-strip" aria-label="Local predecessor and successor strip"></nav><section id="technicalMembers" class="technical-members" aria-labelledby="technicalMembersTitle"><h2 id="technicalMembersTitle">Member technical structure</h2><div id="memberGraph"></div></section><div id="detailFacts"></div><section id="derivationPanel" aria-labelledby="derivationTitle" hidden><h2 id="derivationTitle">Derivations and linked records</h2><div id="regionDerivation"></div><div id="proofDerivation"></div><div id="linkedRecords"></div></section><section id="interpretationPanel" aria-labelledby="interpretationTitle"><h2 id="interpretationTitle">Interpretation</h2><p class="authority-note">Candidates do not replace the technical map until applied. Claims are paired with deterministic evidence.</p><div id="interpretations"></div></section></article>
-            <aside class="evidence-pane" aria-labelledby="evidenceTitle"><h2 id="evidenceTitle">Exact qualified evidence</h2><div id="evidenceList"></div></aside>
+            <aside class="evidence-pane" aria-labelledby="evidenceTitle"><h2 id="evidenceTitle">Source / Evidence</h2><div id="evidenceList"></div></aside>
           </div>
         </section>
       </section>
     </main>
 
     <dialog id="consentDialog" aria-labelledby="consentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Exact cloud consent</p><h2 id="consentTitle">Confirm this bounded story window</h2><p>The values below are bound unchanged to this one Luna run.</p><dl id="consentFacts" class="consent-facts"></dl><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Confirm exact run</button></div></form></dialog>
+    <dialog id="storyApprovalDialog" aria-labelledby="storyApprovalTitle"><div class="dialog-card story-approval-card"><p class="eyebrow">Zero-submit preview</p><h2 id="storyApprovalTitle">Approve this generation</h2><dl id="storyApprovalFacts" class="consent-facts"></dl><div id="storyRetryList" class="story-retry-list" hidden></div><p id="storyApprovalState" class="authority-note" role="status"></p><div class="dialog-actions"><button id="closeStoryApproval" class="secondary-button" type="button">Close</button><button id="approveStoryGeneration" class="accent-button" type="button" disabled>Approve and start</button></div></div></dialog>
     <dialog id="narrativeConsentDialog" aria-labelledby="narrativeConsentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Manifest-bound cloud consent</p><h2 id="narrativeConsentTitle">Confirm this Narrative run</h2><p>Confirmation applies once to this selected scope. The run proceeds automatically until completion, cancellation, provider refusal, or a hard limit.</p><dl id="narrativeConsentFacts" class="consent-facts"></dl><p class="authority-note">Only structured bounded inputs are sent. Completed validated work remains durable.</p><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmNarrative" value="default" class="accent-button">Confirm and run</button></div></form></dialog>
     <dialog id="reviewDialog" aria-labelledby="reviewTitle"><div class="dialog-card review-card"><header><div><p class="eyebrow">Candidate assembly</p><h2 id="reviewTitle">Review before apply</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header><div id="reviewCoverage"></div><p class="authority-note">Fallback, partial, failed, and cancelled scopes remain visibly technical.</p><div id="reviewCandidates" class="review-candidates"></div><div class="dialog-actions"><button id="discardAssembly" class="secondary-button" type="button">Discard</button><button id="applyAssembly" class="accent-button" type="button">Apply</button></div></div></dialog>
     <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle"><div class="dialog-card"><header><h2 id="diagnosticsTitle">Diagnostics</h2><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div></dialog>

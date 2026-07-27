@@ -6,7 +6,10 @@ import {
   assertNarrativeArtifact, assertNarrativeCitations, assertNarrativePreparation,
   assertNarrativeRunStatus, assertNarrativeSnapshot,
   assertStoryMapV2, assertStoryMapV2Detail, assertStoryMapV2Path,
-  exactOrganizationBudgets, STORY_MAP_V2_ROUTE_KEYS,
+  assertStoryReaderContract, assertStoryReaderLocate, assertStoryReaderManifest,
+  assertStoryReaderPage, assertStoryReaderSearch, assertStoryReaderStatus,
+  assertStoryReaderViewState, exactOrganizationBudgets, STORY_MAP_V2_ROUTE_KEYS,
+  STORY_READER_ROUTE_KEYS, STORY_READER_SCHEMA,
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -115,6 +118,8 @@ export class LocalApi {
     this.organizationSelection = { scopeIds: [], windowRequests: [] };
     this.m12Routes = null;
     this.storyMapV2Routes = null;
+    this.storyReaderRoutes = null;
+    this.storyReaderLimits = null;
   }
 
   configureM12(routes) {
@@ -141,8 +146,21 @@ export class LocalApi {
     return this.storyMapV2Routes[key];
   }
 
+  configureStoryReader(contract) {
+    if (contract === undefined || contract === null) { this.storyReaderRoutes = null; this.storyReaderLimits = null; return null; }
+    const checked = assertStoryReaderContract({ ...contract, examples: contract.examples || {} });
+    this.storyReaderRoutes = Object.freeze(Object.fromEntries(STORY_READER_ROUTE_KEYS.map((key) => [key, localVersionedPath(checked.routes[key], `Story reader ${key} endpoint`)])));
+    this.storyReaderLimits = Object.freeze({ ...checked.limits });
+    return Object.freeze({ schema: STORY_READER_SCHEMA, routes: this.storyReaderRoutes, limits: this.storyReaderLimits });
+  }
+
+  storyReaderPathFor(key) {
+    if (!this.storyReaderRoutes || !Object.hasOwn(this.storyReaderRoutes, key)) throw new Error(`Story reader ${key} is unavailable for this project`);
+    return this.storyReaderRoutes[key];
+  }
+
   async request(path, { method = "GET", body, signal } = {}) {
-    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path) || Object.values(this.storyMapV2Routes || {}).includes(path);
+    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path) || Object.values(this.storyMapV2Routes || {}).includes(path) || Object.values(this.storyReaderRoutes || {}).includes(path);
     if (!allowed) throw new TypeError("Unknown local API endpoint");
     const verb = method.toUpperCase();
     const headers = { Accept: "application/json", "X-RSM-Session": this.session };
@@ -163,7 +181,7 @@ export class LocalApi {
     const payload = await response.json();
     if (!response.ok) {
       const error = new Error(payload.error?.message || "Local request failed");
-      error.status = response.status; error.code = payload.error?.code || null;
+      error.status = response.status; error.code = payload.error?.code || null; error.mapRevision = Number.isInteger(payload.map_revision) ? payload.map_revision : null; error.payload = payload;
       throw error;
     }
     return payload;
@@ -191,6 +209,45 @@ export class LocalApi {
   async storyMapV2Detail(selectionId) {
     if (typeof selectionId !== "string" || !selectionId || selectionId.length > 512) throw new TypeError("Story selection is required");
     return assertStoryMapV2Detail(await this.request(this.storyMapV2PathFor("detail"), { method: "POST", body: { selection_id: selectionId } }), selectionId);
+  }
+
+  async storyReaderManifest() {
+    return assertStoryReaderManifest(await this.request(this.storyReaderPathFor("manifest"), { method: "POST", body: {} }));
+  }
+  async storyReaderStatus() {
+    return assertStoryReaderStatus(await this.request(this.storyReaderPathFor("status"), { method: "POST", body: {} }));
+  }
+  async storyReaderPage(kind, mapRevision, resourceId, { cursor = null, limit = null } = {}) {
+    if (!["section_page", "branch_page", "path_page", "detail_page"].includes(kind)) throw new TypeError("Unknown story reader page kind");
+    if (!Number.isInteger(mapRevision) || mapRevision < 0 || typeof resourceId !== "string" || !resourceId || resourceId.length > 512) throw new TypeError("Story reader page request is invalid");
+    const identityKey = kind === "section_page" ? "section_id" : kind === "branch_page" ? "branch_id" : "selection_id";
+    const body = { map_revision: mapRevision, [identityKey]: resourceId };
+    if (cursor !== null) body.cursor = cursor;
+    if (limit !== null) body.limit = limit;
+    const raw = await this.request(this.storyReaderPathFor(kind), { method: "POST", body });
+    if (new TextEncoder().encode(JSON.stringify(raw)).length > this.storyReaderLimits.serialized_bytes_per_page) throw new RangeError("Story reader page exceeds its serialized-byte limit");
+    return assertStoryReaderPage(raw, mapRevision);
+  }
+  storyReaderSectionPage(mapRevision, sectionId, options) { return this.storyReaderPage("section_page", mapRevision, sectionId, options); }
+  storyReaderBranchPage(mapRevision, branchId, options) { return this.storyReaderPage("branch_page", mapRevision, branchId, options); }
+  storyReaderPathPage(mapRevision, selectionId, options) { return this.storyReaderPage("path_page", mapRevision, selectionId, options); }
+  storyReaderDetailPage(mapRevision, selectionId, options) { return this.storyReaderPage("detail_page", mapRevision, selectionId, options); }
+  async storyReaderLocate(mapRevision, selectionId) {
+    if (!Number.isInteger(mapRevision) || typeof selectionId !== "string" || !selectionId || selectionId.length > 512) throw new TypeError("Story reader locate request is invalid");
+    return assertStoryReaderLocate(await this.request(this.storyReaderPathFor("locate"), { method: "POST", body: { map_revision: mapRevision, selection_id: selectionId } }), mapRevision, selectionId);
+  }
+  async storyReaderSearch(mapRevision, query, { cursor = null, limit = null } = {}) {
+    if (!Number.isInteger(mapRevision) || typeof query !== "string" || query.length > 256) throw new TypeError("Story reader search request is invalid");
+    const body = { map_revision: mapRevision, query };
+    if (cursor !== null) body.cursor = cursor;
+    if (limit !== null) body.limit = limit;
+    return assertStoryReaderSearch(await this.request(this.storyReaderPathFor("search"), { method: "POST", body }), mapRevision, query);
+  }
+  async storyReaderViewState(mapRevision, viewKey = "route-map") {
+    return assertStoryReaderViewState(await this.request(this.storyReaderPathFor("view_state"), { method: "POST", body: { map_revision: mapRevision, view_key: viewKey } }), mapRevision);
+  }
+  async saveStoryReaderViewState(mapRevision, state, viewKey = "route-map") {
+    return assertStoryReaderViewState(await this.request(this.storyReaderPathFor("save_view_state"), { method: "POST", body: { map_revision: mapRevision, view_key: viewKey, state } }), mapRevision);
   }
 
   async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {

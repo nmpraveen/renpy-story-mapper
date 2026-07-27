@@ -3,12 +3,12 @@
   "hash_basis": "sha256-utf8-lf",
   "assets": {
     "API_CONTRACT.md": "be9f10f4167d250861b6c21bfb288c9647c243613485da7de3d5c1ca86405ae2",
-    "api.js": "883b2e5e6084c3ff8881afe17fc317fde7f3cbcc447001e4f6d09d59769d95e3",
-    "app.js": "761231e21674a581cc5074ea5b91a5b518878ba4b4cab7fac53a52206336601f",
-    "contract.js": "6989d9a5ad0921490cd796db7eff2a414e369a41228921804e7fdc04c083bbf4",
+    "api.js": "b1b08563b66dec4f627d0d3afc47d67092346d44c9678c6b2bd6587728ceac32",
+    "app.js": "1a3b74009acf81865cad430a9cdad5f2ac216d268508ff53099c6b1301024f9a",
+    "contract.js": "35d9be1dbbde72c3e95dd095bfd2d4fdae96a8c2d6bacd3e35913834921a7474",
     "graph.js": "4fecfeddd9a0c584ffbb40c9df9b80ecda131672cf0bdd90902beb0b3278bc3d",
-    "index.html": "f4f693cace52555b401f6227bdb32d08f4b6dce667a117010427602fa04c456b",
+    "index.html": "b8b19d2ad2c75b8962aa3a04b408cf01fe6a59e552ac8ad3448bad1132a52124",
     "story-map-v2-diff.js": "a4841bf6952793df7886a6a0e56ca64689efb2cb4ff76f921f6883483144afb4",
-    "styles.css": "886310e6c0b6e0f042a1d285514384901e7a3eeac1013131689a0fcdfa29cb44"
+    "styles.css": "1ece4970db7877f8cb7e041132d5276c4256d81ae038eec5bf9bb83a2c296b73"
   }
 }

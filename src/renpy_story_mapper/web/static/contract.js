@@ -4,6 +4,15 @@ export const ROUTE_PAGE_SIZE = 30;
 export const ROUTE_EDGE_PAGE_SIZE = 180;
 export const RENDER_LIMITS = Object.freeze({ nodes: 30, edges: 180, items: 240 });
 export const STORY_MAP_V2_ROUTE_KEYS = Object.freeze(["map", "path", "detail"]);
+export const STORY_READER_SCHEMA = "story-map-v2-reader-contract-v2";
+export const STORY_READER_ROUTE_KEYS = Object.freeze([
+  "manifest", "status", "section_page", "branch_page", "locate", "search",
+  "path_page", "detail_page", "view_state", "save_view_state",
+]);
+export const STORY_READER_LIMIT_KEYS = Object.freeze([
+  "events_per_section_page", "rendered_items_per_page", "serialized_bytes_per_page",
+  "search_results_per_page", "live_story_items",
+]);
 
 export const ENDPOINTS = Object.freeze({
   bootstrap: "/api/v1/bootstrap",
@@ -74,6 +83,173 @@ function boundedText(value, label, maximum = 4096, { empty = false } = {}) {
 function optionalText(value, label, maximum = 4096) {
   if (value === null) return null;
   return boundedText(value, label, maximum);
+}
+
+function readerRevision(value, label = "Story reader map revision") {
+  if (!Number.isInteger(value) || value < 0) throw new TypeError(`${label} is invalid`);
+  return value;
+}
+
+function readerCursor(value, label = "Story reader cursor") {
+  if (value === null) return null;
+  return boundedText(value, label, 4096);
+}
+
+function readerNewFacts(value, label = "Story reader NEW facts") {
+  if (!Array.isArray(value) || value.length > 240) throw new TypeError(`${label} are not bounded`);
+  for (const fact of value) {
+    if (!object(fact)) throw new TypeError(`${label} contain an invalid fact`);
+    boundedText(fact.kind, `${label} kind`, 80);
+    boundedText(fact.fact_id, `${label} identity`, 512);
+  }
+  return value;
+}
+
+function storyReaderEnvelope(value, label) {
+  if (!object(value) || value.schema !== STORY_READER_SCHEMA) throw new TypeError(`Invalid ${label}`);
+  readerRevision(value.map_revision, `${label} map revision`);
+  boundedText(value.generation_id, `${label} generation`, 512);
+  return value;
+}
+
+export function assertStoryReaderContract(value) {
+  exactKeys(value, ["schema", "routes", "limits", "examples"], "Story reader contract");
+  if (value.schema !== STORY_READER_SCHEMA) throw new TypeError("Unsupported story reader contract");
+  exactKeys(value.routes, STORY_READER_ROUTE_KEYS, "Story reader routes");
+  exactKeys(value.limits, STORY_READER_LIMIT_KEYS, "Story reader limits");
+  if (value.limits.events_per_section_page !== 30 || value.limits.rendered_items_per_page !== 240 || value.limits.serialized_bytes_per_page !== 1048576 || value.limits.live_story_items !== 600) throw new TypeError("Story reader safety limits drifted");
+  if (!Number.isInteger(value.limits.search_results_per_page) || value.limits.search_results_per_page < 1 || value.limits.search_results_per_page > 100) throw new TypeError("Story reader search limit is invalid");
+  return value;
+}
+
+export function assertStoryReaderManifest(value) {
+  storyReaderEnvelope(value, "Story reader manifest");
+  for (const key of ["freshness", "status", "overview", "counts", "sections", "landmarks", "new_facts"]) if (!Object.hasOwn(value, key)) throw new TypeError(`Story reader manifest is missing ${key}`);
+  if (!["current", "building", "stale", "phase03_compatible"].includes(value.freshness)) throw new TypeError("Story reader freshness is invalid");
+  boundedText(value.status, "Story reader manifest status", 80);
+  if (!object(value.overview)) throw new TypeError("Story reader overview is invalid");
+  boundedText(value.overview.title, "Story reader title", 512);
+  boundedText(value.overview.summary, "Story reader overview", 16384, { empty: true });
+  if (!object(value.counts)) throw new TypeError("Story reader counts are invalid");
+  for (const key of ["sections", "events", "choices", "arms", "endings"]) if (!Number.isInteger(value.counts[key]) || value.counts[key] < 0) throw new TypeError(`Story reader ${key} count is invalid`);
+  if (!Array.isArray(value.sections) || value.sections.length > 2048) throw new TypeError("Story reader sections are not bounded");
+  const sectionIds = new Set();
+  for (const section of value.sections) {
+    if (!object(section)) throw new TypeError("Story reader section descriptor is invalid");
+    boundedText(section.id, "Story reader section ID", 512);
+    if (sectionIds.has(section.id)) throw new TypeError("Story reader section IDs are duplicated");
+    sectionIds.add(section.id);
+    if (!Number.isInteger(section.order) || section.order < 0 || !Number.isInteger(section.event_count) || section.event_count < 0) throw new TypeError("Story reader section order/count is invalid");
+    boundedText(section.title, "Story reader section title", 512);
+    boundedText(section.summary, "Story reader section summary", 8192, { empty: true });
+    if (section.route_id !== null) boundedText(section.route_id, "Story reader section route", 512);
+    boundedText(section.status, "Story reader section status", 80);
+    if (typeof section.is_new !== "boolean") throw new TypeError("Story reader section NEW state is invalid");
+    readerNewFacts(section.new_facts, "Story reader section NEW facts");
+  }
+  if (!Array.isArray(value.landmarks) || value.landmarks.length > 4096) throw new TypeError("Story reader landmarks are not bounded");
+  for (const landmark of value.landmarks) {
+    if (!object(landmark)) throw new TypeError("Story reader landmark is invalid");
+    for (const key of ["kind", "id", "section_id", "selection_id", "title"]) boundedText(landmark[key], `Story reader landmark ${key}`, key === "title" ? 512 : 1024);
+  }
+  if (!object(value.new_facts)) throw new TypeError("Story reader generation NEW state is invalid");
+  if (value.new_facts.baseline_generation_id !== null) boundedText(value.new_facts.baseline_generation_id, "Story reader NEW baseline", 512);
+  readerNewFacts(value.new_facts.facts, "Story reader generation NEW facts");
+  return value;
+}
+
+export function assertStoryReaderStatus(value) {
+  storyReaderEnvelope(value, "Story reader status");
+  for (const key of ["run_id", "freshness", "state", "coverage", "progress", "actions", "current_complete_generation", "active_build_generation"]) if (!Object.hasOwn(value, key)) throw new TypeError(`Story reader status is missing ${key}`);
+  boundedText(value.run_id, "Story reader run ID", 512);
+  if (!["current", "building", "stale", "phase03_compatible"].includes(value.freshness)) throw new TypeError("Story reader status freshness is invalid");
+  boundedText(value.state, "Story reader run state", 80);
+  if (!object(value.coverage) || !object(value.progress) || !object(value.actions)) throw new TypeError("Story reader progress is invalid");
+  for (const key of ["completed_chunks", "total_chunks"]) if (!Number.isInteger(value.coverage[key]) || value.coverage[key] < 0) throw new TypeError(`Story reader coverage ${key} is invalid`);
+  if (typeof value.coverage.event_fraction !== "number" || value.coverage.event_fraction < 0 || value.coverage.event_fraction > 1) throw new TypeError("Story reader event coverage is invalid");
+  for (const key of ["completed_jobs", "total_jobs", "failed_jobs", "indeterminate_jobs"]) if (!Number.isInteger(value.progress[key]) || value.progress[key] < 0) throw new TypeError(`Story reader progress ${key} is invalid`);
+  for (const key of ["can_cancel", "can_resume", "retry_approval_required"]) if (typeof value.actions[key] !== "boolean") throw new TypeError(`Story reader action ${key} is invalid`);
+  for (const key of ["current_complete_generation", "active_build_generation"]) if (value[key] !== null) boundedText(value[key], `Story reader ${key}`, 512);
+  return value;
+}
+
+function assertStoryReaderItem(item) {
+  if (!object(item)) throw new TypeError("Story reader item is invalid");
+  boundedText(item.id, "Story reader item ID", 512);
+  boundedText(item.kind, "Story reader item kind", 80);
+  if (Object.hasOwn(item, "order") && (!Number.isInteger(item.order) || item.order < 0)) throw new TypeError("Story reader item order is invalid");
+  for (const key of ["title", "summary", "text", "condition", "relative_path"]) if (Object.hasOwn(item, key) && item[key] !== null) boundedText(item[key], `Story reader item ${key}`, key === "summary" || key === "text" ? 16384 : 2048, { empty: key === "summary" || key === "text" });
+  if (Object.hasOwn(item, "selection_id")) boundedText(item.selection_id, "Story reader selection", 512);
+  if (Object.hasOwn(item, "effects")) readableStrings(item.effects, "Story reader effects", 240);
+  if (Object.hasOwn(item, "is_new") && typeof item.is_new !== "boolean") throw new TypeError("Story reader item NEW state is invalid");
+  if (Object.hasOwn(item, "new_facts")) readerNewFacts(item.new_facts, "Story reader item NEW facts");
+  for (const key of ["start_line", "end_line"]) if (Object.hasOwn(item, key) && (!Number.isInteger(item[key]) || item[key] < 1)) throw new TypeError(`Story reader ${key} is invalid`);
+  if (Object.hasOwn(item, "start_line") && Object.hasOwn(item, "end_line") && item.end_line < item.start_line) throw new TypeError("Story reader source span is reversed");
+  return item;
+}
+
+export function assertStoryReaderPage(value, expectedRevision = null) {
+  storyReaderEnvelope(value, "Story reader page");
+  if (expectedRevision !== null && value.map_revision !== expectedRevision) throw new TypeError("Story reader page revision drifted");
+  for (const key of ["resource_id", "items", "shells", "rendered_item_count", "next_cursor"]) if (!Object.hasOwn(value, key)) throw new TypeError(`Story reader page is missing ${key}`);
+  boundedText(value.resource_id, "Story reader resource ID", 512);
+  if (!Array.isArray(value.items) || value.items.length > 240 || !Array.isArray(value.shells) || value.shells.length > 240) throw new TypeError("Story reader page is not bounded");
+  const itemIds = new Set();
+  for (const item of value.items) { assertStoryReaderItem(item); if (itemIds.has(item.id)) throw new TypeError("Story reader item IDs are duplicated"); itemIds.add(item.id); }
+  if (!Number.isInteger(value.rendered_item_count) || value.rendered_item_count < value.items.length || value.rendered_item_count > 240) throw new TypeError("Story reader rendered-item count is invalid");
+  if (value.items.length && !value.shells.length) throw new TypeError("A nonempty story reader page needs a server-authored shell");
+  const shellIds = new Set();
+  for (const shell of value.shells) {
+    if (!object(shell)) throw new TypeError("Story reader shell is invalid");
+    for (const key of ["id", "kind"]) boundedText(shell[key], `Story reader shell ${key}`, 512);
+    if (shellIds.has(shell.id)) throw new TypeError("Story reader shell IDs are duplicated");
+    shellIds.add(shell.id);
+    if (!Array.isArray(shell.item_ids) || !shell.item_ids.length || shell.item_ids.some((id) => !itemIds.has(id))) throw new TypeError("Story reader shell membership is invalid");
+    for (const key of ["parent_shell_id", "route_id", "rejoin_selection_id"]) if (shell[key] !== null) boundedText(shell[key], `Story reader shell ${key}`, 512);
+  }
+  readerCursor(value.next_cursor);
+  return value;
+}
+
+export function assertStoryReaderLocate(value, expectedRevision, selectionId) {
+  storyReaderEnvelope(value, "Story reader locate response");
+  if (value.map_revision !== expectedRevision || value.selection_id !== selectionId || !object(value.location)) throw new TypeError("Story reader locate response drifted");
+  boundedText(value.selection_id, "Story reader located selection", 512);
+  for (const key of ["section_id", "shell_id", "item_id"]) boundedText(value.location[key], `Story reader location ${key}`, 512);
+  readerCursor(value.location.page_cursor, "Story reader location cursor");
+  if (!Object.hasOwn(value.location, "branch_id")) throw new TypeError("Story reader location is missing its opaque branch resource");
+  if (value.location.branch_id !== null) boundedText(value.location.branch_id, "Story reader location branch", 512);
+  return value;
+}
+
+export function assertStoryReaderSearch(value, expectedRevision, query) {
+  storyReaderEnvelope(value, "Story reader search response");
+  if (value.map_revision !== expectedRevision || value.query !== query || !Array.isArray(value.results) || value.results.length > 100) throw new TypeError("Story reader search response drifted");
+  for (const result of value.results) {
+    if (!object(result)) throw new TypeError("Story reader search result is invalid");
+    for (const key of ["selection_id", "kind", "title", "snippet", "section_id"]) boundedText(result[key], `Story reader search ${key}`, key === "snippet" ? 2048 : 512, { empty: key === "snippet" });
+    if (typeof result.is_loaded !== "boolean") throw new TypeError("Story reader loaded-search state is invalid");
+  }
+  readerCursor(value.next_cursor, "Story reader search cursor");
+  return value;
+}
+
+export function assertStoryReaderViewState(value, expectedRevision) {
+  storyReaderEnvelope(value, "Story reader view state");
+  if (value.map_revision !== expectedRevision || !object(value.state)) throw new TypeError("Story reader view state drifted");
+  boundedText(value.view_key, "Story reader view key", 512);
+  for (const key of ["section_id", "selection_id", "focus_id"]) if (value.state[key] !== null) boundedText(value.state[key], `Story reader state ${key}`, 512);
+  if (!object(value.state.viewport) || typeof value.state.viewport.scroll_top !== "number" || value.state.viewport.scroll_top < 0 || typeof value.state.viewport.zoom !== "number" || value.state.viewport.zoom <= 0 || typeof value.state.hide_new !== "boolean") throw new TypeError("Story reader viewport state is invalid");
+  return value;
+}
+
+export function assertStoryReaderStale(value) {
+  exactKeys(value, ["error", "map_revision"], "Story reader stale response");
+  exactKeys(value.error, ["code", "message"], "Story reader stale error");
+  if (value.error.code !== "stale_map_revision") throw new TypeError("Story reader stale response code is invalid");
+  boundedText(value.error.message, "Story reader stale response message", 2048);
+  readerRevision(value.map_revision, "Story reader current map revision");
+  return value;
 }
 
 function sourceBinding(value) {
