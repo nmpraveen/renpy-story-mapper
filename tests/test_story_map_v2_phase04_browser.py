@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
 BASE_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2" / "phase04_reader_contract_v1.json"
 V2_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2" / "phase04_reader_contract_v2.json"
+WORKFLOW_FIXTURE = ROOT / "tests" / "fixtures" / "story_map_v2" / "phase04_workflow_http_v2.json"
 SCHEMA = "story-map-v2-reader-contract-v2"
 
 
@@ -67,10 +68,11 @@ def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     assert "decode" not in app[app.index("async function locateStoryReaderSelection"):app.index("async function searchStoryReader")]
     assert "Path to this moment" in html
     assert "Source / Evidence" in html
-    assert "storyWorkflow" not in "\n".join((contract, api, app))
-    assert "STORY_WORKFLOW" not in "\n".join((contract, api, app))
+    assert 'STORY_WORKFLOW_CONTRACT = "story-map-v2-workflow-http-v2"' in contract
+    assert "configureStoryWorkflow" in api
+    assert 'command === "retry"' not in api
     assert "story-map-v2-workflow-http-v1" not in "\n".join((contract, api, app))
-    assert "story_map_v2_workflow" not in "\n".join((contract, api, app))
+    assert "story_map_v2_workflow" in app
     assert 'id="storyPrepareAction"' in html and "disabled" in html[html.index('id="storyPrepareAction"') : html.index('id="storyPrepareAction"') + 160]
     assert "/workflow/approve" not in "\n".join((contract, api, app, html))
 
@@ -98,6 +100,7 @@ def test_reader_contract_rejects_v1_locate_and_accepts_v2_branch_identity() -> N
 
 class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     fixture = _fixture()
+    workflow_fixture = json.loads(WORKFLOW_FIXTURE.read_text(encoding="utf-8"))
     revision = 7
     view_state: dict[str, Any] | None = None
     requests: ClassVar[list[tuple[str, dict[str, Any]]]] = []
@@ -106,6 +109,8 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     delay_started: threading.Event | None = None
     delay_release: threading.Event | None = None
     delay_finished: threading.Event | None = None
+    advertise_workflow = False
+    workflow_status_mode = "complete"
 
     def log_message(self, _format: str, *args: object) -> None:
         return
@@ -120,6 +125,8 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         cls.delay_started = None
         cls.delay_release = None
         cls.delay_finished = None
+        cls.advertise_workflow = False
+        cls.workflow_status_mode = "complete"
 
     def _at_revision(self, value: Any) -> Any:
         result = copy.deepcopy(value)
@@ -165,7 +172,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
                             "limits": self.fixture["limits"],
                         }
                     },
-                    "routes": {},
+                    "routes": copy.deepcopy(self.workflow_fixture["routes"]) if type(self).advertise_workflow else {},
                 }
             )
             return
@@ -185,6 +192,17 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
         type(self).requests.append((self.path, body))
+        workflow_routes = self.workflow_fixture["routes"]["story_map_v2_workflow"]
+        workflow_command = next((key for key, route in workflow_routes.items() if key != "contract" and route == self.path), None)
+        if workflow_command is not None:
+            response = copy.deepcopy(self.workflow_fixture["examples"]["successes"][workflow_command])
+            if workflow_command == "status" and type(self).workflow_status_mode == "complete":
+                response["status"].update({"pending_jobs": 0, "active_jobs": 0, "accepted_jobs": 3, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 0, "can_cancel": False, "can_resume": False, "indeterminate_retries": []})
+                type(self).revision = 8
+            elif workflow_command == "status" and type(self).workflow_status_mode == "resumable":
+                response["status"].update({"pending_jobs": 1, "active_jobs": 0, "accepted_jobs": 1, "structural_fallback_jobs": 0, "resumable_jobs": 1, "indeterminate_jobs": 0, "can_cancel": True, "can_resume": True, "indeterminate_retries": []})
+            self._json(response)
+            return
         if self.path == "/api/v1/projects/open":
             self._json({"project": {"name": "Reader fixture"}, "analysis": {"state": "complete"}})
             return
@@ -265,8 +283,10 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             response["state"] = copy.deepcopy(type(self).view_state)
             self._json(response)
 @contextmanager
-def _server() -> Iterator[str]:
+def _server(*, workflow: bool = False, workflow_status_mode: str = "complete") -> Iterator[str]:
     _ReaderHandler.reset()
+    _ReaderHandler.advertise_workflow = workflow
+    _ReaderHandler.workflow_status_mode = workflow_status_mode
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _ReaderHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -387,6 +407,85 @@ def test_reader_v2_late_section_path_and_detail_responses_cannot_steal_state() -
             assert session.evaluate("document.querySelector('#detailTitle').textContent") == "Arrival"
             session.evaluate("document.querySelector('#backToRouteMap').click()")
             session.wait("document.activeElement?.dataset?.storySelectionId === 'event:intro'")
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
+def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions() -> None:
+    driver = _browser_driver()
+    try:
+        browser = driver._browser()
+    except FileNotFoundError:
+        pytest.skip("Chrome or Edge is unavailable")
+    with _server(workflow=True, workflow_status_mode="resumable") as origin, tempfile.TemporaryDirectory(prefix="rsm-m15-p4-workflow-", ignore_cleanup_errors=True) as temporary:
+        process, session = driver._session(browser, 100, Path(temporary))
+        try:
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#storyBrowser').hidden && !document.querySelector('#storyPrepareAction').disabled")
+            session.evaluate("document.querySelector('#storyPrepareAction').click()")
+            session.wait("document.querySelector('#storyApprovalDialog').open")
+            facts = session.evaluate("document.querySelector('#storyApprovalFacts').innerText")
+            for expected in ("codex-cli", "gpt-5.6-terra", "high", "false (off)", "Private story text may be sent", "1 chunk · 1 job", "6", "0"):
+                assert expected in facts
+            workflow_requests = [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
+            assert workflow_requests == [("/api/v1/story-map-v2/workflow/prepare", {"contract": "story-map-v2-workflow-http-v2"})]
+            assert session.evaluate("!document.querySelector('#storyCancelRun').hidden && document.querySelector('#storyResumeRun').hidden")
+
+            session.evaluate("document.querySelector('#approveStoryGeneration').click()")
+            session.wait("!document.querySelector('#storyResumeRun').hidden")
+            start = next(request for request in _ReaderHandler.requests if request[0].endswith("/start"))
+            assert start[1] == {"contract": "story-map-v2-workflow-http-v2", "run_id": "run:fixture", "preview_identity": "a" * 64}
+            session.evaluate("document.querySelector('#storyResumeRun').click()")
+            session.wait("performance.getEntriesByType('resource').some(entry => entry.name.endsWith('/workflow/resume'))")
+            resume = next(request for request in _ReaderHandler.requests if request[0].endswith("/resume"))
+            assert resume[1] == {"contract": "story-map-v2-workflow-http-v2", "run_id": "run:fixture", "preview_identity": "a" * 64}
+            session.evaluate("document.querySelector('#storyCancelRun').click()")
+            session.wait("document.querySelector('#storyCancelRun').hidden")
+            assert not [request for request in _ReaderHandler.requests if request[0].endswith("/retry")]
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("profile", "zoom", "width", "height", "device_scale"),
+    [("desktop", 100, 1440, 900, 1), ("effective_200", 200, 720, 450, 2), ("narrow", 100, 390, 844, 1)],
+)
+def test_workflow_v2_completion_refreshes_reader_without_layout_overflow(
+    profile: str, zoom: int, width: int, height: int, device_scale: int
+) -> None:
+    driver = _browser_driver()
+    try:
+        browser = driver._browser()
+    except FileNotFoundError:
+        pytest.skip("Chrome or Edge is unavailable")
+    with _server(workflow=True) as origin, tempfile.TemporaryDirectory(prefix=f"rsm-m15-p4-workflow-{profile}-", ignore_cleanup_errors=True) as temporary:
+        process, session = driver._session(browser, zoom, Path(temporary))
+        try:
+            session.command("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": device_scale, "mobile": False})
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#storyPrepareAction').disabled")
+            session.evaluate("document.querySelector('#storyPrepareAction').click()")
+            session.wait("document.querySelector('#storyApprovalDialog').open")
+            session.evaluate("document.querySelector('#approveStoryGeneration').click()")
+            session.wait("document.querySelector('#storyBrowser').dataset.mapRevision === '8' && document.querySelector('#storyRunProgress').textContent === '3 of 3 jobs completed'")
+            result = session.evaluate("({generation:document.querySelector('#storyBrowser').dataset.generationId,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,progress:document.querySelector('#storyRunProgress').textContent,cancelHidden:document.querySelector('#storyCancelRun').hidden,resumeHidden:document.querySelector('#storyResumeRun').hidden})")
+            assert result == {"generation": "generation:complete:8", "overflow": 0, "progress": "3 of 3 jobs completed", "cancelHidden": True, "resumeHidden": True}, {"result": result, "toast": session.evaluate("document.querySelector('#toast').textContent"), "requests": _ReaderHandler.requests[-12:]}
         finally:
             session.close()
             process.terminate()

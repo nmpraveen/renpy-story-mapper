@@ -23,6 +23,7 @@ const state = {
     requestToken: 0, locateToken: 0, searchToken: 0, statusToken: 0, viewToken: 0, saveTimer: null,
     hideNew: false, restored: false, prefetchedSectionId: null,
   },
+  storyWorkflow: { response: null, pollToken: 0, busy: false },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -1204,7 +1205,7 @@ function renderStoryReaderManifest(manifest) {
   $("#storyTitle").textContent = manifest.overview.title; $("#storyOverview").textContent = manifest.overview.summary;
   $("#storyMapStatus").textContent = manifest.freshness === "stale" ? "Stale map" : manifest.freshness === "building" ? "Building" : manifest.freshness === "phase03_compatible" ? "Compatible map" : "Current map";
   $("#storyPrepareAction").textContent = manifest.freshness === "phase03_compatible" || !manifest.generation_id ? "Generate" : "Update";
-  $("#storyPrepareAction").disabled = true;
+  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
   const index = $("#storySectionIndex"); index.replaceChildren();
   for (const section of [...manifest.sections].sort((a, b) => a.order - b.order)) {
     const button = element("button", "", section.title); button.type = "button"; button.dataset.sectionId = section.id;
@@ -1218,12 +1219,100 @@ function renderStoryReaderManifest(manifest) {
 
 function renderStoryReaderStatus(status) {
   state.storyReader.status = status;
+  if (state.storyWorkflow.response) { renderStoryWorkflow(state.storyWorkflow.response); return; }
   const progress = status.progress; const percent = progress.total_jobs ? Math.round((progress.completed_jobs / progress.total_jobs) * 100) : Math.round(status.coverage.event_fraction * 100);
   $("#storyRunState").textContent = String(status.state).replaceAll("_", " ");
   $("#storyRunProgress").textContent = `${progress.completed_jobs}/${progress.total_jobs} jobs · ${progress.failed_jobs} failed · ${progress.indeterminate_jobs} indeterminate`;
   $("#storyRunProgressBar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
   $(".story-run-track").setAttribute("aria-valuenow", String(percent));
-  $("#storyCancelRun").hidden = true; $("#storyResumeRun").hidden = true; $("#storyRetryRun").hidden = true;
+  if (!state.storyWorkflow.response) {
+    $("#storyCancelRun").hidden = true; $("#storyResumeRun").hidden = true; $("#storyRetryRun").hidden = true;
+  }
+}
+
+function storyWorkflowTotal(status) {
+  return status.pending_jobs + status.active_jobs + status.accepted_jobs + status.structural_fallback_jobs + status.resumable_jobs + status.indeterminate_jobs;
+}
+
+function storyWorkflowMaximumCalls(preview) {
+  const ceilings = preview.ceilings;
+  return ceilings.mapping_calls + ceilings.review_calls + ceilings.fallback_calls + ceilings.section_synthesis_calls + ceilings.rollup_synthesis_calls + ceilings.indeterminate_retry_calls;
+}
+
+function renderStoryWorkflow(response) {
+  state.storyWorkflow.response = response;
+  const status = response.status; const total = storyWorkflowTotal(status);
+  const completed = Math.min(total, status.accepted_jobs + status.structural_fallback_jobs);
+  const percent = total ? Math.round((completed / total) * 100) : 100;
+  $("#storyRunState").textContent = status.cancelled ? "Cancelled" : status.active_jobs ? "Generating" : status.resumable_jobs ? "Paused" : completed >= total ? "Complete" : status.approved ? "Waiting" : "Ready";
+  $("#storyRunProgress").textContent = `${completed} of ${total} jobs completed`;
+  $("#storyRunProgressBar").style.width = `${percent}%`;
+  $(".story-run-track").setAttribute("aria-valuenow", String(percent));
+  $("#storyCancelRun").hidden = !status.can_cancel;
+  $("#storyResumeRun").hidden = !status.can_resume;
+  $("#storyRetryRun").hidden = true;
+  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+}
+
+function storyWorkflowFacts(preview) {
+  const cloud = preview.policy.cloud; const cacheHits = preview.cache_hits.cloud_job_ids.length + preview.cache_hits.loopback_job_ids.length;
+  const privacy = preview.privacy; const chunks = preview.jobs.length;
+  const disclosure = [
+    privacy.cloud_story_content ? "Private story text may be sent to the cloud provider." : "No private story text is sent to the cloud provider.",
+    privacy.loopback_story_content ? "Private story text may be sent to the configured local provider." : "No private story text is sent to a local provider.",
+  ].join(" ");
+  return [
+    ["Provider", cloud.provider], ["Model", cloud.model], ["Reasoning", cloud.reasoning], ["Fast mode", `${cloud.fast_mode} (${cloud.fast_mode ? "on" : "off"})`],
+    ["Private content", disclosure], ["Work", `${chunks} ${chunks === 1 ? "chunk" : "chunks"} · ${chunks} ${chunks === 1 ? "job" : "jobs"}`],
+    ["Maximum calls", String(storyWorkflowMaximumCalls(preview))], ["Cache hits", String(cacheHits)],
+  ];
+}
+
+function showStoryWorkflowApproval(response) {
+  renderStoryWorkflow(response); const facts = $("#storyApprovalFacts"); facts.replaceChildren();
+  for (const [label, value] of storyWorkflowFacts(response.preview)) facts.append(element("dt", "", label), element("dd", "", value));
+  $("#storyApprovalState").textContent = "Starting requires explicit approval for this preview.";
+  $("#approveStoryGeneration").disabled = !response.status.can_start;
+  $("#storyApprovalDialog").showModal();
+}
+
+async function prepareStoryWorkflow() {
+  if (!api.storyWorkflowRoutes || state.storyWorkflow.busy) return;
+  state.storyWorkflow.busy = true; $("#storyPrepareAction").disabled = true;
+  try { showStoryWorkflowApproval(await api.prepareStoryWorkflow()); }
+  catch (error) { toast(error.message); }
+  finally { state.storyWorkflow.busy = false; $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes; }
+}
+
+async function refreshReaderIfPublished() {
+  if (!api.storyReaderRoutes || !state.storyReader.manifest) return;
+  const status = await api.storyReaderStatus();
+  if (status.map_revision !== state.storyReader.mapRevision || status.current_complete_generation !== state.storyReader.generationId) await refreshStoryReaderForRevision();
+}
+
+async function pollStoryWorkflow() {
+  const initial = state.storyWorkflow.response; if (!initial) return;
+  const token = ++state.storyWorkflow.pollToken;
+  const poll = async () => {
+    try {
+      const response = await api.storyWorkflowStatus(state.storyWorkflow.response.preview);
+      if (token !== state.storyWorkflow.pollToken) return;
+      renderStoryWorkflow(response); await refreshReaderIfPublished();
+      if (response.status.pending_jobs || response.status.active_jobs) setTimeout(poll, 900);
+    } catch (error) { if (token === state.storyWorkflow.pollToken) $("#storyRunProgress").textContent = error.message; }
+  };
+  await poll();
+}
+
+async function runStoryWorkflow(command) {
+  const binding = state.storyWorkflow.response?.preview; if (!binding || state.storyWorkflow.busy) return;
+  state.storyWorkflow.busy = true;
+  try {
+    const response = await (command === "start" ? api.startStoryWorkflow(binding) : command === "cancel" ? api.cancelStoryWorkflow(binding) : api.resumeStoryWorkflow(binding));
+    renderStoryWorkflow(response); $("#storyApprovalDialog").close(); await refreshReaderIfPublished();
+    if (command !== "cancel") pollStoryWorkflow();
+  } catch (error) { toast(error.message); }
+  finally { state.storyWorkflow.busy = false; $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes; }
 }
 
 async function pollStoryReaderStatus() {
@@ -2048,6 +2137,10 @@ function bind() {
   });
   $("#storyBrowser").addEventListener("scroll", scheduleStoryReaderViewSave, { passive: true });
   $("#closeStoryApproval").addEventListener("click", () => $("#storyApprovalDialog").close());
+  $("#storyPrepareAction").addEventListener("click", prepareStoryWorkflow);
+  $("#approveStoryGeneration").addEventListener("click", () => runStoryWorkflow("start"));
+  $("#storyCancelRun").addEventListener("click", () => runStoryWorkflow("cancel"));
+  $("#storyResumeRun").addEventListener("click", () => runStoryWorkflow("resume"));
   $("#openCompatibilityMap").addEventListener("click", async () => { showStorySurface(false); const available = await resetRoutePaging(); await loadNarrative(); await loadNarrativeRunStatus(); if (available) renderMap(); await loadOrganization(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
   $("#selectVisibleNodes").addEventListener("click", async () => { try { await selectVisibleForAI(); toast("Exact provider-free preview ready"); } catch (error) { toast(error.message); } });
@@ -2065,7 +2158,7 @@ function bind() {
 
 async function start() {
   bind();
-  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); const readerContract = storyReaderContractFromBootstrap(bootstrap); if (readerContract) { state.storyReader.contract = api.configureStoryReader(readerContract); } state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
+  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); api.configureStoryWorkflow(bootstrap.routes?.story_map_v2_workflow); const readerContract = storyReaderContractFromBootstrap(bootstrap); if (readerContract) { state.storyReader.contract = api.configureStoryReader(readerContract); } state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
 }
 
 start();

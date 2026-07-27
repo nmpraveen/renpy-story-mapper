@@ -13,6 +13,10 @@ export const STORY_READER_LIMIT_KEYS = Object.freeze([
   "events_per_section_page", "rendered_items_per_page", "serialized_bytes_per_page",
   "search_results_per_page", "live_story_items",
 ]);
+export const STORY_WORKFLOW_CONTRACT = "story-map-v2-workflow-http-v2";
+export const STORY_WORKFLOW_ROUTE_KEYS = Object.freeze([
+  "prepare", "start", "cancel", "resume", "retry", "status",
+]);
 
 export const ENDPOINTS = Object.freeze({
   bootstrap: "/api/v1/bootstrap",
@@ -119,6 +123,64 @@ export function assertStoryReaderContract(value) {
   exactKeys(value.limits, STORY_READER_LIMIT_KEYS, "Story reader limits");
   if (value.limits.events_per_section_page !== 30 || value.limits.rendered_items_per_page !== 240 || value.limits.serialized_bytes_per_page !== 1048576 || value.limits.live_story_items !== 600) throw new TypeError("Story reader safety limits drifted");
   if (!Number.isInteger(value.limits.search_results_per_page) || value.limits.search_results_per_page < 1 || value.limits.search_results_per_page > 100) throw new TypeError("Story reader search limit is invalid");
+  return value;
+}
+
+export function assertStoryWorkflowRoutes(value) {
+  if (!object(value)) throw new TypeError("Story workflow routes are invalid");
+  exactKeys(value, ["contract", ...STORY_WORKFLOW_ROUTE_KEYS], "Story workflow routes");
+  if (value.contract !== STORY_WORKFLOW_CONTRACT) throw new TypeError("Unsupported story workflow contract");
+  for (const key of STORY_WORKFLOW_ROUTE_KEYS) boundedText(value[key], `Story workflow ${key} route`, 512);
+  return value;
+}
+
+function storyWorkflowProvider(value, label, { nullable = false } = {}) {
+  if (nullable && value === null) return;
+  if (!object(value)) throw new TypeError(`${label} is invalid`);
+  exactKeys(value, ["provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"], label);
+  for (const key of ["provider", "model", "mode", "adapter_version"]) boundedText(value[key], `${label} ${key}`, 512);
+  if (value.reasoning !== null) boundedText(value.reasoning, `${label} reasoning`, 80);
+  if (value.fast_mode !== null && typeof value.fast_mode !== "boolean") throw new TypeError(`${label} fast mode is invalid`);
+}
+
+function storyWorkflowDerivedProvider(value, label) {
+  if (!object(value)) throw new TypeError(`${label} is invalid`);
+  exactKeys(value, ["prompt_version", "schema_version", "provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"], label);
+  for (const key of ["prompt_version", "schema_version", "provider", "model", "reasoning", "mode", "adapter_version"]) boundedText(value[key], `${label} ${key}`, 512);
+  if (typeof value.fast_mode !== "boolean") throw new TypeError(`${label} fast mode is invalid`);
+}
+
+export function assertStoryWorkflowResponse(value, expectedCommand = null) {
+  if (!object(value)) throw new TypeError("Story workflow response is invalid");
+  exactKeys(value, ["contract", "command", "preview", "approval", "status", "retry_approval"], "Story workflow response");
+  if (value.contract !== STORY_WORKFLOW_CONTRACT || (expectedCommand !== null && value.command !== expectedCommand)) throw new TypeError("Story workflow response contract drifted");
+  if (!STORY_WORKFLOW_ROUTE_KEYS.includes(value.command)) throw new TypeError("Story workflow command is invalid");
+  const preview = value.preview;
+  if (!object(preview)) throw new TypeError("Story workflow preview is invalid");
+  for (const key of ["run_id", "preview_identity", "plan_id", "authority_identity"]) boundedText(preview[key], `Story workflow preview ${key}`, 1024);
+  if (!Array.isArray(preview.jobs) || preview.jobs.length > 100000) throw new TypeError("Story workflow jobs are invalid");
+  for (const job of preview.jobs) {
+    exactKeys(job, ["job_id", "scope_id", "chunk_id", "critical"], "Story workflow job");
+    for (const key of ["job_id", "scope_id", "chunk_id"]) boundedText(job[key], `Story workflow job ${key}`, 1024);
+    if (typeof job.critical !== "boolean") throw new TypeError("Story workflow job critical state is invalid");
+  }
+  if (!object(preview.cache_hits) || !Array.isArray(preview.cache_hits.cloud_job_ids) || !Array.isArray(preview.cache_hits.loopback_job_ids)) throw new TypeError("Story workflow cache hits are invalid");
+  if (!object(preview.policy)) throw new TypeError("Story workflow policy is invalid");
+  storyWorkflowProvider(preview.policy.cloud, "Story workflow cloud provider");
+  storyWorkflowProvider(preview.policy.loopback, "Story workflow loopback provider", { nullable: true });
+  storyWorkflowDerivedProvider(preview.policy.section_synthesis, "Story workflow section provider");
+  storyWorkflowDerivedProvider(preview.policy.rollup_synthesis, "Story workflow rollup provider");
+  const ceilingKeys = ["mapping_calls", "review_calls", "fallback_calls", "section_synthesis_calls", "route_reduction_calls", "route_summary_calls", "whole_game_reduction_calls", "final_overview_calls", "rollup_synthesis_calls", "input_tokens", "output_tokens", "elapsed_ms", "submission_slots", "indeterminate_retry_calls"];
+  if (!object(preview.ceilings)) throw new TypeError("Story workflow ceilings are invalid");
+  for (const key of ceilingKeys) if (!Number.isInteger(preview.ceilings[key]) || preview.ceilings[key] < 0) throw new TypeError(`Story workflow ${key} ceiling is invalid`);
+  const privacyKeys = ["cloud_story_content", "loopback_story_content", "durable_raw_requests", "durable_raw_responses", "durable_provider_diagnostics", "durable_absolute_paths"];
+  if (!object(preview.privacy)) throw new TypeError("Story workflow privacy disclosure is invalid");
+  for (const key of privacyKeys) if (typeof preview.privacy[key] !== "boolean") throw new TypeError(`Story workflow privacy ${key} is invalid`);
+  const status = value.status;
+  if (!object(status) || status.run_id !== preview.run_id || status.preview_identity !== preview.preview_identity) throw new TypeError("Story workflow status identity drifted");
+  for (const key of ["pending_jobs", "active_jobs", "accepted_jobs", "structural_fallback_jobs", "resumable_jobs", "indeterminate_jobs"]) if (!Number.isInteger(status[key]) || status[key] < 0) throw new TypeError(`Story workflow status ${key} is invalid`);
+  for (const key of ["approved", "cancelled", "can_approve", "can_start", "can_cancel", "can_resume"]) if (typeof status[key] !== "boolean") throw new TypeError(`Story workflow status ${key} is invalid`);
+  if (!Array.isArray(status.indeterminate_retries)) throw new TypeError("Story workflow retries are invalid");
   return value;
 }
 

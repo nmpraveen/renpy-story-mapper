@@ -8,8 +8,9 @@ import {
   assertStoryMapV2, assertStoryMapV2Detail, assertStoryMapV2Path,
   assertStoryReaderContract, assertStoryReaderLocate, assertStoryReaderManifest,
   assertStoryReaderPage, assertStoryReaderSearch, assertStoryReaderStatus,
-  assertStoryReaderViewState, exactOrganizationBudgets, STORY_MAP_V2_ROUTE_KEYS,
-  STORY_READER_ROUTE_KEYS, STORY_READER_SCHEMA,
+  assertStoryReaderViewState, assertStoryWorkflowResponse, assertStoryWorkflowRoutes,
+  exactOrganizationBudgets, STORY_MAP_V2_ROUTE_KEYS, STORY_READER_ROUTE_KEYS,
+  STORY_READER_SCHEMA, STORY_WORKFLOW_CONTRACT, STORY_WORKFLOW_ROUTE_KEYS,
 } from "./contract.js";
 
 const mutations = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -120,6 +121,7 @@ export class LocalApi {
     this.storyMapV2Routes = null;
     this.storyReaderRoutes = null;
     this.storyReaderLimits = null;
+    this.storyWorkflowRoutes = null;
   }
 
   configureM12(routes) {
@@ -159,8 +161,20 @@ export class LocalApi {
     return this.storyReaderRoutes[key];
   }
 
+  configureStoryWorkflow(routes) {
+    if (routes === undefined || routes === null) { this.storyWorkflowRoutes = null; return null; }
+    const checked = assertStoryWorkflowRoutes(routes);
+    this.storyWorkflowRoutes = Object.freeze(Object.fromEntries(STORY_WORKFLOW_ROUTE_KEYS.map((key) => [key, localVersionedPath(checked[key], `Story workflow ${key} endpoint`)])));
+    return this.storyWorkflowRoutes;
+  }
+
+  storyWorkflowPathFor(key) {
+    if (!this.storyWorkflowRoutes || !Object.hasOwn(this.storyWorkflowRoutes, key)) throw new Error(`Story workflow ${key} is unavailable for this project`);
+    return this.storyWorkflowRoutes[key];
+  }
+
   async request(path, { method = "GET", body, signal } = {}) {
-    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path) || Object.values(this.storyMapV2Routes || {}).includes(path) || Object.values(this.storyReaderRoutes || {}).includes(path);
+    const allowed = Object.values(ENDPOINTS).includes(path) || Object.values(this.m12Routes || {}).includes(path) || Object.values(this.storyMapV2Routes || {}).includes(path) || Object.values(this.storyReaderRoutes || {}).includes(path) || Object.values(this.storyWorkflowRoutes || {}).includes(path);
     if (!allowed) throw new TypeError("Unknown local API endpoint");
     const verb = method.toUpperCase();
     const headers = { Accept: "application/json", "X-RSM-Session": this.session };
@@ -249,6 +263,24 @@ export class LocalApi {
   async saveStoryReaderViewState(mapRevision, state, viewKey = "route-map") {
     return assertStoryReaderViewState(await this.request(this.storyReaderPathFor("save_view_state"), { method: "POST", body: { map_revision: mapRevision, view_key: viewKey, state } }), mapRevision);
   }
+
+  async storyWorkflow(command, binding = null) {
+    if (!["prepare", "start", "status", "cancel", "resume"].includes(command)) throw new TypeError("Story workflow command is unavailable");
+    const body = { contract: STORY_WORKFLOW_CONTRACT };
+    if (command === "status") body.run_id = binding?.run_id;
+    if (["start", "cancel", "resume"].includes(command)) {
+      body.run_id = binding?.run_id;
+      body.preview_identity = binding?.preview_identity;
+    }
+    if (command !== "prepare" && (typeof body.run_id !== "string" || !body.run_id)) throw new TypeError("Story workflow run is unavailable");
+    if (["start", "cancel", "resume"].includes(command) && (typeof body.preview_identity !== "string" || !body.preview_identity)) throw new TypeError("Story workflow preview is unavailable");
+    return assertStoryWorkflowResponse(await this.request(this.storyWorkflowPathFor(command), { method: "POST", body }), command);
+  }
+  prepareStoryWorkflow() { return this.storyWorkflow("prepare"); }
+  startStoryWorkflow(binding) { return this.storyWorkflow("start", binding); }
+  storyWorkflowStatus(binding) { return this.storyWorkflow("status", binding); }
+  cancelStoryWorkflow(binding) { return this.storyWorkflow("cancel", binding); }
+  resumeStoryWorkflow(binding) { return this.storyWorkflow("resume", binding); }
 
   async routeMap(offset = 0, limit = ROUTE_PAGE_SIZE, edgeOffset = 0, edgeLimit = ROUTE_EDGE_PAGE_SIZE) {
     return assertRoutePage(await this.request(ENDPOINTS.routeMap, {
