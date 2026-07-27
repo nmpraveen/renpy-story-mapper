@@ -514,6 +514,10 @@ def _detail_reader_slice(
     ]
     source = payload.get("source_navigation")
     if isinstance(source, Mapping):
+        source_item = dict(source)
+        path = source_item.pop("path", None)
+        if isinstance(path, str):
+            source_item["relative_path"] = path
         items.append(
             {
                 "id": _projection_id(
@@ -522,7 +526,7 @@ def _detail_reader_slice(
                 "kind": "evidence",
                 "order": len(items),
                 "title": "Source evidence",
-                **dict(source),
+                **source_item,
             }
         )
     detail = payload.get("detail")

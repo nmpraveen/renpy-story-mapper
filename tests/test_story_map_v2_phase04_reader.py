@@ -1592,7 +1592,9 @@ def test_durable_only_selection_uses_indexed_path_detail_and_source(
         assert response["resource_id"] == selection_id
         assert 1 <= response["rendered_item_count"] <= MAX_RENDERED_ITEMS
         assert _json_size(response) <= MAX_SERIALIZED_BYTES
-    assert any(item["kind"] == "evidence" for item in detail_page["items"])
+    evidence_item = next(item for item in detail_page["items"] if item["kind"] == "evidence")
+    assert evidence_item["relative_path"] == source_navigation["path"]
+    assert "path" not in evidence_item
     assert provider_calls == []
 
 
