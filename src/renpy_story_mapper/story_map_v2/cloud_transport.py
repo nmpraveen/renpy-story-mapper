@@ -179,8 +179,14 @@ def discover_native_codex(executable: str) -> str | None:
     return None
 
 
-def build_sterile_command(executable: str, schema_path: Path) -> tuple[str, ...]:
-    """Return the exact Luna/High/fast-off direct command."""
+def build_sterile_command(
+    executable: str,
+    schema_path: Path,
+    *,
+    model: str = CLOUD_MAPPER_MODEL,
+    reasoning: str = CLOUD_REASONING,
+) -> tuple[str, ...]:
+    """Return an exact direct command; legacy callers retain Luna/High defaults."""
 
     if not Path(executable).is_absolute():
         raise ValueError("The cloud transport requires an absolute native executable path.")
@@ -202,7 +208,7 @@ def build_sterile_command(executable: str, schema_path: Path) -> tuple[str, ...]
     arguments.extend(
         (
             "-c",
-            f'model_reasoning_effort="{CLOUD_REASONING}"',
+            f'model_reasoning_effort="{reasoning}"',
             "-c",
             'web_search="disabled"',
             "-c",
@@ -211,7 +217,7 @@ def build_sterile_command(executable: str, schema_path: Path) -> tuple[str, ...]
             "--output-schema",
             str(schema_path),
             "--model",
-            CLOUD_MAPPER_MODEL,
+            model,
             "-",
         )
     )

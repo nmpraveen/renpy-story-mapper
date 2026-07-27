@@ -20,6 +20,14 @@ STORY_CHUNK_PLAN_SCHEMA = "story-map-v2-phase04-chunk-plan-v1"
 PHASE04_MAPPER_REQUEST_SCHEMA = "story-map-v2-phase04-mapper-request-v1"
 PHASE04_MAPPER_PROMPT_VERSION = "story-map-v2-phase04-mapper-prompt-v1"
 COMPLETE_REQUEST_TOKEN_COUNTER = "raw-authority-plus-nonstory-utf8-v1"
+PHASE04_MAPPER_TASK = (
+    "Return exactly one JSON object matching the supplied Phase 04 mapper response schema. "
+    "Summarize the raw story into chronological narrative events and concise branch outcomes. "
+    "Cover every supplied placement exactly once and in order. Reference only supplied choice "
+    "keys and arm orders. Do not invent, change, or infer path mechanics, destinations, effects, "
+    "routes, rejoins, loops, or endings; Python owns those fields. Do not use tools, files, web "
+    "search, apps, plugins, other agents, or provider calls."
+)
 
 
 class FrozenPlanMismatch(ValueError):
@@ -640,6 +648,7 @@ def _request_payload(
     return {
         "schema": PHASE04_MAPPER_REQUEST_SCHEMA,
         "prompt_version": prompt_version,
+        "task": PHASE04_MAPPER_TASK,
         "story_plan_identity": story_plan_identity,
         "chunk_id": chunk_id,
         "scope": {"id": scope_id, "ordinal": scope_ordinal},

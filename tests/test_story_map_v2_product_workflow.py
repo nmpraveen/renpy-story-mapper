@@ -17,6 +17,7 @@ from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
 from renpy_story_mapper.story_map_v2.product_workflow import (
     MAPPING_ADAPTER_VERSION,
+    ProductWorkflowValidator,
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
@@ -101,6 +102,9 @@ def test_product_prepare_freezes_exact_provider_free_workflow() -> None:
     for job in prepared.plan.jobs:
         request = requests[job.serialized_request_identity.value]
         job.serialized_request_identity.verify(request)
+        packet = json.loads(request)
+        assert packet["task"].startswith("Return exactly one JSON object")
+        assert packet["raw_story"]
         assert job.cache_identity == prepared.policy.input_identity(
             job.serialized_request_identity
         ).cache_identity
@@ -133,6 +137,55 @@ def test_product_prepare_discloses_optional_loopback_in_same_frozen_ceiling() ->
         + prepared.ceilings.section_synthesis_calls
         + prepared.ceilings.rollup_synthesis_calls
     )
+
+
+def test_product_validator_overlays_authority_onto_provider_prose() -> None:
+    graph = _authority()
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:provider-prose",
+    )
+    job = prepared.plan.jobs[0]
+    chunk = next(
+        item
+        for item in prepared.frozen_plans.story_chunk_plan.chunks
+        if item.chunk_id == job.chunk_id
+    )
+    prose = {
+        "title": "Story opening",
+        "overview": "The opening events establish the current situation.",
+        "review_requested": False,
+        "events": [
+            {
+                "key": "opening",
+                "placement_ids": list(chunk.placement_ids),
+                "title": "Opening events",
+                "summary": "The characters move through the opening sequence.",
+                "characters": [],
+            }
+        ],
+        "branch_summaries": [
+            {
+                "choice_key": segment.choice_key,
+                "arm_orders": list(segment.arm_orders),
+                "summary": "The available responses briefly diverge before continuing.",
+            }
+            for segment in chunk.choice_segments
+        ],
+    }
+
+    result = ProductWorkflowValidator(prepared).validate(
+        job,
+        json.dumps(prose).encode(),
+        cached=False,
+    )
+    normalized = json.loads(result.normalized_payload)
+
+    assert normalized["story_chunk_plan_identity"] == prepared.plan.plan_id
+    assert normalized["chunk_id"] == job.chunk_id
+    assert normalized["request_hash"] == job.serialized_request_identity.sha256
+    assert normalized["scope_id"] == job.scope_id
 
 
 def test_product_preview_persists_exact_plans_with_zero_provider_construction(

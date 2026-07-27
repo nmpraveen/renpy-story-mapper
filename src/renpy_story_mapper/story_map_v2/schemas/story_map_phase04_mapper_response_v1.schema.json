@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "story-map-v2-phase04-mapper-prose-response-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "overview",
+    "review_requested",
+    "events",
+    "branch_summaries"
+  ],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 80},
+    "overview": {"type": "string", "minLength": 1, "maxLength": 600},
+    "review_requested": {"type": "boolean"},
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "placement_ids", "title", "summary", "characters"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1, "maxLength": 80},
+          "placement_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "title": {"type": "string", "minLength": 1, "maxLength": 80},
+          "summary": {"type": "string", "minLength": 1, "maxLength": 320},
+          "characters": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 80}
+          }
+        }
+      }
+    },
+    "branch_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["choice_key", "arm_orders", "summary"],
+        "properties": {
+          "choice_key": {"type": "string", "minLength": 1},
+          "arm_orders": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "integer", "minimum": 0}
+          },
+          "summary": {"type": "string", "minLength": 1, "maxLength": 320}
+        }
+      }
+    }
+  }
+}

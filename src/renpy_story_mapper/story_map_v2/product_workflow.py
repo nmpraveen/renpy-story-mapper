@@ -9,6 +9,7 @@ may be persisted.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import NoReturn, cast
 
@@ -16,6 +17,7 @@ from renpy_story_mapper.canonical_graph_contract import CanonicalGraph
 from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.m12_service import canonical_graph_from_mapping, load_m12_authority
 from renpy_story_mapper.project import Project
+from renpy_story_mapper.story_map_v2.contracts import canonical_json
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
     adapt_chunk_planning_projection,
@@ -135,12 +137,37 @@ class ProductWorkflowValidator:
             request_sha256=job.serialized_request_identity.sha256,
             request_byte_count=job.serialized_request_identity.byte_count,
         )
-        result = self._validator.validate(binding, payload, cached=cached)
+        bound_payload = payload if cached else _bind_provider_prose(job, payload)
+        result = self._validator.validate(binding, bound_payload, cached=cached)
         return ValidatedWorkflowResult(
             result.result_identity,
             result.normalized_payload,
             result.flagged_for_review,
         )
+
+
+def _bind_provider_prose(job: WorkflowJobDescriptor, payload: bytes) -> bytes:
+    """Overlay Python-owned request and authority identities onto provider prose."""
+
+    try:
+        value: object = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return payload
+    if not isinstance(value, dict):
+        return payload
+    expected = {"title", "overview", "review_requested", "events", "branch_summaries"}
+    if set(value) != expected:
+        return payload
+    return canonical_json(
+        {
+            "schema": PHASE04_MAPPER_RESPONSE_SCHEMA,
+            "story_chunk_plan_identity": job.plan_id,
+            "chunk_id": job.chunk_id,
+            "request_hash": job.serialized_request_identity.sha256,
+            "scope_id": job.scope_id,
+            **value,
+        }
+    )
 
 
 def persist_product_workflow_preview(
