@@ -1,26 +1,28 @@
-# M15.1 Phase 04 task ledger
+# M15.1 Phase 04 lean task ledger
 
-Baseline: merged Phase 03 closeout `e715d8ae80dd1188c729a447cfabf3c45b3b7286` on synchronized
-`main`; integration branch `codex/m15-phase04-full-game`.
+Baseline: branch `codex/m15-phase04-full-game`, product checkpoint `2995d99`, draft PR #30 open and
+unmerged.
 
-| Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
+Only statuses `Pending`, `In progress`, `Blocked`, and `Complete` are used below.
+
+| Task | Owner | Small bounded outcome | Dependencies | Status | Evidence / handoff |
 |---|---|---|---|---|---|
-| Contract authoring | Phase Coordinator | GOAL, design, ledger, project pointers | User-approved plan | Complete | This contract checkpoint |
-| Early semantic review | Independent visible reviewer | Requirements, authority, architecture, checks, evidence mapping | Contract checkpoint | Complete | Repeated exact-head `PASS` at `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2`; prior `REVISE` history and corrected consent conflict remain recorded in `SEMANTIC_REVIEW.md`; P0=P1=P2=0 |
-| Native goal and draft PR | Phase Coordinator | Goal lifecycle, integration branch, one PR | Semantic `PASS` | Complete | Native goal active on coordinator task `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`; draft [PR #30](https://github.com/nmpraveen/renpy-story-mapper/pull/30) is open and unmerged |
-| Track A: authority and chunking | Visible Track A Coordinator | Occurrences, scopes, placements, frozen chunking, structural fallback | Semantic `PASS` | Complete | Coordinator `019fa00d-1e55-79e0-95b0-c88f8fd89919`; A1 `019fa00e-c8e5-7141-8c83-d043b27d9d34`; A2 `019fa00e-c8e9-7422-bce8-adc0b692ff40`; reviewed head `c03222c329b23f05b574fc4c91b7e30a04d46fc1`; [PR #31](https://github.com/nmpraveen/renpy-story-mapper/pull/31) merged into the integration branch at `b18ab4d` |
-| Track A exact-head review | Independent Track A reviewer | Correctness, coverage, exclusions, focused tests | Track A candidate | Complete | Task `019fa00e-c967-7e71-a7e4-151e1cfcb498`; exact pushed-head `PASS`, P0=P1=P2=P3=0; PR CI passed in 18m49s; post-merge focused gate passed 25 tests |
-| Track B: durable workflow | Visible Track B Coordinator | Schema v7, runs/jobs/attempts/cache, consent, six workers, recovery | Semantic `PASS` | Complete | Coordinator `019fa00d-1e77-7fd3-93d5-ee9761a5f662`; B1 `019fa00f-8e20-7382-8dc9-2c1ce5d39975`; B2 `019fa00f-b94c-7af1-9b10-1b67c64ea6fb`; corrected product head `948994e3a13c77982cb356692e1fe15b5f079147`; exact test-only final head `edf8b4fc95ff90803982b94b726ee810a6c67d25`; [PR #32](https://github.com/nmpraveen/renpy-story-mapper/pull/32) merged at `24e6ea8` |
-| Track B exact-head review | Independent Track B reviewer | Durability, privacy, duplicate-call and fault-injection checks | Track B candidate | Complete | Task `019fa00f-dad0-7b13-9454-9c9b44a0d098`; corrected product and final test-only heads both `PASS`, P0=P1=P2=P3=0; final PR run `30224335123` passed in 17m22s |
-| A/B integration seam | Phase Coordinator | Integrate reviewed heads; freeze plan/job/publication interfaces | A/B reviews pass | Complete | Frozen at integration commit `24e6ea8`; post-merge 151 focused tests, Ruff, strict mypy over 118 source files, `pip check`, and diff hygiene passed |
-| Repository-wide CI acceleration | Visible CI coordinator and independent reviewers | Four complete timing-balanced Windows pytest lanes, proof/aggregate, streaming output, shared workflow contract | Frozen A/B seam | In progress | Coordinator `019fa0a1-e213-7f62-8ca9-ea0e6e1de032`; branch `codex/m15-p4-ci-shards`; worktree `C:/Users/prave/.codex/worktrees/d42f/Renpy`; must be independently reviewed and merged into the integration branch before C/D final review and push |
-| Track C: assembly and API | Visible Track C Coordinator | Selective review, sections, rollups, generations, scalable APIs | Frozen A/B seam | In progress | Coordinator `019fa0bd-d099-7453-94ba-35ba6c2aaab9`; preserved reader-v1 base `cea5cf03145a2395be6571f9f8a91c7a6020c504`; effective additive reader-v2 correction `44a41cca1fcb02264a0981dbd39aa7691bf9cbf7` adds exact branch resource identity after D1 found the opaque locate gap; preliminary rollup seam `9657c6e` is rejected and preserved; corrected dependency-aware B/C seam `db50539a8616bb29b6735b95a60ff401ce0f10d2` freezes section/rollup call kinds, fan-in-24 upper bounds, immutable derived jobs, and exact ceilings; C1 `019fa0c3-689c-7151-82bc-410d7959c992` in `bf83`; C2 `019fa0c3-689c-7151-82bc-40cbed4c2045` in `6314`; explicit `gpt-5.6-sol` High, fast mode unavailable/unverified; must consume accepted repository-wide CI workflow before final review/push |
-| Track C exact-head review | Independent Track C reviewer | Semantic validation, paging/navigation, compatibility | Track C candidate | Pending | Task `019fa0c3-689c-7151-82bc-40eea50f1d48` in `425a`; preparatory matrix only until coordinator freezes one exact integrated head; explicit `gpt-5.6-sol` High, fast mode unavailable/unverified |
-| Track D: browser and acceptance | Visible Track D Coordinator | Workflow UI, lazy reader, NEW diff, browser/scale/real-run harness | Frozen A/B seam and C fixtures | Pending | Ready to dispatch from `24e6ea8` against frozen API fixtures; separate worktree/task and exact-head reviewer required; must consume accepted repository-wide CI workflow before final review/push |
-| Track D exact-head review | Independent Track D reviewer | Browser races, accessibility, privacy, scale geometry | Track D candidate | Pending | Separate visible reviewer required |
-| Final integration and verification | Phase Coordinator | Integrated diff, focused/regression/scale/private acceptance | C/D reviews pass | Pending | Exact commands/artifacts pending |
-| Final cross-track review | Independent visible reviewer | Exact integrated head, exclusions, P0-P3 | Integrated candidate | Pending | Separate visible reviewer required |
-| User visual approval | User / Phase Coordinator | Exact-head 100%/200%/narrow private screenshots | Final review pass | Pending | Approval pending |
-| Release and PR readiness | Phase Coordinator | Full Windows gate, CI, completion report, ready unmerged PR | Acceptance and approval | Pending | Pending |
+| Scope reset | Current coordinator | Replace the production-grade contract with the user-approved lean outcome and future planning rules | User direction | Complete | Revised `GOAL.md`, design, project rules, planning guide, and resume prompt; no product code or provider work |
+| Fresh lightweight semantic gate | One separate visible reviewer | Confirm the revised plan reuses current code and adds no production-grade requirements | Scope-reset checkpoint | Pending | Must use `gpt-5.6-sol` Medium; one verdict only unless the user approves a correction loop |
+| Existing Phase 04 foundation | Historical Tracks A-D and integration | Planning/chunking, durable jobs, mapping runner, semantic/reader/browser foundations, CI shards | Historical contract | Complete | Integrated commits through `2995d99`; old per-track reports remain historical evidence, not current acceptance authority |
+| Backend/API vertical path | One visible worker | Approved run → accepted summaries → simple sections/overview → published generation; advertise existing workflow commands | Fresh semantic `PASS` | Pending | Python/backend files only; focused tests; no new architecture without approval |
+| Website vertical path | One visible worker | Preview/consent/progress/cancel/resume controls open the existing chronological reader | Minimal API fixture frozen | Pending | Static website files and focused browser tests only |
+| Lean integration review | One separate visible reviewer | Review the integrated vertical path against the eight lean criteria | Both workers integrated | Pending | One exact integrated-head verdict; no per-worker reviewer tree |
+| Real MsDenvers check | Orchestra with explicit user consent | Run supported workflow, inspect representative story/branch/path samples, show result to user | Integrated path and zero-submit preview | Pending | Private artifacts outside Git; usefulness review before any polish |
+| Blocker-only correction | Responsible worker | Fix only problems demonstrated by the real check | User feedback | Pending | One bounded pass; second design loop pauses for user decision |
+| Final lean gate and PR readiness | Orchestra | Focused tests, user screenshots, sharded CI, one Release/package gate, evidence, ready PR #30 | User accepts output | Pending | Leave PR open and unmerged |
 
-Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`.
+## Orchestra policy
+
+- One user-visible Orchestra task owns the goal and manages the tasks above.
+- No more than two implementation workers run concurrently.
+- For this resumption, all workers and reviewers use `gpt-5.6-sol`, Medium reasoning, and fast mode
+  disabled; report unavailable selectors honestly.
+- Monitor completions and blockers only. Do not continuously poll commentary or healthy CI.
+- When a task proposes a new schema, protocol, scheduler, recovery system, review tier, or unrelated
+  hardening, pause and ask the user.

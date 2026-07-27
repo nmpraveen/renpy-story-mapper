@@ -1,142 +1,181 @@
-# M15.1 - Story Map V2 Phase 04 full-game scaling
+# **QUICK, CRUDE SCRIPT TO STORY CHECKER — NOT A PRODUCTION-GRADE SYSTEM**
 
-Status: In progress
+## M15.1 Phase 04 — finish the full-game story map
 
-Scope authority: `docs/MASTER_PLAN.md`, M15, the user's approved 2026-07-26 Phase 04 plan, and
-`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`.
+Status: Revise
+
+Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
+`docs/MILESTONE_PLANNING_RULES.md`.
+
+The earlier production-grade Phase 04 contract is superseded. Its useful implementation stays in
+place, but its 22 acceptance criteria, extreme-scale targets, exhaustive recovery/tamper matrices,
+per-track exact-head reviews, and repeated full gates are no longer product requirements.
+
+## Ultimate rule
+
+**LOAD REN'PY FILES, QUICKLY SHOW THE ROUGH WHOLE STORY, AND MAKE THE IMPORTANT CHOICES, ROUTES,
+STATE CHANGES, AND REJOINS EASY TO SEE. IF WORK DOES NOT DIRECTLY HELP THAT RESULT OR REMOVE A
+DEMONSTRATED BLOCKER, DO NOT BUILD IT. PAUSE AND ASK.**
 
 ## Done condition
 
-Phase 04 is genuinely done and PR-ready when the supported Windows website can prepare, explicitly
-authorize, durably execute, cancel, reopen, resume, progressively display, and finish a complete
-Story Map V2 run for the current private MsDenvers project: AI supplies readable summaries and
-meaningful section prose, while M10/M11/M12-derived Python authority owns occurrence order, choices,
-arms, requirements, effects, routes, rejoins, loops, endings, path witnesses, evidence navigation,
-and cross-version `NEW` path detection. The exact integrated head must meet the bounded persistence,
-privacy, scale, browser, recovery, real-game, review, screenshot-approval, CI, and Windows
-Release/package evidence below, with no unresolved P0-P2, while its one Phase 04 PR remains open and
-unmerged.
+Phase 04 is done when the supported local website can take the current MsDenvers project through
+one understandable workflow and produce a useful rough full-game map:
 
-## Objective
+- a chronological whole-story overview;
+- readable story sections and short AI summaries;
+- visible local choices and their outcomes;
+- persistent alternative routes, important state changes, and known rejoins/endings;
+- working Path and Detail/Evidence navigation for sampled visible items; and
+- honest structural placeholders when an AI summary is unavailable.
 
-Turn the accepted Day 1 Story Map V2 core/browser into the practical full-game product: give it
-Ren'Py game files and receive a readable chronological whole-story overview with local branches,
-persistent routes, exact rejoins and mechanics, global navigation, durable progress, and honest
-partial coverage.
+The user must be able to inspect the real result and say it is useful for quick personal story
+checking. Perfect prose, perfect AI reproducibility, publication-level accuracy, exhaustive edge
+case handling, and production-grade service guarantees are not required. The final Phase 04 PR
+must be ready, open, and unmerged.
 
-## Deliverables
+## Current safe checkpoint
 
-- One occurrence-aware, route-aware, frozen Story Plan built from current M10/M11 authority.
-- Coherent 8k/5k-target script packets with a 10,700-token hard ceiling and safe oversized-route/
-  arm segmentation.
-- One V2-native durable six-worker run/cache/attempt/generation layer with explicit preview,
-  consent, cancellation, recovery, selective review, and refusal-only loopback fallback.
-- AI-authored chunk summaries, contiguous meaningful sections, route summaries, and whole-game
-  overview whose membership and topology remain Python-owned.
-- Provider-free structural fallback and progressive immutable generation publication.
-- Scalable manifest/section/branch/search/locate/path/detail/view-state APIs and the accepted compact
-  vertical browser with lazy hydration.
-- Stale-map preservation and deterministic cross-generation `NEW` route/branch highlighting.
-- Read-only Phase 03 record compatibility, schema-v6 to schema-v7 backup migration, focused and
-  scale fixtures, real private MsDenvers evidence, approved screenshots, and final Release evidence.
+- Integration branch: `codex/m15-phase04-full-game`.
+- Current local head before this scope reset: `2995d99`.
+- Draft PR: #30, open and unmerged.
+- Useful foundations already exist: occurrence-aware planning/chunking, durable workflow storage,
+  cloud mapping execution, semantic event/section components, scalable reader/browser components,
+  repository-wide sharded CI, and durable section-job scheduling.
+- The last implementation checkpoint reported 119 focused tests passing. This scope-reset change
+  runs documentation checks only and does not repeat product tests.
+- The prior coordinator records a Phase 04 native goal on task
+  `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`. A new Orchestra must verify whether that goal can be
+  resumed or handed off; it must not create a duplicate automatically.
+- No implementation task is currently authorized to continue until this revised contract receives
+  one fresh lightweight semantic `PASS`.
+
+## Must work in Phase 04
+
+1. Finish the shortest backend path from an approved prepared run to accepted chunk summaries,
+   simple section/overview prose, and one published readable generation.
+2. Expose the existing prepare/start/status/cancel/resume behavior through the website and connect
+   it to the existing story reader. Keep controls unavailable when the backend does not advertise
+   them; do not invent another protocol family.
+3. Show progress plainly, then show the rough whole story with choices, routes, state changes,
+   rejoins, Path, and Detail/Evidence.
+4. Run the current MsDenvers project early through that supported workflow after a zero-submit
+   preview and exact user consent for private AI transmission.
+5. Fix only blockers that make the real output unusable or violate read-only/privacy boundaries.
+
+## Lean execution gates
+
+### Gate 0 — scope reset and lightweight semantic review
+
+- Treat this file as the only active Phase 04 acceptance contract.
+- Use one short independent review to confirm the plan can reuse the current implementation and
+  does not accidentally revive the superseded production requirements.
+- On uncertainty, record `REVISE`, pause, and ask the user. Do not start another architecture pass.
+
+### Gate 1 — shortest end-to-end product path
+
+Use no more than two concurrent user-visible worker tasks:
+
+- **Backend/API worker:** finish only the missing accepted-summary → simple section/overview →
+  generation publication path and the existing workflow command/status web composition.
+- **Website worker:** connect the existing controls and reader to that minimal frozen API and make
+  the chronological map readable at normal desktop and 200% zoom.
+
+Reuse existing code and contracts wherever they are good enough. Do not introduce a schema,
+scheduler, protocol version, migration, cache layer, diff system, or recovery subsystem unless a
+failing current end-to-end case proves it is necessary and the user approves it.
+
+### Gate 2 — real MsDenvers check
+
+- Prepare with zero provider construction/calls and show the exact model, private material, chunk
+  count, and maximum calls.
+- Obtain exact consent before transmitting private story text.
+- Run the supported website workflow and inspect Day 1 plus representative later local choice,
+  persistent route, rejoin, state-dependent scene, and ending.
+- Judge usefulness, not perfect wording. Clearly marked missing summaries are acceptable if the
+  whole deterministic route structure remains visible and the overall story is still useful.
+- Show the user the result and pause for feedback before polishing or broadening anything.
+
+### Gate 3 — blocker-only correction
+
+Make one bounded correction pass for problems the real check actually exposed. A second design
+loop, new architecture layer, or broad hardening effort requires the user's approval.
+
+### Gate 4 — lean final verification and PR readiness
+
+- Run the affected/focused Story Map V2 tests and direct static checks.
+- Run one independent integrated review with no unresolved P0-P2 on the lean contract.
+- Obtain user approval of the final normal/200% screenshots; narrow-layout checks are required only
+  if this phase changes narrow-layout behavior.
+- Push the intended PR candidate once, use the repository-wide timing-balanced sharded CI, and run
+  one final Windows Release/package gate on the intended final head.
+- Record evidence and leave PR #30 open and unmerged.
 
 ## Acceptance criteria
 
-1. M11 chapters, lanes, scenes, and call occurrences establish story placement before physical
-   path/line tie-breakers; shared called content has distinct occurrence placements; persistent
-   lanes are not flattened into common chronology; loops are explicit and bounded.
-2. M10 owns every exact choice caption/order, condition, effect, destination, rejoin, reachability,
-   warning, terminal, and evidence anchor, and M12 owns path witnesses. AI cannot alter topology.
-3. The exact prepared Story Plan and chunk plan are persisted and reused for assembly/resume; no
-   assembly-time replanning occurs.
-4. Normal packets target about 8,000 raw-story tokens, branch-heavy packets about 5,000, and no
-   provider packet exceeds 10,700. Oversized persistent/local/nested choices split without omitted
-   or duplicated authoritative placement coverage.
-5. `Prepare` constructs no provider and submits no call. Its frozen preview binds authority, plan,
-   pending/cache-hit work, Terra/High/fast-off, six-worker concurrency, explicit cloud/local privacy
-   scope, and finite mapping/review/rollup/fallback ceilings.
-6. One exact approval authorizes the unchanged run and resume. Changed authority, plan, prompt,
-   model, provider, or ceiling requires a new preview. An indeterminate transmission requires a
-   job-specific retry approval.
-7. At most six independent jobs submit concurrently; there is no batching, adaptive ramp, recursive
-   provider splitting, automatic retry tree, or attempt-number reuse. A transactional claim/lease
-   prevents duplicate execution across processes.
-8. Python validates every mapper response. At most one Terra replacement review runs only for a
-   flagged cloud result. An explicit content refusal may use one configured loopback Qwen mapping
-   call only when that fallback was explicitly disclosed and approved in the unchanged frozen
-   preview; invalid local output does not return to cloud automatically.
-9. Provider results never own mechanics. Accepted or cached prose is revalidated and re-overlaid
-   against the current deterministic authority before publication.
-10. Cancellation persists before transport signalling, starts no later work, and preserves completed
-    work. Reopen/status/read constructs no provider and makes zero calls. Interrupted uncertain
-    submissions become `indeterminate` and never auto-resubmit.
-11. Cache identity binds exact transmitted request bytes, prompt/schema/adapter contract, provider,
-    model, reasoning, fast-mode, and cloud/local mode but excludes run routing. Raw prompts/source
-    packets, credentials, provider stderr, and absolute private paths are not durably retained.
-12. A provider-free structural generation appears immediately. Completed scopes progressively fill
-    predetermined chronology/route slots; a corrupt/failed candidate cannot replace the prior
-    complete generation; final publication advances one atomic current pointer.
-13. Terra proposes only prose and contiguous existing-event ranges for meaningful sections and
-    bounded whole-game rollups. Python proves exact coverage, order, contiguity, and route ownership;
-    invalid synthesis falls back without a repair loop.
-14. The complete manifest exposes the whole-story overview, every ordered section, route/ending
-    landmarks, counts, status, and revision. Section/branch/search/path/detail data is bounded and
-    lazily loaded without rebuilding or rendering the monolithic full map.
-15. Every read carries a map revision; opaque cursors bind revision/identity/order/offset/limits;
-    tampering fails closed and stale revisions return typed `409 stale_map_revision`.
-16. The browser preserves the accepted normal-flow vertical timeline, nested local choices,
-    persistent alternatives, rejoins, selection/focus, `Path to this moment`, Detail/Evidence, and
-    exact return state at 100%, 200%, and narrow width, with minimal helper text and no remote assets.
-17. Refresh preserves the old map as stale. A new accepted generation compares only deterministic
-    path facts with the immediately prior accepted generation; new arms/routes/endings and affected
-    sections receive `NEW` until the next source generation, with a presentation-only hide toggle.
-    AI wording changes alone never create `NEW`.
-18. Existing Phase 03 single-core records remain read-only compatible. Schema-v6 projects receive a
-    verified backup before schema-v7 migration. Historical Stage H/E/M13 semantic scheduling remains
-    outside the V2 dependency graph.
-19. The deterministic scale fixture covers at least 5,000 events, 5,000 choices, 20,000 arms, 2,000
-    rejoins, 256 sections, depth eight, a 50-section persistent route, an oversized branch page, a
-    cross-section rejoin, and a final-section target while meeting the approved API/DOM/memory bounds.
-20. The current private MsDenvers project completes through the supported website with 100% exact
-    structural placement/choice/arm/route/ending coverage. Final output may contain no more than two
-    clearly marked noncritical unsummarized chunks and no more than 5% of story tokens; no choice,
-    route, rejoin, ending, or newly added branch material may be unsummarized.
-21. Protected inputs remain byte/size/time unchanged; no game, Ren'Py, or creator code executes;
-    private packets/responses/screenshots remain outside Git; real-run evidence is sanitized.
-22. Independent exact-head track reviews and final cross-track review leave no unresolved P0-P2;
-    the user approves exact-head 100%/200%/narrow screenshots; focused/regression/scale/real-game,
-    Ruff, strict mypy, dependency, JavaScript, CI, and Windows Release/package gates pass; the Phase
-    04 PR is ready, open, and unmerged.
+1. A user can prepare the current game through the website without creating a provider or making an
+   AI call, and the preview plainly discloses private transmission and finite call limits.
+2. After exact consent, the workflow can process chunks, keep completed work, and resume ordinary
+   pending work after reopen without resubmitting completed chunks.
+3. The final deterministic structure contains the reachable story placements, choices, arms,
+   persistent routes, known state changes, rejoins, and endings supplied by existing Python
+   authority. AI writes prose only and cannot replace those mechanics.
+4. The website presents a readable chronological whole-story overview and sections with nested
+   branches/routes rather than a generic spread-out graph.
+5. Sampled Day 1 content remains consistent with the accepted Phase 03 result, and representative
+   later choice, route, rejoin, state-dependent scene, and ending are understandable.
+6. Every sampled visible item can open the existing Path and Detail/Evidence views. Unavailable AI
+   prose is labeled honestly without hiding the structural route.
+7. Source/archive inputs remain read-only, no game/Ren'Py/creator code executes, opening or reading
+   makes no implicit provider call, and private source/prompts/responses/screenshots stay outside
+   Git.
+8. The user accepts the real output as useful for quick checking; one final integrated review,
+   focused checks, sharded CI, and one Release/package gate pass; PR #30 is ready and unmerged.
 
-## Required evidence
+## Evidence required
 
-| Criterion | Evidence required | Result / durable location |
-|---|---|---|
-| 1-4 | Occurrence/order/route/loop and oversized-chunk fixtures with exact coverage hashes | Pending |
-| 5-11 | Zero-submit preview, consent identity, six-worker/fault-injection/cache/privacy reports | Pending |
-| 12-18 | Generation, sectioning, API/browser, diff, migration, and compatibility reports | Pending |
-| 19 | Synthetic scale metrics: latency, bytes, DOM, memory, repeated navigation | Pending |
-| 20-21 | Sanitized full MsDenvers report plus before/after protected-input fingerprints | Pending outside Git; sanitized summary to be recorded here |
-| 22 | Exact commits, review reports, screenshots approval, commands, CI run, Release/package report, PR state | Pending |
+| Criterion | Minimum evidence |
+|---|---|
+| 1-2 | Zero-submit preview, consent identity, concise terminal job counts, reopen/resume result |
+| 3-6 | Sanitized real-game counts plus a small sample of Day 1, local choice, persistent route, rejoin, state-dependent scene, ending, Path, and Detail/Evidence |
+| 7 | Before/after protected-input fingerprints and a concise privacy/non-execution statement |
+| 8 | User screenshot/output approval, one final review verdict, focused commands/results, sharded CI run, Release/package result, and PR state |
 
-## Exclusions
+## Explicitly deferred or removed from acceptance
 
-- No historical Stage H/E, adjacent-gap voting, atom/claim allocation, evidence-per-claim,
-  semantic-lock compiler, hierarchy repair DAG, exact-prose replay, or M13 scheduler reuse.
-- No AI-owned choice, route, rejoin, requirement, effect, reachability, ending, path, or evidence fact.
-- No world canvas, generic technical graph redesign, route-map replacement, or third semantic level.
-- No M14 tracing, game execution, Ren'Py execution, creator-code execution, installer scope, legacy
-  workflow retirement, or Phase 05 acceptance closure.
-- No automatic provider call on import, open, read, status, stale detection, or source refresh.
-- No private source, raw prompt/response, credentials, private screenshots, or machine-specific
-  canonical sample path in Git or provider-independent acceptance artifacts.
-- Do not merge the final Phase 04 PR under this contract.
+- Production-grade multi-process guarantees and exhaustive crash timing matrices.
+- Extreme synthetic targets such as 5,000 events, 20,000 arms, depth-eight branches, fixed memory
+  budgets, or exhaustive cursor/tamper tests. Existing passing work may remain; do not expand it.
+- Perfect cache identity proofs, exact prose replay, deterministic AI wording, formal coverage
+  proofs, and publication-grade accuracy.
+- Cross-version `NEW` badges, advanced stale-generation diffing, exhaustive search/paging scale,
+  and full legacy retirement unless already working at no material cost. Phase 05 may reconsider
+  product cleanup after the core result is accepted.
+- Per-worker exact-head reviewers, continuous orchestration monitoring, repeated hosted CI, and a
+  full Release after every correction.
+- New Stage H/E, M13 scheduler reuse, M14 tracing, installer work, hosted deployment, game editing,
+  or creator-code execution.
+
+Existing implemented hardening does not need to be deleted unless it blocks the simple workflow.
+It simply is not a reason to add more hardening.
+
+## Agent and orchestration rules
+
+- One user-visible Orchestra task owns scope, decisions, worker dispatch, integration, and
+  checkpoint reporting.
+- For this resumption, every implementation worker and reviewer must be created with
+  `gpt-5.6-sol`, Medium reasoning, and fast mode disabled. If the task UI cannot verify a setting,
+  report that fact.
+- The user intends to use an Ultra-reasoning chat for planning/Orchestra work. Repository prose does
+  not set that model; the new chat must rely on the user's actual selection.
+- Keep at most two implementation workers active at once. Use one lightweight semantic reviewer
+  before work and one integrated reviewer near the end.
+- The Orchestra checks milestone completions and blockers, not continuous commentary or healthy CI.
+- When necessity, scope, or value is uncertain, pause the goal and ask the user.
 
 ## Handoff rules
 
-- Each visible track task returns exact commit/head, branch/worktree, changed files, commands/results,
-  assumptions, known defects, conflicts, and remaining acceptance work.
-- Each track receives an independent exact-head reviewer; integrate only with P0=P1=P2=0.
-- Keep status at `Integration` until all worker changes are integrated and independently reviewed.
-- Keep one native Codex goal active from semantic `PASS` through verification and PR preparation.
-- Complete the goal only at genuine `PR ready`, with the Phase 04 PR open and unmerged.
+Each worker returns its exact base/head, changed files, focused checks/results, assumptions, known
+defects, and one sentence explaining how the work directly improves the script-to-story result.
+The Orchestra integrates only the lean required path, updates this contract with factual evidence,
+and stops at user-decision gates. Do not merge PR #30 without separate explicit user approval.

@@ -12,6 +12,10 @@ Decision: PENDING
 |---|---|---|---|
 | TODO | `docs/MASTER_PLAN.md` | TODO | No |
 
+Confirm that every requirement directly supports the one-sentence user outcome or a demonstrated
+current blocker. Historical architecture and desirable production hardening do not qualify by
+themselves.
+
 ## Architecture boundaries
 
 - Authority and invariants: TODO
@@ -34,6 +38,10 @@ Decision: PENDING
 ## Assumptions and conflicts
 
 - TODO; write `None` only after checking.
+- Confirm that the plan uses existing code when it is good enough, no more than two concurrent
+  workers, user-selected models, one early/final review pair, and the quota-aware test ladder.
+- If a new schema/protocol/scheduler/recovery system or second correction loop appears necessary,
+  return `REVISE` and ask the user rather than silently adding it.
 
 ## Gate decision
 

@@ -5,16 +5,38 @@ description: Maintain and execute one evidence-backed Ren'Py Story Mapper milest
 
 # Ren'Py milestone
 
+## Apply the simplicity gate first
+
+The repository's product is a quick, crude script-to-story checker, not a production-grade system.
+Before adding a deliverable, acceptance criterion, worker, review, schema, protocol, persistence
+rule, recovery case, or scale test, answer all three questions:
+
+1. Does it directly help the user load the current Ren'Py game and understand its rough story,
+   choices, routes, important state changes, or rejoins?
+2. Is it required by a demonstrated blocker in the current end-to-end workflow?
+3. Is there no smaller use of the existing code that is good enough for quick checking?
+
+If the answer to any question is no or uncertain, do not add the work. Pause the milestone and ask
+the user. Historical contracts and already-written complex code do not create a requirement to
+finish that complexity.
+
 ## Establish authority
 
 1. Read repository-root `AGENTS.md`, `docs/MASTER_PLAN.md`, and `docs/PROJECT_STATE.md`.
 2. Follow the active contract linked by `docs/PROJECT_STATE.md`. Treat `GOAL.md` as the approved milestone contract and `MASTER_PLAN.md` as scope authority.
 3. Keep exactly one active contract. Never infer milestone approval from a branch, issue, or old report.
 4. If the user explicitly starts an approved milestone and no contract exists, copy `docs/milestones/_TEMPLATE/` to its milestone directory. Fill it only from approved scope. Do not turn likely architecture, prior-milestone conventions, or desirable checks into new acceptance criteria; ask for approval when the done condition cannot be stated safely.
+5. Read `docs/MILESTONE_PLANNING_RULES.md` and apply its outcome-first scope, orchestration, model,
+   quota, review, and test rules.
 
 ## Lock the contract
 
 Before product implementation, make `GOAL.md` contain one explicit done condition, deliverables, numbered acceptance criteria, exclusions, evidence requirements, and handoff rules. Make `TASKS.md` name owners, dependencies, affected area, and status.
+
+Keep the contract lean: one real user outcome, three to five implementation gates, and only the
+minimum acceptance criteria needed to prove that outcome. Record non-goals explicitly. Do not turn
+production hardening, theoretical scale, perfect reproducibility, or exhaustive fault handling
+into acceptance unless the user explicitly requests it.
 
 Create a native Codex goal only when all of these are true:
 
@@ -53,6 +75,18 @@ Permit only read-only discovery, narrow experiments, and contract edits before `
 3. Attach command, result, artifact, commit, or review evidence to each acceptance criterion. Mark unknown or unavailable evidence honestly.
 4. Preserve milestone exclusions and repository safety rules during delegation and integration.
 5. Update `docs/PROJECT_STATE.md` whenever the active contract, stage, semantic decision, native goal, integration head, or PR state changes.
+6. Use one user-visible Orchestra task. Dispatch no more than two independent workers at once by
+   default. The user must choose the model and reasoning settings for each phase or resumption;
+   never silently inherit or escalate them.
+7. The Orchestra checks only useful completion or decision checkpoints. It does not continuously
+   poll commentary, wait on healthy CI, or spawn speculative correction loops.
+8. During implementation, run affected tests and direct static checks. Run one focused integrated
+   gate at a meaningful checkpoint, repository sharded CI at the PR-candidate boundary, and one
+   full Windows Release/package gate on the final intended head unless the contract explicitly
+   requires more.
+9. If implementation needs a new architecture layer, schema version, protocol family, extensive
+   recovery matrix, extra review tier, or more than one correction loop, pause and ask whether it
+   is truly necessary for the real user outcome.
 
 ## Handoff and close
 
@@ -65,5 +99,9 @@ Before `PR ready`:
 - Resolve or explicitly accept review findings at the allowed severity.
 - Fill `COMPLETION_REPORT.md` with acceptance evidence, validation results, integration commit, remaining limitations, and PR state.
 - Prepare or open the single milestone PR as the user's instructions require.
+
+One early semantic review and one final integrated review are the default. Per-worker exact-head
+review, exhaustive fault injection, and repeated full-suite or Release runs are not default
+milestone requirements.
 
 Set the native goal complete only at genuine `PR ready`. Set the repository state to `Complete` after merge and state reconciliation. Leave evidence paths durable and make the handoff self-contained.

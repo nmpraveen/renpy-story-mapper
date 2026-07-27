@@ -1,26 +1,22 @@
-# Ren'Py Story Mapper - Windows Master Plan
+# **QUICK, CRUDE SCRIPT TO STORY CHECKER — NOT A PRODUCTION-GRADE SYSTEM**
+
+## Ren'Py Story Mapper — Windows master plan
 
 Last revised: 2026-07-26
 
-Status: M01 through M13 are complete and merged. M15.1 remains the current product correction
-inside M15. Phase 01 calibration/prototyping, the bounded Phase 02 Story Map V2 core, and Phase 03
-whole-story browser are complete. Phase 02 produced a validated complete 1/1 private core with 12
-chronological events, four exact story choices, eight branch outcomes, 20 stable anchors, honest
-reachability, retained provenance, and unchanged protected fingerprints. Phase 03 turned that core
-into the compact chronological browser, local choice map, witness paths, and exact Detail/Evidence
-navigation. Its one authorized Terra synthesis failed closed on unverifiable provider identity and
-is terminal with no retry; the accepted deterministic fallback passed private path/detail/reopen
-acceptance and 100%/200% real-browser review. The final browser refinement passed independent
-review with P0=P1=P2=P3=0, the user approved its screenshots, and the full Release/package gate
-passed. Final PR head `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec` passed GitHub run
-`30213028297`; the native goal then closed at PR-ready while PR #28 remained open and unmerged.
-After that contracted gate, the user explicitly approved the normal merge. PR #28 merged on
-2026-07-26 at `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merged tree exactly matches the reviewed
-PR head. Phase 03 closeout PR #29 then merged at `e715d8a`, and local `main` matched
-`origin/main`. The user explicitly started Phase 04 on 2026-07-26. Its bounded full-game scaling,
-persistence, recovery, and product-workflow contract is now in the single early semantic-review
-gate; broad implementation has not started. Phase 05 remains unstarted. The rejected Stage H/Stage
-E implementation and PR #26 remain historical delivery records only.
+**Primary scope rule: load Ren'Py files and quickly show a rough whole-story overview with important
+choices, routes, state changes, rejoins, endings, and source-linked detail. If work does not
+directly improve that result or remove a demonstrated current-game blocker, do not build it. Pause
+and ask the user.**
+
+Status: M01 through M13 are complete and merged. M15.1 Phases 01-03 are complete. Phase 04 has
+useful implementation through local checkpoint `2995d99`, including full-game planning/chunking,
+durable execution foundations, semantic/reader/browser components, and repository-wide sharded
+CI. The user stopped the work at that safe checkpoint and replaced the production-grade Phase 04
+contract with a lean real-game outcome. The active lifecycle is `Revise` pending one fresh
+lightweight semantic review; no implementation or private/provider work resumes before that
+`PASS`. Draft PR #30 remains open and unmerged. Phase 05 remains unstarted, and M14 remains
+deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -74,10 +70,11 @@ Release results remain historical evidence only for their named heads.
 ## 1. Product goal
 
 Build a private Windows application that accepts a Ren'Py game folder or `scripts.rpa` archive and
-turns the story into a readable, interactive flowchart.
+quickly turns it into a rough, readable story map for personal checking.
 
-The application is for understanding complicated branching stories. It is not a chatbot, a game
-editor, or a public distribution project. The main experience is:
+The application is for quickly understanding complicated branching stories. It is not a chatbot,
+a game editor, a public distribution project, or a production-grade workflow platform. The main
+experience is:
 
 ```text
 Select a Ren'Py game
@@ -1231,20 +1228,12 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Phase 01, Phase 02, and Phase 03 are complete. Stage H V12 failed terminally with
-`hierarchy_not_representable`, and the user rejected Stage H/Stage E as the future supported
-semantic architecture. The accepted Story Map V2 core is complete at 1/1 with 12 chronological
-events, four exact story choices, eight branch outcomes, 20 stable anchors, retained execution
-provenance, and unchanged protected fingerprints. PR #26 and its branch remain historical backup;
-the clean Phase 01/02 delivery excludes that rejected implementation. Phase 03 completed the
-whole-story browser on `codex/m15-phase03-story-browser`. Its one-call synthesis ceiling was spent
-after fail-closed identity verification, so the complete deterministic fallback became the
-accepted result. The final refinement is integrated through product head `eecaf59`, replacement
-browser acceptance and screenshot approval passed, and exact PR head `1dd55ff` passed GitHub run
-`30213028297`. The native goal closed at PR readiness; after separate explicit user approval,
-PR #28 merged normally to `main` at `27035cb`; Phase 03 closeout PR #29 merged at `e715d8a`.
-Phase 04 now has one separately authorized bounded contract in semantic review. Phase 05 remains
-unstarted.
+Status: Phase 01, Phase 02, and Phase 03 are complete and merged. The rejected Stage H/Stage E
+architecture and PR #26 are historical only. Phase 04 implementation reached safe local checkpoint
+`2995d99` on `codex/m15-phase04-full-game`; draft PR #30 remains open and unmerged. The user then
+rejected the production-grade scope and reset Phase 04 to the smallest real outcome: run the current
+MsDenvers project through the website and receive a useful rough whole-story map. The revised
+contract is at `Revise` pending one lightweight semantic review. Phase 05 remains unstarted.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1252,6 +1241,10 @@ paths, and endings; selectable entry-to-target witness paths; and short approxim
 Static analysis remains authoritative for path-critical facts. Exact prose replay, exhaustive line
 ownership, claim-level evidence allocation, formal proof, and publication-grade precision are not
 product requirements.
+
+**Phase 04 must not become a platform project. Existing useful hardening may remain, but extreme
+scale targets, exhaustive recovery/tamper matrices, advanced generation diffs, per-track review
+trees, and repeated full gates are no longer completion requirements.**
 
 Historical Stage H/E status: In progress after the failed v4 Stage H uncertainty run returned through `Revise`, a
 failing-first prompt/repair correction, and repeated semantic `PASS`. The 2026-07-21 adjacent-gap-only `PASS`
@@ -1337,13 +1330,11 @@ Rejected historical Stage H/E boundaries:
   Require explicit user approval of actual final-head 100%/200% screenshots, then one final Windows
   Release/package gate and exact passing pushed-head checks. Leave the PR open and unmerged.
 
-M15.1 itself is not complete yet. Phase 03 has delivered the whole-story synthesis/fallback and
-compact path-aware browser. The user explicitly started Phase 04 on 2026-07-26 under
-`docs/milestones/M15_PHASE_04/GOAL.md`; it is currently limited to contract edits and the single
-early semantic-review gate. Phase 04 owns full-game scaling, persistence, recovery, and the
-supported generate/update product workflow. Phase 05 remains responsible for retiring or isolating
-the rejected workflow and closing final product acceptance. Historical Stage H/E criteria and PR
-#26 are not prerequisites for the supported Story Map V2 path.
+M15.1 itself is not complete yet. Phase 03 delivered the accepted compact path-aware browser.
+Phase 04 now owns only the shortest supported full-game generate/read workflow and one useful real
+MsDenvers result under `docs/milestones/M15_PHASE_04/GOAL.md`. Phase 05 may later retire or isolate
+legacy workflows after the user accepts the core result. Historical Stage H/E criteria, PR #26,
+and superseded production-grade Phase 04 criteria are not prerequisites.
 
 ## 8. Product completion definition
 
@@ -1363,26 +1354,35 @@ completion.
 
 ## 9. Permanent orchestration model
 
-The existing permanent orchestrator owns this plan, the active milestone goal, worker-task links,
-integration, Windows verification, completion reports, and milestone infographics.
+One user-visible Orchestra task owns the active goal, scope decisions, worker briefs, integration,
+checkpoint reports, and PR readiness. Its first responsibility is to prevent the simple
+script-to-story outcome from turning into an infrastructure project.
 
 ### Milestone gate
 
 - Work on exactly one milestone at a time.
 - Create exactly one self-goal only after the user explicitly approves that milestone.
-- Use user-visible local Codex tasks for major independent implementation, fixtures/tests, review,
-  or substantial documentation.
+- Record the user-selected planning/Orchestra and worker/reviewer model settings for each phase or
+  resumption. Never inherit or silently escalate settings from an earlier phase.
+- Use no more than two concurrent user-visible worker tasks by default. Add more only with explicit
+  user approval.
 - Give each worker a bounded brief, base commit, branch/worktree, owned files, deliverables, tests,
   exclusions, and return contract.
 - Record every worker in `docs/milestones/<milestone-id>/TASKS.md`.
 - Inspect actual diffs and evidence; a worker saying "done" is not proof.
+- Monitor completion and blocker checkpoints only. Do not continuously poll commentary or keep an
+  agent active to watch healthy CI.
 - Integrate on one milestone branch and normally use one PR per milestone. A user-approved
   multi-phase correction may instead merge each accepted phase through its own clean PR so later
   phases start from updated `main`; keep only one active phase contract and one integration PR at
   a time.
 - Never merge a PR without explicit user approval.
-- Do not begin the next milestone until the current milestone has passed Windows acceptance,
-  documentation, native infographic generation, and user review.
+- Use one early semantic review and one final integrated review by default. Add a review tier only
+  for a concrete unresolved correctness, privacy, or safety risk.
+- When a task proposes a new schema, protocol, scheduler, recovery system, extreme-scale proof, or
+  second correction loop, pause the goal and ask whether it is necessary for the real outcome.
+- Do not begin the next milestone until the current milestone's lean contract, evidence, and user
+  review are complete.
 
 ### Required milestone artifacts
 
@@ -1404,18 +1404,16 @@ image text may be imperfect, so the Markdown report remains authoritative.
 
 ### Windows acceptance suite
 
-Every milestone must run, as applicable:
+Use a quota-aware ladder:
 
-- pytest
-- Ruff
-- strict mypy
-- `pip check`
-- milestone-specific end-to-end checks
-- Windows UI checks for M04 and M05
-- canonical archive fingerprint before and after any access
+- While editing, run affected tests and direct Ruff/mypy/JavaScript checks only.
+- At one meaningful integration checkpoint, run the focused milestone workflow/browser set.
+- At the intended PR-candidate boundary, use the repository-wide timing-balanced sharded CI.
+- Run one full Windows Release/package gate on the intended final head.
+- Fingerprint private read-only inputs before and after any authorized access.
 
-Record commands, exit codes, test counts, deterministic output hashes where relevant, elapsed time,
-and unresolved items.
+Do not repeat the full suite, hosted CI, or Release after every worker, correction, commit, or push.
+Record factual commands, results, counts, heads, elapsed time when useful, and unresolved items.
 
 ## 10. Repository and safety rules
 
@@ -1433,6 +1431,21 @@ and unresolved items.
 - Do not implement future-milestone features inside the active milestone.
 
 ## 11. Current action
+
+Phase 04 is safely stopped at local product checkpoint `2995d99` on
+`codex/m15-phase04-full-game`; draft PR #30 remains open and unmerged. Repository-wide sharded CI
+is already integrated through `8e502e4`. The user-authorized simplicity reset replaces the old
+production-grade contract. The revised contract is at `Revise` and permits only read-only
+inspection and contract correction until one fresh lightweight semantic review records `PASS`.
+
+After `PASS`, one Orchestra may dispatch at most two implementation workers using the user's
+selected settings for this resumption: `gpt-5.6-sol`, Medium reasoning, and fast mode disabled.
+They must finish the smallest existing backend/API and website seams, run the real MsDenvers
+workflow early after zero-submit preview and exact consent, pause for user review, fix only proven
+blockers, then use one final integrated review, sharded CI once, and one Release/package gate. Do
+not revive old Phase 04 production requirements, Stage H/E, PR #26, Phase 05, or M14.
+
+### Historical pre-reset current action
 
 Phase 03 is complete and merged. Its final PR head
 `1dd55ff61f20bbc75618a1cab613ac5e7c52b1ec` passed GitHub run `30213028297`; the renewed native

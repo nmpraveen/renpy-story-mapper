@@ -1,4 +1,10 @@
-# Ren'Py Story Mapper - Local Browser Story Map
+# **QUICK, CRUDE SCRIPT TO STORY CHECKER — NOT A PRODUCTION-GRADE SYSTEM**
+
+## Ren'Py Story Mapper — Local Browser Story Map
+
+**Primary rule: load Ren'Py files and quickly show the rough whole story, choices, branches,
+important state changes, routes, and rejoins. If work does not directly improve that result or
+remove a demonstrated blocker, do not build it.**
 
 This repository contains a local-first Windows browser application and analyzer for exploring
 Ren'Py stories as a bounded, source-linked Route Map. It safely reads folders, individual source

@@ -1,15 +1,52 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 04 Tracks A and B passed exact-head review and PR CI and are
-integrated at `24e6ea8`; their product seam is frozen, repository-wide CI acceleration and
-Tracks C/D are running in parallel against effective reader-contract-v2 checkpoint `44a41cc`, the
-native goal remains active, and the lifecycle is `In progress`)
+Updated: 2026-07-26 (Phase 04 safely stopped at `2995d99`; the user replaced its production-grade
+scope with a lean real-game story-map outcome; lifecycle is `Revise` pending one fresh lightweight
+semantic review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
-## Current contract
+## Current contract after the simplicity reset
 
-- Active milestone: M15.1 Phase 04 full-game scaling, persistence, recovery, and product workflow.
+- **Product rule:** quick, crude Ren'Py script-to-story conversion for personal checking, not a
+  production-grade system.
+- Active milestone: M15.1 Phase 04 lean full-game story map.
+- Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
+- Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
+- Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
+- Integration branch: `codex/m15-phase04-full-game`.
+- Safe product checkpoint: `2995d99`.
+- Pull request: draft PR #30, open and unmerged.
+- Status: Revise. No product implementation resumes until the revised lightweight semantic gate
+  records `PASS`.
+- Semantic review: REVISE after the user-authoritative simplicity reset; the prior production-grade
+  `PASS` is historical only.
+- Native Codex goal: the prior coordinator record says the Phase 04 goal remains active on task
+  `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`. A new Orchestra must verify whether it can resume or
+  receive that goal. Do not create a duplicate; if it is inaccessible, pause and ask the user.
+- Active workers: none. Prior Track A-D/CI tasks are complete historical implementation work.
+- Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
+  mapping execution, semantic/reader/browser components, workflow composition work, durable section
+  jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
+- Remaining lean path: finish accepted-summary to simple section/overview to publication, expose
+  the existing workflow through the website, run real MsDenvers after zero-submit preview and exact
+  consent, fix only demonstrated blockers, then perform one final review/CI/Release gate.
+- Next resumption settings: workers and reviewers use `gpt-5.6-sol`, Medium reasoning, and fast
+  mode disabled. The user will select the new planning/Orchestra chat separately with Ultra
+  reasoning; repository prose cannot set or verify that chat model.
+- Orchestration: one user-visible Orchestra, at most two concurrent implementation workers, one
+  lightweight semantic reviewer, and one final integrated reviewer. Pause and ask on scope doubt.
+- Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR
+  candidate, and one final Windows Release/package gate. Do not continuously monitor healthy CI.
+- No provider construction/call, private input access, product test rerun, push, PR mutation, or
+  merge occurred during the scope reset.
+
+## Historical Phase 04 production-grade record (superseded)
+
+The record below is preserved as implementation history only. Its former extreme scale, recovery,
+protocol, review-tree, and repeated-gate requirements are not current acceptance authority.
+
+- Historical active milestone: M15.1 Phase 04 full-game scaling, persistence, recovery, and product workflow.
 - Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge

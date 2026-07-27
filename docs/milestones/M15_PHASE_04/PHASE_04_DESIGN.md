@@ -1,95 +1,130 @@
-# M15.1 Phase 04 implementation design
+# **PHASE 04 LEAN DESIGN — FINISH THE STORY MAP, NOT A PLATFORM**
 
 Date: 2026-07-26
 
-Status: Approved product design; implementation remains gated by `SEMANTIC_REVIEW.md`.
+Status: Supersedes the earlier production-grade Phase 04 design. Awaiting a fresh lightweight
+semantic review.
 
 ## Product flow
 
 ```text
-read-only Ren'Py inputs plus M10/M11/M12 authority
-  -> occurrence-aware spine and persistent-route scopes
-  -> frozen coherent script packets
-  -> zero-submit preview and one exact approval
-  -> six independent durable Terra mapping jobs
-  -> Python validation and exact-mechanics overlay
-  -> selective one-call Terra review or refusal-only loopback fallback
-  -> fixed-membership meaningful sections and bounded overview rollups
-  -> progressive immutable generation plus exact locator index
-  -> whole-game manifest and lazy section/branch/path/detail browser
+Ren'Py files
+  -> existing Python chronology and branch mechanics
+  -> coherent script chunks
+  -> AI gives rough summaries
+  -> Python restores exact known choices/routes/rejoins/state changes
+  -> simple sections and whole-story overview
+  -> existing local website
 ```
 
-AI summarizes story meaning. Python owns placement, topology, mechanics, coverage, validation,
-publication identity, navigation, recovery, and version comparison.
+That is the product. Phase 04 does not need to prove that it is a general-purpose workflow engine,
+high-availability service, formal verifier, or internet-scale graph system.
 
-## Locked operating policy
+## Reuse the current implementation
 
-- Product mapping and rollup model: `gpt-5.6-terra`, High, fast mode off.
-- Six global independent submission slots; never batch or adapt worker count.
-- Chunk profile: 8,000 normal target, 5,000 branch-heavy target, 10,700 hard maximum.
-- One frozen approval covers unchanged pending work and explicitly disclosed loopback fallback.
-- One cloud mapper call per job; one flagged cloud replacement review at most; one local mapper call
-  only after explicit cloud content refusal. No iterative semantic repair.
-- Definite non-transmission stays resumable; uncertain transmission is terminal-indeterminate until
-  explicit job-specific retry approval.
-- A final full-game generation may retain at most two noncritical placeholders and at most 5% of raw
-  story tokens, never on choices/routes/rejoins/endings/new branches.
+At checkpoint `2995d99`, the branch already contains useful Phase 04 foundations:
 
-## Authority and packet shape
+- occurrence-aware full-game planning and coherent chunking;
+- schema-v7 durable run/job/cache/generation storage;
+- approved cloud mapping execution and Python validation/overlay;
+- semantic events, section candidates, rollup types, and durable section jobs;
+- scalable reader APIs and a lazy vertical story browser;
+- workflow HTTP contracts/composition work; and
+- repository-wide timing-balanced CI shards.
 
-`StoryPlan` contains ordered `StoryScopeDescriptor` and `StoryPlacement` records. M11 hierarchy and
-call occurrences establish narrative placement; M10 supplies exact path mechanics; source
-path/line is a locator/tie-breaker. Persistent lanes are child scopes of their exact split rather
-than sequential spine content. Shared called labels create occurrence-specific placements. Loops
-are represented once with explicit repeatability.
+Do not rewrite or remove these foundations merely to make the architecture look simpler. Simplify
+the remaining work: connect the pieces that are needed for one real end-to-end result and ignore
+unused hardening.
 
-`StoryChunkPlan` freezes scope, ordinal, placement coverage, profile, rendered-input identity, and
-mechanics identity. Long persistent lanes chunk independently. An oversized local choice is split
-at exact arm/scene boundaries with compact repeated parent mechanics and one Python-owned parent.
-Raw packet text is reconstructed only while an active job needs it.
+## Remaining vertical seams to verify and finish
 
-Mapper output remains compact: chunk title/overview, ordered events with approximate source ranges
-and characters, and branch summaries referencing supplied choice/arm identities. Python rejects
-foreign/missing/reordered/range-invalid mechanics, large unexplained coverage gaps, and wrong route
-ownership, then overwrites all path-critical facts.
+1. Accepted mapping results become story events.
+2. Story events become simple chronological sections and one whole-game overview. If an AI rollup
+   is unavailable, concatenate or lightly group existing accepted summaries instead of starting a
+   repair architecture.
+3. The completed structure is published as one readable generation that the existing reader can
+   open.
+4. The website advertises and invokes prepare, start, status, cancel, and resume through the
+   existing service. Indeterminate-job retry may remain unavailable unless the real run needs it.
+5. The website shows progress and then opens the same chronological story reader.
 
-## Durable execution and publication
+Before changing code, inspect the current implementation and remove any item above that already
+works. Do not recreate it under a new name or schema.
 
-Schema v7 adds indexed V2 runs, jobs, attempts, cache, generations, section pages, selection
-locators, and semantic view state. A lease/CAS claim limits execution to six independent workers.
-An attempt reservation is durable before possible transmission. Result/cache/artifact/accounting
-finalization is transactional. Crashed submitting attempts become `indeterminate`; completed work
-and immutable normalized cache entries survive reopen.
+## Two bounded implementation tasks
 
-The first run exposes an `active_build_generation` structural skeleton. Updated projects retain a
-`current_complete_generation` while the candidate builds. Final publication atomically advances
-the complete pointer. Read/status/open never constructs a provider. Source refresh stops stale work
-and never mixes generations.
+### Backend/API task
 
-Terra sectioning receives only existing ordered event summaries inside one deterministic corridor
-and returns prose plus contiguous first/last event references. Python proves exactly-once ordered
-membership and route ownership. Whole-game synthesis receives verified section/route summaries;
-large inputs use fixed-membership consecutive reduction. Invalid rollups use deterministic
-headings/child summaries without repair.
+Own Python only:
 
-## Scalable reader
+- complete the existing run → summaries → sections/overview → publication path;
+- compose the existing workflow service into the current web bootstrap/routes;
+- use a deterministic structural fallback when summary/rollup prose is missing; and
+- add only focused tests for the exact vertical path.
 
-The manifest is always small and complete: revision, overview, route/ending landmarks, ordered
-section descriptors, counts, and build/coverage state. Section pages are capped at 30 events, 240
-rendered items, and 1 MiB. Oversized branch children use branch cursors. Search and selection
-locators cover unloaded content. All cursors bind revision, identity, order, offset, and limits.
+No new schema version, scheduler, protocol family, provider adapter, retry system, or generation
+model is authorized without a reproduced blocker and user approval.
 
-The browser preserves the Phase 03 compact vertical visual grammar. It hydrates one section/window,
-prefetches a neighbor, caps live story items at 600, and restores semantic selection/focus/viewport
-across Detail and reopen. `NEW` is computed from deterministic new branch/route/ending facts against
-the immediately previous accepted generation and lasts until the next generation; a toggle only
-hides its labels.
+### Website task
 
-## Integration waves
+Own current static website files and focused browser tests only:
 
-1. Track A occurrence-aware plan/chunking and Track B persistence/execution run concurrently after
-   semantic `PASS`.
-2. Integrate and freeze their contracts.
-3. Track C assembly/API and Track D website/acceptance run concurrently against frozen fixtures.
-4. Integrate reviewed heads, run final cross-track review, synthetic scale gate, real private run,
-   user screenshot approval, exact-head Release/package gate, and prepare the unmerged PR.
+- consume advertised existing workflow routes;
+- show a compact preview and explicit consent action;
+- show plain progress such as `12 of 18 chunks summarized`;
+- support cancel/resume when advertised;
+- open the existing whole-story reader when a generation is available; and
+- preserve readable vertical chronology, nested local choices, alternative routes, rejoins, Path,
+  and Detail/Evidence at normal desktop and 200% zoom.
+
+Do not build a canvas, dashboard, generic graph engine, settings center, or new navigation level.
+
+## Story and AI policy
+
+- Existing Python authority remains the source of known chronology, choices, arm order,
+  requirements/effects, destinations, routes, rejoins, endings, and source evidence.
+- AI summarizes what happens. Approximate prose is acceptable; mechanics are overlaid from Python.
+- Keep the existing product mapping configuration unless the user separately asks to reopen model
+  selection. Codex implementation-agent settings are separate from the product's AI provider.
+- No AI call occurs on import, open, prepare, status, or ordinary reading.
+- A private run requires a fresh zero-submit preview and exact consent.
+- A failed summary becomes a visible structural placeholder. Do not start iterative repair loops.
+
+## Real-game acceptance
+
+Run the current MsDenvers project as soon as the vertical path works. Inspect a small representative
+sample:
+
+- Day 1 chronology and its four choices;
+- one later local choice and rejoin;
+- one persistent character route;
+- one state-dependent scene showing the important prerequisite/effect;
+- one ending; and
+- Path plus Detail/Evidence from visible story items.
+
+The real question is: **Can the user quickly understand the story and how its important branches
+work?** If yes, Phase 04 should move toward completion. Do not invent new acceptance work because
+the output is not perfect.
+
+## Deliberate non-goals
+
+- exhaustive crash, lease, cancellation-timing, cursor-tamper, and cross-process matrices;
+- theoretical extreme-scale thresholds or repeated memory benchmarking;
+- perfect full-game summary coverage percentages;
+- advanced `NEW` diff behavior or exhaustive stale-generation lifecycle;
+- semantic reproducibility, formal evidence allocation, or exact AI prose replay;
+- per-worker reviews or repeated full CI/Release runs; and
+- Phase 05 cleanup, M14 tracing, installers, hosted service, or game modification.
+
+Already-working versions of these features may remain. They are not a reason to spend more time.
+
+## Quota and stop policy
+
+- Use no more than two concurrent implementation tasks.
+- For this resumption, dispatch workers/reviewers with `gpt-5.6-sol`, Medium reasoning, and fast
+  mode disabled.
+- Run affected tests while editing, one focused integrated gate after both tasks, sharded CI at the
+  intended PR-candidate boundary, and one final Release/package gate.
+- Do not keep the Orchestra active to watch healthy CI.
+- Stop and ask before a new architecture layer, second correction loop, model change, unpreviewed
+  private provider call, or scope expansion.
