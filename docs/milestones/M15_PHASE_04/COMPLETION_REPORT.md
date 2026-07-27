@@ -1,8 +1,8 @@
 # M15.1 Phase 04 progress report
 
-Status: Verification — the structural full-game map is published and final lean gates are in progress
+Status: Verification — the local-AI full-game map is published for user inspection
 
-Current product checkpoint: `4426a58` on `codex/m15-phase04-full-game`
+Current product checkpoint: `f25e8c0` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -189,24 +189,33 @@ No current product code is being discarded, but the remaining old acceptance wor
   three otherwise valid summaries exceeded 320 characters. The correction excludes only
   Python-owned canonical mechanics from the provider-material scan and keeps the existing path/raw
   packet checks over provider prose.
-- Fresh zero-submit preview: `lm-studio-loopback`, model
+- Fresh zero-submit preview disclosed `lm-studio-loopback`, model
   `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`, reasoning none, fast mode unspecified, private
-  story may go only to the local provider, 425 jobs, 2,927 maximum calls, and zero cache hits. The
-  user-authorized v3 run reached 31/31 accepted responses with zero rejection/provider errors at
-  this checkpoint, covering every query that failed during the cancelled diagnostic run.
-- Focused verification passed 116 tests in 31.48 seconds plus Ruff, strict mypy, JavaScript syntax,
-  and whitespace. Raw private artifacts are under
-  `output/m15-phase04-local-summary-v3-20260727-171150/` and are not committed.
+  story only to the local provider, 425 jobs, and the historical 2,927 maximum-call bound. The
+  corrected local run completed with 425 accepted mapping summaries, zero failed jobs, and zero
+  structural placeholders. No cloud AI was used.
+- Commits `2f5395b` and `68cfd9b` keep review flags and event keys in Python. Commit `299bfe9`
+  publishes the accepted 425 local mapping summaries directly through the existing Python-owned
+  hierarchy instead of scheduling another 425 section calls plus rollups. The final projection
+  rebuild reused all 425 durable cache hits and made zero model calls.
+- Commit `f25e8c0` uses the already-accepted event prose for the section labels and overview, caps
+  the 425-item section index, and lazy-loads the full 425-row query/result table after a browser
+  refresh. Live Chrome verified rows 1 through 425, meaningful Day 1 labels/prose, and active
+  complete generation `cf5f7daa9b62fe7c0eedd23964881329bbf60f9a1a03ed67415665b78104f3a6`.
+- Exact current-head focused verification passed 147 tests in 28.33 seconds plus Ruff, strict mypy,
+  JavaScript syntax, and whitespace. A consolidated ordered transcript with all 425 complete local
+  prompts/responses and an index/run note are under
+  `output/m15-phase04-local-summary-final-mapping-only-20260727-184342/` and are not committed.
 
 ## Remaining lean work
 
-1. Let the active local-only summary run reach its useful publication checkpoint and inspect the
-   resulting reader output. Raw prompt/response evidence stays outside Git.
-2. Obtain explicit user approval that the resulting story view is useful.
-3. Run the intended-head final gates, push once, inspect repository-wide sharded CI once, and leave
-   PR #30 open and unmerged. Do not mark Phase 04 complete or PR #30 ready before those gates.
+1. Obtain explicit user approval that the open local story view is useful for quick checking.
+2. Run the final integrated review and intended-head Windows Release/package gate.
+3. Push once, inspect repository-wide sharded CI once, and leave PR #30 open and unmerged. Do not
+   mark Phase 04 complete or PR #30 ready before those gates.
 
-## This documentation reset
+## Current checkpoint boundaries
 
-No product test, provider construction/call, private source access, browser run, CI run, push, PR
-mutation, or merge occurred. Protected untracked user/private paths remain untouched.
+The final local projection rebuild made zero model calls and no cloud request. Raw private
+prompt/response evidence remains outside Git. No push, PR mutation, CI run, merge, or protected
+input mutation occurred at this checkpoint.

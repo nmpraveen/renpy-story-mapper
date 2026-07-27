@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Verification — the structural full-game map is published and the lean final gates are in progress
+Status: Verification — the local-AI full-game map is published for user inspection
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -37,14 +37,14 @@ must be ready, open, and unmerged.
 ## Current safe checkpoint
 
 - Integration branch: `codex/m15-phase04-full-game`.
-- Current local implementation checkpoint: `4426a58`.
+- Current local product checkpoint: `f25e8c0`.
 - Current local head before this scope reset: `2995d99`.
 - Draft PR: #30, open and unmerged.
 - Useful foundations already exist: occurrence-aware planning/chunking, durable workflow storage,
   cloud mapping execution, semantic event/section components, scalable reader/browser components,
   repository-wide sharded CI, and durable section-job scheduling.
-- The last implementation checkpoint reported 119 focused tests passing. This scope-reset change
-  runs documentation checks only and does not repeat product tests.
+- The exact current product checkpoint passes 147 focused workflow, local transport, planning,
+  semantic, browser, and lifecycle tests plus Ruff, strict mypy, JavaScript syntax, and whitespace.
 - The lean-contract native goal is verified active on Orchestra task
   `019fa176-8277-7920-8558-b816cf168a9f`.
 - Fresh lightweight semantic review passed at exact contract head `2bcdd02`. The two bounded
@@ -63,9 +63,9 @@ must be ready, open, and unmerged.
   1,770 ordered events, 693 choices, 719 arms, 163 endings, and 59 landmarks. No provider was
   constructed during publication.
 - Live website acceptance confirms the chronological reader, nested choice effects, late-section
-  state, deterministic Path, and Detail/Evidence with a relative file-and-line locator. Normal and
-  effective-200 screenshots are captured outside Git. AI prose is unavailable and is represented
-  by honest structural placeholders; user usefulness approval remains the final subjective gate.
+  state, deterministic Path, and Detail/Evidence with a relative file-and-line locator. The latest
+  local-only generation also contains accepted AI prose for all 425 chunks; user usefulness
+  approval remains the final subjective gate.
 - Historical supported-website preview
   `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` is prepared with zero
   calls/tokens at the consent checkpoint. The user explicitly replied `Approved proceed` on
@@ -81,15 +81,18 @@ must be ready, open, and unmerged.
   structural whole-game overview with zero provider calls. The demonstrated code blocker is the
   early indeterminate return in `product_vertical._execution_blocked`, before those existing
   fallbacks could be published. The bounded correction is integrated through `157c496`.
-- The user then authorized local-only AI summaries plus simple troubleshooting visibility. Commit
-  `4426a58` adds an opt-in private JSONL prompt/response transcript, a collapsed 425-row website
-  progress table, and a shorter local-model prompt. Python now owns exact placement/choice binding
-  and prose length limits. No HTTP/schema/database family was added.
-- A fresh supported website preview discloses `lm-studio-loopback`, model
-  `qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive`, no reasoning/fast-mode setting, 425 jobs,
-  2,927 maximum calls, and zero cache hits. The user-authorized run is active; its first 31 model
-  responses are all accepted, including the exact choice and overlength cases that failed in the
-  diagnostic run. Raw story/prompts/responses remain outside Git.
+- The user then authorized local-only AI summaries plus simple troubleshooting visibility. Commits
+  `4426a58` through `299bfe9` add an opt-in private JSONL prompt/response transcript, a collapsed
+  425-row website progress table, a shorter local-model prompt, Python-owned exact structural
+  binding, and a local-only mapping-to-publication path with no redundant section/rollup model
+  calls. No HTTP/schema/database family was added.
+- The user-authorized local run completed with 425 accepted summaries, zero failed jobs, zero
+  structural placeholders, and no cloud AI. Commit `f25e8c0` reuses those accepted event titles and
+  summaries in the overview/section index, bounds the 425-item index, and restores the detailed
+  query table after refresh. Active complete generation
+  `cf5f7daa9b62fe7c0eedd23964881329bbf60f9a1a03ed67415665b78104f3a6` is visible in Chrome.
+  The final projection rebuild made zero model calls because all 425 accepted results were durable
+  cache hits. Raw story/prompts/responses remain outside Git in the final local evidence folder.
 
 ## Must work in Phase 04
 

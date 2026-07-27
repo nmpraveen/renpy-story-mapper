@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 is verifying a local-only AI summary run)
+Updated: 2026-07-27 (Phase 04 local-AI map is published for user inspection)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -13,15 +13,14 @@ Updated: 2026-07-27 (Phase 04 is verifying a local-only AI summary run)
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `4426a58`.
+- Safe product checkpoint: `f25e8c0`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Verification. The deterministic structure remains published as generation
-  `b7f05d2…f940`: 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and 59 landmarks.
-  Commit `4426a58` adds private local transcript evidence, a compact 425-row website progress
-  table, and a simplified one-summary prompt with Python-owned structural/length binding. A fresh
-  local-only run is active and reached 31/31 accepted responses with zero rejects/provider errors
-  at the evidence checkpoint. Final intended-head gates, push/CI, and explicit usefulness approval
-  remain.
+- Status: Verification. Active generation `cf5f7daa…f3a6` contains 425 accepted local-model
+  summaries with 0 failed jobs and 0 structural placeholders while preserving the deterministic
+  choices, routes, state, rejoins, endings, Path, and Detail/Evidence. No cloud AI was used. The
+  website restores a 425-row query/result table after refresh, uses accepted event prose for its
+  overview and section labels, and bounds the long section index. Final review, Release/package,
+  push/CI, and explicit usefulness approval remain.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: verified active on Orchestra task
@@ -32,8 +31,8 @@ Updated: 2026-07-27 (Phase 04 is verifying a local-only AI summary run)
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: finish/inspect the active local summary run, obtain explicit usefulness
-  approval, then run the intended-head final gates and perform one push/CI inspection.
+- Remaining lean path: obtain explicit usefulness approval of the open Chrome result, then run the
+  final integrated review, intended-head Release/package gate, and one push/CI inspection.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
@@ -45,7 +44,8 @@ Updated: 2026-07-27 (Phase 04 is verifying a local-only AI summary run)
 - Integrated verification passed 123 focused tests in 44.41 seconds plus Ruff, strict mypy over six
   changed source files, JavaScript syntax, and whitespace. No provider construction/call, private
   input access, push, PR mutation, or merge occurred through this integration checkpoint.
-- The local-summary correction passed 116 focused tests plus Ruff, strict mypy, JavaScript syntax,
+- The current local-summary product head passed 147 focused tests plus Ruff, strict mypy,
+  JavaScript syntax,
   and whitespace. It changes no HTTP/schema/database contract and makes no cloud summary call.
 - The supported real full-game project exposed one first-generation blocker: the Generate action
   was hidden without an existing reader manifest. The existing action now moves into the technical
