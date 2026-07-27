@@ -98,11 +98,23 @@ No current product code is being discarded, but the remaining old acceptance wor
   ChatGPT, and recognizes every feature name disabled by the sterile command. The exact provider
   process/model rejection is not durably retained by the privacy design, so a correction,
   diagnostic provider call, retry approval, or replacement run requires explicit user direction.
+- The Phase 04 sterile command line is byte-for-byte the same command shape as the previously
+  successful M13 sterile runner, resolves the same native Codex 0.144 executable, and Terra/High is
+  present in the current local model cache. This removes installation, login, command-shape, model
+  alias, reasoning support, and disabled-feature spelling from the likely blocker set.
+- A provider-free in-memory assembly over the exact durable preview/frozen plans made zero provider
+  calls and produced 425 structural chunks, 1,770 ordered events, 693 choices, 425 structural
+  sections, and a structural whole-game overview. Existing semantic/derived assembly already does
+  the required fallback work; `product_vertical._execution_blocked` returns on terminal
+  indeterminate jobs before publication. No product file or project database was changed by this
+  proof.
 
 ## Remaining lean work
 
-1. Obtain explicit user direction before any bounded provider correction/diagnostic, retry
-   approval, or replacement preview/run.
+1. Obtain explicit user direction before the bounded composer correction that permits a terminal
+   indeterminate run to publish its already-proven structural fallback without another provider
+   call. Do not add a provider diagnostic, retry, or replacement run unless separately needed and
+   approved after the structural map is inspected.
 2. After a published generation exists, inspect representative output and let the user judge it.
 3. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
 4. Make PR #30 ready while leaving it unmerged.

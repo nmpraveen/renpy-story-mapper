@@ -59,6 +59,11 @@ publishing a map)
 - The user's `Approved proceed` response resumed the same native goal at `Integration`; no duplicate
   goal, second prepare, second run, correction loop, or retry approval was created. The milestone
   is now blocked on explicit direction for the demonstrated provider-execution failure.
+- Provider-free in-memory assembly over that exact frozen run proves the current semantic and
+  derived assemblers can already form 425 structural chunks, 1,770 ordered events, 693 choices,
+  425 structural sections, and a structural overview with zero provider calls. The smallest
+  demonstrated correction is to let `product_vertical` publish those existing fallbacks after a
+  terminal indeterminate mapping pass; implementation remains paused pending user approval.
 
 ## Historical Phase 04 production-grade record (superseded)
 

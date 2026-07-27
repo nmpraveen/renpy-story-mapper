@@ -65,6 +65,11 @@ must be ready, open, and unmerged.
   and recognizes the disabled feature names; the remaining provider/model process failure is not
   durably retained by design. A correction, diagnostic provider call, retry approval, or new run
   requires the user's direction.
+- Provider-free in-memory assembly over the exact frozen run proves the existing fallback path can
+  produce 425 structural chunks, 1,770 ordered events, 693 choices, 425 structural sections, and a
+  structural whole-game overview with zero provider calls. The demonstrated code blocker is the
+  early indeterminate return in `product_vertical._execution_blocked`, before those existing
+  fallbacks can be published. Any correction remains paused pending explicit user approval.
 
 ## Must work in Phase 04
 
