@@ -167,14 +167,19 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
                     "api_version": "v1",
                     "recent_projects": [{"selection_id": "reader-project", "name": "Reader fixture", "source_type": "Project", "organization": "Story Map V2"}],
                     "settings": {"theme": "light", "include_technical": True, "include_unresolved": True},
-                    "contracts": {
-                        "reader": {
+                    "contracts": {},
+                    "routes": {
+                        "story_map_v2_reader": {
                             "schema": SCHEMA,
                             "routes": self.fixture["routes"],
                             "limits": self.fixture["limits"],
-                        }
+                        },
+                        **(
+                            copy.deepcopy(self.workflow_fixture["routes"])
+                            if type(self).advertise_workflow
+                            else {}
+                        ),
                     },
-                    "routes": copy.deepcopy(self.workflow_fixture["routes"]) if type(self).advertise_workflow else {},
                 }
             )
             return

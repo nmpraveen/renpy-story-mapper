@@ -42,7 +42,9 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
 from renpy_story_mapper.story_map_v2.presentation import project_story_map
 from renpy_story_mapper.story_map_v2.reader import (
     BRANCH_PAGE_ENDPOINT,
+    DEFAULT_SEARCH_RESULTS,
     DETAIL_PAGE_ENDPOINT,
+    MAX_LIVE_STORY_ITEMS,
     MAX_RENDERED_ITEMS,
     MAX_SECTION_EVENTS,
     MAX_SERIALIZED_BYTES,
@@ -804,7 +806,17 @@ def test_reader_v2_contract_and_bootstrap_routes_are_exact(tmp_path: Path) -> No
     finally:
         api.close()
     assert bootstrap["routes"]["story_map_v2"] == STORY_MAP_V2_API_ROUTES
-    assert bootstrap["routes"]["story_map_v2_reader"] == v1["routes"]
+    assert bootstrap["routes"]["story_map_v2_reader"] == {
+        "schema": READER_SCHEMA,
+        "routes": v1["routes"],
+        "limits": {
+            "events_per_section_page": MAX_SECTION_EVENTS,
+            "rendered_items_per_page": MAX_RENDERED_ITEMS,
+            "serialized_bytes_per_page": MAX_SERIALIZED_BYTES,
+            "search_results_per_page": DEFAULT_SEARCH_RESULTS,
+            "live_story_items": MAX_LIVE_STORY_ITEMS,
+        },
+    }
 
 
 def test_manifest_status_and_view_state_preserve_python_new_facts() -> None:

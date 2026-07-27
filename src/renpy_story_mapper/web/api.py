@@ -136,9 +136,12 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
 from renpy_story_mapper.story_map_v2.reader import (
     DEFAULT_SEARCH_RESULTS,
     DETAIL_PAGE_ENDPOINT,
+    MAX_LIVE_STORY_ITEMS,
     MAX_RENDERED_ITEMS,
     MAX_SECTION_EVENTS,
+    MAX_SERIALIZED_BYTES,
     PATH_PAGE_ENDPOINT,
+    READER_SCHEMA,
     InvalidStoryMapCursorError,
     ReaderNavigation,
     ReaderSlice,
@@ -1081,7 +1084,17 @@ class ProjectApi:
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
                     "story_map_v2": dict(STORY_MAP_V2_API_ROUTES),
-                    "story_map_v2_reader": dict(STORY_MAP_V2_READER_API_ROUTES),
+                    "story_map_v2_reader": {
+                        "schema": READER_SCHEMA,
+                        "routes": dict(STORY_MAP_V2_READER_API_ROUTES),
+                        "limits": {
+                            "events_per_section_page": MAX_SECTION_EVENTS,
+                            "rendered_items_per_page": MAX_RENDERED_ITEMS,
+                            "serialized_bytes_per_page": MAX_SERIALIZED_BYTES,
+                            "search_results_per_page": DEFAULT_SEARCH_RESULTS,
+                            "live_story_items": MAX_LIVE_STORY_ITEMS,
+                        },
+                    },
                     "story_map_v2_workflow": dict(WORKFLOW_HTTP_ROUTES),
                 },
             }
