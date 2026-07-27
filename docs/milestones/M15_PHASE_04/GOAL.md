@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Blocked — the exact approved run ended indeterminate without publishing a map
+Status: Verification — the structural full-game map is published and the lean final gates are in progress
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -55,7 +55,19 @@ must be ready, open, and unmerged.
   no reader generation existed. The same existing action is now visible in the technical fallback
   workspace and hidden off-workspace through corrected head `4a85a79`; the focused browser/asset
   gate passes 14 tests at normal and effective-200 profiles.
-- Lifecycle is `Blocked`. Supported-website preview
+- The approved website run completed with 425 mapping calls, zero accepted AI results, 19 structural
+  results, 406 indeterminate results, and zero reported tokens. The provider failure remains
+  historical evidence; no retry or replacement run was made.
+- The user authorized the smallest provider-free publication correction. The frozen run now
+  publishes complete generation
+  `b7f05d2c33799f8e214a3b9e927fff46a88baa5aa00d9090a3b782fb3371f940` with 425 sections,
+  1,770 ordered events, 693 choices, 719 arms, 163 endings, and 59 landmarks. No provider was
+  constructed during publication.
+- Live website acceptance confirms the chronological reader, nested choice effects, late-section
+  state, deterministic Path, and Detail/Evidence with a relative file-and-line locator. Normal and
+  effective-200 screenshots are captured outside Git. AI prose is unavailable and is represented
+  by honest structural placeholders; user usefulness approval remains the final subjective gate.
+- Historical supported-website preview
   `9d449b95c7f241104686318cce7c2595569551603bc4a8b7aa8662ac70a3a2c1` is prepared with zero
   calls/tokens at the consent checkpoint. The user explicitly replied `Approved proceed` on
   2026-07-27; the website stored approval for that unchanged identity and started it exactly once
@@ -65,11 +77,11 @@ must be ready, open, and unmerged.
   and recognizes the disabled feature names; the remaining provider/model process failure is not
   durably retained by design. A correction, diagnostic provider call, retry approval, or new run
   requires the user's direction.
-- Provider-free in-memory assembly over the exact frozen run proves the existing fallback path can
+- Provider-free in-memory assembly over the exact frozen run proved the existing fallback path can
   produce 425 structural chunks, 1,770 ordered events, 693 choices, 425 structural sections, and a
   structural whole-game overview with zero provider calls. The demonstrated code blocker is the
   early indeterminate return in `product_vertical._execution_blocked`, before those existing
-  fallbacks can be published. Any correction remains paused pending explicit user approval.
+  fallbacks could be published. The bounded correction is integrated through `157c496`.
 
 ## Must work in Phase 04
 

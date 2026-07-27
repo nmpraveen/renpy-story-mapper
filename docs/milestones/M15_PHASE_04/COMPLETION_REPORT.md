@@ -1,8 +1,8 @@
 # M15.1 Phase 04 progress report
 
-Status: Blocked — the exact approved Gate 2 run ended indeterminate without a map
+Status: Verification — the structural full-game map is published and final lean gates are in progress
 
-Current product checkpoint: `4a85a79` on `codex/m15-phase04-full-game`
+Current product checkpoint: `157c496` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -109,15 +109,48 @@ No current product code is being discarded, but the remaining old acceptance wor
   indeterminate jobs before publication. No product file or project database was changed by this
   proof.
 
+## Gate 3 publication and live acceptance
+
+- The user authorized the narrow completion path. Visible worker task
+  `019fa38c-0524-7eb1-9ccf-4dedc9189af9` used explicit `gpt-5.6-sol` with Medium reasoning; the
+  dispatcher still exposed no fast-mode selector, so fast mode remains unavailable/unverified.
+- Five demonstrated seams were corrected without new schemas, protocols, provider calls, or broad
+  hardening: terminal structural publication (`3cdc7e6`), omission of reader effects rejected by
+  the existing privacy validator (`3ec5f93`), complete reader bootstrap discovery (`afe9157`),
+  exact-ID-first and unique-locator evidence compatibility (`13c82d4`), and the existing frontend's
+  relative locator projection (`157c496`).
+- A pre-publication backup was made before the frozen project changed. Provider-free publication
+  constructed no provider and activated complete generation
+  `b7f05d2c33799f8e214a3b9e927fff46a88baa5aa00d9090a3b782fb3371f940`, map revision 1.
+- Published counts are 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and 59
+  landmarks. The historical workflow remains honest: 425 calls, zero accepted AI results, 19
+  structural results, 406 indeterminate results, and zero reported tokens.
+- Live Chrome at 1600x900 opens Story Map V2 directly. It renders all 425 section controls, nested
+  choice `Clean`, persistent state/effect pills, deterministic Path, final section `425.1` with a
+  late state assignment, and HTTP 200 Detail/Evidence showing the relative locator
+  `game/v0.01_clean.rpy:5 · physical`. Durable pages contain 163 items explicitly typed `ending`.
+- Normal and effective-200 screenshots show no obvious horizontal overflow. Console output is
+  limited to the known meta-CSP `frame-ancestors` warning and missing favicon; all reader API
+  requests used loopback and returned HTTP 200.
+- AI summary prose is not present because the approved provider run produced no accepted results.
+  Sections and events therefore use explicit structural fallback language. This is accurate but
+  repetitive; the user must still decide whether the real output is useful enough for quick
+  personal story checking.
+- The five protected archives remain unchanged after acceptance: 2,608,378,896 bytes, aggregate
+  SHA-256 `b880f1529834c15aace56a8b7701f716b68e3bc90cb721bf1029a15ad11c3a86`
+  before and after using sorted `name|size|sha256` records. `scripts.rpa` remains 2,140,282 bytes
+  with SHA-256 `053abb13454180a2cf9b0aa762e33deda98cf027d9c1e39082f5795982720303`.
+- The final focused integration gate passed 120 tests in 38.16 seconds across product composition,
+  derived semantics, workflow HTTP v2, reader API, and real-browser fixtures. The final projection
+  seam additionally passed its focused test, Ruff, strict mypy, and whitespace check.
+
 ## Remaining lean work
 
-1. Obtain explicit user direction before the bounded composer correction that permits a terminal
-   indeterminate run to publish its already-proven structural fallback without another provider
-   call. Do not add a provider diagnostic, retry, or replacement run unless separately needed and
-   approved after the structural map is inspected.
-2. After a published generation exists, inspect representative output and let the user judge it.
-3. Perform one final integrated review, focused gates, sharded CI, and one Release/package run.
-4. Make PR #30 ready while leaving it unmerged.
+1. Obtain the one independent integrated review verdict with no unresolved P0-P2.
+2. Run the one final Windows Release/package gate on the product/evidence candidate.
+3. Push once, inspect the repository-wide sharded CI once, and leave PR #30 open and unmerged.
+4. Obtain explicit user approval that the supplied normal/effective-200 result is useful. Do not
+   mark Phase 04 complete or PR #30 ready before that subjective gate.
 
 ## This documentation reset
 

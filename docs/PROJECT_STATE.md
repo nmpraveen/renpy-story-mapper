@@ -1,7 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 is blocked after the exact approved run ended indeterminate without
-publishing a map)
+Updated: 2026-07-27 (Phase 04 is in verification with a published structural full-game map)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,27 +13,27 @@ publishing a map)
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `4a85a79`.
+- Safe product checkpoint: `157c496`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Blocked. The bounded vertical path and first-generation correction are integrated. The
-  user replied `Approved proceed`; exact preview `9d449b95…a3a2c1` was approved and started exactly
-  once through the supported website without another prepare, but stopped indeterminate without a
-  published generation.
+- Status: Verification. The exact approved run remains historically indeterminate with no accepted
+  AI prose, but the user-authorized provider-free correction published its deterministic structure
+  as generation `b7f05d2…f940`: 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and
+  59 landmarks. The live website shows choices/effects, late state, Path, and relative
+  Detail/Evidence. Final review, Release, push/CI, and explicit user usefulness approval remain.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
-- Native Codex goal: active on the current Orchestra task
-  `019fa176-8277-7920-8558-b816cf168a9f`, matching the revised lean done condition. The prior
-  coordinator's recorded goal was inaccessible from both chats, and the user explicitly authorized
-  replacement rather than retaining the stale record.
+- Native Codex goal: repository history records the lean goal on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`, but the current goal API returns `goal: null`. No duplicate
+  was created; lifecycle truth remains in this active contract until the tool record is accessible.
 - Completed workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` at `3723da9` and
   website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` at `cdfd37a` plus `b4572aa`, all from
   semantic-gate commit `21d80d2`. They integrated as `29f4378`, `b8bf018`, and `2776b99`.
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: obtain the user's direction before any provider correction/diagnostic,
-  retry approval, or replacement preview/run. A published map must then be inspected before one
-  final review/CI/Release gate.
+- Remaining lean path: one final integrated review, one Windows Release/package gate, one push and
+  CI inspection, then explicit user usefulness approval. No provider diagnostic, retry, or
+  replacement run is needed or authorized.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
