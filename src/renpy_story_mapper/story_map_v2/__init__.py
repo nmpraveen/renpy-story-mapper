@@ -91,6 +91,8 @@ from renpy_story_mapper.story_map_v2.story_plan import (
     StoryScopeDescriptor,
     StoryScopeKind,
     build_story_plan,
+    deserialize_story_plan,
+    serialize_story_plan,
 )
 
 __all__ = [
@@ -175,4 +177,6 @@ __all__ = [
     "ValidatedSynthesis",
     "ViewStateRecord",
     "build_story_plan",
+    "deserialize_story_plan",
+    "serialize_story_plan",
 ]

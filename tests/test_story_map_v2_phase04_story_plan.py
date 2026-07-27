@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from renpy_story_mapper.parser import parse_script
 from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
-from renpy_story_mapper.story_map_v2.contracts import canonical_json
+from renpy_story_mapper.story_map_v2.contracts import canonical_hash, canonical_json
 from renpy_story_mapper.story_map_v2.source_adapter import (
     SourceAdaptationError,
     adapt_story_scope,
@@ -24,6 +25,8 @@ from renpy_story_mapper.story_map_v2.story_plan import (
     PlacementRole,
     StoryScopeKind,
     build_story_plan,
+    deserialize_story_plan,
+    serialize_story_plan,
 )
 
 FIXTURE = (
@@ -331,3 +334,156 @@ def test_plan_rejects_caller_mutated_story_scope_content() -> None:
                 scene_model=scene_model,
                 source_scope=forged_scope,
             )
+
+
+def test_story_plan_canonical_bytes_round_trip_with_exact_identity() -> None:
+    graph, scene_model, source, plan, _by_key = _planned()
+    second = build_story_plan(graph, scene_model=scene_model, source_scope=source)
+
+    frozen = serialize_story_plan(plan)
+    reopened = deserialize_story_plan(frozen)
+
+    assert reopened == plan == second
+    assert reopened.identity == plan.identity
+    assert serialize_story_plan(reopened) == frozen == serialize_story_plan(second)
+    assert frozen == canonical_json({**plan.normalized_dict(), "identity": plan.identity})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"\xff",
+        b"not-json",
+        b"[]",
+        b'{"schema":',
+    ),
+)
+def test_story_plan_deserializer_rejects_malformed_payloads(payload: bytes) -> None:
+    with pytest.raises(ValueError):
+        deserialize_story_plan(payload)
+
+
+def test_story_plan_deserializer_rejects_unknown_missing_and_wrong_fields() -> None:
+    _graph, _scene_model, _source, plan, _by_key = _planned()
+    root = json.loads(serialize_story_plan(plan))
+
+    unknown = {**root, "unexpected": "foreign"}
+    missing = dict(root)
+    del missing["source_generation"]
+    wrong_type = {**root, "source_span_keys": "not-an-array"}
+    bad_enum = json.loads(serialize_story_plan(plan))
+    bad_enum["placements"][0]["role"] = "foreign-role"
+    unknown_nested = json.loads(serialize_story_plan(plan))
+    unknown_nested["scopes"][0]["unexpected"] = True
+
+    for candidate in (unknown, missing, wrong_type, bad_enum, unknown_nested):
+        with pytest.raises(ValueError):
+            deserialize_story_plan(canonical_json(candidate))
+
+
+def test_story_plan_deserializer_rejects_duplicate_object_keys_at_any_depth() -> None:
+    _graph, _scene_model, _source, plan, _by_key = _planned()
+    frozen = serialize_story_plan(plan)
+    duplicate_root = b'{"schema":"first","schema":"second"}'
+    duplicate_nested = frozen.replace(
+        b'"arm_order":1',
+        b'"arm_order":1,"arm_order":1',
+        1,
+    )
+    assert duplicate_nested != frozen
+
+    for payload in (duplicate_root, duplicate_nested):
+        with pytest.raises(ValueError, match="duplicate object key"):
+            deserialize_story_plan(payload)
+
+
+def test_story_plan_deserializer_rejects_noncanonical_and_reordered_bytes() -> None:
+    _graph, _scene_model, _source, plan, _by_key = _planned()
+    root = json.loads(serialize_story_plan(plan))
+    pretty = json.dumps(root, ensure_ascii=False, indent=2).encode("utf-8")
+    reordered = json.loads(serialize_story_plan(plan))
+    reordered["placements"][0], reordered["placements"][1] = (
+        reordered["placements"][1],
+        reordered["placements"][0],
+    )
+
+    with pytest.raises(ValueError, match="canonical JSON bytes"):
+        deserialize_story_plan(pretty)
+    with pytest.raises(ValueError, match=r"order|coverage identity|identity"):
+        deserialize_story_plan(canonical_json(reordered))
+
+
+def test_story_plan_deserializer_rejects_foreign_root_and_record_identities() -> None:
+    _graph, _scene_model, _source, plan, _by_key = _planned()
+    foreign_root = json.loads(serialize_story_plan(plan))
+    foreign_root["identity"] = "f" * 64
+
+    foreign_record = json.loads(serialize_story_plan(plan))
+    old_id = foreign_record["placements"][0]["id"]
+    new_id = "story_placement_" + "f" * 20
+    foreign_record["placements"][0]["id"] = new_id
+    for scope in foreign_record["scopes"]:
+        scope["placement_ids"] = [
+            new_id if item == old_id else item for item in scope["placement_ids"]
+        ]
+    for loop in foreign_record["loops"]:
+        loop["placement_ids"] = [
+            new_id if item == old_id else item for item in loop["placement_ids"]
+        ]
+    identity_payload = dict(foreign_record)
+    del identity_payload["identity"]
+    foreign_record["identity"] = canonical_hash(identity_payload)
+
+    with pytest.raises(ValueError, match="identity"):
+        deserialize_story_plan(canonical_json(foreign_root))
+    with pytest.raises(ValueError, match="placement identity"):
+        deserialize_story_plan(canonical_json(foreign_record))
+
+
+def test_story_plan_canonical_bytes_are_privacy_safe_scalar_reopen_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _graph, _scene_model, source, plan, _by_key = _planned()
+    frozen = serialize_story_plan(plan)
+    calls = 0
+
+    def replanning_trap(*_args: object, **_kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("reopen attempted forbidden StoryPlan replanning")
+
+    monkeypatch.setattr(
+        "renpy_story_mapper.story_map_v2.story_plan.build_story_plan",
+        replanning_trap,
+    )
+    reopened = deserialize_story_plan(frozen)
+
+    assert calls == 0
+    assert reopened.identity == plan.identity
+    assert tuple(item.id for item in reopened.placements) == tuple(
+        item.id for item in plan.placements
+    )
+    assert all(not Path(item.relative_path).is_absolute() for item in reopened.placements)
+    assert all(
+        span.raw_text.encode("utf-8") not in frozen
+        for span in source.spans
+        if span.raw_text
+    )
+    assert str(FIXTURE.parent.resolve()).encode("utf-8") not in frozen
+    lowered = frozen.lower()
+    assert all(
+        term not in lowered
+        for term in (b'"raw_text"', b'"prompt"', b'"provider"', b'"response"')
+    )
+
+    absolute_locator = json.loads(frozen)
+    absolute_locator["placements"][0]["relative_path"] = (
+        r"C:\private\game\script.rpy"
+    )
+    absolute_source_identity = json.loads(frozen)
+    absolute_source_identity["source_identity"] = r"C:\private\game"
+    raw_text = json.loads(frozen)
+    raw_text["placements"][0]["raw_text"] = "private story dialogue"
+    for candidate in (absolute_locator, absolute_source_identity, raw_text):
+        with pytest.raises(ValueError):
+            deserialize_story_plan(canonical_json(candidate))

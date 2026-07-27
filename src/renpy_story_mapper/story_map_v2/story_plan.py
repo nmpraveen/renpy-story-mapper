@@ -7,10 +7,13 @@ placement, choices, routes, loops, terminals, or unresolved behavior.
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import cast
 
 from renpy_story_mapper.canonical_graph_contract import (
     CanonicalGraph,
@@ -41,6 +44,76 @@ from renpy_story_mapper.story_map_v2.source_adapter import (
 
 STORY_PLAN_SCHEMA_VERSION = 1
 STORY_PLAN_SCHEMA = f"story-map-v2-story-plan-v{STORY_PLAN_SCHEMA_VERSION}"
+
+_STORY_PLAN_ROOT_FIELDS = frozenset(
+    {
+        "schema",
+        "source_identity",
+        "source_generation",
+        "canonical_hash",
+        "scene_model_hash",
+        "source_scope_identity",
+        "source_span_keys",
+        "scopes",
+        "placements",
+        "loops",
+        "source_coverage_identity",
+        "placement_coverage_identity",
+        "identity",
+    }
+)
+_STORY_SCOPE_FIELDS = frozenset(
+    {
+        "id",
+        "kind",
+        "chapter_id",
+        "chapter_ordinal",
+        "lane_id",
+        "lane_kind",
+        "parent_scope_id",
+        "canonical_region_id",
+        "arm_ordinal",
+        "split_anchor_id",
+        "placement_ids",
+        "child_scope_ids",
+    }
+)
+_STORY_PLACEMENT_FIELDS = frozenset(
+    {
+        "id",
+        "scope_id",
+        "ordinal",
+        "role",
+        "span_key",
+        "scene_id",
+        "context_scene_id",
+        "occurrence_path",
+        "relative_path",
+        "start_line",
+        "end_line",
+        "canonical_node_ids",
+        "choice_keys",
+        "arm_lineage",
+        "anchor_id",
+        "coverage_identity",
+        "loop_ids",
+        "terminal_node_ids",
+        "unresolved_node_ids",
+    }
+)
+_STORY_LOOP_FIELDS = frozenset(
+    {
+        "id",
+        "loop_hub_id",
+        "repeatable",
+        "scope_ids",
+        "placement_ids",
+        "occurrence_ids",
+        "return_relationship_ids",
+        "partial_order_relation_ids",
+    }
+)
+_ARM_LINEAGE_FIELDS = frozenset({"choice_key", "arm_order"})
 
 
 class StoryScopeKind(StrEnum):
@@ -165,8 +238,24 @@ class StoryPlan:
     def validate(self) -> None:
         if self.schema != STORY_PLAN_SCHEMA:
             raise ValueError("Story Plan schema is unsupported")
+        for value, label in (
+            (self.source_identity, "source identity"),
+            (self.source_generation, "source generation"),
+            (self.canonical_hash, "canonical hash"),
+            (self.scene_model_hash, "scene model hash"),
+            (self.source_scope_identity, "source scope identity"),
+            (self.source_coverage_identity, "source coverage identity"),
+            (self.placement_coverage_identity, "placement coverage identity"),
+        ):
+            _trimmed(value, label)
+        if PurePosixPath(self.source_identity).is_absolute() or PureWindowsPath(
+            self.source_identity
+        ).is_absolute():
+            raise ValueError("Story Plan source identity must not be an absolute path")
         if len(self.source_span_keys) != len(set(self.source_span_keys)):
             raise ValueError("Story Plan source span keys must be unique")
+        if self.source_span_keys != tuple(sorted(self.source_span_keys)):
+            raise ValueError("Story Plan source span keys must retain canonical order")
         scopes = _unique_records(self.scopes, "scope")
         placements = _unique_records(self.placements, "placement")
         loops = _unique_records(self.loops, "loop")
@@ -177,8 +266,23 @@ class StoryPlan:
         if len({item.coverage_identity for item in self.placements}) != len(self.placements):
             raise ValueError("Story Plan placement coverage identities must be unique")
 
+        scope_order = {item.id: ordinal for ordinal, item in enumerate(self.scopes)}
+        if tuple(item.chapter_ordinal for item in self.scopes) != tuple(
+            sorted(item.chapter_ordinal for item in self.scopes)
+        ):
+            raise ValueError("Story Plan scopes must retain chapter order")
         scoped_placements: list[str] = []
         for scope in self.scopes:
+            expected_scope_id = "story_scope_" + canonical_hash(
+                {
+                    "schema": STORY_PLAN_SCHEMA,
+                    "source_generation": self.source_generation,
+                    "chapter_id": scope.chapter_id,
+                    "lane_id": scope.lane_id,
+                }
+            )[:20]
+            if scope.id != expected_scope_id:
+                raise ValueError("Story Plan scope identity is invalid")
             if scope.kind is StoryScopeKind.CHAPTER_SPINE:
                 if (
                     scope.parent_scope_id is not None
@@ -205,10 +309,17 @@ class StoryPlan:
                     raise ValueError(
                         f"persistent lane scope {scope.id} has an invalid split anchor"
                     )
+                if scope_order[scope.parent_scope_id] >= scope_order[scope.id]:
+                    raise ValueError("persistent lane scopes must follow their parents")
             if len(scope.placement_ids) != len(set(scope.placement_ids)):
                 raise ValueError(f"scope {scope.id} repeats a placement")
             if len(scope.child_scope_ids) != len(set(scope.child_scope_ids)):
                 raise ValueError(f"scope {scope.id} repeats a child scope")
+            expected_children = tuple(
+                item.id for item in self.scopes if item.parent_scope_id == scope.id
+            )
+            if scope.child_scope_ids != expected_children:
+                raise ValueError(f"scope {scope.id} child order is invalid")
             for child_id in scope.child_scope_ids:
                 child = scopes.get(child_id)
                 if child is None or child.parent_scope_id != scope.id:
@@ -222,12 +333,16 @@ class StoryPlan:
             scoped_placements.extend(scope.placement_ids)
         if sorted(scoped_placements) != sorted(placements):
             raise ValueError("every Story Placement must have exactly one scope owner")
+        if tuple(scoped_placements) != tuple(item.id for item in self.placements):
+            raise ValueError("Story Plan placements must retain exact scope order")
         if {item.span_key for item in self.placements} != set(self.source_span_keys):
             raise ValueError("Story Plan source placement coverage is incomplete")
 
         for placement in self.placements:
             if placement.start_line < 1 or placement.end_line < placement.start_line:
                 raise ValueError(f"placement {placement.id} has an invalid locator")
+            if not _safe_relative_locator(placement.relative_path):
+                raise ValueError(f"placement {placement.id} has an unsafe relative locator")
             if (
                 placement.role is PlacementRole.SCENE and placement.occurrence_path
             ) or (
@@ -246,7 +361,45 @@ class StoryPlan:
                 )
             if any(loop_id not in loops for loop_id in placement.loop_ids):
                 raise ValueError(f"placement {placement.id} has an unknown loop")
+            identity_value = {
+                "schema": STORY_PLAN_SCHEMA,
+                "scope_id": placement.scope_id,
+                "scene_id": placement.scene_id,
+                "context_scene_id": placement.context_scene_id,
+                "occurrence_path": placement.occurrence_path,
+                "span_key": placement.span_key,
+                "canonical_node_ids": placement.canonical_node_ids,
+                "choice_keys": placement.choice_keys,
+                "arm_lineage": tuple(asdict(item) for item in placement.arm_lineage),
+            }
+            if placement.id != "story_placement_" + canonical_hash(identity_value)[:20]:
+                raise ValueError("Story Plan placement identity is invalid")
+            if placement.anchor_id != "story_anchor_" + canonical_hash(
+                {**identity_value, "anchor_contract": "phase04-v1"}
+            )[:20]:
+                raise ValueError("Story Plan placement anchor identity is invalid")
+            if placement.coverage_identity != canonical_hash(
+                {
+                    "source_generation": self.source_generation,
+                    "scope_id": placement.scope_id,
+                    "span_key": placement.span_key,
+                    "occurrence_path": placement.occurrence_path,
+                }
+            ):
+                raise ValueError("Story Plan placement coverage identity is invalid")
+        if tuple(item.loop_hub_id for item in self.loops) != tuple(
+            sorted(item.loop_hub_id for item in self.loops)
+        ):
+            raise ValueError("Story Plan loops must retain canonical order")
         for loop in self.loops:
+            if loop.id != "story_loop_" + canonical_hash(
+                {
+                    "schema": STORY_PLAN_SCHEMA,
+                    "loop_hub_id": loop.loop_hub_id,
+                    "placement_ids": loop.placement_ids,
+                }
+            )[:20]:
+                raise ValueError("Story Plan loop identity is invalid")
             if not loop.repeatable:
                 raise ValueError(f"loop {loop.id} must remain explicitly repeatable")
             if not loop.placement_ids:
@@ -255,6 +408,16 @@ class StoryPlan:
                 raise ValueError(f"loop {loop.id} repeats a placement")
             if any(item not in placements for item in loop.placement_ids):
                 raise ValueError(f"loop {loop.id} has an unknown placement")
+            expected_placements = tuple(
+                item.id for item in self.placements if item.id in loop.placement_ids
+            )
+            if loop.placement_ids != expected_placements:
+                raise ValueError(f"loop {loop.id} placement order is invalid")
+            expected_scopes = tuple(
+                dict.fromkeys(placements[item].scope_id for item in loop.placement_ids)
+            )
+            if loop.scope_ids != expected_scopes:
+                raise ValueError(f"loop {loop.id} scope order is invalid")
             if any(loop.id not in placements[item].loop_ids for item in loop.placement_ids):
                 raise ValueError(f"loop {loop.id} placement bindings disagree")
         for placement in self.placements:
@@ -263,6 +426,11 @@ class StoryPlan:
                 for loop_id in placement.loop_ids
             ):
                 raise ValueError(f"placement {placement.id} loop bindings disagree")
+            expected_loops = tuple(
+                loop.id for loop in self.loops if placement.id in loop.placement_ids
+            )
+            if placement.loop_ids != expected_loops:
+                raise ValueError(f"placement {placement.id} loop order is invalid")
 
         if self.source_coverage_identity != canonical_hash(self.source_span_keys):
             raise ValueError("Story Plan source coverage identity is invalid")
@@ -270,6 +438,310 @@ class StoryPlan:
             tuple(item.coverage_identity for item in self.placements)
         ):
             raise ValueError("Story Plan placement coverage identity is invalid")
+
+
+def serialize_story_plan(plan: StoryPlan) -> bytes:
+    """Return exact canonical, self-verifying bytes for one frozen StoryPlan."""
+
+    plan.validate()
+    return canonical_json({**plan.normalized_dict(), "identity": plan.identity})
+
+
+def deserialize_story_plan(payload: bytes | str) -> StoryPlan:
+    """Strictly reconstruct and verify one canonical frozen StoryPlan."""
+
+    serialized = _serialized_bytes(payload)
+    try:
+        decoded = json.loads(
+            serialized.decode("utf-8"),
+            object_pairs_hook=_object_without_duplicates,
+        )
+    except UnicodeDecodeError as exc:
+        raise ValueError("StoryPlan payload is not valid UTF-8") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError("StoryPlan payload is not valid JSON") from exc
+    root = _required_dict(decoded, "StoryPlan")
+    _exact_keys(root, _STORY_PLAN_ROOT_FIELDS, "StoryPlan")
+
+    scopes: list[StoryScopeDescriptor] = []
+    for value in _required_list(root.get("scopes"), "StoryPlan scopes"):
+        item = _required_dict(value, "StoryPlan scope")
+        _exact_keys(item, _STORY_SCOPE_FIELDS, "StoryPlan scope")
+        scopes.append(
+            StoryScopeDescriptor(
+                id=_required_str(item.get("id"), "StoryPlan scope id"),
+                kind=StoryScopeKind(
+                    _required_str(item.get("kind"), "StoryPlan scope kind")
+                ),
+                chapter_id=_required_str(
+                    item.get("chapter_id"), "StoryPlan scope chapter id"
+                ),
+                chapter_ordinal=_required_int(
+                    item.get("chapter_ordinal"), "StoryPlan scope chapter ordinal"
+                ),
+                lane_id=_required_str(
+                    item.get("lane_id"), "StoryPlan scope lane id"
+                ),
+                lane_kind=LaneKind(
+                    _required_str(item.get("lane_kind"), "StoryPlan scope lane kind")
+                ),
+                parent_scope_id=_optional_str(
+                    item.get("parent_scope_id"), "StoryPlan scope parent id"
+                ),
+                canonical_region_id=_optional_str(
+                    item.get("canonical_region_id"),
+                    "StoryPlan scope canonical region id",
+                ),
+                arm_ordinal=_optional_int(
+                    item.get("arm_ordinal"), "StoryPlan scope arm ordinal"
+                ),
+                split_anchor_id=_optional_str(
+                    item.get("split_anchor_id"), "StoryPlan scope split anchor id"
+                ),
+                placement_ids=_string_tuple(
+                    item.get("placement_ids"), "StoryPlan scope placement ids"
+                ),
+                child_scope_ids=_string_tuple(
+                    item.get("child_scope_ids"), "StoryPlan scope child ids"
+                ),
+            )
+        )
+
+    placements: list[StoryPlacement] = []
+    for value in _required_list(root.get("placements"), "StoryPlan placements"):
+        item = _required_dict(value, "StoryPlan placement")
+        _exact_keys(item, _STORY_PLACEMENT_FIELDS, "StoryPlan placement")
+        lineage: list[ArmLineageStep] = []
+        for lineage_value in _required_list(
+            item.get("arm_lineage"), "StoryPlan placement arm lineage"
+        ):
+            step = _required_dict(lineage_value, "StoryPlan arm lineage step")
+            _exact_keys(step, _ARM_LINEAGE_FIELDS, "StoryPlan arm lineage step")
+            lineage.append(
+                ArmLineageStep(
+                    choice_key=_required_str(
+                        step.get("choice_key"), "StoryPlan lineage choice key"
+                    ),
+                    arm_order=_required_int(
+                        step.get("arm_order"), "StoryPlan lineage arm order"
+                    ),
+                )
+            )
+        placements.append(
+            StoryPlacement(
+                id=_required_str(item.get("id"), "StoryPlan placement id"),
+                scope_id=_required_str(
+                    item.get("scope_id"), "StoryPlan placement scope id"
+                ),
+                ordinal=_required_int(
+                    item.get("ordinal"), "StoryPlan placement ordinal"
+                ),
+                role=PlacementRole(
+                    _required_str(item.get("role"), "StoryPlan placement role")
+                ),
+                span_key=_required_str(
+                    item.get("span_key"), "StoryPlan placement span key"
+                ),
+                scene_id=_required_str(
+                    item.get("scene_id"), "StoryPlan placement scene id"
+                ),
+                context_scene_id=_required_str(
+                    item.get("context_scene_id"),
+                    "StoryPlan placement context scene id",
+                ),
+                occurrence_path=_string_tuple(
+                    item.get("occurrence_path"),
+                    "StoryPlan placement occurrence path",
+                ),
+                relative_path=_required_str(
+                    item.get("relative_path"), "StoryPlan placement relative path"
+                ),
+                start_line=_required_int(
+                    item.get("start_line"), "StoryPlan placement start line"
+                ),
+                end_line=_required_int(
+                    item.get("end_line"), "StoryPlan placement end line"
+                ),
+                canonical_node_ids=_string_tuple(
+                    item.get("canonical_node_ids"),
+                    "StoryPlan placement canonical node ids",
+                ),
+                choice_keys=_string_tuple(
+                    item.get("choice_keys"), "StoryPlan placement choice keys"
+                ),
+                arm_lineage=tuple(lineage),
+                anchor_id=_required_str(
+                    item.get("anchor_id"), "StoryPlan placement anchor id"
+                ),
+                coverage_identity=_required_str(
+                    item.get("coverage_identity"),
+                    "StoryPlan placement coverage identity",
+                ),
+                loop_ids=_string_tuple(
+                    item.get("loop_ids"), "StoryPlan placement loop ids"
+                ),
+                terminal_node_ids=_string_tuple(
+                    item.get("terminal_node_ids"),
+                    "StoryPlan placement terminal node ids",
+                ),
+                unresolved_node_ids=_string_tuple(
+                    item.get("unresolved_node_ids"),
+                    "StoryPlan placement unresolved node ids",
+                ),
+            )
+        )
+
+    loops: list[StoryLoopMetadata] = []
+    for value in _required_list(root.get("loops"), "StoryPlan loops"):
+        item = _required_dict(value, "StoryPlan loop")
+        _exact_keys(item, _STORY_LOOP_FIELDS, "StoryPlan loop")
+        repeatable = item.get("repeatable")
+        if type(repeatable) is not bool:
+            raise ValueError("StoryPlan loop repeatable must be a boolean")
+        loops.append(
+            StoryLoopMetadata(
+                id=_required_str(item.get("id"), "StoryPlan loop id"),
+                loop_hub_id=_required_str(
+                    item.get("loop_hub_id"), "StoryPlan loop hub id"
+                ),
+                repeatable=repeatable,
+                scope_ids=_string_tuple(
+                    item.get("scope_ids"), "StoryPlan loop scope ids"
+                ),
+                placement_ids=_string_tuple(
+                    item.get("placement_ids"), "StoryPlan loop placement ids"
+                ),
+                occurrence_ids=_string_tuple(
+                    item.get("occurrence_ids"), "StoryPlan loop occurrence ids"
+                ),
+                return_relationship_ids=_string_tuple(
+                    item.get("return_relationship_ids"),
+                    "StoryPlan loop return relationship ids",
+                ),
+                partial_order_relation_ids=_string_tuple(
+                    item.get("partial_order_relation_ids"),
+                    "StoryPlan loop partial order relation ids",
+                ),
+            )
+        )
+
+    plan = StoryPlan(
+        schema=_required_str(root.get("schema"), "StoryPlan schema"),
+        source_identity=_required_str(
+            root.get("source_identity"), "StoryPlan source identity"
+        ),
+        source_generation=_required_str(
+            root.get("source_generation"), "StoryPlan source generation"
+        ),
+        canonical_hash=_required_str(
+            root.get("canonical_hash"), "StoryPlan canonical hash"
+        ),
+        scene_model_hash=_required_str(
+            root.get("scene_model_hash"), "StoryPlan scene model hash"
+        ),
+        source_scope_identity=_required_str(
+            root.get("source_scope_identity"), "StoryPlan source scope identity"
+        ),
+        source_span_keys=_string_tuple(
+            root.get("source_span_keys"), "StoryPlan source span keys"
+        ),
+        scopes=tuple(scopes),
+        placements=tuple(placements),
+        loops=tuple(loops),
+        source_coverage_identity=_required_str(
+            root.get("source_coverage_identity"),
+            "StoryPlan source coverage identity",
+        ),
+        placement_coverage_identity=_required_str(
+            root.get("placement_coverage_identity"),
+            "StoryPlan placement coverage identity",
+        ),
+    )
+    plan.validate()
+    if root.get("identity") != plan.identity:
+        raise ValueError("StoryPlan identity is invalid")
+    if canonical_json(root) != serialized:
+        raise ValueError("StoryPlan payload must use canonical JSON bytes")
+    return plan
+
+
+def _serialized_bytes(payload: bytes | str) -> bytes:
+    if isinstance(payload, bytes):
+        return payload
+    if isinstance(payload, str):
+        return payload.encode("utf-8")
+    raise ValueError("StoryPlan payload must be UTF-8 bytes or text")
+
+
+def _object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"StoryPlan contains duplicate object key {key!r}")
+        result[key] = value
+    return result
+
+
+def _required_dict(value: object, label: str) -> dict[str, object]:
+    if type(value) is not dict:
+        raise ValueError(f"{label} must be an object")
+    return cast(dict[str, object], value)
+
+
+def _exact_keys(value: dict[str, object], expected: frozenset[str], label: str) -> None:
+    if set(value) != expected:
+        raise ValueError(f"{label} has missing or unexpected fields")
+
+
+def _required_list(value: object, label: str) -> list[object]:
+    if type(value) is not list:
+        raise ValueError(f"{label} must be an array")
+    return cast(list[object], value)
+
+
+def _required_str(value: object, label: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
+    _trimmed(value, label)
+    return value
+
+
+def _optional_str(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    return _required_str(value, label)
+
+
+def _required_int(value: object, label: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{label} must be an integer")
+    return value
+
+
+def _optional_int(value: object, label: str) -> int | None:
+    if value is None:
+        return None
+    return _required_int(value, label)
+
+
+def _string_tuple(value: object, label: str) -> tuple[str, ...]:
+    return tuple(
+        _required_str(item, f"{label}[]") for item in _required_list(value, label)
+    )
+
+
+def _trimmed(value: str, label: str) -> None:
+    if not value or value != value.strip():
+        raise ValueError(f"Story Plan {label} must be a non-empty trimmed string")
+
+
+def _safe_relative_locator(value: str) -> bool:
+    normalized_parts = value.replace("\\", "/").split("/")
+    return (
+        not PurePosixPath(value).is_absolute()
+        and not PureWindowsPath(value).is_absolute()
+        and all(part not in {"", ".", ".."} for part in normalized_parts)
+    )
 
 
 @dataclass(frozen=True)
