@@ -18,15 +18,15 @@ from renpy_story_mapper.story_map_v2.contracts import canonical_hash, canonical_
 
 STORY_CHUNK_PLAN_SCHEMA = "story-map-v2-phase04-chunk-plan-v1"
 PHASE04_MAPPER_REQUEST_SCHEMA = "story-map-v2-phase04-mapper-request-v1"
-PHASE04_MAPPER_PROMPT_VERSION = "story-map-v2-phase04-mapper-prompt-v1"
+PHASE04_MAPPER_PROMPT_VERSION = "story-map-v2-phase04-mapper-prompt-v3"
 COMPLETE_REQUEST_TOKEN_COUNTER = "raw-authority-plus-nonstory-utf8-v1"
 PHASE04_MAPPER_TASK = (
     "Return exactly one JSON object matching the supplied Phase 04 mapper response schema. "
-    "Summarize the raw story into chronological narrative events and concise branch outcomes. "
-    "Cover every supplied placement exactly once and in order. Reference only supplied choice "
-    "keys and arm orders. Do not invent, change, or infer path mechanics, destinations, effects, "
-    "routes, rejoins, loops, or endings; Python owns those fields. Do not use tools, files, web "
-    "search, apps, plugins, other agents, or provider calls."
+    "Write a short title, overview, and exactly one event summarizing the whole raw story chunk. "
+    'Set that event\'s placement_ids to ["python-owned"] and return an empty branch_summaries '
+    "array. Python owns exact placements, choices, routes, effects, rejoins, endings, IDs, and "
+    "mechanics. Keep the event summary under 300 characters and finish a sentence. "
+    "Do not copy source paths, request packets, or opaque data."
 )
 
 

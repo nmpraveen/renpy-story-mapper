@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -613,6 +614,20 @@ class SyntheticValidator:
             normalized = b'{"summary":"C:\\Users\\private\\story.rpy"}'
         elif payload == b"nested-posix-path":
             normalized = b'{"outer":{"items":[{"path":"/opt/private/story.rpy"}]}}'
+        elif payload == b"python-owned-mechanics":
+            normalized = json.dumps(
+                {
+                    "choices": [
+                        {
+                            "canonical_mechanics": json.dumps(
+                                {"effects": ['$ renpy.notify("Terrance +1")']}
+                            ),
+                            "summary": "Exact branch options and effects are shown below.",
+                        }
+                    ]
+                },
+                separators=(",", ":"),
+            ).encode()
         elif payload.startswith(b"normalized:"):
             normalized = payload
         else:
@@ -2464,6 +2479,26 @@ def test_nested_platform_neutral_absolute_path_is_rejected_recursively() -> None
     )
     assert status.structural_fallback_jobs == 1
     assert "/opt/private/story.rpy" not in repr(repository.durable)
+
+
+def test_python_owned_mechanics_with_escaped_dialogue_is_not_treated_as_a_path() -> None:
+    policy = _policy()
+    plan, requests = _plan(1, policy)
+    repository = MemoryWorkflowRepository()
+    factory = RecordingFactory(
+        policy.cloud, [_reply(policy.cloud, b"python-owned-mechanics")]
+    )
+    service = _service(repository, requests, factory)
+    preview = _prepare_approve(service, plan, policy, _ceilings(1))
+
+    status = service.execute(
+        "run-public",
+        preview_identity=preview.identity,
+        authority_identity=plan.authority_identity,
+    )
+
+    assert status.accepted_jobs == 1
+    assert status.structural_fallback_jobs == 0
 
 
 def test_workflow_modules_do_not_import_track_a_storage_project_or_historical_schedulers() -> None:

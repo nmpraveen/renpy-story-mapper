@@ -27,6 +27,7 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
     PHASE04_MAPPER_PROMPT_VERSION,
     ChunkPlanningProjection,
     StoryChunkDescriptor,
+    StoryChunkPlan,
     plan_story_chunks,
     serialize_chunk_request,
 )
@@ -167,8 +168,9 @@ class ProductWorkflowValidator:
     """Adapt the scalar durable mapping job to the authority-owning semantic validator."""
 
     def __init__(self, prepared: PreparedProductWorkflow) -> None:
+        self._chunk_plan = prepared.frozen_plans.story_chunk_plan
         self._validator = Phase04MapperResponseValidator(
-            prepared.frozen_plans.story_chunk_plan
+            self._chunk_plan
         )
 
     def validate(
@@ -189,7 +191,9 @@ class ProductWorkflowValidator:
             request_sha256=job.serialized_request_identity.sha256,
             request_byte_count=job.serialized_request_identity.byte_count,
         )
-        bound_payload = payload if cached else _bind_provider_prose(job, payload)
+        bound_payload = (
+            payload if cached else _bind_provider_prose(self._chunk_plan, job, payload)
+        )
         result = self._validator.validate(binding, bound_payload, cached=cached)
         return ValidatedWorkflowResult(
             result.result_identity,
@@ -198,8 +202,12 @@ class ProductWorkflowValidator:
         )
 
 
-def _bind_provider_prose(job: WorkflowJobDescriptor, payload: bytes) -> bytes:
-    """Overlay Python-owned request and authority identities onto provider prose."""
+def _bind_provider_prose(
+    plan: StoryChunkPlan,
+    job: WorkflowJobDescriptor,
+    payload: bytes,
+) -> bytes:
+    """Bind one simple provider summary to Python-owned membership and mechanics."""
 
     try:
         value: object = json.loads(payload)
@@ -210,6 +218,19 @@ def _bind_provider_prose(job: WorkflowJobDescriptor, payload: bytes) -> bytes:
     expected = {"title", "overview", "review_requested", "events", "branch_summaries"}
     if set(value) != expected:
         return payload
+    events = value.get("events")
+    if not isinstance(events, list) or not events or not isinstance(events[0], dict):
+        return payload
+    descriptor = next((item for item in plan.chunks if item.chunk_id == job.chunk_id), None)
+    if descriptor is None:
+        return payload
+    event = {
+        **events[0],
+        "placement_ids": list(descriptor.placement_ids),
+        "title": _bounded_provider_text(events[0].get("title"), 80),
+        "summary": _bounded_provider_text(events[0].get("summary"), 320),
+        "characters": _bounded_provider_characters(events[0].get("characters")),
+    }
     return canonical_json(
         {
             "schema": PHASE04_MAPPER_RESPONSE_SCHEMA,
@@ -217,9 +238,38 @@ def _bind_provider_prose(job: WorkflowJobDescriptor, payload: bytes) -> bytes:
             "chunk_id": job.chunk_id,
             "request_hash": job.serialized_request_identity.sha256,
             "scope_id": job.scope_id,
-            **value,
+            "title": _bounded_provider_text(value["title"], 80),
+            "overview": _bounded_provider_text(value["overview"], 600),
+            "review_requested": value["review_requested"],
+            "events": [event],
+            "branch_summaries": [
+                {
+                    "choice_key": segment.choice_key,
+                    "arm_orders": list(segment.arm_orders),
+                    "summary": "Exact branch options and effects are shown below.",
+                }
+                for segment in descriptor.choice_segments
+            ],
         }
     )
+
+
+def _bounded_provider_text(value: object, maximum: int) -> object:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if len(text) <= maximum:
+        return text
+    clipped = text[: maximum - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    if not clipped:
+        clipped = text[: maximum - 1].rstrip()
+    return f"{clipped}."
+
+
+def _bounded_provider_characters(value: object) -> object:
+    if not isinstance(value, list):
+        return value
+    return [_bounded_provider_text(item, 80) for item in value[:16]]
 
 
 def _validate_derived_provider_prose(

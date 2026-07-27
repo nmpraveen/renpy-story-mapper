@@ -113,6 +113,14 @@ button:disabled { cursor: default; opacity: .45; }
 .story-run-track { height: 3px; overflow: hidden; background: var(--rule); }
 .story-run-track i { display: block; width: 0; height: 100%; background: var(--accent); transition: width 180ms ease-out; }
 .story-run-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+.story-run-details { width: min(100% - 2rem, 72rem); margin: .35rem auto .8rem; border: 1px solid var(--rule); background: var(--sheet); }
+.story-run-details summary { cursor: pointer; padding: .55rem .7rem; color: var(--ink); font-size: 13px; }
+.story-run-table-wrap { max-height: 20rem; overflow: auto; border-top: 1px solid var(--rule); }
+.story-run-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.story-run-table th { position: sticky; z-index: 1; top: 0; background: var(--paper-deep); color: var(--muted); font-weight: 600; }
+.story-run-table th, .story-run-table td { padding: .45rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.story-run-table td:first-child { min-width: 13rem; color: var(--ink); }
+.story-run-table td:last-child { color: var(--muted); }
 .story-hero { display: grid; width: min(100% - 2rem, 72rem); grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 2rem; margin: 0 auto; border-bottom: 1px solid var(--ink); padding: clamp(2.25rem, 6vw, 5.5rem) 0 clamp(1.5rem, 3vw, 2.5rem); }
 .story-hero-copy { min-width: 0; }
 .story-hero h1 { max-width: 18ch; margin: .15rem 0 .75rem; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.6rem, 7vw, 5.6rem); font-weight: 400; letter-spacing: -.055em; line-height: .94; text-wrap: balance; }

@@ -201,6 +201,8 @@ def test_product_prepare_freezes_exact_provider_free_workflow() -> None:
         job.serialized_request_identity.verify(request)
         packet = json.loads(request)
         assert packet["task"].startswith("Return exactly one JSON object")
+        assert '["python-owned"]' in packet["task"]
+        assert "under 300 characters" in packet["task"]
         assert packet["raw_story"]
         assert job.cache_identity == prepared.policy.input_identity(
             job.serialized_request_identity
@@ -342,20 +344,13 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
         "events": [
             {
                 "key": "opening",
-                "placement_ids": list(chunk.placement_ids),
+                "placement_ids": ["python-owned"],
                 "title": "Opening events",
-                "summary": "The characters move through the opening sequence.",
+                "summary": "The characters move through the opening sequence. " * 12,
                 "characters": [],
             }
         ],
-        "branch_summaries": [
-            {
-                "choice_key": segment.choice_key,
-                "arm_orders": list(segment.arm_orders),
-                "summary": "The available responses briefly diverge before continuing.",
-            }
-            for segment in chunk.choice_segments
-        ],
+        "branch_summaries": [],
     }
 
     result = ProductWorkflowValidator(prepared).validate(
@@ -369,10 +364,18 @@ def test_product_validator_overlays_authority_onto_provider_prose() -> None:
     assert normalized["chunk_id"] == job.chunk_id
     assert normalized["request_hash"] == job.serialized_request_identity.sha256
     assert normalized["scope_id"] == job.scope_id
+    assert len(normalized["events"]) == 1
+    assert normalized["events"][0]["placement_ids"] == list(chunk.placement_ids)
+    assert len(normalized["events"][0]["summary"]) <= 320
+    assert normalized["events"][0]["summary"].endswith(".")
+    assert [item["choice_key"] for item in normalized["choices"]] == [
+        segment.choice_key for segment in chunk.choice_segments
+    ]
 
 
 def test_approved_product_runner_accepts_all_mapping_jobs_without_live_provider(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     graph = _authority()
     prepared = prepare_product_workflow_from_authority(
@@ -423,6 +426,8 @@ def test_approved_product_runner_accepts_all_mapping_jobs_without_live_provider(
             return None
 
     path = tmp_path / "approved-mapping.rsmproj"
+    transcript_path = tmp_path / "private-ai-transcript.jsonl"
+    monkeypatch.setenv("RENPY_STORY_MAPPER_AI_TRANSCRIPT", str(transcript_path))
     with Project.create(path) as project:
         preview = persist_product_workflow_preview(project, prepared)
         service = create_product_workflow_service(
@@ -441,6 +446,18 @@ def test_approved_product_runner_accepts_all_mapping_jobs_without_live_provider(
     assert status.accepted_jobs == len(prepared.plan.jobs)
     assert status.structural_fallback_jobs == 0
     assert status.accounting.calls == len(prepared.plan.jobs)
+    transcript = [
+        json.loads(line)
+        for line in transcript_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(transcript) == len(prepared.plan.jobs)
+    assert all(item["outcome"] == "accepted" for item in transcript)
+    assert all(
+        item["comment"] == "AI response passed validation; summary added."
+        for item in transcript
+    )
+    assert all(item["prompt"]["raw_story"] for item in transcript)
+    assert all(item["response"]["overview"] for item in transcript)
 
 
 def test_product_validator_binds_contiguous_section_prose_to_derived_job() -> None:

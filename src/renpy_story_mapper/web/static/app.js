@@ -1229,6 +1229,7 @@ function renderStoryReaderManifest(manifest) {
 function renderStoryReaderStatus(status) {
   state.storyReader.status = status;
   if (state.storyWorkflow.response) { renderStoryWorkflow(state.storyWorkflow.response); return; }
+  $("#storyRunDetails").hidden = true;
   const progress = status.progress; const percent = progress.total_jobs ? Math.round((progress.completed_jobs / progress.total_jobs) * 100) : Math.round(status.coverage.event_fraction * 100);
   $("#storyRunState").textContent = String(status.state).replaceAll("_", " ");
   $("#storyRunProgress").textContent = `${progress.completed_jobs}/${progress.total_jobs} jobs · ${progress.failed_jobs} failed · ${progress.indeterminate_jobs} indeterminate`;
@@ -1270,6 +1271,42 @@ function persistStoryWorkflow(response) {
   try { localStorage.setItem(STORY_WORKFLOW_STORAGE_KEY, JSON.stringify(binding)); } catch (_error) { /* The current page still works without persistence. */ }
 }
 
+function renderStoryWorkflowDetails(response) {
+  const details = $("#storyRunDetails"); const body = $("#storyRunRows");
+  const jobs = response.preview.jobs || []; const status = response.status;
+  body.replaceChildren(); details.hidden = !jobs.length;
+  if (!jobs.length) return;
+  const completed = Math.min(jobs.length, status.accepted_jobs + status.structural_fallback_jobs);
+  const activeEnd = Math.min(jobs.length, completed + status.active_jobs);
+  const allAccepted = completed > 0 && status.accepted_jobs === completed;
+  const allStructural = completed > 0 && status.structural_fallback_jobs === completed;
+  const cacheHits = new Set([...(response.preview.cache_hits?.cloud_job_ids || []), ...(response.preview.cache_hits?.loopback_job_ids || [])]);
+  const scopes = new Map(); const parts = new Map();
+  for (const [index, job] of jobs.entries()) {
+    if (!scopes.has(job.scope_id)) scopes.set(job.scope_id, scopes.size + 1);
+    const part = (parts.get(job.scope_id) || 0) + 1; parts.set(job.scope_id, part);
+    let ai = "Waiting"; let summary = "Pending"; let comment = "Queued for the local model.";
+    if (index < completed) {
+      if (allAccepted) {
+        ai = cacheHits.has(job.job_id) ? "Cached" : "Passed"; summary = "Added";
+        comment = cacheHits.has(job.job_id) ? "Accepted summary reused." : "AI summary accepted.";
+      } else if (allStructural) {
+        ai = "Rejected"; summary = "Placeholder"; comment = "See the private local transcript for the validator comment.";
+      } else {
+        ai = "Finished"; summary = "See totals"; comment = `${status.accepted_jobs} accepted, ${status.structural_fallback_jobs} placeholders; exact results are in the transcript.`;
+      }
+    } else if (index < activeEnd) {
+      ai = "Running"; summary = "Pending"; comment = "Waiting for the local model response.";
+    }
+    const row = element("tr"); row.dataset.workflowJobId = job.job_id;
+    row.append(
+      element("td", "", `Query ${index + 1}: story section ${scopes.get(job.scope_id)}, part ${part}`),
+      element("td", "", ai), element("td", "", summary), element("td", "", comment),
+    );
+    body.append(row);
+  }
+}
+
 function renderStoryWorkflow(response) {
   state.storyWorkflow.response = response;
   persistStoryWorkflow(response);
@@ -1284,6 +1321,7 @@ function renderStoryWorkflow(response) {
   $("#storyResumeRun").hidden = !status.can_resume;
   $("#storyRetryRun").hidden = true;
   $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+  renderStoryWorkflowDetails(response);
 }
 
 async function restoreStoryWorkflow() {

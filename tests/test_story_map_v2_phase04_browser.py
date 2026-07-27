@@ -74,6 +74,8 @@ def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     assert "story-map-v2-workflow-http-v1" not in "\n".join((contract, api, app))
     assert "story_map_v2_workflow" in app
     assert 'id="storyPrepareAction"' in html and "disabled" in html[html.index('id="storyPrepareAction"') : html.index('id="storyPrepareAction"') + 160]
+    assert 'id="storyRunDetails"' in html and 'id="storyRunRows"' in html
+    assert "renderStoryWorkflowDetails" in app
     assert "/workflow/approve" not in "\n".join((contract, api, app, html))
 
 
@@ -498,6 +500,12 @@ def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions(
 
             session.evaluate("document.querySelector('#approveStoryGeneration').click()")
             session.wait("!document.querySelector('#storyResumeRun').hidden")
+            session.evaluate("document.querySelector('#storyRunDetails').open = true")
+            job_progress = session.evaluate("({hidden:document.querySelector('#storyRunDetails').hidden,rows:document.querySelectorAll('#storyRunRows tr').length,text:document.querySelector('#storyRunRows').innerText})")
+            assert job_progress["hidden"] is False
+            assert job_progress["rows"] == 1
+            for expected in ("Query 1: story section 1, part 1", "Passed", "Added", "AI summary accepted"):
+                assert expected in job_progress["text"]
             start = next(request for request in _ReaderHandler.requests if request[0].endswith("/start"))
             assert start[1] == {"contract": "story-map-v2-workflow-http-v2", "run_id": "run:fixture", "preview_identity": "a" * 64}
             session.evaluate("document.querySelector('#storyResumeRun').click()")

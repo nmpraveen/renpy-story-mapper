@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
@@ -55,6 +59,8 @@ _ABSOLUTE_PATH = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_PACKET_MARKERS = (b"@@SOURCE ", b'"raw_text":', b'"mechanics":')
+_AI_TRANSCRIPT_ENV = "RENPY_STORY_MAPPER_AI_TRANSCRIPT"
+_AI_TRANSCRIPT_LOCK = threading.Lock()
 
 
 class WorkflowApprovalError(ValueError):
@@ -654,9 +660,33 @@ class StoryMapWorkflowService:
         try:
             result = provider.submit(request)
         except WorkflowProviderError as exc:
+            _append_ai_transcript(
+                job_id=claim.job.job_id,
+                attempt_id=reservation.attempt_id,
+                call_kind=call_kind,
+                prompt=request,
+                response=None,
+                outcome="provider_error",
+                comment=exc.failure.value,
+                accounting=exc.accounting,
+                provider=settings.provider,
+                model=settings.model,
+            )
             failure, transmission = self._record_provider_failure(claim, reservation, exc)
             return _CallFailure(reservation, failure, transmission)
-        except Exception:
+        except Exception as exc:
+            _append_ai_transcript(
+                job_id=claim.job.job_id,
+                attempt_id=reservation.attempt_id,
+                call_kind=call_kind,
+                prompt=request,
+                response=None,
+                outcome="provider_error",
+                comment=f"{type(exc).__name__}: {exc}",
+                accounting=AttemptAccounting.zero(),
+                provider=settings.provider,
+                model=settings.model,
+            )
             completion = AttemptCompletion(
                 stage=AttemptStage.INDETERMINATE,
                 transmission=TransmissionDisposition.INDETERMINATE,
@@ -692,6 +722,18 @@ class StoryMapWorkflowService:
         self._repository.complete_attempt(claim, reservation, completion)
         self._checkpoint("after_transport_return", claim.job.job_id)
         if identity_failure is not None:
+            _append_ai_transcript(
+                job_id=claim.job.job_id,
+                attempt_id=reservation.attempt_id,
+                call_kind=call_kind,
+                prompt=request,
+                response=result.payload,
+                outcome="identity_rejected",
+                comment=identity_failure.value,
+                accounting=result.accounting,
+                provider=result.resolved_provider,
+                model=result.resolved_model,
+            )
             return _CallFailure(
                 reservation, identity_failure, TransmissionDisposition.TRANSMITTED
             )
@@ -705,8 +747,32 @@ class StoryMapWorkflowService:
         try:
             validated = self._validator.validate(claim.job, call.result.payload, cached=False)
             _validate_durable_result(validated, prohibited_request=call.request)
-        except Exception:
+        except Exception as exc:
+            _append_ai_transcript(
+                job_id=claim.job.job_id,
+                attempt_id=call.reservation.attempt_id,
+                call_kind=call.reservation.call_kind,
+                prompt=call.request,
+                response=call.result.payload,
+                outcome="validation_rejected",
+                comment=f"{type(exc).__name__}: {exc}",
+                accounting=call.result.accounting,
+                provider=call.result.resolved_provider,
+                model=call.result.resolved_model,
+            )
             return None
+        _append_ai_transcript(
+            job_id=claim.job.job_id,
+            attempt_id=call.reservation.attempt_id,
+            call_kind=call.reservation.call_kind,
+            prompt=call.request,
+            response=call.result.payload,
+            outcome="accepted",
+            comment="AI response passed validation; summary added.",
+            accounting=call.result.accounting,
+            provider=call.result.resolved_provider,
+            model=call.result.resolved_model,
+        )
         self._repository.record_validated(
             claim,
             call.reservation,
@@ -885,6 +951,60 @@ class StoryMapWorkflowService:
         return stop, thread
 
 
+def _append_ai_transcript(
+    *,
+    job_id: str,
+    attempt_id: str,
+    call_kind: ProviderCallKind,
+    prompt: bytes,
+    response: bytes | None,
+    outcome: str,
+    comment: str,
+    accounting: AttemptAccounting,
+    provider: str,
+    model: str,
+) -> None:
+    """Append an explicitly enabled private local provider transcript outside durable storage."""
+
+    target = os.environ.get(_AI_TRANSCRIPT_ENV)
+    if not target:
+        return
+    record = {
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "job_id": job_id,
+        "attempt_id": attempt_id,
+        "call_kind": call_kind.value,
+        "provider": provider,
+        "model": model,
+        "outcome": outcome,
+        "comment": comment,
+        "accounting": {
+            "calls": accounting.calls,
+            "input_tokens": accounting.input_tokens,
+            "output_tokens": accounting.output_tokens,
+            "elapsed_ms": accounting.elapsed_ms,
+        },
+        "prompt": _transcript_payload(prompt),
+        "response": None if response is None else _transcript_payload(response),
+    }
+    try:
+        path = Path(target).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        with _AI_TRANSCRIPT_LOCK, path.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(f"{line}\n")
+    except (OSError, ValueError):
+        # Debug retention must never change workflow success or failure behavior.
+        return
+
+
+def _transcript_payload(payload: bytes) -> object:
+    try:
+        return json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return payload.decode("utf-8", errors="replace")
+
+
 def _provider_input(
     policy: WorkflowPolicy,
     claim: JobClaim,
@@ -946,12 +1066,39 @@ def _validate_durable_result(
     prohibited_request: bytes | None = None,
 ) -> None:
     payload = result.normalized_payload
-    if _ABSOLUTE_PATH.search(payload) is not None or any(
-        marker in payload for marker in _SOURCE_PACKET_MARKERS
+    scan_payload = _without_python_owned_mechanics(payload)
+    if _ABSOLUTE_PATH.search(scan_payload) is not None or any(
+        marker in scan_payload for marker in _SOURCE_PACKET_MARKERS
     ):
         raise WorkflowValidationError("normalized workflow result contains prohibited material")
     if prohibited_request is not None and prohibited_request in payload:
         raise WorkflowValidationError("normalized workflow result retained the request packet")
+
+
+def _without_python_owned_mechanics(payload: bytes) -> bytes:
+    """Exclude exact authority mechanics from the provider-material privacy scan."""
+
+    try:
+        value: object = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return payload
+
+    def scrub(item: object) -> object:
+        if isinstance(item, dict):
+            return {
+                key: "" if key == "canonical_mechanics" else scrub(child)
+                for key, child in item.items()
+            }
+        if isinstance(item, list):
+            return [scrub(child) for child in item]
+        return item
+
+    return json.dumps(
+        scrub(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
 
 
 def _same_digest(left: str, right: str) -> bool:
