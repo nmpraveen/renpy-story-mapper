@@ -19,6 +19,7 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
     SelectionIndexRecord,
     SqliteStoryMapV2Repository,
     StoryMapV2RepositoryError,
+    _validate_private_content,
 )
 from renpy_story_mapper.story_map_v2.phase04_publication import (
     AtomicGenerationPublisher,
@@ -757,7 +758,7 @@ def _arm_items(
                 "selection_id": arm_id,
                 "condition": condition if isinstance(condition, str) else None,
                 "effects": (
-                    [item for item in effects if isinstance(item, str)]
+                    _durable_reader_effects(effects)
                     if isinstance(effects, list)
                     else []
                 ),
@@ -792,6 +793,19 @@ def _arm_items(
             }
         )
     return result, shells
+
+
+def _durable_reader_effects(effects: Sequence[object]) -> list[str]:
+    result: list[str] = []
+    for effect in effects:
+        if not isinstance(effect, str):
+            continue
+        try:
+            _validate_private_content(effect, "reader choice-arm effect")
+        except ValueError:
+            continue
+        result.append(effect)
+    return result
 
 
 def _selection_for_node(

@@ -28,6 +28,7 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import assemble_semantic_corridors
 from renpy_story_mapper.story_map_v2.product_vertical import (
+    _durable_reader_effects,
     _terminal_indeterminate_fallback,
     execute_product_vertical,
     project_workflow_reader_status,
@@ -936,3 +937,12 @@ def test_terminal_indeterminate_mapping_run_publishes_without_derived_calls(
         assert manifest["status"] == "complete"
         assert manifest["sections"]
         assert manifest["overview"]["title"] == "Whole story overview"
+
+
+def test_reader_arm_effects_omit_media_path_but_preserve_state_change() -> None:
+    effects = [
+        "love += 1",
+        'play movie "/videos/intro.webm"',
+    ]
+
+    assert _durable_reader_effects(effects) == ["love += 1"]
