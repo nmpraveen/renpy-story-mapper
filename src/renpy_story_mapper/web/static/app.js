@@ -842,6 +842,12 @@ async function resetRoutePaging() {
 
 function showStorySurface(visible) {
   if (!visible) invalidateStoryDetail();
+  const prepare = $("#storyPrepareAction");
+  if (visible) $(".story-hero-meta").insertBefore(prepare, $("#openCompatibilityMap"));
+  else if (api.storyWorkflowRoutes) {
+    $(".masthead-actions").insertBefore(prepare, $("#refreshProject"));
+    prepare.textContent = "Generate"; prepare.disabled = state.storyWorkflow.busy;
+  }
   $("#storyBrowser").hidden = !visible;
   for (const selector of [".commandbar", "#fallbackNotice", "#analysisFailureBanner", "#partialAnalysisPanel", "#mapLayout", "#organizationPanel"]) {
     const node = $(selector);
@@ -1693,6 +1699,7 @@ async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const storyAvailable = await loadStoryMapV2();
   if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; await restoreStoryWorkflow(); return true; }
+  showStorySurface(false);
   const available = await resetRoutePaging();
   await loadNarrative();
   await loadNarrativeRunStatus();

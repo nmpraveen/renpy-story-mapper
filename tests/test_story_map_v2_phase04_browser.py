@@ -111,6 +111,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     delay_finished: threading.Event | None = None
     advertise_workflow = False
     workflow_status_mode = "complete"
+    reader_available = True
 
     def log_message(self, _format: str, *args: object) -> None:
         return
@@ -127,6 +128,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         cls.delay_finished = None
         cls.advertise_workflow = False
         cls.workflow_status_mode = "complete"
+        cls.reader_available = True
 
     def _at_revision(self, value: Any) -> Any:
         result = copy.deepcopy(value)
@@ -221,7 +223,10 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
                 type(self).delay_started.set()
             type(self).delay_release.wait(timeout=10)
         if self.path == self.fixture["routes"]["manifest"]:
-            self._json(self._at_revision(examples["manifest"]))
+            if type(self).reader_available:
+                self._json(self._at_revision(examples["manifest"]))
+            else:
+                self._json({"error": {"code": "story_map_unavailable", "message": "No story generation is available."}}, status=404)
         elif self.path == self.fixture["routes"]["status"]:
             self._json(self._at_revision(examples["status"]))
         elif self.path == self.fixture["routes"]["section_page"]:
@@ -283,10 +288,11 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             response["state"] = copy.deepcopy(type(self).view_state)
             self._json(response)
 @contextmanager
-def _server(*, workflow: bool = False, workflow_status_mode: str = "complete") -> Iterator[str]:
+def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True) -> Iterator[str]:
     _ReaderHandler.reset()
     _ReaderHandler.advertise_workflow = workflow
     _ReaderHandler.workflow_status_mode = workflow_status_mode
+    _ReaderHandler.reader_available = reader_available
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _ReaderHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -450,6 +456,45 @@ def test_workflow_v2_preview_requires_approval_and_uses_only_advertised_actions(
             session.evaluate("document.querySelector('#storyCancelRun').click()")
             session.wait("document.querySelector('#storyCancelRun').hidden")
             assert not [request for request in _ReaderHandler.requests if request[0].endswith("/retry")]
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("profile", "zoom", "width", "height", "device_scale"),
+    [("desktop", 100, 1440, 900, 1), ("effective_200", 200, 720, 450, 2)],
+)
+def test_workflow_v2_first_generation_is_visible_without_reader_manifest(
+    profile: str, zoom: int, width: int, height: int, device_scale: int
+) -> None:
+    driver = _browser_driver()
+    try:
+        browser = driver._browser()
+    except FileNotFoundError:
+        pytest.skip("Chrome or Edge is unavailable")
+    with _server(workflow=True, reader_available=False) as origin, tempfile.TemporaryDirectory(prefix=f"rsm-m15-p4-first-generation-{profile}-", ignore_cleanup_errors=True) as temporary:
+        process, session = driver._session(browser, zoom, Path(temporary))
+        try:
+            session.command("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": device_scale, "mobile": False})
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("!document.querySelector('#workspaceView').hidden && document.querySelector('#storyBrowser').hidden && document.querySelector('#storyPrepareAction').closest('.masthead-actions') && !document.querySelector('#storyPrepareAction').disabled")
+            placement = session.evaluate("({label:document.querySelector('#storyPrepareAction').textContent,routeMapVisible:!document.querySelector('#routeMapView').hidden,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
+            assert placement == {"label": "Generate", "routeMapVisible": True, "overflow": 0}
+            session.evaluate("document.querySelector('#storyPrepareAction').click()")
+            session.wait("document.querySelector('#storyApprovalDialog').open")
+            facts = session.evaluate("document.querySelector('#storyApprovalFacts').innerText")
+            for expected in ("codex-cli", "gpt-5.6-terra", "Private story text may be sent", "Maximum calls"):
+                assert expected in facts
+            workflow_requests = [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
+            assert workflow_requests == [("/api/v1/story-map-v2/workflow/prepare", {"contract": "story-map-v2-workflow-http-v2"})]
         finally:
             session.close()
             process.terminate()
