@@ -367,14 +367,13 @@ class WorkflowDerivedSemanticJobDescriptor:
             raise ValueError("derived provider input must bind the serialized request identity")
         if self.provider_input_identity.cache_identity != self.cache_identity:
             raise ValueError("derived cache identity must bind the exact provider input")
-        if (
+        if self.provider_input_identity.mode is ProviderMode.CLOUD and (
             self.provider_input_identity.provider != CLOUD_PROVIDER
             or self.provider_input_identity.model != CLOUD_MODEL
             or self.provider_input_identity.reasoning != CLOUD_REASONING
             or self.provider_input_identity.fast_mode is not CLOUD_FAST_MODE
-            or self.provider_input_identity.mode is not ProviderMode.CLOUD
         ):
-            raise ValueError("derived synthesis requires exact Terra, High, fast-off cloud input")
+            raise ValueError("cloud derived synthesis requires exact Terra, High, fast-off input")
 
 
 WorkflowExecutableJobDescriptor = WorkflowJobDescriptor | WorkflowDerivedSemanticJobDescriptor
@@ -464,8 +463,8 @@ class WorkflowResourceCeilings:
             raise ValueError("workflow resource ceilings must be finite non-negative integers")
         if self.mapping_calls < 1 or self.input_tokens < 1 or self.elapsed_ms < 1:
             raise ValueError("mapping, input-token, and elapsed ceilings must be positive")
-        if self.submission_slots != GLOBAL_SUBMISSION_SLOTS:
-            raise ValueError("Phase 04 requires exactly six independent submission slots")
+        if self.submission_slots not in {1, GLOBAL_SUBMISSION_SLOTS}:
+            raise ValueError("Phase 04 requires one or six independent submission slots")
 
 
 @dataclass(frozen=True)
@@ -478,8 +477,8 @@ class WorkflowPrivacyScope:
     durable_absolute_paths: bool = False
 
     def __post_init__(self) -> None:
-        if self.cloud_story_content is not True:
-            raise ValueError("Phase 04 preview must disclose cloud story transmission")
+        if not self.cloud_story_content and not self.loopback_story_content:
+            raise ValueError("Phase 04 preview must disclose one story transmission boundary")
         if any(
             (
                 self.durable_raw_requests,
@@ -503,7 +502,7 @@ class WorkflowPolicy:
     def __post_init__(self) -> None:
         _text(self.prompt_version, "prompt version")
         _text(self.schema_version, "schema version")
-        if self.cloud != ProviderSettings(
+        if self.cloud.mode is ProviderMode.CLOUD and self.cloud != ProviderSettings(
             provider=CLOUD_PROVIDER,
             model=CLOUD_MODEL,
             reasoning=CLOUD_REASONING,
@@ -512,6 +511,16 @@ class WorkflowPolicy:
             adapter_version=self.cloud.adapter_version,
         ):
             raise ValueError("cloud policy requires exact Terra, High, fast-off settings")
+        if self.cloud.mode is ProviderMode.LOOPBACK and (
+            self.cloud.provider == CLOUD_PROVIDER
+            or self.cloud.reasoning is not None
+            or self.cloud.fast_mode is not None
+        ):
+            raise ValueError(
+                "provider policy requires exact Terra cloud settings or explicit loopback settings"
+            )
+        if self.cloud.mode is ProviderMode.LOOPBACK and self.loopback is not None:
+            raise ValueError("local-primary policy cannot also configure refusal fallback")
         if self.allow_refusal_fallback != (self.loopback is not None):
             raise ValueError("loopback settings must exactly match disclosed fallback permission")
         if self.loopback is not None and self.loopback.mode is not ProviderMode.LOOPBACK:
@@ -523,9 +532,9 @@ class WorkflowPolicy:
         self,
         request: SerializedRequestIdentity,
         *,
-        mode: ProviderMode = ProviderMode.CLOUD,
+        mode: ProviderMode | None = None,
     ) -> ProviderInputIdentity:
-        settings = self.cloud if mode is ProviderMode.CLOUD else self.loopback
+        settings = self.cloud if mode is None or self.cloud.mode is mode else self.loopback
         if settings is None:
             raise ValueError("the frozen preview does not disclose a loopback provider")
         return ProviderInputIdentity(
@@ -556,8 +565,16 @@ class WorkflowPreview:
         _text(self.run_id, "run ID")
         if self.schema != WORKFLOW_SCHEMA:
             raise ValueError("unsupported workflow preview schema")
-        if self.privacy.loopback_story_content != self.policy.allow_refusal_fallback:
-            raise ValueError("privacy scope must match disclosed loopback fallback permission")
+        expected_cloud = self.policy.cloud.mode is ProviderMode.CLOUD
+        expected_loopback = (
+            self.policy.cloud.mode is ProviderMode.LOOPBACK
+            or self.policy.allow_refusal_fallback
+        )
+        if (
+            self.privacy.cloud_story_content != expected_cloud
+            or self.privacy.loopback_story_content != expected_loopback
+        ):
+            raise ValueError("privacy scope must match the disclosed provider boundaries")
         known_jobs = {job.job_id for job in self.plan.jobs}
         if len(set(self.cache_hit_job_ids)) != len(self.cache_hit_job_ids):
             raise ValueError("cache-hit job IDs must be unique")

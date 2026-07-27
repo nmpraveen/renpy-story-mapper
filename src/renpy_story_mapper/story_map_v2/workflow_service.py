@@ -12,7 +12,6 @@ from dataclasses import dataclass
 
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
-    GLOBAL_SUBMISSION_SLOTS,
     AttemptAccounting,
     AttemptCompletion,
     AttemptReservation,
@@ -164,8 +163,11 @@ class StoryMapWorkflowService:
             policy=policy,
             ceilings=ceilings,
             privacy=WorkflowPrivacyScope(
-                cloud_story_content=True,
-                loopback_story_content=policy.allow_refusal_fallback,
+                cloud_story_content=policy.cloud.mode is ProviderMode.CLOUD,
+                loopback_story_content=(
+                    policy.cloud.mode is ProviderMode.LOOPBACK
+                    or policy.allow_refusal_fallback
+                ),
             ),
             cache_hit_job_ids=tuple(cache_hits),
             loopback_cache_hit_job_ids=tuple(loopback_cache_hits),
@@ -232,7 +234,7 @@ class StoryMapWorkflowService:
         )
         abort = threading.Event()
         with ThreadPoolExecutor(
-            max_workers=GLOBAL_SUBMISSION_SLOTS,
+            max_workers=preview.ceilings.submission_slots,
             thread_name_prefix="story-map-v2-workflow",
         ) as executor:
             futures = tuple(
@@ -243,7 +245,7 @@ class StoryMapWorkflowService:
                     f"worker-{index + 1}",
                     abort,
                 )
-                for index in range(GLOBAL_SUBMISSION_SLOTS)
+                for index in range(preview.ceilings.submission_slots)
             )
             for future in futures:
                 future.result()
@@ -340,7 +342,7 @@ class StoryMapWorkflowService:
                 preview.run_id,
                 execution_id,
                 worker_id,
-                submission_slots=GLOBAL_SUBMISSION_SLOTS,
+                submission_slots=preview.ceilings.submission_slots,
             )
             if claim is None:
                 return

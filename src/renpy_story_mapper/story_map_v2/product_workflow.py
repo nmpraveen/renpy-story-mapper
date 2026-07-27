@@ -19,6 +19,7 @@ from renpy_story_mapper.m11_scene_model import SceneModel
 from renpy_story_mapper.story_map_v2.contracts import canonical_json
 from renpy_story_mapper.story_map_v2.durable_repository import SqliteStoryMapV2Repository
 from renpy_story_mapper.story_map_v2.frozen_plans import FrozenPlanBundle
+from renpy_story_mapper.story_map_v2.loopback_transport import LoopbackLmStudioTransport
 from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
     adapt_chunk_planning_projection,
 )
@@ -45,6 +46,7 @@ from renpy_story_mapper.story_map_v2.phase04_semantics import (
     FrozenMapperJobBinding,
     Phase04MapperResponseValidator,
 )
+from renpy_story_mapper.story_map_v2.provider_policy import LOCAL_MAPPER_MODEL
 from renpy_story_mapper.story_map_v2.source_adapter import adapt_story_scope
 from renpy_story_mapper.story_map_v2.story_plan import build_story_plan
 from renpy_story_mapper.story_map_v2.workflow_cloud_provider import (
@@ -55,6 +57,7 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     CLOUD_MODEL,
     CLOUD_PROVIDER,
     CLOUD_REASONING,
+    GLOBAL_SUBMISSION_SLOTS,
     AuthorityIdentity,
     DerivedSemanticNodeRole,
     ProviderCallKind,
@@ -87,10 +90,24 @@ class ProductWorkflowProject(Protocol):
     def story_map_v2_repository(self) -> SqliteStoryMapV2Repository: ...
 
 MAPPING_ADAPTER_VERSION = "story-map-v2-phase04-mapper-adapter-v1"
+LOOPBACK_WORKFLOW_ADAPTER_VERSION = "story-map-v2-phase04-loopback-workflow-v1"
 DERIVED_INPUT_TOKEN_ALLOWANCE = 10_700
 OUTPUT_TOKEN_ALLOWANCE_PER_CALL = 8_000
 ELAPSED_ALLOWANCE_MS_PER_CALL = 300_000
 _CRITICAL_FLAGS = frozenset({"persistent_lane", "loop", "terminal", "unresolved"})
+
+
+def local_lm_studio_workflow_settings() -> ProviderSettings:
+    """Return the installed-model identity used by the supported local website workflow."""
+
+    return ProviderSettings(
+        provider="lm-studio-loopback",
+        model=LOCAL_MAPPER_MODEL,
+        reasoning=None,
+        fast_mode=None,
+        mode=ProviderMode.LOOPBACK,
+        adapter_version=LOOPBACK_WORKFLOW_ADAPTER_VERSION,
+    )
 
 
 @dataclass(frozen=True)
@@ -397,16 +414,24 @@ def create_product_workflow_service(
     prepared: PreparedProductWorkflow,
     *,
     cloud_factory: ProviderFactory | None = None,
+    loopback_factory: ProviderFactory | None = None,
     request_materializer: FrozenProductRequestMaterializer | None = None,
 ) -> StoryMapWorkflowService:
     """Compose the durable runner without constructing a provider before execution."""
 
     materializer = request_materializer or FrozenProductRequestMaterializer(prepared)
+    if prepared.policy.cloud.mode is ProviderMode.LOOPBACK:
+        if cloud_factory is not None:
+            raise ValueError("local-only workflow cannot accept a cloud provider factory")
+        primary_factory = loopback_factory or LoopbackLmStudioTransport
+    else:
+        primary_factory = cloud_factory or CodexCliWorkflowProvider
     return StoryMapWorkflowService(
         DurableWorkflowRepositoryAdapter.from_project(project),
         materializer,
         ProductWorkflowValidator(prepared),
-        cloud_factory=cloud_factory or CodexCliWorkflowProvider,
+        cloud_factory=primary_factory,
+        loopback_factory=loopback_factory,
     )
 
 
@@ -432,16 +457,17 @@ def adapt_derived_semantic_job(
         prompt_version = ROLLUP_SYNTHESIS_PROMPT_VERSION
         schema_version = ROLLUP_SYNTHESIS_SCHEMA_VERSION
         adapter_version = ROLLUP_SYNTHESIS_ADAPTER_VERSION
+    primary = prepared.policy.cloud
     provider_input = ProviderInputIdentity(
         serialized_request_identity=request_identity,
         prompt_version=prompt_version,
         schema_version=schema_version,
         adapter_version=adapter_version,
-        provider=CLOUD_PROVIDER,
-        model=CLOUD_MODEL,
-        reasoning=CLOUD_REASONING,
-        fast_mode=CLOUD_FAST_MODE,
-        mode=ProviderMode.CLOUD,
+        provider=primary.provider,
+        model=primary.model,
+        reasoning=primary.reasoning,
+        fast_mode=primary.fast_mode,
+        mode=primary.mode,
     )
     node_role = (
         None
@@ -474,6 +500,7 @@ def prepare_product_workflow_from_authority(
     *,
     run_id: str,
     loopback: ProviderSettings | None = None,
+    primary: ProviderSettings | None = None,
 ) -> PreparedProductWorkflow:
     """Pure authority-to-preview bridge used by the website and public fixtures."""
 
@@ -485,7 +512,7 @@ def prepare_product_workflow_from_authority(
     chunk_plan = plan_story_chunks(projection)
     frozen_plans = FrozenPlanBundle(story_plan, chunk_plan)
     authority = AuthorityIdentity(graph.authority_hash)
-    policy = _workflow_policy(loopback)
+    policy = _workflow_policy(loopback, primary=primary)
 
     jobs: list[WorkflowJobDescriptor] = []
     requests: list[tuple[SerializedRequestIdentity, bytes]] = []
@@ -547,7 +574,12 @@ def prepare_product_workflow_from_authority(
         tuple(jobs),
         derived_descriptor,
     )
-    ceilings = _resource_ceilings(provider_chunks, derived_descriptor, loopback is not None)
+    ceilings = _resource_ceilings(
+        provider_chunks,
+        derived_descriptor,
+        loopback is not None,
+        local_primary=policy.cloud.mode is ProviderMode.LOOPBACK,
+    )
     return PreparedProductWorkflow(
         run_id,
         frozen_plans,
@@ -559,20 +591,27 @@ def prepare_product_workflow_from_authority(
     )
 
 
-def _workflow_policy(loopback: ProviderSettings | None) -> WorkflowPolicy:
+def _workflow_policy(
+    loopback: ProviderSettings | None,
+    *,
+    primary: ProviderSettings | None = None,
+) -> WorkflowPolicy:
     if loopback is not None and loopback.mode is not ProviderMode.LOOPBACK:
         raise ValueError("the optional fallback must use loopback mode")
+    selected_primary = primary or ProviderSettings(
+        provider=CLOUD_PROVIDER,
+        model=CLOUD_MODEL,
+        reasoning=CLOUD_REASONING,
+        fast_mode=CLOUD_FAST_MODE,
+        mode=ProviderMode.CLOUD,
+        adapter_version=MAPPING_ADAPTER_VERSION,
+    )
+    if selected_primary.mode is ProviderMode.LOOPBACK and loopback is not None:
+        raise ValueError("local-only primary cannot also configure refusal fallback")
     return WorkflowPolicy(
         prompt_version=PHASE04_MAPPER_PROMPT_VERSION,
         schema_version=PHASE04_MAPPER_RESPONSE_SCHEMA,
-        cloud=ProviderSettings(
-            provider=CLOUD_PROVIDER,
-            model=CLOUD_MODEL,
-            reasoning=CLOUD_REASONING,
-            fast_mode=CLOUD_FAST_MODE,
-            mode=ProviderMode.CLOUD,
-            adapter_version=MAPPING_ADAPTER_VERSION,
-        ),
+        cloud=selected_primary,
         loopback=loopback,
         allow_refusal_fallback=loopback is not None,
     )
@@ -586,6 +625,8 @@ def _resource_ceilings(
     chunks: tuple[StoryChunkDescriptor, ...],
     derived: WorkflowDerivedSemanticPlanDescriptor,
     has_loopback: bool,
+    *,
+    local_primary: bool = False,
 ) -> WorkflowResourceCeilings:
     mapping_calls = len(chunks)
     derived_calls = derived.section_synthesis_calls + derived.rollup_synthesis_calls
@@ -602,6 +643,7 @@ def _resource_ceilings(
         ),
         output_tokens=max(1, maximum_calls * OUTPUT_TOKEN_ALLOWANCE_PER_CALL),
         elapsed_ms=max(1, maximum_calls * ELAPSED_ALLOWANCE_MS_PER_CALL),
+        submission_slots=1 if local_primary else GLOBAL_SUBMISSION_SLOTS,
         indeterminate_retry_calls=mapping_calls + derived_calls,
         section_synthesis_calls=derived.section_synthesis_calls,
         route_reduction_calls=derived.route_reduction_calls,

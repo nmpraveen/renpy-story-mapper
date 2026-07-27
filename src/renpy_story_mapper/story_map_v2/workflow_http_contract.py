@@ -86,17 +86,22 @@ def validate_workflow_http_preview(value: object) -> None:
 
     policy = _mapping(preview.get("policy"), "workflow policy")
     privacy = _mapping(preview.get("privacy"), "workflow privacy")
+    primary = _mapping(policy.get("cloud"), "primary provider")
+    primary_mode = _text(primary.get("mode"), "primary provider mode")
     fallback = _boolean(policy.get("allow_refusal_fallback"), "fallback permission")
     has_loopback = policy.get("loopback") is not None
     loopback_content = _boolean(
         privacy.get("loopback_story_content"), "loopback privacy scope"
     )
-    if fallback != has_loopback or fallback != loopback_content:
+    if fallback != has_loopback or loopback_content != (
+        fallback or primary_mode == "loopback"
+    ):
         raise WorkflowHttpContractCoherenceError(
             "loopback provider, consent, and privacy scope must agree"
         )
-    if not _boolean(privacy.get("cloud_story_content"), "cloud privacy scope"):
-        raise WorkflowHttpContractCoherenceError("cloud story consent must be explicit")
+    cloud_content = _boolean(privacy.get("cloud_story_content"), "cloud privacy scope")
+    if cloud_content != (primary_mode == "cloud"):
+        raise WorkflowHttpContractCoherenceError("cloud story scope must match provider mode")
     for key in (
         "durable_raw_requests",
         "durable_raw_responses",

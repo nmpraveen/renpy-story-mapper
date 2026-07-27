@@ -475,8 +475,8 @@ class DurableWorkflowRepositoryAdapter(WorkflowRepository):
         preview = self.load_preview(run_id)
         if execution_id != _execution_id(preview):
             raise durable.LeaseConflictError("execution identity changed")
-        if submission_slots != durable.GLOBAL_SUBMISSION_LIMIT:
-            raise ValueError("workflow requires exactly six global submission slots")
+        if submission_slots not in {1, durable.GLOBAL_SUBMISSION_LIMIT}:
+            raise ValueError("workflow requires one or six global submission slots")
         with self._repository() as repository:
             claim = repository.claim_next_job(
                 _stable_id("worker", worker_id),

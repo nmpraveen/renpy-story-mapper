@@ -5,10 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from renpy_story_mapper.story_map_v2.phase04_sections import (
-    DERIVED_FAST_MODE,
-    DERIVED_MODEL,
-    DERIVED_PROVIDER,
-    DERIVED_REASONING,
     ROLLUP_SYNTHESIS_ADAPTER_VERSION,
     ROLLUP_SYNTHESIS_PROMPT_VERSION,
     ROLLUP_SYNTHESIS_SCHEMA_VERSION,
@@ -136,11 +132,13 @@ def workflow_preview_object(preview: WorkflowPreview) -> dict[str, object]:
                 SECTION_SYNTHESIS_PROMPT_VERSION,
                 SECTION_SYNTHESIS_SCHEMA_VERSION,
                 SECTION_SYNTHESIS_ADAPTER_VERSION,
+                preview.policy.cloud,
             ),
             "rollup_synthesis": _derived_provider_object(
                 ROLLUP_SYNTHESIS_PROMPT_VERSION,
                 ROLLUP_SYNTHESIS_SCHEMA_VERSION,
                 ROLLUP_SYNTHESIS_ADAPTER_VERSION,
+                preview.policy.cloud,
             ),
         },
         "ceilings": asdict(preview.ceilings),
@@ -225,15 +223,16 @@ def _derived_provider_object(
     prompt_version: str,
     schema_version: str,
     adapter_version: str,
+    settings: ProviderSettings,
 ) -> dict[str, object]:
     return {
         "prompt_version": prompt_version,
         "schema_version": schema_version,
-        "provider": DERIVED_PROVIDER,
-        "model": DERIVED_MODEL,
-        "reasoning": DERIVED_REASONING,
-        "fast_mode": DERIVED_FAST_MODE,
-        "mode": "cloud",
+        "provider": settings.provider,
+        "model": settings.model,
+        "reasoning": settings.reasoning,
+        "fast_mode": settings.fast_mode,
+        "mode": settings.mode.value,
         "adapter_version": adapter_version,
     }
 

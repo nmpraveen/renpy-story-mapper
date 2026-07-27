@@ -42,6 +42,9 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
+from renpy_story_mapper.story_map_v2.provider_policy import (
+    LOCAL_MAPPER_MODEL,
+)
 from renpy_story_mapper.story_map_v2.reader import StoryMapReader
 from renpy_story_mapper.story_map_v2.reader_store import DurableStoryMapReaderSource
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
@@ -203,6 +206,92 @@ def test_product_prepare_discloses_optional_loopback_in_same_frozen_ceiling() ->
         + prepared.ceilings.section_synthesis_calls
         + prepared.ceilings.rollup_synthesis_calls
     )
+
+
+def test_product_local_only_binds_mapping_and_derived_jobs_to_loopback() -> None:
+    graph = _authority()
+    local = ProviderSettings(
+        provider="lm-studio-loopback",
+        model=LOCAL_MAPPER_MODEL,
+        reasoning=None,
+        fast_mode=None,
+        mode=ProviderMode.LOOPBACK,
+        adapter_version="story-map-v2-phase04-loopback-v1",
+    )
+
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:public-local-only",
+        primary=local,
+    )
+    derived = assemble_derived_semantics(
+        build_derived_semantic_plan(
+            prepared.frozen_plans.story_chunk_plan,
+            prepared.plan.authority_identity.value,
+        ),
+        assemble_semantic_corridors(prepared.frozen_plans.story_chunk_plan, ()),
+        "a" * 64,
+    )
+    durable_section = adapt_derived_semantic_job(prepared, derived.section_jobs[0])
+
+    assert prepared.policy.cloud == local
+    assert prepared.policy.loopback is None
+    assert prepared.policy.allow_refusal_fallback is False
+    assert prepared.ceilings.submission_slots == 1
+    assert all(
+        job.cache_identity
+        == prepared.policy.input_identity(job.serialized_request_identity).cache_identity
+        for job in prepared.plan.jobs
+    )
+    assert durable_section.provider_input_identity.mode is ProviderMode.LOOPBACK
+    assert durable_section.provider_input_identity.provider == local.provider
+    assert durable_section.provider_input_identity.model == local.model
+
+
+def test_product_local_only_preview_is_truthful_and_forbids_cloud_factory(
+    tmp_path: Path,
+) -> None:
+    graph = _authority()
+    local = ProviderSettings(
+        provider="lm-studio-loopback",
+        model=LOCAL_MAPPER_MODEL,
+        reasoning=None,
+        fast_mode=None,
+        mode=ProviderMode.LOOPBACK,
+        adapter_version="story-map-v2-phase04-loopback-v1",
+    )
+    prepared = prepare_product_workflow_from_authority(
+        graph,
+        build_scene_model(graph),
+        run_id="run:truthful-local-only",
+        primary=local,
+    )
+
+    with Project.create(tmp_path / "truthful-local-only.rsmproj") as project:
+        preview = persist_product_workflow_preview(project, prepared)
+        assert preview.privacy.cloud_story_content is False
+        assert preview.privacy.loopback_story_content is True
+        envelope = workflow_success_envelope(
+            "prepare",
+            preview,
+            DurableWorkflowRepositoryAdapter.from_project(project).status(prepared.run_id),
+            None,
+        )
+        projected = envelope["preview"]
+        assert isinstance(projected, dict)
+        assert projected["privacy"]["cloud_story_content"] is False
+        assert projected["privacy"]["loopback_story_content"] is True
+        assert projected["policy"]["cloud"]["mode"] == "loopback"
+        assert projected["policy"]["section_synthesis"]["mode"] == "loopback"
+        assert projected["policy"]["rollup_synthesis"]["mode"] == "loopback"
+
+        with pytest.raises(ValueError, match="cloud provider factory"):
+            create_product_workflow_service(
+                project,
+                prepared,
+                cloud_factory=lambda: pytest.fail("cloud provider constructed"),
+            )
 
 
 def test_product_validator_overlays_authority_onto_provider_prose() -> None:
@@ -587,14 +676,23 @@ def test_product_prepare_projects_exact_privacy_safe_http_v2_envelope(
     assert "serialized_request_identity" not in serialized
 
 
-def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview(
+def test_local_only_vertical_maps_and_derives_reader_without_cloud(
     tmp_path: Path,
 ) -> None:
     graph = _authority_with_effect()
+    local = ProviderSettings(
+        provider="lm-studio-loopback",
+        model=LOCAL_MAPPER_MODEL,
+        reasoning=None,
+        fast_mode=None,
+        mode=ProviderMode.LOOPBACK,
+        adapter_version="story-map-v2-phase04-loopback-v1",
+    )
     prepared = prepare_product_workflow_from_authority(
         graph,
         build_scene_model(graph),
         run_id="run:vertical-reader",
+        primary=local,
     )
     chunks = {
         chunk.chunk_id: chunk for chunk in prepared.frozen_plans.story_chunk_plan.chunks
@@ -650,10 +748,10 @@ def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview
             return ProviderCallResult(
                 payload=canonical_json(prose),
                 accounting=AttemptAccounting(1, 100, 40, 10),
-                resolved_provider=CLOUD_PROVIDER,
-                resolved_model=CLOUD_MODEL,
-                resolved_reasoning=CLOUD_REASONING,
-                resolved_fast_mode=CLOUD_FAST_MODE,
+                resolved_provider=local.provider,
+                resolved_model=local.model,
+                resolved_reasoning=local.reasoning,
+                resolved_fast_mode=local.fast_mode,
             )
 
         def cancel(self) -> None:
@@ -665,7 +763,7 @@ def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview
         service = create_product_workflow_service(
             project,
             prepared,
-            cloud_factory=FakeProvider,
+            loopback_factory=FakeProvider,
         )
         service.approve(prepared.run_id, preview.identity)
 
@@ -673,9 +771,9 @@ def test_approved_vertical_publishes_reader_with_effects_rejoins_and_ai_overview
         path,
         prepared,
         preview_identity=preview.identity,
-        cloud_factory=FakeProvider,
         project_opener=Project.open,
         authority_graph=graph,
+        loopback_factory=FakeProvider,
     )
 
     with Project.open(path) as project:

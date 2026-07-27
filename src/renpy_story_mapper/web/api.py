@@ -102,6 +102,7 @@ from renpy_story_mapper.project import (
     refresh_ingested_project,
 )
 from renpy_story_mapper.story_map_v2.contracts import StoryMapCore
+from renpy_story_mapper.story_map_v2.loopback_transport import LoopbackLmStudioTransport
 from renpy_story_mapper.story_map_v2.navigation import (
     DETAIL_SCHEMA,
     PATH_SCHEMA,
@@ -130,6 +131,7 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
     FrozenProductRequestMaterializer,
     PreparedProductWorkflow,
     create_product_workflow_service,
+    local_lm_studio_workflow_settings,
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
@@ -154,8 +156,8 @@ from renpy_story_mapper.story_map_v2.reader import (
 )
 from renpy_story_mapper.story_map_v2.reader_compat import phase03_compatibility_source
 from renpy_story_mapper.story_map_v2.reader_store import DurableStoryMapReaderSource
-from renpy_story_mapper.story_map_v2.workflow_cloud_provider import (
-    CodexCliWorkflowProvider,
+from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    ProviderMode as StoryMapProviderMode,
 )
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowApproval,
@@ -711,6 +713,7 @@ class ProjectApi:
         m07_provider_factory: ProviderFactory | None = None,
         m13_provider_factory: M13ProviderFactory | None = None,
         phase04_cloud_factory: StoryMapProviderFactory | None = None,
+        phase04_loopback_factory: StoryMapProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -743,7 +746,10 @@ class ProjectApi:
         self._m13_preview: dict[str, JsonValue] | None = None
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
-        self._phase04_cloud_factory = phase04_cloud_factory or CodexCliWorkflowProvider
+        del phase04_cloud_factory  # The supported Phase 04 website path is loopback-only.
+        self._phase04_loopback_factory = (
+            phase04_loopback_factory or LoopbackLmStudioTransport
+        )
         self._phase04_prepared: dict[str, PreparedProductWorkflow] = {}
         self._phase04_futures: dict[str, Future[None]] = {}
 
@@ -863,10 +869,12 @@ class ProjectApi:
         project: Project,
         prepared: PreparedProductWorkflow,
     ) -> StoryMapWorkflowService:
+        if prepared.policy.cloud.mode is not StoryMapProviderMode.LOOPBACK:
+            self._workflow_problem(503, "workflow_unavailable", "service_unavailable")
         return create_product_workflow_service(
             project,
             prepared,
-            cloud_factory=self._phase04_cloud_factory,
+            loopback_factory=self._phase04_loopback_factory,
             request_materializer=FrozenProductRequestMaterializer(prepared),
         )
 
@@ -889,9 +897,9 @@ class ProjectApi:
                 project_path,
                 prepared,
                 preview_identity=preview_identity,
-                cloud_factory=self._phase04_cloud_factory,
                 project_opener=Project.open,
                 authority_graph=authority_graph,
+                loopback_factory=self._phase04_loopback_factory,
             )
 
     def _story_map_v2_workflow_dispatch(
@@ -921,6 +929,7 @@ class ProjectApi:
                         authority.graph,
                         authority.scene_model,
                         run_id=f"workflow:{uuid.uuid4().hex}",
+                        primary=local_lm_studio_workflow_settings(),
                     )
                     preview = persist_product_workflow_preview(project, prepared)
                     adapter = DurableWorkflowRepositoryAdapter.from_project(project)

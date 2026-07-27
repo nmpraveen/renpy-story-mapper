@@ -157,11 +157,11 @@
       "additionalProperties": false,
       "required": ["provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"],
       "properties": {
-        "provider": {"const": "codex-cli"},
-        "model": {"const": "gpt-5.6-terra"},
-        "reasoning": {"const": "high"},
-        "fast_mode": {"const": false},
-        "mode": {"const": "cloud"},
+        "provider": {"$ref": "#/$defs/nonempty"},
+        "model": {"$ref": "#/$defs/nonempty"},
+        "reasoning": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "fast_mode": {"type": ["boolean", "null"]},
+        "mode": {"enum": ["cloud", "loopback"]},
         "adapter_version": {"$ref": "#/$defs/nonempty"}
       }
     },
@@ -194,11 +194,11 @@
       "properties": {
         "prompt_version": {"$ref": "#/$defs/nonempty"},
         "schema_version": {"$ref": "#/$defs/nonempty"},
-        "provider": {"const": "codex-cli"},
-        "model": {"const": "gpt-5.6-terra"},
-        "reasoning": {"const": "high"},
-        "fast_mode": {"const": false},
-        "mode": {"const": "cloud"},
+        "provider": {"$ref": "#/$defs/nonempty"},
+        "model": {"$ref": "#/$defs/nonempty"},
+        "reasoning": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "fast_mode": {"type": ["boolean", "null"]},
+        "mode": {"enum": ["cloud", "loopback"]},
         "adapter_version": {"$ref": "#/$defs/nonempty"}
       }
     },
@@ -277,7 +277,7 @@
         "input_tokens": {"type": "integer", "minimum": 1},
         "output_tokens": {"type": "integer", "minimum": 0},
         "elapsed_ms": {"type": "integer", "minimum": 1},
-        "submission_slots": {"const": 6},
+        "submission_slots": {"enum": [1, 6]},
         "indeterminate_retry_calls": {"type": "integer", "minimum": 0}
       }
     },
@@ -356,7 +356,7 @@
         "durable_absolute_paths"
       ],
       "properties": {
-        "cloud_story_content": {"const": true},
+        "cloud_story_content": {"type": "boolean"},
         "loopback_story_content": {"type": "boolean"},
         "durable_raw_requests": {"const": false},
         "durable_raw_responses": {"const": false},

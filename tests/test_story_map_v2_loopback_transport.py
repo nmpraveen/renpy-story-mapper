@@ -153,6 +153,46 @@ def test_exact_loaded_model_and_byte_identical_packet_are_verified_before_submis
     assert response.events[0].title == "Arrival"
 
 
+def test_workflow_submit_uses_existing_json_schema_without_small_token_cap() -> None:
+    endpoint = "http://127.0.0.1:1234/v1"
+    payload = {"section_title": "Opening", "section_summary": "A beginning."}
+    opener = FakeOpener(
+        [
+            FakeResponse(_models(LOCAL_MAPPER_MODEL), f"{endpoint}/models"),
+            FakeResponse(
+                {
+                    "model": LOCAL_MAPPER_MODEL,
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": json.dumps(payload),
+                                "reasoning_content": "private chain of thought is ignored",
+                            },
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 91, "completion_tokens": 293},
+                },
+                f"{endpoint}/chat/completions",
+            ),
+        ]
+    )
+    request = b'{"call_kind":"section_synthesis","story":"public"}'
+
+    result = LoopbackLmStudioTransport(endpoint=endpoint, opener=opener).submit(request)
+
+    submitted = json.loads(opener.requests[1].data or b"")
+    assert submitted["messages"][0]["content"].encode() == request
+    assert submitted["response_format"]["type"] == "json_schema"
+    assert submitted["response_format"]["json_schema"]["name"] == (
+        "story_map_phase04_section_prose_v1"
+    )
+    assert submitted["response_format"]["json_schema"]["schema"]["type"] == "object"
+    assert "max_tokens" not in submitted
+    assert json.loads(result.payload) == payload
+    assert result.accounting.output_tokens == 293
+
+
 def test_model_mismatch_fails_before_any_submission() -> None:
     endpoint = "http://localhost:1234/v1"
     opener = FakeOpener([FakeResponse(_models("another-model"), f"{endpoint}/models")])

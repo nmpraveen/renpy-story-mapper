@@ -58,6 +58,7 @@ from renpy_story_mapper.story_map_v2.reader_store import reader_storage_page
 from renpy_story_mapper.story_map_v2.story_plan import StoryPlacement
 from renpy_story_mapper.story_map_v2.workflow_contracts import (
     ProviderCallKind,
+    ProviderMode,
     WorkflowApproval,
     WorkflowPreview,
     WorkflowStatus,
@@ -77,9 +78,10 @@ def execute_product_vertical(
     prepared: PreparedProductWorkflow,
     *,
     preview_identity: str,
-    cloud_factory: ProviderFactory,
     project_opener: ProjectOpener,
     authority_graph: CanonicalGraph,
+    cloud_factory: ProviderFactory | None = None,
+    loopback_factory: ProviderFactory | None = None,
 ) -> None:
     """Execute approved work, assemble accepted prose/fallbacks, and publish one map."""
 
@@ -98,6 +100,7 @@ def execute_product_vertical(
             project,
             prepared,
             cloud_factory=cloud_factory,
+            loopback_factory=loopback_factory,
             request_materializer=materializer,
         )
         service.execute(
@@ -280,13 +283,20 @@ def load_product_workflow(
 ) -> tuple[PreparedProductWorkflow, WorkflowPreview, WorkflowApproval | None, WorkflowStatus]:
     """Rebuild ephemeral request bytes and verify them against one durable preview."""
 
+    adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+    preview = adapter.load_preview(run_id)
+    primary = (
+        preview.policy.cloud
+        if preview.policy.cloud.mode is ProviderMode.LOOPBACK
+        else None
+    )
     prepared = prepare_product_workflow_from_authority(
         authority_graph,
         scene_model,
         run_id=run_id,
+        loopback=preview.policy.loopback,
+        primary=primary,
     )
-    adapter = DurableWorkflowRepositoryAdapter.from_project(project)
-    preview = adapter.load_preview(run_id)
     if (
         preview.plan != prepared.plan
         or preview.policy != prepared.policy
