@@ -512,28 +512,67 @@ def _store_page(
     )
 
 
+def _reader_generation_descriptor(
+    generation_id: str,
+    manifest: Mapping[str, object],
+    status: Mapping[str, object],
+    *,
+    lineage_seed: str | None = None,
+) -> dict[str, object]:
+    seed = generation_id if lineage_seed is None else lineage_seed
+
+    def identity(kind: str) -> str:
+        return hashlib.sha256(f"{kind}:{seed}".encode()).hexdigest()
+
+    return {
+        "schema": "story-map-v2-phase04-generation-v1",
+        "generation_id": generation_id,
+        "story_chunk_plan_identity": identity("chunk-plan"),
+        "source_identity": identity("source"),
+        "coverage_hash": identity("coverage"),
+        "path_facts": [],
+        "baseline_generation_id": None,
+        "reader_manifest": dict(manifest),
+        "reader_status": dict(status),
+    }
+
+
 def _durable_project(tmp_path: Path) -> Path:
     project_path = tmp_path / "phase04-reader.rsmproj"
     manifest, status = _fixture_examples()
     with Project.create(project_path) as project:
         repository = project.story_map_v2_repository()
         repository.create_run(FrozenRunDescriptor("run-reader", "plan-reader", AUTHORITY), ())
-        descriptor = {
-            "reader_manifest": manifest,
-            "reader_status": status,
-        }
+        generation_id = "generation-reader"
+        build_id = "build-reader"
+        descriptor = _reader_generation_descriptor(generation_id, manifest, status)
+        build = GenerationDescriptor(
+            build_id,
+            "run-reader",
+            "plan-reader",
+            AUTHORITY,
+            GenerationKind.CANDIDATE,
+            _reader_generation_descriptor(
+                build_id,
+                manifest,
+                status,
+                lineage_seed=generation_id,
+            ),
+        )
         generation = GenerationDescriptor(
-            "generation-reader",
+            generation_id,
             "run-reader",
             "plan-reader",
             AUTHORITY,
             GenerationKind.COMPLETE,
             descriptor,
         )
+        repository.create_generation(build)
         repository.create_generation(generation)
         repository.set_active_generation(
-            generation.generation_id,
+            build.generation_id,
             expected_active_generation_id=None,
+            expected_complete_generation_id=None,
         )
 
         section_payload = reader_storage_page(
@@ -635,7 +674,8 @@ def _durable_project(tmp_path: Path) -> Path:
             repository.store_selection(record)
         repository.publish_generation(
             generation.generation_id,
-            expected_active_generation_id=generation.generation_id,
+            expected_active_generation_id=build.generation_id,
+            expected_complete_generation_id=None,
         )
     return project_path
 
@@ -653,17 +693,37 @@ def _publish_reader_generation(
     run_id = f"run-{suffix}"
     plan_id = f"plan-{suffix}"
     generation_id = f"generation-{suffix}"
+    build_id = f"build-{suffix}"
     repository.create_run(FrozenRunDescriptor(run_id, plan_id, authority), ())
+    build = GenerationDescriptor(
+        build_id,
+        run_id,
+        plan_id,
+        authority,
+        GenerationKind.CANDIDATE,
+        _reader_generation_descriptor(
+            build_id,
+            manifest,
+            status,
+            lineage_seed=generation_id,
+        ),
+    )
     generation = GenerationDescriptor(
         generation_id,
         run_id,
         plan_id,
         authority,
         GenerationKind.COMPLETE,
-        {"reader_manifest": manifest, "reader_status": status},
+        _reader_generation_descriptor(generation_id, manifest, status),
     )
+    repository.create_generation(build)
     repository.create_generation(generation)
-    repository.set_active_generation(generation_id, expected_active_generation_id=None)
+    previous_complete = repository.generation_pointers().current_complete_generation
+    repository.set_active_generation(
+        build_id,
+        expected_active_generation_id=None,
+        expected_complete_generation_id=previous_complete,
+    )
     for section_id, page_ordinal, payload in pages:
         _store_page(
             repository,
@@ -676,7 +736,8 @@ def _publish_reader_generation(
         repository.store_selection(selection)
     repository.publish_generation(
         generation_id,
-        expected_active_generation_id=generation_id,
+        expected_active_generation_id=build_id,
+        expected_complete_generation_id=previous_complete,
     )
     return generation
 
