@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from renpy_story_mapper import storage
+from renpy_story_mapper.m12_service import M12RouteService, load_m12_authority
 from renpy_story_mapper.project import Project
 from renpy_story_mapper.story_map_v2.contracts import (
     ChunkStatus,
@@ -24,6 +25,10 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
     SectionPageRecord,
     SelectionIndexRecord,
 )
+from renpy_story_mapper.story_map_v2.navigation import StoryMapNavigator
+from renpy_story_mapper.story_map_v2.persistence import (
+    load_story_map_v2_for_current_project,
+)
 from renpy_story_mapper.story_map_v2.phase03_contracts import (
     PROJECT_SCHEMA,
     NavigationBinding,
@@ -34,6 +39,7 @@ from renpy_story_mapper.story_map_v2.phase03_contracts import (
     StoryMapReadModel,
     StorySectionReadModel,
 )
+from renpy_story_mapper.story_map_v2.presentation import project_story_map
 from renpy_story_mapper.story_map_v2.reader import (
     BRANCH_PAGE_ENDPOINT,
     DETAIL_PAGE_ENDPOINT,
@@ -634,6 +640,47 @@ def _durable_project(tmp_path: Path) -> Path:
     return project_path
 
 
+def _publish_reader_generation(
+    project: Project,
+    *,
+    suffix: str,
+    authority: str,
+    pages: Sequence[tuple[str, int, Mapping[str, object]]],
+    selections: Sequence[SelectionIndexRecord] = (),
+) -> GenerationDescriptor:
+    manifest, status = _fixture_examples()
+    repository = project.story_map_v2_repository()
+    run_id = f"run-{suffix}"
+    plan_id = f"plan-{suffix}"
+    generation_id = f"generation-{suffix}"
+    repository.create_run(FrozenRunDescriptor(run_id, plan_id, authority), ())
+    generation = GenerationDescriptor(
+        generation_id,
+        run_id,
+        plan_id,
+        authority,
+        GenerationKind.COMPLETE,
+        {"reader_manifest": manifest, "reader_status": status},
+    )
+    repository.create_generation(generation)
+    repository.set_active_generation(generation_id, expected_active_generation_id=None)
+    for section_id, page_ordinal, payload in pages:
+        _store_page(
+            repository,
+            generation_id=generation_id,
+            section_id=section_id,
+            page_ordinal=page_ordinal,
+            payload=payload,
+        )
+    for selection in selections:
+        repository.store_selection(selection)
+    repository.publish_generation(
+        generation_id,
+        expected_active_generation_id=generation_id,
+    )
+    return generation
+
+
 def _api(tmp_path: Path, project_path: Path, provider_calls: list[str]) -> ProjectApi:
     def provider_trap() -> object:
         provider_calls.append("provider")
@@ -1050,6 +1097,427 @@ def test_durable_indexed_source_and_repository_primitives_survive_reopen(
             "selection_id": "arm:a",
             "hide_new": True,
         }
+
+
+def test_durable_status_is_honest_without_an_accepted_workflow_projector(
+    tmp_path: Path,
+) -> None:
+    project_path = _durable_project(tmp_path)
+    with Project.open(project_path) as project:
+        status = StoryMapReader(
+            DurableStoryMapReaderSource(project.story_map_v2_repository())
+        ).status()
+    assert status["run_id"] == "run-reader"
+    assert status["state"] == "unavailable"
+    assert status["progress"] == {
+        "completed_jobs": 0,
+        "total_jobs": 0,
+        "failed_jobs": 0,
+        "indeterminate_jobs": 0,
+    }
+    assert status["actions"] == {
+        "can_cancel": False,
+        "can_resume": False,
+        "retry_approval_required": False,
+    }
+
+
+def test_oversized_storage_page_is_rejected_and_locator_replays_split_target(
+    tmp_path: Path,
+) -> None:
+    huge_items = tuple(
+        {
+            "id": f"event:huge:{index}",
+            "kind": "event",
+            "order": index,
+            "title": f"Huge {index}",
+            "summary": "x" * 600_000,
+            "selection_id": f"event:huge:{index}",
+        }
+        for index in range(2)
+    )
+    combined_shell = {
+        "id": "shell:huge",
+        "kind": "timeline",
+        "item_ids": [item["id"] for item in huge_items],
+    }
+    with pytest.raises(ValueError, match="serialized page cap"):
+        reader_storage_page(
+            endpoint=SECTION_PAGE_ENDPOINT,
+            resource_id="section:huge",
+            resource_offset=0,
+            items=huge_items,
+            shells=(combined_shell,),
+        )
+
+    pages = tuple(
+        (
+            "section:huge",
+            index,
+            reader_storage_page(
+                endpoint=SECTION_PAGE_ENDPOINT,
+                resource_id="section:huge",
+                resource_offset=index,
+                items=(item,),
+                shells=(
+                    {
+                        "id": "shell:huge",
+                        "kind": "timeline",
+                        "item_ids": [item["id"]],
+                    },
+                ),
+            ),
+        )
+        for index, item in enumerate(huge_items)
+    )
+    project_path = tmp_path / "split-reader.rsmproj"
+    with Project.create(project_path) as project:
+        _publish_reader_generation(
+            project,
+            suffix="split",
+            authority=AUTHORITY,
+            pages=pages,
+            selections=(
+                SelectionIndexRecord(
+                    "generation-split",
+                    "event:huge:0",
+                    "section:huge",
+                    0,
+                    0,
+                    "event",
+                ),
+                SelectionIndexRecord(
+                    "generation-split",
+                    "event:huge:1",
+                    "section:huge",
+                    1,
+                    0,
+                    "event",
+                ),
+            ),
+        )
+        reader = StoryMapReader(
+            DurableStoryMapReaderSource(project.story_map_v2_repository())
+        )
+        located = reader.locate(map_revision=1, selection_id="event:huge:1")
+        replayed = reader.section_page(
+            map_revision=1,
+            section_id="section:huge",
+            cursor=located["location"]["page_cursor"],
+        )
+    assert located["location"]["page_cursor"]
+    assert [item["id"] for item in replayed["items"]] == ["event:huge:1"]
+    assert _json_size(replayed) <= MAX_SERIALIZED_BYTES
+
+
+def test_old_cursor_is_stale_across_authority_change_but_tampering_is_invalid(
+    tmp_path: Path,
+) -> None:
+    def pages(label: str) -> tuple[tuple[str, int, Mapping[str, object]], ...]:
+        items = tuple(
+            {
+                "id": f"event:{label}:{index:02d}",
+                "kind": "event",
+                "order": index,
+                "title": f"{label} {index}",
+                "selection_id": f"event:{label}:{index:02d}",
+            }
+            for index in range(31)
+        )
+        return tuple(
+            (
+                "section:cursor",
+                ordinal,
+                reader_storage_page(
+                    endpoint=SECTION_PAGE_ENDPOINT,
+                    resource_id="section:cursor",
+                    resource_offset=offset,
+                    items=items[offset : offset + 30],
+                    shells=(
+                        {
+                            "id": "shell:cursor",
+                            "kind": "timeline",
+                            "item_ids": [item["id"] for item in items[offset : offset + 30]],
+                        },
+                    ),
+                ),
+            )
+            for ordinal, offset in enumerate((0, 30))
+        )
+
+    project_path = tmp_path / "cursor-reader.rsmproj"
+    with Project.create(project_path) as project:
+        _publish_reader_generation(
+            project,
+            suffix="cursor-a",
+            authority=hashlib.sha256(b"authority-a").hexdigest(),
+            pages=pages("a"),
+        )
+        source = DurableStoryMapReaderSource(project.story_map_v2_repository())
+        first = StoryMapReader(source).section_page(
+            map_revision=1,
+            section_id="section:cursor",
+            limit=30,
+        )
+        cursor = first["next_cursor"]
+        assert isinstance(cursor, str)
+        _publish_reader_generation(
+            project,
+            suffix="cursor-b",
+            authority=hashlib.sha256(b"authority-b").hexdigest(),
+            pages=pages("b"),
+        )
+        revised = StoryMapReader(
+            DurableStoryMapReaderSource(project.story_map_v2_repository())
+        )
+        with pytest.raises(StaleMapRevisionError) as stale:
+            revised.section_page(
+                map_revision=2,
+                section_id="section:cursor",
+                limit=30,
+                cursor=cursor,
+            )
+        assert stale.value.current_revision == 2
+        tampered = cursor[:-1] + ("A" if cursor[-1] != "A" else "B")
+        with pytest.raises(InvalidStoryMapCursorError):
+            revised.section_page(
+                map_revision=2,
+                section_id="section:cursor",
+                limit=30,
+                cursor=tampered,
+            )
+
+
+def test_durable_first_page_decodes_only_a_bounded_page_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pages = tuple(
+        (
+            "section:thousand",
+            index,
+            reader_storage_page(
+                endpoint=SECTION_PAGE_ENDPOINT,
+                resource_id="section:thousand",
+                resource_offset=index,
+                items=(
+                    {
+                        "id": f"event:thousand:{index:04d}",
+                        "kind": "event",
+                        "order": index,
+                        "title": f"Event {index}",
+                        "selection_id": f"event:thousand:{index:04d}",
+                    },
+                ),
+                shells=(
+                    {
+                        "id": "shell:thousand",
+                        "kind": "timeline",
+                        "item_ids": [f"event:thousand:{index:04d}"],
+                    },
+                ),
+            ),
+        )
+        for index in range(1_000)
+    )
+    project_path = tmp_path / "thousand-reader.rsmproj"
+    with Project.create(project_path) as project:
+        _publish_reader_generation(
+            project,
+            suffix="thousand",
+            authority=AUTHORITY,
+            pages=pages,
+        )
+        repository = project.story_map_v2_repository()
+        original = repository.list_section_pages
+        decoded_pages = 0
+
+        def counted(
+            generation_id: str,
+            section_id: str,
+            *,
+            start_page_ordinal: int = 0,
+            limit: int = 64,
+        ) -> tuple[SectionPageRecord, ...]:
+            nonlocal decoded_pages
+            result = original(
+                generation_id,
+                section_id,
+                start_page_ordinal=start_page_ordinal,
+                limit=limit,
+            )
+            decoded_pages += len(result)
+            return result
+
+        monkeypatch.setattr(repository, "list_section_pages", counted)
+        page = StoryMapReader(DurableStoryMapReaderSource(repository)).section_page(
+            map_revision=1,
+            section_id="section:thousand",
+            limit=30,
+        )
+    assert page["rendered_item_count"] == 30
+    assert page["next_cursor"]
+    assert decoded_pages <= 32
+
+
+def test_durable_view_state_write_is_revision_and_generation_cas(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "view-state-cas.rsmproj"
+    first_page = reader_storage_page(
+        endpoint=SECTION_PAGE_ENDPOINT,
+        resource_id="section:view",
+        resource_offset=0,
+        items=({"id": "event:view", "kind": "event", "selection_id": "event:view"},),
+        shells=({"id": "shell:view", "kind": "timeline", "item_ids": ["event:view"]},),
+    )
+    with Project.create(project_path) as project:
+        _publish_reader_generation(
+            project,
+            suffix="view-a",
+            authority=hashlib.sha256(b"view-a").hexdigest(),
+            pages=(("section:view", 0, first_page),),
+        )
+        repository = project.story_map_v2_repository()
+        old_source = DurableStoryMapReaderSource(repository)
+        old_snapshot = old_source.snapshot()
+        assert old_snapshot is not None
+        old_source.save_view_state(
+            old_snapshot,
+            "route-map",
+            {"selection_id": "event:view", "focus_id": "old", "hide_new": False},
+        )
+        _publish_reader_generation(
+            project,
+            suffix="view-b",
+            authority=hashlib.sha256(b"view-b").hexdigest(),
+            pages=(("section:view", 0, first_page),),
+        )
+        new_source = DurableStoryMapReaderSource(repository)
+        new_snapshot = new_source.snapshot()
+        assert new_snapshot is not None
+        new_source.save_view_state(
+            new_snapshot,
+            "route-map",
+            {"selection_id": "event:view", "focus_id": "new", "hide_new": True},
+        )
+        with pytest.raises(StaleMapRevisionError) as stale:
+            old_source.save_view_state(
+                old_snapshot,
+                "route-map",
+                {"selection_id": "event:view", "focus_id": "stale", "hide_new": False},
+            )
+        retained = repository.load_view_state("route-map")
+    assert stale.value.current_revision == 2
+    assert retained is not None
+    assert retained.map_revision == 2
+    assert retained.state == {
+        "selection_id": "event:view",
+        "focus_id": "new",
+        "hide_new": True,
+    }
+
+
+def test_durable_only_selection_uses_indexed_path_detail_and_source(
+    tmp_path: Path,
+) -> None:
+    from test_story_map_v2_phase03_track_c import _project as create_phase03_project
+
+    _source, project_path, core = create_phase03_project(tmp_path)
+    selection_id = "event:durable-only"
+    with Project.open(project_path) as project:
+        authority = load_m12_authority(project)
+        stored = load_story_map_v2_for_current_project(project)
+        assert stored is not None
+        page = project_story_map(core, stored.synthesis)
+        navigator = StoryMapNavigator(
+            authority,
+            M12RouteService(project),
+            core,
+            page,
+        )
+        phase03_selection = page.sections[0].events[0].selection_id
+        binding = navigator.binding(phase03_selection)
+        detail_kind, detail_id = navigator.detail_service_target(phase03_selection)
+        source_navigation = navigator.source_navigation(phase03_selection)
+        assert source_navigation["status"] == "available"
+        item = {
+            "id": selection_id,
+            "kind": "event",
+            "title": "Durable-only selection",
+            "selection_id": selection_id,
+            "_reader_navigation": {
+                "destination_kind": binding.destination_kind,
+                "target_id": binding.target_id,
+                "detail_service_kind": detail_kind,
+                "detail_service_id": detail_id,
+                "evidence_id": source_navigation["evidence_id"],
+                "relative_path": source_navigation["path"],
+                "start_line": source_navigation["start_line"],
+                "end_line": source_navigation["end_line"],
+                "line_basis": source_navigation["line_basis"],
+                "effects": [],
+            },
+        }
+        payload = reader_storage_page(
+            endpoint=SECTION_PAGE_ENDPOINT,
+            resource_id="section:durable-only",
+            resource_offset=0,
+            items=(item,),
+            shells=(
+                {
+                    "id": "shell:durable-only",
+                    "kind": "timeline",
+                    "item_ids": [selection_id],
+                },
+            ),
+        )
+        _publish_reader_generation(
+            project,
+            suffix="durable-nav",
+            authority=AUTHORITY,
+            pages=(("section:durable-only", 0, payload),),
+            selections=(
+                SelectionIndexRecord(
+                    "generation-durable-nav",
+                    selection_id,
+                    "section:durable-only",
+                    0,
+                    0,
+                    "event",
+                ),
+            ),
+        )
+
+    provider_calls: list[str] = []
+    api = _api(tmp_path, project_path, provider_calls)
+    try:
+        section_page = api.dispatch(
+            "POST",
+            STORY_MAP_V2_READER_API_ROUTES["section_page"],
+            {"map_revision": 1, "section_id": "section:durable-only"},
+        )
+        path_page = api.dispatch(
+            "POST",
+            STORY_MAP_V2_READER_API_ROUTES["path_page"],
+            {"map_revision": 1, "selection_id": selection_id, "limit": 240},
+        )
+        detail_page = api.dispatch(
+            "POST",
+            STORY_MAP_V2_READER_API_ROUTES["detail_page"],
+            {"map_revision": 1, "selection_id": selection_id, "limit": 240},
+        )
+    finally:
+        api.close()
+
+    assert "_reader_navigation" not in section_page["items"][0]
+    for response in (path_page, detail_page):
+        assert response["map_revision"] == 1
+        assert response["resource_id"] == selection_id
+        assert 1 <= response["rendered_item_count"] <= MAX_RENDERED_ITEMS
+        assert _json_size(response) <= MAX_SERIALIZED_BYTES
+    assert any(item["kind"] == "evidence" for item in detail_page["items"])
+    assert provider_calls == []
 
 
 def test_api_and_http_stale_transport_are_provider_free(tmp_path: Path) -> None:

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final
 
 from renpy_story_mapper.story_map_v2.durable_repository import (
+    CurrentGenerationConflictError,
     GenerationDescriptor,
     GenerationPointers,
     SectionPageRecord,
@@ -14,18 +16,24 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
 )
 from renpy_story_mapper.story_map_v2.reader import (
     BRANCH_PAGE_ENDPOINT,
+    MAX_SERIALIZED_BYTES,
     READER_STORAGE_PAGE_SCHEMA,
     SECTION_PAGE_ENDPOINT,
     JsonObject,
     ReaderLocation,
+    ReaderNavigation,
     ReaderSearchSlice,
     ReaderSlice,
     ReaderSnapshot,
+    StaleMapRevisionError,
     StoryMapReaderDataError,
 )
 
-_PAGE_READ_BATCH: Final = 64
+_PAGE_READ_BATCH: Final = 241
 _SEARCH_READ_BATCH: Final = 256
+_STORAGE_PAGE_OVERHEAD: Final = 16_384
+_MAX_STORAGE_PAGE_BYTES: Final = MAX_SERIALIZED_BYTES - _STORAGE_PAGE_OVERHEAD
+_NAVIGATION_KEY: Final = "_reader_navigation"
 type WorkflowStatusProjector = Callable[
     [SqliteStoryMapV2Repository, GenerationDescriptor, GenerationPointers],
     Mapping[str, object],
@@ -48,7 +56,7 @@ def reader_storage_page(
         raise ValueError("reader storage resource ID must be non-empty")
     if type(resource_offset) is not int or resource_offset < 0:
         raise ValueError("reader storage resource offset cannot be negative")
-    return {
+    page = {
         "schema": READER_STORAGE_PAGE_SCHEMA,
         "endpoint": endpoint,
         "resource_id": resource_id,
@@ -56,6 +64,18 @@ def reader_storage_page(
         "items": [dict(item) for item in items],
         "shells": [dict(shell) for shell in shells],
     }
+    if len(_json_bytes(page)) > _MAX_STORAGE_PAGE_BYTES:
+        raise ValueError("reader storage page exceeds the serialized page cap")
+    return page
+
+
+def _json_bytes(value: object) -> bytes:
+    try:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError) as exc:
+        raise StoryMapReaderDataError("stored reader payload is not JSON-safe") from exc
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
@@ -91,7 +111,15 @@ def _page_payload(page: SectionPageRecord) -> Mapping[str, object]:
     _sequence(payload.get("shells"), "stored reader page shells")
     if page.item_count != len(items):
         raise StoryMapReaderDataError("stored reader page item count is inconsistent")
+    if len(_json_bytes(payload)) > _MAX_STORAGE_PAGE_BYTES:
+        raise StoryMapReaderDataError("stored reader page exceeds the serialized page cap")
     return payload
+
+
+def _public_item(value: Mapping[str, object]) -> JsonObject:
+    item = dict(value)
+    item.pop(_NAVIGATION_KEY, None)
+    return item
 
 
 class DurableStoryMapReaderSource:
@@ -124,10 +152,22 @@ class DurableStoryMapReaderSource:
         if self._workflow_status is not None:
             status = self._workflow_status(self._repository, generation, pointers)
         else:
-            status = _mapping(
-                descriptor.get("reader_status", descriptor.get("status")),
-                "generation reader status",
-            )
+            status = {
+                "run_id": generation.run_id,
+                "state": "unavailable",
+                "coverage": {},
+                "progress": {
+                    "completed_jobs": 0,
+                    "total_jobs": 0,
+                    "failed_jobs": 0,
+                    "indeterminate_jobs": 0,
+                },
+                "actions": {
+                    "can_cancel": False,
+                    "can_resume": False,
+                    "retry_approval_required": False,
+                },
+            }
         normalized_status = dict(status)
         normalized_status["current_complete_generation"] = pointers.current_complete_generation
         normalized_status["active_build_generation"] = pointers.active_build_generation
@@ -143,7 +183,7 @@ class DurableStoryMapReaderSource:
             freshness,
             manifest,
             normalized_status,
-            generation.authority_identity,
+            self._repository.reader_cursor_authority(),
         )
 
     def resource_slice(
@@ -153,48 +193,107 @@ class DurableStoryMapReaderSource:
         resource_id: str,
         offset: int,
         limit: int,
+        page_ordinal: int | None,
     ) -> ReaderSlice | None:
         location = self._resource_location(snapshot.generation_id, endpoint, resource_id)
         if location is None:
             return None
         section_id, start_page = location
-        records = self._resource_records(
-            snapshot.generation_id, section_id, start_page, endpoint, resource_id
-        )
-        if not records:
-            return None
+        if page_ordinal is not None:
+            if page_ordinal < start_page:
+                raise StoryMapReaderDataError("cursor storage page precedes its resource")
+            start_page = page_ordinal
         selected_items: list[Mapping[str, object]] = []
         selected_shells: list[Mapping[str, object]] = []
         has_more = False
-        for record in records:
-            payload = _page_payload(record)
-            page_offset = payload["resource_offset"]
-            assert isinstance(page_offset, int)
-            page_items = _sequence(payload["items"], "stored reader page items")
-            page_end = page_offset + len(page_items)
-            if page_end <= offset:
-                continue
-            if page_offset > offset + len(selected_items) and not selected_items:
-                raise StoryMapReaderDataError("stored reader resource has an offset gap")
-            local_start = max(0, offset - page_offset)
-            available = page_items[local_start:]
-            remaining = limit - len(selected_items)
-            for item in available[:remaining]:
-                selected_items.append(_mapping(item, "stored reader item"))
-            selected_shells.extend(
-                _mapping(shell, "stored reader shell")
-                for shell in _sequence(payload["shells"], "stored reader page shells")
+        next_page_ordinal: int | None = None
+        next_page = start_page
+        resource_seen = False
+        finished = False
+        while not finished:
+            batch = self._repository.list_section_pages(
+                snapshot.generation_id,
+                section_id,
+                start_page_ordinal=next_page,
+                limit=min(limit + 1, _PAGE_READ_BATCH),
             )
-            if len(available) > remaining:
-                has_more = True
+            if not batch:
                 break
-            if len(selected_items) == limit:
-                has_more = page_end < self._resource_end(records)
+            for record in batch:
+                payload = _page_payload(record)
+                if payload["endpoint"] != endpoint or payload["resource_id"] != resource_id:
+                    finished = True
+                    break
+                resource_seen = True
+                page_offset = payload["resource_offset"]
+                assert isinstance(page_offset, int)
+                page_items = _sequence(payload["items"], "stored reader page items")
+                if not page_items:
+                    finished = True
+                    break
+                page_end = page_offset + len(page_items)
+                if page_end <= offset:
+                    continue
+                if page_offset > offset + len(selected_items):
+                    raise StoryMapReaderDataError("stored reader resource has an offset gap")
+                local_start = max(0, offset - page_offset)
+                page_shells = tuple(
+                    _mapping(shell, "stored reader shell")
+                    for shell in _sequence(
+                        payload["shells"], "stored reader page shells"
+                    )
+                )
+                shells_added = False
+                for item_value in page_items[local_start:]:
+                    if len(selected_items) == limit:
+                        has_more = True
+                        next_page_ordinal = record.page_ordinal
+                        finished = True
+                        break
+                    item = _public_item(_mapping(item_value, "stored reader item"))
+                    candidate_items = (*selected_items, item)
+                    candidate_shells = (
+                        tuple(selected_shells)
+                        if shells_added
+                        else (*selected_shells, *page_shells)
+                    )
+                    candidate = {
+                        "schema": READER_STORAGE_PAGE_SCHEMA,
+                        "endpoint": endpoint,
+                        "resource_id": resource_id,
+                        "resource_offset": offset,
+                        "items": candidate_items,
+                        "shells": candidate_shells,
+                    }
+                    if len(_json_bytes(candidate)) > _MAX_STORAGE_PAGE_BYTES:
+                        if not selected_items:
+                            raise StoryMapReaderDataError(
+                                "one stored reader item exceeds the serialized page cap"
+                            )
+                        has_more = True
+                        next_page_ordinal = record.page_ordinal
+                        finished = True
+                        break
+                    selected_items.append(item)
+                    if not shells_added:
+                        selected_shells.extend(page_shells)
+                        shells_added = True
+                if finished:
+                    break
+            if finished or len(batch) < min(limit + 1, _PAGE_READ_BATCH):
                 break
+            next_page = batch[-1].page_ordinal + 1
+        if not resource_seen:
+            return None
         if not selected_items and offset > 0:
             return None
         next_offset = offset + len(selected_items) if has_more else None
-        return ReaderSlice(tuple(selected_items), tuple(selected_shells), next_offset)
+        return ReaderSlice(
+            tuple(selected_items),
+            tuple(selected_shells),
+            next_offset,
+            next_page_ordinal,
+        )
 
     def _resource_location(
         self, generation_id: str, endpoint: str, resource_id: str
@@ -207,44 +306,6 @@ class DurableStoryMapReaderSource:
         if index is None or index.selection_kind != "branch_resource":
             return None
         return index.section_id, index.page_ordinal
-
-    def _resource_records(
-        self,
-        generation_id: str,
-        section_id: str,
-        start_page: int,
-        endpoint: str,
-        resource_id: str,
-    ) -> tuple[SectionPageRecord, ...]:
-        records: list[SectionPageRecord] = []
-        next_page = start_page
-        while True:
-            batch = self._repository.list_section_pages(
-                generation_id,
-                section_id,
-                start_page_ordinal=next_page,
-                limit=_PAGE_READ_BATCH,
-            )
-            if not batch:
-                break
-            for record in batch:
-                payload = _page_payload(record)
-                if payload["endpoint"] != endpoint or payload["resource_id"] != resource_id:
-                    return tuple(records)
-                records.append(record)
-            if len(batch) < _PAGE_READ_BATCH:
-                break
-            next_page = batch[-1].page_ordinal + 1
-        return tuple(records)
-
-    @staticmethod
-    def _resource_end(records: Sequence[SectionPageRecord]) -> int:
-        if not records:
-            return 0
-        payload = _page_payload(records[-1])
-        offset = payload["resource_offset"]
-        assert isinstance(offset, int)
-        return offset + records[-1].item_count
 
     def locate(
         self, snapshot: ReaderSnapshot, selection_id: str
@@ -285,6 +346,67 @@ class DurableStoryMapReaderSource:
             page_offset=resource_offset,
             shell_id=shell_id,
             item_id=item_id,
+            page_ordinal=index.page_ordinal,
+        )
+
+    def navigation(
+        self, snapshot: ReaderSnapshot, selection_id: str
+    ) -> ReaderNavigation | None:
+        index = self._repository.locate_selection(snapshot.generation_id, selection_id)
+        if index is None or index.selection_kind == "branch_resource":
+            return None
+        item = self._selection_item(snapshot.generation_id, index, {})
+        value = item.get(_NAVIGATION_KEY)
+        if value is None:
+            return None
+        source = _mapping(value, "stored reader navigation")
+        required = {
+            "destination_kind",
+            "target_id",
+            "detail_service_kind",
+            "detail_service_id",
+            "evidence_id",
+            "relative_path",
+            "start_line",
+            "end_line",
+            "line_basis",
+            "effects",
+        }
+        if set(source) != required:
+            raise StoryMapReaderDataError("stored reader navigation fields are invalid")
+        effects = tuple(
+            _text(effect, "stored reader navigation effects[]")
+            for effect in _sequence(source["effects"], "stored reader navigation effects")
+        )
+        start_line = source["start_line"]
+        end_line = source["end_line"]
+        if type(start_line) is not int or type(end_line) is not int:
+            raise StoryMapReaderDataError("stored reader navigation lines are invalid")
+        return ReaderNavigation(
+            destination_kind=_text(
+                source["destination_kind"], "stored reader navigation destination_kind"
+            ),
+            target_id=_text(source["target_id"], "stored reader navigation target_id"),
+            detail_service_kind=_text(
+                source["detail_service_kind"],
+                "stored reader navigation detail_service_kind",
+            ),
+            detail_service_id=_text(
+                source["detail_service_id"],
+                "stored reader navigation detail_service_id",
+            ),
+            evidence_id=_text(
+                source["evidence_id"], "stored reader navigation evidence_id"
+            ),
+            relative_path=_text(
+                source["relative_path"], "stored reader navigation relative_path"
+            ),
+            start_line=start_line,
+            end_line=end_line,
+            line_basis=_text(
+                source["line_basis"], "stored reader navigation line_basis"
+            ),
+            effects=effects,
         )
 
     def search(
@@ -380,12 +502,15 @@ class DurableStoryMapReaderSource:
             raise StoryMapReaderDataError("view-state selection_id must be a string or null")
         if section is not None and not isinstance(section, str):
             raise StoryMapReaderDataError("view-state section_id must be a string or null")
-        record = self._repository.save_view_state(
-            view_key,
-            generation_id=snapshot.generation_id,
-            map_revision=snapshot.map_revision,
-            selection_id=selection,
-            section_id=section,
-            state=dict(state),
-        )
+        try:
+            record = self._repository.save_current_view_state(
+                view_key,
+                generation_id=snapshot.generation_id,
+                map_revision=snapshot.map_revision,
+                selection_id=selection,
+                section_id=section,
+                state=dict(state),
+            )
+        except CurrentGenerationConflictError as exc:
+            raise StaleMapRevisionError(exc.current_revision) from exc
         return _mapping(record.state, "stored reader view state")

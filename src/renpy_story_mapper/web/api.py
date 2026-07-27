@@ -37,6 +37,7 @@ from renpy_story_mapper.m07_workflow import (
 )
 from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
+from renpy_story_mapper.m12_model import M12TargetUnresolvableError
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import (
     M12PreparedSolve,
@@ -107,6 +108,7 @@ from renpy_story_mapper.story_map_v2.navigation import (
     StoryMapNavigator,
     StoryNavigationAuthorityUnavailableError,
     UnknownStorySelectionError,
+    compact_witness,
     require_current_selection,
     unresolved_navigation_page,
 )
@@ -126,6 +128,7 @@ from renpy_story_mapper.story_map_v2.reader import (
     MAX_SECTION_EVENTS,
     PATH_PAGE_ENDPOINT,
     InvalidStoryMapCursorError,
+    ReaderNavigation,
     ReaderSlice,
     StaleMapRevisionError,
     StoryMapReader,
@@ -320,6 +323,46 @@ def _reader_search_query(body: Mapping[str, JsonValue]) -> str:
     if not isinstance(value, str) or len(value) > 256:
         raise ValueError("query must be a bounded string")
     return value
+
+
+def _durable_source_navigation(
+    project: Project, navigation: ReaderNavigation
+) -> dict[str, object]:
+    """Validate a durable evidence locator against current M12 authority."""
+
+    try:
+        authority = load_m12_authority(project)
+    except (storage.ProjectStorageError, ValueError) as exc:
+        raise StoryMapReaderDataError(
+            "The current deterministic source authority is unavailable."
+        ) from exc
+    evidence = next(
+        (item for item in authority.graph.evidence if item.id == navigation.evidence_id),
+        None,
+    )
+    if evidence is None:
+        raise StoryMapReaderDataError("durable navigation evidence is no longer current")
+    source = evidence.source
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    start_line = start.get("line") if isinstance(start, Mapping) else None
+    end_line = end.get("line") if isinstance(end, Mapping) else start_line
+    if (
+        path != navigation.relative_path
+        or start_line != navigation.start_line
+        or end_line != navigation.end_line
+        or (evidence.line_basis or "physical") != navigation.line_basis
+    ):
+        raise StoryMapReaderDataError("durable navigation evidence locator is stale")
+    return {
+        "status": "available",
+        "path": navigation.relative_path,
+        "start_line": navigation.start_line,
+        "end_line": navigation.end_line,
+        "line_basis": navigation.line_basis,
+        "evidence_id": navigation.evidence_id,
+    }
 
 
 def _projection_id(family: str, selection_id: str, path: str) -> str:
@@ -907,18 +950,13 @@ class ProjectApi:
             )
             cursor = optional_string(body, "cursor", maximum=4_096)
             return self._reader_call(
-                lambda reader, _project: reader.projection_page(
+                lambda reader, project: self._story_map_v2_detail_page(
+                    reader,
+                    project,
                     map_revision=revision,
-                    endpoint=DETAIL_PAGE_ENDPOINT,
                     selection_id=selection_id,
                     limit=limit,
                     cursor=cursor,
-                    supplier=lambda offset, effective_limit: _detail_reader_slice(
-                        self._story_map_v2_detail(selection_id),
-                        selection_id,
-                        offset,
-                        effective_limit,
-                    ),
                 )
             )
         if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["view_state"]:
@@ -2825,6 +2863,59 @@ class ProjectApi:
         limit: int,
         cursor: str | None,
     ) -> dict[str, object]:
+        navigation = reader.selection_navigation(
+            map_revision=map_revision,
+            selection_id=selection_id,
+        )
+        if navigation is not None:
+            service = M12RouteService(project)
+
+            def supply_durable(offset: int, effective_limit: int) -> ReaderSlice:
+                try:
+                    prepared = service.prepare(
+                        navigation.destination_kind,
+                        navigation.target_id,
+                    )
+                    outcome = service.solve(prepared)
+                except M12TargetUnresolvableError:
+                    outcome = None
+                if outcome is None or outcome.result is None:
+                    witness, _explanation = compact_witness(
+                        {"complete": False, "recommended": {}},
+                        selection_effects=navigation.effects,
+                    )
+                    value: Mapping[str, object] = {
+                        "status": "unresolved",
+                        "explanation": (
+                            "The deterministic target has no verified route entry or witness."
+                        ),
+                        "witness": witness,
+                    }
+                else:
+                    witness, explanation = compact_witness(
+                        outcome.result,
+                        selection_effects=navigation.effects,
+                    )
+                    value = {
+                        "status": "available",
+                        "explanation": explanation,
+                        "witness": witness,
+                    }
+                return _path_reader_slice(
+                    value,
+                    selection_id,
+                    offset,
+                    effective_limit,
+                )
+
+            return reader.projection_page(
+                map_revision=map_revision,
+                endpoint=PATH_PAGE_ENDPOINT,
+                selection_id=selection_id,
+                limit=limit,
+                cursor=cursor,
+                supplier=supply_durable,
+            )
         try:
             stored = load_story_map_v2_for_current_project(project)
             if stored is None:
@@ -2860,6 +2951,100 @@ class ProjectApi:
             cursor=cursor,
             supplier=supply,
         )
+
+    def _story_map_v2_detail_page(
+        self,
+        reader: StoryMapReader,
+        project: Project,
+        *,
+        map_revision: int,
+        selection_id: str,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]:
+        navigation = reader.selection_navigation(
+            map_revision=map_revision,
+            selection_id=selection_id,
+        )
+        payload = (
+            self._story_map_v2_durable_detail(project, selection_id, navigation)
+            if navigation is not None
+            else self._story_map_v2_detail(selection_id)
+        )
+        return reader.projection_page(
+            map_revision=map_revision,
+            endpoint=DETAIL_PAGE_ENDPOINT,
+            selection_id=selection_id,
+            limit=limit,
+            cursor=cursor,
+            supplier=lambda offset, effective_limit: _detail_reader_slice(
+                payload,
+                selection_id,
+                offset,
+                effective_limit,
+            ),
+        )
+
+    def _story_map_v2_durable_detail(
+        self,
+        project: Project,
+        selection_id: str,
+        navigation: ReaderNavigation,
+    ) -> dict[str, object]:
+        source_navigation = _durable_source_navigation(project, navigation)
+        binding = {
+            "selection_id": selection_id,
+            "destination_kind": navigation.destination_kind,
+            "target_id": navigation.target_id,
+            "detail_service_kind": navigation.detail_service_kind,
+            "detail_service_id": navigation.detail_service_id,
+        }
+        try:
+            if navigation.detail_service_kind == "m10_canonical":
+                projection, canonical, analysis_state, projection_reason = self._m10_payloads()
+                detail = inspection_detail(
+                    projection,
+                    canonical,
+                    analysis_state,
+                    view="canonical",
+                    element_id=navigation.detail_service_id,
+                    projection_unavailable_reason=projection_reason,
+                )
+            else:
+                scene_model_value, presentation, canonical, generation, canonical_hash, reason = (
+                    self._m11_payloads(include_canonical=True)
+                )
+                detail = scene_detail(
+                    scene_model_value,
+                    presentation,
+                    canonical,
+                    current_source_generation=generation,
+                    current_canonical_hash=canonical_hash,
+                    element_id=navigation.detail_service_id,
+                )
+                if detail.get("status") == "unavailable":
+                    detail["reason"] = reason or detail.get("reason")
+        except (KeyError, storage.ProjectStorageError, ValueError):
+            detail = {"status": "unavailable"}
+        if detail.get("status") != "available":
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "The current deterministic detail target is unresolved.",
+            }
+        return {
+            "schema": DETAIL_SCHEMA,
+            "semantic_level": "detail_evidence",
+            "status": "available",
+            "selection_id": selection_id,
+            "binding": binding,
+            "source_navigation": source_navigation,
+            "detail": detail,
+        }
 
     def _story_map_v2_detail(self, selection_id: str) -> dict[str, object]:
         try:

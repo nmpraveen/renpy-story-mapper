@@ -93,6 +93,14 @@ class PublicationConflictError(StoryMapV2RepositoryError):
     """The generation pointer changed before publication."""
 
 
+class CurrentGenerationConflictError(StoryMapV2RepositoryError):
+    """A reader write no longer names the current readable generation."""
+
+    def __init__(self, current_revision: int) -> None:
+        super().__init__("the readable generation changed before the reader write")
+        self.current_revision = current_revision
+
+
 class RunStatus(StrEnum):
     PREPARED = "prepared"
     RUNNING = "running"
@@ -755,6 +763,8 @@ class StoryMapV2Repository(Protocol):
 
     def generation_pointers(self) -> GenerationPointers: ...
 
+    def reader_cursor_authority(self) -> str: ...
+
     def publish_generation(
         self,
         generation_id: str,
@@ -769,6 +779,18 @@ class StoryMapV2Repository(Protocol):
         view_key: str,
         *,
         generation_id: str | None,
+        map_revision: int,
+        selection_id: str | None,
+        section_id: str | None,
+        state: object,
+        now: datetime | None = None,
+    ) -> ViewStateRecord: ...
+
+    def save_current_view_state(
+        self,
+        view_key: str,
+        *,
+        generation_id: str,
         map_revision: int,
         selection_id: str | None,
         section_id: str | None,
@@ -2887,6 +2909,21 @@ class SqliteStoryMapV2Repository:
     def generation_pointers(self) -> GenerationPointers:
         return self._pointers_locked()
 
+    def reader_cursor_authority(self) -> str:
+        """Return a stable per-project cursor signing authority."""
+
+        row = self._connection.execute(
+            "SELECT value_json FROM project_metadata WHERE key = 'project_id'"
+        ).fetchone()
+        if row is None:
+            raise StoryMapV2RepositoryError("project cursor authority is unavailable")
+        project_id = storage.decode_json(row["value_json"])
+        if not isinstance(project_id, str) or not project_id:
+            raise StoryMapV2RepositoryError("project cursor authority is invalid")
+        return hashlib.sha256(
+            b"story-map-v2-reader-project-v1\x00" + project_id.encode("utf-8")
+        ).hexdigest()
+
     def publish_generation(
         self,
         generation_id: str,
@@ -2957,6 +2994,74 @@ class SqliteStoryMapV2Repository:
         state_identity = hashlib.sha256(state_bytes).hexdigest()
         timestamp = _timestamp(now)
         with storage.transaction(self._connection):
+            self._connection.execute(
+                """INSERT INTO story_map_v2_view_state(
+                    view_key, generation_id, map_revision, selection_id, section_id,
+                    state_json, state_identity, updated_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(view_key) DO UPDATE SET
+                    generation_id = excluded.generation_id,
+                    map_revision = excluded.map_revision,
+                    selection_id = excluded.selection_id,
+                    section_id = excluded.section_id,
+                    state_json = excluded.state_json,
+                    state_identity = excluded.state_identity,
+                    updated_utc = excluded.updated_utc""",
+                (
+                    view_key,
+                    generation_id,
+                    map_revision,
+                    selection_id,
+                    section_id,
+                    state_bytes,
+                    state_identity,
+                    timestamp,
+                ),
+            )
+        return ViewStateRecord(
+            view_key,
+            generation_id,
+            map_revision,
+            selection_id,
+            section_id,
+            state,
+            state_identity,
+        )
+
+    def save_current_view_state(
+        self,
+        view_key: str,
+        *,
+        generation_id: str,
+        map_revision: int,
+        selection_id: str | None,
+        section_id: str | None,
+        state: object,
+        now: datetime | None = None,
+    ) -> ViewStateRecord:
+        """CAS a view-state write against the readable generation and revision."""
+
+        _identifier(view_key, "view_key")
+        _identifier(generation_id, "generation_id")
+        if selection_id is not None:
+            _identifier(selection_id, "selection_id")
+        if section_id is not None:
+            _identifier(section_id, "section_id")
+        if map_revision < 0:
+            raise ValueError("map_revision cannot be negative")
+        state_bytes = _durable_json(state, "view state")
+        state_identity = hashlib.sha256(state_bytes).hexdigest()
+        timestamp = _timestamp(now)
+        with storage.transaction(self._connection):
+            pointers = self._pointers_locked()
+            readable_generation = (
+                pointers.current_complete_generation or pointers.active_build_generation
+            )
+            if (
+                pointers.map_revision != map_revision
+                or readable_generation != generation_id
+            ):
+                raise CurrentGenerationConflictError(pointers.map_revision)
             self._connection.execute(
                 """INSERT INTO story_map_v2_view_state(
                     view_key, generation_id, map_revision, selection_id, section_id,

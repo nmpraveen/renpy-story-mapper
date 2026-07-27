@@ -90,12 +90,19 @@ class ReaderSlice:
     items: tuple[Mapping[str, object], ...]
     shells: tuple[Mapping[str, object], ...]
     next_offset: int | None
+    next_page_ordinal: int | None = None
 
     def __post_init__(self) -> None:
         if self.next_offset is not None and (
             type(self.next_offset) is not int or self.next_offset < 1
         ):
             raise StoryMapReaderDataError("next page offset must be a positive integer")
+        if self.next_page_ordinal is not None and (
+            type(self.next_page_ordinal) is not int or self.next_page_ordinal < 0
+        ):
+            raise StoryMapReaderDataError("next storage page ordinal cannot be negative")
+        if self.next_offset is None and self.next_page_ordinal is not None:
+            raise StoryMapReaderDataError("a terminal slice cannot name a storage page")
 
 
 @dataclass(frozen=True)
@@ -107,6 +114,7 @@ class ReaderLocation:
     page_offset: int
     shell_id: str
     item_id: str
+    page_ordinal: int | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.section_id, "section_id")
@@ -116,6 +124,52 @@ class ReaderLocation:
             raise StoryMapReaderDataError("location page offset cannot be negative")
         _nonempty(self.shell_id, "shell_id")
         _nonempty(self.item_id, "item_id")
+        if self.page_ordinal is not None and (
+            type(self.page_ordinal) is not int or self.page_ordinal < 0
+        ):
+            raise StoryMapReaderDataError("location storage page ordinal cannot be negative")
+
+
+@dataclass(frozen=True)
+class ReaderNavigation:
+    """Server-only durable locator into current M12 and evidence authorities."""
+
+    destination_kind: str
+    target_id: str
+    detail_service_kind: str
+    detail_service_id: str
+    evidence_id: str
+    relative_path: str
+    start_line: int
+    end_line: int
+    line_basis: str
+    effects: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.destination_kind not in {
+            "generic_scene",
+            "exact_occurrence",
+            "temporary_outcome",
+            "persistent_lane",
+            "terminal",
+            "repeatable_event",
+        }:
+            raise StoryMapReaderDataError("navigation destination kind is unsupported")
+        _nonempty(self.target_id, "navigation target_id")
+        if self.detail_service_kind not in {"m10_canonical", "m11_scene"}:
+            raise StoryMapReaderDataError("navigation detail service is unsupported")
+        _nonempty(self.detail_service_id, "navigation detail_service_id")
+        _nonempty(self.evidence_id, "navigation evidence_id")
+        path = _nonempty(self.relative_path, "navigation relative_path", maximum=2_048)
+        if path.startswith(("/", "\\")) or "\\" in path or ":" in path.split("/", 1)[0]:
+            raise StoryMapReaderDataError("navigation source path must be relative")
+        if type(self.start_line) is not int or self.start_line < 1:
+            raise StoryMapReaderDataError("navigation start line must be positive")
+        if type(self.end_line) is not int or self.end_line < self.start_line:
+            raise StoryMapReaderDataError("navigation end line precedes its start")
+        _nonempty(self.line_basis, "navigation line_basis")
+        for effect in self.effects:
+            _nonempty(effect, "navigation effects[]", maximum=1_000)
 
 
 @dataclass(frozen=True)
@@ -136,11 +190,16 @@ class StoryMapReaderSource(Protocol):
         resource_id: str,
         offset: int,
         limit: int,
+        page_ordinal: int | None,
     ) -> ReaderSlice | None: ...
 
     def locate(
         self, snapshot: ReaderSnapshot, selection_id: str
     ) -> ReaderLocation | None: ...
+
+    def navigation(
+        self, snapshot: ReaderSnapshot, selection_id: str
+    ) -> ReaderNavigation | None: ...
 
     def search(
         self,
@@ -193,8 +252,9 @@ class MemoryStoryMapReaderSource:
         resource_id: str,
         offset: int,
         limit: int,
+        page_ordinal: int | None,
     ) -> ReaderSlice | None:
-        del snapshot
+        del snapshot, page_ordinal
         resource = self._resources.get((endpoint, resource_id))
         if resource is None:
             return None
@@ -208,6 +268,12 @@ class MemoryStoryMapReaderSource:
     ) -> ReaderLocation | None:
         del snapshot
         return self._locations.get(selection_id)
+
+    def navigation(
+        self, snapshot: ReaderSnapshot, selection_id: str
+    ) -> ReaderNavigation | None:
+        del snapshot, selection_id
+        return None
 
     def search(
         self,
@@ -301,7 +367,11 @@ def _b64decode(value: str) -> bytes:
         raise InvalidStoryMapCursorError("The page cursor is invalid.") from exc
 
 
-def _encode_cursor(expectation: _CursorExpectation, offset: int) -> str:
+def _encode_cursor(
+    expectation: _CursorExpectation,
+    offset: int,
+    page_ordinal: int | None = None,
+) -> str:
     payload = {
         "binding": expectation.binding,
         "endpoint": expectation.endpoint,
@@ -309,6 +379,7 @@ def _encode_cursor(expectation: _CursorExpectation, offset: int) -> str:
         "limit": expectation.limit,
         "offset": offset,
         "order": expectation.order,
+        "page": page_ordinal,
         "resource": expectation.resource_id,
         "revision": expectation.snapshot.map_revision,
         "schema": READER_SCHEMA,
@@ -321,7 +392,9 @@ def _encode_cursor(expectation: _CursorExpectation, offset: int) -> str:
     return token
 
 
-def _decode_cursor(token: str, expectation: _CursorExpectation) -> int:
+def _decode_cursor(
+    token: str, expectation: _CursorExpectation
+) -> tuple[int, int | None]:
     if not token or len(token) > MAX_CURSOR_CHARS or token.count(".") != 1:
         raise InvalidStoryMapCursorError("The page cursor is invalid.")
     payload_part, signature_part = token.split(".", 1)
@@ -343,6 +416,7 @@ def _decode_cursor(token: str, expectation: _CursorExpectation) -> int:
         "limit",
         "offset",
         "order",
+        "page",
         "resource",
         "revision",
         "schema",
@@ -369,7 +443,12 @@ def _decode_cursor(token: str, expectation: _CursorExpectation) -> int:
     offset = decoded.get("offset")
     if type(offset) is not int or offset < 1:
         raise InvalidStoryMapCursorError("The page cursor is invalid.")
-    return offset
+    page_ordinal = decoded.get("page")
+    if page_ordinal is not None and (
+        type(page_ordinal) is not int or page_ordinal < 0
+    ):
+        raise InvalidStoryMapCursorError("The page cursor is invalid.")
+    return offset, page_ordinal
 
 
 def _shells_for_items(
@@ -509,9 +588,11 @@ class StoryMapReader:
             limit,
             "",
         )
-        offset = 0 if cursor is None else _decode_cursor(cursor, expectation)
+        offset, page_ordinal = (
+            (0, None) if cursor is None else _decode_cursor(cursor, expectation)
+        )
         source_slice = self._source.resource_slice(
-            snapshot, endpoint, resource_id, offset, limit
+            snapshot, endpoint, resource_id, offset, limit, page_ordinal
         )
         if source_slice is None:
             raise StoryMapReaderNotFoundError("The Story Map V2 page resource is unavailable.")
@@ -543,7 +624,7 @@ class StoryMapReader:
             limit,
             selection_id,
         )
-        offset = 0 if cursor is None else _decode_cursor(cursor, expectation)
+        offset = 0 if cursor is None else _decode_cursor(cursor, expectation)[0]
         return self._page_response(
             snapshot, expectation, offset, supplier(offset, limit)
         )
@@ -581,16 +662,28 @@ class StoryMapReader:
             raise StoryMapReaderDataError("a nonempty section or branch page requires a shell")
 
         next_offset = source_slice.next_offset
+        next_page_ordinal = source_slice.next_page_ordinal
         response = self._make_page_response(
-            snapshot, expectation, items, shells, next_offset
+            snapshot,
+            expectation,
+            items,
+            shells,
+            next_offset,
+            next_page_ordinal,
         )
         while len(_json_bytes(response)) > MAX_SERIALIZED_BYTES and items:
             items.pop()
             item_ids.pop()
             shells = list(_shells_for_items(source_slice.shells, item_ids))
             next_offset = offset + len(items)
+            next_page_ordinal = None
             response = self._make_page_response(
-                snapshot, expectation, items, shells, next_offset
+                snapshot,
+                expectation,
+                items,
+                shells,
+                next_offset,
+                next_page_ordinal,
             )
         if len(_json_bytes(response)) > MAX_SERIALIZED_BYTES or (
             source_slice.items and not items
@@ -611,9 +704,12 @@ class StoryMapReader:
         items: Sequence[Mapping[str, object]],
         shells: Sequence[Mapping[str, object]],
         next_offset: int | None,
+        next_page_ordinal: int | None,
     ) -> JsonObject:
         next_cursor = (
-            None if next_offset is None else _encode_cursor(expectation, next_offset)
+            None
+            if next_offset is None
+            else _encode_cursor(expectation, next_offset, next_page_ordinal)
         )
         return {
             "schema": READER_SCHEMA,
@@ -649,7 +745,11 @@ class StoryMapReader:
         page_cursor = (
             None
             if location.page_offset == 0
-            else _encode_cursor(expectation, location.page_offset)
+            else _encode_cursor(
+                expectation,
+                location.page_offset,
+                location.page_ordinal,
+            )
         )
         return {
             "schema": READER_SCHEMA,
@@ -664,6 +764,16 @@ class StoryMapReader:
                 "item_id": location.item_id,
             },
         }
+
+    def selection_navigation(
+        self, *, map_revision: int, selection_id: str
+    ) -> ReaderNavigation | None:
+        """Resolve server-only durable navigation without exposing locator metadata."""
+
+        snapshot = self._snapshot()
+        self._require_revision(snapshot, map_revision)
+        _nonempty(selection_id, "selection_id")
+        return self._source.navigation(snapshot, selection_id)
 
     def search(
         self,
@@ -686,7 +796,7 @@ class StoryMapReader:
             limit,
             query,
         )
-        offset = 0 if cursor is None else _decode_cursor(cursor, expectation)
+        offset = 0 if cursor is None else _decode_cursor(cursor, expectation)[0]
         found = self._source.search(snapshot, query, offset, limit)
         if len(found.results) > limit:
             raise StoryMapReaderDataError("search source returned too many results")
