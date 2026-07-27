@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, cast
 
 from renpy_story_mapper.story_map_v2.contracts import canonical_hash
 from renpy_story_mapper.story_map_v2.phase04_sections import (
@@ -48,12 +48,28 @@ class GenerationPointers:
 class GenerationRepository(Protocol):
     def create_generation(self, generation: GenerationDescriptor) -> None: ...
 
+    def load_generation(self, generation_id: str) -> GenerationDescriptor | None:
+        """Load one immutable generation envelope and its authoritative descriptor."""
+        ...
+
+    def is_run_publishable(
+        self,
+        run_id: str,
+        plan_id: str,
+        authority_identity: str,
+    ) -> bool:
+        """Provide advisory preflight only; each pointer CAS must revalidate atomically."""
+        ...
+
     def set_active_generation(
         self,
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
-    ) -> GenerationPointers: ...
+        expected_complete_generation_id: str | None,
+    ) -> GenerationPointers:
+        """Atomically revalidate target run authority plus both pointers, then activate."""
+        ...
 
     def generation_pointers(self) -> GenerationPointers: ...
 
@@ -62,8 +78,11 @@ class GenerationRepository(Protocol):
         generation_id: str,
         *,
         expected_active_generation_id: str,
+        expected_complete_generation_id: str | None,
         fault: FaultInjector | None = None,
-    ) -> GenerationPointers: ...
+    ) -> GenerationPointers:
+        """Atomically revalidate run/lineage plus both pointers, then publish COMPLETE."""
+        ...
 
 
 class Phase03EventRecord(Protocol):
@@ -185,6 +204,7 @@ class GenerationArtifact:
     sections: tuple[MeaningfulSection, ...]
     path_facts: tuple[PathFact, ...]
     baseline_generation_id: str | None
+    baseline_path_facts: tuple[PathFact, ...] | None
     new_path_facts: tuple[NewPathFact, ...]
     schema: str = PHASE04_GENERATION_SCHEMA
 
@@ -223,10 +243,17 @@ class GenerationArtifact:
         elif self.state is GenerationBuildState.COMPLETE:
             raise ValueError("non-complete generation cannot claim complete state")
         if self.baseline_generation_id is None:
-            if self.new_path_facts:
-                raise ValueError("initial generation cannot claim NEW path facts")
+            if self.baseline_path_facts is not None or self.new_path_facts:
+                raise ValueError("initial generation cannot carry a baseline or NEW path facts")
         else:
             _trimmed(self.baseline_generation_id, "baseline generation ID")
+            if self.baseline_path_facts is None:
+                raise ValueError("successor generation requires exact baseline path facts")
+            baseline_keys = tuple(
+                (fact.kind, fact.fact_id) for fact in self.baseline_path_facts
+            )
+            if len(baseline_keys) != len(set(baseline_keys)):
+                raise ValueError("baseline path facts must be unique")
         new_keys = tuple((fact.kind, fact.fact_id) for fact in self.new_path_facts)
         if len(new_keys) != len(set(new_keys)):
             raise ValueError("generation NEW path facts must be unique")
@@ -291,6 +318,189 @@ class GenerationArtifact:
         )
 
 
+@dataclass(frozen=True)
+class _StoredGeneration:
+    generation_id: str
+    run_id: str
+    plan_id: str
+    authority_identity: str
+    kind: GenerationKind
+    story_chunk_plan_identity: str
+    source_identity: str
+    coverage_hash: str
+    baseline_generation_id: str | None
+    path_facts: tuple[PathFact, ...]
+
+
+def _stored_string(value: object, label: str) -> str:
+    if type(value) is not str:
+        raise PublicationConflictError(f"stored generation {label} is invalid")
+    try:
+        return _trimmed(value, f"stored generation {label}")
+    except ValueError as exc:
+        raise PublicationConflictError(f"stored generation {label} is invalid") from exc
+
+
+def _stored_generation(record: GenerationDescriptor) -> _StoredGeneration:
+    if type(record.descriptor) is not dict:
+        raise PublicationConflictError("stored generation descriptor is invalid")
+    descriptor = cast(Mapping[str, object], record.descriptor)
+    required = {
+        "schema",
+        "generation_id",
+        "story_chunk_plan_identity",
+        "source_identity",
+        "coverage_hash",
+        "path_facts",
+        "baseline_generation_id",
+    }
+    if not required.issubset(descriptor):
+        raise PublicationConflictError("stored generation descriptor is incomplete")
+    if descriptor["schema"] != PHASE04_GENERATION_SCHEMA:
+        raise PublicationConflictError("stored generation schema is unsupported")
+    generation_id = _stored_string(descriptor["generation_id"], "generation ID")
+    if generation_id != record.generation_id:
+        raise PublicationConflictError("stored generation envelope and payload disagree")
+    baseline = descriptor["baseline_generation_id"]
+    if baseline is not None:
+        baseline = _stored_string(baseline, "baseline generation ID")
+    raw_facts = descriptor["path_facts"]
+    if type(raw_facts) is not list:
+        raise PublicationConflictError("stored generation path facts are invalid")
+    facts: list[PathFact] = []
+    try:
+        for raw_fact in raw_facts:
+            if type(raw_fact) is not dict or set(raw_fact) != {
+                "kind",
+                "fact_id",
+                "section_ids",
+            }:
+                raise ValueError("path fact shape")
+            fact = cast(Mapping[str, object], raw_fact)
+            raw_sections = fact["section_ids"]
+            if type(raw_sections) is not list:
+                raise ValueError("path fact sections")
+            facts.append(
+                PathFact(
+                    PathFactKind(_stored_string(fact["kind"], "path fact kind")),
+                    _stored_string(fact["fact_id"], "path fact ID"),
+                    tuple(
+                        _stored_string(section_id, "path fact section ID")
+                        for section_id in raw_sections
+                    ),
+                )
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PublicationConflictError("stored generation path facts are invalid") from exc
+    fact_keys = tuple((fact.kind, fact.fact_id) for fact in facts)
+    if len(fact_keys) != len(set(fact_keys)):
+        raise PublicationConflictError("stored generation path facts are duplicated")
+    try:
+        kind = GenerationKind(record.kind)
+    except ValueError as exc:
+        raise PublicationConflictError("stored generation kind is invalid") from exc
+    return _StoredGeneration(
+        generation_id=generation_id,
+        run_id=record.run_id,
+        plan_id=record.plan_id,
+        authority_identity=record.authority_identity,
+        kind=kind,
+        story_chunk_plan_identity=_stored_string(
+            descriptor["story_chunk_plan_identity"], "StoryChunkPlan identity"
+        ),
+        source_identity=_stored_string(descriptor["source_identity"], "source identity"),
+        coverage_hash=_stored_string(descriptor["coverage_hash"], "coverage hash"),
+        baseline_generation_id=baseline,
+        path_facts=tuple(facts),
+    )
+
+
+def _load_generation(
+    repository: GenerationRepository,
+    generation_id: str,
+) -> _StoredGeneration:
+    record = repository.load_generation(generation_id)
+    if record is None:
+        raise PublicationConflictError("generation lineage record is unavailable")
+    return _stored_generation(record)
+
+
+def _lineage(artifact: GenerationArtifact) -> tuple[str, ...]:
+    return (
+        artifact.run_id,
+        artifact.plan_id,
+        artifact.authority_identity,
+        artifact.story_chunk_plan_identity,
+        artifact.source_identity,
+        artifact.coverage_hash,
+        artifact.baseline_generation_id or "",
+    )
+
+
+def _stored_lineage(generation: _StoredGeneration) -> tuple[str, ...]:
+    return (
+        generation.run_id,
+        generation.plan_id,
+        generation.authority_identity,
+        generation.story_chunk_plan_identity,
+        generation.source_identity,
+        generation.coverage_hash,
+        generation.baseline_generation_id or "",
+    )
+
+
+def _validate_derived_binding(
+    generation_id: str,
+    authority_identity: str,
+    semantic_assembly: SemanticAssembly,
+    derived: DerivedSemanticAssembly,
+) -> None:
+    if derived.candidate_generation_identity != generation_id:
+        raise ValueError("derived output belongs to a different candidate generation")
+    if (
+        derived.semantic_plan.story_chunk_plan_identity
+        != semantic_assembly.story_chunk_plan_identity
+        or derived.semantic_plan.authority_identity != authority_identity
+        or derived.semantic_plan_identity != derived.semantic_plan.semantic_plan_identity
+    ):
+        raise ValueError("derived output has foreign semantic-plan authority")
+    expected_corridors = tuple(chunk.chunk_id for chunk in semantic_assembly.chunks)
+    if tuple(corridor.corridor_id for corridor in derived.semantic_plan.corridors) != (
+        expected_corridors
+    ) or tuple(result.corridor_id for result in derived.corridor_results) != expected_corridors:
+        raise ValueError("derived output changed exact semantic corridor membership or order")
+    semantic_event_ids = tuple(event.event_id for event in semantic_assembly.events)
+    if len(semantic_event_ids) != len(set(semantic_event_ids)):
+        raise ValueError("semantic assembly event identity is duplicated")
+    section_ids: list[str] = []
+    derived_event_ids: list[str] = []
+    for chunk, corridor, result in zip(
+        semantic_assembly.chunks,
+        derived.semantic_plan.corridors,
+        derived.corridor_results,
+        strict=True,
+    ):
+        expected_event_ids = tuple(event.event_id for event in chunk.events)
+        if result.route_owner != corridor.route_owner or not result.sections:
+            raise ValueError("derived corridor result changed frozen ownership or is empty")
+        corridor_event_ids: list[str] = []
+        for section in result.sections:
+            if (
+                section.corridor_id != corridor.corridor_id
+                or section.route_owner != corridor.route_owner
+            ):
+                raise ValueError("derived section changed frozen corridor ownership")
+            section_ids.append(section.section_id)
+            corridor_event_ids.extend(section.event_ids)
+        if tuple(corridor_event_ids) != expected_event_ids:
+            raise ValueError(
+                "derived sections must cover exact existing corridor events once and in order"
+            )
+        derived_event_ids.extend(corridor_event_ids)
+    if len(section_ids) != len(set(section_ids)) or tuple(derived_event_ids) != semantic_event_ids:
+        raise ValueError("derived section publication has duplicate or foreign coverage")
+
+
 def build_generation_artifact(
     *,
     generation_id: str,
@@ -303,8 +513,14 @@ def build_generation_artifact(
     path_facts: tuple[PathFact, ...] = (),
     immediately_previous: PathFactSnapshot | None = None,
 ) -> GenerationArtifact:
-    if derived.semantic_plan_identity == "" or not derived.sections:
+    if not derived.sections:
         raise ValueError("derived semantic assembly is incomplete")
+    _validate_derived_binding(
+        generation_id,
+        authority_identity,
+        semantic_assembly,
+        derived,
+    )
     if kind is GenerationKind.STRUCTURAL:
         state = GenerationBuildState.STRUCTURAL
     elif kind is GenerationKind.CANDIDATE:
@@ -335,6 +551,9 @@ def build_generation_artifact(
         baseline_generation_id=(
             None if immediately_previous is None else immediately_previous.generation_id
         ),
+        baseline_path_facts=(
+            None if immediately_previous is None else immediately_previous.facts
+        ),
         new_path_facts=derive_new_path_facts(path_facts, immediately_previous),
     )
 
@@ -345,6 +564,47 @@ class AtomicGenerationPublisher:
     def __init__(self, repository: GenerationRepository) -> None:
         self._repository = repository
 
+    def _require_publishable_run(self, artifact: GenerationArtifact) -> None:
+        if not self._repository.is_run_publishable(
+            artifact.run_id,
+            artifact.plan_id,
+            artifact.authority_identity,
+        ):
+            raise PublicationConflictError(
+                "generation run is cancelled, terminal, or has stale authority"
+            )
+
+    def _validate_current_baseline(
+        self,
+        artifact: GenerationArtifact,
+        pointers: GenerationPointers,
+    ) -> _StoredGeneration | None:
+        if artifact.baseline_generation_id != pointers.current_complete_generation:
+            raise PublicationConflictError(
+                "generation does not descend from the immediately prior accepted generation"
+            )
+        if pointers.current_complete_generation is None:
+            if artifact.baseline_path_facts is not None or artifact.new_path_facts:
+                raise PublicationConflictError("initial generation supplied a false baseline")
+            return None
+        previous = _load_generation(
+            self._repository,
+            pointers.current_complete_generation,
+        )
+        if previous.kind is not GenerationKind.COMPLETE:
+            raise PublicationConflictError("current generation pointer is not complete")
+        if artifact.baseline_path_facts != previous.path_facts:
+            raise PublicationConflictError(
+                "caller baseline path facts differ from the accepted generation"
+            )
+        authoritative_snapshot = PathFactSnapshot(previous.generation_id, previous.path_facts)
+        expected_new = derive_new_path_facts(artifact.path_facts, authoritative_snapshot)
+        if artifact.new_path_facts != expected_new:
+            raise PublicationConflictError(
+                "NEW path facts differ from the authoritative accepted baseline"
+            )
+        return previous
+
     def activate_progressive(
         self,
         artifact: GenerationArtifact,
@@ -353,10 +613,20 @@ class AtomicGenerationPublisher:
     ) -> GenerationPointers:
         if artifact.kind is GenerationKind.COMPLETE:
             raise ValueError("complete generations use publish_complete")
+        self._require_publishable_run(artifact)
+        pointers = self._repository.generation_pointers()
+        self._validate_current_baseline(artifact, pointers)
+        if expected_active_generation_id is not None:
+            active = _load_generation(self._repository, expected_active_generation_id)
+            if _stored_lineage(active) != _lineage(artifact):
+                raise PublicationConflictError(
+                    "progressive generation changed active run, authority, or source lineage"
+                )
         self._repository.create_generation(artifact.durable_descriptor())
         return self._repository.set_active_generation(
             artifact.generation_id,
             expected_active_generation_id=expected_active_generation_id,
+            expected_complete_generation_id=pointers.current_complete_generation,
         )
 
     def publish_complete(
@@ -368,28 +638,27 @@ class AtomicGenerationPublisher:
     ) -> GenerationPointers:
         if artifact.kind is not GenerationKind.COMPLETE:
             raise ValueError("only a complete generation can advance the complete pointer")
-        self._repository.create_generation(artifact.durable_descriptor())
         pointers = self._repository.generation_pointers()
         if (
             pointers.current_complete_generation == artifact.generation_id
             and pointers.active_build_generation is None
         ):
+            self._repository.create_generation(artifact.durable_descriptor())
             return pointers
-        if artifact.baseline_generation_id != pointers.current_complete_generation:
-            raise PublicationConflictError(
-                "complete generation was not compared with the immediately prior accepted "
-                "generation"
-            )
-        if pointers.active_build_generation == expected_active_generation_id:
-            pointers = self._repository.set_active_generation(
-                artifact.generation_id,
-                expected_active_generation_id=expected_active_generation_id,
-            )
-        elif pointers.active_build_generation != artifact.generation_id:
+        self._require_publishable_run(artifact)
+        self._validate_current_baseline(artifact, pointers)
+        if pointers.active_build_generation != expected_active_generation_id:
             raise PublicationConflictError("stale candidate cannot replace the active generation")
+        active = _load_generation(self._repository, expected_active_generation_id)
+        if _stored_lineage(active) != _lineage(artifact):
+            raise PublicationConflictError(
+                "complete generation changed active run, authority, or source lineage"
+            )
+        self._repository.create_generation(artifact.durable_descriptor())
         return self._repository.publish_generation(
             artifact.generation_id,
-            expected_active_generation_id=artifact.generation_id,
+            expected_active_generation_id=expected_active_generation_id,
+            expected_complete_generation_id=artifact.baseline_generation_id,
             fault=fault,
         )
 

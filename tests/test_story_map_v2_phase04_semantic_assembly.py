@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 import pytest
@@ -33,6 +33,7 @@ from renpy_story_mapper.story_map_v2.phase04_publication import (
     PathFactKind,
     PathFactSnapshot,
     PublicationConflictError,
+    build_generation_artifact,
     derive_new_path_facts,
     generation_freshness,
     project_phase03_read_only,
@@ -63,6 +64,7 @@ from renpy_story_mapper.story_map_v2.phase04_semantics import (
 
 FAULT_BEFORE_GENERATION_PUBLICATION = "generation_publication.before"
 FAULT_AFTER_GENERATION_PUBLICATION = "generation_publication.after"
+_POINTER_EXPECTATION_UNSET = object()
 
 
 def _digest(value: str) -> str:
@@ -559,6 +561,110 @@ def test_fixed_membership_rollup_upper_bound_is_finite_for_large_route() -> None
     assert derived.ceilings.rollup_synthesis_calls == 4
 
 
+def _generation_inputs(
+    generation_id: str,
+) -> tuple[StoryChunkPlan, object, object, str]:
+    plan = _plan()
+    semantic = assemble_semantic_corridors(
+        plan,
+        _accepted_assembly(plan, singleton_events=True),
+    )
+    authority_identity = _digest("authority-generation-binding")
+    semantic_plan = build_derived_semantic_plan(plan, authority_identity)
+    derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
+    return plan, semantic, derived, authority_identity
+
+
+def test_generation_build_rejects_cross_plan_authority_and_candidate_binding() -> None:
+    generation_id = "generation:bound-public"
+    plan, semantic, derived, authority_identity = _generation_inputs(generation_id)
+    artifact = build_generation_artifact(
+        generation_id=generation_id,
+        run_id="run-bound-public",
+        plan_id="workflow-plan-bound-public",
+        authority_identity=authority_identity,
+        semantic_assembly=semantic,
+        derived=derived,
+        kind=GenerationKind.COMPLETE,
+    )
+    assert artifact.story_chunk_plan_identity == plan.identity
+
+    with pytest.raises(ValueError, match="candidate generation"):
+        build_generation_artifact(
+            generation_id="generation:foreign-candidate",
+            run_id="run-bound-public",
+            plan_id="workflow-plan-bound-public",
+            authority_identity=authority_identity,
+            semantic_assembly=semantic,
+            derived=derived,
+            kind=GenerationKind.COMPLETE,
+        )
+    with pytest.raises(ValueError, match="foreign semantic-plan authority"):
+        build_generation_artifact(
+            generation_id=generation_id,
+            run_id="run-bound-public",
+            plan_id="workflow-plan-bound-public",
+            authority_identity=_digest("foreign-authority"),
+            semantic_assembly=semantic,
+            derived=derived,
+            kind=GenerationKind.COMPLETE,
+        )
+    foreign_plan = replace(
+        derived.semantic_plan,
+        story_chunk_plan_identity=_digest("foreign-story-chunk-plan"),
+    )
+    cross_plan = replace(
+        derived,
+        semantic_plan=foreign_plan,
+        semantic_plan_identity=foreign_plan.semantic_plan_identity,
+    )
+    with pytest.raises(ValueError, match="foreign semantic-plan authority"):
+        build_generation_artifact(
+            generation_id=generation_id,
+            run_id="run-bound-public",
+            plan_id="workflow-plan-bound-public",
+            authority_identity=authority_identity,
+            semantic_assembly=semantic,
+            derived=cross_plan,
+            kind=GenerationKind.COMPLETE,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["missing", "foreign", "duplicate", "reordered"])
+def test_generation_build_rejects_invalid_derived_event_coverage(mutation: str) -> None:
+    generation_id = "generation:coverage-public"
+    _, semantic, derived, authority_identity = _generation_inputs(generation_id)
+    result = derived.corridor_results[0]
+    section = result.sections[0]
+    event_ids = section.event_ids
+    if mutation == "missing":
+        mutated_sections = (replace(section, event_ids=event_ids[:-1]),)
+    elif mutation == "foreign":
+        mutated_sections = (replace(section, event_ids=("event:foreign", *event_ids[1:])),)
+    elif mutation == "duplicate":
+        mutated_sections = (
+            replace(section, section_id="section:duplicate:a", event_ids=(event_ids[0],)),
+            replace(section, section_id="section:duplicate:b", event_ids=event_ids),
+        )
+    else:
+        mutated_sections = (replace(section, event_ids=tuple(reversed(event_ids))),)
+    invalid_result = replace(result, sections=mutated_sections)
+    invalid = replace(
+        derived,
+        corridor_results=(invalid_result, *derived.corridor_results[1:]),
+    )
+    with pytest.raises(ValueError, match="exact existing corridor events"):
+        build_generation_artifact(
+            generation_id=generation_id,
+            run_id="run-coverage-public",
+            plan_id="workflow-plan-coverage-public",
+            authority_identity=authority_identity,
+            semantic_assembly=semantic,
+            derived=invalid,
+            kind=GenerationKind.COMPLETE,
+        )
+
+
 def _section(section_id: str = "section:public") -> MeaningfulSection:
     return MeaningfulSection(
         section_id=section_id,
@@ -576,35 +682,53 @@ def _artifact(
     kind: GenerationKind,
     *,
     baseline: str | None = None,
+    trust_empty_baseline: bool = False,
+    run_id: str = "run-public",
+    plan_id: str = "plan-public",
+    authority_identity: str | None = None,
+    source_identity: str | None = None,
 ) -> GenerationArtifact:
     section = _section()
     fact = PathFact(PathFactKind.ARM, "arm:public", ("section:public",))
     new_facts = ()
+    baseline_facts: tuple[PathFact, ...] | None = None
     if baseline is not None:
-        new_facts = derive_new_path_facts((fact,), PathFactSnapshot(baseline, ()))
-    return GenerationArtifact(
-        generation_id=generation_id,
-        run_id="run-public",
-        plan_id="plan-public",
-        authority_identity=_digest("authority-publication"),
-        story_chunk_plan_identity=_digest("chunk-plan-publication"),
-        source_identity=_digest("source-publication"),
-        coverage_hash=_digest("coverage-publication"),
-        kind=kind,
-        state=(
+        baseline_facts = () if trust_empty_baseline else (fact,)
+        new_facts = derive_new_path_facts(
+            (fact,), PathFactSnapshot(baseline, baseline_facts)
+        )
+    artifact_values: dict[str, object] = {
+        "generation_id": generation_id,
+        "run_id": run_id,
+        "plan_id": plan_id,
+        "authority_identity": (
+            _digest("authority-publication")
+            if authority_identity is None
+            else authority_identity
+        ),
+        "story_chunk_plan_identity": _digest("chunk-plan-publication"),
+        "source_identity": (
+            _digest("source-publication") if source_identity is None else source_identity
+        ),
+        "coverage_hash": _digest("coverage-publication"),
+        "kind": kind,
+        "state": (
             GenerationBuildState.COMPLETE
             if kind is GenerationKind.COMPLETE
             else GenerationBuildState.STRUCTURAL
             if kind is GenerationKind.STRUCTURAL
             else GenerationBuildState.BUILDING
         ),
-        title="Public story",
-        overview="A public synthetic overview.",
-        sections=(section,),
-        path_facts=(fact,),
-        baseline_generation_id=baseline,
-        new_path_facts=new_facts,
-    )
+        "title": "Public story",
+        "overview": "A public synthetic overview.",
+        "sections": (section,),
+        "path_facts": (fact,),
+        "baseline_generation_id": baseline,
+        "new_path_facts": new_facts,
+    }
+    if "baseline_path_facts" in GenerationArtifact.__dataclass_fields__:
+        artifact_values["baseline_path_facts"] = baseline_facts
+    return GenerationArtifact(**artifact_values)
 
 
 class _MemoryGenerationRepository:
@@ -613,21 +737,83 @@ class _MemoryGenerationRepository:
     def __init__(self) -> None:
         self._generations: dict[str, GenerationDescriptor] = {}
         self._pointers = GenerationPointers(None, None, 0)
+        self._run_authorities: dict[str, tuple[str, str]] = {}
+        self._cancelled_runs: set[str] = set()
+        self.before_activate_cas: Callable[[], None] | None = None
+        self.before_publish_cas: Callable[[], None] | None = None
 
     def create_generation(self, generation: GenerationDescriptor) -> None:
+        run_authority = (generation.plan_id, generation.authority_identity)
+        existing_run = self._run_authorities.setdefault(generation.run_id, run_authority)
+        if existing_run != run_authority:
+            raise ValueError("generation run plan and authority are immutable")
         existing = self._generations.get(generation.generation_id)
         if existing is not None and existing != generation:
             raise ValueError("generation identity is immutable")
         self._generations[generation.generation_id] = generation
+
+    def load_generation(self, generation_id: str) -> GenerationDescriptor | None:
+        return self._generations.get(generation_id)
+
+    def is_run_publishable(
+        self,
+        run_id: str,
+        plan_id: str,
+        authority_identity: str,
+    ) -> bool:
+        expected = self._run_authorities.get(run_id)
+        return run_id not in self._cancelled_runs and (
+            expected is None or expected == (plan_id, authority_identity)
+        )
+
+    def cancel_run(self, run_id: str) -> None:
+        self._cancelled_runs.add(run_id)
+
+    def _require_publishable_generation(self, generation_id: str) -> GenerationDescriptor:
+        generation = self._generations[generation_id]
+        if not self.is_run_publishable(
+            generation.run_id,
+            generation.plan_id,
+            generation.authority_identity,
+        ):
+            raise PublicationConflictError("generation run is not publishable")
+        return generation
+
+    @staticmethod
+    def _lineage(generation: GenerationDescriptor) -> tuple[object, ...]:
+        descriptor = cast(dict[str, object], generation.descriptor)
+        return (
+            generation.run_id,
+            generation.plan_id,
+            generation.authority_identity,
+            descriptor["story_chunk_plan_identity"],
+            descriptor["source_identity"],
+            descriptor["coverage_hash"],
+            descriptor["baseline_generation_id"],
+        )
 
     def set_active_generation(
         self,
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
+        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
     ) -> GenerationPointers:
-        if generation_id not in self._generations:
-            raise ValueError("generation must exist before activation")
+        if self.before_activate_cas is not None:
+            hook, self.before_activate_cas = self.before_activate_cas, None
+            hook()
+        generation = self._require_publishable_generation(generation_id)
+        if (
+            generation.kind is GenerationKind.COMPLETE
+            and expected_complete_generation_id is not _POINTER_EXPECTATION_UNSET
+        ):
+            raise PublicationConflictError("complete generation cannot activate progressively")
+        if (
+            expected_complete_generation_id is not _POINTER_EXPECTATION_UNSET
+            and self._pointers.current_complete_generation
+            != expected_complete_generation_id
+        ):
+            raise PublicationConflictError("complete generation pointer changed")
         if self._pointers.active_build_generation != expected_active_generation_id:
             raise PublicationConflictError("active generation pointer changed")
         self._pointers = GenerationPointers(
@@ -645,17 +831,28 @@ class _MemoryGenerationRepository:
         generation_id: str,
         *,
         expected_active_generation_id: str,
+        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
         fault: Callable[[str], None] | None = None,
     ) -> GenerationPointers:
         if fault is not None:
             fault(FAULT_BEFORE_GENERATION_PUBLICATION)
+        if self.before_publish_cas is not None:
+            hook, self.before_publish_cas = self.before_publish_cas, None
+            hook()
+        descriptor = self._require_publishable_generation(generation_id)
+        if (
+            expected_complete_generation_id is not _POINTER_EXPECTATION_UNSET
+            and self._pointers.current_complete_generation
+            != expected_complete_generation_id
+        ):
+            raise PublicationConflictError("complete generation pointer changed")
         if self._pointers.active_build_generation != expected_active_generation_id:
             raise PublicationConflictError("active generation pointer changed")
-        if generation_id != expected_active_generation_id:
-            raise PublicationConflictError("published generation must be active")
-        descriptor = self._generations[generation_id]
         if descriptor.kind is not GenerationKind.COMPLETE:
             raise ValueError("only complete generations may publish")
+        active = self._require_publishable_generation(expected_active_generation_id)
+        if self._lineage(active) != self._lineage(descriptor):
+            raise PublicationConflictError("active and complete generation lineage differ")
         self._pointers = GenerationPointers(
             generation_id,
             None,
@@ -683,7 +880,11 @@ def test_atomic_publication_protects_previous_complete_and_rejects_stale_candida
         expected_active_generation_id="generation:build:1",
     )
     publisher.activate_progressive(
-        _artifact("generation:build:2", GenerationKind.CANDIDATE),
+        _artifact(
+            "generation:build:2",
+            GenerationKind.CANDIDATE,
+            baseline="generation:complete:1",
+        ),
         expected_active_generation_id=None,
     )
     pointers = repository.generation_pointers()
@@ -703,6 +904,16 @@ def test_atomic_publication_protects_previous_complete_and_rejects_stale_candida
             ),
             expected_active_generation_id="generation:build:wrong",
         )
+    with pytest.raises(PublicationConflictError, match="changed active run"):
+        publisher.publish_complete(
+            _artifact(
+                "generation:complete:foreign-source",
+                GenerationKind.COMPLETE,
+                baseline="generation:complete:1",
+                source_identity=_digest("source-publication-foreign"),
+            ),
+            expected_active_generation_id="generation:build:2",
+        )
     assert repository.generation_pointers().current_complete_generation == (
         "generation:complete:1"
     )
@@ -716,6 +927,121 @@ def test_atomic_publication_protects_previous_complete_and_rejects_stale_candida
     )
     assert published.current_complete_generation == "generation:complete:2"
     assert published.map_revision == 2
+
+
+def test_publication_rejects_same_id_empty_substitute_baseline_facts() -> None:
+    repository = _publication_repository()
+    publisher = AtomicGenerationPublisher(repository)
+    publisher.activate_progressive(
+        _artifact("generation:baseline-build:1", GenerationKind.STRUCTURAL),
+        expected_active_generation_id=None,
+    )
+    publisher.publish_complete(
+        _artifact("generation:baseline-complete:1", GenerationKind.COMPLETE),
+        expected_active_generation_id="generation:baseline-build:1",
+    )
+    publisher.activate_progressive(
+        _artifact(
+            "generation:baseline-build:2",
+            GenerationKind.CANDIDATE,
+            baseline="generation:baseline-complete:1",
+        ),
+        expected_active_generation_id=None,
+    )
+    substituted = _artifact(
+        "generation:baseline-complete:2",
+        GenerationKind.COMPLETE,
+        baseline="generation:baseline-complete:1",
+        trust_empty_baseline=True,
+    )
+    assert substituted.new_path_facts[0].fact_id == "arm:public"
+    with pytest.raises(PublicationConflictError, match="baseline path facts differ"):
+        publisher.publish_complete(
+            substituted,
+            expected_active_generation_id="generation:baseline-build:2",
+        )
+    pointers = repository.generation_pointers()
+    assert pointers.current_complete_generation == "generation:baseline-complete:1"
+    assert pointers.active_build_generation == "generation:baseline-build:2"
+    assert repository.load_generation("generation:baseline-complete:2") is None
+
+
+def test_stale_and_cancelled_activation_cannot_advance_dual_pointers() -> None:
+    repository = _publication_repository()
+    publisher = AtomicGenerationPublisher(repository)
+    stale = _artifact(
+        "generation:stale-build",
+        GenerationKind.CANDIDATE,
+        run_id="run-stale",
+        authority_identity=_digest("authority-stale"),
+        source_identity=_digest("source-stale"),
+    )
+    publisher.activate_progressive(
+        _artifact("generation:new-build", GenerationKind.STRUCTURAL),
+        expected_active_generation_id=None,
+    )
+    publisher.publish_complete(
+        _artifact("generation:new-complete", GenerationKind.COMPLETE),
+        expected_active_generation_id="generation:new-build",
+    )
+    accepted = repository.generation_pointers()
+    with pytest.raises(PublicationConflictError, match="immediately prior accepted"):
+        publisher.activate_progressive(stale, expected_active_generation_id=None)
+    assert repository.generation_pointers() == accepted
+
+    cancelled = _artifact(
+        "generation:cancel-race-build",
+        GenerationKind.CANDIDATE,
+        baseline="generation:new-complete",
+        run_id="run-cancel-race",
+        plan_id="plan-cancel-race",
+        authority_identity=_digest("authority-cancel-race"),
+        source_identity=_digest("source-cancel-race"),
+    )
+    repository.before_activate_cas = lambda: repository.cancel_run("run-cancel-race")
+    with pytest.raises(PublicationConflictError, match="not publishable"):
+        publisher.activate_progressive(cancelled, expected_active_generation_id=None)
+    assert repository.generation_pointers() == accepted
+
+
+def test_publish_cas_rechecks_cancellation_without_pointer_mutation() -> None:
+    repository = _publication_repository()
+    publisher = AtomicGenerationPublisher(repository)
+    publisher.activate_progressive(
+        _artifact("generation:publish-build:1", GenerationKind.STRUCTURAL),
+        expected_active_generation_id=None,
+    )
+    publisher.publish_complete(
+        _artifact("generation:publish-complete:1", GenerationKind.COMPLETE),
+        expected_active_generation_id="generation:publish-build:1",
+    )
+    build = _artifact(
+        "generation:publish-build:2",
+        GenerationKind.CANDIDATE,
+        baseline="generation:publish-complete:1",
+        run_id="run-publish-race",
+        plan_id="plan-publish-race",
+        authority_identity=_digest("authority-publish-race"),
+        source_identity=_digest("source-publish-race"),
+    )
+    publisher.activate_progressive(build, expected_active_generation_id=None)
+    before = repository.generation_pointers()
+    complete = _artifact(
+        "generation:publish-complete:2",
+        GenerationKind.COMPLETE,
+        baseline="generation:publish-complete:1",
+        run_id="run-publish-race",
+        plan_id="plan-publish-race",
+        authority_identity=_digest("authority-publish-race"),
+        source_identity=_digest("source-publish-race"),
+    )
+    repository.before_publish_cas = lambda: repository.cancel_run("run-publish-race")
+    with pytest.raises(PublicationConflictError, match="not publishable"):
+        publisher.publish_complete(
+            complete,
+            expected_active_generation_id="generation:publish-build:2",
+        )
+    assert repository.generation_pointers() == before
 
 
 @pytest.mark.parametrize(

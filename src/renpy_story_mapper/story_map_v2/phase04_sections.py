@@ -407,6 +407,7 @@ class RollupResult:
 
 @dataclass(frozen=True)
 class DerivedSemanticAssembly:
+    semantic_plan: DerivedSemanticPlan
     semantic_plan_identity: str
     candidate_generation_identity: str
     section_jobs: tuple[DerivedSemanticJob, ...]
@@ -414,6 +415,10 @@ class DerivedSemanticAssembly:
     rollup_jobs: tuple[DerivedSemanticJob, ...]
     rollups: tuple[RollupResult, ...]
     overview: RollupResult | None
+
+    def __post_init__(self) -> None:
+        if self.semantic_plan_identity != self.semantic_plan.semantic_plan_identity:
+            raise ValueError("derived assembly semantic plan identity is not authoritative")
 
     @property
     def sections(self) -> tuple[MeaningfulSection, ...]:
@@ -1048,6 +1053,7 @@ def assemble_derived_semantics(
     ):
         raise DerivedSemanticError("published section changed frozen route ownership")
     return DerivedSemanticAssembly(
+        semantic_plan=plan,
         semantic_plan_identity=plan.semantic_plan_identity,
         candidate_generation_identity=candidate_generation_identity,
         section_jobs=tuple(section_jobs),
