@@ -2,7 +2,7 @@
 
 Status: Verification — the structural full-game map is published and final lean gates are in progress
 
-Current product checkpoint: `157c496` on `codex/m15-phase04-full-game`
+Current product checkpoint: `4484460` on `codex/m15-phase04-full-game`
 
 Pull request: #30, draft, open and unmerged
 
@@ -144,12 +144,36 @@ No current product code is being discarded, but the remaining old acceptance wor
   derived semantics, workflow HTTP v2, reader API, and real-browser fixtures. The final projection
   seam additionally passed its focused test, Ruff, strict mypy, and whitespace check.
 
+## Final correction, review, and Release evidence
+
+- The first Release diagnostic ran through every stage and exposed exactly three repository
+  contract failures after 1,770 tests passed: the new Phase 04 tests were missing from the explicit
+  shard inventory, lifecycle assertions still expected `Blocked` and an accessible native goal,
+  and Story Map V2 transitively imported the historical narrative stack through concrete Project
+  and M12 loaders. All other Release stages passed.
+- Commit `c34340a` adds measured timings for the ten Phase 04 files, deterministically rebalances
+  the four explicit CI lanes, and makes the lifecycle test assert the truthful `Verification` and
+  `goal: null` state. The shard/lifecycle correction gate passed 23 tests.
+- Commit `4484460` keeps concrete Project opening and M12 authority loading at the web composition
+  boundary; Story Map V2 now accepts a small opened-project protocol plus injected authority and
+  opener. The architecture test was not weakened. Its worker gate passed 59 focused tests, Ruff,
+  strict mypy over 130 source files, and whitespace.
+- The corrected integrated gate passed 153 tests in 43.65 seconds, Ruff over source/tests/scripts,
+  strict mypy over 130 source files, and the complete `2bcdd02..4484460` diff check.
+- The same independent reviewer closed its sole earlier P2 and returned `PASS` at exact
+  `44844601bd46669759ae808be694323e8ad24033`: P0=0, P1=0, P2=0. Its correction rereview passed
+  48 focused tests plus the exact transitive architecture test, Ruff, mypy, and diff checks; the
+  review worktree stayed clean and no private input/provider/PR state was touched.
+- Final Windows Release/package validation passed on product candidate `4484460`: 1,773 tests
+  passed, one real-Chrome scale matrix was explicitly skipped because its opt-in environment flag
+  was not set, and 16 hardware-sensitive tests were deselected. Ruff, strict mypy, dependency,
+  JavaScript, whitespace, isolated sdist/wheel build, install/import, browser asset, and notice
+  checks all passed in 609.9 seconds.
+
 ## Remaining lean work
 
-1. Obtain the one independent integrated review verdict with no unresolved P0-P2.
-2. Run the one final Windows Release/package gate on the product/evidence candidate.
-3. Push once, inspect the repository-wide sharded CI once, and leave PR #30 open and unmerged.
-4. Obtain explicit user approval that the supplied normal/effective-200 result is useful. Do not
+1. Push once, inspect the repository-wide sharded CI once, and leave PR #30 open and unmerged.
+2. Obtain explicit user approval that the supplied normal/effective-200 result is useful. Do not
    mark Phase 04 complete or PR #30 ready before that subjective gate.
 
 ## This documentation reset

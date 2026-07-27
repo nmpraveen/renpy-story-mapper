@@ -13,13 +13,15 @@ Updated: 2026-07-27 (Phase 04 is in verification with a published structural ful
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
-- Safe product checkpoint: `157c496`.
+- Safe product checkpoint: `4484460`.
 - Pull request: draft PR #30, open and unmerged.
 - Status: Verification. The exact approved run remains historically indeterminate with no accepted
   AI prose, but the user-authorized provider-free correction published its deterministic structure
   as generation `b7f05d2…f940`: 425 sections, 1,770 events, 693 choices, 719 arms, 163 endings, and
   59 landmarks. The live website shows choices/effects, late state, Path, and relative
-  Detail/Evidence. Final review, Release, push/CI, and explicit user usefulness approval remain.
+  Detail/Evidence. Final integrated review passes with P0/P1/P2 all zero, and Windows Release
+  passes 1,773 tests plus every quality/package stage. Push/CI and explicit user usefulness
+  approval remain.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
 - Native Codex goal: repository history records the lean goal on Orchestra task
@@ -31,9 +33,8 @@ Updated: 2026-07-27 (Phase 04 is in verification with a published structural ful
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: one final integrated review, one Windows Release/package gate, one push and
-  CI inspection, then explicit user usefulness approval. No provider diagnostic, retry, or
-  replacement run is needed or authorized.
+- Remaining lean path: one push and CI inspection, then explicit user usefulness approval. No
+  provider diagnostic, retry, replacement run, or additional review/Release cycle is needed.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
