@@ -121,7 +121,10 @@ def execute_product_vertical(
         )
         generation_id = _generation_id("complete", prepared, semantic)
         derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
-        if terminal_fallback:
+        local_mapping_only = prepared.policy.cloud.mode is ProviderMode.LOOPBACK
+        if terminal_fallback or local_mapping_only:
+            # One local mapping summary already covers every frozen story chunk. Keep the local
+            # product path to that user-approved finite batch and assemble its hierarchy in Python.
             _publish_generation(
                 project,
                 prepared,

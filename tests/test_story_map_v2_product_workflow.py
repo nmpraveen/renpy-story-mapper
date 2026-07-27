@@ -722,7 +722,7 @@ def test_product_prepare_projects_exact_privacy_safe_http_v2_envelope(
     assert "serialized_request_identity" not in serialized
 
 
-def test_local_only_vertical_maps_and_derives_reader_without_cloud(
+def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
     tmp_path: Path,
 ) -> None:
     graph = _authority_with_effect()
@@ -743,9 +743,12 @@ def test_local_only_vertical_maps_and_derives_reader_without_cloud(
     chunks = {
         chunk.chunk_id: chunk for chunk in prepared.frozen_plans.story_chunk_plan.chunks
     }
+    provider_submissions = 0
 
     class FakeProvider:
         def submit(self, request: bytes) -> ProviderCallResult:
+            nonlocal provider_submissions
+            provider_submissions += 1
             packet = json.loads(request)
             call_kind = packet.get("call_kind")
             if call_kind == "section_synthesis":
@@ -821,6 +824,7 @@ def test_local_only_vertical_maps_and_derives_reader_without_cloud(
         authority_graph=graph,
         loopback_factory=FakeProvider,
     )
+    assert provider_submissions == len(prepared.plan.jobs)
 
     with Project.open(path) as project:
         source = DurableStoryMapReaderSource(
@@ -830,14 +834,13 @@ def test_local_only_vertical_maps_and_derives_reader_without_cloud(
         reader = StoryMapReader(source)
         manifest = reader.manifest()
         assert reader.status()["state"] == "complete"
-        assert manifest["overview"] == {
-            "title": "Whole story",
-            "summary": "The routes split, progress, and reach their known outcomes.",
-        }
+        assert manifest["overview"]["title"] == "Whole story overview"
+        assert manifest["overview"]["summary"]
         revision = manifest["map_revision"]
         assert isinstance(revision, int)
         branch_ids: list[str] = []
         visible_event_effects: list[str] = []
+        visible_event_summaries: list[str] = []
         for section in manifest["sections"]:
             assert isinstance(section, dict)
             page = reader.section_page(
@@ -855,6 +858,11 @@ def test_local_only_vertical_maps_and_derives_reader_without_cloud(
                 if isinstance(item, dict) and item.get("kind") in {"event", "ending"}
                 for effect in item["effects"]
             )
+            visible_event_summaries.extend(
+                str(item["summary"])
+                for item in page["items"]
+                if isinstance(item, dict) and item.get("kind") in {"event", "ending"}
+            )
         branches = [
             reader.branch_page(map_revision=revision, branch_id=branch_id)
             for branch_id in branch_ids
@@ -863,6 +871,10 @@ def test_local_only_vertical_maps_and_derives_reader_without_cloud(
         shells = [shell for branch in branches for shell in branch["shells"]]
         assert any("route_flag = True" in item["effects"] for item in arms)
         assert "route_flag = True" in visible_event_effects
+        assert any(
+            "characters move through this part of the story" in summary.lower()
+            for summary in visible_event_summaries
+        )
         assert all(item["destination_id"] for item in arms)
         assert any(shell["rejoin_selection_id"] for shell in shells)
         selected = next(item["selection_id"] for item in arms if item["effects"])
