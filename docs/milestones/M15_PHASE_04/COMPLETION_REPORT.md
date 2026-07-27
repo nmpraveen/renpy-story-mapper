@@ -1,6 +1,6 @@
 # M15.1 Phase 04 progress report
 
-Status: Ready — lightweight semantic gate passed at `2bcdd02`
+Status: In progress — two bounded vertical-path workers dispatched after semantic `PASS`
 
 Current product checkpoint: `2995d99` on `codex/m15-phase04-full-game`
 
@@ -42,6 +42,10 @@ No current product code is being discarded, but the remaining old acceptance wor
 - Semantic review task `019fa18a-816a-77b2-99b1-1717ef117a54` independently inspected the full
   authority chain and implementation seams read-only. It found no blocker and confirmed the
   smallest remaining work is backend/API composition plus website control wiring.
+- Backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` and website task
+  `019fa18f-f055-7411-ac72-acbddf2b4f8d` started concurrently from exact semantic-gate commit
+  `21d80d208f4f505f39e6649df246d88e8688bb82` in separate clean branches/worktrees with disjoint
+  Python/backend and static-website ownership.
 
 ## Remaining lean work
 

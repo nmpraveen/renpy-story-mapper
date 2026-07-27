@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Ready
+Status: In progress
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
