@@ -34,10 +34,11 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "Repository prose cannot change Codex client settings" in agents
     assert state.count("- Active milestone:") == 1
     assert "Active milestone: M15.1 Phase 04" in state
-    assert "- Status: Revise." in state
-    assert "Semantic review: REVISE" in state
+    assert "- Status: Ready." in state
+    assert "Semantic review: fresh exact-head `PASS`" in state
     assert "docs/milestones/M15_PHASE_04/GOAL.md" in state
-    assert "Native Codex goal: the prior coordinator record" in state
+    assert "Native Codex goal: active on the current Orchestra task" in state
+    assert "019fa176-8277-7920-8558-b816cf168a9f" in state
     assert "019f7fe2-eeaa-7622-b3eb-f53d5bd5f749" in state
     assert "2995d99" in state
     assert "8e502e4" in state

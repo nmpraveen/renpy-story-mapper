@@ -1,6 +1,6 @@
 # M15.1 Phase 04 progress report
 
-Status: Revise — safely stopped for the user-approved scope reset
+Status: Ready — lightweight semantic gate passed at `2bcdd02`
 
 Current product checkpoint: `2995d99` on `codex/m15-phase04-full-game`
 
@@ -26,8 +26,22 @@ No current product code is being discarded, but the remaining old acceptance wor
 - Future execution uses one Orchestra, at most two workers, one early review, one final integrated
   review, focused tests, sharded CI once at the PR-candidate boundary, and one final Release gate.
 - For the next resumption, workers/reviewers use `gpt-5.6-sol` with Medium reasoning.
-- The revised contract is deliberately at `REVISE` until one fresh lightweight semantic review
-  records `PASS`.
+- A fresh lightweight reviewer answered all seven lean-scope questions YES and recorded `PASS` at
+  exact clean head `2bcdd02`; no architecture or production-grade acceptance work is required.
+
+## Resumption record
+
+- The current Orchestra verified branch `codex/m15-phase04-full-game` at contract commit
+  `2bcdd02e15d6570a232ee6f70ed8daa21aa05619`.
+- The prior coordinator's recorded native goal was inaccessible from both the new Orchestra and the
+  prior task's last recorded goal check. The user authorized one replacement lean-contract goal on
+  task `019fa176-8277-7920-8558-b816cf168a9f`.
+- The task dispatcher exposes model and reasoning selectors but no fast-mode selector. The user
+  authorized explicit `gpt-5.6-sol` Medium dispatch with fast mode recorded as
+  unavailable/unverified.
+- Semantic review task `019fa18a-816a-77b2-99b1-1717ef117a54` independently inspected the full
+  authority chain and implementation seams read-only. It found no blocker and confirmed the
+  smallest remaining work is backend/API composition plus website control wiring.
 
 ## Remaining lean work
 

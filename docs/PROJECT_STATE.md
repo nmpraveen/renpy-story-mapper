@@ -1,8 +1,7 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (Phase 04 safely stopped at `2995d99`; the user replaced its production-grade
-scope with a lean real-game story-map outcome; lifecycle is `Revise` pending one fresh lightweight
-semantic review)
+Updated: 2026-07-26 (Phase 04 resumed at contract head `2bcdd02`; the fresh lightweight independent
+semantic gate passed and the lifecycle is `Ready` for the two bounded vertical-path workers)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -17,13 +16,14 @@ semantic review)
 - Integration branch: `codex/m15-phase04-full-game`.
 - Safe product checkpoint: `2995d99`.
 - Pull request: draft PR #30, open and unmerged.
-- Status: Revise. No product implementation resumes until the revised lightweight semantic gate
-  records `PASS`.
-- Semantic review: REVISE after the user-authoritative simplicity reset; the prior production-grade
-  `PASS` is historical only.
-- Native Codex goal: the prior coordinator record says the Phase 04 goal remains active on task
-  `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`. A new Orchestra must verify whether it can resume or
-  receive that goal. Do not create a duplicate; if it is inaccessible, pause and ask the user.
+- Status: Ready. Product implementation is limited to the two bounded vertical-path seams recorded
+  in the lean task ledger.
+- Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
+  `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
+- Native Codex goal: active on the current Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`, matching the revised lean done condition. The prior
+  coordinator's recorded goal was inaccessible from both chats, and the user explicitly authorized
+  replacement rather than retaining the stale record.
 - Active workers: none. Prior Track A-D/CI tasks are complete historical implementation work.
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
@@ -31,9 +31,10 @@ semantic review)
 - Remaining lean path: finish accepted-summary to simple section/overview to publication, expose
   the existing workflow through the website, run real MsDenvers after zero-submit preview and exact
   consent, fix only demonstrated blockers, then perform one final review/CI/Release gate.
-- Next resumption settings: workers and reviewers use `gpt-5.6-sol`, Medium reasoning, and fast
-  mode disabled. The user will select the new planning/Orchestra chat separately with Ultra
-  reasoning; repository prose cannot set or verify that chat model.
+- Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
+  reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
+  with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
+  the user for Ultra planning.
 - Orchestration: one user-visible Orchestra, at most two concurrent implementation workers, one
   lightweight semantic reviewer, and one final integrated reviewer. Pause and ask on scope doubt.
 - Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR

@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Revise
+Status: Ready
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -44,9 +44,10 @@ must be ready, open, and unmerged.
   repository-wide sharded CI, and durable section-job scheduling.
 - The last implementation checkpoint reported 119 focused tests passing. This scope-reset change
   runs documentation checks only and does not repeat product tests.
-- The prior coordinator records a Phase 04 native goal on task
-  `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`. A new Orchestra must verify whether that goal can be
-  resumed or handed off; it must not create a duplicate automatically.
+- The prior coordinator task `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749` created the historical goal,
+  but both the new Orchestra and the prior task's last recorded goal check returned no accessible
+  goal. The user authorized replacement with the lean-contract goal on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`.
 - No implementation task is currently authorized to continue until this revised contract receives
   one fresh lightweight semantic `PASS`.
 
@@ -164,8 +165,9 @@ It simply is not a reason to add more hardening.
 - One user-visible Orchestra task owns scope, decisions, worker dispatch, integration, and
   checkpoint reporting.
 - For this resumption, every implementation worker and reviewer must be created with
-  `gpt-5.6-sol`, Medium reasoning, and fast mode disabled. If the task UI cannot verify a setting,
-  report that fact.
+  `gpt-5.6-sol` and Medium reasoning. The current user-visible task API has no fast-mode selector;
+  the user explicitly authorized dispatch with fast mode recorded as unavailable/unverified, never
+  claimed disabled.
 - The user intends to use an Ultra-reasoning chat for planning/Orchestra work. Repository prose does
   not set that model; the new chat must rely on the user's actual selection.
 - Keep at most two implementation workers active at once. Use one lightweight semantic reviewer

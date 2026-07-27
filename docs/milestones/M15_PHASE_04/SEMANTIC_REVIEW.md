@@ -2,48 +2,68 @@
 
 Date: 2026-07-26
 
-Decision: REVISE
+Decision: PASS
 
-## Why the earlier PASS is no longer active
+Review task: `019fa18a-816a-77b2-99b1-1717ef117a54`
 
-The prior review correctly evaluated the prior contract, but that contract required a
-production-grade workflow: 22 acceptance criteria, extreme-scale fixtures, exhaustive recovery and
-cursor matrices, several protocol/schema freezes, per-track exact-head reviews, repeated CI, and a
-large private acceptance proof. The user has now explicitly rejected that product standard.
+Reviewed head: `2bcdd02e15d6570a232ee6f70ed8daa21aa05619`
 
-The user-authoritative outcome is a quick, crude script-to-story conversion for personal checking.
-Therefore the earlier semantic `PASS` is historical only and cannot authorize more work under its
-old scope. Existing useful code remains valid; remaining old acceptance work does not.
+Review worktree: `C:\Users\prave\.codex\worktrees\m15p4-semantic-review\Renpy`
 
-## Revised contract review checklist
+Task settings: explicit `gpt-5.6-sol` with Medium reasoning. The task API exposed no fast-mode
+selector, so fast mode is unavailable/unverified under the user's authorization and is not claimed
+disabled.
 
-One fresh lightweight independent reviewer must answer only these questions:
+## Lightweight gate result
 
-1. Does `GOAL.md` make the quick rough full-game story map the observable done condition?
-2. Can the current `2995d99` implementation be completed by connecting existing mapping,
-   section/overview, publication, workflow API, and browser seams instead of creating another
-   architecture?
-3. Are Python-owned choices, routes, state changes, rejoins, endings, Path, and Detail/Evidence
-   preserved while AI owns prose only?
-4. Is real MsDenvers output tested early and judged for usefulness rather than production-grade
-   precision?
-5. Are private input, read-only source, non-execution, and explicit provider consent boundaries
-   preserved?
-6. Are worker count, models, reviews, tests, CI, and Release gates quota-aware and consistent with
-   the user's new instructions?
-7. Are superseded extreme-scale, exhaustive-recovery, `NEW`-diff, per-track-review, and repeated
-   full-gate requirements clearly nonblocking?
+1. **YES.** `GOAL.md` makes a useful rough MsDenvers map the observable done condition:
+   chronological overview, readable sections, choices and outcomes, persistent routes, important
+   state changes, rejoins/endings, and working Path and Detail/Evidence navigation, judged useful
+   by the user.
+2. **YES.** The implementation already contains the required composition pieces:
+   `Phase04MapperResponseValidator` and `assemble_semantic_corridors` in
+   `phase04_semantics.py`; `assemble_derived_semantics` with structural fallback in
+   `phase04_sections.py`; `build_generation_artifact` and `AtomicGenerationPublisher` in
+   `phase04_publication.py`; `create_product_workflow_service` in `product_workflow.py`; and the
+   frozen workflow routes in `workflow_http_projection.py`. The missing work is a bounded
+   composition/web seam, not another architecture.
+3. **YES.** Python continues to own choices, connectivity, requirements, effects, state, rejoins,
+   endings, paths, locators, and evidence. AI supplies prose only, bound to Python-owned identities,
+   with structural fallback when prose is unavailable.
+4. **YES.** The revised contract runs the real MsDenvers project early and samples Day 1, a later
+   choice/rejoin, a persistent route, a state-dependent scene, an ending, Path, and
+   Detail/Evidence for practical usefulness rather than production-grade precision.
+5. **YES.** The contract preserves read-only private input, non-execution, no implicit provider
+   activity, an exact zero-submit preview, and fresh explicit consent. The existing
+   `persist_product_workflow_preview` path prevents provider construction during Prepare.
+6. **YES.** The plan permits at most two implementation workers, one early and one final review,
+   affected checks while editing, one focused integration gate, sharded CI once, and one final
+   Release/package gate. Worker/reviewer dispatch is explicitly Sol/Medium, with the unavailable
+   fast selector reported honestly.
+7. **YES.** Extreme-scale, exhaustive recovery/tamper, advanced `NEW`-diff, per-track review, and
+   repeated full-gate requirements are explicitly superseded and nonblocking.
 
-If all seven answers are yes with no concrete current-game blocker, record a new exact-head `PASS`
-and resume. If a required behavior remains ambiguous, pause and ask the user. Do not solve
-ambiguity by adding infrastructure.
+## Simplicity boundary
 
-## Current implementation boundary
+The remaining work is limited to:
 
-- Product checkpoint: `2995d99` on `codex/m15-phase04-full-game`.
-- Preserve useful existing Phase 04 code and repository-wide CI acceleration.
-- No product edit, worker dispatch, private input access, provider call, or CI run is part of this
-  documentation reset.
-- Until the fresh review passes, permit only read-only inspection and contract correction.
+- one thin backend coordinator that connects the accepted mapper results to existing section,
+  rollup, publication, durable reader, and workflow HTTP primitives; and
+- one website seam that enables the existing Prepare/approval/progress/cancel/resume controls and
+  opens or refreshes the existing chronological reader.
 
-REVISE
+No new schema, protocol, scheduler, recovery subsystem, semantic level, editor, dashboard, or
+production-hardening matrix is authorized. Any demonstrated need for one returns to the user.
+
+## Review evidence
+
+- Detached worktree was clean at the exact reviewed head; `2995d99` was verified as an ancestor.
+- All ten authority and milestone files named by `RESUME_PROMPT.md` were read completely.
+- Implementation inspection was read-only; no product test, provider, private input, or edit was
+  used for the semantic decision.
+- `git diff --check` was clean in the review worktree.
+- Assumption: static seam inspection is sufficient for this semantic gate; runtime behavior remains
+  Gate 1/Gate 2 acceptance evidence.
+- Blockers: none.
+
+PASS
