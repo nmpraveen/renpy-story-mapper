@@ -37,7 +37,7 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "- Status: In progress." in state
     assert "Semantic review: `PASS`" in state
     assert "docs/milestones/M15_PHASE_05/GOAL.md" in state
-    assert "Native Codex goal: explicitly requested" in state
+    assert "Native Codex goal: active" in state
     assert "268d30ed15d50136be5a88d464f79adaf7f32f9e" in state
     assert "gpt-5.6-sol" in state
     assert "Ultra reasoning" in state
