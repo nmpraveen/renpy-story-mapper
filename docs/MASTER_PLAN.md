@@ -15,7 +15,8 @@ mechanics/evidence, but its 425-section lookup reader did not achieve the requir
 information architecture. Phase 05 is the active bounded correction under
 `docs/milestones/M15_PHASE_05/GOAL.md`: local-AI editorial grouping plus a clean scrolling timeline,
 with Python authoritative for choices, routes, effects, rejoins, endings, and evidence. Its
-lifecycle is `In progress` after lightweight semantic `PASS` at `803f94e`. M14 remains deferred.
+lifecycle is `Integration`: the strict real-game/browser result is ready and paused for the
+required user usefulness verdict. M14 remains deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1436,16 +1437,18 @@ Phase 04 is complete and merged through PR #30 at
 `268d30ed15d50136be5a88d464f79adaf7f32f9e`. Its local-only 425-summary checkpoint preserves exact
 mechanics and evidence but does not provide the required story-level information architecture.
 Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`; its lightweight
-semantic review passed at exact checkpoint `803f94e` and the two bounded implementation tasks are
-in progress.
+semantic review passed at exact checkpoint `803f94e`. The two bounded implementation tasks are
+integrated through source head `00a9762`, and acceptance evidence is recorded at `d93c82a`.
 
-After `PASS`, one Orchestra may run the two bounded implementation threads already selected by the
-user: local-AI editorial grouping/Python validation and the scrolling timeline browser composition.
-Workers and reviewers use explicit `gpt-5.6-sol` with Ultra reasoning; the task API has no
-fast-mode selector, so fast mode remains unavailable/unverified. Run the real MsDenvers timeline
-early, pause for the user's usefulness verdict, fix only demonstrated comprehension blockers, then
-use one final integrated review, sharded CI once, and one Release/package gate. Do not revive old
-Phase 04 production requirements, Stage H/E, PR #26, or M14.
+The strict MsDenvers result contains 24 chronological major-event groups with exact 425/425 source
+coverage, local-only AI editorial prose, Python-owned mechanics/evidence, and a browser-verified
+scrolling timeline. It is paused at the required user usefulness gate. Completed implementation
+workers and the early reviewer used explicit `gpt-5.6-sol` with Ultra reasoning; by the user's
+latest instruction, every new worker/reviewer uses explicit `gpt-5.6-sol` with High reasoning and
+no new Ultra task is dispatched. The task API has no fast-mode selector, so fast mode remains
+unavailable/unverified. After user acceptance, use one final integrated review, sharded CI once,
+and one Release/package gate, then prepare the Phase 05 PR. Do not revive old Phase 04 production
+requirements, Stage H/E, PR #26, or M14.
 
 ### Historical pre-reset current action
 

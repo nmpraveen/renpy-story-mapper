@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
+Updated: 2026-07-28 (Phase 05 AI story timeline awaiting the user usefulness verdict)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,26 +14,35 @@ Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: In progress. Two bounded implementation tasks were released after semantic `PASS`.
+- Status: Integration. The bounded implementation is integrated and the strict real-game/browser
+  result is ready for the required user usefulness verdict. Final Verification and PR preparation
+  have not started.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
   not meet the scrolling story-timeline goal.
-- Phase 05 correction: reuse those summaries; add one bounded local-AI editorial grouping/overview
-  pass with Python-owned coverage/order/mechanics; make a small grouped vertical timeline the
-  default and keep the 425 rows as collapsed diagnostics.
+- Phase 05 result: the accepted summaries feed 24 ordered local-AI major-event groups and a
+  scrolling vertical timeline while Python preserves exact coverage/order, choices, routes,
+  effects, rejoins, endings, paths, and evidence. The 425 rows remain collapsed diagnostics.
 - Semantic review: `PASS` at exact reviewed checkpoint `803f94e`, with P0=P1=P2=0.
+- Integrated source head: `00a9762`; acceptance-evidence checkpoint: `d93c82a`.
+- Strict real-game evidence: generation `5daf4e7e...bab7857` has exact 425/425 chronological
+  coverage, 24 groups whose published spans/titles/summaries match the accepted local-AI outputs,
+  zero cloud calls, and passing SQLite/source-integrity checks. The current browser walkthrough
+  proves scrolling, inline branches/effects/rejoins, selected-choice Path, Detail/Evidence, and no
+  horizontal overflow at desktop and effective 200% widths.
 - Native Codex goal: active on Orchestra task `019fa621-c148-7652-8b69-76c9e148d4fd` from the exact
   Phase 05 done condition.
-- Settings: workers and reviewers use explicit `gpt-5.6-sol` and Ultra reasoning. The task API has
-  no fast-mode selector, so the user's fast-mode request is unavailable/unverified.
+- Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
+  with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
+  `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no
+  fast-mode selector, so fast mode remains unavailable/unverified.
 - Orchestration: one user-visible Orchestra, two concurrent implementation threads, one early
   semantic reviewer, and one final integrated reviewer.
-- Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR
-  candidate, and one final Windows Release/package gate.
-- Baseline cleanup before PR candidacy: reconcile stale merged lifecycle assertions, fix the two
-  Ruff union-order findings, and reproduce the Windows browser temp-directory failure before any
-  product-code response to it.
+- Testing: the focused integrated gate passes 104 Story Map tests plus 2 workflow-contract tests,
+  Ruff, strict mypy, Node syntax, and whitespace. The explicit user usefulness verdict, final
+  Sol/High integrated review, completion artifacts, one final Windows Release/package gate, one
+  push/sharded-CI pass, and the Phase 05 PR remain pending. No Phase 05 PR currently exists.
 
 ## Historical Phase 04 closeout record (superseded)
 
