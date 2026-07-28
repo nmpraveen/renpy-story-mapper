@@ -1107,8 +1107,13 @@ function storyProjectionCounts() {
   };
 }
 
+function storyProjectionTotal(counts, detailSurface) {
+  return detailSurface ? counts.detail : counts.section + counts.search + counts.path;
+}
+
 function reserveStoryProjection(kind, incoming) {
-  const counts = storyProjectionCounts(); const total = Object.values(counts).reduce((sum, value) => sum + value, 0) - counts[kind] + incoming;
+  const counts = { ...storyProjectionCounts(), [kind]: incoming };
+  const total = storyProjectionTotal(counts, kind === "detail");
   if (total > state.storyReader.contract.limits.live_story_items) throw new RangeError("This view would exceed the live story-record limit");
   return total;
 }
@@ -1116,7 +1121,7 @@ function reserveStoryProjection(kind, incoming) {
 function recordStoryProjection(kind, count) {
   const hosts = { search: $("#storySearchResults"), path: $("#storyPathPanel"), detail: $("#detailView") };
   if (hosts[kind]) hosts[kind].dataset.storyRecords = String(count);
-  const total = Object.values(storyProjectionCounts()).reduce((sum, value) => sum + value, 0);
+  const total = storyProjectionTotal(storyProjectionCounts(), !$("#detailView").hidden);
   $("#storyBrowser").dataset.liveStoryItems = String(total);
 }
 
@@ -1643,7 +1648,7 @@ function renderStoryReaderDetail(page) {
     const more = element("button", "quiet-button story-detail-more", "Continue detail"); more.type = "button";
     more.addEventListener("click", async () => { more.disabled = true; const token = state.storyDetailToken; try { const next = await api.storyReaderDetailPage(state.storyReader.mapRevision, page.resource_id, { cursor: page.next_cursor, limit: state.storyReader.contract.limits.rendered_items_per_page }); const combined = combinedReaderPage(page, next); if (combined.rendered_item_count > state.storyReader.contract.limits.live_story_items) throw new RangeError("Detail would exceed the live story-item limit"); if (token === state.storyDetailToken && page.resource_id === state.storySelectionId) renderStoryReaderDetail(combined); } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); } }); evidence.append(more);
   }
-  recordStoryProjection("detail", page.rendered_item_count); state.detail = page; showLevel("detail_evidence"); document.documentElement.dataset.activeLevel = "detail_evidence"; $("#backToRouteMap").focus();
+  state.detail = page; showLevel("detail_evidence"); recordStoryProjection("detail", page.rendered_item_count); $("#backToRouteMap").focus();
 }
 
 async function openStoryReaderDetail(selectionId) {

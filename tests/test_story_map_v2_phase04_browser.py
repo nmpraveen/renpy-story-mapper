@@ -197,6 +197,7 @@ def _grouped_fixture() -> dict[str, Any]:
         "rendered_item_count": 7,
         "next_cursor": None,
     }
+    grouped["examples"]["detail_page"]["rendered_item_count"] = 40
     return grouped
 
 
@@ -1056,6 +1057,21 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
             branch_route = _ReaderHandler.fixture["routes"]["branch_page"]
             assert not [request for request in _ReaderHandler.requests if request[0] == branch_route]
 
+            modeled = session.evaluate(
+                """import('/app.js').then(({state}) => {
+                  state.storyReader.contract = {...state.storyReader.contract, limits:{...state.storyReader.contract.limits, live_story_items:500}};
+                  const host = document.querySelector('#story-group-12 .story-group-details');
+                  const existing = document.querySelectorAll('#storySections [data-reader-item-id]').length;
+                  for (let index = existing; index < 462; index += 1) {
+                    const item = document.createElement('i'); item.dataset.readerItemId = `real-scale:${index}`; host.append(item);
+                  }
+                  const count = document.querySelectorAll('#storySections [data-reader-item-id]').length;
+                  document.querySelector('#storyBrowser').dataset.liveStoryItems = String(count);
+                  return {count, limit:state.storyReader.contract.limits.live_story_items};
+                })"""
+            )
+            assert modeled == {"count": 462, "limit": 500}
+
             session.evaluate("document.querySelector('#storySearchInput').value='route'; document.querySelector('#storySearchInput').dispatchEvent(new Event('input',{bubbles:true}))")
             session.wait("!document.querySelector('#storySearchResults').hidden && !!document.querySelector('.story-search-result')")
             session.evaluate("document.querySelector('.story-search-result').click()")
@@ -1139,10 +1155,12 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
             session.evaluate("document.querySelector('#storyDetailAction').click()")
             session.wait("!document.querySelector('#detailView').hidden && document.querySelector('#evidenceList').textContent.includes('game/story.rpy')")
             assert session.evaluate("document.querySelector('#detailTitle').textContent") == "Route A"
+            detail_projection = session.evaluate("({detail:Number(document.querySelector('#detailView').dataset.storyRecords),live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),route:document.querySelectorAll('#storySections [data-reader-item-id]').length+Number(document.querySelector('#storyPathPanel').dataset.storyRecords||0)+Number(document.querySelector('#storySearchResults').dataset.storyRecords||0),limitToast:document.querySelector('#toast').textContent.includes('live story-record limit')})")
+            assert detail_projection == {"detail": 40, "live": 40, "route": 471, "limitToast": False}
             session.evaluate("document.querySelector('#backToRouteMap').click()")
             session.wait("!document.querySelector('#storyBrowser').hidden && document.activeElement?.dataset?.storySelectionId === 'arm:a'")
-            returned = session.evaluate("({selection:document.activeElement.dataset.storySelectionId,scroll:document.querySelector('#storyBrowser').scrollTop,diagnosticsOpen:document.querySelector('#storyRunDetails').open,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
-            assert returned == {"selection": "arm:a", "scroll": entry_scroll, "diagnosticsOpen": False, "overflow": 0}
+            returned = session.evaluate("({selection:document.activeElement.dataset.storySelectionId,groupOpen:document.querySelector('#story-group-1 .story-group-details').open,scroll:document.querySelector('#storyBrowser').scrollTop,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),diagnosticsOpen:document.querySelector('#storyRunDetails').open,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
+            assert returned == {"selection": "arm:a", "groupOpen": True, "scroll": entry_scroll, "live": 471, "diagnosticsOpen": False, "overflow": 0}
         finally:
             session.close()
             process.terminate()
