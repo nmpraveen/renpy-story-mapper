@@ -77,11 +77,11 @@ to follow while scrolling.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1 | Real-project group count and exactly-once coverage check | Pending |
-| 2 | Local-AI transcript/projection plus Python rejection tests | Pending |
-| 3 | Current desktop and 200% browser screenshots with scroll-width check | Pending |
-| 4 | Browser path and Detail/Evidence walkthrough | Pending |
-| 5 | User verdict, focused/integrated/final commands, CI and Release results | Pending |
+| 1 | Real-project group count and exactly-once coverage check | Strict final pass: generation `5daf4e7e...bab7857` has 24 ordered `story-group:` sections, exact 425/425 source-section and event coverage, and every stored membership span matches its raw AI endpoint without repair or rebinding |
+| 2 | Local-AI transcript/projection plus Python rejection tests | `output/m15-phase05-strict-final-local-20260728-003600`; 425 cache hits, six grouping calls plus one rollup, 7/7 accepted, 36,246 input and 3,793 output tokens, maximum call total 6,897 tokens, strict gap/overlap/foreign/oversize rejection tests, and zero cloud calls |
+| 3 | Current desktop and 200% browser screenshots with scroll-width check | `output/playwright/m15-phase05-strict-final-local-20260728-003600`; normal desktop story width is 1265/1265 px and effective 200% is 705/705 px, all 24 groups are collapsed by default, scrolling alone reaches group 24, and there is no horizontal overflow |
+| 4 | Browser path and Detail/Evidence walkthrough | Selected `Yes` then `She ignores him`; the rail shows selected choices and requirements with technical traversal collapsed, Detail/Evidence opens `game/v0.01_clean.rpy:155`, and Back restores the selected arm and expanded group |
+| 5 | User verdict, focused/integrated/final commands, CI and Release results | Strict artifact validation and browser walkthrough pass; final Sol/High comparison is `READY` with P0=P1=P2=0; exact-head gate passes 104 Story Map tests plus 2 workflow-contract tests, Ruff, strict mypy, Node syntax, and diff checks. User verdict, final integrated review, Release/package, sharded PR CI, and PR remain pending |
 
 ## Exclusions
 
@@ -94,8 +94,10 @@ to follow while scrolling.
 
 - Orchestra: this user-visible task; its runtime model and fast-mode state are not exposed here and
   are not claimed.
-- Implementation workers and reviewers: explicit `gpt-5.6-sol`, Ultra reasoning. The task API has
-  no fast-mode selector, so fast mode is requested by the user but remains unavailable/unverified.
+- Completed implementation workers and the early reviewer used explicit `gpt-5.6-sol` with Ultra
+  reasoning. Per the user's latest dispatch instruction, the comparison evaluator and every new
+  worker/reviewer use `gpt-5.6-sol` with High reasoning. The task API exposes no fast-mode selector,
+  so fast mode remains unavailable/unverified.
 - One Orchestra, two concurrent implementation threads, one early semantic reviewer, and one final
   integrated reviewer.
 
