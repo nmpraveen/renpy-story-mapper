@@ -238,6 +238,10 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     assert {len(batch) for batch in batches} == {38, 39}
     assert len(timeline.groups) == 22
     assert rollup_request["call_kind"] == "rollup_synthesis"
+    assert rollup_request["schema_version"] == ROLLUP_SYNTHESIS_SCHEMA_VERSION
+    assert "about 450-650 characters" in rollup_request["task"]
+    assert "complete sentences" in rollup_request["task"]
+    assert "sentence boundary" in rollup_request["task"]
     assert rollup_request["ordered_child_ids"] == [group.group_id for group in groups]
     assert tuple(
         source_id for group in timeline.groups for source_id in group.source_section_ids

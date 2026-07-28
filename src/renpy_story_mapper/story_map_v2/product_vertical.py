@@ -80,6 +80,7 @@ from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
 )
 
 _PAGE_ITEMS = 30
+_CHOICE_TITLE_MAX_CHARS = 160
 ProjectOpener = Callable[[Path], AbstractContextManager[ProductWorkflowProject]]
 
 
@@ -807,17 +808,66 @@ def _event_effects(
 
 def _choice_item(choice: ExactChoiceOverlay, order: int) -> dict[str, object]:
     mechanics = _choice_mechanics(choice)
-    title = mechanics.get("caption")
     return {
         "id": choice.choice_key,
         "kind": "choice",
         "order": order,
-        "title": title if isinstance(title, str) and title else choice.choice_key,
-        "summary": choice.summary,
+        "title": _choice_title(choice, mechanics),
+        "summary": _choice_summary(choice),
         "selection_id": choice.choice_key,
         "is_new": False,
         "new_facts": [],
     }
+
+
+def _choice_title(
+    choice: ExactChoiceOverlay, mechanics: Mapping[str, object]
+) -> str:
+    raw_arms = mechanics.get("arms")
+    if not isinstance(raw_arms, list):
+        return _bounded_choice_locator(choice.choice_key)
+    captions_by_order: dict[int, str] = {}
+    for raw_arm in raw_arms:
+        if not isinstance(raw_arm, Mapping):
+            continue
+        arm_order = raw_arm.get("order")
+        caption = raw_arm.get("caption")
+        if (
+            type(arm_order) is int
+            and isinstance(caption, str)
+            and caption
+            and caption == caption.strip()
+            and arm_order not in captions_by_order
+        ):
+            captions_by_order[arm_order] = caption
+    if any(arm_order not in captions_by_order for arm_order in choice.arm_orders):
+        return _bounded_choice_locator(choice.choice_key)
+    captions = tuple(captions_by_order[arm_order] for arm_order in choice.arm_orders)
+    title = " / ".join(captions)
+    if len(title) <= _CHOICE_TITLE_MAX_CHARS:
+        return title
+    visible: list[str] = []
+    for caption in captions:
+        candidate = " / ".join((*visible, caption))
+        if len(candidate) > _CHOICE_TITLE_MAX_CHARS:
+            break
+        visible.append(caption)
+    if not visible:
+        return _bounded_choice_locator(choice.choice_key)
+    title = " / ".join(visible)
+    omission = " / …"
+    return title + omission if len(title) + len(omission) <= _CHOICE_TITLE_MAX_CHARS else title
+
+
+def _bounded_choice_locator(locator: str) -> str:
+    if len(locator) <= _CHOICE_TITLE_MAX_CHARS:
+        return locator
+    return locator[: _CHOICE_TITLE_MAX_CHARS - 1] + "…"
+
+
+def _choice_summary(choice: ExactChoiceOverlay) -> str:
+    count = len(choice.arm_orders)
+    return f"{count} option{'s' if count != 1 else ''}"
 
 
 def _arm_items(

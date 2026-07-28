@@ -19,7 +19,7 @@ from renpy_story_mapper.project import Project
 from renpy_story_mapper.route_map import project_route_map
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
-from renpy_story_mapper.story_map_v2.contracts import canonical_json
+from renpy_story_mapper.story_map_v2.contracts import canonical_hash, canonical_json
 from renpy_story_mapper.story_map_v2.phase04_sections import (
     SECTION_SYNTHESIS_ADAPTER_VERSION,
     SECTION_SYNTHESIS_PROMPT_VERSION,
@@ -31,10 +31,12 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     build_editorial_timeline_request,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
+    ExactChoiceOverlay,
     SemanticOrigin,
     assemble_semantic_corridors,
 )
 from renpy_story_mapper.story_map_v2.product_vertical import (
+    _choice_item,
     _durable_reader_effects,
     _editorial_timeline,
     _terminal_indeterminate_fallback,
@@ -922,6 +924,67 @@ def test_local_only_vertical_reuses_mapped_summaries_for_one_editorial_call(
         loopback_factory=FakeProvider,
     )
     assert provider_submissions == 1
+
+
+def test_choice_item_uses_ordered_exact_arm_captions_without_ai_story_claims() -> None:
+    mechanics = {
+        "key": "game/public_story.rpy:20",
+        "relative_path": "game/public_story.rpy",
+        "line": 20,
+        "arms": [
+            {"order": 2, "caption": "She ignores him"},
+            {"order": 1, "caption": "She tells him off"},
+        ],
+    }
+    choice = ExactChoiceOverlay(
+        choice_key="game/public_story.rpy:20",
+        arm_orders=(1, 2),
+        canonical_mechanics=canonical_json(mechanics).decode("utf-8"),
+        mechanics_hash=canonical_hash(mechanics),
+        summary="A model-written interpretation that is not needed in the heading.",
+    )
+
+    item = _choice_item(choice, 3)
+
+    assert item["title"] == "She tells him off / She ignores him"
+    assert item["summary"] == "2 options"
+    assert item["order"] == 3
+
+
+def test_choice_item_bounds_caption_title_and_uses_locator_only_as_fallback() -> None:
+    first_caption = "First exact option " + ("a" * 100)
+    mechanics = {
+        "arms": [
+            {"order": 1, "caption": first_caption},
+            {"order": 2, "caption": "Second exact option " + ("b" * 100)},
+        ]
+    }
+    choice = ExactChoiceOverlay(
+        choice_key="game/public_story.rpy:30",
+        arm_orders=(1, 2),
+        canonical_mechanics=canonical_json(mechanics).decode("utf-8"),
+        mechanics_hash=canonical_hash(mechanics),
+        summary="Unused provider prose.",
+    )
+
+    item = _choice_item(choice, 0)
+
+    assert str(item["title"]).startswith(first_caption)
+    assert str(item["title"]).endswith(" / …")
+    assert len(str(item["title"])) <= 160
+
+    missing_caption_mechanics = {"arms": [{"order": 1}]}
+    fallback = ExactChoiceOverlay(
+        choice_key="game/public_story.rpy:40",
+        arm_orders=(1,),
+        canonical_mechanics=canonical_json(missing_caption_mechanics).decode("utf-8"),
+        mechanics_hash=canonical_hash(missing_caption_mechanics),
+        summary="Unused provider prose.",
+    )
+    fallback_item = _choice_item(fallback, 0)
+
+    assert fallback_item["title"] == "game/public_story.rpy:40"
+    assert fallback_item["summary"] == "1 option"
 
 
 def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> None:

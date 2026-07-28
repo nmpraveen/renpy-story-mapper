@@ -63,6 +63,13 @@ EDITORIAL_TIMELINE_BATCH_TASK = (
     "child. Do not skip or overlap any child. Write only titles and summaries; do not add or "
     "change choices, routes, effects, rejoins, endings, or evidence."
 )
+EDITORIAL_TIMELINE_ROLLUP_TASK = (
+    "Return exactly one JSON object matching the supplied rollup prose schema. Write a concise "
+    "title and one coherent whole-story overview of about 450-650 characters in complete "
+    "sentences, ending at a sentence boundary. Follow the ordered story groups chronologically "
+    "and treat persistent routes as alternatives when identified. Do not add events, choices, "
+    "routes, effects, rejoins, endings, or mechanics."
+)
 EDITORIAL_TIMELINE_CORRIDOR_ID = "editorial-timeline"
 EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP = 40
 EDITORIAL_GROUPS_PER_BATCH = 2
@@ -573,7 +580,7 @@ def build_editorial_timeline_rollup_request(
         raise DerivedSemanticError("editorial story group IDs must be unique")
     return canonical_json(
         {
-            "task": ROLLUP_SYNTHESIS_TASK,
+            "task": EDITORIAL_TIMELINE_ROLLUP_TASK,
             "call_kind": DerivedCallKind.ROLLUP_SYNTHESIS.value,
             "schema_version": ROLLUP_SYNTHESIS_SCHEMA_VERSION,
             "authority_identity": authority_identity,
