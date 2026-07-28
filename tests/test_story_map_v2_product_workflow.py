@@ -722,7 +722,7 @@ def test_product_prepare_projects_exact_privacy_safe_http_v2_envelope(
     assert "serialized_request_identity" not in serialized
 
 
-def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
+def test_local_only_vertical_reuses_mapped_summaries_for_one_editorial_call(
     tmp_path: Path,
 ) -> None:
     graph = _authority_with_effect()
@@ -754,15 +754,16 @@ def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
             if call_kind == "section_synthesis":
                 child_ids = [child["id"] for child in packet["children"]]
                 prose: dict[str, object] = {
-                    "title": "Chronological section",
+                    "title": "Whole story overview",
                     "summary": "The story events remain in their exact order.",
                     "sections": [
                         {
-                            "first_event_id": child_ids[0],
-                            "last_event_id": child_ids[-1],
-                            "title": "Story section",
+                            "first_event_id": child_id,
+                            "last_event_id": child_id,
+                            "title": f"Story section {index + 1}",
                             "summary": "A concise part of the whole story.",
                         }
+                        for index, child_id in enumerate(child_ids)
                     ],
                 }
             elif call_kind == "rollup_synthesis":
@@ -815,6 +816,14 @@ def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
             loopback_factory=FakeProvider,
         )
         service.approve(prepared.run_id, preview.identity)
+        service.execute(
+            prepared.run_id,
+            preview_identity=preview.identity,
+            authority_identity=prepared.plan.authority_identity,
+        )
+
+    assert provider_submissions == len(prepared.plan.jobs)
+    provider_submissions = 0
 
     execute_product_vertical(
         path,
@@ -824,7 +833,7 @@ def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
         authority_graph=graph,
         loopback_factory=FakeProvider,
     )
-    assert provider_submissions == len(prepared.plan.jobs)
+    assert provider_submissions == 1
 
     with Project.open(path) as project:
         source = DurableStoryMapReaderSource(
@@ -835,7 +844,21 @@ def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
         manifest = reader.manifest()
         assert reader.status()["state"] == "complete"
         assert manifest["overview"]["title"] == "Whole story overview"
-        assert manifest["overview"]["summary"]
+        assert manifest["overview"]["summary"] == (
+            "The story events remain in their exact order."
+        )
+        assert manifest["counts"]["sections"] == len(manifest["sections"])
+        assert all(
+            str(section["id"]).startswith("story-group:")
+            for section in manifest["sections"]
+        )
+        pointers = project.story_map_v2_repository().generation_pointers()
+        generation = project.story_map_v2_repository().load_generation(
+            str(pointers.current_complete_generation)
+        )
+        assert generation is not None
+        assert isinstance(generation.descriptor, dict)
+        assert len(generation.descriptor["sections"]) == len(prepared.plan.jobs)
         revision = manifest["map_revision"]
         assert isinstance(revision, int)
         branch_ids: list[str] = []
@@ -882,6 +905,16 @@ def test_local_only_vertical_publishes_mapped_summaries_without_extra_calls(
             map_revision=revision,
             selection_id=str(selected),
         ) is not None
+
+    execute_product_vertical(
+        path,
+        prepared,
+        preview_identity=preview.identity,
+        project_opener=Project.open,
+        authority_graph=graph,
+        loopback_factory=FakeProvider,
+    )
+    assert provider_submissions == 1
 
 
 def test_project_api_advertises_only_frozen_workflow_routes_and_safe_errors(

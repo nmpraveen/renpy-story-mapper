@@ -21,6 +21,7 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
     StoryMapV2RepositoryError,
     _validate_private_content,
 )
+from renpy_story_mapper.story_map_v2.loopback_transport import LoopbackLmStudioTransport
 from renpy_story_mapper.story_map_v2.phase04_publication import (
     AtomicGenerationPublisher,
     GenerationArtifact,
@@ -33,8 +34,11 @@ from renpy_story_mapper.story_map_v2.phase04_publication import (
 from renpy_story_mapper.story_map_v2.phase04_sections import (
     DerivedSemanticAssembly,
     DerivedSemanticJob,
+    EditorialTimeline,
     assemble_derived_semantics,
     build_derived_semantic_plan,
+    build_editorial_timeline_request,
+    validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
     ExactChoiceOverlay,
@@ -64,7 +68,10 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowStatus,
     workflow_digest,
 )
-from renpy_story_mapper.story_map_v2.workflow_protocols import ProviderFactory
+from renpy_story_mapper.story_map_v2.workflow_protocols import (
+    ProviderFactory,
+    WorkflowProviderError,
+)
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
@@ -122,9 +129,7 @@ def execute_product_vertical(
         generation_id = _generation_id("complete", prepared, semantic)
         derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
         local_mapping_only = prepared.policy.cloud.mode is ProviderMode.LOOPBACK
-        if terminal_fallback or local_mapping_only:
-            # One local mapping summary already covers every frozen story chunk. Keep the local
-            # product path to that user-approved finite batch and assemble its hierarchy in Python.
+        if terminal_fallback:
             _publish_generation(
                 project,
                 prepared,
@@ -132,6 +137,28 @@ def execute_product_vertical(
                 derived,
                 generation_id,
                 authority_graph=authority_graph,
+            )
+            return
+        if local_mapping_only:
+            timeline = _editorial_timeline(
+                derived,
+                prepared.plan.authority_identity.value,
+                loopback_factory,
+            )
+            if timeline is None:
+                return
+            generation_id = _generation_id(
+                f"editorial-{timeline.identity}", prepared, semantic
+            )
+            derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
+            _publish_generation(
+                project,
+                prepared,
+                semantic,
+                derived,
+                generation_id,
+                authority_graph=authority_graph,
+                timeline=timeline,
             )
             return
 
@@ -354,6 +381,22 @@ def _semantic_assembly(
     )
 
 
+def _editorial_timeline(
+    derived: DerivedSemanticAssembly,
+    authority_identity: str,
+    loopback_factory: ProviderFactory | None,
+) -> EditorialTimeline | None:
+    try:
+        request = build_editorial_timeline_request(derived.sections, authority_identity)
+        provider = (loopback_factory or LoopbackLmStudioTransport)()
+        result = provider.submit(request)
+        return validate_editorial_timeline_response(
+            derived.sections, authority_identity, result.payload
+        )
+    except (ValueError, WorkflowProviderError):
+        return None
+
+
 def _published_payloads(
     adapter: DurableWorkflowRepositoryAdapter,
     run_id: str,
@@ -415,6 +458,7 @@ def _publish_generation(
     generation_id: str,
     *,
     authority_graph: CanonicalGraph,
+    timeline: EditorialTimeline | None = None,
 ) -> None:
     repository = project.story_map_v2_repository()
     graph = authority_graph
@@ -433,7 +477,9 @@ def _publish_generation(
         path_facts=path_facts,
         immediately_previous=previous,
     )
-    complete = replace(complete, reader_manifest=_reader_manifest(complete, semantic))
+    complete = replace(
+        complete, reader_manifest=_reader_manifest(complete, semantic, timeline)
+    )
 
     build_id = _generation_id("build", prepared, semantic)
     build_derived = assemble_derived_semantics(
@@ -452,16 +498,16 @@ def _publish_generation(
         path_facts=path_facts,
         immediately_previous=previous,
     )
-    build = replace(build, reader_manifest=_reader_manifest(build, semantic))
+    build = replace(build, reader_manifest=_reader_manifest(build, semantic, timeline))
     publisher = AtomicGenerationPublisher(generation_repository)
 
     generation_repository.create_generation(build.durable_descriptor())
-    _store_reader_material(repository, build, prepared, semantic, graph)
+    _store_reader_material(repository, build, prepared, semantic, graph, timeline)
     active = repository.generation_pointers().active_build_generation
     publisher.activate_progressive(build, expected_active_generation_id=active)
 
     generation_repository.create_generation(complete.durable_descriptor())
-    _store_reader_material(repository, complete, prepared, semantic, graph)
+    _store_reader_material(repository, complete, prepared, semantic, graph, timeline)
     publisher.publish_complete(complete, expected_active_generation_id=build_id)
 
 
@@ -499,8 +545,12 @@ def _previous_path_facts(
 def _reader_manifest(
     artifact: GenerationArtifact,
     semantic: SemanticAssembly,
+    timeline: EditorialTimeline | None = None,
 ) -> Mapping[str, object]:
     event_by_id = {event.event_id: event for event in semantic.events}
+    visible_sections = artifact.sections if timeline is None else timeline.sections
+    overview_title = artifact.title if timeline is None else timeline.title
+    overview_summary = artifact.overview if timeline is None else timeline.overview
     sections: list[dict[str, object]] = [
         {
             "id": section.section_id,
@@ -513,29 +563,35 @@ def _reader_manifest(
             "is_new": False,
             "new_facts": [],
         }
-        for order, section in enumerate(artifact.sections)
+        for order, section in enumerate(visible_sections)
     ]
     choices = sum(len(chunk.choices) for chunk in semantic.chunks)
     arms = sum(len(choice.arm_orders) for chunk in semantic.chunks for choice in chunk.choices)
     endings = sum(
         "terminal" in event.structural_flags for event in event_by_id.values()
     )
-    landmarks = [
-        {
-            "kind": "route",
-            "id": section.route_owner,
-            "section_id": section.section_id,
-            "selection_id": section.event_ids[0],
-            "title": section.route_owner,
-        }
-        for section in artifact.sections
-        if section.route_owner is not None
-    ]
+    landmarks: list[dict[str, object]] = []
+    seen_routes: set[str] = set()
+    for section in visible_sections:
+        for event_id in section.event_ids:
+            route_id = event_by_id[event_id].route_owner
+            if not route_id or route_id in seen_routes:
+                continue
+            seen_routes.add(route_id)
+            landmarks.append(
+                {
+                    "kind": "route",
+                    "id": route_id,
+                    "section_id": section.section_id,
+                    "selection_id": event_id,
+                    "title": route_id,
+                }
+            )
     return {
         "status": "complete" if artifact.kind is GenerationKind.COMPLETE else "building",
-        "overview": {"title": artifact.title, "summary": artifact.overview},
+        "overview": {"title": overview_title, "summary": overview_summary},
         "counts": {
-            "sections": len(artifact.sections),
+            "sections": len(visible_sections),
             "events": len(event_by_id),
             "choices": choices,
             "arms": arms,
@@ -563,6 +619,7 @@ def _store_reader_material(
     prepared: PreparedProductWorkflow,
     semantic: SemanticAssembly,
     graph: CanonicalGraph,
+    timeline: EditorialTimeline | None = None,
 ) -> None:
     events = {event.event_id: event for event in semantic.events}
     placements = {
@@ -574,7 +631,8 @@ def _store_reader_material(
         for choice in chunk.choices
     }
     emitted_choices: set[str] = set()
-    for section in artifact.sections:
+    visible_sections = artifact.sections if timeline is None else timeline.sections
+    for section in visible_sections:
         items: list[dict[str, object]] = []
         section_choice_keys: list[str] = []
         for event_id in section.event_ids:
@@ -680,6 +738,7 @@ def _event_item(
         "order": order,
         "title": event.title,
         "summary": event.summary,
+        "route_id": event.route_owner,
         "effects": list(effects),
         "selection_id": event.event_id,
         "is_new": False,

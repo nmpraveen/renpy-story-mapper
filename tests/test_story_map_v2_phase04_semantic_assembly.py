@@ -43,11 +43,14 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     ROLLUP_SYNTHESIS_SCHEMA_VERSION,
     SECTION_SYNTHESIS_SCHEMA_VERSION,
     DerivedCallKind,
+    DerivedSemanticError,
     DerivedSemanticJob,
     MeaningfulSection,
     RollupNodeRole,
     assemble_derived_semantics,
     build_derived_semantic_plan,
+    build_editorial_timeline_request,
+    validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
     MAX_REPLACEMENT_REVIEW_CALLS_PER_CHUNK,
@@ -69,6 +72,130 @@ _POINTER_EXPECTATION_UNSET = object()
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _editorial_sections(count: int) -> tuple[MeaningfulSection, ...]:
+    return tuple(
+        MeaningfulSection(
+            section_id=f"section:public-{index:03d}",
+            corridor_id=f"corridor:public-{index:03d}",
+            route_owner=None,
+            event_ids=(f"event:public-{index:03d}",),
+            title=f"Public section {index + 1}",
+            summary=f"Public synthetic story summary {index + 1}.",
+            origin=SemanticOrigin.AI,
+        )
+        for index in range(count)
+    )
+
+
+def _editorial_payload(
+    sections: tuple[MeaningfulSection, ...], ranges: tuple[tuple[int, int], ...]
+) -> bytes:
+    return canonical_json(
+        {
+            "title": "Whole public story",
+            "summary": "The public story advances chronologically across every source section.",
+            "sections": [
+                {
+                    "first_event_id": sections[first].section_id,
+                    "last_event_id": sections[last].section_id,
+                    "title": f"Major event {index + 1}",
+                    "summary": "A concise public synthetic major event.",
+                }
+                for index, (first, last) in enumerate(ranges)
+            ],
+        }
+    )
+
+
+def test_editorial_timeline_reuses_section_shape_and_preserves_exact_coverage() -> None:
+    sections = _editorial_sections(12)
+    authority = _digest("public-editorial-authority")
+
+    request = json.loads(build_editorial_timeline_request(sections, authority))
+    timeline = validate_editorial_timeline_response(
+        sections,
+        authority,
+        _editorial_payload(sections, tuple((index, index) for index in range(12))),
+    )
+
+    assert request["call_kind"] == "section_synthesis"
+    assert request["schema_version"] == SECTION_SYNTHESIS_SCHEMA_VERSION
+    assert request["ordered_child_ids"] == [section.section_id for section in sections]
+    assert len(timeline.groups) == 12
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+    assert tuple(event_id for group in timeline.groups for event_id in group.event_ids) == tuple(
+        event_id for section in sections for event_id in section.event_ids
+    )
+    assert timeline.sections[0].section_id.startswith("story-group:")
+
+
+@pytest.mark.parametrize("mutation", ["too_few", "foreign", "duplicate", "extra_fact"])
+def test_editorial_timeline_rejects_invalid_membership_or_fact_fields(mutation: str) -> None:
+    sections = _editorial_sections(12)
+    ranges = [(index, index) for index in range(12)]
+    payload = json.loads(_editorial_payload(sections, tuple(ranges)))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    if mutation == "too_few":
+        proposals[-2]["last_event_id"] = sections[-1].section_id
+        proposals.pop()
+    elif mutation == "foreign":
+        proposals[0]["first_event_id"] = "section:foreign"
+    elif mutation == "duplicate":
+        proposals[1]["first_event_id"] = sections[0].section_id
+    else:
+        proposals[0]["effects"] = ["invented_flag = True"]
+
+    with pytest.raises(DerivedSemanticError):
+        validate_editorial_timeline_response(
+            sections, _digest("authority"), canonical_json(payload)
+        )
+
+
+def test_editorial_timeline_rejects_more_than_thirty_groups() -> None:
+    sections = _editorial_sections(31)
+    with pytest.raises(DerivedSemanticError, match="bounded group count"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("authority"),
+            _editorial_payload(sections, tuple((index, index) for index in range(31))),
+        )
+
+
+def test_editorial_timeline_rejects_group_over_current_reader_bound() -> None:
+    sections = _editorial_sections(52)
+    ranges = ((0, 40), *( (index, index) for index in range(41, 52) ))
+    with pytest.raises(DerivedSemanticError, match="source-section limit"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("reader-bound-authority"),
+            _editorial_payload(sections, ranges),
+        )
+
+
+@pytest.mark.parametrize("group_count", [12, 30])
+def test_editorial_timeline_accepts_real_scale_group_bounds(group_count: int) -> None:
+    sections = _editorial_sections(425)
+    ranges = tuple(
+        (
+            index * len(sections) // group_count,
+            ((index + 1) * len(sections) // group_count) - 1,
+        )
+        for index in range(group_count)
+    )
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("real-scale-public-authority"),
+        _editorial_payload(sections, ranges),
+    )
+
+    assert len(timeline.groups) == group_count
+    assert sum(len(group.source_section_ids) for group in timeline.groups) == 425
 
 
 def _placement(

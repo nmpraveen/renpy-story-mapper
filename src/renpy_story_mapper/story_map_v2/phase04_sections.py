@@ -46,6 +46,17 @@ ROLLUP_SYNTHESIS_TASK = (
     "alternatives when identified. Do not add events, choices, routes, endings, or mechanics. "
     "Do not use tools, files, web search, apps, plugins, other agents, or provider calls."
 )
+EDITORIAL_TIMELINE_TASK = (
+    "Return exactly one JSON object matching the supplied section prose schema. Group the "
+    "ordered source sections into a small chronological story timeline using reasonably balanced "
+    "ranges. For twelve or more source sections, return between 12 and 30 contiguous groups, "
+    "with no group containing more than 40 source sections. Cover every source section exactly "
+    "once and preserve order. The top-level summary is the whole-story overview. Write only "
+    "titles and summaries; do not add or change choices, routes, effects, rejoins, endings, or "
+    "evidence."
+)
+EDITORIAL_TIMELINE_CORRIDOR_ID = "editorial-timeline"
+EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP = 40
 DERIVED_SEMANTIC_FAN_IN = 24
 DERIVED_PROVIDER = "codex-cli"
 DERIVED_MODEL = "gpt-5.6-terra"
@@ -342,6 +353,155 @@ class MeaningfulSection:
             _trimmed(self.route_owner, "section route owner")
         if not self.event_ids or len(self.event_ids) != len(set(self.event_ids)):
             raise ValueError("section event membership must be non-empty and unique")
+
+
+@dataclass(frozen=True)
+class EditorialStoryGroup:
+    group_id: str
+    source_section_ids: tuple[str, ...]
+    event_ids: tuple[str, ...]
+    title: str
+    summary: str
+
+
+@dataclass(frozen=True)
+class EditorialTimeline:
+    identity: str
+    title: str
+    overview: str
+    groups: tuple[EditorialStoryGroup, ...]
+
+    @property
+    def sections(self) -> tuple[MeaningfulSection, ...]:
+        return tuple(
+            MeaningfulSection(
+                section_id=group.group_id,
+                corridor_id=EDITORIAL_TIMELINE_CORRIDOR_ID,
+                route_owner=None,
+                event_ids=group.event_ids,
+                title=group.title,
+                summary=group.summary,
+                origin=SemanticOrigin.AI,
+            )
+            for group in self.groups
+        )
+
+
+def build_editorial_timeline_request(
+    sections: Sequence[MeaningfulSection], authority_identity: str
+) -> bytes:
+    """Build one loopback-only editorial packet over existing accepted section prose."""
+
+    _trimmed(authority_identity, "editorial authority identity")
+    if not sections:
+        raise DerivedSemanticError("editorial timeline requires source sections")
+    section_ids = tuple(section.section_id for section in sections)
+    if len(section_ids) != len(set(section_ids)):
+        raise DerivedSemanticError("editorial source section IDs must be unique")
+    return canonical_json(
+        {
+            "task": EDITORIAL_TIMELINE_TASK,
+            "call_kind": DerivedCallKind.SECTION_SYNTHESIS.value,
+            "schema_version": SECTION_SYNTHESIS_SCHEMA_VERSION,
+            "authority_identity": authority_identity,
+            "ordered_child_ids": list(section_ids),
+            "children": [
+                {
+                    "id": section.section_id,
+                    "title": section.title,
+                    "summary": section.summary,
+                    "route_owner": section.route_owner,
+                }
+                for section in sections
+            ],
+        }
+    )
+
+
+def validate_editorial_timeline_response(
+    sections: Sequence[MeaningfulSection],
+    authority_identity: str,
+    payload: bytes,
+) -> EditorialTimeline:
+    """Accept prose only after exact, once-only, chronological source coverage."""
+
+    _trimmed(authority_identity, "editorial authority identity")
+    if not sections:
+        raise DerivedSemanticError("editorial timeline requires source sections")
+    value = _decode(payload, "editorial timeline response")
+    _exact(value, frozenset({"title", "summary", "sections"}), "editorial timeline response")
+    source_ids = tuple(section.section_id for section in sections)
+    if len(source_ids) != len(set(source_ids)):
+        raise DerivedSemanticError("editorial source section IDs must be unique")
+    source_events = tuple(event_id for section in sections for event_id in section.event_ids)
+    if len(source_events) != len(set(source_events)):
+        raise DerivedSemanticError("editorial source event coverage must be unique")
+    proposals = _array(value["sections"], "editorial groups")
+    minimum = min(12, len(sections))
+    maximum = min(30, len(sections))
+    if not minimum <= len(proposals) <= maximum:
+        raise DerivedSemanticError("editorial timeline must contain the bounded group count")
+    indexes = {section_id: index for index, section_id in enumerate(source_ids)}
+    cursor = 0
+    groups: list[EditorialStoryGroup] = []
+    for index, raw in enumerate(proposals):
+        proposal = _object(raw, f"editorial groups[{index}]")
+        _exact(
+            proposal,
+            frozenset({"first_event_id", "last_event_id", "title", "summary"}),
+            f"editorial groups[{index}]",
+        )
+        first = _string(proposal["first_event_id"], "first source section ID")
+        last = _string(proposal["last_event_id"], "last source section ID")
+        if first not in indexes or last not in indexes:
+            raise DerivedSemanticError("editorial group references a foreign source section")
+        first_index = indexes[first]
+        last_index = indexes[last]
+        if first_index != cursor or last_index < first_index:
+            raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+        members = tuple(sections[first_index : last_index + 1])
+        if len(members) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
+            raise DerivedSemanticError("editorial group exceeds the source-section limit")
+        member_ids = tuple(member.section_id for member in members)
+        event_ids = tuple(event_id for member in members for event_id in member.event_ids)
+        group_id = "story-group:" + canonical_hash(
+            {"authority": authority_identity, "source_section_ids": list(member_ids)}
+        )[:32]
+        groups.append(
+            EditorialStoryGroup(
+                group_id=group_id,
+                source_section_ids=member_ids,
+                event_ids=event_ids,
+                title=_string(proposal["title"], "editorial group title", maximum=80),
+                summary=_string(proposal["summary"], "editorial group summary", maximum=600),
+            )
+        )
+        cursor = last_index + 1
+    if cursor != len(sections):
+        raise DerivedSemanticError("editorial groups must cover every source section exactly once")
+    grouped_sources = tuple(item for group in groups for item in group.source_section_ids)
+    grouped_events = tuple(item for group in groups for item in group.event_ids)
+    if grouped_sources != source_ids or grouped_events != source_events:
+        raise DerivedSemanticError("editorial grouping changed source coverage or chronology")
+    title = _string(value["title"], "editorial timeline title", maximum=80)
+    overview = _string(value["summary"], "editorial timeline overview", maximum=800)
+    identity = canonical_hash(
+        {
+            "authority": authority_identity,
+            "title": title,
+            "overview": overview,
+            "groups": [
+                {
+                    "id": group.group_id,
+                    "source_section_ids": list(group.source_section_ids),
+                    "title": group.title,
+                    "summary": group.summary,
+                }
+                for group in groups
+            ],
+        }
+    )
+    return EditorialTimeline(identity, title, overview, tuple(groups))
 
 
 @dataclass(frozen=True)
