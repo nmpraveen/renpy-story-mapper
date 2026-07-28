@@ -64,14 +64,16 @@ EDITORIAL_TIMELINE_BATCH_TASK = (
     "chronological slice into between three and five contiguous story groups. Prefer four groups; "
     "use three or five only when the coherent story movements require fewer or more boundaries. "
     "Never return fewer than three or more than five groups. Cover every source section exactly "
-    "once and preserve order. The first group must start at the first ordered child, every later "
-    "group must start immediately after the previous group's last child, and the final group must "
-    "end at the final ordered child. Do not skip or overlap any child. Keep every group summary "
-    "concise, write it in complete sentences, end it at a sentence boundary, and stay well below "
-    "the 600-character schema maximum. Do not infer family roles or relationships that are not "
-    "explicit in the supplied prose. When the slice contains different persistent route owners, "
-    "describe those routes as alternatives rather than one resolved chronology. Write only titles "
-    "and summaries; do not add or change choices, routes, effects, rejoins, endings, or evidence."
+    "once and preserve order. Copy the supplied short child IDs exactly into first_event_id and "
+    "last_event_id. The first group must start at the first ordered child, every later group must "
+    "start immediately after the previous group's last child, and the final group must end at the "
+    "final ordered child. Do not skip, overlap, or place more than 40 children in any group. Keep "
+    "every group summary concise, write it in complete sentences, end it at a sentence boundary, "
+    "and stay well below the 600-character schema maximum. Do not infer family roles or "
+    "relationships that are not explicit in the supplied prose. When the slice contains different "
+    "persistent route owners, describe those routes as alternatives rather than one resolved "
+    "chronology. Write only titles and summaries; do not add or change choices, routes, effects, "
+    "rejoins, endings, or evidence."
 )
 EDITORIAL_TIMELINE_ROLLUP_TASK = (
     "Return exactly one JSON object matching the supplied rollup prose schema. Write a concise "
@@ -435,6 +437,11 @@ def build_editorial_timeline_request(
     minimum_groups, maximum_groups = _editorial_group_count_bounds(
         len(sections), group_count_bounds
     )
+    request_ids = (
+        section_ids
+        if group_count_bounds is None
+        else _editorial_batch_source_ids(len(sections))
+    )
     packet: dict[str, object] = {
         "task": (
             EDITORIAL_TIMELINE_TASK
@@ -444,15 +451,15 @@ def build_editorial_timeline_request(
         "call_kind": DerivedCallKind.SECTION_SYNTHESIS.value,
         "schema_version": SECTION_SYNTHESIS_SCHEMA_VERSION,
         "authority_identity": authority_identity,
-        "ordered_child_ids": list(section_ids),
+        "ordered_child_ids": list(request_ids),
         "children": [
             {
-                "id": section.section_id,
+                "id": request_id,
                 "title": section.title,
                 "summary": section.summary,
                 "route_owner": section.route_owner,
             }
-            for section in sections
+            for section, request_id in zip(sections, request_ids, strict=True)
         ],
     }
     if group_count_bounds is not None:
@@ -514,7 +521,12 @@ def validate_editorial_timeline_response(
     minimum, maximum = _editorial_group_count_bounds(len(sections), group_count_bounds)
     if not minimum <= len(proposals) <= maximum:
         raise DerivedSemanticError("editorial timeline must contain the bounded group count")
-    indexes = {section_id: index for index, section_id in enumerate(source_ids)}
+    response_ids = (
+        source_ids
+        if group_count_bounds is None
+        else _editorial_batch_source_ids(len(sections))
+    )
+    indexes = {section_id: index for index, section_id in enumerate(response_ids)}
     cursor = 0
     groups: list[EditorialStoryGroup] = []
     for index, raw in enumerate(proposals):
@@ -526,34 +538,14 @@ def validate_editorial_timeline_response(
         )
         first = _string(proposal["first_event_id"], "first source section ID")
         last = _string(proposal["last_event_id"], "last source section ID")
-        if group_count_bounds is not None:
-            member_first = cursor
-            remaining_groups = len(proposals) - index - 1
-            if remaining_groups == 0:
-                member_last = len(sections) - 1
-            else:
-                proposed_last = indexes.get(last)
-                latest_valid_last = len(sections) - remaining_groups - 1
-                if (
-                    proposed_last is not None
-                    and cursor <= proposed_last <= latest_valid_last
-                    and proposed_last - cursor + 1
-                    <= EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP
-                ):
-                    member_last = proposed_last
-                else:
-                    groups_left = remaining_groups + 1
-                    balanced_size = (len(sections) - cursor) // groups_left
-                    member_last = cursor + balanced_size - 1
-        else:
-            if first not in indexes or last not in indexes:
-                raise DerivedSemanticError("editorial group references a foreign source section")
-            first_index = indexes[first]
-            last_index = indexes[last]
-            if first_index != cursor or last_index < first_index:
-                raise DerivedSemanticError("editorial groups must be contiguous and ordered")
-            member_first = first_index
-            member_last = last_index
+        if first not in indexes or last not in indexes:
+            raise DerivedSemanticError("editorial group references a foreign source section")
+        first_index = indexes[first]
+        last_index = indexes[last]
+        if first_index != cursor or last_index < first_index:
+            raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+        member_first = first_index
+        member_last = last_index
         members = tuple(sections[member_first : member_last + 1])
         if len(members) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
             raise DerivedSemanticError("editorial group exceeds the source-section limit")
@@ -601,6 +593,10 @@ def _editorial_group_count_bounds(
     ):
         raise DerivedSemanticError("editorial group count bounds are invalid")
     return group_count_bounds
+
+
+def _editorial_batch_source_ids(section_count: int) -> tuple[str, ...]:
+    return tuple(f"source:{index:03d}" for index in range(section_count))
 
 
 def build_editorial_timeline_rollup_request(
