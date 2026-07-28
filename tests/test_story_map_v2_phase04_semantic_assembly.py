@@ -126,6 +126,8 @@ def test_editorial_timeline_reuses_section_shape_and_preserves_exact_coverage() 
     assert request["call_kind"] == "section_synthesis"
     assert request["schema_version"] == SECTION_SYNTHESIS_SCHEMA_VERSION
     assert request["ordered_child_ids"] == [section.section_id for section in sections]
+    assert "complete sentences" in request["task"]
+    assert "sentence boundary" in request["task"]
     assert len(timeline.groups) == 12
     assert tuple(
         source_id for group in timeline.groups for source_id in group.source_section_ids
@@ -267,6 +269,65 @@ def test_editorial_timeline_batch_binds_advisory_ids_to_one_python_split() -> No
     assert timeline.groups[1].source_section_ids == tuple(
         section.section_id for section in sections[16:]
     )
+
+
+def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() -> None:
+    sections = _editorial_sections(2)
+    authority = _digest("clipped-editorial-summary-authority")
+    complete = "Avery follows the known route and reaches the shared outcome."
+    clipped = (complete + " The next description breaks mid" + ("w" * 600))[:600]
+    payload = json.loads(_editorial_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = clipped
+    packet = json.loads(
+        build_editorial_timeline_request(
+            sections,
+            authority,
+            required_group_count=2,
+        )
+    )
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        authority,
+        canonical_json(payload),
+        required_group_count=2,
+    )
+
+    assert len(clipped) == 600
+    assert timeline.groups[0].summary == complete
+    assert "complete sentences" in packet["task"]
+    assert "sentence boundary" in packet["task"]
+    assert "600-character schema maximum" in packet["task"]
+
+
+def test_editorial_batch_preserves_a_normal_complete_group_summary() -> None:
+    sections = _editorial_sections(2)
+    summary = "The route branches, develops through two outcomes, and rejoins at a shared scene."
+    payload = json.loads(_editorial_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = summary
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("complete-editorial-summary-authority"),
+        canonical_json(payload),
+        required_group_count=2,
+    )
+
+    assert timeline.groups[0].summary == summary
+
+
+def test_editorial_batch_rejects_a_group_without_one_complete_sentence() -> None:
+    sections = _editorial_sections(2)
+    payload = json.loads(_editorial_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = "A clipped fragment without any complete sentence"
+
+    with pytest.raises(DerivedSemanticError, match="complete sentence"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("fragment-only-editorial-summary-authority"),
+            canonical_json(payload),
+            required_group_count=2,
+        )
 
 
 def test_editorial_timeline_batches_reject_global_reordering() -> None:

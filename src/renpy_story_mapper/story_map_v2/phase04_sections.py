@@ -52,16 +52,19 @@ EDITORIAL_TIMELINE_TASK = (
     "ranges. For twelve or more source sections, return between 12 and 30 contiguous groups, "
     "with no group containing more than 40 source sections. Cover every source section exactly "
     "once and preserve order. The top-level summary is the whole-story overview. Write only "
-    "titles and summaries; do not add or change choices, routes, effects, rejoins, endings, or "
-    "evidence."
+    "titles and summaries. Keep every group summary concise, use complete sentences, and end it "
+    "at a sentence boundary well below the 600-character schema maximum. Do not add or change "
+    "choices, routes, effects, rejoins, endings, or evidence."
 )
 EDITORIAL_TIMELINE_BATCH_TASK = (
     "Return exactly one JSON object matching the supplied section prose schema. Group this "
     "chronological slice into exactly two contiguous story groups. Cover every source section "
     "exactly once and preserve order. The first group must start at the first ordered child; the "
     "second must start immediately after the first group's last child and end at the final ordered "
-    "child. Do not skip or overlap any child. Write only titles and summaries; do not add or "
-    "change choices, routes, effects, rejoins, endings, or evidence."
+    "child. Do not skip or overlap any child. Keep every group summary concise, write it in "
+    "complete sentences, end it at a sentence boundary, and stay well below the 600-character "
+    "schema maximum. Write only titles and summaries; do not add or change choices, routes, "
+    "effects, rejoins, endings, or evidence."
 )
 EDITORIAL_TIMELINE_ROLLUP_TASK = (
     "Return exactly one JSON object matching the supplied rollup prose schema. Write a concise "
@@ -552,7 +555,7 @@ def validate_editorial_timeline_response(
                 source_section_ids=member_ids,
                 event_ids=event_ids,
                 title=_string(proposal["title"], "editorial group title", maximum=80),
-                summary=_string(proposal["summary"], "editorial group summary", maximum=600),
+                summary=_editorial_group_summary(proposal["summary"]),
             )
         )
         cursor = member_last + 1
@@ -908,6 +911,24 @@ def _string(value: object, label: str, *, maximum: int = 600) -> str:
     if type(value) is not str:
         raise DerivedSemanticError(f"{label} must be a string")
     return _trimmed(value, label, maximum=maximum)
+
+
+def _editorial_group_summary(value: object) -> str:
+    summary = _string(value, "editorial group summary", maximum=600)
+    sentence_endings = frozenset(".!?")
+    closing_punctuation = frozenset("\"'\u201d\u2019)]}")
+    for index in range(len(summary) - 1, -1, -1):
+        if summary[index] not in sentence_endings:
+            continue
+        boundary = index + 1
+        while boundary < len(summary) and summary[boundary] in closing_punctuation:
+            boundary += 1
+        if boundary < len(summary) and not summary[boundary].isspace():
+            continue
+        candidate = summary[:boundary]
+        if any(character.isalnum() for character in candidate):
+            return candidate
+    raise DerivedSemanticError("editorial group summary must contain a complete sentence")
 
 
 def _string_array(value: object, label: str) -> tuple[str, ...]:
