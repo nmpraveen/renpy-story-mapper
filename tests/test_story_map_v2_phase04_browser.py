@@ -1,4 +1,4 @@
-# ruff: noqa: E501
+# ruff:file-ignore[line-too-long]
 from __future__ import annotations
 
 import copy
@@ -612,6 +612,8 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             response = self._at_revision(examples["view_state"])
             response["state"] = copy.deepcopy(type(self).view_state)
             self._json(response)
+
+
 @contextmanager
 def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True, workflow_local_only: bool = False, grouped_timeline: bool = False) -> Iterator[str]:
     _ReaderHandler.reset()

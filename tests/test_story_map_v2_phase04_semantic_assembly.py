@@ -168,7 +168,7 @@ def test_editorial_timeline_rejects_more_than_thirty_groups() -> None:
 
 def test_editorial_timeline_rejects_group_over_current_reader_bound() -> None:
     sections = _editorial_sections(52)
-    ranges = ((0, 40), *( (index, index) for index in range(41, 52) ))
+    ranges = ((0, 40), *((index, index) for index in range(41, 52)))
     with pytest.raises(DerivedSemanticError, match="source-section limit"):
         validate_editorial_timeline_response(
             sections,
