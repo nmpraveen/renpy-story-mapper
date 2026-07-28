@@ -168,6 +168,9 @@ button:disabled { cursor: default; opacity: .45; }
 .story-section-header { padding-right: 3.5rem; }
 .story-section h2 { max-width: 28ch; margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.45rem, 3vw, 2rem); font-weight: 400; line-height: 1.08; text-wrap: balance; }
 .story-section-summary { max-width: 56rem; margin: .55rem 0 0; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
+.story-group-details { margin-top: .85rem; border-top: 1px solid var(--rule); }
+.story-group-toggle { cursor: pointer; padding-top: .65rem; color: var(--muted); font-size: 12px; font-weight: 700; }
+.story-group-details[open] .story-group-toggle { color: var(--ink); }
 .story-section { border-left-color: color-mix(in srgb, var(--accent) 55%, var(--rule)); }
 .story-section--duplicate-wrapper { border-top-color: var(--accent); padding-top: clamp(1rem, 2vw, 1.5rem); }
 .story-section--duplicate-wrapper::before { display: none; }
@@ -241,6 +244,7 @@ button:disabled { cursor: default; opacity: .45; }
 .story-path-analysis-notes { margin: .85rem 0; border-top: 1px solid var(--rule); padding-top: .6rem; color: var(--muted); font-size: 12px; }
 .story-path-analysis-notes summary { cursor: pointer; color: var(--ink); font-weight: 700; }
 .story-path-analysis-notes .story-witness-group { margin-top: .45rem; border-top: 0; padding-top: .25rem; }
+.story-path-analysis-notes .story-path-steps { margin-bottom: 0; }
 .story-event-select[aria-selected="true"], .story-arm-select[aria-selected="true"], .story-continuation-select[aria-selected="true"] { outline: 3px solid var(--focus); outline-offset: 2px; background: var(--accent-soft); }
 .commandbar { position: relative; z-index: 10; grid-area: commandbar; display: grid; grid-template-columns: minmax(14rem, 1fr) auto minmax(12rem, 20rem) auto auto; align-items: center; gap: .65rem; min-height: 5rem; border-bottom: 1px solid var(--rule); background: var(--sheet); padding: .65rem 1rem; }
 .commandbar h1 { margin: 0; font-family: Georgia, serif; font-size: 24px; font-weight: 400; }

@@ -157,8 +157,23 @@ def _grouped_fixture() -> dict[str, Any]:
                 "id": "path:instruction",
                 "kind": "instruction",
                 "order": 5,
+                "title": "Choice instruction",
+                "value": {
+                    "ordinal": 1,
+                    "kind": "choice",
+                    "text": 'Choose "Take Route A".',
+                },
+            },
+            {
+                "id": "path:technical-instruction",
+                "kind": "instruction",
+                "order": 6,
                 "title": "Technical instruction",
-                "value": {"kind": "continue", "text": "Traverse node 17."},
+                "value": {
+                    "ordinal": 2,
+                    "kind": "continue",
+                    "text": "Traverse node 17.",
+                },
             },
         ],
         "shells": [
@@ -172,13 +187,14 @@ def _grouped_fixture() -> dict[str, Any]:
                     "path:requirement",
                     "path:effect",
                     "path:instruction",
+                    "path:technical-instruction",
                 ],
                 "parent_shell_id": None,
                 "route_id": "route:a",
                 "rejoin_selection_id": None,
             }
         ],
-        "rendered_item_count": 6,
+        "rendered_item_count": 7,
         "next_cursor": None,
     }
     return grouped
@@ -325,16 +341,19 @@ def test_grouped_reader_static_composition_reuses_reader_v2_contract() -> None:
         "STORY_TIMELINE_MAX_GROUPS = 30",
         'section.id.startsWith("story-group:")',
         "loadStoryReaderTimeline",
+        'element("details", "story-group-details")',
         '"Show outcomes"',
         '$("#storyRunDetails").open = false',
-        '"Known path"',
+        "selectedStoryChoices",
     ):
         assert marker in app
     assert ".story-browser.is-grouped-timeline .story-sections" in css
+    assert ".story-group-details" in css
     assert ".story-kind-ending" in css and ".story-rejoin" in css
     assert "major_groups" not in app
     details = html[html.index('id="storyRunDetails"') - 40 : html.index('id="storyRunDetails"') + 120]
     assert "<details" in details and " open" not in details
+    assert "Selected choices" in html and "Analysis / technical details" in html
     assert "story-map-v2-reader-contract-v3" not in "\n".join((app, css, html))
 
 
@@ -574,13 +593,16 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             result = self._at_revision(examples["search"])
             result["query"] = body["query"]
             selection_id = "event:page-two" if body["query"] == "page two" else "arm:a"
-            result["results"][0].update({"selection_id": selection_id, "title": f"{body['query'].title()} result", "section_id": "section:prologue", "is_loaded": False})
+            section_id = "story-group:01" if type(self).grouped_timeline else "section:prologue"
+            result["results"][0].update({"selection_id": selection_id, "title": f"{body['query'].title()} result", "section_id": section_id, "is_loaded": False})
             self._json(result)
         elif self.path == self.fixture["routes"]["locate"]:
             selection_id = body["selection_id"]
             location = self._at_revision(examples["locate"])
             location["selection_id"] = selection_id
-            if selection_id in {"event:intro", "event:rejoin", "event:page-two"}:
+            if type(self).grouped_timeline:
+                location["location"] = {"section_id": "story-group:01", "branch_id": "choice:first", "page_cursor": None, "shell_id": "shell:branch:a", "item_id": "arm:a"}
+            elif selection_id in {"event:intro", "event:rejoin", "event:page-two"}:
                 page_cursor = "cursor:section:page-two" if selection_id == "event:page-two" else None
                 item_id = "event:page-two" if page_cursor else selection_id
                 location["location"] = {"section_id": "section:prologue", "branch_id": None, "page_cursor": page_cursor, "shell_id": "shell:prologue:two" if page_cursor else "shell:prologue", "item_id": item_id}
@@ -993,6 +1015,7 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
                   const browser = document.querySelector('#storyBrowser');
                   const groups = [...document.querySelectorAll('#storySections > .story-section')];
                   const rects = groups.map(group => group.getBoundingClientRect());
+                  const details = groups.map(group => group.querySelector('.story-group-details'));
                   const choice = document.querySelector('[data-reader-item-id="choice:first"]');
                   const action = choice.querySelector('.story-branch-action');
                   return {
@@ -1007,8 +1030,9 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
                       browser: browser.scrollWidth - browser.clientWidth,
                       groups: groups.map(group => group.scrollWidth - group.clientWidth),
                     },
+                    details: {count:details.length, open:details.filter(node => node.open).length, summariesVisible:details.every(node => node.querySelector('summary').getBoundingClientRect().height > 0)},
                     diagnostics: {hidden:document.querySelector('#storyRunDetails').hidden, open:document.querySelector('#storyRunDetails').open, progress:document.querySelector('#storyRunProgress').textContent},
-                    choice: {visible:choice.getBoundingClientRect().height > 0, marker:choice.querySelector('.story-item-marker').textContent, action:action.textContent, branchHidden:choice.querySelector('.story-branch-page').hidden},
+                    choice: {visible:choice.checkVisibility(), marker:choice.querySelector('.story-item-marker').textContent, action:action.textContent, branchHidden:choice.querySelector('.story-branch-page').hidden},
                     markers: [...document.querySelectorAll('#storySections > .story-section .story-item-marker')].map(node => node.textContent),
                     routes: [...document.querySelectorAll('#storySections > .story-section .story-badge.route')].map(node => node.textContent),
                     laterBeat: document.querySelector('[data-reader-item-id="event:group:02:later"]')?.closest('.story-section')?.dataset.sectionId || null,
@@ -1020,10 +1044,11 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
             assert initial["titles"] == [f"Major Event {index:02d}" for index in range(1, 13)]
             assert initial["ordered"] is True and initial["verticalScroll"] is True
             assert initial["overflow"] == {"page": 0, "body": 0, "browser": 0, "groups": [0] * 12}
+            assert initial["details"] == {"count": 12, "open": 0, "summariesVisible": True}
             assert initial["diagnostics"]["hidden"] is False
             assert initial["diagnostics"]["open"] is False
             assert initial["diagnostics"]["progress"].startswith("425/425 jobs")
-            assert initial["choice"] == {"visible": True, "marker": "Choice", "action": "Show outcomes", "branchHidden": True}
+            assert initial["choice"] == {"visible": False, "marker": "Choice", "action": "Show outcomes", "branchHidden": True}
             assert "Ending" in initial["markers"]
             assert "route:main" in initial["routes"]
             assert initial["laterBeat"] == "story-group:02"
@@ -1031,8 +1056,12 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
             branch_route = _ReaderHandler.fixture["routes"]["branch_page"]
             assert not [request for request in _ReaderHandler.requests if request[0] == branch_route]
 
-            session.evaluate("document.querySelector('[data-reader-item-id=\"choice:first\"] .story-branch-action').click()")
-            session.wait("!!document.querySelector('[data-reader-item-id=\"choice:first\"] .story-branch-page:not([hidden]) [data-reader-item-id=\"arm:a\"]')")
+            session.evaluate("document.querySelector('#storySearchInput').value='route'; document.querySelector('#storySearchInput').dispatchEvent(new Event('input',{bubbles:true}))")
+            session.wait("!document.querySelector('#storySearchResults').hidden && !!document.querySelector('.story-search-result')")
+            session.evaluate("document.querySelector('.story-search-result').click()")
+            session.wait("document.activeElement?.dataset?.storySelectionId === 'arm:a' && document.querySelector('#story-group-1 .story-group-details').open")
+            located = session.evaluate("({groupOpen:document.querySelector('#story-group-1 .story-group-details').open,branchVisible:!!document.querySelector('[data-reader-item-id=\"choice:first\"] .story-branch-page:not([hidden]) [data-reader-item-id=\"arm:a\"]'),focused:document.activeElement.dataset.storySelectionId,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
+            assert located == {"groupOpen": True, "branchVisible": True, "focused": "arm:a", "overflow": 0}
             outcomes = session.evaluate(
                 """(() => {
                   const choice = document.querySelector('[data-reader-item-id="choice:first"]');
@@ -1062,40 +1091,50 @@ def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail
             session.wait("!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyPathRequirements').textContent.includes('courage > 0') && document.querySelector('#storyPathEffects').textContent.includes('Courage +1') && !!document.querySelector('.story-path-kind-instruction')")
             path = session.evaluate(
                 """(() => {
+                  const choices = document.querySelector('#storyPathChoicesGroup');
                   const requirement = document.querySelector('#storyPathRequirementsGroup');
                   const effect = document.querySelector('#storyPathEffectsGroup');
-                  const pathSteps = [...document.querySelectorAll('.story-path-kind-path_step')];
+                  const technical = document.querySelector('#storyPathAnalysisNotes');
                   const instruction = document.querySelector('.story-path-kind-instruction');
                   return {
                     summary: document.querySelector('#storyPathSummary').textContent,
+                    choiceLabel: choices.querySelector('h3').textContent,
+                    choices: document.querySelector('#storyPathChoices').textContent,
+                    choiceCount: document.querySelector('#storyPathChoices').children.length,
                     requirement: document.querySelector('#storyPathRequirements').textContent,
                     effect: document.querySelector('#storyPathEffects').textContent,
-                    knownPathLabel: document.querySelector('.story-witness-title').textContent,
+                    stepsLabel: document.querySelector('.story-witness-title').textContent,
                     stepKinds: [...document.querySelectorAll('#storyPathSteps > li')].map(node => node.className),
                     stepText: [...document.querySelectorAll('#storyPathSteps > li')].map(node => node.textContent),
-                    beforeInstruction: [requirement, effect, ...pathSteps].every(node => node.getBoundingClientRect().top < instruction.getBoundingClientRect().top),
+                    primaryBeforeTechnical: [choices, requirement, effect].every(node => node.getBoundingClientRect().top < technical.getBoundingClientRect().top),
+                    technical: {hidden:technical.hidden, open:technical.open, label:technical.querySelector('summary').textContent, instructionVisible:instruction.checkVisibility()},
                     diagnosticsOpen: document.querySelector('#storyRunDetails').open,
                     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
                   };
                 })()"""
             )
             assert path["summary"] == "Reach Route A through the opening choice."
+            assert path["choiceLabel"] == "Selected choices"
+            assert path["choices"] == "Take Route A" and path["choiceCount"] == 1
             assert path["requirement"] == "courage > 0"
             assert path["effect"] == "Courage +1"
-            assert path["knownPathLabel"] == "Known path"
+            assert path["stepsLabel"] == "Path steps"
             assert path["stepKinds"] == [
                 "story-path-step story-path-kind-path_step",
-                "story-path-step story-path-kind-path_step",
+                "story-path-step story-path-kind-instruction",
                 "story-path-step story-path-kind-instruction",
             ]
             assert path["stepText"] == [
                 "Arrival",
-                "Visible choiceTake Route A",
+                'Choice instructionChoose "Take Route A".',
                 "Technical instructionTraverse node 17.",
             ]
-            assert path["beforeInstruction"] is True
+            assert path["primaryBeforeTechnical"] is True
+            assert path["technical"] == {"hidden": False, "open": False, "label": "Analysis / technical details", "instructionVisible": False}
             assert path["diagnosticsOpen"] is False and path["overflow"] == 0
 
+            session.evaluate("document.querySelector('#story-group-1 .story-group-details').open=false; document.querySelector('#returnToStorySelection').click()")
+            session.wait("document.querySelector('#story-group-1 .story-group-details').open && document.activeElement?.dataset?.storySelectionId === 'arm:a'")
             entry_scroll = session.evaluate("document.querySelector('#storyBrowser').scrollTop")
             session.evaluate("document.querySelector('#storyDetailAction').click()")
             session.wait("!document.querySelector('#detailView').hidden && document.querySelector('#evidenceList').textContent.includes('game/story.rpy')")
@@ -1134,8 +1173,8 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait("!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('[data-reader-item-id]').length === 3")
-            initial = session.evaluate("({revision:document.querySelector('#storyBrowser').dataset.mapRevision,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),sections:document.querySelectorAll('#storySections > .story-section').length,branchCalls:0,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,prepareDisabled:document.querySelector('#storyPrepareAction').disabled})")
-            assert initial == {"revision": "7", "live": 3, "sections": 1, "branchCalls": 0, "overflow": 0, "prepareDisabled": True}
+            initial = session.evaluate("({revision:document.querySelector('#storyBrowser').dataset.mapRevision,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),sections:document.querySelectorAll('#storySections > .story-section').length,groupDetails:document.querySelectorAll('.story-group-details').length,branchCalls:0,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,prepareDisabled:document.querySelector('#storyPrepareAction').disabled})")
+            assert initial == {"revision": "7", "live": 3, "sections": 1, "groupDetails": 0, "branchCalls": 0, "overflow": 0, "prepareDisabled": True}
             assert not [request for request in _ReaderHandler.requests if request[0] == _ReaderHandler.fixture["routes"]["branch_page"]]
 
             session.evaluate("document.querySelector('.story-branch-action').focus(); document.querySelector('.story-branch-action').click()")

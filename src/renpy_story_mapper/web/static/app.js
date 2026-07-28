@@ -1131,13 +1131,20 @@ function renderStoryReaderSection(page, section, { append = false, ordinalStart 
   const header = element("header", "story-section-header");
   const title = element("h2", "", section.title); appendStoryReaderNew(title, section);
   header.append(title, element("p", "story-section-summary", section.summary)); card.append(header);
+  const grouped = storyReaderGroupedTimeline();
+  const content = grouped ? element("details", "story-group-details") : card;
+  if (grouped) {
+    const count = page.items.length;
+    content.append(element("summary", "story-group-toggle", `${count} story moment${count === 1 ? "" : "s"}`));
+    card.append(content);
+  }
   let ordinal = ordinalStart; const rendered = new Set();
   for (const shell of page.shells) {
     const result = storyReaderShell(page, shell, ordinal); ordinal = result.ordinal;
-    shell.item_ids.forEach((id) => rendered.add(id)); card.append(result.host);
+    shell.item_ids.forEach((id) => rendered.add(id)); content.append(result.host);
   }
   const missing = page.items.filter((item) => !rendered.has(item.id));
-  if (missing.length) card.append(element("p", "story-empty", `${missing.length} item${missing.length === 1 ? "" : "s"} withheld because no server-authored shell was supplied.`));
+  if (missing.length) content.append(element("p", "story-empty", `${missing.length} item${missing.length === 1 ? "" : "s"} withheld because no server-authored shell was supplied.`));
   sections.append(card);
   const live = sections.querySelectorAll("[data-reader-item-id]").length;
   recordStoryProjection("section", live);
@@ -1498,6 +1505,7 @@ async function handleStoryReaderError(error) {
 function focusStoryReaderItem(itemId) {
   const node = $(`[data-reader-item-id="${CSS.escape(itemId)}"]`); const control = node?.querySelector("[data-story-selection-id]");
   if (!control) return false;
+  const group = control.closest(".story-group-details"); if (group) group.open = true;
   control.scrollIntoView({ block: "center", inline: "nearest" }); control.focus({ preventScroll: true }); return true;
 }
 
@@ -1554,13 +1562,31 @@ async function searchStoryReader(query, { cursor = null, append = false } = {}) 
 }
 
 function storyReaderPathValue(item) {
-  const value = item.text ?? item.summary ?? item.value;
+  const value = item && typeof item === "object" ? item.text ?? item.summary ?? item.value ?? item : item;
   if (value === null || value === undefined) return "";
   if (typeof value !== "object") return String(value);
   if (typeof value.expression === "string") return value.expression;
   if (typeof value.text === "string") return value.text;
   if (typeof value.title === "string") return value.title;
   return Object.entries(value).map(([key, entry]) => `${key.replaceAll("_", " ")}: ${String(entry)}`).join(" · ");
+}
+
+function storyChoiceText(value) {
+  const text = storyReaderPathValue(value).trim();
+  const instruction = /^Choose\s+["“](.+)["”]\.?$/iu.exec(text);
+  return (instruction?.[1] || text).trim();
+}
+
+function storyChoiceKey(value) { return storyChoiceText(value).replace(/\s+/gu, " ").toLocaleLowerCase(); }
+
+function selectedStoryChoices(visibleChoices, instructions) {
+  const result = []; const seen = new Set();
+  for (const value of [...(visibleChoices || []), ...(instructions || []).filter((instruction) => instruction?.kind === "choice")]) {
+    const text = storyChoiceText(value); const key = storyChoiceKey(text);
+    if (!text || seen.has(key)) continue;
+    seen.add(key); result.push(text);
+  }
+  return result;
 }
 
 function renderStoryReaderPath(page) {
@@ -1572,15 +1598,19 @@ function renderStoryReaderPath(page) {
   $("#storyPathSummary").textContent = storyReaderPathValue(summary || {}) || "Known path to this moment.";
   const requirements = page.items.filter((value) => value.kind === "requirement").map(storyReaderPathValue);
   const effects = page.items.filter((value) => value.kind === "effect").map(storyReaderPathValue);
+  const instructions = page.items.filter((value) => value.kind === "instruction").map((value) => value.value).filter((value) => value && typeof value === "object");
+  const instructionChoiceKeys = new Set(instructions.filter((value) => value.kind === "choice").map(storyChoiceKey));
+  const visibleChoices = page.items.filter((value) => value.kind === "path_step" && instructionChoiceKeys.has(storyChoiceKey(value))).map(storyReaderPathValue);
+  renderStoryWitnessList("#storyPathChoicesGroup", "#storyPathChoices", selectedStoryChoices(visibleChoices, instructions));
   renderStoryWitnessList("#storyPathRequirementsGroup", "#storyPathRequirements", requirements);
   renderStoryWitnessList("#storyPathEffectsGroup", "#storyPathEffects", effects);
-  $(".story-witness-title").textContent = "Known path";
-  const ordered = [...page.items].filter((value) => !["summary", "requirement", "effect", "warning"].includes(value.kind)).sort((left, right) => Number(left.kind === "instruction") - Number(right.kind === "instruction") || left.order - right.order);
+  const ordered = [...page.items].filter((value) => !["summary", "requirement", "effect", "warning"].includes(value.kind) && !(value.kind === "path_step" && instructionChoiceKeys.has(storyChoiceKey(value)))).sort((left, right) => Number(left.kind === "instruction") - Number(right.kind === "instruction") || left.order - right.order);
   for (const value of ordered) {
     const title = value.title || String(value.kind).replaceAll("_", " "); const copy = storyReaderPathValue(value);
     const step = element("li", `story-path-step story-path-kind-${value.kind}`); step.append(element("strong", "", title));
     if (copy && copy !== title) step.append(element("span", "", copy)); steps.append(step);
   }
+  $("#storyPathAnalysisNotes").hidden = !steps.children.length && $("#storyPathScenesGroup").hidden;
   const warnings = $("#storyPathWarnings");
   for (const value of page.items.filter((candidate) => candidate.kind === "warning")) warnings.append(element("p", "", storyReaderPathValue(value)));
   $("#storyPathUncertaintyGroup").hidden = !warnings.children.length;
@@ -1712,15 +1742,14 @@ function clearStoryPathWitness() {
 
 function renderStoryPath(path) {
   state.storyPath = path; const item = state.storySelectionItem || state.storyItems.get(state.storySelectionId);
-  $(".story-witness-title").textContent = "Instructions";
   $("#storyPathTitle").textContent = storyItemTitle(item || {});
   $("#storyPathSummary").textContent = path.explanation || path.reason || (path.status === "available" ? "Known route to this moment." : "The complete route is not proven.");
+  const instructions = path.witness?.instructions || [];
   renderStoryWitnessList("#storyPathScenesGroup", "#storyPathScenes", path.witness?.scene_titles);
-  renderStoryWitnessList("#storyPathChoicesGroup", "#storyPathChoices", path.witness?.visible_choices);
+  renderStoryWitnessList("#storyPathChoicesGroup", "#storyPathChoices", selectedStoryChoices(path.witness?.visible_choices, instructions));
   renderStoryWitnessList("#storyPathRequirementsGroup", "#storyPathRequirements", path.witness?.requirements, (requirement) => requirement.expression);
   renderStoryWitnessList("#storyPathEffectsGroup", "#storyPathEffects", path.witness?.effects);
   const steps = $("#storyPathSteps"); steps.replaceChildren();
-  const instructions = path.witness?.instructions || [];
   instructions.forEach((value) => {
     const step = element("li", "story-path-step");
     step.append(element("strong", "", String(value.kind).replaceAll("_", " ")), element("span", "", value.text));
@@ -1729,7 +1758,7 @@ function renderStoryPath(path) {
   const warnings = $("#storyPathWarnings"); warnings.replaceChildren();
   for (const warning of path.witness?.uncertainty || []) warnings.append(element("p", "", warning));
   $("#storyPathUncertaintyGroup").hidden = !warnings.children.length;
-  $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = $("#storyPathScenesGroup").hidden;
+  $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = $("#storyPathScenesGroup").hidden && !steps.children.length;
   $("#storyDetailAction").disabled = false;
   $("#storyPathPanel").hidden = false;
 }
@@ -1820,6 +1849,7 @@ function returnToStorySelection(scroll = true) {
   if (storyReaderActive()) { $("#detailView").dataset.storyRecords = "0"; $("#evidenceList").replaceChildren(); recordStoryProjection("detail", 0); }
   const control = currentStorySelectionControl();
   if (!control) return;
+  const group = control.closest(".story-group-details"); if (group) group.open = true;
   if (scroll) control.scrollIntoView({ block: "center", inline: "nearest" });
   else {
     const browser = $("#storyBrowser");
