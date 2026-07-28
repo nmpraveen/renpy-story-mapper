@@ -516,23 +516,21 @@ def validate_editorial_timeline_response(
         last_index = indexes[last]
         if required_group_count == EDITORIAL_GROUPS_PER_BATCH:
             if index == 0:
-                if first_index != 0 or last_index < first_index or last_index >= len(sections) - 1:
+                if last_index >= len(sections) - 1:
                     raise DerivedSemanticError("editorial groups must be contiguous and ordered")
                 member_first = 0
+                member_last = last_index
             else:
-                if (
-                    index != 1
-                    or first_index > last_index
-                    or last_index != len(sections) - 1
-                    or cursor > last_index
-                ):
+                if index != 1 or cursor >= len(sections):
                     raise DerivedSemanticError("editorial groups must be contiguous and ordered")
                 member_first = cursor
+                member_last = len(sections) - 1
         else:
             if first_index != cursor or last_index < first_index:
                 raise DerivedSemanticError("editorial groups must be contiguous and ordered")
             member_first = first_index
-        members = tuple(sections[member_first : last_index + 1])
+            member_last = last_index
+        members = tuple(sections[member_first : member_last + 1])
         if len(members) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
             raise DerivedSemanticError("editorial group exceeds the source-section limit")
         member_ids = tuple(member.section_id for member in members)
@@ -549,7 +547,7 @@ def validate_editorial_timeline_response(
                 summary=_string(proposal["summary"], "editorial group summary", maximum=600),
             )
         )
-        cursor = last_index + 1
+        cursor = member_last + 1
     if cursor != len(sections):
         raise DerivedSemanticError("editorial groups must cover every source section exactly once")
     grouped_sources = tuple(item for group in groups for item in group.source_section_ids)

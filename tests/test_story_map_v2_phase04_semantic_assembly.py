@@ -244,12 +244,12 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     ) == tuple(section.section_id for section in sections)
 
 
-def test_editorial_timeline_batch_closes_an_advisory_id_gap_in_python() -> None:
+def test_editorial_timeline_batch_binds_advisory_ids_to_one_python_split() -> None:
     sections = _editorial_sections(38)
     timeline = validate_editorial_timeline_response(
         sections,
         _digest("gap-closing-batch-authority"),
-        _editorial_payload(sections, ((0, 15), (19, 37))),
+        _editorial_payload(sections, ((3, 15), (19, 15))),
         required_group_count=2,
     )
 

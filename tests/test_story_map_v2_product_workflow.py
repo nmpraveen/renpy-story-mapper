@@ -1034,7 +1034,7 @@ def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
             packet = json.loads(request)
             child_ids = [child["id"] for child in packet["children"]]
             midpoint = len(child_ids) // 2
-            first = child_ids[1] if submissions == 2 else child_ids[0]
+            first = "section:foreign" if submissions == 2 else child_ids[0]
             prose = {
                 "title": "Slice",
                 "summary": "This slice response is schema-valid prose.",
