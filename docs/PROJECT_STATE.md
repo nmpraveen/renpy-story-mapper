@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-28 (Phase 05 AI story timeline awaiting the user usefulness verdict)
+Updated: 2026-07-28 (Phase 05 native goal blocked awaiting the user usefulness verdict)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,9 +14,9 @@ Updated: 2026-07-28 (Phase 05 AI story timeline awaiting the user usefulness ver
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: Integration. The bounded implementation is integrated and the strict real-game/browser
-  result is ready for the required user usefulness verdict. Final Verification and PR preparation
-  have not started.
+- Status: Blocked (resume at Integration). The bounded implementation is integrated and the strict
+  real-game/browser result is ready, but the required user usefulness verdict has not been
+  received. Final Verification and PR preparation have not started.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
@@ -31,8 +31,10 @@ Updated: 2026-07-28 (Phase 05 AI story timeline awaiting the user usefulness ver
   zero cloud calls, and passing SQLite/source-integrity checks. The current browser walkthrough
   proves scrolling, inline branches/effects/rejoins, selected-choice Path, Detail/Evidence, and no
   horizontal overflow at desktop and effective 200% widths.
-- Native Codex goal: active on Orchestra task `019fa621-c148-7652-8b69-76c9e148d4fd` from the exact
-  Phase 05 done condition.
+- Native Codex goal: blocked on Orchestra task `019fa621-c148-7652-8b69-76c9e148d4fd` after the
+  same required user-verdict condition persisted for three consecutive goal turns. Resume at
+  Integration when the user explicitly accepts the result or identifies a concrete comprehension
+  blocker.
 - Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
   with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
   `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no

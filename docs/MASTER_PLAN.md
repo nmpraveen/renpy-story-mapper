@@ -15,8 +15,8 @@ mechanics/evidence, but its 425-section lookup reader did not achieve the requir
 information architecture. Phase 05 is the active bounded correction under
 `docs/milestones/M15_PHASE_05/GOAL.md`: local-AI editorial grouping plus a clean scrolling timeline,
 with Python authoritative for choices, routes, effects, rejoins, endings, and evidence. Its
-lifecycle is `Integration`: the strict real-game/browser result is ready and paused for the
-required user usefulness verdict. M14 remains deferred.
+lifecycle is `Blocked` at the Integration user-review gate: the strict real-game/browser result is
+ready, but the required user usefulness verdict has not been received. M14 remains deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1442,7 +1442,9 @@ integrated through source head `00a9762`, and acceptance evidence is recorded at
 
 The strict MsDenvers result contains 24 chronological major-event groups with exact 425/425 source
 coverage, local-only AI editorial prose, Python-owned mechanics/evidence, and a browser-verified
-scrolling timeline. It is paused at the required user usefulness gate. Completed implementation
+scrolling timeline. The native goal is blocked at the required user usefulness gate and resumes at
+Integration when the user accepts the result or identifies a concrete comprehension blocker.
+Completed implementation
 workers and the early reviewer used explicit `gpt-5.6-sol` with Ultra reasoning; by the user's
 latest instruction, every new worker/reviewer uses explicit `gpt-5.6-sol` with High reasoning and
 no new Ultra task is dispatched. The task API has no fast-mode selector, so fast mode remains

@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - AI story timeline
 
-Status: Integration (awaiting user usefulness verdict)
+Status: Blocked (resume at Integration after the user usefulness verdict)
 
 Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
 
