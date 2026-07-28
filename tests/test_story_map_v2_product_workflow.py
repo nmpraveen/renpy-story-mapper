@@ -1014,7 +1014,7 @@ def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> Non
             packet = json.loads(request)
             if packet["call_kind"] == "section_synthesis":
                 child_ids = [child["id"] for child in packet["children"]]
-                group_count = (1, 2, 3)[slice_count % 3]
+                group_count = (3, 4, 5)[slice_count % 3]
                 slice_count += 1
                 prose = {
                     "title": "Slice",
@@ -1034,7 +1034,7 @@ def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> Non
                     ],
                 }
             else:
-                assert len(packet["children"]) == 21
+                assert len(packet["children"]) == 24
                 prose = {
                     "title": "Whole public story",
                     "summary": (
@@ -1057,27 +1057,31 @@ def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> Non
     timeline = _editorial_timeline(derived, authority, FakeProvider)
 
     assert timeline is not None
-    assert len(requests) == 12
+    assert len(requests) == 7
     packets = [json.loads(request) for request in requests]
     section_packets = [
         (request, packet)
         for request, packet in zip(requests, packets, strict=True)
         if packet["call_kind"] == "section_synthesis"
     ]
-    assert len(section_packets) == 11
-    assert {len(packet["children"]) for _, packet in section_packets} == {38, 39}
-    assert all(packet["minimum_group_count"] == 1 for _, packet in section_packets)
-    assert all(packet["maximum_group_count"] == 3 for _, packet in section_packets)
-    assert all("Prefer two groups" in packet["task"] for _, packet in section_packets)
+    assert len(section_packets) == 6
+    assert {len(packet["children"]) for _, packet in section_packets} == {70, 71}
+    assert all(packet["minimum_group_count"] == 3 for _, packet in section_packets)
+    assert all(packet["maximum_group_count"] == 5 for _, packet in section_packets)
+    assert all("Prefer four groups" in packet["task"] for _, packet in section_packets)
+    assert all(
+        "Never return fewer than three or more than five groups" in packet["task"]
+        for _, packet in section_packets
+    )
     assert all("family roles" in packet["task"] for _, packet in section_packets)
     assert all(
         "alternatives rather than one resolved chronology" in packet["task"]
         for _, packet in section_packets
     )
-    assert max(len(request) for request, _ in section_packets) < 20_000
+    assert max(len(request) for request, _ in section_packets) < 48_000
     assert len(build_editorial_timeline_request(sections, authority)) > 100_000
     assert packets[-1]["call_kind"] == "rollup_synthesis"
-    assert len(timeline.groups) == 21
+    assert len(timeline.groups) == 24
     assert tuple(
         source_id for group in timeline.groups for source_id in group.source_section_ids
     ) == tuple(section.section_id for section in sections)
@@ -1105,7 +1109,7 @@ def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
             submissions += 1
             packet = json.loads(request)
             child_ids = [child["id"] for child in packet["children"]]
-            group_count = 4 if submissions == 2 else 2
+            group_count = 6 if submissions == 2 else 4
             prose = {
                 "title": "Slice",
                 "summary": "This slice response is schema-valid prose.",

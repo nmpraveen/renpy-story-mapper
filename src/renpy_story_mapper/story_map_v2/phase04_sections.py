@@ -61,17 +61,17 @@ EDITORIAL_TIMELINE_TASK = (
 )
 EDITORIAL_TIMELINE_BATCH_TASK = (
     "Return exactly one JSON object matching the supplied section prose schema. Group this "
-    "chronological slice into between one and three contiguous story groups. Prefer two groups; "
-    "use one only when the slice is one coherent movement, or three only when it has a real third "
-    "story boundary. Cover every source section exactly once and preserve order. The first group "
-    "must start at the first ordered child, every later group must start immediately after the "
-    "previous group's last child, and the final group must end at the final ordered child. Do not "
-    "skip or overlap any child. Keep every group summary concise, write it in complete sentences, "
-    "end it at a sentence boundary, and stay well below the 600-character schema maximum. Do not "
-    "infer family roles or relationships that are not explicit in the supplied prose. When the "
-    "slice contains different persistent route owners, describe those routes as alternatives "
-    "rather than one resolved chronology. Write only titles and summaries; do not add or change "
-    "choices, routes, effects, rejoins, endings, or evidence."
+    "chronological slice into between three and five contiguous story groups. Prefer four groups; "
+    "use three or five only when the coherent story movements require fewer or more boundaries. "
+    "Never return fewer than three or more than five groups. Cover every source section exactly "
+    "once and preserve order. The first group must start at the first ordered child, every later "
+    "group must start immediately after the previous group's last child, and the final group must "
+    "end at the final ordered child. Do not skip or overlap any child. Keep every group summary "
+    "concise, write it in complete sentences, end it at a sentence boundary, and stay well below "
+    "the 600-character schema maximum. Do not infer family roles or relationships that are not "
+    "explicit in the supplied prose. When the slice contains different persistent route owners, "
+    "describe those routes as alternatives rather than one resolved chronology. Write only titles "
+    "and summaries; do not add or change choices, routes, effects, rejoins, endings, or evidence."
 )
 EDITORIAL_TIMELINE_ROLLUP_TASK = (
     "Return exactly one JSON object matching the supplied rollup prose schema. Write a concise "
@@ -83,9 +83,9 @@ EDITORIAL_TIMELINE_ROLLUP_TASK = (
 )
 EDITORIAL_TIMELINE_CORRIDOR_ID = "editorial-timeline"
 EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP = 40
-EDITORIAL_GROUPS_PER_BATCH = 2
-EDITORIAL_MIN_GROUPS_PER_BATCH = 1
-EDITORIAL_MAX_GROUPS_PER_BATCH = 3
+EDITORIAL_MAX_SOURCE_SECTIONS_PER_BATCH = 72
+EDITORIAL_MIN_GROUPS_PER_BATCH = 3
+EDITORIAL_MAX_GROUPS_PER_BATCH = 5
 EDITORIAL_MIN_BATCH_COUNT = 6
 EDITORIAL_MAX_BATCH_COUNT = 15
 DERIVED_SEMANTIC_FAN_IN = 24
@@ -473,7 +473,7 @@ def partition_editorial_timeline_sections(
         return (frozen,)
     batch_count = max(
         EDITORIAL_MIN_BATCH_COUNT,
-        math.ceil(len(frozen) / EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP),
+        math.ceil(len(frozen) / EDITORIAL_MAX_SOURCE_SECTIONS_PER_BATCH),
     )
     if batch_count > EDITORIAL_MAX_BATCH_COUNT:
         raise DerivedSemanticError("editorial timeline exceeds the bounded batch count")
@@ -482,8 +482,8 @@ def partition_editorial_timeline_sections(
         for index in range(batch_count)
     )
     if any(
-        len(batch) < EDITORIAL_GROUPS_PER_BATCH
-        or len(batch) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP
+        len(batch) < EDITORIAL_MIN_GROUPS_PER_BATCH
+        or len(batch) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_BATCH
         for batch in batches
     ):
         raise DerivedSemanticError("editorial timeline cannot fit the bounded batch shape")

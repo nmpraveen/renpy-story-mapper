@@ -208,7 +208,7 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     authority = _digest("batched-real-scale-authority")
 
     batches = partition_editorial_timeline_sections(sections)
-    group_counts = (1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2)
+    group_counts = (3, 4, 5, 3, 4, 5)
     timelines = tuple(
         validate_editorial_timeline_response(
             batch,
@@ -223,7 +223,7 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
                     for index in range(group_count)
                 ),
             ),
-            group_count_bounds=(1, 3),
+            group_count_bounds=(3, 5),
         )
         for batch, group_count in zip(batches, group_counts, strict=True)
     )
@@ -232,7 +232,7 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
         build_editorial_timeline_request(
             batches[0],
             authority,
-            group_count_bounds=(1, 3),
+            group_count_bounds=(3, 5),
         )
     )
     rollup_request = json.loads(
@@ -250,12 +250,13 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
         ),
     )
 
-    assert len(batches) == 11
-    assert {len(batch) for batch in batches} == {38, 39}
-    assert len(timeline.groups) == 21
-    assert batch_request["minimum_group_count"] == 1
-    assert batch_request["maximum_group_count"] == 3
-    assert "Prefer two groups" in batch_request["task"]
+    assert len(batches) == 6
+    assert {len(batch) for batch in batches} == {70, 71}
+    assert len(timeline.groups) == 24
+    assert batch_request["minimum_group_count"] == 3
+    assert batch_request["maximum_group_count"] == 5
+    assert "Prefer four groups" in batch_request["task"]
+    assert "Never return fewer than three or more than five groups" in batch_request["task"]
     assert "family roles" in batch_request["task"]
     assert "alternatives rather than one resolved chronology" in batch_request["task"]
     assert rollup_request["call_kind"] == "rollup_synthesis"
@@ -287,7 +288,7 @@ def test_editorial_timeline_batch_binds_three_advisory_groups_with_balanced_fall
         sections,
         _digest("advisory-three-group-authority"),
         canonical_json(payload),
-        group_count_bounds=(1, 3),
+        group_count_bounds=(3, 5),
     )
 
     assert tuple(group.source_section_ids for group in timeline.groups) == (
@@ -398,9 +399,15 @@ def test_editorial_timeline_batches_reject_global_reordering() -> None:
             authority,
             _editorial_payload(
                 batch,
-                ((0, len(batch) // 2 - 1), (len(batch) // 2, len(batch) - 1)),
+                tuple(
+                    (
+                        index * len(batch) // 3,
+                        ((index + 1) * len(batch) // 3) - 1,
+                    )
+                    for index in range(3)
+                ),
             ),
-            group_count_bounds=(1, 3),
+            group_count_bounds=(3, 5),
         )
         for batch in batches
     ]
