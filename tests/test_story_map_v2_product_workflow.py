@@ -1005,34 +1005,36 @@ def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> Non
         for index in range(425)
     )
     requests: list[bytes] = []
+    slice_count = 0
 
     class FakeProvider:
         def submit(self, request: bytes) -> ProviderCallResult:
+            nonlocal slice_count
             requests.append(request)
             packet = json.loads(request)
             if packet["call_kind"] == "section_synthesis":
                 child_ids = [child["id"] for child in packet["children"]]
-                midpoint = len(child_ids) // 2
+                group_count = (1, 2, 3)[slice_count % 3]
+                slice_count += 1
                 prose = {
                     "title": "Slice",
                     "summary": "This chronological slice remains complete.",
                     "sections": [
                         {
-                            "first_event_id": child_ids[0],
-                            "last_event_id": child_ids[midpoint - 1],
-                            "title": "First movement",
-                            "summary": "The first half of this slice advances the story.",
-                        },
-                        {
-                            "first_event_id": child_ids[midpoint],
-                            "last_event_id": child_ids[-1],
-                            "title": "Second movement",
-                            "summary": "The second half of this slice advances the story.",
-                        },
+                            "first_event_id": child_ids[
+                                index * len(child_ids) // group_count
+                            ],
+                            "last_event_id": child_ids[
+                                ((index + 1) * len(child_ids) // group_count) - 1
+                            ],
+                            "title": f"Movement {index + 1}",
+                            "summary": "This coherent movement advances the story.",
+                        }
+                        for index in range(group_count)
                     ],
                 }
             else:
-                assert len(packet["children"]) == 22
+                assert len(packet["children"]) == 21
                 prose = {
                     "title": "Whole public story",
                     "summary": (
@@ -1064,11 +1066,18 @@ def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> Non
     ]
     assert len(section_packets) == 11
     assert {len(packet["children"]) for _, packet in section_packets} == {38, 39}
-    assert all(packet["required_group_count"] == 2 for _, packet in section_packets)
+    assert all(packet["minimum_group_count"] == 1 for _, packet in section_packets)
+    assert all(packet["maximum_group_count"] == 3 for _, packet in section_packets)
+    assert all("Prefer two groups" in packet["task"] for _, packet in section_packets)
+    assert all("family roles" in packet["task"] for _, packet in section_packets)
+    assert all(
+        "alternatives rather than one resolved chronology" in packet["task"]
+        for _, packet in section_packets
+    )
     assert max(len(request) for request, _ in section_packets) < 20_000
     assert len(build_editorial_timeline_request(sections, authority)) > 100_000
     assert packets[-1]["call_kind"] == "rollup_synthesis"
-    assert len(timeline.groups) == 22
+    assert len(timeline.groups) == 21
     assert tuple(
         source_id for group in timeline.groups for source_id in group.source_section_ids
     ) == tuple(section.section_id for section in sections)
@@ -1096,27 +1105,24 @@ def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
             submissions += 1
             packet = json.loads(request)
             child_ids = [child["id"] for child in packet["children"]]
-            midpoint = len(child_ids) // 2
+            group_count = 4 if submissions == 2 else 2
             prose = {
                 "title": "Slice",
                 "summary": "This slice response is schema-valid prose.",
                 "sections": [
                     {
-                        "first_event_id": child_ids[0],
-                        "last_event_id": child_ids[midpoint - 1],
-                        "title": "First movement",
-                        "summary": "First half.",
-                    },
-                    {
-                        "first_event_id": child_ids[midpoint],
-                        "last_event_id": child_ids[-1],
-                        "title": "Second movement",
-                        "summary": "Second half.",
-                    },
+                        "first_event_id": child_ids[
+                            index * len(child_ids) // group_count
+                        ],
+                        "last_event_id": child_ids[
+                            ((index + 1) * len(child_ids) // group_count) - 1
+                        ],
+                        "title": f"Movement {index + 1}",
+                        "summary": "This movement advances the slice.",
+                    }
+                    for index in range(group_count)
                 ],
             }
-            if submissions == 2:
-                prose["sections"].pop()
             return ProviderCallResult(
                 payload=canonical_json(prose),
                 accounting=AttemptAccounting(1, len(request), 20, 10),

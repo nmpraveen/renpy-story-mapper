@@ -208,19 +208,33 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     authority = _digest("batched-real-scale-authority")
 
     batches = partition_editorial_timeline_sections(sections)
+    group_counts = (1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2)
     timelines = tuple(
         validate_editorial_timeline_response(
             batch,
             authority,
             _editorial_payload(
                 batch,
-                ((0, len(batch) // 2 - 1), (len(batch) // 2, len(batch) - 1)),
+                tuple(
+                    (
+                        index * len(batch) // group_count,
+                        ((index + 1) * len(batch) // group_count) - 1,
+                    )
+                    for index in range(group_count)
+                ),
             ),
-            required_group_count=2,
+            group_count_bounds=(1, 3),
         )
-        for batch in batches
+        for batch, group_count in zip(batches, group_counts, strict=True)
     )
     groups = tuple(group for timeline in timelines for group in timeline.groups)
+    batch_request = json.loads(
+        build_editorial_timeline_request(
+            batches[0],
+            authority,
+            group_count_bounds=(1, 3),
+        )
+    )
     rollup_request = json.loads(
         build_editorial_timeline_rollup_request(groups, authority)
     )
@@ -238,37 +252,39 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
 
     assert len(batches) == 11
     assert {len(batch) for batch in batches} == {38, 39}
-    assert len(timeline.groups) == 22
+    assert len(timeline.groups) == 21
+    assert batch_request["minimum_group_count"] == 1
+    assert batch_request["maximum_group_count"] == 3
+    assert "Prefer two groups" in batch_request["task"]
+    assert "family roles" in batch_request["task"]
+    assert "alternatives rather than one resolved chronology" in batch_request["task"]
     assert rollup_request["call_kind"] == "rollup_synthesis"
     assert rollup_request["schema_version"] == ROLLUP_SYNTHESIS_SCHEMA_VERSION
     assert "about 450-650 characters" in rollup_request["task"]
     assert "complete sentences" in rollup_request["task"]
     assert "sentence boundary" in rollup_request["task"]
+    assert "family roles" in rollup_request["task"]
+    assert "not as one resolved chronology" in rollup_request["task"]
     assert rollup_request["ordered_child_ids"] == [group.group_id for group in groups]
     assert tuple(
         source_id for group in timeline.groups for source_id in group.source_section_ids
     ) == tuple(section.section_id for section in sections)
 
 
-def test_editorial_timeline_batch_binds_advisory_ids_to_one_python_split() -> None:
+def test_editorial_timeline_batch_rejects_foreign_or_discontiguous_boundaries() -> None:
     sections = _editorial_sections(38)
     payload = json.loads(_editorial_payload(sections, ((3, 15), (19, 15))))
     payload["sections"][0]["first_event_id"] = "section:advisory-foreign-start"
     payload["sections"][1]["first_event_id"] = "section:advisory-foreign-second"
     payload["sections"][1]["last_event_id"] = "advisory-missing-prefix"
-    timeline = validate_editorial_timeline_response(
-        sections,
-        _digest("gap-closing-batch-authority"),
-        canonical_json(payload),
-        required_group_count=2,
-    )
 
-    assert timeline.groups[0].source_section_ids == tuple(
-        section.section_id for section in sections[:16]
-    )
-    assert timeline.groups[1].source_section_ids == tuple(
-        section.section_id for section in sections[16:]
-    )
+    with pytest.raises(DerivedSemanticError, match="foreign source section"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("strict-batch-authority"),
+            canonical_json(payload),
+            group_count_bounds=(1, 3),
+        )
 
 
 def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() -> None:
@@ -282,7 +298,7 @@ def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() 
         build_editorial_timeline_request(
             sections,
             authority,
-            required_group_count=2,
+            group_count_bounds=(1, 2),
         )
     )
 
@@ -290,7 +306,7 @@ def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() 
         sections,
         authority,
         canonical_json(payload),
-        required_group_count=2,
+        group_count_bounds=(1, 2),
     )
 
     assert len(clipped) == 600
@@ -310,7 +326,7 @@ def test_editorial_batch_preserves_a_normal_complete_group_summary() -> None:
         sections,
         _digest("complete-editorial-summary-authority"),
         canonical_json(payload),
-        required_group_count=2,
+        group_count_bounds=(1, 2),
     )
 
     assert timeline.groups[0].summary == summary
@@ -326,7 +342,7 @@ def test_editorial_batch_derives_its_discarded_overview_from_validated_groups() 
         sections,
         _digest("discarded-editorial-wrapper-authority"),
         canonical_json(payload),
-        required_group_count=2,
+        group_count_bounds=(1, 2),
     )
 
     assert len(wrapper) == 600
@@ -358,7 +374,7 @@ def test_editorial_batch_rejects_a_group_without_one_complete_sentence() -> None
             sections,
             _digest("fragment-only-editorial-summary-authority"),
             canonical_json(payload),
-            required_group_count=2,
+            group_count_bounds=(1, 2),
         )
 
 
@@ -374,7 +390,7 @@ def test_editorial_timeline_batches_reject_global_reordering() -> None:
                 batch,
                 ((0, len(batch) // 2 - 1), (len(batch) // 2, len(batch) - 1)),
             ),
-            required_group_count=2,
+            group_count_bounds=(1, 3),
         )
         for batch in batches
     ]

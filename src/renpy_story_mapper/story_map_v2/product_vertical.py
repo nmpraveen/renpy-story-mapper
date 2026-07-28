@@ -32,6 +32,8 @@ from renpy_story_mapper.story_map_v2.phase04_publication import (
     build_generation_artifact,
 )
 from renpy_story_mapper.story_map_v2.phase04_sections import (
+    EDITORIAL_MAX_GROUPS_PER_BATCH,
+    EDITORIAL_MIN_GROUPS_PER_BATCH,
     DerivedSemanticAssembly,
     DerivedSemanticJob,
     EditorialTimeline,
@@ -406,7 +408,10 @@ def _editorial_timeline(
                 build_editorial_timeline_request(
                     batch,
                     authority_identity,
-                    required_group_count=2,
+                    group_count_bounds=(
+                        EDITORIAL_MIN_GROUPS_PER_BATCH,
+                        EDITORIAL_MAX_GROUPS_PER_BATCH,
+                    ),
                 )
             )
             timelines.append(
@@ -414,7 +419,10 @@ def _editorial_timeline(
                     batch,
                     authority_identity,
                     result.payload,
-                    required_group_count=2,
+                    group_count_bounds=(
+                        EDITORIAL_MIN_GROUPS_PER_BATCH,
+                        EDITORIAL_MAX_GROUPS_PER_BATCH,
+                    ),
                 )
             )
         groups = tuple(group for timeline in timelines for group in timeline.groups)
