@@ -168,6 +168,44 @@ def test_root_label_falls_through_to_next_source_label() -> None:
     assert label["reachable_from_entry"] is True
 
 
+def test_flat_recovered_label_suite_preserves_story_and_control_flow() -> None:
+    source = [
+        "label start:\n",
+        '"Day one begins."\n',
+        "menu:\n",
+        '    "Take the route" if route_open:\n',
+        "        if courage > 0:\n",
+        "            jump day_two\n",
+        '    "Wait":\n',
+        '        "Stay here."\n',
+        "jump day_two\n",
+        "label day_two:\n",
+        '"Day two begins."\n',
+        "return\n",
+    ]
+
+    module = parse_script("flat-recovered.rpy", source)
+    assert [label.name for label in module.labels] == ["start", "day_two"]
+    assert [statement.text for statement in module.labels[0].body] == [
+        '"Day one begins."',
+        "menu:",
+        "jump day_two",
+    ]
+    assert [statement.text for statement in module.labels[1].body] == [
+        '"Day two begins."',
+        "return",
+    ]
+
+    graph = build_graph([module])
+    assert any(node["source_text"] == '"Day one begins."' for node in graph["nodes"])
+    choice = next(
+        node for node in nodes(graph, "menu_choice") if "Take the route" in node["source_text"]
+    )
+    assert choice["metadata"]["condition"] == "route_open"
+    assert nodes(graph, "if_branch")[0]["metadata"]["condition"] == "courage > 0"
+    assert any(node["source_text"] == "jump day_two" for node in nodes(graph, "jump"))
+
+
 def test_source_end_column_is_exclusive_and_includes_indentation() -> None:
     module = parse_script("span.rpy", ["label start:\n", "    pause 1\n"])
     graph = build_graph([module])
