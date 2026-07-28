@@ -1,10 +1,40 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 partial functional checkpoint is being sent to PR #30)
+Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
-## Current contract after the simplicity reset
+## Current Phase 05 contract
+
+- **Product rule:** quick, crude Ren'Py script-to-story conversion for personal checking, not a
+  production-grade system.
+- Active milestone: M15.1 Phase 05 AI story timeline.
+- Active contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
+- Active task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
+- Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
+- Integration branch: `codex/m15-phase05-story-timeline`.
+- Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
+- Status: Semantic review. Product implementation is gated on an independent `PASS`.
+- Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
+  with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
+  PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
+  not meet the scrolling story-timeline goal.
+- Phase 05 correction: reuse those summaries; add one bounded local-AI editorial grouping/overview
+  pass with Python-owned coverage/order/mechanics; make a small grouped vertical timeline the
+  default and keep the 425 rows as collapsed diagnostics.
+- Semantic review: in progress against the Phase 05 contract checkpoint.
+- Native Codex goal: explicitly requested by the user and created from the Phase 05 done condition.
+- Settings: workers and reviewers use explicit `gpt-5.6-sol` and Ultra reasoning. The task API has
+  no fast-mode selector, so the user's fast-mode request is unavailable/unverified.
+- Orchestration: one user-visible Orchestra, two concurrent implementation threads, one early
+  semantic reviewer, and one final integrated reviewer.
+- Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR
+  candidate, and one final Windows Release/package gate.
+- Baseline cleanup before PR candidacy: reconcile stale merged lifecycle assertions, fix the two
+  Ruff union-order findings, and reproduce the Windows browser temp-directory failure before any
+  product-code response to it.
+
+## Historical Phase 04 closeout record (superseded)
 
 - **Product rule:** quick, crude Ren'Py script-to-story conversion for personal checking, not a
   production-grade system.

@@ -2,20 +2,20 @@
 
 ## Ren'Py Story Mapper — Windows master plan
 
-Last revised: 2026-07-26
+Last revised: 2026-07-27
 
 **Primary scope rule: load Ren'Py files and quickly show a rough whole-story overview with important
 choices, routes, state changes, rejoins, endings, and source-linked detail. If work does not
 directly improve that result or remove a demonstrated current-game blocker, do not build it. Pause
 and ask the user.**
 
-Status: M01 through M13 are complete and merged. M15.1 Phases 01-03 are complete. Phase 04 has
-useful implementation through local checkpoint `2995d99`, including full-game planning/chunking,
-durable execution foundations, semantic/reader/browser components, and repository-wide sharded
-CI. The user stopped the work at that safe checkpoint and replaced the production-grade Phase 04
-contract with a lean real-game outcome. The active lifecycle is `Revise` pending one fresh
-lightweight semantic review; no implementation or private/provider work resumes before that
-`PASS`. Draft PR #30 remains open and unmerged. Phase 05 remains unstarted, and M14 remains
+Status: M01 through M13 and M15.1 Phases 01-04 are complete and merged. PR #30 merged as
+`268d30ed15d50136be5a88d464f79adaf7f32f9e`, preserving 425 accepted local summaries and exact
+mechanics/evidence, but its 425-section lookup reader did not achieve the required story-level
+information architecture. Phase 05 is the active bounded correction under
+`docs/milestones/M15_PHASE_05/GOAL.md`: local-AI editorial grouping plus a clean scrolling timeline,
+with Python authoritative for choices, routes, effects, rejoins, endings, and evidence. Its
+lifecycle is `Semantic review`; broad implementation waits for one lightweight `PASS`. M14 remains
 deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
@@ -1228,14 +1228,12 @@ now and is not part of M10-M13 implementation work.
 
 ### M15 - M15.1 semantic Story Map correction
 
-Status: Phase 01, Phase 02, and Phase 03 are complete and merged. The rejected Stage H/Stage E
-architecture and PR #26 are historical only. Phase 04 reached its user-accepted partial functional
-checkpoint on `codex/m15-phase04-full-game`; PR #30 remains open and unmerged. The user then
-rejected the production-grade scope and reset Phase 04 to the smallest real outcome: run the current
-MsDenvers project through the website and receive a useful rough whole-story map. The revised
-contract passed its lightweight semantic review and completed the bounded implementation path.
-The current 425-section reader does not match the earlier mock's semantic hierarchy; that redesign
-is deferred to a separately scoped follow-up. Phase 05 remains unstarted.
+Status: Phase 01 through Phase 04 are complete and merged. The rejected Stage H/Stage E
+architecture and PR #26 are historical only. Phase 04 merged through PR #30 and supplied a working
+local-only full-game generation/reader checkpoint with 425 accepted summaries and deterministic
+mechanics. The user rejected its 425-section lookup interface as the final product shape. Phase 05
+is now in semantic review to add the missing local-AI editorial grouping and clean scrolling story
+timeline without rebuilding Phase 04's workflow infrastructure.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
