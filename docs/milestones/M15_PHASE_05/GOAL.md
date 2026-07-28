@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Whole-story extraction and readable timeline
 
-Status: In progress (one-slice Ren'Py extraction gate)
+Status: In progress (full-game regeneration gate after one-slice `PASS`)
 
 Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
 
@@ -83,10 +83,10 @@ succeeds.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | Discovery: the trusted distribution bundles matching Ren'Py 8.5.3; its CLI requires a project root with `game/`, not a lone `.rpy` argument. Disposable-copy execution and before/after fingerprints are pending |
-| 2 | One label-sized Ren'Py/Python comparison with private prose omitted from reports | Pending |
-| 3 | Local-only audit transcript/receipt for the real and deliberately incomplete comparisons | Pending |
-| 4 | Full-game extraction counts, coverage grades, and regenerated artifact identity | Pending; blocked on criteria 1-3 |
+| 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | PASS: bundled Ren'Py 8.5.3 requires a project root; Day 1 smoke and matching full archives ran under `tmp/m15-phase05-renpy-probe-20260728-124621`; original executable/archive/source size, mtime, and SHA-256 matched before/after. Sanitized evidence: `output/m15-phase05-renpy-probe-20260728-124621` |
+| 2 | One label-sized Ren'Py/Python comparison with private prose omitted from reports | PASS at `9d496e5`: `_8_3_5_wf_clean_fg_3` changed from 0 body statements to 305 source statements; Ren'Py independently reports the same 305 after excluding 92 implicit `With` nodes. Menu/if/jump/Python counts match and diagnostics are zero |
+| 3 | Local-only audit transcript/receipt for the real and deliberately incomplete comparisons | PASS: 131,072-context loopback audit returned `PASS` for the 90,251-token real comparison and `PARTIAL` after one menu choice was removed; strict four-grade fake tests pass and cloud calls are zero. Evidence: `output/m15-phase05-renpy-probe-20260728-124621/coverage-audit.json` |
+| 4 | Full-game extraction counts, coverage grades, and regenerated artifact identity | In progress; criteria 1-3 passed |
 | 5 | Current browser walkthrough/screenshots plus focused, integrated, review, CI, and Release results | Pending; blocked on criterion 4 |
 
 ## Superseded evidence

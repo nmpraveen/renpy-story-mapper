@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-28 (Phase 05 extraction-first implementation)
+Updated: 2026-07-28 (Phase 05 full-game regeneration after extraction proof)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,9 +14,8 @@ Updated: 2026-07-28 (Phase 05 extraction-first implementation)
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: In progress at the one-slice Ren'Py extraction gate. The corrected contract advanced
-  through `Ready` after a fresh semantic `PASS`; no summary regeneration or UI work may begin
-  before the real slice earns `PASS`.
+- Status: In progress at full-game re-extraction/regeneration. The one-slice Ren'Py/Python/local-AI
+  gate passed, so summary regeneration may now begin through the smallest existing workflow.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
@@ -39,16 +38,24 @@ Updated: 2026-07-28 (Phase 05 extraction-first implementation)
 - Ren'Py discovery: the trusted whole-game distribution bundles matching Ren'Py 8.5.3. The CLI
   accepts a project root containing `game/`, not a lone `.rpy` path. A disposable Day 1 project is
   the smoke input; matching `scripts.rpa` plus `extras.rpa` are the meaningful whole-game oracle.
+- Extraction proof: commit `9d496e5` recovers flat reconstructed label bodies and adds one strict
+  loopback `coverage_check` grade. For known omitted label `_8_3_5_wf_clean_fg_3`, Python and
+  Ren'Py independently report 305 source statements with matching menu/condition/jump/Python
+  counts and zero parser diagnostics. The old persisted result was empty.
+- AI proof: after reloading the same local model at 131,072 context, the full 90,251-input-token
+  real comparison returned `PASS`; removing one menu choice returned `PARTIAL` at 89,786 input
+  tokens. Both calls were loopback-only and used zero cloud calls. Sanitized evidence is in
+  `output/m15-phase05-renpy-probe-20260728-124621`.
 - Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
   with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
   `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no
   fast-mode selector, so fast mode remains unavailable/unverified.
 - Orchestration: one user-visible Orchestra, two concurrent implementation threads, one early
   semantic reviewer, and one final integrated reviewer.
-- Testing: the historical grouped-reader gate passed 104 Story Map tests plus 2 workflow-contract
-  tests, Ruff, strict mypy, Node syntax, and whitespace. New extraction proof, regeneration,
-  browser acceptance, final review, Release, sharded CI, and the Phase 05 PR remain pending. No
-  Phase 05 PR currently exists.
+- Testing: the new focused extraction/transport gate passes 37 tests, Ruff, strict mypy, and diff
+  checks. The historical grouped-reader gate passed 104 Story Map tests plus 2 workflow-contract
+  tests. Full regeneration, browser acceptance, final review, Release, sharded CI, and the Phase 05
+  PR remain pending. No Phase 05 PR currently exists.
 
 ## Historical Phase 04 closeout record (superseded)
 
