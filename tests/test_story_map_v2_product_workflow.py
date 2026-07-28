@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -24,12 +24,19 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     SECTION_SYNTHESIS_ADAPTER_VERSION,
     SECTION_SYNTHESIS_PROMPT_VERSION,
     SECTION_SYNTHESIS_SCHEMA_VERSION,
+    DerivedSemanticAssembly,
+    MeaningfulSection,
     assemble_derived_semantics,
     build_derived_semantic_plan,
+    build_editorial_timeline_request,
 )
-from renpy_story_mapper.story_map_v2.phase04_semantics import assemble_semantic_corridors
+from renpy_story_mapper.story_map_v2.phase04_semantics import (
+    SemanticOrigin,
+    assemble_semantic_corridors,
+)
 from renpy_story_mapper.story_map_v2.product_vertical import (
     _durable_reader_effects,
+    _editorial_timeline,
     _terminal_indeterminate_fallback,
     execute_product_vertical,
     project_workflow_reader_status,
@@ -915,6 +922,153 @@ def test_local_only_vertical_reuses_mapped_summaries_for_one_editorial_call(
         loopback_factory=FakeProvider,
     )
     assert provider_submissions == 1
+
+
+def test_local_editorial_timeline_batches_real_scale_into_bounded_calls() -> None:
+    authority = hashlib.sha256(b"public-batched-editorial-authority").hexdigest()
+    sections = tuple(
+        MeaningfulSection(
+            section_id=f"section:public-real-{index:03d}",
+            corridor_id=f"corridor:public-real-{index:03d}",
+            route_owner=None,
+            event_ids=(f"event:public-real-{index:03d}",),
+            title=f"Public chronological beat {index + 1}",
+            summary=(
+                f"Public story beat {index + 1} advances the characters and route context. "
+                + "Chronological relationships and known outcomes remain visible. " * 3
+            ).strip(),
+            origin=SemanticOrigin.AI,
+        )
+        for index in range(425)
+    )
+    requests: list[bytes] = []
+
+    class FakeProvider:
+        def submit(self, request: bytes) -> ProviderCallResult:
+            requests.append(request)
+            packet = json.loads(request)
+            if packet["call_kind"] == "section_synthesis":
+                child_ids = [child["id"] for child in packet["children"]]
+                midpoint = len(child_ids) // 2
+                prose = {
+                    "title": "Slice",
+                    "summary": "This chronological slice remains complete.",
+                    "sections": [
+                        {
+                            "first_event_id": child_ids[0],
+                            "last_event_id": child_ids[midpoint - 1],
+                            "title": "First movement",
+                            "summary": "The first half of this slice advances the story.",
+                        },
+                        {
+                            "first_event_id": child_ids[midpoint],
+                            "last_event_id": child_ids[-1],
+                            "title": "Second movement",
+                            "summary": "The second half of this slice advances the story.",
+                        },
+                    ],
+                }
+            else:
+                assert len(packet["children"]) == 22
+                prose = {
+                    "title": "Whole public story",
+                    "summary": (
+                        "The complete story progresses across all known routes and outcomes."
+                    ),
+                }
+            return ProviderCallResult(
+                payload=canonical_json(prose),
+                accounting=AttemptAccounting(1, len(request), 40, 10),
+                resolved_provider="lm-studio-loopback",
+                resolved_model=LOCAL_MAPPER_MODEL,
+                resolved_reasoning=None,
+                resolved_fast_mode=None,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    derived = cast(DerivedSemanticAssembly, SimpleNamespace(sections=sections))
+    timeline = _editorial_timeline(derived, authority, FakeProvider)
+
+    assert timeline is not None
+    assert len(requests) == 12
+    packets = [json.loads(request) for request in requests]
+    section_packets = [
+        (request, packet)
+        for request, packet in zip(requests, packets, strict=True)
+        if packet["call_kind"] == "section_synthesis"
+    ]
+    assert len(section_packets) == 11
+    assert {len(packet["children"]) for _, packet in section_packets} == {38, 39}
+    assert all(packet["required_group_count"] == 2 for _, packet in section_packets)
+    assert max(len(request) for request, _ in section_packets) < 20_000
+    assert len(build_editorial_timeline_request(sections, authority)) > 100_000
+    assert packets[-1]["call_kind"] == "rollup_synthesis"
+    assert len(timeline.groups) == 22
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+
+
+def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
+    authority = hashlib.sha256(b"invalid-batched-editorial-authority").hexdigest()
+    sections = tuple(
+        MeaningfulSection(
+            section_id=f"section:invalid-{index:03d}",
+            corridor_id=f"corridor:invalid-{index:03d}",
+            route_owner=None,
+            event_ids=(f"event:invalid-{index:03d}",),
+            title=f"Public beat {index + 1}",
+            summary="A public synthetic chronological story beat.",
+            origin=SemanticOrigin.AI,
+        )
+        for index in range(425)
+    )
+    submissions = 0
+
+    class InvalidProvider:
+        def submit(self, request: bytes) -> ProviderCallResult:
+            nonlocal submissions
+            submissions += 1
+            packet = json.loads(request)
+            child_ids = [child["id"] for child in packet["children"]]
+            midpoint = len(child_ids) // 2
+            first = child_ids[1] if submissions == 2 else child_ids[0]
+            prose = {
+                "title": "Slice",
+                "summary": "This slice response is schema-valid prose.",
+                "sections": [
+                    {
+                        "first_event_id": first,
+                        "last_event_id": child_ids[midpoint - 1],
+                        "title": "First movement",
+                        "summary": "First half.",
+                    },
+                    {
+                        "first_event_id": child_ids[midpoint],
+                        "last_event_id": child_ids[-1],
+                        "title": "Second movement",
+                        "summary": "Second half.",
+                    },
+                ],
+            }
+            return ProviderCallResult(
+                payload=canonical_json(prose),
+                accounting=AttemptAccounting(1, len(request), 20, 10),
+                resolved_provider="lm-studio-loopback",
+                resolved_model=LOCAL_MAPPER_MODEL,
+                resolved_reasoning=None,
+                resolved_fast_mode=None,
+            )
+
+        def cancel(self) -> None:
+            return None
+
+    derived = cast(DerivedSemanticAssembly, SimpleNamespace(sections=sections))
+
+    assert _editorial_timeline(derived, authority, InvalidProvider) is None
+    assert submissions == 2
 
 
 def test_project_api_advertises_only_frozen_workflow_routes_and_safe_errors(

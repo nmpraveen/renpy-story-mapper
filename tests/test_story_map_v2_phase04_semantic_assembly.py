@@ -50,6 +50,9 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     assemble_derived_semantics,
     build_derived_semantic_plan,
     build_editorial_timeline_request,
+    build_editorial_timeline_rollup_request,
+    combine_editorial_timeline_batches,
+    partition_editorial_timeline_sections,
     validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
@@ -196,6 +199,76 @@ def test_editorial_timeline_accepts_real_scale_group_bounds(group_count: int) ->
 
     assert len(timeline.groups) == group_count
     assert sum(len(group.source_section_ids) for group in timeline.groups) == 425
+
+
+def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> None:
+    sections = _editorial_sections(425)
+    authority = _digest("batched-real-scale-authority")
+
+    batches = partition_editorial_timeline_sections(sections)
+    timelines = tuple(
+        validate_editorial_timeline_response(
+            batch,
+            authority,
+            _editorial_payload(
+                batch,
+                ((0, len(batch) // 2 - 1), (len(batch) // 2, len(batch) - 1)),
+            ),
+            required_group_count=2,
+        )
+        for batch in batches
+    )
+    groups = tuple(group for timeline in timelines for group in timeline.groups)
+    rollup_request = json.loads(
+        build_editorial_timeline_rollup_request(groups, authority)
+    )
+    timeline = combine_editorial_timeline_batches(
+        sections,
+        authority,
+        timelines,
+        canonical_json(
+            {
+                "title": "Whole public story",
+                "summary": "A coherent overview of every chronological public story group.",
+            }
+        ),
+    )
+
+    assert len(batches) == 11
+    assert {len(batch) for batch in batches} == {38, 39}
+    assert len(timeline.groups) == 22
+    assert rollup_request["call_kind"] == "rollup_synthesis"
+    assert rollup_request["ordered_child_ids"] == [group.group_id for group in groups]
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+
+
+def test_editorial_timeline_batches_reject_global_reordering() -> None:
+    sections = _editorial_sections(425)
+    authority = _digest("reordered-batch-authority")
+    batches = partition_editorial_timeline_sections(sections)
+    timelines = [
+        validate_editorial_timeline_response(
+            batch,
+            authority,
+            _editorial_payload(
+                batch,
+                ((0, len(batch) // 2 - 1), (len(batch) // 2, len(batch) - 1)),
+            ),
+            required_group_count=2,
+        )
+        for batch in batches
+    ]
+    timelines[0], timelines[1] = timelines[1], timelines[0]
+
+    with pytest.raises(DerivedSemanticError, match="coverage or chronology"):
+        combine_editorial_timeline_batches(
+            sections,
+            authority,
+            timelines,
+            canonical_json({"title": "Story", "summary": "Overview"}),
+        )
 
 
 def _placement(

@@ -55,8 +55,17 @@ EDITORIAL_TIMELINE_TASK = (
     "titles and summaries; do not add or change choices, routes, effects, rejoins, endings, or "
     "evidence."
 )
+EDITORIAL_TIMELINE_BATCH_TASK = (
+    "Return exactly one JSON object matching the supplied section prose schema. Group this "
+    "chronological slice into exactly two contiguous story groups. Cover every source section "
+    "exactly once and preserve order. Write only titles and summaries; do not add or change "
+    "choices, routes, effects, rejoins, endings, or evidence."
+)
 EDITORIAL_TIMELINE_CORRIDOR_ID = "editorial-timeline"
 EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP = 40
+EDITORIAL_GROUPS_PER_BATCH = 2
+EDITORIAL_MIN_BATCH_COUNT = 6
+EDITORIAL_MAX_BATCH_COUNT = 15
 DERIVED_SEMANTIC_FAN_IN = 24
 DERIVED_PROVIDER = "codex-cli"
 DERIVED_MODEL = "gpt-5.6-terra"
@@ -388,9 +397,12 @@ class EditorialTimeline:
 
 
 def build_editorial_timeline_request(
-    sections: Sequence[MeaningfulSection], authority_identity: str
+    sections: Sequence[MeaningfulSection],
+    authority_identity: str,
+    *,
+    required_group_count: int | None = None,
 ) -> bytes:
-    """Build one loopback-only editorial packet over existing accepted section prose."""
+    """Build one loopback-only editorial packet over accepted section prose."""
 
     _trimmed(authority_identity, "editorial authority identity")
     if not sections:
@@ -398,30 +410,71 @@ def build_editorial_timeline_request(
     section_ids = tuple(section.section_id for section in sections)
     if len(section_ids) != len(set(section_ids)):
         raise DerivedSemanticError("editorial source section IDs must be unique")
-    return canonical_json(
-        {
-            "task": EDITORIAL_TIMELINE_TASK,
-            "call_kind": DerivedCallKind.SECTION_SYNTHESIS.value,
-            "schema_version": SECTION_SYNTHESIS_SCHEMA_VERSION,
-            "authority_identity": authority_identity,
-            "ordered_child_ids": list(section_ids),
-            "children": [
-                {
-                    "id": section.section_id,
-                    "title": section.title,
-                    "summary": section.summary,
-                    "route_owner": section.route_owner,
-                }
-                for section in sections
-            ],
-        }
+    if required_group_count is not None and (
+        type(required_group_count) is not int
+        or not 1 <= required_group_count <= min(30, len(sections))
+    ):
+        raise DerivedSemanticError("editorial required group count is invalid")
+    packet: dict[str, object] = {
+        "task": (
+            EDITORIAL_TIMELINE_TASK
+            if required_group_count is None
+            else EDITORIAL_TIMELINE_BATCH_TASK
+        ),
+        "call_kind": DerivedCallKind.SECTION_SYNTHESIS.value,
+        "schema_version": SECTION_SYNTHESIS_SCHEMA_VERSION,
+        "authority_identity": authority_identity,
+        "ordered_child_ids": list(section_ids),
+        "children": [
+            {
+                "id": section.section_id,
+                "title": section.title,
+                "summary": section.summary,
+                "route_owner": section.route_owner,
+            }
+            for section in sections
+        ],
+    }
+    if required_group_count is not None:
+        packet["required_group_count"] = required_group_count
+    return canonical_json(packet)
+
+
+def partition_editorial_timeline_sections(
+    sections: Sequence[MeaningfulSection],
+) -> tuple[tuple[MeaningfulSection, ...], ...]:
+    """Keep small inputs whole; balance larger inputs into current-reader-sized windows."""
+
+    if not sections:
+        raise DerivedSemanticError("editorial timeline requires source sections")
+    frozen = tuple(sections)
+    if len(frozen) <= EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
+        return (frozen,)
+    batch_count = max(
+        EDITORIAL_MIN_BATCH_COUNT,
+        math.ceil(len(frozen) / EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP),
     )
+    if batch_count > EDITORIAL_MAX_BATCH_COUNT:
+        raise DerivedSemanticError("editorial timeline exceeds the bounded batch count")
+    batches = tuple(
+        frozen[index * len(frozen) // batch_count : (index + 1) * len(frozen) // batch_count]
+        for index in range(batch_count)
+    )
+    if any(
+        len(batch) < EDITORIAL_GROUPS_PER_BATCH
+        or len(batch) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP
+        for batch in batches
+    ):
+        raise DerivedSemanticError("editorial timeline cannot fit the bounded batch shape")
+    return batches
 
 
 def validate_editorial_timeline_response(
     sections: Sequence[MeaningfulSection],
     authority_identity: str,
     payload: bytes,
+    *,
+    required_group_count: int | None = None,
 ) -> EditorialTimeline:
     """Accept prose only after exact, once-only, chronological source coverage."""
 
@@ -439,8 +492,10 @@ def validate_editorial_timeline_response(
     proposals = _array(value["sections"], "editorial groups")
     minimum = min(12, len(sections))
     maximum = min(30, len(sections))
-    if not minimum <= len(proposals) <= maximum:
+    if required_group_count is None and not minimum <= len(proposals) <= maximum:
         raise DerivedSemanticError("editorial timeline must contain the bounded group count")
+    if required_group_count is not None and len(proposals) != required_group_count:
+        raise DerivedSemanticError("editorial timeline must contain the required group count")
     indexes = {section_id: index for index, section_id in enumerate(source_ids)}
     cursor = 0
     groups: list[EditorialStoryGroup] = []
@@ -485,6 +540,78 @@ def validate_editorial_timeline_response(
         raise DerivedSemanticError("editorial grouping changed source coverage or chronology")
     title = _string(value["title"], "editorial timeline title", maximum=80)
     overview = _string(value["summary"], "editorial timeline overview", maximum=800)
+    return _make_editorial_timeline(authority_identity, title, overview, tuple(groups))
+
+
+def build_editorial_timeline_rollup_request(
+    groups: Sequence[EditorialStoryGroup], authority_identity: str
+) -> bytes:
+    """Build one existing-schema rollup packet over validated editorial groups."""
+
+    _trimmed(authority_identity, "editorial authority identity")
+    if not groups:
+        raise DerivedSemanticError("editorial rollup requires story groups")
+    group_ids = tuple(group.group_id for group in groups)
+    if len(group_ids) != len(set(group_ids)):
+        raise DerivedSemanticError("editorial story group IDs must be unique")
+    return canonical_json(
+        {
+            "task": ROLLUP_SYNTHESIS_TASK,
+            "call_kind": DerivedCallKind.ROLLUP_SYNTHESIS.value,
+            "schema_version": ROLLUP_SYNTHESIS_SCHEMA_VERSION,
+            "authority_identity": authority_identity,
+            "ordered_child_ids": list(group_ids),
+            "children": [
+                {
+                    "id": group.group_id,
+                    "title": group.title,
+                    "summary": group.summary,
+                }
+                for group in groups
+            ],
+        }
+    )
+
+
+def combine_editorial_timeline_batches(
+    sections: Sequence[MeaningfulSection],
+    authority_identity: str,
+    batches: Sequence[EditorialTimeline],
+    rollup_payload: bytes,
+) -> EditorialTimeline:
+    """Combine validated slices only when global coverage and chronology remain exact."""
+
+    _trimmed(authority_identity, "editorial authority identity")
+    if not sections or not batches:
+        raise DerivedSemanticError("editorial timeline batches require source sections")
+    source_ids = tuple(section.section_id for section in sections)
+    source_events = tuple(event_id for section in sections for event_id in section.event_ids)
+    if len(source_ids) != len(set(source_ids)):
+        raise DerivedSemanticError("editorial source section IDs must be unique")
+    if len(source_events) != len(set(source_events)):
+        raise DerivedSemanticError("editorial source event coverage must be unique")
+    groups = tuple(group for batch in batches for group in batch.groups)
+    if not 12 <= len(groups) <= 30:
+        raise DerivedSemanticError("editorial timeline must contain the bounded group count")
+    if len({group.group_id for group in groups}) != len(groups):
+        raise DerivedSemanticError("editorial story group IDs must be unique")
+    grouped_sources = tuple(item for group in groups for item in group.source_section_ids)
+    grouped_events = tuple(item for group in groups for item in group.event_ids)
+    if grouped_sources != source_ids or grouped_events != source_events:
+        raise DerivedSemanticError("editorial grouping changed source coverage or chronology")
+    value = _decode(rollup_payload, "editorial rollup response")
+    _exact(value, frozenset({"title", "summary"}), "editorial rollup response")
+    title = _string(value["title"], "editorial timeline title", maximum=80)
+    overview = _string(value["summary"], "editorial timeline overview", maximum=800)
+    return _make_editorial_timeline(authority_identity, title, overview, groups)
+
+
+def _make_editorial_timeline(
+    authority_identity: str,
+    title: str,
+    overview: str,
+    groups: tuple[EditorialStoryGroup, ...],
+) -> EditorialTimeline:
     identity = canonical_hash(
         {
             "authority": authority_identity,
@@ -501,7 +628,7 @@ def validate_editorial_timeline_response(
             ],
         }
     )
-    return EditorialTimeline(identity, title, overview, tuple(groups))
+    return EditorialTimeline(identity, title, overview, groups)
 
 
 @dataclass(frozen=True)

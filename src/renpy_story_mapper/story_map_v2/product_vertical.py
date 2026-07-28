@@ -38,6 +38,9 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     assemble_derived_semantics,
     build_derived_semantic_plan,
     build_editorial_timeline_request,
+    build_editorial_timeline_rollup_request,
+    combine_editorial_timeline_batches,
+    partition_editorial_timeline_sections,
     validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
@@ -387,11 +390,41 @@ def _editorial_timeline(
     loopback_factory: ProviderFactory | None,
 ) -> EditorialTimeline | None:
     try:
-        request = build_editorial_timeline_request(derived.sections, authority_identity)
         provider = (loopback_factory or LoopbackLmStudioTransport)()
-        result = provider.submit(request)
-        return validate_editorial_timeline_response(
-            derived.sections, authority_identity, result.payload
+        batches = partition_editorial_timeline_sections(derived.sections)
+        if len(batches) == 1:
+            result = provider.submit(
+                build_editorial_timeline_request(batches[0], authority_identity)
+            )
+            return validate_editorial_timeline_response(
+                batches[0], authority_identity, result.payload
+            )
+        timelines: list[EditorialTimeline] = []
+        for batch in batches:
+            result = provider.submit(
+                build_editorial_timeline_request(
+                    batch,
+                    authority_identity,
+                    required_group_count=2,
+                )
+            )
+            timelines.append(
+                validate_editorial_timeline_response(
+                    batch,
+                    authority_identity,
+                    result.payload,
+                    required_group_count=2,
+                )
+            )
+        groups = tuple(group for timeline in timelines for group in timeline.groups)
+        rollup = provider.submit(
+            build_editorial_timeline_rollup_request(groups, authority_identity)
+        )
+        return combine_editorial_timeline_batches(
+            derived.sections,
+            authority_identity,
+            timelines,
+            rollup.payload,
         )
     except (ValueError, WorkflowProviderError):
         return None
