@@ -1,10 +1,19 @@
-# M15.1 Phase 04 progress report
+# M15.1 Phase 04 closeout report
 
-Status: Verification — the local-AI full-game map is published for user inspection
+Status: PR preparation — partial functional checkpoint accepted for closeout
 
 Current product checkpoint: `f25e8c0` on `codex/m15-phase04-full-game`
 
-Pull request: #30, draft, open and unmerged
+Pull request: #30, open and unmerged; update/ready operation follows this evidence commit
+
+## Closeout decision
+
+On 2026-07-27 the user chose to send the current Phase 04 state as the PR and close this phase.
+The checkpoint delivers the local-only 425-summary workflow, durable progress/transcript visibility,
+and the existing reader/path/evidence seams. It does **not** match the earlier mock's concise
+day/chapter/major-event information architecture: the reader still exposes 425 chunk-level sections
+and some path steps remain technical. That redesign is explicitly deferred to a separately scoped
+follow-up rather than claimed as completed Phase 04 work.
 
 ## Outcome so far
 
@@ -207,15 +216,27 @@ No current product code is being discarded, but the remaining old acceptance wor
   prompts/responses and an index/run note are under
   `output/m15-phase04-local-summary-final-mapping-only-20260727-184342/` and are not committed.
 
-## Remaining lean work
+## Closeout verification
 
-1. Obtain explicit user approval that the open local story view is useful for quick checking.
-2. Run the final integrated review and intended-head Windows Release/package gate.
-3. Push once, inspect repository-wide sharded CI once, and leave PR #30 open and unmerged. Do not
-   mark Phase 04 complete or PR #30 ready before those gates.
+- Focused current-head workflow/browser gate: 136 passed in 29.06 seconds.
+- Tracked Phase 04 diff: Ruff passed; strict mypy passed over 11 changed source modules; JavaScript
+  syntax and whitespace passed.
+- Full Release run: 1,781 passed, one opt-in Chrome scale test skipped, and 16 hardware-sensitive
+  tests deselected. The only failure was three stale asset-manifest hashes after web changes; all
+  remaining quality and package stages passed.
+- Exact corrected head: the deterministic asset-manifest regression passed, followed by isolated
+  sdist/wheel build, install, import, browser-asset, and notice verification passing.
+- No additional broad rerun was started solely to repeat the already-passing 1,781-test body; the
+  pushed PR's sharded checks are the exact-head full verification authority.
+
+## Deferred follow-up
+
+Create a separately scoped milestone only when requested for semantic day/chapter/major-event
+grouping and a mock-like reader presentation. Do not reopen Phase 04 or treat this deferral as a
+hidden acceptance pass.
 
 ## Current checkpoint boundaries
 
 The final local projection rebuild made zero model calls and no cloud request. Raw private
-prompt/response evidence remains outside Git. No push, PR mutation, CI run, merge, or protected
-input mutation occurred at this checkpoint.
+prompt/response evidence remains outside Git. No private output, source archive, or prompt/response
+transcript is included in the closeout commit, and PR #30 remains unmerged.

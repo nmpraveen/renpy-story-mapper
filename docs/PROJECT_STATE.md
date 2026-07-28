@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-27 (Phase 04 local-AI map is published for user inspection)
+Updated: 2026-07-27 (Phase 04 partial functional checkpoint is being sent to PR #30)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,25 +14,27 @@ Updated: 2026-07-27 (Phase 04 local-AI map is published for user inspection)
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase04-full-game`.
 - Safe product checkpoint: `f25e8c0`.
-- Pull request: draft PR #30, open and unmerged.
-- Status: Verification. Active generation `cf5f7daa…f3a6` contains 425 accepted local-model
+- Pull request: PR #30, open and unmerged; current branch update and ready transition are the final operations.
+- Status: PR preparation. Active generation `cf5f7daa…f3a6` contains 425 accepted local-model
   summaries with 0 failed jobs and 0 structural placeholders while preserving the deterministic
   choices, routes, state, rejoins, endings, Path, and Detail/Evidence. No cloud AI was used. The
   website restores a 425-row query/result table after refresh, uses accepted event prose for its
-  overview and section labels, and bounds the long section index. Final review, Release/package,
-  push/CI, and explicit usefulness approval remain.
+  overview and section labels, and bounds the long section index. The user accepted this functional
+  checkpoint for Phase 04 closeout while explicitly deferring the mock-level semantic hierarchy/UI
+  redesign to a separately scoped follow-up.
 - Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
   `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
-- Native Codex goal: verified active on Orchestra task
-  `019fa176-8277-7920-8558-b816cf168a9f` with the lean done condition; no duplicate goal exists.
+- Native Codex goal: previously recorded on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`; the closeout query returned `goal: null`, and no duplicate
+  goal was created.
 - Completed workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` at `3723da9` and
   website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` at `cdfd37a` plus `b4572aa`, all from
   semantic-gate commit `21d80d2`. They integrated as `29f4378`, `b8bf018`, and `2776b99`.
 - Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
   mapping execution, semantic/reader/browser components, workflow composition work, durable section
   jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
-- Remaining lean path: obtain explicit usefulness approval of the open Chrome result, then run the
-  final integrated review, intended-head Release/package gate, and one push/CI inspection.
+- Remaining lean path: push the closeout checkpoint, mark PR #30 ready, inspect its checks once, and
+  leave it open and unmerged. The semantic grouping/UI redesign is a future milestone, not Phase 04.
 - Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
   reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
   with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by

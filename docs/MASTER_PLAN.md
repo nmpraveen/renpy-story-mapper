@@ -1229,11 +1229,13 @@ now and is not part of M10-M13 implementation work.
 ### M15 - M15.1 semantic Story Map correction
 
 Status: Phase 01, Phase 02, and Phase 03 are complete and merged. The rejected Stage H/Stage E
-architecture and PR #26 are historical only. Phase 04 implementation reached safe local checkpoint
-`2995d99` on `codex/m15-phase04-full-game`; draft PR #30 remains open and unmerged. The user then
+architecture and PR #26 are historical only. Phase 04 reached its user-accepted partial functional
+checkpoint on `codex/m15-phase04-full-game`; PR #30 remains open and unmerged. The user then
 rejected the production-grade scope and reset Phase 04 to the smallest real outcome: run the current
 MsDenvers project through the website and receive a useful rough whole-story map. The revised
-contract is at `Revise` pending one lightweight semantic review. Phase 05 remains unstarted.
+contract passed its lightweight semantic review and completed the bounded implementation path.
+The current 425-section reader does not match the earlier mock's semantic hierarchy; that redesign
+is deferred to a separately scoped follow-up. Phase 05 remains unstarted.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1331,8 +1333,9 @@ Rejected historical Stage H/E boundaries:
   Release/package gate and exact passing pushed-head checks. Leave the PR open and unmerged.
 
 M15.1 itself is not complete yet. Phase 03 delivered the accepted compact path-aware browser.
-Phase 04 now owns only the shortest supported full-game generate/read workflow and one useful real
-MsDenvers result under `docs/milestones/M15_PHASE_04/GOAL.md`. Phase 05 may later retire or isolate
+Phase 04 closes as the supported full-game generate/read functional checkpoint under
+`docs/milestones/M15_PHASE_04/GOAL.md`; mock-level semantic regrouping and reader redesign remain
+explicitly deferred. Phase 05 may later retire or isolate
 legacy workflows after the user accepts the core result. Historical Stage H/E criteria, PR #26,
 and superseded production-grade Phase 04 criteria are not prerequisites.
 

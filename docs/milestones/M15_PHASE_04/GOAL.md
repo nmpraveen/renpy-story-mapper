@@ -2,7 +2,7 @@
 
 ## M15.1 Phase 04 — finish the full-game story map
 
-Status: Verification — the local-AI full-game map is published for user inspection
+Status: PR preparation — user accepted the current functional checkpoint for Phase 04 closeout
 
 Scope authority: the user's 2026-07-26 simplicity reset, `docs/MASTER_PLAN.md`, and
 `docs/MILESTONE_PLANNING_RULES.md`.
@@ -34,6 +34,12 @@ checking. Perfect prose, perfect AI reproducibility, publication-level accuracy,
 case handling, and production-grade service guarantees are not required. The final Phase 04 PR
 must be ready, open, and unmerged.
 
+On 2026-07-27 the user explicitly chose to send the current Phase 04 checkpoint as a PR and close
+this phase. This is a partial product checkpoint, not acceptance that the reader matches the earlier
+mock: the current view remains 425 chunk-level sections rather than a day/chapter/major-event
+hierarchy. That semantic grouping and presentation redesign is deferred to a separately scoped
+follow-up using the user's newly selected model; it is not hidden or retroactively claimed complete.
+
 ## Current safe checkpoint
 
 - Integration branch: `codex/m15-phase04-full-game`.
@@ -45,8 +51,9 @@ must be ready, open, and unmerged.
   repository-wide sharded CI, and durable section-job scheduling.
 - The exact current product checkpoint passes 147 focused workflow, local transport, planning,
   semantic, browser, and lifecycle tests plus Ruff, strict mypy, JavaScript syntax, and whitespace.
-- The lean-contract native goal is verified active on Orchestra task
-  `019fa176-8277-7920-8558-b816cf168a9f`.
+- The lean-contract native goal was previously recorded on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`. At closeout the goal service returned `goal: null`;
+  no duplicate goal was created.
 - Fresh lightweight semantic review passed at exact contract head `2bcdd02`. The two bounded
   vertical-path workers are integrated through `2776b99`; the focused integrated gate passed 123
   tests plus Ruff, strict mypy over the six changed source files, JavaScript syntax, and whitespace.
@@ -175,6 +182,8 @@ loop, new architecture layer, or broad hardening effort requires the user's appr
    Git.
 8. The user accepts the real output as useful for quick checking; one final integrated review,
    focused checks, sharded CI, and one Release/package gate pass; PR #30 is ready and unmerged.
+   For this closeout, the user superseded the subjective usefulness requirement by explicitly
+   accepting the current functional checkpoint while deferring the mock-level hierarchy redesign.
 
 ## Evidence required
 
