@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Whole-story extraction and readable timeline
 
-Status: In progress (full-game regeneration gate after one-slice `PASS`)
+Status: In progress (Codex CLI regeneration after extraction/coverage `PASS`)
 
 Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
 
@@ -18,8 +18,9 @@ Opening the MsDenvers project shows a clean chronological vertical timeline that
 whole parsed game rather than only the old 425-section projection. Important choices, branch
 outcomes, routes, state changes, rejoins, and endings are easy to follow while scrolling. A
 matching Ren'Py SDK checks the trusted game from a disposable copy, Python builds the deterministic
-story structure, and local-only AI both audits extraction coverage and organizes the readable
-story prose.
+story structure, local-only AI audits extraction coverage, and the user-approved Codex CLI run
+organizes the readable story prose. Any summary prompt Codex rejects as sensitive remains isolated
+for a later local-only pass instead of blocking the rest of the timeline.
 
 ## Objective
 
@@ -41,9 +42,10 @@ succeeds.
 - Send the source/Ren'Py/Python comparison only to the configured loopback local model. Its audit
   result is exactly one of `PASS`, `PARTIAL`, `LOW`, or `FAIL`. Deterministic missing-content facts
   cap the grade; AI may lower but never raise that evidence-based ceiling.
-- Only after the slice earns `PASS`, rerun the affected extraction, local summaries, editorial
-  grouping, and the existing scrolling reader. The old 425 summaries and 24 groups are reusable
-  implementation inputs, not authoritative whole-game coverage.
+- Only after the slice earns `PASS`, rerun the affected extraction, Codex CLI summaries, editorial
+  grouping, and the existing scrolling reader. Do not automatically resend a rejected prompt to
+  another provider; record it for a later local-only pass. The old 425 summaries and 24 groups are
+  reusable implementation inputs, not authoritative whole-game coverage.
 
 ## Useful later
 
@@ -55,7 +57,8 @@ succeeds.
 
 - A new database, migration, scheduler, workflow, API version, schema family, or recovery system.
 - A general Ren'Py compatibility framework, SDK installer, or version-adapter matrix.
-- Cloud story-content AI or automatic local-model installation/loading.
+- Cloud story-content AI other than the explicitly approved Codex CLI summary/grouping run, or
+  automatic local-model installation/loading/fallback.
 - A freeform graph canvas, formal proof system, exhaustive semantic replay, or
   publication-grade prose guarantees.
 - AI-invented mechanics or game-specific hard-coded day assumptions.
@@ -73,11 +76,13 @@ succeeds.
    return `PASS`.
 4. After criteria 1-3 pass, the full current game is re-extracted and regenerated without treating
    425/425 as a frozen target; deterministic coverage diagnostics and the AI audit identify any
-   remaining incomplete areas before publication.
+   remaining incomplete areas, while the approved Codex CLI run records accepted and rejected
+   summary jobs separately before publication.
 5. The regenerated project opens as a readable whole-story vertical timeline with visible
    choices/routes/rejoins and direct Detail/Evidence access; focused checks, one integrated Story
    Map gate, final review, sharded PR CI, and one final Windows Release/package gate pass while
-   original inputs remain unchanged and story content remains local.
+   original inputs remain unchanged and only the explicitly approved Codex CLI summary/grouping
+   run transmits story content.
 
 ## Required evidence
 
@@ -86,7 +91,7 @@ succeeds.
 | 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | PASS: bundled Ren'Py 8.5.3 requires a project root; Day 1 smoke and matching full archives ran under `tmp/m15-phase05-renpy-probe-20260728-124621`; original executable/archive/source size, mtime, and SHA-256 matched before/after. Sanitized evidence: `output/m15-phase05-renpy-probe-20260728-124621` |
 | 2 | One label-sized Ren'Py/Python comparison with private prose omitted from reports | PASS at `9d496e5`: `_8_3_5_wf_clean_fg_3` changed from 0 body statements to 305 source statements; Ren'Py independently reports the same 305 after excluding 92 implicit `With` nodes. Menu/if/jump/Python counts match and diagnostics are zero |
 | 3 | Local-only audit transcript/receipt for the real and deliberately incomplete comparisons | PASS: 131,072-context loopback audit returned `PASS` for the 90,251-token real comparison and `PARTIAL` after one menu choice was removed; strict four-grade fake tests pass and cloud calls are zero. Evidence: `output/m15-phase05-renpy-probe-20260728-124621/coverage-audit.json` |
-| 4 | Full-game extraction counts, coverage grades, and regenerated artifact identity | In progress; criteria 1-3 passed |
+| 4 | Full-game extraction counts, coverage grades, Codex provider/call/refusal accounting, and regenerated artifact identity | In progress; criteria 1-3 passed; user explicitly approved Codex CLI summaries and deferred rejected prompts to local-only handling |
 | 5 | Current browser walkthrough/screenshots plus focused, integrated, review, CI, and Release results | Pending; blocked on criterion 4 |
 
 ## Superseded evidence
@@ -100,7 +105,8 @@ succeeds.
 ## Exclusions
 
 - No promise that the game contains authoritative Day 1/Day 2 names.
-- No cloud provider call or transmission of private story content.
+- No cloud story-content transmission except the user-approved Codex CLI summary/grouping run; no
+  automatic resubmission of rejected prompts and no other cloud provider.
 - No broad cleanup merely because existing Phase 04/05 code is complex.
 - No writes to the supplied original game folder/archive and no merge without separate explicit
   user approval.
@@ -120,8 +126,8 @@ succeeds.
   `PASS` or reveals a materially different architecture choice.
 - Prefer Ren'Py's built-in `lint`, `dialogue`, and label inventory first. Add one temporary
   no-display AST exporter only if the built-ins cannot prove the slice.
-- Reuse the existing Python graph, loopback transport, reader/API shapes, and grouped UI; pause
-  before any new contract family.
+- Reuse the existing Python graph, Codex CLI workflow adapter, reader/API shapes, and grouped UI;
+  pause before any new contract family.
 - Run affected checks while editing, one focused integration gate, sharded CI once at the PR
   candidate, and one final Release/package gate.
 - Keep the native Codex goal active through implementation, integration, verification, user

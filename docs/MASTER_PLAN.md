@@ -16,6 +16,10 @@ is the active extraction-first correction under `docs/milestones/M15_PHASE_05/GO
 omitted real-game slice with a matching Ren'Py SDK, correct Python extraction, then regenerate and
 reuse the scrolling timeline. M14 remains deferred.
 
+On 2026-07-28 the user explicitly directed the post-audit summary/grouping run to use Codex CLI
+instead of the local model. The extraction coverage audit remains local-only. Codex-rejected
+sensitive summary jobs are retained for a later local-only pass rather than automatically resent.
+
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
 synthesis, no default auditor, and conservative ~2.5k normal/~10.7k maximum Luna context. Rereview

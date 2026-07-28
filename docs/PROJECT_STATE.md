@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-28 (Phase 05 full-game regeneration after extraction proof)
+Updated: 2026-07-28 (Phase 05 Codex CLI regeneration after extraction proof)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,8 +14,9 @@ Updated: 2026-07-28 (Phase 05 full-game regeneration after extraction proof)
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: In progress at full-game re-extraction/regeneration. The one-slice Ren'Py/Python/local-AI
-  gate passed, so summary regeneration may now begin through the smallest existing workflow.
+- Status: In progress at full-game Codex CLI regeneration. The one-slice Ren'Py/Python/local-AI
+  coverage gate passed. The user explicitly replaced local summary generation with Codex CLI and
+  directed that sensitive refusals be isolated for a later local-only pass.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
@@ -23,9 +24,9 @@ Updated: 2026-07-28 (Phase 05 full-game regeneration after extraction proof)
 - Phase 05 baseline: the accepted summaries feed 24 ordered local-AI major-event groups and a
   scrolling vertical timeline, but the groups only cover the incomplete 425-section projection.
   They are reusable UI/editorial work, not whole-game narrative evidence.
-- Semantic review: fresh `PASS` at exact head `17f8400b089f7bf7cb3004058d14a961720b998c`
-  from `/root/phase05_extraction_semantic_review`, with P0=P1=P2=0. The prior `803f94e` review is
-  superseded.
+- Semantic review: extraction-first `PASS` at exact head
+  `17f8400b089f7bf7cb3004058d14a961720b998c`; the narrow Codex CLI provider/privacy delta is in
+  `REVISE` pending one Sol/High review before transmission.
 - Integrated source head: `00a9762`; acceptance-evidence checkpoint: `d93c82a`.
 - Strict real-game evidence: generation `5daf4e7e...bab7857` has exact 425/425 chronological
   coverage, 24 groups whose published spans/titles/summaries match the accepted local-AI outputs,

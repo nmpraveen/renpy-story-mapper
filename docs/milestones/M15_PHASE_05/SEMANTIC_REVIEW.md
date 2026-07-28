@@ -2,7 +2,7 @@
 
 Review target: revised `MASTER_PLAN.md`, `GOAL.md`, `TASKS.md`, and `PROJECT_STATE.md`.
 
-Status: PASS
+Status: REVISE (Codex CLI summary-provider delta awaiting review)
 
 ## Required decision
 
@@ -34,4 +34,4 @@ Status: PASS
   copy, keeps Python/AI authority bounded, gates regeneration on one real omitted slice, reuses
   existing seams, and maps all five acceptance criteria to lean evidence.
 
-PASS
+REVISE
