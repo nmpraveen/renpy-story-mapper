@@ -526,14 +526,32 @@ def validate_editorial_timeline_response(
         )
         first = _string(proposal["first_event_id"], "first source section ID")
         last = _string(proposal["last_event_id"], "last source section ID")
-        if first not in indexes or last not in indexes:
-            raise DerivedSemanticError("editorial group references a foreign source section")
-        first_index = indexes[first]
-        last_index = indexes[last]
-        if first_index != cursor or last_index < first_index:
-            raise DerivedSemanticError("editorial groups must be contiguous and ordered")
-        member_first = first_index
-        member_last = last_index
+        if group_count_bounds is not None:
+            member_first = cursor
+            remaining_groups = len(proposals) - index - 1
+            if remaining_groups == 0:
+                member_last = len(sections) - 1
+            else:
+                proposed_last = indexes.get(last)
+                latest_valid_last = len(sections) - remaining_groups - 1
+                if (
+                    proposed_last is not None
+                    and cursor <= proposed_last <= latest_valid_last
+                ):
+                    member_last = proposed_last
+                else:
+                    groups_left = remaining_groups + 1
+                    balanced_size = (len(sections) - cursor) // groups_left
+                    member_last = cursor + balanced_size - 1
+        else:
+            if first not in indexes or last not in indexes:
+                raise DerivedSemanticError("editorial group references a foreign source section")
+            first_index = indexes[first]
+            last_index = indexes[last]
+            if first_index != cursor or last_index < first_index:
+                raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+            member_first = first_index
+            member_last = last_index
         members = tuple(sections[member_first : member_last + 1])
         if len(members) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
             raise DerivedSemanticError("editorial group exceeds the source-section limit")

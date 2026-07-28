@@ -271,20 +271,30 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     ) == tuple(section.section_id for section in sections)
 
 
-def test_editorial_timeline_batch_rejects_foreign_or_discontiguous_boundaries() -> None:
+def test_editorial_timeline_batch_binds_three_advisory_groups_with_balanced_fallback() -> None:
     sections = _editorial_sections(38)
-    payload = json.loads(_editorial_payload(sections, ((3, 15), (19, 15))))
-    payload["sections"][0]["first_event_id"] = "section:advisory-foreign-start"
-    payload["sections"][1]["first_event_id"] = "section:advisory-foreign-second"
-    payload["sections"][1]["last_event_id"] = "advisory-missing-prefix"
+    payload = json.loads(_editorial_payload(sections, ((3, 11), (15, 24), (30, 30))))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    proposals[0]["first_event_id"] = "section:advisory-foreign-start"
+    proposals[0]["last_event_id"] = sections[9].section_id
+    proposals[1]["first_event_id"] = "section:advisory-foreign-second"
+    proposals[1]["last_event_id"] = sections[-1].section_id
+    proposals[2]["first_event_id"] = "section:advisory-foreign-third"
+    proposals[2]["last_event_id"] = "section:advisory-foreign-final"
 
-    with pytest.raises(DerivedSemanticError, match="foreign source section"):
-        validate_editorial_timeline_response(
-            sections,
-            _digest("strict-batch-authority"),
-            canonical_json(payload),
-            group_count_bounds=(1, 3),
-        )
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("advisory-three-group-authority"),
+        canonical_json(payload),
+        group_count_bounds=(1, 3),
+    )
+
+    assert tuple(group.source_section_ids for group in timeline.groups) == (
+        tuple(section.section_id for section in sections[:10]),
+        tuple(section.section_id for section in sections[10:24]),
+        tuple(section.section_id for section in sections[24:]),
+    )
 
 
 def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() -> None:
